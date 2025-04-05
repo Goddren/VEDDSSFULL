@@ -6,7 +6,6 @@ import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
 import { storage } from "./storage";
 import { User as SelectUser } from "@shared/schema";
-import createMemoryStore from "memorystore";
 
 declare global {
   namespace Express {
@@ -15,7 +14,6 @@ declare global {
 }
 
 const scryptAsync = promisify(scrypt);
-const MemoryStore = createMemoryStore(session);
 
 async function hashPassword(password: string) {
   const salt = randomBytes(16).toString("hex");
@@ -39,9 +37,7 @@ export function setupAuth(app: Express) {
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
       secure: process.env.NODE_ENV === 'production'
     },
-    store: new MemoryStore({
-      checkPeriod: 86400000 // prune expired entries every 24h
-    })
+    store: storage.sessionStore
   };
 
   app.set("trust proxy", 1);

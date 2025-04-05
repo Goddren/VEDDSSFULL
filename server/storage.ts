@@ -1,4 +1,9 @@
 import { users, type User, type InsertUser, chartAnalyses, type ChartAnalysis, type InsertChartAnalysis } from "@shared/schema";
+import { db } from "./db";
+import { eq } from "drizzle-orm";
+import session from "express-session";
+import connectPg from "connect-pg-simple";
+import { pool } from "./db";
 
 export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
@@ -12,50 +17,48 @@ export interface IStorage {
   getChartAnalysis(id: number): Promise<ChartAnalysis | undefined>;
   getChartAnalysesByUserId(userId: number): Promise<ChartAnalysis[]>;
   getAllChartAnalyses(): Promise<ChartAnalysis[]>;
+  
+  // Session store for authentication
+  sessionStore: session.Store;
 }
 
-export class MemStorage implements IStorage {
-  private users: Map<number, User>;
-  private chartAnalyses: Map<number, ChartAnalysis>;
-  currentUserId: number;
-  currentChartAnalysisId: number;
+// Create PostgreSQL session store
+const PostgresSessionStore = connectPg(session);
+
+export class DatabaseStorage implements IStorage {
+  sessionStore: session.Store;
 
   constructor() {
-    this.users = new Map();
-    this.chartAnalyses = new Map();
-    this.currentUserId = 1;
-    this.currentChartAnalysisId = 1;
+    this.sessionStore = new PostgresSessionStore({ 
+      pool,
+      createTableIfMissing: true 
+    });
   }
 
   async getUser(id: number): Promise<User | undefined> {
-    return this.users.get(id);
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user;
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(
-      (user) => user.username === username,
-    );
+    const [user] = await db.select().from(users).where(eq(users.username, username));
+    return user;
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    const id = this.currentUserId++;
-    const now = new Date();
-    const user: User = { 
-      ...insertUser, 
-      id,
-      fullName: insertUser.fullName || null,
-      profileImage: insertUser.profileImage || null,
-      email: insertUser.email || '',
-      createdAt: now,
-      updatedAt: now
-    };
-    this.users.set(id, user);
+    const [user] = await db
+      .insert(users)
+      .values({
+        ...insertUser,
+        email: insertUser.email || '',
+        fullName: insertUser.fullName || null,
+        profileImage: insertUser.profileImage || null,
+      })
+      .returning();
     return user;
   }
 
   async createChartAnalysis(analysis: InsertChartAnalysis): Promise<ChartAnalysis> {
-    const id = this.currentChartAnalysisId++;
-    
     // Ensure required fields are present
     if (!analysis.imageUrl || !analysis.direction || !analysis.trend || 
         !analysis.confidence || !analysis.entryPoint || !analysis.exitPoint || 
@@ -64,68 +67,76 @@ export class MemStorage implements IStorage {
       throw new Error("Missing required fields for chart analysis");
     }
     
-    // Create a properly typed ChartAnalysis object
-    const chartAnalysis: ChartAnalysis = {
-      id,
-      createdAt: new Date(),
-      // Required fields
-      imageUrl: analysis.imageUrl,
-      direction: analysis.direction,
-      trend: analysis.trend,
-      confidence: analysis.confidence,
-      entryPoint: analysis.entryPoint,
-      exitPoint: analysis.exitPoint,
-      stopLoss: analysis.stopLoss,
-      takeProfit: analysis.takeProfit,
-      patterns: analysis.patterns,
-      indicators: analysis.indicators,
-      
-      // Optional fields with null fallbacks
-      userId: analysis.userId ?? null,
-      symbol: analysis.symbol ?? null,
-      timeframe: analysis.timeframe ?? null,
-      price: analysis.price ?? null,
-      riskRewardRatio: analysis.riskRewardRatio ?? null,
-      potentialPips: analysis.potentialPips ?? null,
-      supportResistance: analysis.supportResistance ?? null,
-      recommendation: analysis.recommendation ?? null
-    };
+    const [chartAnalysis] = await db
+      .insert(chartAnalyses)
+      .values({
+        imageUrl: analysis.imageUrl,
+        userId: analysis.userId,
+        symbol: analysis.symbol || null,
+        timeframe: analysis.timeframe || null,
+        price: analysis.price || null,
+        direction: analysis.direction,
+        trend: analysis.trend,
+        confidence: analysis.confidence,
+        entryPoint: analysis.entryPoint,
+        exitPoint: analysis.exitPoint,
+        stopLoss: analysis.stopLoss,
+        takeProfit: analysis.takeProfit,
+        riskRewardRatio: analysis.riskRewardRatio || null,
+        potentialPips: analysis.potentialPips || null,
+        patterns: analysis.patterns,
+        indicators: analysis.indicators,
+        supportResistance: analysis.supportResistance || null,
+        recommendation: analysis.recommendation || null,
+      })
+      .returning();
     
-    this.chartAnalyses.set(id, chartAnalysis);
     return chartAnalysis;
   }
 
   async getChartAnalysis(id: number): Promise<ChartAnalysis | undefined> {
-    return this.chartAnalyses.get(id);
+    const [analysis] = await db
+      .select()
+      .from(chartAnalyses)
+      .where(eq(chartAnalyses.id, id));
+    return analysis;
   }
 
   async getChartAnalysesByUserId(userId: number): Promise<ChartAnalysis[]> {
-    return Array.from(this.chartAnalyses.values()).filter(
-      analysis => analysis.userId === userId
-    );
+    return db
+      .select()
+      .from(chartAnalyses)
+      .where(eq(chartAnalyses.userId, userId));
   }
 
   async getAllChartAnalyses(): Promise<ChartAnalysis[]> {
-    return Array.from(this.chartAnalyses.values());
+    return db.select().from(chartAnalyses);
   }
 
   async updateUser(id: number, userData: Partial<User>): Promise<User | undefined> {
-    const user = this.users.get(id);
-    if (!user) return undefined;
-
-    const updatedUser = { ...user, ...userData };
-    this.users.set(id, updatedUser);
+    const [updatedUser] = await db
+      .update(users)
+      .set({
+        ...userData,
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, id))
+      .returning();
     return updatedUser;
   }
 
   async updateUserPassword(id: number, hashedPassword: string): Promise<User | undefined> {
-    const user = this.users.get(id);
-    if (!user) return undefined;
-
-    const updatedUser = { ...user, password: hashedPassword };
-    this.users.set(id, updatedUser);
+    const [updatedUser] = await db
+      .update(users)
+      .set({
+        password: hashedPassword,
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, id))
+      .returning();
     return updatedUser;
   }
 }
 
-export const storage = new MemStorage();
+// Export a singleton instance of the database storage
+export const storage = new DatabaseStorage();
