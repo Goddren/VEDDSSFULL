@@ -13,7 +13,7 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
-import { Menu, Bell, User, LogOut, Settings, History, LineChart } from 'lucide-react';
+import { Menu, Bell, User, LogOut, Settings, History, LineChart, CreditCard } from 'lucide-react';
 
 const Header: React.FC = () => {
   const [location] = useLocation();
@@ -23,6 +23,7 @@ const Header: React.FC = () => {
     { name: 'Dashboard', path: '/dashboard', active: location === '/dashboard', icon: <Settings className="h-4 w-4 mr-2" /> },
     { name: 'Analysis', path: '/analysis', active: location === '/analysis', icon: <LineChart className="h-4 w-4 mr-2" /> },
     { name: 'Historical', path: '/historical', active: location === '/historical', icon: <History className="h-4 w-4 mr-2" /> },
+    { name: 'Pricing', path: '/subscription', active: location === '/subscription', icon: <CreditCard className="h-4 w-4 mr-2" /> },
   ];
 
   // Get user initials for avatar fallback

@@ -14,6 +14,7 @@ import Historical from "@/pages/historical";
 import AuthPage from "@/pages/auth-page";
 import ProfilePage from "@/pages/profile";
 import LandingPage from "@/pages/landing";
+import SubscriptionPage from "@/pages/subscription";
 
 import { useLocation } from "wouter";
 
@@ -32,6 +33,7 @@ function AppLayout() {
         <Switch>
           <Route path="/" component={LandingPage} />
           <Route path="/auth" component={AuthPage} />
+          <Route path="/subscription" component={SubscriptionPage} />
           <ProtectedRoute path="/dashboard" component={Dashboard} />
           <ProtectedRoute path="/analysis" component={Analysis} />
           <ProtectedRoute path="/historical" component={Historical} />

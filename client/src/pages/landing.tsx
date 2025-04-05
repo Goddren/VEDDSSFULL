@@ -29,8 +29,13 @@ export default function LandingPage() {
                 Get Started <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
             </Link>
-            <a href="#features">
+            <Link href="/subscription">
               <Button size="lg" variant="outline" className="border-rose-600 text-white hover:bg-rose-700/20">
+                View Pricing
+              </Button>
+            </Link>
+            <a href="#features">
+              <Button size="lg" variant="outline" className="border-gray-600 text-white hover:bg-gray-700/20">
                 Learn More
               </Button>
             </a>
@@ -95,10 +100,15 @@ export default function LandingPage() {
           <p className="mt-4 text-xl text-gray-300 max-w-2xl mx-auto">
             Join thousands of traders using AI to gain a competitive edge in the markets.
           </p>
-          <div className="mt-8">
+          <div className="mt-8 flex justify-center gap-4">
             <Link href="/auth">
               <Button size="lg" className="bg-rose-600 hover:bg-rose-700 text-white">
                 Sign Up Now <ArrowRight className="ml-2 h-4 w-4" />
+              </Button>
+            </Link>
+            <Link href="/subscription">
+              <Button size="lg" variant="outline" className="border-rose-600 text-white hover:bg-rose-700/20">
+                Compare Plans
               </Button>
             </Link>
           </div>
