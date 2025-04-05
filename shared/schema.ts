@@ -68,5 +68,40 @@ export const insertChartAnalysisSchema = createInsertSchema(chartAnalyses).omit(
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 
+// Achievements schema
+export const achievements = pgTable("achievements", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description").notNull(),
+  category: text("category").notNull(), // 'analysis', 'consistency', 'accuracy', 'exploration'
+  icon: text("icon").notNull(),
+  points: integer("points").notNull().default(10),
+  threshold: integer("threshold").notNull().default(1), // number required to unlock
+  isSecret: boolean("is_secret").notNull().default(false),
+});
+
+export const userAchievements = pgTable("user_achievements", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  achievementId: integer("achievement_id").references(() => achievements.id).notNull(),
+  unlockedAt: timestamp("unlocked_at").defaultNow(),
+  progress: integer("progress").notNull().default(0),
+  isCompleted: boolean("is_completed").notNull().default(false),
+});
+
+// Insert schemas for achievements
+export const insertAchievementSchema = createInsertSchema(achievements).omit({
+  id: true
+});
+
+export const insertUserAchievementSchema = createInsertSchema(userAchievements).omit({
+  id: true,
+  unlockedAt: true
+});
+
 export type InsertChartAnalysis = z.infer<typeof insertChartAnalysisSchema>;
 export type ChartAnalysis = typeof chartAnalyses.$inferSelect;
+export type InsertAchievement = z.infer<typeof insertAchievementSchema>;
+export type Achievement = typeof achievements.$inferSelect;
+export type InsertUserAchievement = z.infer<typeof insertUserAchievementSchema>;
+export type UserAchievement = typeof userAchievements.$inferSelect;

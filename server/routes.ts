@@ -6,7 +6,7 @@ import multer from "multer";
 import fs from "fs";
 import path from "path";
 import { v4 as uuidv4 } from "uuid";
-import { insertChartAnalysisSchema } from "@shared/schema";
+import { insertChartAnalysisSchema, insertAchievementSchema, insertUserAchievementSchema } from "@shared/schema";
 
 // Configure multer for file uploads
 const upload = multer({
@@ -339,6 +339,172 @@ export async function registerRoutes(app: Express): Promise<Server> {
         error: error instanceof Error ? error.message : "Unknown error",
         valid: false
       });
+    }
+  });
+
+  // Achievement endpoints
+  
+  // Get all achievements
+  app.get("/api/achievements", async (req: Request, res: Response) => {
+    try {
+      const achievements = await storage.getAllAchievements();
+      res.json(achievements);
+    } catch (error) {
+      console.error("Error fetching achievements:", error);
+      res.status(500).json({ message: "Error fetching achievements" });
+    }
+  });
+
+  // Get achievements by category
+  app.get("/api/achievements/category/:category", async (req: Request, res: Response) => {
+    try {
+      const category = req.params.category;
+      const achievements = await storage.getAchievementsByCategory(category);
+      res.json(achievements);
+    } catch (error) {
+      console.error("Error fetching achievements by category:", error);
+      res.status(500).json({ message: "Error fetching achievements by category" });
+    }
+  });
+
+  // Get user achievements
+  app.get("/api/user-achievements", async (req: Request, res: Response) => {
+    try {
+      // Check if user is authenticated
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ 
+          success: false,
+          message: "Authentication required" 
+        });
+      }
+
+      const userId = (req.user as Express.User).id;
+      const userAchievements = await storage.getUserAchievements(userId);
+      res.json(userAchievements);
+    } catch (error) {
+      console.error("Error fetching user achievements:", error);
+      res.status(500).json({ message: "Error fetching user achievements" });
+    }
+  });
+
+  // Check and update achievement progress
+  app.post("/api/check-achievements", async (req: Request, res: Response) => {
+    try {
+      // Check if user is authenticated
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ 
+          success: false,
+          message: "Authentication required" 
+        });
+      }
+
+      const userId = (req.user as Express.User).id;
+      
+      // Get all user's analyses to calculate achievement progress
+      const analyses = await storage.getChartAnalysesByUserId(userId);
+      const userAchievements = await storage.getUserAchievements(userId);
+      const allAchievements = await storage.getAllAchievements();
+      
+      // Calculate progress based on analyses
+      const updatedAchievements = [];
+      const newlyUnlockedAchievements = [];
+      
+      // For each achievement, check if user has it, and if not, create it with progress
+      for (const achievement of allAchievements) {
+        const userAchievement = userAchievements.find(ua => ua.achievementId === achievement.id);
+        
+        // Calculate progress based on achievement category and type
+        let progress = 0;
+        let isCompleted = false;
+        
+        switch (achievement.category) {
+          case 'analysis':
+            // Count total analyses
+            progress = analyses.length;
+            isCompleted = progress >= achievement.threshold;
+            break;
+            
+          case 'consistency':
+            // Check if user has done analyses on consecutive days
+            // (simplified for this example)
+            const uniqueDays = new Set(
+              analyses.map(a => new Date(a.createdAt).toISOString().split('T')[0])
+            );
+            progress = uniqueDays.size;
+            isCompleted = progress >= achievement.threshold;
+            break;
+            
+          case 'accuracy':
+            // Calculate based on high confidence analyses
+            const highConfidenceAnalyses = analyses.filter(a => 
+              a.confidence.toLowerCase() === 'high' || a.confidence.toLowerCase() === 'very high'
+            );
+            progress = highConfidenceAnalyses.length;
+            isCompleted = progress >= achievement.threshold;
+            break;
+            
+          case 'exploration':
+            // Count unique symbols analyzed
+            const uniqueSymbols = new Set(analyses.map(a => a.symbol));
+            progress = uniqueSymbols.size;
+            isCompleted = progress >= achievement.threshold;
+            break;
+        }
+        
+        if (!userAchievement) {
+          // Create new user achievement with calculated progress
+          const newUserAchievement = await storage.createUserAchievement({
+            userId,
+            achievementId: achievement.id,
+            progress,
+            isCompleted
+          });
+          
+          if (isCompleted) {
+            newlyUnlockedAchievements.push({
+              ...newUserAchievement,
+              achievement
+            });
+          }
+          
+          updatedAchievements.push({
+            ...newUserAchievement,
+            achievement
+          });
+        } else if (!userAchievement.isCompleted && progress >= achievement.threshold) {
+          // Update existing achievement to completed status
+          const completedAchievement = await storage.completeUserAchievement(userAchievement.id);
+          
+          newlyUnlockedAchievements.push({
+            ...completedAchievement,
+            achievement
+          });
+          
+          updatedAchievements.push({
+            ...completedAchievement,
+            achievement
+          });
+        } else if (progress > userAchievement.progress) {
+          // Update progress on existing achievement
+          const updatedUserAchievement = await storage.updateUserAchievementProgress(
+            userAchievement.id, 
+            progress
+          );
+          
+          updatedAchievements.push({
+            ...updatedUserAchievement,
+            achievement
+          });
+        }
+      }
+      
+      res.json({
+        updated: updatedAchievements,
+        newlyUnlocked: newlyUnlockedAchievements
+      });
+    } catch (error) {
+      console.error("Error checking achievements:", error);
+      res.status(500).json({ message: "Error checking achievements" });
     }
   });
 

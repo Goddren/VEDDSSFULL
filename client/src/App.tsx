@@ -15,6 +15,7 @@ import AuthPage from "@/pages/auth-page";
 import ProfilePage from "@/pages/profile";
 import LandingPage from "@/pages/landing";
 import SubscriptionPage from "@/pages/subscription";
+import AchievementsPage from "@/pages/achievements";
 
 import { useLocation } from "wouter";
 
@@ -38,6 +39,7 @@ function AppLayout() {
           <ProtectedRoute path="/analysis" component={Analysis} />
           <ProtectedRoute path="/historical" component={Historical} />
           <ProtectedRoute path="/profile" component={ProfilePage} />
+          <ProtectedRoute path="/achievements" component={AchievementsPage} />
           <ProtectedRoute path="/home" component={Home} />
           <Route component={NotFound} />
         </Switch>

@@ -1,6 +1,10 @@
-import { users, type User, type InsertUser, chartAnalyses, type ChartAnalysis, type InsertChartAnalysis } from "@shared/schema";
+import { 
+  users, chartAnalyses, achievements, userAchievements,
+  type User, type InsertUser, type ChartAnalysis, type InsertChartAnalysis,
+  type Achievement, type InsertAchievement, type UserAchievement, type InsertUserAchievement 
+} from "@shared/schema";
 import { db } from "./db";
-import { eq } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
 import { pool } from "./db";
@@ -17,6 +21,18 @@ export interface IStorage {
   getChartAnalysis(id: number): Promise<ChartAnalysis | undefined>;
   getChartAnalysesByUserId(userId: number): Promise<ChartAnalysis[]>;
   getAllChartAnalyses(): Promise<ChartAnalysis[]>;
+  
+  // Achievement methods
+  createAchievement(achievement: InsertAchievement): Promise<Achievement>;
+  getAchievement(id: number): Promise<Achievement | undefined>;
+  getAllAchievements(): Promise<Achievement[]>;
+  getAchievementsByCategory(category: string): Promise<Achievement[]>;
+  
+  // User Achievement methods
+  createUserAchievement(userAchievement: InsertUserAchievement): Promise<UserAchievement>;
+  getUserAchievements(userId: number): Promise<(UserAchievement & { achievement: Achievement })[]>;
+  updateUserAchievementProgress(id: number, progress: number): Promise<UserAchievement>;
+  completeUserAchievement(id: number): Promise<UserAchievement>;
   
   // Session store for authentication
   sessionStore: session.Store;
@@ -135,6 +151,83 @@ export class DatabaseStorage implements IStorage {
       .where(eq(users.id, id))
       .returning();
     return updatedUser;
+  }
+
+  // Achievement methods
+  async createAchievement(achievement: InsertAchievement): Promise<Achievement> {
+    const [newAchievement] = await db
+      .insert(achievements)
+      .values(achievement)
+      .returning();
+    return newAchievement;
+  }
+
+  async getAchievement(id: number): Promise<Achievement | undefined> {
+    const [achievement] = await db
+      .select()
+      .from(achievements)
+      .where(eq(achievements.id, id));
+    return achievement;
+  }
+
+  async getAllAchievements(): Promise<Achievement[]> {
+    return db.select().from(achievements);
+  }
+
+  async getAchievementsByCategory(category: string): Promise<Achievement[]> {
+    return db
+      .select()
+      .from(achievements)
+      .where(eq(achievements.category, category));
+  }
+
+  // User Achievement methods
+  async createUserAchievement(userAchievement: InsertUserAchievement): Promise<UserAchievement> {
+    const [newUserAchievement] = await db
+      .insert(userAchievements)
+      .values(userAchievement)
+      .returning();
+    return newUserAchievement;
+  }
+
+  async getUserAchievements(userId: number): Promise<(UserAchievement & { achievement: Achievement })[]> {
+    const result = await db
+      .select({
+        userAchievement: userAchievements,
+        achievement: achievements
+      })
+      .from(userAchievements)
+      .innerJoin(achievements, eq(userAchievements.achievementId, achievements.id))
+      .where(eq(userAchievements.userId, userId));
+    
+    return result.map(row => ({
+      ...row.userAchievement,
+      achievement: row.achievement
+    }));
+  }
+
+  async updateUserAchievementProgress(id: number, progress: number): Promise<UserAchievement> {
+    const [updatedUserAchievement] = await db
+      .update(userAchievements)
+      .set({
+        progress
+      })
+      .where(eq(userAchievements.id, id))
+      .returning();
+    return updatedUserAchievement;
+  }
+
+  async completeUserAchievement(id: number): Promise<UserAchievement> {
+    const [completedUserAchievement] = await db
+      .update(userAchievements)
+      .set({
+        isCompleted: true,
+        progress: sql`${userAchievements.progress} + 1`,
+        unlockedAt: new Date()
+      })
+      .where(eq(userAchievements.id, id))
+      .returning();
+    return completedUserAchievement;
   }
 }
 

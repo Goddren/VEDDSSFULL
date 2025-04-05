@@ -3,6 +3,7 @@ import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import path from "path";
 import { setupAuth } from "./auth";
+import { seedAchievements } from "./seed";
 
 const app = express();
 app.use(express.json());
@@ -45,6 +46,9 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Seed initial achievements
+  await seedAchievements();
+  
   const server = await registerRoutes(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
