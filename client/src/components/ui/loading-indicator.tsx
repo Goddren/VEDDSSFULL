@@ -1,64 +1,34 @@
 import React from 'react';
-import { cn } from '@/lib/utils';
+import { Progress } from '@/components/ui/progress';
+import { ArrowUpFromLine, ChevronsUpDown, LineChart, BarChart3, TrendingUp, Loader2 } from 'lucide-react';
 
 interface LoadingIndicatorProps {
   progress: number;
-  className?: string;
-  size?: 'sm' | 'md' | 'lg';
 }
 
-const LoadingIndicator: React.FC<LoadingIndicatorProps> = ({ 
-  progress, 
-  className,
-  size = 'md' 
-}) => {
-  const radius = 40;
-  const circumference = radius * 2 * Math.PI;
-  const offset = circumference - (progress / 100) * circumference;
-  
-  const sizeClasses = {
-    sm: 'w-16 h-16',
-    md: 'w-24 h-24',
-    lg: 'w-32 h-32'
-  };
+const LoadingIndicator: React.FC<LoadingIndicatorProps> = ({ progress }) => {
+  // Animation for the cycle of icons
+  const icons = [LineChart, BarChart3, TrendingUp, ChevronsUpDown];
+  const iconIndex = Math.floor((progress / 100) * icons.length) % icons.length;
+  const CurrentIcon = progress === 100 ? 
+    ArrowUpFromLine : 
+    (progress === 0 ? Loader2 : icons[iconIndex]);
 
-  const textSizes = {
-    sm: 'text-sm',
-    md: 'text-lg',
-    lg: 'text-xl'
-  };
-  
   return (
-    <div className={cn("relative", className)}>
-      <svg className={cn(sizeClasses[size])} viewBox="0 0 100 100">
-        <circle 
-          className="text-[#1E1E1E]" 
-          strokeWidth="8" 
-          stroke="currentColor" 
-          fill="transparent" 
-          r={radius} 
-          cx="50" 
-          cy="50"
-        />
-        <circle 
-          className="text-[#E64A4A] progress-ring__circle" 
-          strokeWidth="8" 
-          strokeDasharray={circumference} 
-          strokeDashoffset={offset} 
-          stroke="currentColor" 
-          fill="transparent" 
-          r={radius} 
-          cx="50" 
-          cy="50"
-          style={{
-            transition: 'stroke-dashoffset 0.35s',
-            transform: 'rotate(-90deg)',
-            transformOrigin: '50% 50%'
-          }}
-        />
-      </svg>
-      <div className="absolute inset-0 flex items-center justify-center">
-        <span className={cn("font-bold", textSizes[size])}>{Math.round(progress)}%</span>
+    <div className="w-full max-w-sm mx-auto">
+      <div className="flex flex-col items-center justify-center">
+        <div className="relative mb-6">
+          <div className="w-24 h-24 rounded-full bg-primary/10 flex items-center justify-center">
+            <CurrentIcon className={`h-12 w-12 text-primary ${progress !== 100 && progress !== 0 ? 'animate-pulse' : ''} ${progress === 0 ? 'animate-spin' : ''}`} />
+          </div>
+          <div className="absolute -bottom-2 left-1/2 transform -translate-x-1/2 bg-background px-3 py-1 rounded-full border border-primary/20">
+            <span className="text-sm font-medium">{Math.round(progress)}%</span>
+          </div>
+        </div>
+        
+        <div className="w-full mt-4">
+          <Progress value={progress} className="h-2" />
+        </div>
       </div>
     </div>
   );

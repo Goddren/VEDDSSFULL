@@ -1,20 +1,21 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import ImageUpload from '@/components/ui/image-upload';
 import LoadingIndicator from '@/components/ui/loading-indicator';
 import ProgressSteps from '@/components/ui/progress-steps';
 import AnalysisResult from '@/components/charts/analysis-result';
 import { ApiKeySettings } from '@/components/ui/api-key-settings';
+import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/queryClient';
 import { AnalysisState, analysisPipeline, ChartAnalysisResponse } from '@shared/types';
 import { delay } from '@/lib/utils';
+import { BarChart3, CameraIcon, LayoutDashboard, Upload } from 'lucide-react';
 
 const Analysis: React.FC = () => {
   const [analysisState, setAnalysisState] = useState<AnalysisState>(AnalysisState.INITIAL);
-  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [uploadedImageUrl, setUploadedImageUrl] = useState<string>('');
   const [analysisProgress, setAnalysisProgress] = useState<number>(0);
   const [analysisResult, setAnalysisResult] = useState<ChartAnalysisResponse | null>(null);
@@ -48,8 +49,8 @@ const Analysis: React.FC = () => {
     mutationFn: async (imageUrl: string) => {
       // Simulate the steps with delays
       for (let i = 0; i < analysisPipeline.length; i++) {
-        setAnalysisProgress((i / analysisPipeline.length) * 100);
-        await delay(500); // Simulate processing time
+        setAnalysisProgress(((i + 0.5) / analysisPipeline.length) * 100);
+        await delay(800); // Simulate processing time
       }
       
       const response = await apiRequest('POST', '/api/analyze', { imageUrl });
@@ -59,6 +60,9 @@ const Analysis: React.FC = () => {
       setAnalysisResult(data);
       setAnalysisProgress(100);
       setAnalysisState(AnalysisState.COMPLETE);
+      
+      // Record this analysis in achievements system
+      checkAchievements();
     },
     onError: (error) => {
       toast({
@@ -85,6 +89,18 @@ const Analysis: React.FC = () => {
     checkApiKey();
   }, []);
 
+  // Check for achievements after successful analysis
+  const checkAchievements = useCallback(async () => {
+    try {
+      await apiRequest('POST', '/api/check-achievements', { 
+        type: 'analysis', 
+        payload: { completed: true } 
+      });
+    } catch (error) {
+      console.error('Failed to check achievements:', error);
+    }
+  }, []);
+
   const handleImageUpload = useCallback((file: File) => {
     // Check for API key validity first
     if (apiKeyValid === false) {
@@ -96,7 +112,6 @@ const Analysis: React.FC = () => {
       return;
     }
     
-    setUploadedFile(file);
     setAnalysisState(AnalysisState.UPLOADING);
     uploadMutation.mutate(file);
   }, [uploadMutation, apiKeyValid, toast]);
@@ -117,7 +132,10 @@ const Analysis: React.FC = () => {
   
   // Generate progress steps based on current state
   const getProgressSteps = useCallback(() => {
-    const currentStepIndex = Math.floor((analysisProgress / 100) * analysisPipeline.length);
+    const currentStepIndex = Math.min(
+      Math.floor((analysisProgress / 100) * analysisPipeline.length),
+      analysisPipeline.length - 1
+    );
     
     return analysisPipeline.map((step, index) => ({
       ...step,
@@ -129,97 +147,110 @@ const Analysis: React.FC = () => {
     }));
   }, [analysisProgress]);
 
-  // Sample images (would be fetched from API in production)
-  const sampleImages = [
-    { id: 'sample1', name: 'EUR/USD 4H', imageUrl: 'https://images.unsplash.com/photo-1535320903710-d993d3d77d29' },
-    { id: 'sample2', name: 'BTC/USD Daily', imageUrl: 'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3' },
-    { id: 'sample3', name: 'GBP/JPY 1H', imageUrl: 'https://images.unsplash.com/photo-1642790551116-18e150f248e4' },
-  ];
-
   return (
-    <div className="container mx-auto px-4 md:px-8 py-8">
-      {/* Page Title */}
-      <div className="mb-8">
-        <h1 className="text-2xl md:text-3xl font-bold">Chart Analysis</h1>
-        <p className="text-gray-400 mt-2">Upload your trading chart for AI analysis and predictions</p>
+    <div className="container mx-auto px-4 py-8">
+      {/* Page Header */}
+      <div className="mb-8 space-y-2">
+        <h1 className="text-3xl font-bold tracking-tight">Chart Analysis</h1>
+        <p className="text-muted-foreground">
+          Upload your trading charts for AI-powered analysis and trading recommendations
+        </p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Upload Section */}
-        <div className="col-span-1 lg:col-span-1">
-          <Card className="bg-[#1E1E1E] border-[#2D2D2D] shadow-lg">
+        <div className="lg:col-span-1 space-y-6">
+          <Card>
             <CardHeader>
-              <CardTitle>Upload Chart</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                <Upload className="h-5 w-5" />
+                <span>Chart Upload</span>
+              </CardTitle>
+              <CardDescription>
+                Supports MT4, MT5, and TradingView screenshots
+              </CardDescription>
             </CardHeader>
             <CardContent>
               <ImageUpload 
                 onImageUpload={handleImageUpload} 
                 isUploading={analysisState === AnalysisState.UPLOADING}
               />
-              
-              {/* Tips */}
-              <div className="mt-6">
-                <h3 className="text-lg font-medium mb-2">Tips for best results:</h3>
-                <ul className="text-gray-300 space-y-2 pl-4">
-                  <li className="flex items-start">
-                    <i className="fas fa-check-circle text-[#4CAF50] mt-1 mr-2"></i>
-                    <span>Make sure price action is clearly visible</span>
-                  </li>
-                  <li className="flex items-start">
-                    <i className="fas fa-check-circle text-[#4CAF50] mt-1 mr-2"></i>
-                    <span>Include relevant indicators (if any)</span>
-                  </li>
-                  <li className="flex items-start">
-                    <i className="fas fa-check-circle text-[#4CAF50] mt-1 mr-2"></i>
-                    <span>Ensure timeframe is visible in screenshot</span>
-                  </li>
-                  <li className="flex items-start">
-                    <i className="fas fa-exclamation-circle text-[#F39C12] mt-1 mr-2"></i>
-                    <span>Crop out unnecessary elements</span>
-                  </li>
-                </ul>
-              </div>
-
-              {/* Sample Images */}
-              <div className="mt-6">
-                <h3 className="flex items-center justify-between text-lg font-medium mb-3">
-                  <span>Sample Images</span>
-                  <button className="text-sm text-[#E64A4A] hover:underline">View All</button>
-                </h3>
-                <div className="grid grid-cols-3 gap-2">
-                  {sampleImages.map((image) => (
-                    <div 
-                      key={image.id}
-                      className="aspect-w-16 aspect-h-9 bg-[#333333] rounded-md overflow-hidden cursor-pointer hover:opacity-80 transition-opacity"
-                      onClick={() => {
-                        toast({
-                          title: "Sample Selected",
-                          description: `Loading ${image.name} sample chart`,
-                        });
-                        // In a real implementation, this would fetch the sample image
-                        // and process it just like an uploaded image
-                      }}
-                    >
-                      <img
-                        src={image.imageUrl}
-                        alt={`Sample ${image.name} chart`}
-                        className="object-cover w-full h-full"
-                      />
-                    </div>
-                  ))}
+            </CardContent>
+          </Card>
+          
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base font-medium flex items-center gap-2">
+                <LayoutDashboard className="h-4 w-4" />
+                <span>Tips for best results</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ul className="space-y-2 text-sm">
+                <li className="flex items-start gap-2">
+                  <div className="rounded-full h-5 w-5 bg-primary/20 flex items-center justify-center mt-0.5">
+                    <div className="rounded-full h-2 w-2 bg-primary" />
+                  </div>
+                  <p>Ensure price action and candlesticks are clearly visible</p>
+                </li>
+                <li className="flex items-start gap-2">
+                  <div className="rounded-full h-5 w-5 bg-primary/20 flex items-center justify-center mt-0.5">
+                    <div className="rounded-full h-2 w-2 bg-primary" />
+                  </div>
+                  <p>Include relevant indicators if they're part of your strategy</p>
+                </li>
+                <li className="flex items-start gap-2">
+                  <div className="rounded-full h-5 w-5 bg-primary/20 flex items-center justify-center mt-0.5">
+                    <div className="rounded-full h-2 w-2 bg-primary" />
+                  </div>
+                  <p>Make sure timeframe and symbol are visible in the screenshot</p>
+                </li>
+                <li className="flex items-start gap-2">
+                  <div className="rounded-full h-5 w-5 bg-primary/20 flex items-center justify-center mt-0.5">
+                    <div className="rounded-full h-2 w-2 bg-primary" />
+                  </div>
+                  <p>Consider cropping out unnecessary elements for better results</p>
+                </li>
+              </ul>
+            </CardContent>
+          </Card>
+          
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base font-medium flex items-center gap-2">
+                <CameraIcon className="h-4 w-4" />
+                <span>Supported platforms</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="rounded-lg bg-muted p-3 text-center">
+                  <p className="text-xs font-medium">MT4</p>
+                </div>
+                <div className="rounded-lg bg-muted p-3 text-center">
+                  <p className="text-xs font-medium">MT5</p>
+                </div>
+                <div className="rounded-lg bg-muted p-3 text-center">
+                  <p className="text-xs font-medium">TradingView</p>
                 </div>
               </div>
+              <p className="text-xs text-muted-foreground mt-3">
+                Our AI model is trained on charts from these popular trading platforms
+              </p>
             </CardContent>
           </Card>
         </div>
 
         {/* Analysis Section */}
-        <div className="col-span-1 lg:col-span-2">
+        <div className="lg:col-span-2">
           {/* API Key Configuration Card */}
           {apiKeyValid === false && (
-            <Card className="bg-[#1E1E1E] border-[#2D2D2D] shadow-lg mb-6">
+            <Card className="mb-6">
               <CardHeader>
                 <CardTitle>API Key Required</CardTitle>
+                <CardDescription>
+                  This application requires an OpenAI API key with active billing to analyze trading charts
+                </CardDescription>
               </CardHeader>
               <CardContent>
                 <ApiKeySettings 
@@ -229,34 +260,59 @@ const Analysis: React.FC = () => {
             </Card>
           )}
           
+          {/* Initial State - No Upload Yet */}
           {analysisState === AnalysisState.INITIAL && (
-            <Card className="bg-[#1E1E1E] border-[#2D2D2D] shadow-lg h-96 flex items-center justify-center">
-              <CardContent className="text-center pt-6">
-                <i className="fas fa-cloud-upload-alt text-4xl text-gray-400 mb-4"></i>
-                <h3 className="text-xl font-medium">Upload a chart to begin analysis</h3>
-                <p className="text-gray-400 mt-2 max-w-md">
-                  We'll analyze your chart for patterns, indicators, and provide entry/exit recommendations
+            <Card className="h-[500px] flex flex-col items-center justify-center">
+              <CardContent className="text-center max-w-md py-12">
+                <div className="rounded-full w-20 h-20 mx-auto mb-6 bg-muted flex items-center justify-center">
+                  <BarChart3 className="h-10 w-10 text-muted-foreground" />
+                </div>
+                <h3 className="text-xl font-semibold mb-3">Upload a chart to begin analysis</h3>
+                <p className="text-muted-foreground mb-6">
+                  Our AI will analyze your chart for patterns, indicators, support/resistance levels, and provide detailed trading recommendations
+                </p>
+                <p className="text-sm text-muted-foreground/80">
+                  You can drag & drop an image, paste from clipboard, or use the file browser to upload
                 </p>
               </CardContent>
             </Card>
           )}
 
+          {/* Loading/Processing State */}
           {(analysisState === AnalysisState.UPLOADING || analysisState === AnalysisState.ANALYZING) && (
-            <Card className="bg-[#1E1E1E] border-[#2D2D2D] shadow-lg">
-              <CardContent className="pt-6">
-                <div className="flex flex-col items-center justify-center py-16">
+            <Card>
+              <CardHeader>
+                <CardTitle>
+                  {analysisState === AnalysisState.UPLOADING 
+                    ? 'Uploading Chart' 
+                    : 'Analyzing Chart'
+                  }
+                </CardTitle>
+                <CardDescription>
+                  {analysisState === AnalysisState.UPLOADING 
+                    ? 'Please wait while we process your chart image' 
+                    : 'Our AI is analyzing your chart for patterns and signals'
+                  }
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="pt-2">
+                <div className="flex flex-col items-center py-8">
                   <LoadingIndicator progress={analysisProgress} />
                   
-                  <h3 className="text-xl font-medium mt-6">
-                    {analysisState === AnalysisState.UPLOADING ? 'Uploading your chart...' : 'Analyzing your chart...'}
-                  </h3>
-                  <p className="text-gray-400 mt-2 text-center max-w-md">
+                  <h3 className="text-lg font-medium mt-8">
                     {analysisState === AnalysisState.UPLOADING 
-                      ? 'Please wait while we upload your chart...'
-                      : 'Our AI is analyzing patterns, indicators, and market conditions'}
+                      ? 'Preparing your chart...' 
+                      : 'AI Analysis in Progress...'
+                    }
+                  </h3>
+                  <p className="text-muted-foreground mt-2 text-center max-w-md">
+                    {analysisState === AnalysisState.UPLOADING 
+                      ? 'Your chart is being processed and optimized for analysis' 
+                      : 'Analyzing price action, patterns, and trend direction'
+                    }
                   </p>
                   
-                  <div className="w-full max-w-md mt-8">
+                  <div className="w-full max-w-lg mt-8 border rounded-lg p-6 bg-card">
                     <ProgressSteps steps={getProgressSteps()} />
                   </div>
                 </div>
@@ -264,19 +320,28 @@ const Analysis: React.FC = () => {
             </Card>
           )}
 
+          {/* Error State */}
           {analysisState === AnalysisState.ERROR && (
-            <Card className="bg-[#1E1E1E] border-[#2D2D2D] shadow-lg">
-              <CardContent className="pt-6">
-                <div className="flex flex-col items-center justify-center py-16">
-                  <div className="w-16 h-16 rounded-full bg-red-500/20 flex items-center justify-center mb-4">
-                    <i className="fas fa-exclamation-triangle text-red-500 text-xl"></i>
+            <Card className="border-destructive/20">
+              <CardHeader>
+                <CardTitle className="text-destructive">Analysis Failed</CardTitle>
+                <CardDescription>
+                  We encountered an error while trying to analyze your chart
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-col items-center py-8">
+                  <div className="w-20 h-20 rounded-full bg-destructive/10 flex items-center justify-center mb-6">
+                    <div className="w-10 h-10 rounded-full bg-destructive/20 flex items-center justify-center">
+                      <div className="w-5 h-5 rounded-full bg-destructive"></div>
+                    </div>
                   </div>
-                  <h3 className="text-xl font-medium">Analysis Failed</h3>
                   
                   {apiKeyValid === false ? (
-                    <div className="mt-4 text-center">
-                      <p className="text-gray-400 text-center max-w-md mb-6">
-                        The analysis failed because a valid OpenAI API key is required. Please configure your API key below.
+                    <div className="w-full max-w-md text-center">
+                      <h3 className="text-lg font-medium mb-3">API Key Required</h3>
+                      <p className="text-muted-foreground mb-6">
+                        The analysis requires a valid OpenAI API key with active billing. Please configure your API key below.
                       </p>
                       <ApiKeySettings 
                         onKeySaved={() => {
@@ -286,23 +351,25 @@ const Analysis: React.FC = () => {
                       />
                     </div>
                   ) : (
-                    <>
-                      <p className="text-gray-400 mt-2 text-center max-w-md">
-                        We encountered an error processing your chart. Please try again with a different image.
+                    <div className="text-center">
+                      <h3 className="text-lg font-medium mb-3">Something went wrong</h3>
+                      <p className="text-muted-foreground mb-6">
+                        We couldn't process your chart image. This could be due to image quality or format issues.
                       </p>
-                      <button
-                        className="mt-6 px-4 py-2 bg-[#E64A4A] hover:bg-opacity-80 rounded-lg transition-colors font-medium"
+                      <Button
+                        variant="default"
                         onClick={() => setAnalysisState(AnalysisState.INITIAL)}
                       >
                         Try Again
-                      </button>
-                    </>
+                      </Button>
+                    </div>
                   )}
                 </div>
               </CardContent>
             </Card>
           )}
 
+          {/* Complete State - Show Results */}
           {analysisState === AnalysisState.COMPLETE && analysisResult && (
             <AnalysisResult 
               analysis={analysisResult} 

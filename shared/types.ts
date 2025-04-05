@@ -64,9 +64,10 @@ export interface AnalysisProgress {
 }
 
 export const analysisPipeline = [
-  { id: 1, name: "Processing image" },
-  { id: 2, name: "Identifying chart elements" },
-  { id: 3, name: "Extracting price data" },
-  { id: 4, name: "Analyzing patterns and indicators" },
-  { id: 5, name: "Generating recommendations" }
+  { id: "processing", name: "Processing image", message: "Converting and optimizing your chart image" },
+  { id: "identifying", name: "Identifying chart elements", message: "Detecting candlesticks, indicators, and drawing tools" },
+  { id: "extracting", name: "Extracting price data", message: "Reading price levels, timeframes, and market context" },
+  { id: "analyzing", name: "Analyzing patterns and indicators", message: "Identifying key patterns, trend strength and signals" },
+  { id: "support-resistance", name: "Detecting support/resistance", message: "Finding key support and resistance levels" },
+  { id: "generating", name: "Generating recommendations", message: "Calculating entry/exit points and risk metrics" }
 ];
