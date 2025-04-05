@@ -8,43 +8,43 @@ const Footer: React.FC = () => {
     {
       title: 'Product',
       links: [
-        { name: 'Features', href: '#' },
-        { name: 'Pricing', href: '#' },
-        { name: 'API', href: '#' }
+        { name: 'Features', href: '/' },
+        { name: 'Pricing', href: '/subscription' },
+        { name: 'Analysis', href: '/analysis' }
       ]
     },
     {
       title: 'Resources',
       links: [
-        { name: 'Documentation', href: '#' },
-        { name: 'Tutorials', href: '#' },
-        { name: 'Blog', href: '#' }
+        { name: 'Dashboard', href: '/dashboard' },
+        { name: 'History', href: '/historical' },
+        { name: 'Profile', href: '/profile' }
       ]
     },
     {
       title: 'Company',
       links: [
-        { name: 'About', href: '#' },
-        { name: 'Careers', href: '#' },
-        { name: 'Contact', href: '#' }
+        { name: 'About', href: '/about' },
+        { name: 'Contact', href: '/contact' },
+        { name: 'Support', href: '/support' }
       ]
     },
     {
       title: 'Legal',
       links: [
-        { name: 'Privacy', href: '#' },
-        { name: 'Terms', href: '#' },
-        { name: 'Security', href: '#' }
+        { name: 'Privacy', href: '/privacy' },
+        { name: 'Terms', href: '/terms' },
+        { name: 'Security', href: '/security' }
       ]
     }
   ];
 
   const socialLinks = [
-    { icon: <Twitter className="h-5 w-5" />, href: '#', label: 'Twitter' },
-    { icon: <Linkedin className="h-5 w-5" />, href: '#', label: 'LinkedIn' },
-    { icon: <Facebook className="h-5 w-5" />, href: '#', label: 'Facebook' },
-    { icon: <Instagram className="h-5 w-5" />, href: '#', label: 'Instagram' },
-    { icon: <Github className="h-5 w-5" />, href: '#', label: 'GitHub' }
+    { icon: <Twitter className="h-5 w-5" />, href: 'https://twitter.com', label: 'Twitter' },
+    { icon: <Linkedin className="h-5 w-5" />, href: 'https://linkedin.com', label: 'LinkedIn' },
+    { icon: <Facebook className="h-5 w-5" />, href: 'https://facebook.com', label: 'Facebook' },
+    { icon: <Instagram className="h-5 w-5" />, href: 'https://instagram.com', label: 'Instagram' },
+    { icon: <Github className="h-5 w-5" />, href: 'https://github.com', label: 'GitHub' }
   ];
 
   return (
@@ -66,9 +66,22 @@ const Footer: React.FC = () => {
                 <ul className="space-y-2">
                   {section.links.map((link, linkIndex) => (
                     <li key={linkIndex}>
-                      <a href={link.href} className="text-muted-foreground hover:text-foreground transition-colors">
-                        {link.name}
-                      </a>
+                      {link.href.startsWith('http') ? (
+                        <a 
+                          href={link.href} 
+                          className="text-muted-foreground hover:text-foreground transition-colors"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          {link.name}
+                        </a>
+                      ) : (
+                        <Link to={link.href}>
+                          <a className="text-muted-foreground hover:text-foreground transition-colors cursor-pointer">
+                            {link.name}
+                          </a>
+                        </Link>
+                      )}
                     </li>
                   ))}
                 </ul>
@@ -86,6 +99,8 @@ const Footer: React.FC = () => {
                 href={link.href} 
                 className="text-muted-foreground hover:text-foreground transition-colors"
                 aria-label={link.label}
+                target="_blank"
+                rel="noopener noreferrer"
               >
                 {link.icon}
               </a>
