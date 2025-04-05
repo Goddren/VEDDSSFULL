@@ -87,29 +87,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Call OpenAI for analysis
       const analysis = await analyzeChartImage(base64Image);
+      
+      console.log("Analysis result from OpenAI:", JSON.stringify(analysis, null, 2));
+
+      // Validate the analysis object to ensure all required fields are present
+      if (!analysis || typeof analysis !== 'object') {
+        throw new Error("Invalid analysis result from OpenAI");
+      }
 
       // Store the analysis in the database
-      const chartAnalysis = await storage.createChartAnalysis({
-        userId: req.body.userId || 1, // Default to user ID 1 if none provided
-        imageUrl: imageUrl,
-        symbol: analysis.symbol,
-        timeframe: analysis.timeframe,
-        price: analysis.currentPrice,
-        direction: analysis.direction,
-        trend: analysis.trend,
-        confidence: analysis.confidence,
-        entryPoint: analysis.entryPoint,
-        exitPoint: analysis.exitPoint,
-        stopLoss: analysis.stopLoss,
-        takeProfit: analysis.takeProfit,
-        riskRewardRatio: analysis.riskRewardRatio,
-        potentialPips: analysis.potentialPips,
-        patterns: analysis.patterns,
-        indicators: analysis.indicators,
-        supportResistance: analysis.supportResistance,
-        recommendation: analysis.recommendation
-      });
+      try {
+        const chartAnalysis = await storage.createChartAnalysis({
+          userId: req.body.userId || 1, // Default to user ID 1 if none provided
+          imageUrl: imageUrl,
+          symbol: analysis.symbol || "Unknown",
+          timeframe: analysis.timeframe || "Unknown",
+          price: analysis.currentPrice || "Unknown",
+          direction: analysis.direction || "Unknown",
+          trend: analysis.trend || "Unknown",
+          confidence: analysis.confidence || "Medium",
+          entryPoint: analysis.entryPoint || "Unknown",
+          exitPoint: analysis.exitPoint || "Unknown",
+          stopLoss: analysis.stopLoss || "Unknown",
+          takeProfit: analysis.takeProfit || "Unknown",
+          riskRewardRatio: analysis.riskRewardRatio || "Unknown",
+          potentialPips: analysis.potentialPips || "Unknown",
+          patterns: Array.isArray(analysis.patterns) ? analysis.patterns : [],
+          indicators: Array.isArray(analysis.indicators) ? analysis.indicators : [],
+          supportResistance: Array.isArray(analysis.supportResistance) ? analysis.supportResistance : [],
+          recommendation: analysis.recommendation || "No recommendation available"
+        });
+        
+        console.log("Stored analysis in database with ID:", chartAnalysis.id);
+      } catch (storageError) {
+        console.error("Error storing analysis in database:", storageError);
+        // Continue processing even if storage fails
+      }
 
+      // Return the full analysis to the client
       res.json(analysis);
     } catch (error: any) {
       console.error("Analysis error:", error);
