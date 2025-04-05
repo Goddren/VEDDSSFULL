@@ -13,26 +13,41 @@ import Analysis from "@/pages/analysis";
 import Historical from "@/pages/historical";
 import AuthPage from "@/pages/auth-page";
 import ProfilePage from "@/pages/profile";
+import LandingPage from "@/pages/landing";
 
-function AppRoutes() {
+import { useLocation } from "wouter";
+
+function AppLayout() {
+  const [location] = useLocation();
+  
+  // Determine if we should show the header/footer
+  const isLandingPage = location === "/";
+  const isAuthPage = location === "/auth";
+  const showHeaderFooter = !isLandingPage;
+  
   return (
     <div className="flex flex-col min-h-screen bg-background text-foreground">
-      <Header />
+      {showHeaderFooter && <Header />}
       <main className="flex-grow">
         <Switch>
+          <Route path="/" component={LandingPage} />
           <Route path="/auth" component={AuthPage} />
-          <ProtectedRoute path="/" component={Home} />
           <ProtectedRoute path="/dashboard" component={Dashboard} />
           <ProtectedRoute path="/analysis" component={Analysis} />
           <ProtectedRoute path="/historical" component={Historical} />
           <ProtectedRoute path="/profile" component={ProfilePage} />
+          <ProtectedRoute path="/home" component={Home} />
           <Route component={NotFound} />
         </Switch>
       </main>
-      <Footer />
+      {showHeaderFooter && !isAuthPage && <Footer />}
       <Toaster />
     </div>
   );
+}
+
+function AppRoutes() {
+  return <AppLayout />;
 }
 
 function App() {
