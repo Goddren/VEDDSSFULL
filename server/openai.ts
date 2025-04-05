@@ -2,11 +2,30 @@ import OpenAI from "openai";
 import { ChartAnalysisResponse } from "@shared/types";
 import fs from "fs";
 
-// the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
-const openai = new OpenAI();
+// Function to get an OpenAI instance with the current API key
+// This ensures we're always using the most up-to-date key
+function getOpenAIInstance() {
+  // the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
+  return new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+  });
+}
+
+// Function to test if OpenAI API key is valid
+export async function testOpenAIApiKey(): Promise<boolean> {
+  try {
+    const openai = getOpenAIInstance();
+    const response = await openai.models.list();
+    return response.data.length > 0;
+  } catch (error) {
+    console.error("Error validating OpenAI API key:", error);
+    return false;
+  }
+}
 
 export async function analyzeChartImage(base64Image: string): Promise<ChartAnalysisResponse> {
   try {
+    const openai = getOpenAIInstance();
     const visionResponse = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
@@ -78,12 +97,17 @@ export async function analyzeChartImage(base64Image: string): Promise<ChartAnaly
     };
   } catch (error) {
     console.error("Error analyzing chart:", error);
-    throw new Error("Failed to analyze chart image");
+    if (error instanceof Error) {
+      throw error; // Preserve the original error and stack trace
+    } else {
+      throw new Error("Failed to analyze chart image");
+    }
   }
 }
 
 export async function extractTextFromImage(base64Image: string): Promise<string> {
   try {
+    const openai = getOpenAIInstance();
     const visionResponse = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
@@ -109,6 +133,10 @@ export async function extractTextFromImage(base64Image: string): Promise<string>
     return visionResponse.choices[0].message.content || "";
   } catch (error) {
     console.error("Error extracting text from image:", error);
-    throw new Error("Failed to extract text from image");
+    if (error instanceof Error) {
+      throw error; // Preserve the original error and stack trace
+    } else {
+      throw new Error("Failed to extract text from image");
+    }
   }
 }

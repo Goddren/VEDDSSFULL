@@ -1,7 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { analyzeChartImage } from "./openai";
+import { analyzeChartImage, testOpenAIApiKey } from "./openai";
 import multer from "multer";
 import fs from "fs";
 import path from "path";
@@ -113,7 +113,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(analysis);
     } catch (error) {
       console.error("Analysis error:", error);
-      res.status(500).json({ message: "Error analyzing chart" });
+      // Provide more detailed error information
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      const errorDetails = error instanceof Error && (error as any).response ? 
+        JSON.stringify((error as any).response.data || {}) : '';
+      
+      res.status(500).json({ 
+        message: "Error analyzing chart", 
+        error: errorMessage,
+        details: errorDetails || '',
+        apiKeyPresent: !!process.env.OPENAI_API_KEY,
+        apiKeyLength: process.env.OPENAI_API_KEY ? process.env.OPENAI_API_KEY.length : 0
+      });
     }
   });
 
@@ -145,6 +156,55 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching analysis:", error);
       res.status(500).json({ message: "Error fetching analysis" });
+    }
+  });
+
+  // API key validation endpoint
+  app.get("/api/validate-key", async (_req: Request, res: Response) => {
+    try {
+      const isValid = await testOpenAIApiKey();
+      
+      res.json({ 
+        valid: isValid,
+        apiKeyPresent: !!process.env.OPENAI_API_KEY,
+        apiKeyLength: process.env.OPENAI_API_KEY ? process.env.OPENAI_API_KEY.length : 0
+      });
+    } catch (error) {
+      console.error("Error validating API key:", error);
+      res.status(500).json({ 
+        message: "Error validating API key",
+        valid: false,
+        apiKeyPresent: !!process.env.OPENAI_API_KEY,
+        apiKeyLength: process.env.OPENAI_API_KEY ? process.env.OPENAI_API_KEY.length : 0
+      });
+    }
+  });
+  
+  // API key configuration endpoint
+  app.post("/api/configure-key", async (req: Request, res: Response) => {
+    try {
+      const { apiKey } = req.body;
+      
+      if (!apiKey || typeof apiKey !== 'string' || apiKey.trim() === '') {
+        return res.status(400).json({ message: "Invalid API key provided" });
+      }
+      
+      // Set the API key in environment
+      process.env.OPENAI_API_KEY = apiKey.trim();
+      
+      // Test if it works
+      const isValid = await testOpenAIApiKey();
+      
+      res.json({ 
+        message: isValid ? "API key configured successfully" : "API key saved but validation failed",
+        valid: isValid
+      });
+    } catch (error) {
+      console.error("Error configuring API key:", error);
+      res.status(500).json({ 
+        message: "Error configuring API key",
+        valid: false
+      });
     }
   });
 

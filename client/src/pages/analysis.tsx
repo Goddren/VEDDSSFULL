@@ -1,12 +1,13 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import ImageUpload from '@/components/ui/image-upload';
 import LoadingIndicator from '@/components/ui/loading-indicator';
 import ProgressSteps from '@/components/ui/progress-steps';
 import AnalysisResult from '@/components/charts/analysis-result';
+import { ApiKeySettings } from '@/components/ui/api-key-settings';
 import { useToast } from '@/hooks/use-toast';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/queryClient';
 import { AnalysisState, analysisPipeline, ChartAnalysisResponse } from '@shared/types';
 import { delay } from '@/lib/utils';
@@ -17,6 +18,7 @@ const Analysis: React.FC = () => {
   const [uploadedImageUrl, setUploadedImageUrl] = useState<string>('');
   const [analysisProgress, setAnalysisProgress] = useState<number>(0);
   const [analysisResult, setAnalysisResult] = useState<ChartAnalysisResponse | null>(null);
+  const [apiKeyValid, setApiKeyValid] = useState<boolean | null>(null);
   const { toast } = useToast();
 
   // Upload image mutation
@@ -68,11 +70,36 @@ const Analysis: React.FC = () => {
     }
   });
 
+  // Check if OpenAI API key is valid
+  useEffect(() => {
+    async function checkApiKey() {
+      try {
+        const response = await apiRequest('GET', '/api/validate-key');
+        const data = await response.json();
+        setApiKeyValid(data.valid);
+      } catch (error) {
+        setApiKeyValid(false);
+      }
+    }
+    
+    checkApiKey();
+  }, []);
+
   const handleImageUpload = useCallback((file: File) => {
+    // Check for API key validity first
+    if (apiKeyValid === false) {
+      toast({
+        title: 'API Key Required',
+        description: 'Please configure your OpenAI API key before analyzing images.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    
     setUploadedFile(file);
     setAnalysisState(AnalysisState.UPLOADING);
     uploadMutation.mutate(file);
-  }, [uploadMutation]);
+  }, [uploadMutation, apiKeyValid, toast]);
 
   const startAnalysis = useCallback((imageUrl: string) => {
     setAnalysisState(AnalysisState.ANALYZING);
@@ -87,7 +114,7 @@ const Analysis: React.FC = () => {
       analysisMutation.mutate(uploadedImageUrl);
     }
   }, [uploadedImageUrl, analysisMutation]);
-
+  
   // Generate progress steps based on current state
   const getProgressSteps = useCallback(() => {
     const currentStepIndex = Math.floor((analysisProgress / 100) * analysisPipeline.length);
@@ -95,10 +122,10 @@ const Analysis: React.FC = () => {
     return analysisPipeline.map((step, index) => ({
       ...step,
       status: index < currentStepIndex 
-        ? 'completed' 
+        ? 'completed' as const
         : index === currentStepIndex 
-          ? 'current' 
-          : 'upcoming'
+          ? 'current' as const
+          : 'upcoming' as const
     }));
   }, [analysisProgress]);
 
@@ -188,6 +215,20 @@ const Analysis: React.FC = () => {
 
         {/* Analysis Section */}
         <div className="col-span-1 lg:col-span-2">
+          {/* API Key Configuration Card */}
+          {apiKeyValid === false && (
+            <Card className="bg-[#1E1E1E] border-[#2D2D2D] shadow-lg mb-6">
+              <CardHeader>
+                <CardTitle>API Key Required</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ApiKeySettings 
+                  onKeySaved={() => setApiKeyValid(true)}
+                />
+              </CardContent>
+            </Card>
+          )}
+          
           {analysisState === AnalysisState.INITIAL && (
             <Card className="bg-[#1E1E1E] border-[#2D2D2D] shadow-lg h-96 flex items-center justify-center">
               <CardContent className="text-center pt-6">
@@ -231,15 +272,32 @@ const Analysis: React.FC = () => {
                     <i className="fas fa-exclamation-triangle text-red-500 text-xl"></i>
                   </div>
                   <h3 className="text-xl font-medium">Analysis Failed</h3>
-                  <p className="text-gray-400 mt-2 text-center max-w-md">
-                    We encountered an error processing your chart. Please try again with a different image.
-                  </p>
-                  <button
-                    className="mt-6 px-4 py-2 bg-[#E64A4A] hover:bg-opacity-80 rounded-lg transition-colors font-medium"
-                    onClick={() => setAnalysisState(AnalysisState.INITIAL)}
-                  >
-                    Try Again
-                  </button>
+                  
+                  {apiKeyValid === false ? (
+                    <div className="mt-4 text-center">
+                      <p className="text-gray-400 text-center max-w-md mb-6">
+                        The analysis failed because a valid OpenAI API key is required. Please configure your API key below.
+                      </p>
+                      <ApiKeySettings 
+                        onKeySaved={() => {
+                          setApiKeyValid(true);
+                          setAnalysisState(AnalysisState.INITIAL);
+                        }}
+                      />
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-gray-400 mt-2 text-center max-w-md">
+                        We encountered an error processing your chart. Please try again with a different image.
+                      </p>
+                      <button
+                        className="mt-6 px-4 py-2 bg-[#E64A4A] hover:bg-opacity-80 rounded-lg transition-colors font-medium"
+                        onClick={() => setAnalysisState(AnalysisState.INITIAL)}
+                      >
+                        Try Again
+                      </button>
+                    </>
+                  )}
                 </div>
               </CardContent>
             </Card>
