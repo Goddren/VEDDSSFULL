@@ -111,9 +111,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       res.json(analysis);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Analysis error:", error);
-      // Provide more detailed error information
+      
+      // Check for specific OpenAI error types
+      if (error && error.code === 'billing_not_active' || 
+          (error && error.error && error.error.code === 'billing_not_active')) {
+        return res.status(403).json({ 
+          message: "OpenAI API key billing issue", 
+          error: "Your OpenAI account is not active. Please check your billing details on the OpenAI website.",
+          code: "BILLING_INACTIVE",
+          apiKeyPresent: !!process.env.OPENAI_API_KEY
+        });
+      } else if (error && error.status === 401 || 
+                (error && error.error && error.error.type === 'invalid_request_error')) {
+        return res.status(401).json({ 
+          message: "Invalid OpenAI API key", 
+          error: "The provided API key is invalid. Please check your API key and try again.",
+          code: "INVALID_API_KEY",
+          apiKeyPresent: !!process.env.OPENAI_API_KEY
+        });
+      } else if (error && error.status === 429 || 
+                (error && error.error && error.error.type === 'rate_limit_exceeded')) {
+        return res.status(429).json({ 
+          message: "OpenAI rate limit exceeded", 
+          error: "You've exceeded your OpenAI API rate limit. Please try again later or check your usage tier.",
+          code: "RATE_LIMIT_EXCEEDED",
+          apiKeyPresent: !!process.env.OPENAI_API_KEY
+        });
+      }
+      
+      // Provide more detailed error information for other errors
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
       const errorDetails = error instanceof Error && (error as any).response ? 
         JSON.stringify((error as any).response.data || {}) : '';
@@ -169,10 +197,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
         apiKeyPresent: !!process.env.OPENAI_API_KEY,
         apiKeyLength: process.env.OPENAI_API_KEY ? process.env.OPENAI_API_KEY.length : 0
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error validating API key:", error);
+      
+      // Check for specific OpenAI error types
+      if (error && error.code === 'billing_not_active' || 
+          (error && error.error && error.error.code === 'billing_not_active')) {
+        return res.status(403).json({ 
+          message: "Billing not active",
+          error: "Your OpenAI account is not active. Please check your billing details on the OpenAI website.",
+          code: "BILLING_INACTIVE",
+          valid: false,
+          apiKeyPresent: !!process.env.OPENAI_API_KEY
+        });
+      } else if (error && error.status === 401 || 
+                (error && error.error && error.error.type === 'invalid_request_error')) {
+        return res.status(401).json({ 
+          message: "Invalid API key",
+          error: "The provided API key is invalid. Please check your API key and try again.",
+          code: "INVALID_API_KEY",
+          valid: false,
+          apiKeyPresent: !!process.env.OPENAI_API_KEY
+        });
+      }
+      
       res.status(500).json({ 
         message: "Error validating API key",
+        error: error instanceof Error ? error.message : "Unknown error",
         valid: false,
         apiKeyPresent: !!process.env.OPENAI_API_KEY,
         apiKeyLength: process.env.OPENAI_API_KEY ? process.env.OPENAI_API_KEY.length : 0
@@ -199,10 +250,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         message: isValid ? "API key configured successfully" : "API key saved but validation failed",
         valid: isValid
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error configuring API key:", error);
+      
+      // Check for specific OpenAI error types
+      if (error && error.code === 'billing_not_active' || 
+          (error && error.error && error.error.code === 'billing_not_active')) {
+        return res.status(403).json({ 
+          message: "Billing not active",
+          error: "Your OpenAI account is not active. Please check your billing details on the OpenAI website.",
+          code: "BILLING_INACTIVE",
+          valid: false
+        });
+      } else if (error && error.status === 401 || 
+                (error && error.error && error.error.type === 'invalid_request_error')) {
+        return res.status(401).json({ 
+          message: "Invalid API key",
+          error: "The provided API key is invalid. Please check your API key and try again.",
+          code: "INVALID_API_KEY",
+          valid: false
+        });
+      }
+      
       res.status(500).json({ 
         message: "Error configuring API key",
+        error: error instanceof Error ? error.message : "Unknown error",
         valid: false
       });
     }

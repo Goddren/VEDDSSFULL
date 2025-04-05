@@ -56,11 +56,8 @@ export function ApiKeySettings({ onKeySaved, className }: ApiKeySettingsProps) {
       const configResponse = await apiRequest('POST', '/api/configure-key', { apiKey });
       const configData = await configResponse.json();
 
-      // Validate the key
-      const response = await apiRequest("GET", "/api/validate-key");
-      const data = await response.json();
-      
-      if (data.valid) {
+      // Check if the configuration was successful
+      if (configData.valid) {
         toast({
           title: "API Key Saved",
           description: "Your API key has been saved and validated successfully.",
@@ -68,17 +65,37 @@ export function ApiKeySettings({ onKeySaved, className }: ApiKeySettingsProps) {
         setKeyStatus('valid');
         if (onKeySaved) onKeySaved();
       } else {
-        toast({
-          title: "Invalid API Key",
-          description: "The API key could not be validated. Please check and try again.",
-          variant: "destructive",
-        });
+        // Handle known error cases
+        if (configData.code === "BILLING_INACTIVE") {
+          toast({
+            title: "Billing Issue",
+            description: "Your OpenAI API key is valid, but you need to add a payment method in your OpenAI account.",
+            variant: "destructive",
+          });
+        } else if (configData.code === "INVALID_API_KEY") {
+          toast({
+            title: "Invalid API Key",
+            description: "The API key format is incorrect or it doesn't exist. Please check and try again.",
+            variant: "destructive",
+          });
+        } else {
+          toast({
+            title: "API Key Invalid",
+            description: configData.error || "The API key could not be validated. Please check and try again.",
+            variant: "destructive",
+          });
+        }
         setKeyStatus('invalid');
       }
-    } catch (error) {
+    } catch (error: any) {
+      console.error("API key configuration error:", error);
+      
+      // Try to extract error message if available
+      const errorMsg = error.message || "There was an error validating your API key.";
+      
       toast({
         title: "Error Saving API Key",
-        description: "There was an error validating your API key.",
+        description: errorMsg,
         variant: "destructive",
       });
       setKeyStatus('invalid');
@@ -133,9 +150,15 @@ export function ApiKeySettings({ onKeySaved, className }: ApiKeySettingsProps) {
         )}
       </div>
       
-      <div className="text-xs text-muted-foreground">
-        To get an API key, sign up on <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" className="underline">OpenAI's platform</a>.
-        Note that analyzing images requires a paid account with access to the gpt-4o model.
+      <div className="space-y-2 text-xs text-muted-foreground">
+        <p>
+          To get an API key, sign up on <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" className="underline">OpenAI's platform</a>.
+          Note that analyzing images requires a paid account with access to the gpt-4o model.
+        </p>
+        <p className="text-amber-500">
+          <strong>Important:</strong> Your OpenAI account must have active billing set up as this application 
+          uses gpt-4o for image analysis, which is a paid API and not available with free credits.
+        </p>
       </div>
     </div>
   );
