@@ -3,6 +3,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { ChartAnalysisResponse } from '@shared/types';
 import { formatCurrency, getConfidenceColor, getDirectionColor, getStrengthColor } from '@/lib/utils';
+import { AnimatedTooltip } from '@/components/ui/animated-tooltip';
+import { MarketInsight, DirectionInsight } from '@/components/ui/market-insight';
 
 interface AnalysisResultProps {
   analysis: ChartAnalysisResponse;
@@ -56,9 +58,10 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({ analysis, imageUrl, onR
               <div className="absolute top-0 left-0 w-1 h-full bg-[#E64A4A]"></div>
               <div className="flex justify-between items-center mb-3">
                 <h3 className="font-semibold">Market Signal</h3>
-                <div className={`px-3 py-1 rounded-md font-medium ${getDirectionColor(analysis.direction)}`}>
-                  {analysis.direction}
-                </div>
+                <DirectionInsight 
+                  direction={analysis.direction} 
+                  description={`${analysis.confidence} confidence ${analysis.direction.toLowerCase()} signal with a potential gain of ${analysis.potentialPips} pips.`}
+                />
               </div>
               
               <div className="grid grid-cols-2 gap-4 mb-4">
@@ -128,7 +131,12 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({ analysis, imageUrl, onR
               <div className="grid grid-cols-2 gap-4 mb-3">
                 <div>
                   <p className="text-sm text-gray-400">Risk/Reward Ratio</p>
-                  <p className="font-medium">{analysis.riskRewardRatio}</p>
+                  <MarketInsight
+                    term={analysis.riskRewardRatio}
+                    category="risk"
+                    animation="volatile"
+                    description={`The risk-to-reward ratio of ${analysis.riskRewardRatio} shows the potential profit compared to possible loss. Lower values like 1:3 or 1:4 indicate better trading opportunities.`}
+                  />
                 </div>
                 <div>
                   <p className="text-sm text-gray-400">Potential Pips</p>
@@ -160,8 +168,13 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({ analysis, imageUrl, onR
                       <i className="fas fa-chart-line text-[#E64A4A]"></i>
                     </div>
                     <div>
-                      <h4 className="font-medium">{pattern.name}</h4>
-                      <p className="text-sm text-gray-400">{pattern.description}</p>
+                      <MarketInsight
+                        term={pattern.name}
+                        category="pattern"
+                        animation={analysis.direction.toLowerCase().includes('buy') ? 'bullish' : 'bearish'}
+                        description={`${pattern.description} - ${pattern.type}`}
+                      />
+                      <p className="text-sm text-gray-400">{pattern.type}</p>
                     </div>
                   </div>
                   <span className={`text-sm font-medium px-2 py-0.5 rounded ${getStrengthColor(pattern.strength)}`}>
@@ -192,7 +205,12 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({ analysis, imageUrl, onR
                       <i className={`fas fa-${indicator.name === 'RSI' ? 'signal' : 'wave-square'} text-[#E64A4A]`}></i>
                     </div>
                     <div>
-                      <h4 className="font-medium">{indicator.name}</h4>
+                      <MarketInsight
+                        term={indicator.name}
+                        category="indicator"
+                        animation={indicator.signal.toLowerCase().includes('buy') ? 'bullish' : indicator.signal.toLowerCase().includes('sell') ? 'bearish' : 'sideways'}
+                        description={`${indicator.type} - ${indicator.details}`}
+                      />
                       <p className="text-sm text-gray-400">{indicator.type}</p>
                     </div>
                   </div>
@@ -221,7 +239,12 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({ analysis, imageUrl, onR
               {analysis.supportResistance && analysis.supportResistance.length > 0 ? (
                 analysis.supportResistance.map((level, index) => (
                   <div key={index} className="flex justify-between items-center">
-                    <span className="text-sm">{level.strength} {level.type}</span>
+                    <MarketInsight
+                      term={`${level.strength} ${level.type}`}
+                      category="level"
+                      animation={level.type.toLowerCase().includes('resistance') ? 'resistance' : 'support'}
+                      description={`A ${level.strength.toLowerCase()} ${level.type.toLowerCase()} level at ${level.level} that may impact price movement.`}
+                    />
                     <span className="font-medium">{level.level}</span>
                   </div>
                 ))
@@ -265,7 +288,12 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({ analysis, imageUrl, onR
               <i className="fas fa-robot text-white"></i>
             </div>
             <div>
-              <h4 className="font-medium">AI-Powered Strategy</h4>
+              <MarketInsight
+                term="AI-Powered Strategy"
+                category="strategy"
+                animation="volatile"
+                description={`Trading recommendation based on the analysis of ${(analysis.patterns?.length || 0) + (analysis.indicators?.length || 0)} pattern and indicator signals.`}
+              />
               <p className="text-sm text-gray-400">
                 Based on {(analysis.patterns?.length || 0) + (analysis.indicators?.length || 0)} pattern and indicator signals
               </p>

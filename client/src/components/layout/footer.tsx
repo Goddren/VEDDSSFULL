@@ -77,9 +77,9 @@ const Footer: React.FC = () => {
                         </a>
                       ) : (
                         <Link to={link.href}>
-                          <a className="text-muted-foreground hover:text-foreground transition-colors cursor-pointer">
+                          <span className="text-muted-foreground hover:text-foreground transition-colors cursor-pointer">
                             {link.name}
-                          </a>
+                          </span>
                         </Link>
                       )}
                     </li>
