@@ -92,200 +92,200 @@ export default function ProfilePage() {
             <h1 className="text-2xl font-bold">{user?.fullName || user?.username}</h1>
             <p className="text-muted-foreground">{user?.email}</p>
           </div>
-
-          <Tabs defaultValue="profile" value={activeTab} onValueChange={setActiveTab} orientation="vertical" className="w-full">
-            <TabsList className="grid w-full">
-              <TabsTrigger value="profile" className="flex items-center justify-start gap-2 px-3">
-                <User className="h-4 w-4" />
-                <span>Profile</span>
-              </TabsTrigger>
-              <TabsTrigger value="security" className="flex items-center justify-start gap-2 px-3">
-                <Shield className="h-4 w-4" />
-                <span>Security</span>
-              </TabsTrigger>
-              <TabsTrigger value="api" className="flex items-center justify-start gap-2 px-3">
-                <Key className="h-4 w-4" />
-                <span>API Settings</span>
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
         </div>
 
         {/* Profile Content */}
         <div className="md:w-2/3">
-          <TabsContent value="profile" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Personal Information</CardTitle>
-                <CardDescription>
-                  Update your personal information and contact details
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Form {...profileForm}>
-                  <form onSubmit={profileForm.handleSubmit(onProfileSubmit)} className="space-y-6">
-                    <FormField
-                      control={profileForm.control}
-                      name="fullName"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Full Name</FormLabel>
-                          <FormControl>
-                            <Input placeholder="Enter your full name" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={profileForm.control}
-                      name="email"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Email</FormLabel>
-                          <FormControl>
-                            <Input placeholder="Enter your email" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <Button type="submit" disabled={updateProfileMutation.isPending}>
-                      {updateProfileMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                      Save Changes
-                    </Button>
-                  </form>
-                </Form>
-              </CardContent>
-            </Card>
+          <Tabs defaultValue="profile" value={activeTab} onValueChange={setActiveTab} className="w-full">
+            <TabsList className="grid grid-cols-3 mb-8">
+              <TabsTrigger value="profile" className="flex items-center justify-center gap-2">
+                <User className="h-4 w-4" />
+                <span>Profile</span>
+              </TabsTrigger>
+              <TabsTrigger value="security" className="flex items-center justify-center gap-2">
+                <Shield className="h-4 w-4" />
+                <span>Security</span>
+              </TabsTrigger>
+              <TabsTrigger value="api" className="flex items-center justify-center gap-2">
+                <Key className="h-4 w-4" />
+                <span>API Settings</span>
+              </TabsTrigger>
+            </TabsList>
+            
+            <TabsContent value="profile" className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Personal Information</CardTitle>
+                  <CardDescription>
+                    Update your personal information and contact details
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Form {...profileForm}>
+                    <form onSubmit={profileForm.handleSubmit(onProfileSubmit)} className="space-y-6">
+                      <FormField
+                        control={profileForm.control}
+                        name="fullName"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Full Name</FormLabel>
+                            <FormControl>
+                              <Input placeholder="Enter your full name" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={profileForm.control}
+                        name="email"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Email</FormLabel>
+                            <FormControl>
+                              <Input placeholder="Enter your email" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <Button type="submit" disabled={updateProfileMutation.isPending}>
+                        {updateProfileMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                        Save Changes
+                      </Button>
+                    </form>
+                  </Form>
+                </CardContent>
+              </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle>Account Information</CardTitle>
-                <CardDescription>
-                  Your account details and membership information
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <dl className="space-y-4">
-                  <div className="flex flex-col sm:flex-row sm:gap-1">
-                    <dt className="font-medium text-muted-foreground min-w-40">Username:</dt>
-                    <dd>{user?.username}</dd>
-                  </div>
-                  <div className="flex flex-col sm:flex-row sm:gap-1">
-                    <dt className="font-medium text-muted-foreground min-w-40">Member Since:</dt>
-                    <dd>{user?.createdAt ? new Date(user.createdAt).toLocaleDateString() : "N/A"}</dd>
-                  </div>
-                </dl>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="security" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Change Password</CardTitle>
-                <CardDescription>
-                  Update your password to keep your account secure
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Form {...passwordForm}>
-                  <form onSubmit={passwordForm.handleSubmit(onPasswordSubmit)} className="space-y-6">
-                    <FormField
-                      control={passwordForm.control}
-                      name="currentPassword"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Current Password</FormLabel>
-                          <FormControl>
-                            <Input type="password" placeholder="Enter your current password" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={passwordForm.control}
-                      name="newPassword"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>New Password</FormLabel>
-                          <FormControl>
-                            <Input type="password" placeholder="Enter your new password" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={passwordForm.control}
-                      name="confirmPassword"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Confirm New Password</FormLabel>
-                          <FormControl>
-                            <Input type="password" placeholder="Confirm your new password" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <Button type="submit" disabled={changePasswordMutation.isPending}>
-                      {changePasswordMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                      Update Password
-                    </Button>
-                  </form>
-                </Form>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Account Security</CardTitle>
-                <CardDescription>
-                  Additional security settings for your account
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-medium">Two-Factor Authentication</p>
-                      <p className="text-muted-foreground text-sm">
-                        Add an extra layer of security to your account
-                      </p>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Account Information</CardTitle>
+                  <CardDescription>
+                    Your account details and membership information
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <dl className="space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:gap-1">
+                      <dt className="font-medium text-muted-foreground min-w-40">Username:</dt>
+                      <dd>{user?.username}</dd>
                     </div>
-                    <Button variant="outline" disabled>Coming Soon</Button>
-                  </div>
-                  <Separator />
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-medium">Session Management</p>
-                      <p className="text-muted-foreground text-sm">
-                        Manage your active sessions and devices
-                      </p>
+                    <div className="flex flex-col sm:flex-row sm:gap-1">
+                      <dt className="font-medium text-muted-foreground min-w-40">Member Since:</dt>
+                      <dd>{user?.createdAt ? new Date(user.createdAt).toLocaleDateString() : "N/A"}</dd>
                     </div>
-                    <Button variant="outline" disabled>Coming Soon</Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
+                  </dl>
+                </CardContent>
+              </Card>
+            </TabsContent>
 
-          <TabsContent value="api" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>OpenAI API Settings</CardTitle>
-                <CardDescription>
-                  Manage your OpenAI API key for chart analysis functionality
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ApiKeySettings className="max-w-none" />
-              </CardContent>
-            </Card>
-          </TabsContent>
+            <TabsContent value="security" className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Change Password</CardTitle>
+                  <CardDescription>
+                    Update your password to keep your account secure
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Form {...passwordForm}>
+                    <form onSubmit={passwordForm.handleSubmit(onPasswordSubmit)} className="space-y-6">
+                      <FormField
+                        control={passwordForm.control}
+                        name="currentPassword"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Current Password</FormLabel>
+                            <FormControl>
+                              <Input type="password" placeholder="Enter your current password" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={passwordForm.control}
+                        name="newPassword"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>New Password</FormLabel>
+                            <FormControl>
+                              <Input type="password" placeholder="Enter your new password" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={passwordForm.control}
+                        name="confirmPassword"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Confirm New Password</FormLabel>
+                            <FormControl>
+                              <Input type="password" placeholder="Confirm your new password" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <Button type="submit" disabled={changePasswordMutation.isPending}>
+                        {changePasswordMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                        Update Password
+                      </Button>
+                    </form>
+                  </Form>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Account Security</CardTitle>
+                  <CardDescription>
+                    Additional security settings for your account
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-medium">Two-Factor Authentication</p>
+                        <p className="text-muted-foreground text-sm">
+                          Add an extra layer of security to your account
+                        </p>
+                      </div>
+                      <Button variant="outline" disabled>Coming Soon</Button>
+                    </div>
+                    <Separator />
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-medium">Session Management</p>
+                        <p className="text-muted-foreground text-sm">
+                          Manage your active sessions and devices
+                        </p>
+                      </div>
+                      <Button variant="outline" disabled>Coming Soon</Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="api" className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>OpenAI API Settings</CardTitle>
+                  <CardDescription>
+                    Manage your OpenAI API key for chart analysis functionality
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <ApiKeySettings className="max-w-none" />
+                </CardContent>
+              </Card>
+            </TabsContent>
+          </Tabs>
         </div>
       </div>
     </div>
