@@ -90,7 +90,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Store the analysis in the database
       const chartAnalysis = await storage.createChartAnalysis({
-        userId: req.body.userId,
+        userId: req.body.userId || 1, // Default to user ID 1 if none provided
         imageUrl: imageUrl,
         symbol: analysis.symbol,
         timeframe: analysis.timeframe,
