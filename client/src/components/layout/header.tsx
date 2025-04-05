@@ -1,8 +1,9 @@
 import React from 'react';
 import { Link, useLocation } from 'wouter';
+import { useAuth } from '@/hooks/use-auth';
 import VeddLogo from '@/components/ui/vedd-logo';
 import { Button } from '@/components/ui/button';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { 
   DropdownMenu,
   DropdownMenuContent,
@@ -12,77 +13,126 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
-import { Menu, Bell } from 'lucide-react';
+import { Menu, Bell, User, LogOut, Settings, History, LineChart } from 'lucide-react';
 
 const Header: React.FC = () => {
   const [location] = useLocation();
+  const { user, logoutMutation } = useAuth();
 
   const navItems = [
-    { name: 'Dashboard', path: '/dashboard', active: location === '/dashboard' },
-    { name: 'Analysis', path: '/analysis', active: location === '/analysis' },
-    { name: 'Historical', path: '/historical', active: location === '/historical' },
-    { name: 'Settings', path: '/settings', active: location === '/settings' }
+    { name: 'Dashboard', path: '/dashboard', active: location === '/dashboard', icon: <Settings className="h-4 w-4 mr-2" /> },
+    { name: 'Analysis', path: '/analysis', active: location === '/analysis', icon: <LineChart className="h-4 w-4 mr-2" /> },
+    { name: 'Historical', path: '/historical', active: location === '/historical', icon: <History className="h-4 w-4 mr-2" /> },
   ];
 
+  // Get user initials for avatar fallback
+  const getUserInitials = () => {
+    if (!user) return "?";
+    if (user.fullName) {
+      return user.fullName
+        .split(" ")
+        .map((n) => n[0])
+        .join("")
+        .toUpperCase()
+        .substring(0, 2);
+    }
+    return user.username.substring(0, 2).toUpperCase();
+  };
+
+  const handleLogout = () => {
+    logoutMutation.mutate();
+  };
+
   return (
-    <header className="w-full bg-[#0A0A0A] py-4 px-4 md:px-8 shadow-lg">
+    <header className="w-full bg-background border-b py-3 px-4 md:px-8">
       <div className="container mx-auto flex justify-between items-center">
         <div className="flex items-center">
-          <Link href="/">
-            <a className="flex items-center">
-              <VeddLogo height={40} />
-              <span className="ml-2 text-xl font-bold tracking-tight">VEDD</span>
-            </a>
+          <Link href="/" className="flex items-center">
+            <VeddLogo height={40} />
+            <span className="ml-2 text-xl font-bold tracking-tight">VEDD</span>
           </Link>
         </div>
         
         <div className="hidden md:flex space-x-8">
           {navItems.map(item => (
-            <Link key={item.path} href={item.path}>
-              <a className={`transition-colors ${item.active ? 'text-white' : 'text-gray-400 hover:text-white'}`}>
-                {item.name}
-              </a>
+            <Link 
+              key={item.path} 
+              href={item.path}
+              className={`transition-colors flex items-center ${item.active ? 'text-primary font-medium' : 'text-muted-foreground hover:text-foreground'}`}
+            >
+              {item.name}
             </Link>
           ))}
         </div>
         
         <div className="flex items-center space-x-4">
-          <Button variant="outline" size="icon" className="rounded-full bg-[#333333] hover:bg-[#1E1E1E] border-none">
-            <Bell className="h-5 w-5 text-gray-300" />
+          <Button variant="ghost" size="icon" className="rounded-full">
+            <Bell className="h-5 w-5" />
           </Button>
           
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Avatar className="h-8 w-8 bg-[#E64A4A] cursor-pointer">
-                <AvatarFallback>US</AvatarFallback>
+              <Avatar className="h-8 w-8 cursor-pointer">
+                <AvatarImage src={user?.profileImage || ""} alt={user?.username || "User"} />
+                <AvatarFallback className="bg-primary/10 text-primary">{getUserInitials()}</AvatarFallback>
               </Avatar>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuLabel>My Account</DropdownMenuLabel>
+              <DropdownMenuLabel>
+                <div className="flex flex-col space-y-1">
+                  <p className="text-sm font-medium leading-none">{user?.fullName || user?.username}</p>
+                  <p className="text-xs leading-none text-muted-foreground">{user?.email}</p>
+                </div>
+              </DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem>Profile</DropdownMenuItem>
-              <DropdownMenuItem>Subscription</DropdownMenuItem>
-              <DropdownMenuItem>Settings</DropdownMenuItem>
+              <DropdownMenuItem className="cursor-pointer" asChild>
+                <Link href="/profile">
+                  <div className="flex items-center w-full">
+                    <User className="mr-2 h-4 w-4" />
+                    <span>Profile</span>
+                  </div>
+                </Link>
+              </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem>Log out</DropdownMenuItem>
+              <DropdownMenuItem onClick={handleLogout} className="cursor-pointer">
+                <LogOut className="mr-2 h-4 w-4" />
+                <span>Log out</span>
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
           
           <Sheet>
             <SheetTrigger asChild>
-              <Button variant="outline" size="icon" className="md:hidden rounded bg-[#333333] hover:bg-[#1E1E1E] border-none">
-                <Menu className="h-5 w-5 text-gray-300" />
+              <Button variant="outline" size="icon" className="md:hidden rounded">
+                <Menu className="h-5 w-5" />
               </Button>
             </SheetTrigger>
-            <SheetContent side="right" className="bg-[#0A0A0A] border-[#333333]">
+            <SheetContent side="right">
               <div className="flex flex-col gap-6 mt-10">
                 {navItems.map(item => (
-                  <Link key={item.path} href={item.path}>
-                    <a className={`text-lg font-medium transition-colors ${item.active ? 'text-white' : 'text-gray-400 hover:text-white'}`}>
-                      {item.name}
-                    </a>
+                  <Link 
+                    key={item.path} 
+                    href={item.path}
+                    className={`text-lg font-medium transition-colors flex items-center ${item.active ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+                  >
+                    {item.icon}
+                    {item.name}
                   </Link>
                 ))}
+                <Link 
+                  href="/profile"
+                  className={`text-lg font-medium transition-colors flex items-center ${location === '/profile' ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+                >
+                  <User className="h-4 w-4 mr-2" />
+                  Profile
+                </Link>
+                <button 
+                  onClick={handleLogout}
+                  className="text-lg font-medium transition-colors flex items-center text-muted-foreground hover:text-foreground text-left"
+                >
+                  <LogOut className="h-4 w-4 mr-2" />
+                  Log out
+                </button>
               </div>
             </SheetContent>
           </Sheet>

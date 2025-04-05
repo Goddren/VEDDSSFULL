@@ -1,6 +1,7 @@
 import React from 'react';
 import VeddLogo from '@/components/ui/vedd-logo';
 import { Link } from 'wouter';
+import { Twitter, Linkedin, Facebook, Instagram, Github } from 'lucide-react';
 
 const Footer: React.FC = () => {
   const footerLinks = [
@@ -39,22 +40,23 @@ const Footer: React.FC = () => {
   ];
 
   const socialLinks = [
-    { icon: 'fab fa-twitter', href: '#' },
-    { icon: 'fab fa-linkedin', href: '#' },
-    { icon: 'fab fa-facebook', href: '#' },
-    { icon: 'fab fa-instagram', href: '#' }
+    { icon: <Twitter className="h-5 w-5" />, href: '#', label: 'Twitter' },
+    { icon: <Linkedin className="h-5 w-5" />, href: '#', label: 'LinkedIn' },
+    { icon: <Facebook className="h-5 w-5" />, href: '#', label: 'Facebook' },
+    { icon: <Instagram className="h-5 w-5" />, href: '#', label: 'Instagram' },
+    { icon: <Github className="h-5 w-5" />, href: '#', label: 'GitHub' }
   ];
 
   return (
-    <footer className="bg-[#0A0A0A] py-8 mt-12">
+    <footer className="bg-background border-t py-8 mt-12">
       <div className="container mx-auto px-4 md:px-8">
-        <div className="flex flex-col md:flex-row justify-between items-center">
+        <div className="flex flex-col md:flex-row justify-between">
           <div className="mb-6 md:mb-0">
             <div className="flex items-center">
               <VeddLogo height={32} />
               <span className="ml-2 text-xl font-bold tracking-tight">VEDD</span>
             </div>
-            <p className="text-gray-400 mt-2">Using the deep science</p>
+            <p className="text-muted-foreground mt-2">AI-powered Trading Chart Analysis</p>
           </div>
           
           <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
@@ -64,7 +66,7 @@ const Footer: React.FC = () => {
                 <ul className="space-y-2">
                   {section.links.map((link, linkIndex) => (
                     <li key={linkIndex}>
-                      <a href={link.href} className="text-gray-400 hover:text-white transition-colors">
+                      <a href={link.href} className="text-muted-foreground hover:text-foreground transition-colors">
                         {link.name}
                       </a>
                     </li>
@@ -75,17 +77,17 @@ const Footer: React.FC = () => {
           </div>
         </div>
         
-        <div className="border-t border-[#333333] mt-8 pt-8 flex flex-col md:flex-row justify-between items-center">
-          <p className="text-gray-400">&copy; {new Date().getFullYear()} VEDD. All rights reserved.</p>
+        <div className="border-t border-border mt-8 pt-8 flex flex-col md:flex-row justify-between items-center">
+          <p className="text-muted-foreground">&copy; {new Date().getFullYear()} VEDD. All rights reserved.</p>
           <div className="flex space-x-4 mt-4 md:mt-0">
             {socialLinks.map((link, index) => (
               <a 
                 key={index} 
                 href={link.href} 
-                className="text-gray-400 hover:text-white transition-colors"
-                aria-label={`Social link ${index + 1}`}
+                className="text-muted-foreground hover:text-foreground transition-colors"
+                aria-label={link.label}
               >
-                <i className={link.icon}></i>
+                {link.icon}
               </a>
             ))}
           </div>

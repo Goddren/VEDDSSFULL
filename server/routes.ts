@@ -45,6 +45,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Image upload endpoint
   app.post("/api/upload", upload.single('chart'), async (req: Request, res: Response) => {
     try {
+      // Check if user is authenticated
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ 
+          success: false,
+          message: "Authentication required" 
+        });
+      }
+
       if (!req.file) {
         return res.status(400).json({ message: "No file uploaded" });
       }
@@ -67,6 +75,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Chart analysis endpoint
   app.post("/api/analyze", async (req: Request, res: Response) => {
     try {
+      // Check if user is authenticated
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ 
+          success: false,
+          message: "Authentication required" 
+        });
+      }
+
       const { imageUrl } = req.body;
       
       if (!imageUrl) {
@@ -97,8 +113,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Store the analysis in the database
       try {
+        // Get the user ID from the authenticated user
+        const userId = (req.user as Express.User).id;
+        
         const chartAnalysis = await storage.createChartAnalysis({
-          userId: req.body.userId || 1, // Default to user ID 1 if none provided
+          userId,
           imageUrl: imageUrl,
           symbol: analysis.symbol || "Unknown",
           timeframe: analysis.timeframe || "Unknown",
@@ -172,9 +191,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get all analyses
-  app.get("/api/analyses", async (_req: Request, res: Response) => {
+  app.get("/api/analyses", async (req: Request, res: Response) => {
     try {
-      const analyses = await storage.getAllChartAnalyses();
+      // Check if user is authenticated
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ 
+          success: false,
+          message: "Authentication required" 
+        });
+      }
+
+      // Get user ID from session
+      const userId = (req.user as Express.User).id;
+      
+      // Get only analyses for this user
+      const analyses = await storage.getChartAnalysesByUserId(userId);
       res.json(analyses);
     } catch (error) {
       console.error("Error fetching analyses:", error);
@@ -185,6 +216,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get single analysis by ID
   app.get("/api/analyses/:id", async (req: Request, res: Response) => {
     try {
+      // Check if user is authenticated
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ 
+          success: false,
+          message: "Authentication required" 
+        });
+      }
+
       const id = parseInt(req.params.id);
       if (isNaN(id)) {
         return res.status(400).json({ message: "Invalid ID" });
@@ -193,6 +232,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const analysis = await storage.getChartAnalysis(id);
       if (!analysis) {
         return res.status(404).json({ message: "Analysis not found" });
+      }
+
+      // Check if the analysis belongs to the user
+      if (analysis.userId !== (req.user as Express.User).id) {
+        return res.status(403).json({ 
+          success: false,
+          message: "You don't have permission to access this analysis" 
+        });
       }
 
       res.json(analysis);
