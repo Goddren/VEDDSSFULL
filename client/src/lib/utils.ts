@@ -20,16 +20,16 @@ export function formatCurrency(value: string | number): string {
   }).format(value);
 }
 
-export function getConfidenceColor(confidence: string): string {
+export function getConfidenceColor(confidence: string, includeBg: boolean = true): string {
   switch (confidence.toLowerCase()) {
     case 'high':
-      return 'bg-red-500/20 text-red-500';
+      return includeBg ? 'bg-red-500/20 text-red-500' : 'text-red-500';
     case 'medium':
-      return 'bg-yellow-500/20 text-yellow-500';
+      return includeBg ? 'bg-yellow-500/20 text-yellow-500' : 'text-yellow-500';
     case 'low':
-      return 'bg-blue-500/20 text-blue-500';
+      return includeBg ? 'bg-blue-500/20 text-blue-500' : 'text-blue-500';
     default:
-      return 'bg-gray-500/20 text-gray-500';
+      return includeBg ? 'bg-gray-500/20 text-gray-500' : 'text-gray-500';
   }
 }
 

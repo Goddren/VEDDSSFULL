@@ -22,6 +22,7 @@ import SupportPage from "@/pages/support";
 import PrivacyPage from "@/pages/privacy";
 import TermsPage from "@/pages/terms";
 import SecurityPage from "@/pages/security";
+import AnalysisDetail from "@/pages/analysis-detail";
 
 import { useLocation } from "wouter";
 
@@ -54,6 +55,7 @@ function AppLayout() {
           {/* Protected routes */}
           <ProtectedRoute path="/dashboard" component={Dashboard} />
           <ProtectedRoute path="/analysis" component={Analysis} />
+          <ProtectedRoute path="/analysis/:id" component={AnalysisDetail} />
           <ProtectedRoute path="/historical" component={Historical} />
           <ProtectedRoute path="/profile" component={ProfilePage} />
           <ProtectedRoute path="/achievements" component={AchievementsPage} />
