@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { VolumeAnalysis } from '@shared/types';
 import { MarketInsight } from '@/components/ui/market-insight';
-import { Clock, TrendingUp, BarChart3 } from 'lucide-react';
+import { Clock, TrendingUp, BarChart3, ChevronDown, ChevronUp } from 'lucide-react';
+import SessionTimeConverter from '@/components/ui/session-time-converter';
 
 interface VolumeAnalysisChartProps {
   volumeData: VolumeAnalysis[];
@@ -9,6 +10,8 @@ interface VolumeAnalysisChartProps {
 }
 
 export const VolumeAnalysisChart: React.FC<VolumeAnalysisChartProps> = ({ volumeData, symbol }) => {
+  const [showTimeConverter, setShowTimeConverter] = useState(false);
+  
   if (!volumeData || volumeData.length === 0) {
     return (
       <div className="bg-[#0A0A0A] p-4 rounded-lg text-center text-gray-400">
@@ -126,7 +129,18 @@ export const VolumeAnalysisChart: React.FC<VolumeAnalysisChartProps> = ({ volume
             Session overlaps (e.g., London/New York) often show increased volatility and trading opportunities
           </li>
         </ul>
+        
+        <button 
+          className="mt-4 w-full flex items-center justify-center text-sm py-2 px-3 rounded-md bg-[#1E1E1E] hover:bg-[#2A2A2A] transition-colors"
+          onClick={() => setShowTimeConverter(!showTimeConverter)}
+        >
+          <Clock className="w-4 h-4 mr-2" />
+          {showTimeConverter ? "Hide Session Time Converter" : "Show Session Time Converter"}
+          {showTimeConverter ? <ChevronUp className="w-4 h-4 ml-2" /> : <ChevronDown className="w-4 h-4 ml-2" />}
+        </button>
       </div>
+      
+      {showTimeConverter && <SessionTimeConverter symbol={symbol} />}
     </div>
   );
 };
