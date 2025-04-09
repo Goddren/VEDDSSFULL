@@ -6,8 +6,9 @@ import { setupAuth } from "./auth";
 import { seedAchievements } from "./seed";
 
 const app = express();
-app.use(express.json());
-app.use(express.urlencoded({ extended: false }));
+// Increase the JSON payload limit to handle larger images (10MB)
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: false, limit: '10mb' }));
 
 // Set up authentication
 setupAuth(app);

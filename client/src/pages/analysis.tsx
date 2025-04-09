@@ -14,6 +14,74 @@ import { AnalysisState, analysisPipeline, ChartAnalysisResponse } from '@shared/
 import { delay } from '@/lib/utils';
 import { BarChart3, CameraIcon, LayoutDashboard, Upload } from 'lucide-react';
 
+// Image compression utility
+interface CompressOptions {
+  maxWidth: number;
+  maxHeight: number;
+  quality: number;
+}
+
+async function compressImage(file: File, options: CompressOptions): Promise<File> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.src = URL.createObjectURL(file);
+    
+    img.onload = () => {
+      // Create a canvas element to resize the image
+      const canvas = document.createElement('canvas');
+      let width = img.width;
+      let height = img.height;
+      
+      // Calculate new dimensions while maintaining aspect ratio
+      if (width > options.maxWidth) {
+        height = (height * options.maxWidth) / width;
+        width = options.maxWidth;
+      }
+      
+      if (height > options.maxHeight) {
+        width = (width * options.maxHeight) / height;
+        height = options.maxHeight;
+      }
+      
+      canvas.width = width;
+      canvas.height = height;
+      
+      // Draw the image on the canvas
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        reject(new Error('Failed to get canvas context'));
+        return;
+      }
+      
+      ctx.drawImage(img, 0, 0, width, height);
+      
+      // Convert canvas to Blob
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          reject(new Error('Canvas toBlob failed'));
+          return;
+        }
+        
+        // Create a new File from the blob
+        const compressedFile = new File([blob], file.name, {
+          type: file.type,
+          lastModified: Date.now()
+        });
+        
+        // Release the URL object
+        URL.revokeObjectURL(img.src);
+        
+        resolve(compressedFile);
+      }, file.type, options.quality);
+    };
+    
+    img.onerror = () => {
+      URL.revokeObjectURL(img.src);
+      reject(new Error('Failed to load image'));
+    };
+  });
+}
+
 const Analysis: React.FC = () => {
   const [analysisState, setAnalysisState] = useState<AnalysisState>(AnalysisState.INITIAL);
   const [uploadedImageUrl, setUploadedImageUrl] = useState<string>('');
@@ -27,7 +95,16 @@ const Analysis: React.FC = () => {
     mutationFn: async (file: File) => {
       console.log('Upload mutation started with file:', file.name, file.type, file.size);
       
-      // Read the file as base64 to avoid FormData issues
+      // Compress and resize the image before uploading
+      const compressedImage = await compressImage(file, {
+        maxWidth: 1200,
+        maxHeight: 1200,
+        quality: 0.8
+      });
+      
+      console.log(`Original file size: ${file.size} bytes, compressed size: ${compressedImage.size} bytes`);
+      
+      // Read the compressed file as base64
       const fileReader = new FileReader();
       const base64Promise = new Promise<string>((resolve, reject) => {
         fileReader.onload = () => {
@@ -43,7 +120,7 @@ const Analysis: React.FC = () => {
         };
       });
       
-      fileReader.readAsDataURL(file);
+      fileReader.readAsDataURL(compressedImage);
       const base64Image = await base64Promise;
       
       console.log('File read as base64, sending directly to analyze endpoint');
