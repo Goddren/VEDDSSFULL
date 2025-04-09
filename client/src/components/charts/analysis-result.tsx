@@ -1,10 +1,13 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { ChartAnalysisResponse } from '@shared/types';
 import { formatCurrency, getConfidenceColor, getDirectionColor, getStrengthColor } from '@/lib/utils';
 import { AnimatedTooltip } from '@/components/ui/animated-tooltip';
 import { MarketInsight, DirectionInsight } from '@/components/ui/market-insight';
+import { NewsAlert, NewsEvent } from '@/components/ui/news-alert';
+import { getNewsForSymbol } from '@/lib/news-service';
+import { useNewsNotifications } from '@/components/news-notification-scheduler';
 
 interface AnalysisResultProps {
   analysis: ChartAnalysisResponse;
@@ -13,6 +16,19 @@ interface AnalysisResultProps {
 }
 
 const AnalysisResult: React.FC<AnalysisResultProps> = ({ analysis, imageUrl, onReanalyze }) => {
+  const [newsEvents, setNewsEvents] = useState<NewsEvent[]>([]);
+  const { isSubscribed, subscribeToSymbol, unsubscribeFromSymbol } = useNewsNotifications();
+  
+  // Load relevant news events when the component mounts or when the symbol changes
+  useEffect(() => {
+    if (analysis.symbol) {
+      const events = getNewsForSymbol(analysis.symbol);
+      setNewsEvents(events);
+      
+      console.log(`Loaded ${events.length} news events for ${analysis.symbol}`);
+    }
+  }, [analysis.symbol]);
+  
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
       <div className="md:col-span-2 bg-[#1E1E1E] rounded-xl p-6 shadow-lg">
@@ -326,6 +342,17 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({ analysis, imageUrl, onR
           </div>
         </div>
       </div>
+      
+      {/* Economic News Alerts Section - Only show if we have news events */}
+      {newsEvents.length > 0 && (
+        <div className="md:col-span-2 animate-in fade-in-0 slide-in-from-bottom-3 duration-700">
+          <NewsAlert 
+            symbol={analysis.symbol} 
+            news={newsEvents}
+            className="bg-[#1E1E1E] rounded-xl shadow-lg"
+          />
+        </div>
+      )}
     </div>
   );
 };
