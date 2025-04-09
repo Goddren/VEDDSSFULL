@@ -20,21 +20,42 @@ export async function apiRequest(
     if (data instanceof FormData) {
       // No Content-Type header needed for FormData (browser will set it with boundary)
       body = data;
+      console.log('apiRequest: Using FormData body for request to', url);
     } else {
       headers = { "Content-Type": "application/json" };
       body = JSON.stringify(data);
+      console.log('apiRequest: Using JSON body for request to', url);
     }
   }
   
-  const res = await fetch(url, {
-    method,
-    headers,
-    body,
-    credentials: "include",
-  });
-
-  await throwIfResNotOk(res);
-  return res;
+  console.log(`apiRequest: ${method} ${url} - Sending request`);
+  
+  try {
+    const res = await fetch(url, {
+      method,
+      headers,
+      body,
+      credentials: "include",
+    });
+    
+    console.log(`apiRequest: ${method} ${url} - Response status:`, res.status);
+    
+    if (!res.ok) {
+      console.error(`apiRequest: ${method} ${url} - Error response:`, res.status, res.statusText);
+      try {
+        const errorData = await res.clone().text();
+        console.error('Response error body:', errorData);
+      } catch (e) {
+        console.error('Could not read error response body');
+      }
+    }
+    
+    await throwIfResNotOk(res);
+    return res;
+  } catch (error) {
+    console.error(`apiRequest: ${method} ${url} - Exception:`, error);
+    throw error;
+  }
 }
 
 type UnauthorizedBehavior = "returnNull" | "throw";

@@ -45,25 +45,38 @@ const ImageUpload: React.FC<ImageUploadProps> = ({ onImageUpload, isUploading = 
 
   // Process the file and prepare for upload
   const processFile = useCallback((file: File) => {
-    if (!validateFile(file)) return;
+    console.log('Processing file in ImageUpload:', file.name, file.type, file.size);
+    
+    if (!validateFile(file)) {
+      console.log('File validation failed in ImageUpload');
+      return;
+    }
     
     // Create a preview
     const objectUrl = URL.createObjectURL(file);
+    console.log('Created object URL for preview:', objectUrl);
     setPreviewUrl(objectUrl);
     setImageFile(file);
     
     // Auto-upload if one-click is enabled
+    console.log('Calling onImageUpload with file');
     onImageUpload(file);
     
     // Cleanup function
     return () => URL.revokeObjectURL(objectUrl);
-  }, [onImageUpload, toast]);
+  }, [onImageUpload, validateFile, toast]);
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
+    console.log('onDrop called with files:', acceptedFiles.length);
     setIsDragging(false);
     setDragHighlight(false);
     
-    if (acceptedFiles.length === 0) return;
+    if (acceptedFiles.length === 0) {
+      console.log('No accepted files');
+      return;
+    }
+    
+    console.log('Processing first accepted file:', acceptedFiles[0].name);
     processFile(acceptedFiles[0]);
   }, [processFile]);
 

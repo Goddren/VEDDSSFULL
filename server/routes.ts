@@ -45,8 +45,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Image upload endpoint
   app.post("/api/upload", upload.single('chart'), async (req: Request, res: Response) => {
     try {
+      console.log('Upload endpoint called');
+      console.log('Request body fields:', req.body);
+      console.log('Request file:', req.file ? 'File present' : 'No file');
+      
+      if (req.file) {
+        console.log('File details:', {
+          fieldname: req.file.fieldname,
+          mimetype: req.file.mimetype,
+          size: req.file.size
+        });
+      }
+      
       // Check if user is authenticated
+      console.log('User authenticated:', req.isAuthenticated());
       if (!req.isAuthenticated()) {
+        console.log('Authentication required, returning 401');
         return res.status(401).json({ 
           success: false,
           message: "Authentication required" 
@@ -54,18 +68,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       if (!req.file) {
+        console.log('No file in request, returning 400');
         return res.status(400).json({ message: "No file uploaded" });
       }
 
       // Generate a unique filename
       const fileName = `${uuidv4()}.${req.file.mimetype.split('/')[1]}`;
       const filePath = path.join(uploadsDir, fileName);
+      console.log('Generated filename:', fileName);
+      console.log('Full file path:', filePath);
 
       // Save file to disk
-      await fs.promises.writeFile(filePath, req.file.buffer);
+      try {
+        await fs.promises.writeFile(filePath, req.file.buffer);
+        console.log('File saved successfully to disk');
+      } catch (writeError) {
+        console.error('Error writing file to disk:', writeError);
+        return res.status(500).json({ message: "Error saving file to disk" });
+      }
 
       // Return the file path for further processing
-      res.json({ url: `/uploads/${fileName}` });
+      const url = `/uploads/${fileName}`;
+      console.log('Returning success with URL:', url);
+      res.json({ url });
     } catch (error) {
       console.error("Upload error:", error);
       res.status(500).json({ message: "Error uploading file" });

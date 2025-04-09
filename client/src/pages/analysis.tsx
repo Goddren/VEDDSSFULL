@@ -25,16 +25,29 @@ const Analysis: React.FC = () => {
   // Upload image mutation
   const uploadMutation = useMutation({
     mutationFn: async (file: File) => {
+      console.log('Upload mutation started with file:', file.name, file.type, file.size);
       const formData = new FormData();
       formData.append('chart', file);
-      const response = await apiRequest('POST', '/api/upload', formData);
-      return await response.json();
+      
+      // Log the FormData contents for debugging
+      console.log('FormData created with chart file');
+      
+      try {
+        const response = await apiRequest('POST', '/api/upload', formData);
+        console.log('Upload response received:', response.status);
+        return await response.json();
+      } catch (err) {
+        console.error('Upload error caught:', err);
+        throw err;
+      }
     },
     onSuccess: (data) => {
+      console.log('Upload successful, url:', data.url);
       setUploadedImageUrl(data.url);
       startAnalysis(data.url);
     },
     onError: (error) => {
+      console.error('Upload mutation error:', error);
       toast({
         title: 'Upload Failed',
         description: error.message,
