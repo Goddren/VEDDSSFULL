@@ -97,7 +97,98 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Chart analysis endpoint
+  // Direct base64 image analysis endpoint (skips file upload)
+  app.post("/api/analyze-base64", async (req: Request, res: Response) => {
+    try {
+      console.log('Base64 analysis endpoint called');
+      
+      // Check if user is authenticated
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ 
+          success: false,
+          message: "Authentication required" 
+        });
+      }
+
+      const { base64Image, filename } = req.body;
+      
+      if (!base64Image) {
+        return res.status(400).json({ message: "No base64 image data provided" });
+      }
+      
+      console.log('Received base64 image data, calling OpenAI');
+
+      // Call OpenAI for analysis
+      const analysis = await analyzeChartImage(base64Image);
+      console.log('Analysis completed successfully');
+      
+      // Create a filename for storage
+      const extension = filename?.split('.').pop() || 'png';
+      const generatedFilename = `${uuidv4()}.${extension}`;
+      const filePath = path.join(uploadsDir, generatedFilename);
+      const imageUrl = `/uploads/${generatedFilename}`;
+      
+      // Save the image to disk (decode base64 to binary)
+      try {
+        const imageBuffer = Buffer.from(base64Image, 'base64');
+        await fs.promises.writeFile(filePath, imageBuffer);
+        console.log('Saved image to', filePath);
+      } catch (writeError) {
+        console.error('Error saving image to disk:', writeError);
+        // Continue even if save fails
+      }
+      
+      // Store analysis in database with the new file path
+      try {
+        const userId = (req.user as Express.User).id;
+        await storage.createChartAnalysis({
+          userId,
+          imageUrl: imageUrl,
+          symbol: analysis.symbol || "Unknown",
+          timeframe: analysis.timeframe || "Unknown",
+          price: analysis.currentPrice || "Unknown",
+          direction: analysis.direction || "Unknown",
+          trend: analysis.trend || "Unknown",
+          confidence: analysis.confidence || "Medium",
+          entryPoint: analysis.entryPoint || "Unknown",
+          exitPoint: analysis.exitPoint || "Unknown",
+          stopLoss: analysis.stopLoss || "Unknown",
+          takeProfit: analysis.takeProfit || "Unknown",
+          riskRewardRatio: analysis.riskRewardRatio || "Unknown",
+          potentialPips: analysis.potentialPips || "Unknown",
+          patterns: Array.isArray(analysis.patterns) ? analysis.patterns : [],
+          indicators: Array.isArray(analysis.indicators) ? analysis.indicators : [],
+          supportResistance: Array.isArray(analysis.supportResistance) ? analysis.supportResistance : [],
+          recommendation: analysis.recommendation || "No recommendation available"
+        });
+      } catch (dbError) {
+        console.error('Error storing analysis in database:', dbError);
+        // Continue even if database storage fails
+      }
+
+      // Return the analysis result
+      res.json(analysis);
+    } catch (error: any) {
+      console.error("Analysis error:", error);
+      
+      // Handle specific OpenAI errors
+      if (error && error.code === 'billing_not_active' || 
+          (error && error.error && error.error.code === 'billing_not_active')) {
+        return res.status(403).json({ 
+          message: "OpenAI API key billing issue", 
+          error: "Your OpenAI account is not active. Please check your billing details on the OpenAI website.",
+          code: "BILLING_INACTIVE"
+        });
+      }
+      
+      res.status(500).json({ 
+        message: "Error analyzing chart", 
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+  
+  // Original file upload + chart analysis endpoint (kept for backward compatibility)
   app.post("/api/analyze", async (req: Request, res: Response) => {
     try {
       // Check if user is authenticated

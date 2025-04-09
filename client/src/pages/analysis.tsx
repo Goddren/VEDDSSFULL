@@ -26,25 +26,62 @@ const Analysis: React.FC = () => {
   const uploadMutation = useMutation({
     mutationFn: async (file: File) => {
       console.log('Upload mutation started with file:', file.name, file.type, file.size);
-      const formData = new FormData();
-      formData.append('chart', file);
       
-      // Log the FormData contents for debugging
-      console.log('FormData created with chart file');
+      // Read the file as base64 to avoid FormData issues
+      const fileReader = new FileReader();
+      const base64Promise = new Promise<string>((resolve, reject) => {
+        fileReader.onload = () => {
+          const base64 = fileReader.result?.toString().split(',')[1]; // Remove the data URL prefix
+          if (base64) {
+            resolve(base64);
+          } else {
+            reject(new Error('Failed to read file as base64'));
+          }
+        };
+        fileReader.onerror = () => {
+          reject(new Error('Error reading file'));
+        };
+      });
+      
+      fileReader.readAsDataURL(file);
+      const base64Image = await base64Promise;
+      
+      console.log('File read as base64, sending directly to analyze endpoint');
       
       try {
-        const response = await apiRequest('POST', '/api/upload', formData);
-        console.log('Upload response received:', response.status);
-        return await response.json();
+        // Send the base64 data directly to the analyze endpoint instead of uploading the file
+        const response = await apiRequest('POST', '/api/analyze-base64', {
+          base64Image,
+          filename: file.name
+        });
+        console.log('Analysis response received:', response.status);
+        const result = await response.json();
+        
+        // Create a fake upload URL just for display purposes
+        const fakeUrl = `/uploads/${Date.now()}-${file.name}`;
+        return { 
+          url: fakeUrl,
+          analysisResult: result 
+        };
       } catch (err) {
-        console.error('Upload error caught:', err);
+        console.error('Upload/analyze error caught:', err);
         throw err;
       }
     },
     onSuccess: (data) => {
-      console.log('Upload successful, url:', data.url);
+      console.log('Upload/analysis successful', data);
       setUploadedImageUrl(data.url);
-      startAnalysis(data.url);
+      
+      // Skip the separate analysis step and use the result directly
+      if (data.analysisResult) {
+        setAnalysisResult(data.analysisResult);
+        setAnalysisProgress(100);
+        setAnalysisState(AnalysisState.COMPLETE);
+        checkAchievements();
+      } else {
+        // Fall back to the old flow if we don't have analysis results yet
+        startAnalysis(data.url);
+      }
     },
     onError: (error) => {
       console.error('Upload mutation error:', error);
