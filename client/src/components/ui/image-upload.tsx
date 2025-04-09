@@ -210,15 +210,31 @@ const ImageUpload: React.FC<ImageUploadProps> = ({ onImageUpload, isUploading = 
                 </p>
                 
                 <div className="flex flex-wrap gap-2 justify-center mt-4">
-                  <Button
-                    variant="default"
-                    className="bg-primary hover:bg-primary/80"
-                    onClick={open}
-                    disabled={isUploading}
-                  >
-                    <ArrowUpFromLine className="mr-2 h-4 w-4" />
-                    Browse Files
-                  </Button>
+                  {/* Direct file input for more reliable uploads */}
+                  <div className="relative">
+                    <Button
+                      variant="default"
+                      className="bg-primary hover:bg-primary/80 relative z-10"
+                      disabled={isUploading}
+                    >
+                      <ArrowUpFromLine className="mr-2 h-4 w-4" />
+                      Browse Files
+                    </Button>
+                    <input 
+                      type="file" 
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" 
+                      accept="image/jpeg,image/png,image/jpg"
+                      onChange={(e) => {
+                        console.log('File input change triggered');
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          console.log('Direct file input selected file:', file.name);
+                          processFile(file);
+                        }
+                      }}
+                      disabled={isUploading}
+                    />
+                  </div>
                   
                   <Button
                     variant="outline"
