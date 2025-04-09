@@ -18,15 +18,19 @@ export const VolumeAnalysisChart: React.FC<VolumeAnalysisChartProps> = ({ volume
   }
 
   // Get highest volume sessions
+  const veryHighVolumeSession = volumeData.find(session => session.volume.toLowerCase() === 'very high');
   const highVolumeSession = volumeData.find(session => session.volume.toLowerCase() === 'high');
+  const bestVolumeSession = veryHighVolumeSession || highVolumeSession;
   const bestTradingSession = volumeData.find(session => session.quality.toLowerCase() === 'excellent');
 
   // Function to get volume bar width
   const getVolumeWidth = (volume: string): string => {
     switch (volume.toLowerCase()) {
-      case 'high': return '90%';
+      case 'very high': return '95%';
+      case 'high': return '80%';
       case 'medium': return '60%';
       case 'low': return '30%';
+      case 'very low': return '15%';
       default: return '50%';
     }
   };
@@ -43,7 +47,7 @@ export const VolumeAnalysisChart: React.FC<VolumeAnalysisChartProps> = ({ volume
 
   return (
     <div className="space-y-6">
-      {highVolumeSession && (
+      {bestVolumeSession && (
         <div className="bg-[#0A0A0A] p-4 rounded-lg">
           <div className="flex items-center mb-3">
             <div className="w-10 h-10 bg-[#333333] rounded-lg flex items-center justify-center mr-3">
@@ -54,7 +58,7 @@ export const VolumeAnalysisChart: React.FC<VolumeAnalysisChartProps> = ({ volume
                 term="Best Trading Time"
                 category="strategy"
                 animation="volatile"
-                description={`The optimal time to trade ${symbol} is during the ${highVolumeSession.period} when volume is ${highVolumeSession.volume.toLowerCase()}.`}
+                description={`The optimal time to trade ${symbol} is during the ${bestVolumeSession.period} when volume is ${bestVolumeSession.volume.toLowerCase()}.`}
               />
               <p className="text-sm text-gray-400">Based on historical volume patterns</p>
             </div>

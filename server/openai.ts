@@ -157,26 +157,50 @@ export async function analyzeChartImage(base64Image: string): Promise<ChartAnaly
       indicators: Array.isArray(response.indicators) ? response.indicators : [],
       supportResistance: Array.isArray(response.supportResistance) ? response.supportResistance : [],
       timeframeAnalysis: Array.isArray(response.timeframeAnalysis) ? response.timeframeAnalysis : [],
-      volumeAnalysis: Array.isArray(response.volumeAnalysis) ? response.volumeAnalysis : [
-        {
-          period: "Asian Session",
-          volume: "Medium",
-          activity: "Moderate price action with occasional breakouts during Tokyo open",
-          quality: "Average"
-        },
-        {
-          period: "London Session",
-          volume: "High",
-          activity: "Increased volatility and liquidity as European markets open",
-          quality: "Excellent"
-        },
-        {
-          period: "New York Session",
-          volume: "High",
-          activity: "Peak trading volume when both European and US markets are active",
-          quality: "Excellent"
+      volumeAnalysis: Array.isArray(response.volumeAnalysis) && response.volumeAnalysis.length > 0 ? response.volumeAnalysis : (() => {
+        // Generate dynamic volume analysis data based on the currency pair
+        const symbol = typeof response.symbol === 'string' ? response.symbol : "Unknown";
+        
+        // Default volume analysis
+        const defaultVolume = [
+          {
+            period: "Asian Session",
+            volume: "Medium",
+            activity: "Moderate price action with occasional breakouts during Tokyo open",
+            quality: "Average"
+          },
+          {
+            period: "London Session",
+            volume: "High",
+            activity: "Increased volatility and liquidity as European markets open",
+            quality: "Excellent"
+          },
+          {
+            period: "New York Session",
+            volume: "High",
+            activity: "Peak trading volume when both European and US markets are active",
+            quality: "Excellent"
+          }
+        ];
+        
+        // Customize based on currency pair
+        if (symbol.includes("JPY") || symbol.includes("AUD") || symbol.includes("NZD")) {
+          // Asian currencies are more active during Asian session
+          defaultVolume[0].volume = "High";
+          defaultVolume[0].quality = "Excellent";
+          defaultVolume[0].activity = "Strong price movements and liquidity during Tokyo/Sydney sessions";
+        } else if (symbol.includes("GBP") || symbol.includes("EUR") || symbol.includes("CHF")) {
+          // European currencies are more active during London session
+          defaultVolume[1].volume = "Very High";
+          defaultVolume[1].activity = "Peak liquidity and volatility for European currencies";
+        } else if (symbol.includes("CAD")) {
+          // CAD has higher activity during NY session
+          defaultVolume[2].volume = "Very High";
+          defaultVolume[2].activity = "Highest volatility during New York and Toronto market hours";
         }
-      ],
+        
+        return defaultVolume;
+      })(),
       recommendation: typeof response.recommendation === 'string' ? response.recommendation : "No recommendation available",
       steps: Array.isArray(response.steps) ? response.steps : []
     };
