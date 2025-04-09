@@ -24,6 +24,13 @@ export interface TimeframeAnalysis {
   trend: string;
 }
 
+export interface VolumeAnalysis {
+  period: string;
+  volume: string;
+  activity: string;
+  quality: string;
+}
+
 export interface ChartAnalysisResponse {
   symbol: string;
   timeframe: string;
@@ -41,6 +48,7 @@ export interface ChartAnalysisResponse {
   indicators: Indicator[];
   supportResistance: SupportResistanceLevel[];
   timeframeAnalysis: TimeframeAnalysis[];
+  volumeAnalysis: VolumeAnalysis[];
   recommendation: string;
   steps: string[];
 }
@@ -69,5 +77,6 @@ export const analysisPipeline = [
   { id: "extracting", name: "Extracting price data", message: "Reading price levels, timeframes, and market context" },
   { id: "analyzing", name: "Analyzing patterns and indicators", message: "Identifying key patterns, trend strength and signals" },
   { id: "support-resistance", name: "Detecting support/resistance", message: "Finding key support and resistance levels" },
+  { id: "volume-analysis", name: "Analyzing volume patterns", message: "Determining optimal trading sessions based on volume" },
   { id: "generating", name: "Generating recommendations", message: "Calculating entry/exit points and risk metrics" }
 ];

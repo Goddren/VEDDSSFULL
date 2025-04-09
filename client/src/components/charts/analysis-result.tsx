@@ -8,6 +8,7 @@ import { MarketInsight, DirectionInsight } from '@/components/ui/market-insight'
 import { NewsAlert, NewsEvent } from '@/components/ui/news-alert';
 import { getNewsForSymbol } from '@/lib/news-service';
 import { useNewsNotifications } from '@/components/news-notification-scheduler';
+import VolumeAnalysisChart from './volume-analysis';
 
 interface AnalysisResultProps {
   analysis: ChartAnalysisResponse;
@@ -293,6 +294,12 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({ analysis, imageUrl, onR
             </p>
           </div>
         </div>
+      </div>
+      
+      {/* Volume Analysis */}
+      <div className="bg-[#1E1E1E] rounded-xl p-6 shadow-lg">
+        <h2 className="text-xl font-semibold mb-4">Volume Analysis & Best Trading Times</h2>
+        <VolumeAnalysisChart volumeData={analysis.volumeAnalysis} symbol={analysis.symbol} />
       </div>
       
       {/* Trading Recommendation */}

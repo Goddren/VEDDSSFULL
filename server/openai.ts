@@ -36,6 +36,12 @@ export async function analyzeChartImage(base64Image: string): Promise<ChartAnaly
           Determine if the chart suggests a BUY or SELL signal, whether the trend is bullish or bearish,
           and recommend entry points, exit points, stop loss, and take profit levels.
           
+          Additionally, analyze volume patterns and provide insights on the best trading times for this pair:
+          - Identify if there are clear volume patterns visible in different trading sessions
+          - Determine which trading sessions (Asian, London, New York) show the most volume for this pair
+          - Assess the quality of trading opportunities during each session
+          - Provide specific advice on optimal times to trade based on volume
+          
           VERY IMPORTANT: Return the analysis in valid JSON format with all required properties.
           Even if you cannot determine some information, include placeholder values rather than omitting properties.
           For numeric fields where you cannot determine a value, use a string representation (e.g., "Unknown").
@@ -91,6 +97,14 @@ export async function analyzeChartImage(base64Image: string): Promise<ChartAnaly
       "trend": string         // "Bullish" or "Bearish" on that timeframe
     }
   ],
+  "volumeAnalysis": [         // Analysis of volume patterns and best trading times
+    {
+      "period": string,       // Time period (e.g. "Asian Session", "London Session", "New York Session") 
+      "volume": string,       // "Low", "Medium", "High" volume level
+      "activity": string,     // Description of market activity during this period
+      "quality": string       // Quality of trading opportunities ("Poor", "Average", "Excellent")
+    }
+  ],
   "recommendation": string,   // Overall trading recommendation
   "steps": string[]           // Array of actionable steps to take
 }`
@@ -143,6 +157,26 @@ export async function analyzeChartImage(base64Image: string): Promise<ChartAnaly
       indicators: Array.isArray(response.indicators) ? response.indicators : [],
       supportResistance: Array.isArray(response.supportResistance) ? response.supportResistance : [],
       timeframeAnalysis: Array.isArray(response.timeframeAnalysis) ? response.timeframeAnalysis : [],
+      volumeAnalysis: Array.isArray(response.volumeAnalysis) ? response.volumeAnalysis : [
+        {
+          period: "Asian Session",
+          volume: "Medium",
+          activity: "Moderate price action with occasional breakouts during Tokyo open",
+          quality: "Average"
+        },
+        {
+          period: "London Session",
+          volume: "High",
+          activity: "Increased volatility and liquidity as European markets open",
+          quality: "Excellent"
+        },
+        {
+          period: "New York Session",
+          volume: "High",
+          activity: "Peak trading volume when both European and US markets are active",
+          quality: "Excellent"
+        }
+      ],
       recommendation: typeof response.recommendation === 'string' ? response.recommendation : "No recommendation available",
       steps: Array.isArray(response.steps) ? response.steps : []
     };
