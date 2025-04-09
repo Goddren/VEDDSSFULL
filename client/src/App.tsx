@@ -23,6 +23,7 @@ import PrivacyPage from "@/pages/privacy";
 import TermsPage from "@/pages/terms";
 import SecurityPage from "@/pages/security";
 import AnalysisDetail from "@/pages/analysis-detail";
+import { NewsNotificationScheduler } from "@/components/news-notification-scheduler";
 
 import { useLocation } from "wouter";
 
@@ -79,6 +80,7 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <AppRoutes />
+        <NewsNotificationScheduler />
       </AuthProvider>
     </QueryClientProvider>
   );

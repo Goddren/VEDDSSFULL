@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useParams, Link } from 'wouter';
 import { ChartAnalysis } from '@shared/schema';
@@ -8,15 +8,39 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ChevronLeft, TrendingUp, TrendingDown, AlertTriangle, BarChart2, LineChart } from 'lucide-react';
 import { getConfidenceColor, getDirectionColor } from '@/lib/utils';
+import { NewsAlert, NewsEvent } from '@/components/ui/news-alert';
+import { getNewsForSymbol } from '@/lib/news-service';
+import { useToast } from '@/hooks/use-toast';
 
 const AnalysisDetail: React.FC = () => {
   const { id } = useParams();
   const analysisId = parseInt(id as string);
+  const { toast } = useToast();
+  const [newsEvents, setNewsEvents] = useState<NewsEvent[]>([]);
 
   const { data: analysis, isLoading, isError } = useQuery<ChartAnalysis>({
     queryKey: ['/api/analyses', analysisId],
     enabled: !isNaN(analysisId)
   });
+  
+  // Fetch relevant news when analysis data is available
+  useEffect(() => {
+    if (analysis?.symbol) {
+      // Get news related to the currency pair
+      const symbolNews = getNewsForSymbol(analysis.symbol);
+      setNewsEvents(symbolNews);
+      
+      // Show a notification if there are high impact news events
+      const highImpactNews = symbolNews.filter(news => news.impact === 'high');
+      if (highImpactNews.length > 0) {
+        toast({
+          title: "Important Market News Detected",
+          description: `There ${highImpactNews.length === 1 ? 'is' : 'are'} ${highImpactNews.length} high-impact news event${highImpactNews.length === 1 ? '' : 's'} that may affect your ${analysis.symbol} trading signal.`,
+          variant: "default",
+        });
+      }
+    }
+  }, [analysis?.symbol, toast]);
 
   if (isNaN(analysisId)) {
     return (
@@ -267,6 +291,15 @@ const AnalysisDetail: React.FC = () => {
               </div>
             </CardContent>
           </Card>
+        )}
+        
+        {/* News Alerts Section */}
+        {newsEvents.length > 0 && (
+          <NewsAlert 
+            symbol={analysis.symbol || ''} 
+            news={newsEvents}
+            className="mb-6"
+          />
         )}
 
         <div className="text-center mt-8">
