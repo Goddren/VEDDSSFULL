@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/use-auth';
 import { Link } from 'wouter';
 import VolatilityMeter from '@/components/charts/volatility-meter';
+import { normalizeImageUrl } from '@/lib/utils';
 
 const SharedAnalysisPage: React.FC = () => {
   const { shareId } = useParams();
@@ -145,11 +146,7 @@ const SharedAnalysisPage: React.FC = () => {
         
         <AnalysisResult
           analysis={convertToChartAnalysisResponse(analysis)}
-          imageUrl={analysis.imageUrl 
-            ? (analysis.imageUrl.startsWith('http') 
-              ? analysis.imageUrl 
-              : `/api/shared-image/${analysis.imageUrl.split('/').pop()}`) 
-            : ''}
+          imageUrl={normalizeImageUrl(analysis.imageUrl)}
           onReanalyze={() => {}}
         />
       </div>

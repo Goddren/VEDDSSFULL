@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { ChartAnalysisResponse } from '@shared/types';
-import { formatCurrency, getConfidenceColor, getDirectionColor, getStrengthColor } from '@/lib/utils';
+import { formatCurrency, getConfidenceColor, getDirectionColor, getStrengthColor, normalizeImageUrl } from '@/lib/utils';
 import { AnimatedTooltip } from '@/components/ui/animated-tooltip';
 import { MarketInsight, DirectionInsight } from '@/components/ui/market-insight';
 import { NewsAlert, NewsEvent } from '@/components/ui/news-alert';

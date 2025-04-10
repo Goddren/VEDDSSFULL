@@ -10,8 +10,13 @@ import { normalizeImageUrl } from '@/lib/utils';
 const Historical: React.FC = () => {
   const [searchQuery, setSearchQuery] = React.useState('');
   
-  const { data: analyses, isLoading, isError } = useQuery({
+  const { data: analyses = [], isLoading, isError } = useQuery<ChartAnalysis[]>({
     queryKey: ['/api/analyses'],
+    queryFn: async () => {
+      const res = await fetch('/api/analyses');
+      if (!res.ok) throw new Error('Failed to fetch analyses');
+      return res.json();
+    }
   });
 
   const filteredAnalyses = React.useMemo(() => {
