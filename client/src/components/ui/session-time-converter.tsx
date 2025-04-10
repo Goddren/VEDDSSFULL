@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Clock, Globe } from 'lucide-react';
+import { Clock, Globe, ChevronDown, ChevronUp } from 'lucide-react';
+import SessionCountdownTimer from './session-countdown-timer';
 
 interface SessionTime {
   name: string;
@@ -83,6 +84,7 @@ function getLocalTimeRange(utcStart: number, utcEnd: number): string {
 export const SessionTimeConverter: React.FC<SessionTimeConverterProps> = ({ symbol }) => {
   const [currentTime, setCurrentTime] = useState<string>('');
   const [timezone, setTimezone] = useState<string>('');
+  const [showCountdown, setShowCountdown] = useState<boolean>(false);
   
   useEffect(() => {
     const updateTime = () => {
@@ -181,6 +183,17 @@ export const SessionTimeConverter: React.FC<SessionTimeConverterProps> = ({ symb
           <li>London/New York Overlap (1:00 PM - 5:00 PM UTC)</li>
         </ul>
       </div>
+      
+      <button 
+        className="mt-4 w-full flex items-center justify-center text-sm py-2 px-3 rounded-md bg-[#1E1E1E] hover:bg-[#2A2A2A] transition-colors"
+        onClick={() => setShowCountdown(!showCountdown)}
+      >
+        <Clock className="w-4 h-4 mr-2 text-[#E64A4A]" />
+        {showCountdown ? "Hide Interactive Countdown" : "Show Interactive Countdown Timer"}
+        {showCountdown ? <ChevronUp className="w-4 h-4 ml-2" /> : <ChevronDown className="w-4 h-4 ml-2" />}
+      </button>
+      
+      {showCountdown && <SessionCountdownTimer symbol={symbol} />}
     </div>
   );
 };
