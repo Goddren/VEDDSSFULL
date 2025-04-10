@@ -176,15 +176,20 @@ const SharedAnalysisPage: React.FC = () => {
               className="w-full"
             />
           ) : (
-            <img 
-              src={analysis.imageUrl 
-                ? (analysis.imageUrl.startsWith('http') 
-                  ? analysis.imageUrl 
-                  : `/api/shared-image/${analysis.imageUrl.split('/').pop()}`) 
-                : ''}
-              alt={`${analysis.symbol || 'Chart'} analysis`}
-              className="w-full h-auto object-contain"
-            />
+            <div className="relative">
+              <img 
+                src={analysis.imageUrl 
+                  ? (analysis.imageUrl.startsWith('http') 
+                    ? analysis.imageUrl 
+                    : `/api/shared-image/${analysis.imageUrl.split('/').pop()}`) 
+                  : ''}
+                alt={`${analysis.symbol || 'Chart'} analysis`}
+                className="w-full h-auto object-contain"
+              />
+              <div className="absolute top-3 right-3 bg-black/70 text-white text-xs px-3 py-1 rounded-full">
+                Original Chart
+              </div>
+            </div>
           )}
         </Card>
         

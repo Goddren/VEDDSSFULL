@@ -31,31 +31,47 @@ const ChartAnnotator: React.FC<ChartAnnotatorProps> = ({
   const stopLossPrice = parseFloat(analysis.stopLoss.replace(/[^\d.-]/g, ''));
   const takeProfitPrice = parseFloat(analysis.takeProfit.replace(/[^\d.-]/g, ''));
   
-  // Determine if prices are valid numbers
-  const arePricesValid = !isNaN(entryPrice) && !isNaN(exitPrice) && !isNaN(stopLossPrice) && !isNaN(takeProfitPrice);
-  
   // Prepare support/resistance levels if available
   const supportResistanceLevels = analysis.supportResistance?.map(level => ({
     price: parseFloat(level.level.replace(/[^\d.-]/g, '')),
     type: level.type.toLowerCase(),
     strength: level.strength.toLowerCase()
   })).filter(level => !isNaN(level.price)) || [];
+  
+  // Determine if prices are valid numbers
+  const arePricesValid = !isNaN(entryPrice) && !isNaN(exitPrice) && !isNaN(stopLossPrice) && !isNaN(takeProfitPrice);
+  
+  // Debug price validation
+  useEffect(() => {
+    console.log("ChartAnnotator price validation:", {
+      entryPrice, 
+      exitPrice, 
+      stopLossPrice, 
+      takeProfitPrice,
+      supportResistanceLevels,
+      arePricesValid
+    });
+  }, [entryPrice, exitPrice, stopLossPrice, takeProfitPrice, supportResistanceLevels, arePricesValid]);
 
   // Load the image and set up the canvas
   useEffect(() => {
     if (!imageUrl) return;
     
+    console.log("ChartAnnotator: Loading image from URL:", imageUrl);
+    
     const img = new Image();
     img.crossOrigin = "anonymous";  // Handle CORS if needed
     
     img.onload = () => {
+      console.log("ChartAnnotator: Image loaded successfully", img.width, img.height);
       setIsImageLoaded(true);
       imageRef.current = img;
       setCanvasWidth(img.width);
       setCanvasHeight(img.height);
     };
     
-    img.onerror = () => {
+    img.onerror = (e) => {
+      console.error("ChartAnnotator: Image failed to load:", e);
       setError("Failed to load chart image");
     };
     
