@@ -1,17 +1,26 @@
 import React from "react";
 import { InfoIcon, AlertCircle, TrendingUp, TrendingDown, Activity } from "lucide-react";
-import { AnimatedTooltip, type MarketAnimation } from "@/components/ui/animated-tooltip";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { 
+  MarketTrendInsight, 
+  ConfidenceInsight,
+  PatternInsight,
+  IndicatorInsight,
+  InsightTooltip,
+  BullishInsight,
+  BearishInsight,
+  VolatilityInsight,
+  ConsolidationInsight 
+} from "@/components/tooltips";
 
-type InsightType = 'info' | 'warning' | 'bullish' | 'bearish' | 'volatility';
 type InsightCategory = 'risk' | 'pattern' | 'indicator' | 'level' | 'strategy';
 
 interface MarketInsightProps {
   term: string;
   category: InsightCategory;
   description: string;
-  animation?: MarketAnimation;
+  animation?: 'bullish' | 'bearish' | 'volatile' | 'sideways' | 'resistance' | 'support';
   className?: string;
 }
 
@@ -22,67 +31,107 @@ interface DirectionInsightProps {
 }
 
 export function MarketInsight({ term, category, description, animation, className }: MarketInsightProps) {
-  // Get icon and badge color based on category
-  const getInsightDetails = () => {
+  function getTooltipType() {
+    if (animation === 'bullish') return 'bullish' as const;
+    if (animation === 'bearish') return 'bearish' as const;
+    if (animation === 'volatile' || animation === 'sideways') return 'volatility' as const;
+    if (animation === 'support' || animation === 'resistance') return 'consolidation' as const;
+    
+    // Default based on category
+    switch (category) {
+      case 'risk': return 'volatility' as const;
+      case 'pattern': return 'consolidation' as const;
+      case 'indicator': return 'volatility' as const;
+      case 'level': return 'consolidation' as const;
+      case 'strategy': return 'consolidation' as const;
+      default: return 'volatility' as const;
+    }
+  }
+
+  function getBadgeDetails() {
     switch (category) {
       case 'risk':
         return {
-          icon: <AlertCircle className="h-4 w-4 text-yellow-500" />,
           badgeColor: "bg-yellow-500/10 text-yellow-500",
-          defaultAnimation: 'volatile' as MarketAnimation,
-          label: "RISK"
+          label: 'RISK'
         };
       case 'pattern':
         return {
-          icon: <Activity className="h-4 w-4 text-blue-500" />,
           badgeColor: "bg-blue-500/10 text-blue-500",
-          defaultAnimation: 'sideways' as MarketAnimation,
-          label: "PATTERN"
+          label: 'PATTERN'
         };
       case 'indicator':
         return {
-          icon: <TrendingUp className="h-4 w-4 text-green-500" />,
-          badgeColor: "bg-green-500/10 text-green-500",
-          defaultAnimation: 'bullish' as MarketAnimation,
-          label: "INDICATOR"
+          badgeColor: "bg-purple-500/10 text-purple-500",
+          label: 'INDICATOR'
         };
       case 'level':
         return {
-          icon: <TrendingDown className="h-4 w-4 text-purple-500" />,
-          badgeColor: "bg-purple-500/10 text-purple-500", 
-          defaultAnimation: 'resistance' as MarketAnimation,
-          label: "LEVEL"
+          badgeColor: "bg-indigo-500/10 text-indigo-500",
+          label: 'LEVEL'
         };
       case 'strategy':
         return {
-          icon: <InfoIcon className="h-4 w-4 text-red-500" />,
-          badgeColor: "bg-red-500/10 text-red-500",
-          defaultAnimation: 'bullish' as MarketAnimation,
-          label: "STRATEGY"
+          badgeColor: "bg-green-500/10 text-green-500",
+          label: 'STRATEGY'
         };
       default:
         return {
-          icon: <InfoIcon className="h-4 w-4 text-blue-500" />,
-          badgeColor: "bg-blue-500/10 text-blue-500",
-          defaultAnimation: 'sideways' as MarketAnimation,
-          label: "INFO"
+          badgeColor: "bg-gray-500/10 text-gray-500",
+          label: 'INFO'
         };
     }
-  };
+  }
 
-  const { icon, badgeColor, defaultAnimation, label } = getInsightDetails();
-  const finalAnimation = animation || defaultAnimation;
+  const { badgeColor, label } = getBadgeDetails();
+  const tooltipType = getTooltipType();
 
+  // Handle special cases based on category
+  if (category === 'pattern') {
+    return (
+      <div className={cn("flex items-center gap-2", className)}>
+        <span className="font-medium text-sm">{term}</span>
+        <PatternInsight pattern={term} iconSize="sm">
+          <Badge 
+            variant="outline"
+            className={cn("text-xs px-1.5 py-0 h-5", badgeColor)}
+          >
+            {label}
+          </Badge>
+        </PatternInsight>
+      </div>
+    );
+  }
+
+  if (category === 'indicator') {
+    return (
+      <div className={cn("flex items-center gap-2", className)}>
+        <span className="font-medium text-sm">{term}</span>
+        <IndicatorInsight 
+          indicator={term} 
+          signal={animation === 'bullish' ? 'bullish' : animation === 'bearish' ? 'bearish' : 'neutral'}
+          iconSize="sm"
+        >
+          <Badge 
+            variant="outline"
+            className={cn("text-xs px-1.5 py-0 h-5", badgeColor)}
+          >
+            {label}
+          </Badge>
+        </IndicatorInsight>
+      </div>
+    );
+  }
+
+  // For other categories, use the generic insight tooltip
   return (
     <div className={cn("flex items-center gap-2", className)}>
       <span className="font-medium text-sm">{term}</span>
-      <AnimatedTooltip
-        content={
-          <div className="space-y-2">
-            <p>{description}</p>
-          </div>
-        }
-        animation={finalAnimation}
+      <InsightTooltip
+        type={tooltipType}
+        title={term}
+        description={description}
+        iconSize="sm"
       >
         <Badge 
           variant="outline"
@@ -90,7 +139,7 @@ export function MarketInsight({ term, category, description, animation, classNam
         >
           {label}
         </Badge>
-      </AnimatedTooltip>
+      </InsightTooltip>
     </div>
   );
 }
@@ -98,27 +147,38 @@ export function MarketInsight({ term, category, description, animation, classNam
 // Direction insight specifically for buy/sell signals
 export function DirectionInsight({ direction, description, className }: DirectionInsightProps) {
   const isBuy = direction.toLowerCase().includes('buy');
-  const animation = isBuy ? 'bullish' : 'bearish';
   const badgeColor = isBuy ? "bg-green-500/10 text-green-500" : "bg-red-500/10 text-red-500";
   const label = isBuy ? "BUY" : "SELL";
   
   return (
     <div className={cn("flex items-center gap-2", className)}>
-      <AnimatedTooltip
-        content={
-          <div className="space-y-2">
-            <p>{description}</p>
-          </div>
-        }
-        animation={animation}
-      >
-        <Badge 
-          variant="outline"
-          className={cn("text-xs px-2 py-0.5 h-6", badgeColor)}
+      {isBuy ? (
+        <BullishInsight
+          title={`${direction} Signal`}
+          description={description}
+          iconSize="sm"
         >
-          {label}
-        </Badge>
-      </AnimatedTooltip>
+          <Badge 
+            variant="outline"
+            className={cn("text-xs px-2 py-0.5 h-6", badgeColor)}
+          >
+            {label}
+          </Badge>
+        </BullishInsight>
+      ) : (
+        <BearishInsight
+          title={`${direction} Signal`}
+          description={description}
+          iconSize="sm"
+        >
+          <Badge 
+            variant="outline"
+            className={cn("text-xs px-2 py-0.5 h-6", badgeColor)}
+          >
+            {label}
+          </Badge>
+        </BearishInsight>
+      )}
     </div>
   );
 }

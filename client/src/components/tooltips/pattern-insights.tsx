@@ -1,44 +1,50 @@
-import React from 'react';
-import { 
-  InsightTooltip, 
-  BullishInsight, 
-  BearishInsight, 
-  VolatilityInsight, 
-  ConsolidationInsight,
-  BreakoutInsight
-} from './insight-tooltip';
+import React from "react";
+import { InsightTooltip, BullishInsight, BearishInsight, VolatilityInsight, BreakoutInsight, ConsolidationInsight } from "./insight-tooltip";
+import { TooltipIconSize } from "./tooltip-types";
 
-// A dictionary of common trading patterns with their descriptions and context
+// A dictionary of chart patterns with descriptions
 export const patternInsights = {
-  'Double Top': {
-    title: 'Double Top Pattern',
-    description: 'A bearish reversal pattern characterized by two peaks at approximately the same price level. Suggests potential downward movement after a bullish trend.',
-    type: 'bearish' as const,
-    strength: 'Strong when volume confirms the pattern, especially on the second peak.'
-  },
-  'Double Bottom': {
-    title: 'Double Bottom Pattern',
-    description: 'A bullish reversal pattern characterized by two troughs at approximately the same price level. Suggests potential upward movement after a bearish trend.',
-    type: 'bullish' as const,
-    strength: 'Strong when volume increases during the second trough and subsequent rise.'
-  },
   'Head and Shoulders': {
     title: 'Head and Shoulders Pattern',
-    description: 'A bearish reversal pattern with three peaks (the middle one highest) that signals a potential trend reversal from bullish to bearish.',
+    description: 'A reversal pattern consisting of three peaks, with the middle peak (head) being the highest and the two outer peaks (shoulders) being lower and roughly equal in height.',
     type: 'bearish' as const,
-    strength: 'Very reliable when the neckline is broken with increased volume.'
+    strength: 'Strong reversal signal when occurring after an uptrend.'
   },
   'Inverse Head and Shoulders': {
     title: 'Inverse Head and Shoulders Pattern',
-    description: 'A bullish reversal pattern with three troughs (the middle one lowest) that signals a potential trend reversal from bearish to bullish.',
+    description: 'A reversal pattern consisting of three troughs, with the middle trough (head) being the lowest and the two outer troughs (shoulders) being higher and roughly equal in height.',
     type: 'bullish' as const,
-    strength: 'Strong predictor of upward movement when the neckline is broken with volume.'
+    strength: 'Strong reversal signal when occurring after a downtrend.'
+  },
+  'Double Top': {
+    title: 'Double Top Pattern',
+    description: 'A reversal pattern formed when price reaches a high point, retraces, and then returns to approximately the same high before declining again.',
+    type: 'bearish' as const,
+    strength: 'More reliable when the second peak fails to reach the height of the first.'
+  },
+  'Double Bottom': {
+    title: 'Double Bottom Pattern',
+    description: 'A reversal pattern formed when price reaches a low point, rebounds, and then returns to approximately the same low before rising again.',
+    type: 'bullish' as const,
+    strength: 'More reliable when the second bottom is higher than the first.'
+  },
+  'Ascending Triangle': {
+    title: 'Ascending Triangle Pattern',
+    description: 'A continuation pattern with a flat upper trendline and an upward-sloping lower trendline, indicating accumulation and typically breaking to the upside.',
+    type: 'bullish' as const,
+    strength: 'Most reliable when formed during an uptrend.'
+  },
+  'Descending Triangle': {
+    title: 'Descending Triangle Pattern',
+    description: 'A continuation pattern with a flat lower trendline and a downward-sloping upper trendline, indicating distribution and typically breaking to the downside.',
+    type: 'bearish' as const,
+    strength: 'Most reliable when formed during a downtrend.'
   },
   'Triangle': {
     title: 'Triangle Pattern',
     description: 'A consolidation pattern where price movement narrows, forming a triangle. Can be ascending, descending, or symmetrical, each suggesting different potential outcomes.',
     type: 'consolidation' as const,
-    strength: 'Direction after breakout often continues the previous trend's direction.'
+    strength: 'Direction after breakout often continues the previous trend direction.'
   },
   'Flag': {
     title: 'Flag Pattern',
@@ -84,7 +90,7 @@ export const patternInsights = {
   },
   'RSI Divergence': {
     title: 'RSI Divergence',
-    description: 'When price makes a new high/low but RSI doesn't confirm by making a corresponding high/low. Signals potential trend reversal.',
+    description: 'When price makes a new high/low but RSI does not confirm by making a corresponding high/low. Signals potential trend reversal.',
     type: 'volatility' as const,
     strength: 'Strong reversal signal, especially when RSI is in overbought/oversold territory.'
   },
@@ -98,7 +104,7 @@ export const patternInsights = {
     title: 'Bollinger Band Squeeze',
     description: 'When Bollinger Bands contract, indicating low volatility, often preceding a period of high volatility and significant price movement.',
     type: 'volatility' as const,
-    strength: 'Doesn't predict direction but signals potential for a strong move in either direction.'
+    strength: 'Does not predict direction but signals potential for a strong move in either direction.'
   },
 };
 
@@ -106,7 +112,7 @@ export type PatternKey = keyof typeof patternInsights;
 
 interface PatternInsightComponentProps {
   pattern: PatternKey | string;
-  iconSize?: 'sm' | 'md' | 'lg';
+  iconSize?: TooltipIconSize;
   className?: string;
   children?: React.ReactNode;
 }

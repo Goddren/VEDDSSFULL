@@ -1,257 +1,184 @@
-import React, { useState } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
-import { 
-  HelpCircle, 
-  TrendingUp, 
-  TrendingDown, 
-  BarChart2, 
-  Activity, 
-  Zap
-} from 'lucide-react';
+import React from "react";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from '@/components/ui/tooltip';
+} from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+import { TooltipIconSize, InsightTooltipType, InsightTooltipProps } from "./tooltip-types";
+import { TriangleIcon, DollarSignIcon, ArrowDownIcon, ArrowUpIcon, LineChartIcon, ActivityIcon, TrendingUpIcon, TrendingDownIcon, ArrowRightIcon } from "lucide-react";
 
-// Animations for different market contexts
-const animations = {
-  bullish: {
-    component: () => (
-      <motion.div
-        className="w-full h-10 flex items-center justify-center overflow-hidden"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-      >
-        <motion.div
-          className="w-6 h-6 text-emerald-500"
-          initial={{ y: 20 }}
-          animate={{ 
-            y: -20,
-            transition: { 
-              repeat: Infinity, 
-              duration: 1.5,
-              repeatType: "loop"
-            }
-          }}
-        >
-          <TrendingUp className="w-full h-full" />
-        </motion.div>
-      </motion.div>
-    ),
-  },
-  bearish: {
-    component: () => (
-      <motion.div
-        className="w-full h-10 flex items-center justify-center overflow-hidden"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-      >
-        <motion.div
-          className="w-6 h-6 text-rose-500"
-          initial={{ y: -20 }}
-          animate={{ 
-            y: 20,
-            transition: { 
-              repeat: Infinity, 
-              duration: 1.5,
-              repeatType: "loop"
-            }
-          }}
-        >
-          <TrendingDown className="w-full h-full" />
-        </motion.div>
-      </motion.div>
-    ),
-  },
-  consolidation: {
-    component: () => (
-      <motion.div
-        className="w-full h-10 flex items-center justify-center overflow-hidden"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-      >
-        <motion.div
-          className="w-6 h-6 text-amber-500"
-          initial={{ x: -10 }}
-          animate={{ 
-            x: 10,
-            transition: { 
-              repeat: Infinity, 
-              duration: 0.8,
-              repeatType: "mirror"
-            }
-          }}
-        >
-          <BarChart2 className="w-full h-full" />
-        </motion.div>
-      </motion.div>
-    ),
-  },
-  volatility: {
-    component: () => (
-      <motion.div
-        className="w-full h-10 flex items-center justify-center overflow-hidden"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-      >
-        <motion.div
-          className="w-6 h-6 text-purple-500"
-          animate={{ 
-            scale: [1, 1.2, 1, 0.9, 1],
-            rotate: [0, 5, 0, -5, 0],
-            transition: { 
-              repeat: Infinity, 
-              duration: 0.8,
-              repeatType: "loop"
-            }
-          }}
-        >
-          <Activity className="w-full h-full" />
-        </motion.div>
-      </motion.div>
-    ),
-  },
-  breakout: {
-    component: () => (
-      <motion.div
-        className="w-full h-10 flex items-center justify-center overflow-hidden"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-      >
-        <motion.div
-          className="w-6 h-6 text-blue-500"
-          initial={{ scale: 0, rotate: -45 }}
-          animate={{ 
-            scale: 1.2,
-            rotate: 0,
-            transition: { 
-              repeat: Infinity, 
-              duration: 1,
-              repeatType: "loop"
-            }
-          }}
-        >
-          <Zap className="w-full h-full" />
-        </motion.div>
-      </motion.div>
-    ),
-  },
-};
-
-export interface InsightTooltipProps {
-  type: 'bullish' | 'bearish' | 'consolidation' | 'volatility' | 'breakout';
-  title: string;
-  description: string;
-  iconSize?: 'sm' | 'md' | 'lg';
-  className?: string;
-  children?: React.ReactNode;
-}
-
+// Base insight tooltip component
 export function InsightTooltip({
   type,
   title,
   description,
-  iconSize = 'md',
-  className = '',
+  iconSize = "md",
+  className,
   children
-}: InsightTooltipProps) {
-  const [isOpen, setIsOpen] = useState(false);
-  
-  const iconSizeClass = {
-    sm: 'w-4 h-4',
-    md: 'w-5 h-5',
-    lg: 'w-6 h-6',
-  }[iconSize];
-  
-  const AnimationComponent = animations[type].component;
+}: {
+  type: InsightTooltipType;
+  title: string;
+  description: string;
+  iconSize?: TooltipIconSize;
+  className?: string;
+  children?: React.ReactNode;
+}) {
+  // Icon size classes
+  const getIconSizeClass = () => {
+    switch (iconSize) {
+      case "sm": return "h-3 w-3";
+      case "lg": return "h-5 w-5";
+      case "md":
+      default: return "h-4 w-4";
+    }
+  };
+
+  // Animation and styling based on insight type
+  const getTypeStyles = () => {
+    switch (type) {
+      case 'bullish':
+        return "animate-rise border-green-500/20 bg-green-500/5 text-green-500";
+      case 'bearish':
+        return "animate-fall border-red-500/20 bg-red-500/5 text-red-500";
+      case 'volatility':
+        return "animate-pulse border-yellow-500/20 bg-yellow-500/5 text-yellow-500";
+      case 'breakout':
+        return "animate-bounce border-purple-500/20 bg-purple-500/5 text-purple-500";
+      case 'consolidation':
+      default:
+        return "animate-pulse border-blue-500/20 bg-blue-500/5 text-blue-500";
+    }
+  };
 
   return (
     <TooltipProvider>
-      <Tooltip open={isOpen} onOpenChange={setIsOpen}>
-        <TooltipTrigger asChild onClick={() => setIsOpen(true)}>
-          <div className={`inline-flex items-center cursor-help ${className}`}>
-            {children || (
-              <HelpCircle className={`${iconSizeClass} text-primary ml-1 transition-colors`} />
-            )}
-          </div>
+      <Tooltip delayDuration={300}>
+        <TooltipTrigger asChild>
+          <span className="cursor-help">{children}</span>
         </TooltipTrigger>
         <TooltipContent
+          sideOffset={5}
           side="top"
           align="center"
-          className="border border-border/40 bg-card/95 backdrop-blur-sm p-0 shadow-xl w-72 rounded-xl overflow-hidden"
+          className={cn(
+            "max-w-xs text-sm px-3 py-2 rounded-lg border shadow-md",
+            getTypeStyles(),
+            className
+          )}
         >
-          <div className="p-3 pb-2">
-            <h3 className="font-medium text-sm text-foreground">{title}</h3>
-            <p className="text-xs text-muted-foreground mt-1">{description}</p>
+          <div className="flex flex-col gap-1">
+            <div className="font-medium">{title}</div>
+            <div className="text-xs opacity-90">{description}</div>
           </div>
-          <AnimatePresence>
-            <AnimationComponent />
-          </AnimatePresence>
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>
   );
 }
 
-// Export a higher-order component that automatically determines the animation based on context
-export function BullishInsight({ title, description, ...props }: Omit<InsightTooltipProps, 'type'>) {
+// Bullish pattern tooltip
+export function BullishInsight({ title, description, iconSize, className, children }: InsightTooltipProps) {
   return (
-    <InsightTooltip
-      type="bullish"
-      title={title}
-      description={description}
-      {...props}
-    />
+    <div className="inline-flex items-center">
+      <InsightTooltip
+        type="bullish"
+        title={title}
+        description={description}
+        iconSize={iconSize}
+        className={className}
+      >
+        {children ? children : (
+          <div className="flex items-center text-green-500">
+            <TrendingUpIcon className={iconSize === "sm" ? "h-3 w-3" : iconSize === "lg" ? "h-5 w-5" : "h-4 w-4"} />
+          </div>
+        )}
+      </InsightTooltip>
+    </div>
   );
 }
 
-export function BearishInsight({ title, description, ...props }: Omit<InsightTooltipProps, 'type'>) {
+// Bearish pattern tooltip
+export function BearishInsight({ title, description, iconSize, className, children }: InsightTooltipProps) {
   return (
-    <InsightTooltip
-      type="bearish"
-      title={title}
-      description={description}
-      {...props}
-    />
+    <div className="inline-flex items-center">
+      <InsightTooltip
+        type="bearish"
+        title={title}
+        description={description}
+        iconSize={iconSize}
+        className={className}
+      >
+        {children ? children : (
+          <div className="flex items-center text-red-500">
+            <TrendingDownIcon className={iconSize === "sm" ? "h-3 w-3" : iconSize === "lg" ? "h-5 w-5" : "h-4 w-4"} />
+          </div>
+        )}
+      </InsightTooltip>
+    </div>
   );
 }
 
-export function VolatilityInsight({ title, description, ...props }: Omit<InsightTooltipProps, 'type'>) {
+// Volatility tooltip
+export function VolatilityInsight({ title, description, iconSize, className, children }: InsightTooltipProps) {
   return (
-    <InsightTooltip
-      type="volatility"
-      title={title}
-      description={description}
-      {...props}
-    />
+    <div className="inline-flex items-center">
+      <InsightTooltip
+        type="volatility"
+        title={title}
+        description={description}
+        iconSize={iconSize}
+        className={className}
+      >
+        {children ? children : (
+          <div className="flex items-center text-yellow-500">
+            <ActivityIcon className={iconSize === "sm" ? "h-3 w-3" : iconSize === "lg" ? "h-5 w-5" : "h-4 w-4"} />
+          </div>
+        )}
+      </InsightTooltip>
+    </div>
   );
 }
 
-export function ConsolidationInsight({ title, description, ...props }: Omit<InsightTooltipProps, 'type'>) {
+// Consolidation tooltip
+export function ConsolidationInsight({ title, description, iconSize, className, children }: InsightTooltipProps) {
   return (
-    <InsightTooltip
-      type="consolidation"
-      title={title}
-      description={description}
-      {...props}
-    />
+    <div className="inline-flex items-center">
+      <InsightTooltip
+        type="consolidation"
+        title={title}
+        description={description}
+        iconSize={iconSize}
+        className={className}
+      >
+        {children ? children : (
+          <div className="flex items-center text-blue-500">
+            <ArrowRightIcon className={iconSize === "sm" ? "h-3 w-3" : iconSize === "lg" ? "h-5 w-5" : "h-4 w-4"} />
+          </div>
+        )}
+      </InsightTooltip>
+    </div>
   );
 }
 
-export function BreakoutInsight({ title, description, ...props }: Omit<InsightTooltipProps, 'type'>) {
+// Breakout tooltip
+export function BreakoutInsight({ title, description, iconSize, className, children }: InsightTooltipProps) {
   return (
-    <InsightTooltip
-      type="breakout"
-      title={title}
-      description={description}
-      {...props}
-    />
+    <div className="inline-flex items-center">
+      <InsightTooltip
+        type="breakout"
+        title={title}
+        description={description}
+        iconSize={iconSize}
+        className={className}
+      >
+        {children ? children : (
+          <div className="flex items-center text-purple-500">
+            <TriangleIcon className={iconSize === "sm" ? "h-3 w-3" : iconSize === "lg" ? "h-5 w-5" : "h-4 w-4"} />
+          </div>
+        )}
+      </InsightTooltip>
+    </div>
   );
 }

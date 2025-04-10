@@ -9,6 +9,7 @@ import { NewsAlert, NewsEvent } from '@/components/ui/news-alert';
 import { getNewsForSymbol } from '@/lib/news-service';
 import { useNewsNotifications } from '@/components/news-notification-scheduler';
 import VolumeAnalysisChart from './volume-analysis';
+import { ConfidenceInsight, PatternInsight, IndicatorInsight, MarketTrendInsight } from '@/components/tooltips';
 
 interface AnalysisResultProps {
   analysis: ChartAnalysisResponse;
@@ -99,8 +100,11 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({ analysis, imageUrl, onR
                 <div>
                   <p className="text-sm text-gray-400">Confidence</p>
                   <div className="flex items-center">
-                    <span className="font-medium mr-2">{analysis.confidence}</span>
-                    <div className="flex">
+                    <div className="flex items-center">
+                      <span className="font-medium mr-2">{analysis.confidence}</span>
+                      <ConfidenceInsight level={analysis.confidence} iconSize="sm" />
+                    </div>
+                    <div className="flex ml-2">
                       {['Low', 'Medium', 'High'].map((level, index) => (
                         <React.Fragment key={index}>
                           {Array.from({ length: index === 0 ? 1 : index === 1 ? 2 : 4 }).map((_, i) => (
