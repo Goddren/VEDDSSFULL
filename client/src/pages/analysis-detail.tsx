@@ -6,16 +6,14 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ChevronLeft, TrendingUp, TrendingDown, AlertTriangle, BarChart2, LineChart, Share2, Pencil, Image } from 'lucide-react';
-import { Switch } from '@/components/ui/switch';
+import { ChevronLeft, TrendingUp, TrendingDown, AlertTriangle, BarChart2, LineChart, Share2 } from 'lucide-react';
 import { getConfidenceColor, getDirectionColor } from '@/lib/utils';
 import { NewsAlert, NewsEvent } from '@/components/ui/news-alert';
 import { getNewsForSymbol } from '@/lib/news-service';
 import { useToast } from '@/hooks/use-toast';
 import ShareAnalysis from '@/components/charts/share-analysis';
 import VolatilityMeter from '@/components/charts/volatility-meter';
-import ChartAnnotator from '@/components/charts/chart-annotator';
-import { calculateVolatilityScore, convertToChartAnalysisResponse } from '@/lib/analysis-utils';
+import { calculateVolatilityScore } from '@/lib/analysis-utils';
 import { apiRequest } from '@/lib/queryClient';
 
 const AnalysisDetail: React.FC = () => {
@@ -24,7 +22,6 @@ const AnalysisDetail: React.FC = () => {
   const { toast } = useToast();
   const [newsEvents, setNewsEvents] = useState<NewsEvent[]>([]);
   const [showShareModal, setShowShareModal] = useState<boolean>(false);
-  const [showAnnotations, setShowAnnotations] = useState<boolean>(true);
 
   const { data: analysis, isLoading, isError } = useQuery<ChartAnalysis>({
     queryKey: [`/api/analyses/${analysisId}`],
@@ -159,44 +156,11 @@ const AnalysisDetail: React.FC = () => {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
           <Card className="lg:col-span-2">
             <CardContent className="p-0 overflow-hidden">
-              {/* Chart toggle controls */}
-              <div className="flex items-center justify-end gap-2 p-2 border-b border-border bg-black/5">
-                <div className="flex items-center gap-2">
-                  <Image className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-xs text-muted-foreground">Original</span>
-                </div>
-                <Switch 
-                  checked={showAnnotations} 
-                  onCheckedChange={setShowAnnotations}
-                  className="mx-2"
-                />
-                <div className="flex items-center gap-2">
-                  <Pencil className="h-4 w-4 text-primary" />
-                  <span className="text-xs text-muted-foreground">Annotated</span>
-                </div>
-              </div>
-              
-              {/* Chart with trade signals */}
-              <div className="w-full border-b border-border">
-                {showAnnotations ? (
-                  <ChartAnnotator
-                    analysis={convertToChartAnalysisResponse(analysis)}
-                    imageUrl={analysis.imageUrl}
-                    className="w-full"
-                  />
-                ) : (
-                  <div className="relative">
-                    <img 
-                      src={analysis.imageUrl} 
-                      alt={`${analysis.symbol || 'Chart'} analysis`}
-                      className="w-full h-auto object-contain"
-                    />
-                    <div className="absolute top-3 right-3 bg-black/70 text-white text-xs px-3 py-1 rounded-full">
-                      Original Chart
-                    </div>
-                  </div>
-                )}
-              </div>
+              <img 
+                src={analysis.imageUrl} 
+                alt={`${analysis.symbol || 'Chart'} analysis`}
+                className="w-full h-auto object-contain border-b border-border"
+              />
               <div className="p-6">
                 <h2 className="text-xl font-bold mb-4">Recommendation</h2>
                 <div className="flex items-start gap-3 mb-6">
