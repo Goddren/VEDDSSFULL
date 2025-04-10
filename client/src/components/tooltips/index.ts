@@ -1,22 +1,23 @@
-// Export all tooltip components and types
+// Export all tooltip types
 export * from './tooltip-types';
 
-// Export animated tooltip components (used by showcase page)
+// Export animated components for the showcase
 export { 
   default as AnimatedInsightTooltip,
-  AnimatedInsightTooltip as BaseTooltip, 
   TrendTooltip,
   ConfidenceTooltip,
   PatternTooltip,
   IndicatorTooltip
 } from './animated-insight-tooltip';
 
-// Export basic insight tooltip for simple usage
+// Export basic insight tooltip
 export { default as InsightTooltip } from './insight-tooltip';
 
-// Export simple insight components that will be used in the application UI
+// Import and export simple insight components
+import SimpleInsightDefault from './simple-insight';
+export const SimpleInsight = SimpleInsightDefault;
+
 export {
-  SimpleInsight,
   BullishInsight,
   BearishInsight,
   NeutralInsight,
@@ -26,6 +27,5 @@ export {
   IndicatorInsight
 } from './simple-insight';
 
-// For compatibility with existing code, export aliases
-import { SimpleInsight as SI } from './simple-insight';
-export const MarketTrendInsight = SI;
+// Aliases for backward compatibility
+export const MarketTrendInsight = TrendTooltip;

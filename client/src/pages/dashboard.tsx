@@ -320,6 +320,18 @@ const Dashboard: React.FC = () => {
                     </Button>
                   </Link>
                   
+                  <Link href="/simple-tooltips">
+                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 hover:border-rose-500/50 hover:bg-gray-800/80 text-left justify-start p-3 h-auto">
+                      <div className="w-9 h-9 rounded-full bg-green-500/20 flex items-center justify-center mr-3">
+                        <Info className="h-4 w-4 text-green-500" />
+                      </div>
+                      <div className="text-left">
+                        <p className="font-medium text-white text-sm">Simple Tooltips</p>
+                        <p className="text-xs text-gray-400">Basic market insights</p>
+                      </div>
+                    </Button>
+                  </Link>
+                  
                   <Link href="/buttons">
                     <Button variant="outline" className="w-full bg-gray-800 border-gray-700 hover:border-rose-500/50 hover:bg-gray-800/80 text-left justify-start p-3 h-auto">
                       <div className="w-9 h-9 rounded-full bg-amber-500/20 flex items-center justify-center mr-3">
