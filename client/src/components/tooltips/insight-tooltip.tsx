@@ -1,54 +1,47 @@
-import React from "react";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
-import { TooltipIconSize, InsightTooltipType, InsightTooltipProps } from "./tooltip-types";
-import { TriangleIcon, DollarSignIcon, ArrowDownIcon, ArrowUpIcon, LineChartIcon, ActivityIcon, TrendingUpIcon, TrendingDownIcon, ArrowRightIcon } from "lucide-react";
+import React from 'react';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { InsightTooltipProps, IconSize } from './tooltip-types';
+import { ChevronUp, ChevronDown, ChevronsUpDown, AlertTriangle } from 'lucide-react';
 
-// Base insight tooltip component
-export function InsightTooltip({
+export const InsightTooltip: React.FC<InsightTooltipProps> = ({
   type,
   title,
   description,
-  iconSize = "md",
-  className,
+  iconSize = 'md',
   children
-}: {
-  type: InsightTooltipType;
-  title: string;
-  description: string;
-  iconSize?: TooltipIconSize;
-  className?: string;
-  children?: React.ReactNode;
-}) {
-  // Icon size classes
-  const getIconSizeClass = () => {
-    switch (iconSize) {
-      case "sm": return "h-3 w-3";
-      case "lg": return "h-5 w-5";
-      case "md":
-      default: return "h-4 w-4";
+}) => {
+  const getIconSize = (size: IconSize): number => {
+    switch (size) {
+      case 'sm': return 14;
+      case 'md': return 18;
+      case 'lg': return 24;
+      default: return 18;
     }
   };
 
-  // Animation and styling based on insight type
-  const getTypeStyles = () => {
+  const getIcon = () => {
+    const size = getIconSize(iconSize);
     switch (type) {
       case 'bullish':
-        return "animate-rise border-green-500/20 bg-green-500/5 text-green-500";
+        return <ChevronUp size={size} className="text-green-500 animate-rise" />;
       case 'bearish':
-        return "animate-fall border-red-500/20 bg-red-500/5 text-red-500";
-      case 'volatility':
-        return "animate-pulse border-yellow-500/20 bg-yellow-500/5 text-yellow-500";
-      case 'breakout':
-        return "animate-bounce border-purple-500/20 bg-purple-500/5 text-purple-500";
-      case 'consolidation':
+        return <ChevronDown size={size} className="text-red-500 animate-fall" />;
+      case 'neutral':
+        return <ChevronsUpDown size={size} className="text-yellow-500 animate-shake" />;
+      case 'volatile':
+        return <AlertTriangle size={size} className="text-orange-500 animate-bounce-custom" />;
       default:
-        return "animate-pulse border-blue-500/20 bg-blue-500/5 text-blue-500";
+        return <ChevronUp size={size} className="text-gray-500" />;
+    }
+  };
+  
+  const getAnimationClass = () => {
+    switch (type) {
+      case 'bullish': return 'animate-rise';
+      case 'bearish': return 'animate-fall';
+      case 'neutral': return 'animate-shake';
+      case 'volatile': return 'animate-bounce-custom';
+      default: return '';
     }
   };
 
@@ -56,129 +49,23 @@ export function InsightTooltip({
     <TooltipProvider>
       <Tooltip delayDuration={300}>
         <TooltipTrigger asChild>
-          <span className="cursor-help">{children}</span>
+          <div className="inline-flex items-center gap-1 cursor-help">
+            {children || (
+              <>
+                {title} {getIcon()}
+              </>
+            )}
+          </div>
         </TooltipTrigger>
-        <TooltipContent
-          sideOffset={5}
-          side="top"
-          align="center"
-          className={cn(
-            "max-w-xs text-sm px-3 py-2 rounded-lg border shadow-md",
-            getTypeStyles(),
-            className
-          )}
-        >
+        <TooltipContent side="top" className="max-w-xs bg-[#181818] border-[#333333]">
           <div className="flex flex-col gap-1">
-            <div className="font-medium">{title}</div>
-            <div className="text-xs opacity-90">{description}</div>
+            <h4 className="font-medium">{title}</h4>
+            <p className="text-xs text-gray-400">{description}</p>
           </div>
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>
   );
-}
+};
 
-// Bullish pattern tooltip
-export function BullishInsight({ title, description, iconSize, className, children }: InsightTooltipProps) {
-  return (
-    <div className="inline-flex items-center">
-      <InsightTooltip
-        type="bullish"
-        title={title}
-        description={description}
-        iconSize={iconSize}
-        className={className}
-      >
-        {children ? children : (
-          <div className="flex items-center text-green-500">
-            <TrendingUpIcon className={iconSize === "sm" ? "h-3 w-3" : iconSize === "lg" ? "h-5 w-5" : "h-4 w-4"} />
-          </div>
-        )}
-      </InsightTooltip>
-    </div>
-  );
-}
-
-// Bearish pattern tooltip
-export function BearishInsight({ title, description, iconSize, className, children }: InsightTooltipProps) {
-  return (
-    <div className="inline-flex items-center">
-      <InsightTooltip
-        type="bearish"
-        title={title}
-        description={description}
-        iconSize={iconSize}
-        className={className}
-      >
-        {children ? children : (
-          <div className="flex items-center text-red-500">
-            <TrendingDownIcon className={iconSize === "sm" ? "h-3 w-3" : iconSize === "lg" ? "h-5 w-5" : "h-4 w-4"} />
-          </div>
-        )}
-      </InsightTooltip>
-    </div>
-  );
-}
-
-// Volatility tooltip
-export function VolatilityInsight({ title, description, iconSize, className, children }: InsightTooltipProps) {
-  return (
-    <div className="inline-flex items-center">
-      <InsightTooltip
-        type="volatility"
-        title={title}
-        description={description}
-        iconSize={iconSize}
-        className={className}
-      >
-        {children ? children : (
-          <div className="flex items-center text-yellow-500">
-            <ActivityIcon className={iconSize === "sm" ? "h-3 w-3" : iconSize === "lg" ? "h-5 w-5" : "h-4 w-4"} />
-          </div>
-        )}
-      </InsightTooltip>
-    </div>
-  );
-}
-
-// Consolidation tooltip
-export function ConsolidationInsight({ title, description, iconSize, className, children }: InsightTooltipProps) {
-  return (
-    <div className="inline-flex items-center">
-      <InsightTooltip
-        type="consolidation"
-        title={title}
-        description={description}
-        iconSize={iconSize}
-        className={className}
-      >
-        {children ? children : (
-          <div className="flex items-center text-blue-500">
-            <ArrowRightIcon className={iconSize === "sm" ? "h-3 w-3" : iconSize === "lg" ? "h-5 w-5" : "h-4 w-4"} />
-          </div>
-        )}
-      </InsightTooltip>
-    </div>
-  );
-}
-
-// Breakout tooltip
-export function BreakoutInsight({ title, description, iconSize, className, children }: InsightTooltipProps) {
-  return (
-    <div className="inline-flex items-center">
-      <InsightTooltip
-        type="breakout"
-        title={title}
-        description={description}
-        iconSize={iconSize}
-        className={className}
-      >
-        {children ? children : (
-          <div className="flex items-center text-purple-500">
-            <TriangleIcon className={iconSize === "sm" ? "h-3 w-3" : iconSize === "lg" ? "h-5 w-5" : "h-4 w-4"} />
-          </div>
-        )}
-      </InsightTooltip>
-    </div>
-  );
-}
+export default InsightTooltip;

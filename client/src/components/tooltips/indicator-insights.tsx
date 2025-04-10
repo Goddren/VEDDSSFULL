@@ -1,143 +1,68 @@
-import React from "react";
-import { BullishInsight, BearishInsight, VolatilityInsight, ConsolidationInsight } from "./insight-tooltip";
-import { TooltipIconSize } from "./tooltip-types";
+import React from 'react';
+import { IndicatorInsightProps, IndicatorDescriptionMap } from './tooltip-types';
+import InsightTooltip from './insight-tooltip';
 
-// A dictionary of technical indicators with descriptions
-export const indicatorInsights = {
+// Dictionary of indicators and their descriptions
+const indicatorDescriptions: IndicatorDescriptionMap = {
   'RSI': {
-    title: 'Relative Strength Index',
-    description: 'A momentum oscillator that measures the speed and change of price movements. Readings above 70 indicate overbought conditions, while readings below 30 indicate oversold conditions.',
-    type: 'volatility' as const,
+    description: 'Relative Strength Index (RSI) measures the speed and change of price movements. It oscillates between 0 and 100.',
+    interpretation: 'Readings over 70 indicate overbought conditions, while readings below 30 suggest oversold conditions.',
+    class: 'neutral'
   },
   'MACD': {
-    title: 'Moving Average Convergence Divergence',
-    description: 'A trend-following momentum indicator that shows the relationship between two moving averages of a security price. The MACD is calculated by subtracting the 26-period EMA from the 12-period EMA.',
-    type: 'volatility' as const,
+    description: 'Moving Average Convergence Divergence (MACD) shows the relationship between two moving averages of a security price.',
+    interpretation: 'MACD crossing above the signal line is bullish, while crossing below is bearish. Divergence with price can signal reversals.',
+    class: 'neutral'
   },
   'Bollinger Bands': {
-    title: 'Bollinger Bands',
-    description: 'Volatility bands placed above and below a moving average. Price reaching the upper band indicates overbought conditions, while price reaching the lower band indicates oversold conditions.',
-    type: 'volatility' as const,
-  },
-  'Moving Average': {
-    title: 'Moving Average',
-    description: 'A calculation to analyze data points by creating a series of averages of different subsets of the full data set. Used to identify the direction of a trend and potential support/resistance levels.',
-    type: 'consolidation' as const,
+    description: 'Bollinger Bands consist of a middle band (SMA) with two outer bands that expand and contract based on volatility.',
+    interpretation: 'Price touching the upper band can indicate overbought conditions, while touching the lower band may indicate oversold conditions.',
+    class: 'neutral'
   },
   'Stochastic': {
-    title: 'Stochastic Oscillator',
-    description: 'A momentum indicator comparing a particular closing price of a security to a range of its prices over a certain period of time. Values above 80 suggest overbought conditions, while values below 20 suggest oversold conditions.',
-    type: 'volatility' as const,
+    description: 'Stochastic Oscillator shows the location of the current close relative to the high/low range over a set number of periods.',
+    interpretation: 'Readings over 80 indicate overbought conditions, while readings below 20 suggest oversold conditions.',
+    class: 'neutral'
+  },
+  'Moving Average': {
+    description: 'Moving Average smooths out price data to create a single flowing line, making it easier to identify trends.',
+    interpretation: 'Price above MA suggests bullish trend, while price below MA suggests bearish trend. MA crossovers can signal trend changes.',
+    class: 'neutral'
+  },
+  'Volume': {
+    description: 'Volume measures the number of shares or contracts traded in a security or market during a given period.',
+    interpretation: 'High volume confirms trend strength. Rising price with rising volume suggests strong bullish trend, while falling price with rising volume indicates strong bearish trend.',
+    class: 'neutral'
   },
   'Ichimoku Cloud': {
-    title: 'Ichimoku Cloud',
-    description: 'A comprehensive indicator that defines support and resistance, identifies trend direction, gauges momentum, and provides trading signals. Price above the cloud is bullish, while price below the cloud is bearish.',
-    type: 'consolidation' as const,
+    description: 'Ichimoku Cloud is a comprehensive indicator that defines support and resistance, identifies trend direction, gauges momentum, and provides trading signals.',
+    interpretation: 'Price above the cloud is bullish, while price below the cloud is bearish. Cloud crossovers can signal trend changes.',
+    class: 'neutral'
   },
   'Fibonacci Retracement': {
-    title: 'Fibonacci Retracement',
-    description: 'A technical analysis tool showing potential support and resistance levels based on the Fibonacci sequence. Common retracement levels are 23.6%, 38.2%, 50%, 61.8%, and 78.6%.',
-    type: 'consolidation' as const,
-  },
-  'ADX': {
-    title: 'Average Directional Index',
-    description: 'A technical indicator used to quantify the strength of a trend. ADX values above 25 suggest a strong trend, while values below 20 suggest a weak trend or ranging market.',
-    type: 'volatility' as const,
-  },
-  'ATR': {
-    title: 'Average True Range',
-    description: 'A technical indicator that measures market volatility by decomposing the entire range of an asset price for that period. Higher ATR values indicate higher volatility.',
-    type: 'volatility' as const,
-  },
-  'Volume Profile': {
-    title: 'Volume Profile',
-    description: 'A technical indicator that shows the trading activity at specific price levels over a defined period. It helps identify key support and resistance levels based on trading volume.',
-    type: 'consolidation' as const,
+    description: 'Fibonacci Retracement identifies potential support/resistance levels based on the Fibonacci sequence.',
+    interpretation: 'Common retracement levels (23.6%, 38.2%, 50%, 61.8%) often act as support or resistance for price movements.',
+    class: 'neutral'
   }
 };
 
-export type IndicatorKey = keyof typeof indicatorInsights;
+export const IndicatorInsight: React.FC<IndicatorInsightProps> = ({ indicator, signal, iconSize = 'sm' }) => {
+  const indicatorInfo = indicatorDescriptions[indicator] || {
+    description: `${indicator} indicator analysis.`,
+    interpretation: 'Interpretation of this indicator not available.',
+    class: 'neutral'
+  };
 
-interface IndicatorInsightComponentProps {
-  indicator: IndicatorKey | string;
-  signal?: 'bullish' | 'bearish' | 'neutral';
-  iconSize?: TooltipIconSize;
-  className?: string;
-  children?: React.ReactNode;
-}
+  return (
+    <InsightTooltip
+      type={signal}
+      title={indicator}
+      description={`${indicatorInfo.description} ${indicatorInfo.interpretation}`}
+      iconSize={iconSize}
+    >
+      <span className="font-medium text-base hover:underline dotted">{indicator}</span>
+    </InsightTooltip>
+  );
+};
 
-export function IndicatorInsight({
-  indicator,
-  signal = 'neutral',
-  iconSize,
-  className,
-  children
-}: IndicatorInsightComponentProps) {
-  // If the indicator is not in our dictionary, use a generic tooltip
-  if (!(indicator in indicatorInsights)) {
-    return (
-      <VolatilityInsight
-        title={indicator}
-        description="A technical indicator used in trading analysis."
-        iconSize={iconSize}
-        className={className}
-      >
-        {children}
-      </VolatilityInsight>
-    );
-  }
-
-  const insight = indicatorInsights[indicator as IndicatorKey];
-  
-  // For indicators, we also consider the signal direction
-  if (signal === 'bullish') {
-    return (
-      <BullishInsight
-        title={insight.title}
-        description={insight.description}
-        iconSize={iconSize}
-        className={className}
-      >
-        {children}
-      </BullishInsight>
-    );
-  } else if (signal === 'bearish') {
-    return (
-      <BearishInsight
-        title={insight.title}
-        description={insight.description}
-        iconSize={iconSize}
-        className={className}
-      >
-        {children}
-      </BearishInsight>
-    );
-  } else {
-    // Use the default type from the dictionary
-    switch (insight.type) {
-      case 'consolidation':
-        return (
-          <ConsolidationInsight
-            title={insight.title}
-            description={insight.description}
-            iconSize={iconSize}
-            className={className}
-          >
-            {children}
-          </ConsolidationInsight>
-        );
-      case 'volatility':
-      default:
-        return (
-          <VolatilityInsight
-            title={insight.title}
-            description={insight.description}
-            iconSize={iconSize}
-            className={className}
-          >
-            {children}
-          </VolatilityInsight>
-        );
-    }
-  }
-}
+export default IndicatorInsight;

@@ -1,6 +1,10 @@
-// Export all tooltip components
-export * from './insight-tooltip';
-export * from './pattern-insights';
-export * from './indicator-insights';
-export * from './market-insights';
-export * from './tooltip-types';
+export { default as InsightTooltip } from './insight-tooltip';
+export { PatternInsight } from './pattern-insights';
+export { IndicatorInsight } from './indicator-insights';
+export { MarketTrendInsight, ConfidenceInsight, DirectionInsight } from './market-insights';
+export { 
+  BullishInsight, 
+  BearishInsight, 
+  VolatilityInsight, 
+  ConsolidationInsight 
+} from './extended-insights';

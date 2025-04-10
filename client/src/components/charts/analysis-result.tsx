@@ -9,7 +9,7 @@ import { NewsAlert, NewsEvent } from '@/components/ui/news-alert';
 import { getNewsForSymbol } from '@/lib/news-service';
 import { useNewsNotifications } from '@/components/news-notification-scheduler';
 import VolumeAnalysisChart from './volume-analysis';
-import { ConfidenceInsight, PatternInsight, IndicatorInsight, MarketTrendInsight } from '@/components/tooltips';
+import { ConfidenceInsight, PatternInsight, IndicatorInsight, MarketTrendInsight, InsightTooltip } from '@/components/tooltips';
 
 interface AnalysisResultProps {
   analysis: ChartAnalysisResponse;
@@ -95,7 +95,10 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({ analysis, imageUrl, onR
               <div className="grid grid-cols-2 gap-4 mb-4">
                 <div>
                   <p className="text-sm text-gray-400">Market Trend</p>
-                  <p className="font-medium">{analysis.trend}</p>
+                  <div className="flex items-center">
+                    <span className="font-medium mr-2">{analysis.trend}</span>
+                    <MarketTrendInsight trend={analysis.trend} iconSize="sm" />
+                  </div>
                 </div>
                 <div>
                   <p className="text-sm text-gray-400">Confidence</p>
@@ -199,11 +202,9 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({ analysis, imageUrl, onR
                       <i className="fas fa-chart-line text-[#E64A4A]"></i>
                     </div>
                     <div>
-                      <MarketInsight
-                        term={pattern.name}
-                        category="pattern"
-                        animation={analysis.direction.toLowerCase().includes('buy') ? 'bullish' : 'bearish'}
-                        description={`${pattern.description} - ${pattern.type}`}
+                      <PatternInsight 
+                        pattern={pattern.name} 
+                        iconSize="sm" 
                       />
                       <p className="text-sm text-gray-400">{pattern.type}</p>
                     </div>
@@ -236,11 +237,10 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({ analysis, imageUrl, onR
                       <i className={`fas fa-${indicator.name === 'RSI' ? 'signal' : 'wave-square'} text-[#E64A4A]`}></i>
                     </div>
                     <div>
-                      <MarketInsight
-                        term={indicator.name}
-                        category="indicator"
-                        animation={indicator.signal.toLowerCase().includes('buy') ? 'bullish' : indicator.signal.toLowerCase().includes('sell') ? 'bearish' : 'sideways'}
-                        description={`${indicator.type} - ${indicator.details}`}
+                      <IndicatorInsight 
+                        indicator={indicator.name} 
+                        signal={indicator.signal.toLowerCase().includes('buy') ? 'bullish' : indicator.signal.toLowerCase().includes('sell') ? 'bearish' : 'neutral'}
+                        iconSize="sm" 
                       />
                       <p className="text-sm text-gray-400">{indicator.type}</p>
                     </div>
@@ -270,12 +270,14 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({ analysis, imageUrl, onR
               {analysis.supportResistance && analysis.supportResistance.length > 0 ? (
                 analysis.supportResistance.map((level, index) => (
                   <div key={index} className="flex justify-between items-center">
-                    <MarketInsight
-                      term={`${level.strength} ${level.type}`}
-                      category="level"
-                      animation={level.type.toLowerCase().includes('resistance') ? 'resistance' : 'support'}
+                    <InsightTooltip
+                      type={level.type.toLowerCase().includes('resistance') ? 'bearish' : 'bullish'}
+                      title={`${level.strength} ${level.type}`}
                       description={`A ${level.strength.toLowerCase()} ${level.type.toLowerCase()} level at ${level.level} that may impact price movement.`}
-                    />
+                      iconSize="sm"
+                    >
+                      <span className="font-medium text-sm">{`${level.strength} ${level.type}`}</span>
+                    </InsightTooltip>
                     <span className="font-medium">{level.level}</span>
                   </div>
                 ))
