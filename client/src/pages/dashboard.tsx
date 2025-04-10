@@ -12,7 +12,8 @@ import {
   Clock, 
   Activity,
   Plus,
-  ChevronRight
+  ChevronRight,
+  Info
 } from 'lucide-react';
 
 interface Analysis {
