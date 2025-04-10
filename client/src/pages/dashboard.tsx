@@ -13,8 +13,10 @@ import {
   Activity,
   Plus,
   ChevronRight,
-  Info
+  Info,
+  Sparkles
 } from 'lucide-react';
+import { QuickTipGenerator } from '@/components/trading/quick-tip-generator';
 
 interface Analysis {
   id: number;
@@ -248,7 +250,7 @@ const Dashboard: React.FC = () => {
             </Card>
           </div>
 
-          {/* Pattern Distribution and Quick Actions */}
+          {/* Pattern Distribution and Trading Tip Generator */}
           <div className="space-y-6">
             {/* Pattern Distribution */}
             <Card className="bg-gray-900 border-gray-800 shadow-xl">
@@ -300,6 +302,9 @@ const Dashboard: React.FC = () => {
                 )}
               </CardContent>
             </Card>
+            
+            {/* Trading Tip Generator */}
+            <QuickTipGenerator />
             
             {/* Quick Links */}
             <Card className="bg-gray-900 border-gray-800 shadow-xl">
