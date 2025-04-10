@@ -21,6 +21,9 @@ export interface IStorage {
   getChartAnalysis(id: number): Promise<ChartAnalysis | undefined>;
   getChartAnalysesByUserId(userId: number): Promise<ChartAnalysis[]>;
   getAllChartAnalyses(): Promise<ChartAnalysis[]>;
+  updateChartAnalysis(id: number, data: Partial<ChartAnalysis>): Promise<ChartAnalysis | undefined>;
+  shareChartAnalysis(id: number, notes?: string): Promise<ChartAnalysis | undefined>;
+  getAnalysisByShareId(shareId: string): Promise<ChartAnalysis | undefined>;
   
   // Achievement methods
   createAchievement(achievement: InsertAchievement): Promise<Achievement>;
@@ -127,6 +130,42 @@ export class DatabaseStorage implements IStorage {
 
   async getAllChartAnalyses(): Promise<ChartAnalysis[]> {
     return db.select().from(chartAnalyses);
+  }
+  
+  async updateChartAnalysis(id: number, data: Partial<ChartAnalysis>): Promise<ChartAnalysis | undefined> {
+    const [updatedAnalysis] = await db
+      .update(chartAnalyses)
+      .set(data)
+      .where(eq(chartAnalyses.id, id))
+      .returning();
+    return updatedAnalysis;
+  }
+  
+  async shareChartAnalysis(id: number, notes?: string): Promise<ChartAnalysis | undefined> {
+    // Generate a unique share ID
+    const shareId = Date.now().toString(36) + Math.random().toString(36).substring(2, 7);
+    
+    const [sharedAnalysis] = await db
+      .update(chartAnalyses)
+      .set({
+        shareId,
+        isPublic: true,
+        notes: notes || null
+      })
+      .where(eq(chartAnalyses.id, id))
+      .returning();
+      
+    return sharedAnalysis;
+  }
+  
+  async getAnalysisByShareId(shareId: string): Promise<ChartAnalysis | undefined> {
+    const [analysis] = await db
+      .select()
+      .from(chartAnalyses)
+      .where(eq(chartAnalyses.shareId, shareId))
+      .limit(1);
+      
+    return analysis;
   }
 
   async updateUser(id: number, userData: Partial<User>): Promise<User | undefined> {

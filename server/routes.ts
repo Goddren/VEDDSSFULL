@@ -364,6 +364,64 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: "Error fetching analysis" });
     }
   });
+  
+  // Share an analysis with optional notes
+  app.post("/api/analyses/:id/share", async (req: Request, res: Response) => {
+    try {
+      // Check if user is authenticated
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ 
+          success: false,
+          message: "Authentication required" 
+        });
+      }
+      
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid analysis ID" });
+      }
+      
+      const { notes } = req.body;
+      
+      // Get analysis to verify ownership
+      const analysis = await storage.getChartAnalysis(id);
+      if (!analysis) {
+        return res.status(404).json({ message: "Analysis not found" });
+      }
+      
+      // Check if the user owns this analysis
+      if (analysis.userId !== (req.user as Express.User).id) {
+        return res.status(403).json({ 
+          success: false,
+          message: "You can only share your own analyses" 
+        });
+      }
+      
+      // Share the analysis
+      const sharedAnalysis = await storage.shareChartAnalysis(id, notes);
+      res.json(sharedAnalysis);
+    } catch (error) {
+      console.error("Error sharing analysis:", error);
+      res.status(500).json({ message: "Error sharing analysis" });
+    }
+  });
+  
+  // Get a shared analysis by its share ID (public endpoint - no auth required)
+  app.get("/api/shared/:shareId", async (req: Request, res: Response) => {
+    try {
+      const { shareId } = req.params;
+      
+      const analysis = await storage.getAnalysisByShareId(shareId);
+      if (!analysis || !analysis.isPublic) {
+        return res.status(404).json({ message: "Shared analysis not found" });
+      }
+      
+      res.json(analysis);
+    } catch (error) {
+      console.error("Error retrieving shared analysis:", error);
+      res.status(500).json({ message: "Error retrieving shared analysis" });
+    }
+  });
 
   // API key validation endpoint
   app.get("/api/validate-key", async (_req: Request, res: Response) => {

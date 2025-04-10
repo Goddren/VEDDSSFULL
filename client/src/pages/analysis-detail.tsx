@@ -6,17 +6,19 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ChevronLeft, TrendingUp, TrendingDown, AlertTriangle, BarChart2, LineChart } from 'lucide-react';
+import { ChevronLeft, TrendingUp, TrendingDown, AlertTriangle, BarChart2, LineChart, Share2 } from 'lucide-react';
 import { getConfidenceColor, getDirectionColor } from '@/lib/utils';
 import { NewsAlert, NewsEvent } from '@/components/ui/news-alert';
 import { getNewsForSymbol } from '@/lib/news-service';
 import { useToast } from '@/hooks/use-toast';
+import ShareAnalysis from '@/components/charts/share-analysis';
 
 const AnalysisDetail: React.FC = () => {
   const { id } = useParams();
   const analysisId = parseInt(id as string);
   const { toast } = useToast();
   const [newsEvents, setNewsEvents] = useState<NewsEvent[]>([]);
+  const [showShareModal, setShowShareModal] = useState<boolean>(false);
 
   const { data: analysis, isLoading, isError } = useQuery<ChartAnalysis>({
     queryKey: ['/api/analyses', analysisId],
@@ -131,6 +133,15 @@ const AnalysisDetail: React.FC = () => {
               <Badge variant="outline" className={getConfidenceColor(analysis.confidence)}>
                 {analysis.confidence} Confidence
               </Badge>
+              <Button 
+                variant="outline"
+                size="sm"
+                onClick={() => setShowShareModal(true)}
+                className="flex gap-1 items-center ml-1"
+              >
+                <Share2 className="h-4 w-4" />
+                Share
+              </Button>
             </div>
           </div>
         </div>
@@ -312,6 +323,18 @@ const AnalysisDetail: React.FC = () => {
             </Button>
           </Link>
         </div>
+        
+        {/* Share Modal */}
+        {showShareModal && analysis && (
+          <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+            <div className="max-w-md w-full">
+              <ShareAnalysis 
+                analysis={analysis} 
+                onClose={() => setShowShareModal(false)} 
+              />
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -33,6 +33,9 @@ export const chartAnalyses = pgTable("chart_analyses", {
   indicators: jsonb("indicators").notNull(),
   supportResistance: jsonb("support_resistance"),
   recommendation: text("recommendation"),
+  notes: text("notes"),
+  shareId: text("share_id"),
+  isPublic: boolean("is_public").default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
