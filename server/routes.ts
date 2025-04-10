@@ -2,6 +2,7 @@ import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { analyzeChartImage, testOpenAIApiKey, generateTradingTip, generateMarketTrendPredictions } from "./openai";
+import { setupTwilio, sendTradingSignal } from "./twilio";
 import multer from "multer";
 import fs from "fs";
 import path from "path";
