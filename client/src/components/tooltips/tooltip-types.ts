@@ -2,12 +2,22 @@ export type TooltipType = 'bullish' | 'bearish' | 'neutral' | 'volatile';
 
 export type IconSize = 'sm' | 'md' | 'lg';
 
+export type AnimationType = 'market' | 'pattern' | 'indicator' | 'volatility';
+
+export type AnimationStrength = 'weak' | 'moderate' | 'strong';
+
 export interface InsightTooltipProps {
   type: TooltipType;
   title: string;
   description: string;
   iconSize?: IconSize;
   children?: React.ReactNode;
+}
+
+export interface AnimatedInsightTooltipProps extends InsightTooltipProps {
+  animationType?: AnimationType;
+  strength?: AnimationStrength;
+  showContextualAnimation?: boolean;
 }
 
 export interface PatternInsightProps {
