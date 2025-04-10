@@ -173,7 +173,19 @@ const AnalysisDetail: React.FC = () => {
                     <DirectionIcon className="h-5 w-5 text-primary" />
                   </div>
                   <div>
-                    <p className="font-medium">{analysis.trend} trend detected</p>
+                    <p className="font-medium">
+                      <AnimatedInsightTooltip 
+                        type={analysis.trend?.toLowerCase().includes('bullish') ? 'bullish' : 
+                              analysis.trend?.toLowerCase().includes('bearish') ? 'bearish' : 'neutral'}
+                        title={`${analysis.trend} Market Trend`}
+                        description="AI-detected trend based on price action, market structure, and momentum indicators."
+                        animationType="market"
+                        strength={analysis.confidence?.toLowerCase() === 'high' ? 'strong' : 
+                                  analysis.confidence?.toLowerCase() === 'low' ? 'weak' : 'moderate'}
+                      >
+                        {analysis.trend} trend detected
+                      </AnimatedInsightTooltip>
+                    </p>
                     <p className="text-muted-foreground">
                       {analysis.recommendation || 'No specific recommendation available'}
                     </p>
@@ -216,9 +228,19 @@ const AnalysisDetail: React.FC = () => {
                       </div>
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Confidence:</span>
-                        <span className={`font-medium ${getConfidenceColor(analysis.confidence || 'Medium', false)}`}>
-                          {analysis.confidence}
-                        </span>
+                        <AnimatedInsightTooltip
+                          type={analysis.confidence?.toLowerCase() === 'high' ? 'bullish' : 
+                              analysis.confidence?.toLowerCase() === 'low' ? 'bearish' : 'neutral'}
+                          title={`${analysis.confidence} Signal Confidence`}
+                          description="AI confidence score based on pattern clarity, indicator alignment, and historical accuracy."
+                          animationType="indicator"
+                          strength={analysis.confidence?.toLowerCase() === 'high' ? 'strong' : 
+                                analysis.confidence?.toLowerCase() === 'low' ? 'weak' : 'moderate'}
+                        >
+                          <span className={`font-medium ${getConfidenceColor(analysis.confidence || 'Medium', false)}`}>
+                            {analysis.confidence}
+                          </span>
+                        </AnimatedInsightTooltip>
                       </div>
                     </div>
                   </div>
@@ -240,7 +262,17 @@ const AnalysisDetail: React.FC = () => {
                     {patterns.map((pattern: any, index: number) => (
                       <div key={index} className="border-b border-border pb-3 last:border-0 last:pb-0">
                         <div className="flex justify-between mb-1">
-                          <span className="font-medium">{pattern.name}</span>
+                          <AnimatedInsightTooltip
+                            type={pattern.type?.toLowerCase().includes('bullish') ? 'bullish' : 
+                                 pattern.type?.toLowerCase().includes('bearish') ? 'bearish' : 'neutral'}
+                            title={pattern.name}
+                            description={pattern.description}
+                            animationType="pattern"
+                            strength={pattern.strength?.toLowerCase().includes('strong') ? 'strong' : 
+                                    pattern.strength?.toLowerCase().includes('weak') ? 'weak' : 'moderate'}
+                          >
+                            <span className="font-medium cursor-help">{pattern.name}</span>
+                          </AnimatedInsightTooltip>
                           <Badge variant="outline">{pattern.type}</Badge>
                         </div>
                         <p className="text-sm text-muted-foreground mb-1">{pattern.description}</p>
@@ -271,7 +303,17 @@ const AnalysisDetail: React.FC = () => {
                     {indicators.map((indicator: any, index: number) => (
                       <div key={index} className="border-b border-border pb-3 last:border-0 last:pb-0">
                         <div className="flex justify-between mb-1">
-                          <span className="font-medium">{indicator.name}</span>
+                          <AnimatedInsightTooltip
+                            type={indicator.signal?.toLowerCase().includes('buy') ? 'bullish' : 
+                                  indicator.signal?.toLowerCase().includes('sell') ? 'bearish' : 
+                                  indicator.signal?.toLowerCase().includes('neutral') ? 'neutral' : 'volatile'}
+                            title={indicator.name}
+                            description={indicator.details || `${indicator.name} indicator with ${indicator.signal} signal`}
+                            animationType="indicator"
+                            strength="moderate"
+                          >
+                            <span className="font-medium cursor-help">{indicator.name}</span>
+                          </AnimatedInsightTooltip>
                           <Badge 
                             variant="outline" 
                             className={
@@ -305,7 +347,16 @@ const AnalysisDetail: React.FC = () => {
                 {supportResistance.map((level: any, index: number) => (
                   <div key={index} className="bg-card/50 p-4 rounded-lg border border-border">
                     <div className="flex justify-between mb-2">
-                      <span className="font-medium">{level.type}</span>
+                      <AnimatedInsightTooltip
+                        type={level.type?.toLowerCase().includes('support') ? 'bullish' : 'bearish'}
+                        title={`${level.type} Level`}
+                        description={`${level.type} at ${level.level} with ${level.strength} strength. ${level.type?.toLowerCase().includes('support') ? 'Price tends to bounce up from this level.' : 'Price tends to bounce down from this level.'}`}
+                        animationType="volatility"
+                        strength={level.strength?.toLowerCase().includes('strong') ? 'strong' : 
+                                level.strength?.toLowerCase().includes('weak') ? 'weak' : 'moderate'}
+                      >
+                        <span className="font-medium cursor-help">{level.type}</span>
+                      </AnimatedInsightTooltip>
                       <Badge variant="outline">{level.strength}</Badge>
                     </div>
                     <div className="text-xl font-bold">{level.level}</div>
