@@ -76,15 +76,28 @@ export function QuickTipGenerator() {
       }
       
       const finalSymbol = symbol || customSymbol;
-      const response = await apiRequest("POST", "/api/generate-trading-tip", {
-        symbol: finalSymbol,
-        timeframe,
-        marketContext
-      });
+      console.log("Making API request to generate tip with symbol:", finalSymbol);
       
-      return response.json();
+      try {
+        const response = await apiRequest("POST", "/api/generate-trading-tip", {
+          symbol: finalSymbol,
+          timeframe,
+          marketContext
+        });
+        
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || "Failed to generate trading tip");
+        }
+        
+        return await response.json();
+      } catch (err) {
+        console.error("Error in generateTip mutation:", err);
+        throw err;
+      }
     },
     onSuccess: (data: TradingTip) => {
+      console.log("Success response:", data);
       setTipData(data);
       toast({
         title: "Tip Generated",
@@ -92,6 +105,7 @@ export function QuickTipGenerator() {
       });
     },
     onError: (error: Error) => {
+      console.error("Error in onError handler:", error);
       toast({
         title: "Error",
         description: error.message || "Failed to generate trading tip",
@@ -446,7 +460,13 @@ export function QuickTipGenerator() {
                 } : {}}
               >
                 <Button 
-                  onClick={() => generateTip()} 
+                  onClick={() => {
+                    console.log("Generate button clicked");
+                    console.log("Symbol:", symbol || customSymbol);
+                    console.log("Timeframe:", timeframe);
+                    console.log("Market Context:", marketContext);
+                    generateTip(true);
+                  }}
                   disabled={isPending || (!symbol && !customSymbol)}
                   className="w-full bg-rose-600 hover:bg-rose-700 text-white shadow-lg shadow-rose-900/20 h-12"
                 >
