@@ -1,7 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { analyzeChartImage, testOpenAIApiKey, generateTradingTip } from "./openai";
+import { analyzeChartImage, testOpenAIApiKey, generateTradingTip, generateMarketTrendPredictions } from "./openai";
 import multer from "multer";
 import fs from "fs";
 import path from "path";
@@ -561,6 +561,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.status(500).json({ 
         message: "Error generating trading tip", 
+        error: error instanceof Error ? error.message : "Unknown error" 
+      });
+    }
+  });
+
+  // Generate market trend predictions for related currency pairs
+  app.post("/api/market-trends", async (req: Request, res: Response) => {
+    try {
+      // Check if user is authenticated
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ 
+          success: false,
+          message: "Authentication required" 
+        });
+      }
+
+      const { symbol } = req.body;
+      if (!symbol) {
+        return res.status(400).json({ error: 'Symbol is required' });
+      }
+      
+      console.log('Generating market trends for symbol:', symbol);
+      const trends = await generateMarketTrendPredictions(symbol);
+      res.json(trends);
+    } catch (error: any) {
+      console.error('Error generating market trends:', error);
+      
+      // Handle specific OpenAI errors like we do for other endpoints
+      if (error && error.code === 'billing_not_active' || 
+          (error && error.error && error.error.code === 'billing_not_active')) {
+        return res.status(403).json({ 
+          message: "OpenAI API key billing issue", 
+          error: "Your OpenAI account is not active. Please check your billing details on the OpenAI website.",
+          code: "BILLING_INACTIVE"
+        });
+      }
+      
+      res.status(500).json({ 
+        message: "Error generating market trends", 
         error: error instanceof Error ? error.message : "Unknown error" 
       });
     }
