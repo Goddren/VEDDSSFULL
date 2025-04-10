@@ -24,10 +24,7 @@ import TermsPage from "@/pages/terms";
 import SecurityPage from "@/pages/security";
 import AnalysisDetail from "@/pages/analysis-detail";
 import SharedAnalysisPage from "@/pages/shared-analysis";
-import TooltipShowcase from "@/pages/tooltip-showcase";
-import SimpleTooltipShowcase from "@/pages/simple-tooltip-showcase";
-import WorkingTooltips from "@/pages/working-tooltips";
-import ButtonShowcase from "@/pages/button-showcase";
+// Removed unused showcase components
 import { NewsNotificationScheduler } from "@/components/news-notification-scheduler";
 
 import { useLocation } from "wouter";
@@ -50,9 +47,7 @@ function AppLayout() {
           <Route path="/auth" component={AuthPage} />
           <Route path="/subscription" component={SubscriptionPage} />
           <Route path="/shared/:shareId" component={SharedAnalysisPage} />
-          <Route path="/tooltips" component={WorkingTooltips} />
-          <Route path="/simple-tooltips" component={WorkingTooltips} />
-          <Route path="/buttons" component={ButtonShowcase} />
+          {/* Removed tool showcase routes */}
           
           {/* Footer pages */}
           <Route path="/about" component={AboutPage} />
