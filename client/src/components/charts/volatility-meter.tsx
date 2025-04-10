@@ -35,27 +35,31 @@ export const VolatilityMeter: React.FC<VolatilityMeterProps> = ({
     switch (level) {
       case 'Low':
         return {
-          primary: 'bg-green-500',
-          secondary: 'text-green-500',
-          gradient: 'from-green-500/20 to-green-500/5',
+          primary: 'bg-emerald-500',
+          secondary: 'text-emerald-500',
+          gradient: 'from-emerald-500/20 to-emerald-500/5',
+          border: 'border-emerald-500/20',
         };
       case 'Medium':
         return {
-          primary: 'bg-yellow-500',
-          secondary: 'text-yellow-500',
-          gradient: 'from-yellow-500/20 to-yellow-500/5',
+          primary: 'bg-amber-500',
+          secondary: 'text-amber-500',
+          gradient: 'from-amber-500/20 to-amber-500/5',
+          border: 'border-amber-500/20',
         };
       case 'High':
         return {
-          primary: 'bg-red-500',
-          secondary: 'text-red-500',
-          gradient: 'from-red-500/20 to-red-500/5',
+          primary: 'bg-rose-500',
+          secondary: 'text-rose-500',
+          gradient: 'from-rose-500/20 to-rose-500/5',
+          border: 'border-rose-500/20',
         };
       default:
         return {
           primary: 'bg-blue-500',
           secondary: 'text-blue-500',
           gradient: 'from-blue-500/20 to-blue-500/5',
+          border: 'border-blue-500/20',
         };
     }
   };
@@ -82,10 +86,15 @@ export const VolatilityMeter: React.FC<VolatilityMeterProps> = ({
   
   // Pulsing animation effect
   const pulseAnimation = {
-    scale: [1, 1.02, 1],
-    opacity: [0.9, 1, 0.9],
+    scale: [1, 1.03, 1],
+    opacity: [0.92, 1, 0.92],
+    boxShadow: [
+      "0 0 0 rgba(0,0,0,0)",
+      `0 0 10px ${riskLevel === 'High' ? 'rgba(239,68,68,0.2)' : riskLevel === 'Medium' ? 'rgba(234,179,8,0.2)' : 'rgba(16,185,129,0.2)'}`,
+      "0 0 0 rgba(0,0,0,0)"
+    ],
     transition: {
-      duration: 2,
+      duration: 3,
       repeat: Infinity,
       ease: "easeInOut"
     }
@@ -110,7 +119,7 @@ export const VolatilityMeter: React.FC<VolatilityMeterProps> = ({
       {/* Meter display */}
       <div className="relative h-16 mb-4">
         {/* Background gradient */}
-        <div className="absolute inset-0 rounded-full h-4 mt-6 bg-gradient-to-r from-green-500/30 via-yellow-500/30 to-red-500/30"></div>
+        <div className="absolute inset-0 rounded-full h-4 mt-6 bg-gradient-to-r from-emerald-500/30 via-amber-500/30 to-rose-500/30 dark:from-emerald-600/40 dark:via-amber-600/40 dark:to-rose-600/40"></div>
         
         {/* Meter tick marks */}
         <div className="absolute inset-0 flex justify-between px-1 mt-6">
@@ -132,7 +141,7 @@ export const VolatilityMeter: React.FC<VolatilityMeterProps> = ({
         
         {/* Animated needle */}
         <motion.div 
-          className="absolute top-6 w-1 h-12 bg-primary -ml-0.5"
+          className={`absolute top-6 w-1 h-12 ${colors.primary} -ml-0.5 shadow-md`}
           style={{ 
             left: `${needlePosition}%`,
             transformOrigin: 'bottom center',
@@ -141,19 +150,36 @@ export const VolatilityMeter: React.FC<VolatilityMeterProps> = ({
           animate={{ 
             left: `${needlePosition}%`,
             rotate: [0, 2, -2, 0],
+            boxShadow: [
+              "0px 0px 3px rgba(0,0,0,0.3)",
+              "0px 0px 8px rgba(0,0,0,0.5)",
+              "0px 0px 3px rgba(0,0,0,0.3)"
+            ]
           }}
           transition={{ 
             left: { type: "spring", stiffness: 100, damping: 15 },
-            rotate: { repeat: Infinity, duration: 1, ease: "easeInOut" }
+            rotate: { repeat: Infinity, duration: 1.5, ease: "easeInOut" },
+            boxShadow: { repeat: Infinity, duration: 1.5, ease: "easeInOut" }
           }}
         >
-          <div className="w-3 h-3 rounded-full bg-primary absolute -top-3 -left-1"></div>
+          <motion.div 
+            className={`w-3 h-3 rounded-full ${colors.primary} absolute -top-3 -left-1 shadow-lg z-10`}
+            animate={{
+              scale: [1, 1.1, 1],
+              opacity: [0.9, 1, 0.9]
+            }}
+            transition={{
+              repeat: Infinity,
+              duration: 2,
+              ease: "easeInOut"
+            }}
+          />
         </motion.div>
       </div>
       
       {/* Risk information box */}
       <motion.div 
-        className={`mt-4 p-3 rounded-lg bg-gradient-to-br ${colors.gradient} border border-${colors.primary}/20`}
+        className={`mt-4 p-3 rounded-lg bg-gradient-to-br ${colors.gradient} border ${colors.border}`}
         animate={pulseAnimation}
       >
         <div className="flex items-start gap-2">
