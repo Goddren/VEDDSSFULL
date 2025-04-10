@@ -70,7 +70,7 @@ export function QuickTipGenerator() {
 
   // Handle generating the trading tip
   const { mutate: generateTip, isPending } = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (_: void) => {
       if (!symbol && !customSymbol) {
         throw new Error("Symbol is required");
       }
@@ -465,7 +465,7 @@ export function QuickTipGenerator() {
                     console.log("Symbol:", symbol || customSymbol);
                     console.log("Timeframe:", timeframe);
                     console.log("Market Context:", marketContext);
-                    generateTip(true);
+                    generateTip();
                   }}
                   disabled={isPending || (!symbol && !customSymbol)}
                   className="w-full bg-rose-600 hover:bg-rose-700 text-white shadow-lg shadow-rose-900/20 h-12"

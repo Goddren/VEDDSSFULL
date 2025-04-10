@@ -158,7 +158,16 @@ export function MarketTrendHeatmap({
                       </div>
                       <div className="mt-1 flex justify-between items-center">
                         <div className="text-xs opacity-90 flex items-center gap-1">
-                          <div className={`w-2 h-2 rounded-full bg-${cell.direction === 'bullish' ? 'green' : cell.direction === 'bearish' ? 'red' : 'gray'}-500`}></div>
+                          <div 
+                            className="w-2 h-2 rounded-full" 
+                            style={{ 
+                              backgroundColor: cell.direction === 'bullish' 
+                                ? '#22c55e' 
+                                : cell.direction === 'bearish' 
+                                  ? '#ef4444' 
+                                  : '#9ca3af'
+                            }}
+                          ></div>
                           <span>Signal strength: {cell.strength}%</span>
                         </div>
                         <div className="text-xs opacity-90">{cell.probability}%</div>
