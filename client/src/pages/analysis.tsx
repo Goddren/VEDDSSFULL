@@ -410,8 +410,8 @@ const Analysis: React.FC = () => {
           <Card className="mb-6">
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2">
-                <Sparkles className="h-5 w-5 text-primary" />
-                <span>Quick Trading Tip Generator</span>
+                <Sparkles className="h-5 w-5 text-red-500" />
+                <span className="text-red-500">Quick Trading Tip Generator</span>
               </CardTitle>
               <CardDescription>
                 Generate AI-powered trading tips and insights without uploading a chart
