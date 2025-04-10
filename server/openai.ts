@@ -225,6 +225,67 @@ export async function analyzeChartImage(base64Image: string): Promise<ChartAnaly
   }
 }
 
+// Generate concise trading tips for a symbol
+export async function generateTradingTip(
+  symbol: string,
+  timeframe: string = '4H', 
+  marketContext: string = ''
+): Promise<{ tip: string; direction: string; confidence: number; key_levels: { support: string; resistance: string } }> {
+  const openai = getOpenAIInstance();
+  
+  // Prepare prompt for AI to generate trading tip
+  const prompt = `Generate a concise trading tip for ${symbol} on the ${timeframe} timeframe.
+${marketContext ? `Current market context: ${marketContext}` : ''}
+
+Analyze potential trade opportunities for ${symbol} based on recent price action, key support/resistance levels, 
+and relevant indicators. Focus on actionable advice for traders.
+
+Format your response as a JSON object with these fields:
+- tip: A concise 1-2 sentence trading recommendation
+- direction: Either "buy", "sell", or "neutral"
+- confidence: A number from 1-100 representing confidence in this tip
+- key_levels: An object containing "support" and "resistance" price levels
+
+Keep the tip under 150 characters - direct and actionable.`;
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o", // use the newest model
+      messages: [
+        { role: "system", content: "You are a professional forex and crypto trading advisor with 15+ years of experience." },
+        { role: "user", content: prompt }
+      ],
+      response_format: { type: "json_object" }
+    });
+    
+    // Parse the response
+    const content = response.choices[0].message.content;
+    
+    if (!content) {
+      throw new Error("Failed to generate trading tip");
+    }
+    
+    try {
+      const tipData = JSON.parse(content);
+      return {
+        tip: tipData.tip || "No tip available",
+        direction: tipData.direction || "neutral",
+        confidence: Number(tipData.confidence) || 50,
+        key_levels: {
+          support: tipData.key_levels?.support || "N/A",
+          resistance: tipData.key_levels?.resistance || "N/A"
+        }
+      };
+    } catch (parseError) {
+      console.error("Error parsing AI response:", parseError);
+      throw new Error("Failed to parse trading tip");
+    }
+  } catch (error) {
+    console.error("Error generating trading tip:", error);
+    throw error;
+  }
+}
+
 export async function extractTextFromImage(base64Image: string): Promise<string> {
   try {
     const openai = getOpenAIInstance();

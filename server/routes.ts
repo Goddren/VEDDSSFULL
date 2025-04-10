@@ -1,7 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { analyzeChartImage, testOpenAIApiKey } from "./openai";
+import { analyzeChartImage, testOpenAIApiKey, generateTradingTip } from "./openai";
 import multer from "multer";
 import fs from "fs";
 import path from "path";
