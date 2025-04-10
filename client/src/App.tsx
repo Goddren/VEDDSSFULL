@@ -26,6 +26,7 @@ import AnalysisDetail from "@/pages/analysis-detail";
 import SharedAnalysisPage from "@/pages/shared-analysis";
 import TooltipShowcase from "@/pages/tooltip-showcase";
 import SimpleTooltipShowcase from "@/pages/simple-tooltip-showcase";
+import WorkingTooltips from "@/pages/working-tooltips";
 import ButtonShowcase from "@/pages/button-showcase";
 import { NewsNotificationScheduler } from "@/components/news-notification-scheduler";
 
@@ -49,8 +50,8 @@ function AppLayout() {
           <Route path="/auth" component={AuthPage} />
           <Route path="/subscription" component={SubscriptionPage} />
           <Route path="/shared/:shareId" component={SharedAnalysisPage} />
-          <Route path="/tooltips" component={SimpleTooltipShowcase} />
-          <Route path="/simple-tooltips" component={SimpleTooltipShowcase} />
+          <Route path="/tooltips" component={WorkingTooltips} />
+          <Route path="/simple-tooltips" component={WorkingTooltips} />
           <Route path="/buttons" component={ButtonShowcase} />
           
           {/* Footer pages */}
