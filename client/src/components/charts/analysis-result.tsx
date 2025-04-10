@@ -10,6 +10,7 @@ import { getNewsForSymbol } from '@/lib/news-service';
 import { useNewsNotifications } from '@/components/news-notification-scheduler';
 import VolumeAnalysisChart from './volume-analysis';
 import { InsightTooltip, ConfidenceInsight, PatternInsight, IndicatorInsight, MarketTrendInsight } from '@/components/tooltips';
+import { SmsNotification } from '@/components/trading/sms-notification';
 
 interface AnalysisResultProps {
   analysis: ChartAnalysisResponse;
