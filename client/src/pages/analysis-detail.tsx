@@ -12,6 +12,7 @@ import { NewsAlert, NewsEvent } from '@/components/ui/news-alert';
 import { getNewsForSymbol } from '@/lib/news-service';
 import { useToast } from '@/hooks/use-toast';
 import ShareAnalysis from '@/components/charts/share-analysis';
+import { apiRequest } from '@/lib/queryClient';
 
 const AnalysisDetail: React.FC = () => {
   const { id } = useParams();
@@ -21,7 +22,11 @@ const AnalysisDetail: React.FC = () => {
   const [showShareModal, setShowShareModal] = useState<boolean>(false);
 
   const { data: analysis, isLoading, isError } = useQuery<ChartAnalysis>({
-    queryKey: ['/api/analyses', analysisId],
+    queryKey: [`/api/analyses/${analysisId}`],
+    queryFn: async () => {
+      const res = await apiRequest('GET', `/api/analyses/${analysisId}`);
+      return res.json();
+    },
     enabled: !isNaN(analysisId)
   });
   
