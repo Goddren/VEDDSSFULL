@@ -1,6 +1,17 @@
 import { Button } from "@/components/ui/button";
 import { Link } from "wouter";
-import { ArrowRight, BarChart2, ChartLine, Zap } from "lucide-react";
+import { 
+  ArrowRight, 
+  BarChart2, 
+  ChartLine, 
+  Zap, 
+  Bell, 
+  Share2, 
+  Clock, 
+  BarChart, 
+  Timer,
+  AlertTriangle
+} from "lucide-react";
 import logoImg from "@assets/IMG_3645.png";
 
 export default function LandingPage() {
@@ -54,7 +65,9 @@ export default function LandingPage() {
               Our AI-powered platform analyzes chart patterns and market conditions to provide you with accurate insights and trading recommendations.
             </p>
           </div>
-          <div className="grid grid-cols-1 gap-8 md:grid-cols-3">
+          
+          {/* Main Features */}
+          <div className="grid grid-cols-1 gap-8 md:grid-cols-3 mb-16">
             {/* Feature 1 */}
             <div className="flex flex-col items-center p-6 bg-gray-900 rounded-lg">
               <div className="p-3 rounded-full bg-rose-600/20 mb-4">
@@ -88,6 +101,154 @@ export default function LandingPage() {
               </p>
             </div>
           </div>
+          
+          {/* New Features Section */}
+          <div className="text-center mb-12">
+            <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">
+              Latest Trading Tools
+            </h2>
+            <p className="mt-4 text-lg text-gray-400 max-w-3xl mx-auto">
+              Cutting-edge features to enhance your trading experience and decision-making.
+            </p>
+          </div>
+          
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+            {/* News Notifications */}
+            <div className="flex flex-col p-6 bg-gray-900 rounded-lg border border-gray-800 hover:border-rose-500/30 transition-colors">
+              <div className="flex items-center mb-4">
+                <div className="p-2 rounded-full bg-rose-600/20 mr-3">
+                  <Bell className="h-5 w-5 text-rose-500" />
+                </div>
+                <h3 className="text-lg font-semibold text-white">News Notifications</h3>
+              </div>
+              <p className="text-gray-400 flex-grow">
+                Get instant alerts about market news events that may impact your analyzed trading pairs.
+              </p>
+            </div>
+            
+            {/* Volatility Risk Meter */}
+            <div className="flex flex-col p-6 bg-gray-900 rounded-lg border border-gray-800 hover:border-rose-500/30 transition-colors">
+              <div className="flex items-center mb-4">
+                <div className="p-2 rounded-full bg-rose-600/20 mr-3">
+                  <AlertTriangle className="h-5 w-5 text-rose-500" />
+                </div>
+                <h3 className="text-lg font-semibold text-white">Volatility Risk Meter</h3>
+              </div>
+              <p className="text-gray-400 flex-grow">
+                Visual gauge showing market volatility levels with animated insights to help manage risk.
+              </p>
+            </div>
+            
+            {/* One-Click Chart Sharing */}
+            <div className="flex flex-col p-6 bg-gray-900 rounded-lg border border-gray-800 hover:border-rose-500/30 transition-colors">
+              <div className="flex items-center mb-4">
+                <div className="p-2 rounded-full bg-rose-600/20 mr-3">
+                  <Share2 className="h-5 w-5 text-rose-500" />
+                </div>
+                <h3 className="text-lg font-semibold text-white">One-Click Sharing</h3>
+              </div>
+              <p className="text-gray-400 flex-grow">
+                Share your chart analyses with trading notes via public links to collaborate with other traders.
+              </p>
+            </div>
+            
+            {/* Volume Analysis */}
+            <div className="flex flex-col p-6 bg-gray-900 rounded-lg border border-gray-800 hover:border-rose-500/30 transition-colors">
+              <div className="flex items-center mb-4">
+                <div className="p-2 rounded-full bg-rose-600/20 mr-3">
+                  <BarChart className="h-5 w-5 text-rose-500" />
+                </div>
+                <h3 className="text-lg font-semibold text-white">Volume Analysis</h3>
+              </div>
+              <p className="text-gray-400 flex-grow">
+                Monitor trading volumes across Asian, European, and US sessions to identify the best times to trade.
+              </p>
+            </div>
+            
+            {/* Time Zone Converter */}
+            <div className="flex flex-col p-6 bg-gray-900 rounded-lg border border-gray-800 hover:border-rose-500/30 transition-colors">
+              <div className="flex items-center mb-4">
+                <div className="p-2 rounded-full bg-rose-600/20 mr-3">
+                  <Clock className="h-5 w-5 text-rose-500" />
+                </div>
+                <h3 className="text-lg font-semibold text-white">Time Zone Converter</h3>
+              </div>
+              <p className="text-gray-400 flex-grow">
+                Convert trading session times between different time zones to never miss important market openings.
+              </p>
+            </div>
+            
+            {/* Trading Session Countdown */}
+            <div className="flex flex-col p-6 bg-gray-900 rounded-lg border border-gray-800 hover:border-rose-500/30 transition-colors">
+              <div className="flex items-center mb-4">
+                <div className="p-2 rounded-full bg-rose-600/20 mr-3">
+                  <Timer className="h-5 w-5 text-rose-500" />
+                </div>
+                <h3 className="text-lg font-semibold text-white">Session Countdown</h3>
+              </div>
+              <p className="text-gray-400 flex-grow">
+                Interactive countdown timer to major trading sessions, helping you prepare for market opens and closes.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Achievements section */}
+      <div className="py-16 bg-gradient-to-b from-gray-900 to-gray-950">
+        <div className="max-w-7xl mx-auto px-6 lg:px-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
+            <div>
+              <h2 className="text-3xl font-bold tracking-tight text-white">
+                Track Your Progress with Achievements
+              </h2>
+              <p className="mt-4 text-lg text-gray-300">
+                Our gamified achievements system lets you track your trading milestones and earn badges as you improve your skills.
+              </p>
+              <ul className="mt-6 space-y-3">
+                <li className="flex items-center">
+                  <div className="mr-3 h-5 w-5 text-rose-500">✓</div>
+                  <span className="text-gray-300">Unlock badges for analysis milestones</span>
+                </li>
+                <li className="flex items-center">
+                  <div className="mr-3 h-5 w-5 text-rose-500">✓</div>
+                  <span className="text-gray-300">Track progress across different markets</span>
+                </li>
+                <li className="flex items-center">
+                  <div className="mr-3 h-5 w-5 text-rose-500">✓</div>
+                  <span className="text-gray-300">Compete with other traders on leaderboards</span>
+                </li>
+                <li className="flex items-center">
+                  <div className="mr-3 h-5 w-5 text-rose-500">✓</div>
+                  <span className="text-gray-300">Build a comprehensive trading portfolio</span>
+                </li>
+              </ul>
+            </div>
+            <div className="bg-gray-900 p-8 rounded-xl border border-gray-800">
+              <div className="grid grid-cols-2 gap-4">
+                {[
+                  { name: "First Analysis", description: "Complete your first chart analysis", progress: 100 },
+                  { name: "Technical Master", description: "Analyze 10 different technical patterns", progress: 70 },
+                  { name: "Currency Expert", description: "Analyze 5 different currency pairs", progress: 60 },
+                  { name: "Sharing Pro", description: "Share 3 analyses with other traders", progress: 40 }
+                ].map((achievement, index) => (
+                  <div key={index} className="bg-gray-950 p-4 rounded-lg">
+                    <h4 className="font-medium text-white mb-1">{achievement.name}</h4>
+                    <p className="text-xs text-gray-400 mb-3">{achievement.description}</p>
+                    <div className="w-full bg-gray-800 rounded-full h-2">
+                      <div 
+                        className="bg-rose-600 h-2 rounded-full" 
+                        style={{ width: `${achievement.progress}%` }}
+                      ></div>
+                    </div>
+                    <div className="mt-1 text-right">
+                      <span className="text-xs text-gray-400">{achievement.progress}%</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -100,7 +261,7 @@ export default function LandingPage() {
           <p className="mt-4 text-xl text-gray-300 max-w-2xl mx-auto">
             Join thousands of traders using AI to gain a competitive edge in the markets.
           </p>
-          <div className="mt-8 flex justify-center gap-4">
+          <div className="mt-8 flex flex-col sm:flex-row justify-center gap-4">
             <Link href="/auth">
               <Button size="lg" className="bg-rose-600 hover:bg-rose-700 text-white">
                 Sign Up Now <ArrowRight className="ml-2 h-4 w-4" />
@@ -116,11 +277,64 @@ export default function LandingPage() {
       </div>
 
       {/* Footer */}
-      <div className="bg-gray-950 py-6">
+      <div className="bg-gray-950 py-12">
         <div className="max-w-7xl mx-auto px-6 lg:px-8">
-          <p className="text-center text-gray-500 text-sm">
-            © {new Date().getFullYear()} VEDD. All rights reserved.
-          </p>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-8 mb-8">
+            <div>
+              <h3 className="font-semibold text-white mb-3">Platform</h3>
+              <ul className="space-y-2">
+                <li><Link href="/analysis" className="text-gray-400 hover:text-rose-500 transition-colors">Chart Analysis</Link></li>
+                <li><Link href="/historical" className="text-gray-400 hover:text-rose-500 transition-colors">Analysis History</Link></li>
+                <li><Link href="/subscription" className="text-gray-400 hover:text-rose-500 transition-colors">Pricing</Link></li>
+                <li><Link href="/dashboard" className="text-gray-400 hover:text-rose-500 transition-colors">Dashboard</Link></li>
+              </ul>
+            </div>
+            <div>
+              <h3 className="font-semibold text-white mb-3">Features</h3>
+              <ul className="space-y-2">
+                <li><Link href="/achievements" className="text-gray-400 hover:text-rose-500 transition-colors">Achievements</Link></li>
+                <li><Link href="/#features" className="text-gray-400 hover:text-rose-500 transition-colors">Trading Tools</Link></li>
+                <li><Link href="/#features" className="text-gray-400 hover:text-rose-500 transition-colors">Volume Analysis</Link></li>
+                <li><Link href="/#features" className="text-gray-400 hover:text-rose-500 transition-colors">News Alerts</Link></li>
+              </ul>
+            </div>
+            <div>
+              <h3 className="font-semibold text-white mb-3">Support</h3>
+              <ul className="space-y-2">
+                <li><Link href="/contact" className="text-gray-400 hover:text-rose-500 transition-colors">Contact Us</Link></li>
+                <li><Link href="/support" className="text-gray-400 hover:text-rose-500 transition-colors">Help Center</Link></li>
+                <li><Link href="/about" className="text-gray-400 hover:text-rose-500 transition-colors">About Us</Link></li>
+              </ul>
+            </div>
+            <div>
+              <h3 className="font-semibold text-white mb-3">Legal</h3>
+              <ul className="space-y-2">
+                <li><Link href="/terms" className="text-gray-400 hover:text-rose-500 transition-colors">Terms of Service</Link></li>
+                <li><Link href="/privacy" className="text-gray-400 hover:text-rose-500 transition-colors">Privacy Policy</Link></li>
+                <li><Link href="/security" className="text-gray-400 hover:text-rose-500 transition-colors">Security</Link></li>
+              </ul>
+            </div>
+          </div>
+          
+          <div className="border-t border-gray-800 pt-8 mt-8 flex flex-col md:flex-row justify-between items-center">
+            <div className="flex items-center mb-4 md:mb-0">
+              <img src={logoImg} alt="VEDD Logo" className="h-8 mr-3" />
+              <p className="text-gray-400 text-sm">
+                © {new Date().getFullYear()} VEDD. All rights reserved.
+              </p>
+            </div>
+            <div className="flex gap-4">
+              <a href="#" className="text-gray-400 hover:text-rose-500 transition-colors">
+                <i className="fab fa-twitter text-lg"></i>
+              </a>
+              <a href="#" className="text-gray-400 hover:text-rose-500 transition-colors">
+                <i className="fab fa-discord text-lg"></i>
+              </a>
+              <a href="#" className="text-gray-400 hover:text-rose-500 transition-colors">
+                <i className="fab fa-github text-lg"></i>
+              </a>
+            </div>
+          </div>
         </div>
       </div>
     </div>
