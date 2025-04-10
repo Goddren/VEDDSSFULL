@@ -31,6 +31,8 @@ if (!fs.existsSync(uploadsDir)) {
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Initialize Twilio if credentials are available
+  setupTwilio();
   // Sample charts endpoint
   app.get("/api/sample-charts", (_req: Request, res: Response) => {
     // Return sample chart IDs - in production these would be real files
@@ -602,6 +604,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ 
         message: "Error generating market trends", 
         error: error instanceof Error ? error.message : "Unknown error" 
+      });
+    }
+  });
+
+  // Send trading signal via SMS
+  app.post("/api/send-signal", async (req: Request, res: Response) => {
+    try {
+      // Check if user is authenticated
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ 
+          success: false,
+          message: "Authentication required" 
+        });
+      }
+      
+      // Call the Twilio function to send the SMS
+      await sendTradingSignal(req, res);
+      
+    } catch (error: any) {
+      console.error("Error sending trading signal:", error);
+      res.status(500).json({ 
+        success: false, 
+        message: "Error sending trading signal", 
+        error: error.message 
       });
     }
   });
