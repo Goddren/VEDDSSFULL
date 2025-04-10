@@ -10,7 +10,7 @@ import { getNewsForSymbol } from '@/lib/news-service';
 import { useNewsNotifications } from '@/components/news-notification-scheduler';
 import VolumeAnalysisChart from './volume-analysis';
 import { MarketTrendHeatmap } from './market-trend-heatmap';
-import { ConfidenceInsight, PatternInsight, IndicatorInsight, MarketTrendInsight, InsightTooltip } from '@/components/tooltips';
+import { InsightTooltip, ConfidenceInsight, PatternInsight, IndicatorInsight, MarketTrendInsight } from '@/components/tooltips';
 
 interface AnalysisResultProps {
   analysis: ChartAnalysisResponse;
