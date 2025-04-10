@@ -180,8 +180,43 @@ const Analysis: React.FC = () => {
         await delay(800); // Simulate processing time
       }
       
-      const response = await apiRequest('POST', '/api/analyze', { imageUrl });
-      return await response.json();
+      try {
+        // Try to fetch the image first to convert it to base64
+        const imageResponse = await fetch(imageUrl);
+        if (!imageResponse.ok) {
+          throw new Error(`Failed to fetch image: ${imageResponse.status}`);
+        }
+        
+        // Convert the image to base64
+        const blob = await imageResponse.blob();
+        const reader = new FileReader();
+        const base64Promise = new Promise<string>((resolve, reject) => {
+          reader.onload = () => {
+            const base64 = reader.result?.toString().split(',')[1];
+            if (base64) {
+              resolve(base64);
+            } else {
+              reject(new Error('Failed to convert image to base64'));
+            }
+          };
+          reader.onerror = () => reject(new Error('Error reading image'));
+        });
+        
+        reader.readAsDataURL(blob);
+        const base64Image = await base64Promise;
+        
+        // Use the analyze-base64 endpoint instead of the analyze endpoint
+        const response = await apiRequest('POST', '/api/analyze-base64', { 
+          base64Image,
+          filename: imageUrl.split('/').pop() || 'reanalyzed-image.png'
+        });
+        return await response.json();
+      } catch (error) {
+        console.error('Error reanalyzing image:', error);
+        // Fall back to the original endpoint if base64 conversion fails
+        const response = await apiRequest('POST', '/api/analyze', { imageUrl });
+        return await response.json();
+      }
     },
     onSuccess: (data) => {
       setAnalysisResult(data);

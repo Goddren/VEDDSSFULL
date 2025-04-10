@@ -208,9 +208,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get absolute path to image
       const filePath = path.join(process.cwd(), imageUrl.replace(/^\//, ''));
       
+      console.log('Attempting to analyze image at path:', filePath);
+      
       // Check if file exists
       if (!fs.existsSync(filePath)) {
-        return res.status(404).json({ message: "Image file not found" });
+        // Try alternative path for uploads directory
+        const alternativePath = path.join(uploadsDir, path.basename(imageUrl));
+        console.log('Image not found, trying alternative path:', alternativePath);
+        
+        if (!fs.existsSync(alternativePath)) {
+          return res.status(404).json({ message: "Image file not found" });
+        }
+        
+        // Use the alternative path if it exists
+        console.log('Found image at alternative path');
+        return res.status(400).json({ 
+          message: "Please use the analyze-base64 endpoint instead", 
+          error: "Direct file analysis is deprecated" 
+        });
       }
 
       // Read file as base64
