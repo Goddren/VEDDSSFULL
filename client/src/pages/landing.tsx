@@ -10,7 +10,10 @@ import {
   Clock, 
   BarChart, 
   Timer,
-  AlertTriangle
+  AlertTriangle,
+  PieChart,
+  TrendingUp,
+  TrendingDown
 } from "lucide-react";
 import logoImg from "@assets/IMG_3645.png";
 
@@ -194,6 +197,108 @@ export default function LandingPage() {
         </div>
       </div>
 
+      {/* Pattern Distribution section */}
+      <div className="py-16 bg-gradient-to-r from-gray-900 to-gray-950">
+        <div className="max-w-7xl mx-auto px-6 lg:px-8">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">
+              Pattern Distribution
+            </h2>
+            <p className="mt-4 text-lg text-gray-400 max-w-3xl mx-auto">
+              Our AI recognizes a wide range of technical patterns across different market conditions.
+            </p>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-10 items-center">
+            <div className="order-2 md:order-1">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                {[
+                  { name: "Double Top/Bottom", type: "Reversal", percentage: 22, icon: <PieChart className="h-5 w-5" /> },
+                  { name: "Head & Shoulders", type: "Reversal", percentage: 18, icon: <ChartLine className="h-5 w-5" /> },
+                  { name: "Triangle Patterns", type: "Continuation", percentage: 25, icon: <BarChart2 className="h-5 w-5" /> },
+                  { name: "Flags & Pennants", type: "Continuation", percentage: 15, icon: <Share2 className="h-5 w-5" /> },
+                  { name: "Channel Patterns", type: "Trend", percentage: 12, icon: <TrendingUp className="h-5 w-5" /> },
+                  { name: "Wedge Patterns", type: "Mixed", percentage: 8, icon: <TrendingDown className="h-5 w-5" /> },
+                ].map((pattern, index) => (
+                  <div key={index} className="bg-gray-900 p-4 rounded-lg border border-gray-800">
+                    <div className="flex items-center gap-3 mb-2">
+                      <div className="p-2 rounded-full bg-rose-600/20">
+                        {pattern.icon}
+                      </div>
+                      <div>
+                        <h4 className="font-medium text-white">{pattern.name}</h4>
+                        <span className="text-xs text-gray-400">{pattern.type} Pattern</span>
+                      </div>
+                    </div>
+                    <div className="mt-3">
+                      <div className="flex justify-between text-sm mb-1">
+                        <span className="text-gray-400">Distribution</span>
+                        <span className="text-white font-medium">{pattern.percentage}%</span>
+                      </div>
+                      <div className="w-full bg-gray-800 rounded-full h-2">
+                        <div 
+                          className="bg-rose-600 h-2 rounded-full" 
+                          style={{ width: `${pattern.percentage}%` }}
+                        ></div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            
+            <div className="order-1 md:order-2">
+              <div className="bg-gray-900 p-6 rounded-xl border border-gray-800">
+                <h3 className="text-xl font-semibold text-white mb-4">Intelligent Pattern Recognition</h3>
+                <p className="text-gray-300 mb-4">
+                  Our AI can identify over 30 different chart patterns with accuracy rates up to 92%. The system continuously learns from new data to improve pattern recognition.
+                </p>
+                <div className="space-y-3 mb-6">
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Reversal Patterns</span>
+                    <span className="text-white">40%</span>
+                  </div>
+                  <div className="w-full bg-gray-800 rounded-full h-2">
+                    <div className="bg-green-500 h-2 rounded-full" style={{ width: '40%' }}></div>
+                  </div>
+                  
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Continuation Patterns</span>
+                    <span className="text-white">42%</span>
+                  </div>
+                  <div className="w-full bg-gray-800 rounded-full h-2">
+                    <div className="bg-blue-500 h-2 rounded-full" style={{ width: '42%' }}></div>
+                  </div>
+                  
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Mixed/Other Patterns</span>
+                    <span className="text-white">18%</span>
+                  </div>
+                  <div className="w-full bg-gray-800 rounded-full h-2">
+                    <div className="bg-yellow-500 h-2 rounded-full" style={{ width: '18%' }}></div>
+                  </div>
+                </div>
+                <div className="bg-gray-950 p-4 rounded-lg">
+                  <div className="flex items-center gap-3 mb-1">
+                    <AlertTriangle className="h-5 w-5 text-yellow-500" />
+                    <h4 className="font-medium text-white">AI Accuracy Rate</h4>
+                  </div>
+                  <div className="ml-8">
+                    <div className="w-full bg-gray-800 rounded-full h-3 mt-3">
+                      <div className="bg-gradient-to-r from-yellow-500 via-orange-500 to-rose-500 h-3 rounded-full" style={{ width: '92%' }}></div>
+                    </div>
+                    <div className="flex justify-between mt-1">
+                      <span className="text-xs text-gray-400">0%</span>
+                      <span className="text-xs text-gray-400">92%</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      
       {/* Achievements section */}
       <div className="py-16 bg-gradient-to-b from-gray-900 to-gray-950">
         <div className="max-w-7xl mx-auto px-6 lg:px-8">
@@ -225,11 +330,10 @@ export default function LandingPage() {
               </ul>
             </div>
             <div className="bg-gray-900 p-8 rounded-xl border border-gray-800">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4">
                 {[
                   { name: "First Analysis", description: "Complete your first chart analysis", progress: 100 },
                   { name: "Technical Master", description: "Analyze 10 different technical patterns", progress: 70 },
-                  { name: "Currency Expert", description: "Analyze 5 different currency pairs", progress: 60 },
                   { name: "Sharing Pro", description: "Share 3 analyses with other traders", progress: 40 }
                 ].map((achievement, index) => (
                   <div key={index} className="bg-gray-950 p-4 rounded-lg">
