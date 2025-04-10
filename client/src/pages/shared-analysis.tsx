@@ -6,6 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/queryClient';
 import { convertToChartAnalysisResponse, calculateVolatilityScore } from '@/lib/analysis-utils';
 import AnalysisResult from '@/components/charts/analysis-result';
+import ChartAnnotator from '@/components/charts/chart-annotator';
 import { Card } from '@/components/ui/card';
 import { Loader2, Share2, Link as LinkIcon, Info, Terminal, ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -143,6 +144,20 @@ const SharedAnalysisPage: React.FC = () => {
           />
         </div>
         
+        {/* Chart with trade signals */}
+        <Card className="mb-6 overflow-hidden">
+          <ChartAnnotator
+            analysis={convertToChartAnalysisResponse(analysis)}
+            imageUrl={analysis.imageUrl 
+              ? (analysis.imageUrl.startsWith('http') 
+                ? analysis.imageUrl 
+                : `/api/shared-image/${analysis.imageUrl.split('/').pop()}`) 
+              : ''}
+            className="w-full"
+          />
+        </Card>
+        
+        {/* Original analysis result for detailed info */}
         <AnalysisResult
           analysis={convertToChartAnalysisResponse(analysis)}
           imageUrl={analysis.imageUrl 

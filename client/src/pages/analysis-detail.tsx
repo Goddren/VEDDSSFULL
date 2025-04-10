@@ -13,7 +13,8 @@ import { getNewsForSymbol } from '@/lib/news-service';
 import { useToast } from '@/hooks/use-toast';
 import ShareAnalysis from '@/components/charts/share-analysis';
 import VolatilityMeter from '@/components/charts/volatility-meter';
-import { calculateVolatilityScore } from '@/lib/analysis-utils';
+import ChartAnnotator from '@/components/charts/chart-annotator';
+import { calculateVolatilityScore, convertToChartAnalysisResponse } from '@/lib/analysis-utils';
 import { apiRequest } from '@/lib/queryClient';
 
 const AnalysisDetail: React.FC = () => {
@@ -22,6 +23,7 @@ const AnalysisDetail: React.FC = () => {
   const { toast } = useToast();
   const [newsEvents, setNewsEvents] = useState<NewsEvent[]>([]);
   const [showShareModal, setShowShareModal] = useState<boolean>(false);
+  const [showAnnotations, setShowAnnotations] = useState<boolean>(true);
 
   const { data: analysis, isLoading, isError } = useQuery<ChartAnalysis>({
     queryKey: [`/api/analyses/${analysisId}`],
@@ -156,11 +158,14 @@ const AnalysisDetail: React.FC = () => {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
           <Card className="lg:col-span-2">
             <CardContent className="p-0 overflow-hidden">
-              <img 
-                src={analysis.imageUrl} 
-                alt={`${analysis.symbol || 'Chart'} analysis`}
-                className="w-full h-auto object-contain border-b border-border"
-              />
+              {/* Chart with trade signals */}
+              <div className="w-full border-b border-border">
+                <ChartAnnotator
+                  analysis={convertToChartAnalysisResponse(analysis)}
+                  imageUrl={analysis.imageUrl}
+                  className="w-full"
+                />
+              </div>
               <div className="p-6">
                 <h2 className="text-xl font-bold mb-4">Recommendation</h2>
                 <div className="flex items-start gap-3 mb-6">
