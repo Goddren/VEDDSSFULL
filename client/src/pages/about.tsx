@@ -61,19 +61,19 @@ const AboutPage: React.FC = () => {
   
   const team = [
     {
-      name: 'Alex Johnson',
-      role: 'Founder & CEO',
-      bio: 'Former hedge fund analyst with over 15 years of experience in the financial markets.',
+      name: 'Christopher Don Chism II',
+      role: 'Founder, CEO & SEO',
+      bio: 'Visionary leader and trading expert with extensive experience in financial markets and algorithmic trading systems.',
     },
     {
-      name: 'Dr. Maria Chen',
+      name: 'Christopher Don Chism II',
       role: 'Chief AI Officer',
-      bio: 'PhD in Machine Learning with expertise in computer vision and financial pattern recognition.',
+      bio: 'Expert in machine learning and AI systems with specialized knowledge in computer vision and pattern recognition for financial markets.',
     },
     {
-      name: 'David Williams',
+      name: 'Christopher Don Chism II',
       role: 'Head of Trading Strategy',
-      bio: 'Professional trader with a track record of developing profitable systems across multiple markets.',
+      bio: 'Seasoned trader with a proven track record of developing profitable systems and strategies across multiple market conditions.',
     },
   ];
 
@@ -131,19 +131,19 @@ const AboutPage: React.FC = () => {
       <section>
         <h2 className="text-2xl font-bold mb-6">Our Story</h2>
         <p className="mb-4">
-          VEDD was founded in 2023 by a team of traders, data scientists, and software engineers who were frustrated 
-          with the limitations of existing trading tools. After years of manually analyzing charts and developing 
-          trading strategies, we realized there had to be a better way.
+          VEDD was founded in 2023 by Christopher Don Chism II, a visionary trader and AI expert who identified 
+          significant limitations in existing trading tools. After years of manually analyzing charts and developing 
+          trading strategies, he was determined to create a revolutionary platform that would transform the trading industry.
         </p>
         <p className="mb-4">
-          We built the first prototype of our AI chart analysis system for our own trading, and the results were 
-          impressive. Our pattern recognition accuracy increased significantly, and we were able to identify 
-          high-probability setups much faster than with traditional analysis methods.
+          Christopher built the first prototype of the AI chart analysis system for his own trading, and the results were 
+          impressive. The pattern recognition accuracy increased significantly, and high-probability setups could be identified 
+          much faster than with traditional analysis methods, leading to consistently profitable trading strategies.
         </p>
         <p>
-          Today, VEDD has grown into a comprehensive trading analysis platform used by thousands of traders worldwide, 
-          from beginners to professional fund managers. We're constantly improving our AI models and adding new features 
-          based on user feedback to ensure VEDD remains at the cutting edge of trading technology.
+          Today, under Christopher Don Chism II's leadership, VEDD has grown into a comprehensive trading analysis platform 
+          used by thousands of traders worldwide, from beginners to professional fund managers. We're constantly improving our 
+          AI models and adding new features based on user feedback to ensure VEDD remains at the cutting edge of trading technology.
         </p>
       </section>
     </ContentPage>
