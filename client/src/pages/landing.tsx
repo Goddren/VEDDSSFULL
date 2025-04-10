@@ -67,7 +67,7 @@ export default function LandingPage() {
             />
           </div>
           <h1 className="text-4xl font-bold tracking-tight text-white sm:text-5xl md:text-6xl animate-in slide-in-from-bottom-3 duration-500">
-            <span className="bg-clip-text text-transparent bg-gradient-to-r from-rose-500 via-fuchsia-500 to-indigo-500">
+            <span className="bg-clip-text text-transparent bg-gradient-to-r from-red-600 via-rose-500 to-amber-500">
               AI-Powered
             </span> Chart Analysis
           </h1>
@@ -77,12 +77,12 @@ export default function LandingPage() {
           </p>
           <div className="mt-10 flex flex-col sm:flex-row gap-4 justify-center animate-in fade-in slide-in-from-bottom-3 duration-1000 delay-300">
             <Link href="/auth">
-              <Button size="lg" className="bg-gradient-to-r from-fuchsia-600 to-rose-600 hover:from-fuchsia-700 hover:to-rose-700 text-white shadow-lg shadow-fuchsia-500/30 hover:shadow-fuchsia-500/50 transition-all duration-300 transform hover:scale-105">
+              <Button size="lg" className="bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-700 hover:to-rose-700 text-white shadow-lg shadow-red-500/30 hover:shadow-red-500/50 transition-all duration-300 transform hover:scale-105">
                 Get Started <ArrowRight className="ml-2 h-4 w-4 animate-bounce-custom" />
               </Button>
             </Link>
             <Link href="/subscription">
-              <Button size="lg" variant="outline" className="border-fuchsia-600 text-white hover:bg-fuchsia-700/20 hover:border-fuchsia-500 transition-all duration-300 transform hover:scale-105">
+              <Button size="lg" variant="outline" className="border-red-600 text-white hover:bg-red-700/20 hover:border-red-500 transition-all duration-300 transform hover:scale-105">
                 View Pricing
               </Button>
             </Link>
@@ -124,7 +124,7 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto px-6 lg:px-8 relative z-10">
           <div className="text-center mb-16">
             <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl animate-in fade-in slide-in-from-bottom-3 duration-700">
-              <span className="bg-clip-text text-transparent bg-gradient-to-r from-indigo-500 via-fuchsia-500 to-rose-500">
+              <span className="bg-clip-text text-transparent bg-gradient-to-r from-red-600 via-rose-500 to-amber-500">
                 Powerful Trading Intelligence
               </span>
             </h2>
@@ -136,15 +136,15 @@ export default function LandingPage() {
           {/* Main Features */}
           <div className="grid grid-cols-1 gap-8 md:grid-cols-3 mb-16">
             {/* Feature 1 */}
-            <div className="group flex flex-col items-center p-6 bg-gradient-to-b from-black/80 to-gray-900/60 backdrop-blur-md rounded-lg border border-fuchsia-900/40 shadow-lg shadow-fuchsia-500/5 transform hover:scale-105 hover:shadow-fuchsia-500/20 hover:border-fuchsia-700/50 transition-all duration-300 animate-in fade-in-0 slide-in-from-bottom-3 duration-500">
-              <div className="p-3 rounded-full bg-gradient-to-br from-fuchsia-600/40 to-fuchsia-900/20 mb-4 group-hover:from-fuchsia-500/50 group-hover:to-fuchsia-800/30 transition-all duration-300">
-                <BarChart2 className="h-8 w-8 text-fuchsia-400 group-hover:text-fuchsia-300 animate-pulse transition-colors duration-300" />
+            <div className="group flex flex-col items-center p-6 bg-gradient-to-b from-black/80 to-gray-900/60 backdrop-blur-md rounded-lg border border-red-900/40 shadow-lg shadow-red-500/5 transform hover:scale-105 hover:shadow-red-500/20 hover:border-red-700/50 transition-all duration-300 animate-in fade-in-0 slide-in-from-bottom-3 duration-500">
+              <div className="p-3 rounded-full bg-gradient-to-br from-red-600/40 to-red-900/20 mb-4 group-hover:from-red-500/50 group-hover:to-red-800/30 transition-all duration-300">
+                <BarChart2 className="h-8 w-8 text-red-400 group-hover:text-red-300 animate-pulse transition-colors duration-300" />
               </div>
-              <h3 className="text-xl font-semibold text-white mb-2 group-hover:text-fuchsia-300 transition-colors duration-300">Pattern Recognition</h3>
+              <h3 className="text-xl font-semibold text-white mb-2 group-hover:text-red-300 transition-colors duration-300">Pattern Recognition</h3>
               <p className="text-center text-gray-300 group-hover:text-gray-200 transition-colors duration-300">
                 Identify chart patterns and technical indicators with advanced AI analysis.
               </p>
-              <div className="mt-4 w-24 h-1 bg-gradient-to-r from-fuchsia-500 to-rose-500 rounded-full transform origin-left scale-0 group-hover:scale-100 transition-transform duration-500"></div>
+              <div className="mt-4 w-24 h-1 bg-gradient-to-r from-red-500 to-rose-500 rounded-full transform origin-left scale-0 group-hover:scale-100 transition-transform duration-500"></div>
             </div>
             
             {/* Feature 2 */}
@@ -175,7 +175,7 @@ export default function LandingPage() {
           {/* New Features Section */}
           <div className="text-center mb-12">
             <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl animate-in fade-in slide-in-from-bottom-3 duration-700">
-              <span className="bg-clip-text text-transparent bg-gradient-to-r from-rose-500 via-purple-500 to-indigo-500">
+              <span className="bg-clip-text text-transparent bg-gradient-to-r from-amber-500 via-red-600 to-rose-500">
                 Latest Trading Tools
               </span>
             </h2>
@@ -186,12 +186,12 @@ export default function LandingPage() {
           
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
             {/* News Notifications */}
-            <div className="flex flex-col p-6 bg-gradient-to-b from-black/90 to-gray-900/80 backdrop-blur-sm rounded-lg border border-fuchsia-900/30 shadow-xl shadow-fuchsia-500/5 hover:shadow-fuchsia-500/20 hover:border-fuchsia-700/40 transition-all duration-300 transform hover:-translate-y-1 animate-in fade-in-0 slide-in-from-bottom-3 duration-500 group">
+            <div className="flex flex-col p-6 bg-gradient-to-b from-black/90 to-gray-900/80 backdrop-blur-sm rounded-lg border border-red-900/30 shadow-xl shadow-red-500/5 hover:shadow-red-500/20 hover:border-red-700/40 transition-all duration-300 transform hover:-translate-y-1 animate-in fade-in-0 slide-in-from-bottom-3 duration-500 group">
               <div className="flex items-center mb-4">
-                <div className="p-2 rounded-full bg-gradient-to-br from-fuchsia-600/40 to-fuchsia-900/20 mr-3 group-hover:from-fuchsia-500/50 group-hover:to-fuchsia-800/30 transition-all duration-300">
-                  <Bell className="h-5 w-5 text-fuchsia-400 group-hover:text-fuchsia-300 group-hover:animate-ping transition-colors duration-300" />
+                <div className="p-2 rounded-full bg-gradient-to-br from-red-600/40 to-red-900/20 mr-3 group-hover:from-red-500/50 group-hover:to-red-800/30 transition-all duration-300">
+                  <Bell className="h-5 w-5 text-red-400 group-hover:text-red-300 group-hover:animate-ping transition-colors duration-300" />
                 </div>
-                <h3 className="text-lg font-semibold text-white group-hover:text-fuchsia-300 transition-colors duration-300">News Notifications</h3>
+                <h3 className="text-lg font-semibold text-white group-hover:text-red-300 transition-colors duration-300">News Notifications</h3>
               </div>
               <p className="text-gray-300 flex-grow group-hover:text-gray-200 transition-colors duration-300">
                 Get instant alerts about market news events that may impact your analyzed trading pairs.
@@ -300,7 +300,7 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto px-6 lg:px-8 relative z-10">
           <div className="text-center mb-12">
             <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl animate-in fade-in slide-in-from-bottom-3 duration-700">
-              <span className="bg-clip-text text-transparent bg-gradient-to-r from-green-400 via-blue-500 to-indigo-400">
+              <span className="bg-clip-text text-transparent bg-gradient-to-r from-amber-400 via-orange-600 to-red-600">
                 Pattern Distribution
               </span>
             </h2>
