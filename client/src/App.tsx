@@ -24,6 +24,7 @@ import TermsPage from "@/pages/terms";
 import SecurityPage from "@/pages/security";
 import AnalysisDetail from "@/pages/analysis-detail";
 import SharedAnalysisPage from "@/pages/shared-analysis";
+import SocialHub from "@/pages/social-hub";
 // Removed unused showcase components
 import { NewsNotificationScheduler } from "@/components/news-notification-scheduler";
 
@@ -65,6 +66,7 @@ function AppLayout() {
           <ProtectedRoute path="/profile" component={ProfilePage} />
           <ProtectedRoute path="/achievements" component={AchievementsPage} />
           <ProtectedRoute path="/home" component={Home} />
+          <ProtectedRoute path="/social-hub" component={SocialHub} />
           
           <Route component={NotFound} />
         </Switch>
