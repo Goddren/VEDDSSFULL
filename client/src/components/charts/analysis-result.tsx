@@ -10,7 +10,7 @@ import { getNewsForSymbol } from '@/lib/news-service';
 import { useNewsNotifications } from '@/components/news-notification-scheduler';
 import VolumeAnalysisChart from './volume-analysis';
 import { InsightTooltip, ConfidenceInsight, PatternInsight, IndicatorInsight, MarketTrendInsight } from '@/components/tooltips';
-import { SmsNotification } from '@/components/trading/sms-notification';
+import { SocialShare } from '@/components/trading/social-share';
 
 interface AnalysisResultProps {
   analysis: ChartAnalysisResponse;
@@ -367,6 +367,11 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({ analysis, imageUrl, onR
             <p className="text-sm text-gray-400">Risk Disclaimer: This analysis is for informational purposes only and should not be considered as financial advice.</p>
           </div>
         </div>
+      </div>
+      
+      {/* Social Media Sharing */}
+      <div className="bg-[#1E1E1E] rounded-xl p-6 shadow-lg">
+        <SocialShare analysis={analysis} imageUrl={imageUrl} />
       </div>
       
       {/* Economic News Alerts Section - Only show if we have news events */}
