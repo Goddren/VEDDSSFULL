@@ -21,19 +21,19 @@ export default function LandingPage() {
   return (
     <div className="flex flex-col min-h-screen">
       {/* Hero section */}
-      <div className="flex flex-col items-center justify-center relative px-6 py-16 bg-gradient-to-r from-gray-900 to-gray-800 lg:px-8 lg:py-24 overflow-hidden">
+      <div className="flex flex-col items-center justify-center relative px-6 py-16 bg-gradient-to-r from-black via-gray-900 to-black lg:px-8 lg:py-24 overflow-hidden">
         {/* Animated background elements */}
         <div className="absolute inset-0 overflow-hidden">
-          <div className="absolute -left-10 top-1/4 w-40 h-40 bg-rose-500/10 rounded-full filter blur-3xl animate-pulse"></div>
-          <div className="absolute right-10 top-3/4 w-60 h-60 bg-blue-500/10 rounded-full filter blur-3xl animate-pulse" style={{ animationDelay: '1s' }}></div>
-          <div className="absolute left-1/3 bottom-0 w-80 h-80 bg-violet-500/10 rounded-full filter blur-3xl animate-pulse" style={{ animationDelay: '2s' }}></div>
+          <div className="absolute -left-10 top-1/4 w-40 h-40 bg-rose-600/20 rounded-full filter blur-3xl animate-pulse"></div>
+          <div className="absolute right-10 top-3/4 w-60 h-60 bg-blue-600/20 rounded-full filter blur-3xl animate-pulse" style={{ animationDelay: '1s' }}></div>
+          <div className="absolute left-1/3 bottom-0 w-80 h-80 bg-purple-600/20 rounded-full filter blur-3xl animate-pulse" style={{ animationDelay: '2s' }}></div>
           
           {/* Animated chart elements */}
-          <div className="absolute left-0 top-1/3 flex space-x-1 opacity-20">
+          <div className="absolute left-0 top-1/3 flex space-x-1 opacity-30">
             {[40, 65, 30, 85, 55, 75, 40, 90, 60, 45, 70].map((height, i) => (
               <div 
                 key={i}
-                className="w-2 bg-green-500 rounded-t-sm animate-bounce-custom" 
+                className="w-2 bg-emerald-500 rounded-t-sm animate-bounce-custom" 
                 style={{ 
                   height: `${height}px`,
                   animationDelay: `${i * 0.1}s`,
@@ -43,11 +43,11 @@ export default function LandingPage() {
             ))}
           </div>
           
-          <div className="absolute right-0 bottom-1/4 flex space-x-1 opacity-20">
+          <div className="absolute right-0 bottom-1/4 flex space-x-1 opacity-30">
             {[70, 45, 60, 90, 40, 75, 55, 85, 30, 65, 40].map((height, i) => (
               <div 
                 key={i}
-                className="w-2 bg-red-500 rounded-t-sm animate-bounce-custom" 
+                className="w-2 bg-red-600 rounded-t-sm animate-bounce-custom" 
                 style={{ 
                   height: `${height}px`,
                   animationDelay: `${i * 0.1}s`,
@@ -63,31 +63,31 @@ export default function LandingPage() {
             <img 
               src={logoImg} 
               alt="VEDD Logo" 
-              className="h-20 md:h-24 animate-pulse hover:animate-none transition-all duration-300"
+              className="h-20 md:h-28 animate-pulse hover:animate-none transition-all duration-300 drop-shadow-[0_0_15px_rgba(255,255,255,0.3)]"
             />
           </div>
           <h1 className="text-4xl font-bold tracking-tight text-white sm:text-5xl md:text-6xl animate-in slide-in-from-bottom-3 duration-500">
-            <span className="bg-clip-text text-transparent bg-gradient-to-r from-rose-400 via-rose-500 to-violet-500">
+            <span className="bg-clip-text text-transparent bg-gradient-to-r from-rose-500 via-fuchsia-500 to-indigo-500">
               AI-Powered
             </span> Chart Analysis
           </h1>
-          <p className="mt-6 text-xl text-gray-300 max-w-3xl mx-auto animate-in fade-in slide-in-from-bottom-3 duration-700 delay-200">
+          <p className="mt-6 text-xl text-gray-200 max-w-3xl mx-auto animate-in fade-in slide-in-from-bottom-3 duration-700 delay-200">
             Transform your trading with advanced AI analysis. Upload charts from MT4, MT5, or TradingView 
             and get precise market insights, patterns, and actionable signals instantly.
           </p>
           <div className="mt-10 flex flex-col sm:flex-row gap-4 justify-center animate-in fade-in slide-in-from-bottom-3 duration-1000 delay-300">
             <Link href="/auth">
-              <Button size="lg" className="bg-gradient-to-r from-rose-600 to-rose-500 hover:from-rose-700 hover:to-rose-600 text-white shadow-lg shadow-rose-500/20 hover:shadow-rose-500/40 transition-all duration-300 transform hover:scale-105">
+              <Button size="lg" className="bg-gradient-to-r from-fuchsia-600 to-rose-600 hover:from-fuchsia-700 hover:to-rose-700 text-white shadow-lg shadow-fuchsia-500/30 hover:shadow-fuchsia-500/50 transition-all duration-300 transform hover:scale-105">
                 Get Started <ArrowRight className="ml-2 h-4 w-4 animate-bounce-custom" />
               </Button>
             </Link>
             <Link href="/subscription">
-              <Button size="lg" variant="outline" className="border-rose-600 text-white hover:bg-rose-700/20 hover:border-rose-500 transition-all duration-300 transform hover:scale-105">
+              <Button size="lg" variant="outline" className="border-fuchsia-600 text-white hover:bg-fuchsia-700/20 hover:border-fuchsia-500 transition-all duration-300 transform hover:scale-105">
                 View Pricing
               </Button>
             </Link>
             <a href="#features">
-              <Button size="lg" variant="outline" className="border-gray-600 text-white hover:bg-gray-700/20 transition-all duration-300 transform hover:scale-105">
+              <Button size="lg" variant="outline" className="border-gray-500 text-white hover:bg-white/10 transition-all duration-300 transform hover:scale-105">
                 Learn More
               </Button>
             </a>
@@ -96,7 +96,7 @@ export default function LandingPage() {
       </div>
 
       {/* Features section */}
-      <div id="features" className="py-16 bg-gray-950 relative overflow-hidden">
+      <div id="features" className="py-16 bg-gradient-to-b from-black to-gray-950 relative overflow-hidden">
         {/* Animated background */}
         <div className="absolute inset-0 overflow-hidden opacity-30">
           {/* Stock market grid background */}
@@ -104,11 +104,11 @@ export default function LandingPage() {
             {Array.from({ length: 20 }).map((_, rowIndex) => (
               <div key={`grid-row-${rowIndex}`} className="flex">
                 {Array.from({ length: 30 }).map((_, colIndex) => {
-                  const randomOpacity = (Math.random() * 0.08).toFixed(2);
+                  const randomOpacity = (Math.random() * 0.1).toFixed(2);
                   return (
                     <div 
                       key={`grid-cell-${rowIndex}-${colIndex}`} 
-                      className={`border border-gray-800/10 w-10 h-10`}
+                      className={`border border-fuchsia-900/10 w-10 h-10`}
                       style={{ 
                         opacity: randomOpacity,
                         animationDelay: `${(rowIndex + colIndex) * 0.1}s`,
@@ -124,11 +124,11 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto px-6 lg:px-8 relative z-10">
           <div className="text-center mb-16">
             <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl animate-in fade-in slide-in-from-bottom-3 duration-700">
-              <span className="bg-clip-text text-transparent bg-gradient-to-r from-blue-400 via-rose-500 to-violet-400">
+              <span className="bg-clip-text text-transparent bg-gradient-to-r from-indigo-500 via-fuchsia-500 to-rose-500">
                 Powerful Trading Intelligence
               </span>
             </h2>
-            <p className="mt-4 text-lg text-gray-400 max-w-3xl mx-auto animate-in fade-in slide-in-from-bottom-3 duration-700 delay-200">
+            <p className="mt-4 text-lg text-gray-300 max-w-3xl mx-auto animate-in fade-in slide-in-from-bottom-3 duration-700 delay-200">
               Our AI-powered platform analyzes chart patterns and market conditions to provide you with accurate insights and trading recommendations.
             </p>
           </div>
@@ -136,129 +136,129 @@ export default function LandingPage() {
           {/* Main Features */}
           <div className="grid grid-cols-1 gap-8 md:grid-cols-3 mb-16">
             {/* Feature 1 */}
-            <div className="flex flex-col items-center p-6 bg-gray-900/80 backdrop-blur-md rounded-lg border border-gray-800 shadow-lg transform hover:scale-105 hover:border-rose-500/40 transition-all duration-300 animate-in fade-in-0 slide-in-from-bottom-3 duration-500">
-              <div className="p-3 rounded-full bg-gradient-to-br from-rose-600/30 to-rose-600/10 mb-4 group-hover:from-rose-500/40 group-hover:to-rose-500/20 transition-all duration-300">
-                <BarChart2 className="h-8 w-8 text-rose-500 animate-pulse" />
+            <div className="group flex flex-col items-center p-6 bg-gradient-to-b from-black/80 to-gray-900/60 backdrop-blur-md rounded-lg border border-fuchsia-900/40 shadow-lg shadow-fuchsia-500/5 transform hover:scale-105 hover:shadow-fuchsia-500/20 hover:border-fuchsia-700/50 transition-all duration-300 animate-in fade-in-0 slide-in-from-bottom-3 duration-500">
+              <div className="p-3 rounded-full bg-gradient-to-br from-fuchsia-600/40 to-fuchsia-900/20 mb-4 group-hover:from-fuchsia-500/50 group-hover:to-fuchsia-800/30 transition-all duration-300">
+                <BarChart2 className="h-8 w-8 text-fuchsia-400 group-hover:text-fuchsia-300 animate-pulse transition-colors duration-300" />
               </div>
-              <h3 className="text-xl font-semibold text-white mb-2">Pattern Recognition</h3>
-              <p className="text-center text-gray-400">
+              <h3 className="text-xl font-semibold text-white mb-2 group-hover:text-fuchsia-300 transition-colors duration-300">Pattern Recognition</h3>
+              <p className="text-center text-gray-300 group-hover:text-gray-200 transition-colors duration-300">
                 Identify chart patterns and technical indicators with advanced AI analysis.
               </p>
-              <div className="mt-4 w-16 h-1 bg-gradient-to-r from-rose-500 to-rose-400 rounded-full transform origin-left scale-0 group-hover:scale-100 transition-transform duration-300"></div>
+              <div className="mt-4 w-24 h-1 bg-gradient-to-r from-fuchsia-500 to-rose-500 rounded-full transform origin-left scale-0 group-hover:scale-100 transition-transform duration-500"></div>
             </div>
             
             {/* Feature 2 */}
-            <div className="flex flex-col items-center p-6 bg-gray-900/80 backdrop-blur-md rounded-lg border border-gray-800 shadow-lg transform hover:scale-105 hover:border-blue-500/40 transition-all duration-300 animate-in fade-in-0 slide-in-from-bottom-3 duration-500 delay-150">
-              <div className="p-3 rounded-full bg-gradient-to-br from-blue-600/30 to-blue-600/10 mb-4 group-hover:from-blue-500/40 group-hover:to-blue-500/20 transition-all duration-300">
-                <ChartLine className="h-8 w-8 text-blue-500 animate-pulse" style={{ animationDelay: '0.5s' }} />
+            <div className="group flex flex-col items-center p-6 bg-gradient-to-b from-black/80 to-gray-900/60 backdrop-blur-md rounded-lg border border-indigo-900/40 shadow-lg shadow-indigo-500/5 transform hover:scale-105 hover:shadow-indigo-500/20 hover:border-indigo-700/50 transition-all duration-300 animate-in fade-in-0 slide-in-from-bottom-3 duration-500 delay-150">
+              <div className="p-3 rounded-full bg-gradient-to-br from-indigo-600/40 to-indigo-900/20 mb-4 group-hover:from-indigo-500/50 group-hover:to-indigo-800/30 transition-all duration-300">
+                <ChartLine className="h-8 w-8 text-indigo-400 group-hover:text-indigo-300 animate-pulse transition-colors duration-300" style={{ animationDelay: '0.5s' }} />
               </div>
-              <h3 className="text-xl font-semibold text-white mb-2">Price Predictions</h3>
-              <p className="text-center text-gray-400">
+              <h3 className="text-xl font-semibold text-white mb-2 group-hover:text-indigo-300 transition-colors duration-300">Price Predictions</h3>
+              <p className="text-center text-gray-300 group-hover:text-gray-200 transition-colors duration-300">
                 Get accurate entry/exit points, stop-loss levels, and potential profit targets.
               </p>
-              <div className="mt-4 w-16 h-1 bg-gradient-to-r from-blue-500 to-blue-400 rounded-full transform origin-left scale-0 group-hover:scale-100 transition-transform duration-300"></div>
+              <div className="mt-4 w-24 h-1 bg-gradient-to-r from-indigo-500 to-blue-500 rounded-full transform origin-left scale-0 group-hover:scale-100 transition-transform duration-500"></div>
             </div>
             
             {/* Feature 3 */}
-            <div className="flex flex-col items-center p-6 bg-gray-900/80 backdrop-blur-md rounded-lg border border-gray-800 shadow-lg transform hover:scale-105 hover:border-violet-500/40 transition-all duration-300 animate-in fade-in-0 slide-in-from-bottom-3 duration-500 delay-300">
-              <div className="p-3 rounded-full bg-gradient-to-br from-violet-600/30 to-violet-600/10 mb-4 group-hover:from-violet-500/40 group-hover:to-violet-500/20 transition-all duration-300">
-                <Zap className="h-8 w-8 text-violet-500 animate-pulse" style={{ animationDelay: '1s' }} />
+            <div className="group flex flex-col items-center p-6 bg-gradient-to-b from-black/80 to-gray-900/60 backdrop-blur-md rounded-lg border border-rose-900/40 shadow-lg shadow-rose-500/5 transform hover:scale-105 hover:shadow-rose-500/20 hover:border-rose-700/50 transition-all duration-300 animate-in fade-in-0 slide-in-from-bottom-3 duration-500 delay-300">
+              <div className="p-3 rounded-full bg-gradient-to-br from-rose-600/40 to-rose-900/20 mb-4 group-hover:from-rose-500/50 group-hover:to-rose-800/30 transition-all duration-300">
+                <Zap className="h-8 w-8 text-rose-400 group-hover:text-rose-300 animate-pulse transition-colors duration-300" style={{ animationDelay: '1s' }} />
               </div>
-              <h3 className="text-xl font-semibold text-white mb-2">Instant Analysis</h3>
-              <p className="text-center text-gray-400">
+              <h3 className="text-xl font-semibold text-white mb-2 group-hover:text-rose-300 transition-colors duration-300">Instant Analysis</h3>
+              <p className="text-center text-gray-300 group-hover:text-gray-200 transition-colors duration-300">
                 Upload a chart and receive comprehensive analysis in seconds.
               </p>
-              <div className="mt-4 w-16 h-1 bg-gradient-to-r from-violet-500 to-violet-400 rounded-full transform origin-left scale-0 group-hover:scale-100 transition-transform duration-300"></div>
+              <div className="mt-4 w-24 h-1 bg-gradient-to-r from-rose-500 to-pink-500 rounded-full transform origin-left scale-0 group-hover:scale-100 transition-transform duration-500"></div>
             </div>
           </div>
           
           {/* New Features Section */}
           <div className="text-center mb-12">
             <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl animate-in fade-in slide-in-from-bottom-3 duration-700">
-              <span className="bg-clip-text text-transparent bg-gradient-to-r from-orange-400 via-rose-500 to-orange-400">
+              <span className="bg-clip-text text-transparent bg-gradient-to-r from-rose-500 via-purple-500 to-indigo-500">
                 Latest Trading Tools
               </span>
             </h2>
-            <p className="mt-4 text-lg text-gray-400 max-w-3xl mx-auto animate-in fade-in slide-in-from-bottom-3 duration-700 delay-200">
+            <p className="mt-4 text-lg text-gray-300 max-w-3xl mx-auto animate-in fade-in slide-in-from-bottom-3 duration-700 delay-200">
               Cutting-edge features to enhance your trading experience and decision-making.
             </p>
           </div>
           
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
             {/* News Notifications */}
-            <div className="flex flex-col p-6 bg-gray-900/90 backdrop-blur-sm rounded-lg border border-gray-800 shadow-xl hover:shadow-rose-500/10 hover:border-rose-500/30 transition-all duration-300 transform hover:-translate-y-1 animate-in fade-in-0 slide-in-from-bottom-3 duration-500 group">
+            <div className="flex flex-col p-6 bg-gradient-to-b from-black/90 to-gray-900/80 backdrop-blur-sm rounded-lg border border-fuchsia-900/30 shadow-xl shadow-fuchsia-500/5 hover:shadow-fuchsia-500/20 hover:border-fuchsia-700/40 transition-all duration-300 transform hover:-translate-y-1 animate-in fade-in-0 slide-in-from-bottom-3 duration-500 group">
               <div className="flex items-center mb-4">
-                <div className="p-2 rounded-full bg-gradient-to-br from-rose-600/30 to-rose-600/10 mr-3 group-hover:from-rose-500/40 group-hover:to-rose-500/20 transition-all duration-300">
-                  <Bell className="h-5 w-5 text-rose-500 group-hover:animate-ping" />
+                <div className="p-2 rounded-full bg-gradient-to-br from-fuchsia-600/40 to-fuchsia-900/20 mr-3 group-hover:from-fuchsia-500/50 group-hover:to-fuchsia-800/30 transition-all duration-300">
+                  <Bell className="h-5 w-5 text-fuchsia-400 group-hover:text-fuchsia-300 group-hover:animate-ping transition-colors duration-300" />
                 </div>
-                <h3 className="text-lg font-semibold text-white group-hover:text-rose-300 transition-colors duration-300">News Notifications</h3>
+                <h3 className="text-lg font-semibold text-white group-hover:text-fuchsia-300 transition-colors duration-300">News Notifications</h3>
               </div>
-              <p className="text-gray-400 flex-grow group-hover:text-gray-300 transition-colors duration-300">
+              <p className="text-gray-300 flex-grow group-hover:text-gray-200 transition-colors duration-300">
                 Get instant alerts about market news events that may impact your analyzed trading pairs.
               </p>
             </div>
             
             {/* Volatility Risk Meter */}
-            <div className="flex flex-col p-6 bg-gray-900/90 backdrop-blur-sm rounded-lg border border-gray-800 shadow-xl hover:shadow-orange-500/10 hover:border-orange-500/30 transition-all duration-300 transform hover:-translate-y-1 animate-in fade-in-0 slide-in-from-bottom-3 duration-500 delay-100 group">
+            <div className="flex flex-col p-6 bg-gradient-to-b from-black/90 to-gray-900/80 backdrop-blur-sm rounded-lg border border-amber-900/30 shadow-xl shadow-amber-500/5 hover:shadow-amber-500/20 hover:border-amber-700/40 transition-all duration-300 transform hover:-translate-y-1 animate-in fade-in-0 slide-in-from-bottom-3 duration-500 delay-100 group">
               <div className="flex items-center mb-4">
-                <div className="p-2 rounded-full bg-gradient-to-br from-orange-600/30 to-orange-600/10 mr-3 group-hover:from-orange-500/40 group-hover:to-orange-500/20 transition-all duration-300">
-                  <AlertTriangle className="h-5 w-5 text-orange-500 group-hover:animate-pulse" />
+                <div className="p-2 rounded-full bg-gradient-to-br from-amber-600/40 to-amber-900/20 mr-3 group-hover:from-amber-500/50 group-hover:to-amber-800/30 transition-all duration-300">
+                  <AlertTriangle className="h-5 w-5 text-amber-400 group-hover:text-amber-300 group-hover:animate-pulse transition-colors duration-300" />
                 </div>
-                <h3 className="text-lg font-semibold text-white group-hover:text-orange-300 transition-colors duration-300">Volatility Risk Meter</h3>
+                <h3 className="text-lg font-semibold text-white group-hover:text-amber-300 transition-colors duration-300">Volatility Risk Meter</h3>
               </div>
-              <p className="text-gray-400 flex-grow group-hover:text-gray-300 transition-colors duration-300">
+              <p className="text-gray-300 flex-grow group-hover:text-gray-200 transition-colors duration-300">
                 Visual gauge showing market volatility levels with animated insights to help manage risk.
               </p>
             </div>
             
             {/* One-Click Chart Sharing */}
-            <div className="flex flex-col p-6 bg-gray-900/90 backdrop-blur-sm rounded-lg border border-gray-800 shadow-xl hover:shadow-blue-500/10 hover:border-blue-500/30 transition-all duration-300 transform hover:-translate-y-1 animate-in fade-in-0 slide-in-from-bottom-3 duration-500 delay-200 group">
+            <div className="flex flex-col p-6 bg-gradient-to-b from-black/90 to-gray-900/80 backdrop-blur-sm rounded-lg border border-indigo-900/30 shadow-xl shadow-indigo-500/5 hover:shadow-indigo-500/20 hover:border-indigo-700/40 transition-all duration-300 transform hover:-translate-y-1 animate-in fade-in-0 slide-in-from-bottom-3 duration-500 delay-200 group">
               <div className="flex items-center mb-4">
-                <div className="p-2 rounded-full bg-gradient-to-br from-blue-600/30 to-blue-600/10 mr-3 group-hover:from-blue-500/40 group-hover:to-blue-500/20 transition-all duration-300">
-                  <Share2 className="h-5 w-5 text-blue-500 group-hover:animate-bounce" />
+                <div className="p-2 rounded-full bg-gradient-to-br from-indigo-600/40 to-indigo-900/20 mr-3 group-hover:from-indigo-500/50 group-hover:to-indigo-800/30 transition-all duration-300">
+                  <Share2 className="h-5 w-5 text-indigo-400 group-hover:text-indigo-300 group-hover:animate-bounce transition-colors duration-300" />
                 </div>
-                <h3 className="text-lg font-semibold text-white group-hover:text-blue-300 transition-colors duration-300">One-Click Sharing</h3>
+                <h3 className="text-lg font-semibold text-white group-hover:text-indigo-300 transition-colors duration-300">One-Click Sharing</h3>
               </div>
-              <p className="text-gray-400 flex-grow group-hover:text-gray-300 transition-colors duration-300">
+              <p className="text-gray-300 flex-grow group-hover:text-gray-200 transition-colors duration-300">
                 Share your chart analyses with trading notes via public links to collaborate with other traders.
               </p>
             </div>
             
             {/* Volume Analysis */}
-            <div className="flex flex-col p-6 bg-gray-900/90 backdrop-blur-sm rounded-lg border border-gray-800 shadow-xl hover:shadow-green-500/10 hover:border-green-500/30 transition-all duration-300 transform hover:-translate-y-1 animate-in fade-in-0 slide-in-from-bottom-3 duration-500 delay-300 group">
+            <div className="flex flex-col p-6 bg-gradient-to-b from-black/90 to-gray-900/80 backdrop-blur-sm rounded-lg border border-emerald-900/30 shadow-xl shadow-emerald-500/5 hover:shadow-emerald-500/20 hover:border-emerald-700/40 transition-all duration-300 transform hover:-translate-y-1 animate-in fade-in-0 slide-in-from-bottom-3 duration-500 delay-300 group">
               <div className="flex items-center mb-4">
-                <div className="p-2 rounded-full bg-gradient-to-br from-green-600/30 to-green-600/10 mr-3 group-hover:from-green-500/40 group-hover:to-green-500/20 transition-all duration-300">
-                  <BarChart className="h-5 w-5 text-green-500 group-hover:animate-pulse" />
+                <div className="p-2 rounded-full bg-gradient-to-br from-emerald-600/40 to-emerald-900/20 mr-3 group-hover:from-emerald-500/50 group-hover:to-emerald-800/30 transition-all duration-300">
+                  <BarChart className="h-5 w-5 text-emerald-400 group-hover:text-emerald-300 group-hover:animate-pulse transition-colors duration-300" />
                 </div>
-                <h3 className="text-lg font-semibold text-white group-hover:text-green-300 transition-colors duration-300">Volume Analysis</h3>
+                <h3 className="text-lg font-semibold text-white group-hover:text-emerald-300 transition-colors duration-300">Volume Analysis</h3>
               </div>
-              <p className="text-gray-400 flex-grow group-hover:text-gray-300 transition-colors duration-300">
+              <p className="text-gray-300 flex-grow group-hover:text-gray-200 transition-colors duration-300">
                 Monitor trading volumes across Asian, European, and US sessions to identify the best times to trade.
               </p>
             </div>
             
             {/* Time Zone Converter */}
-            <div className="flex flex-col p-6 bg-gray-900/90 backdrop-blur-sm rounded-lg border border-gray-800 shadow-xl hover:shadow-violet-500/10 hover:border-violet-500/30 transition-all duration-300 transform hover:-translate-y-1 animate-in fade-in-0 slide-in-from-bottom-3 duration-500 delay-400 group">
+            <div className="flex flex-col p-6 bg-gradient-to-b from-black/90 to-gray-900/80 backdrop-blur-sm rounded-lg border border-violet-900/30 shadow-xl shadow-violet-500/5 hover:shadow-violet-500/20 hover:border-violet-700/40 transition-all duration-300 transform hover:-translate-y-1 animate-in fade-in-0 slide-in-from-bottom-3 duration-500 delay-400 group">
               <div className="flex items-center mb-4">
-                <div className="p-2 rounded-full bg-gradient-to-br from-violet-600/30 to-violet-600/10 mr-3 group-hover:from-violet-500/40 group-hover:to-violet-500/20 transition-all duration-300">
-                  <Clock className="h-5 w-5 text-violet-500 group-hover:animate-spin-slow" />
+                <div className="p-2 rounded-full bg-gradient-to-br from-violet-600/40 to-violet-900/20 mr-3 group-hover:from-violet-500/50 group-hover:to-violet-800/30 transition-all duration-300">
+                  <Clock className="h-5 w-5 text-violet-400 group-hover:text-violet-300 group-hover:animate-spin-slow transition-colors duration-300" />
                 </div>
                 <h3 className="text-lg font-semibold text-white group-hover:text-violet-300 transition-colors duration-300">Time Zone Converter</h3>
               </div>
-              <p className="text-gray-400 flex-grow group-hover:text-gray-300 transition-colors duration-300">
+              <p className="text-gray-300 flex-grow group-hover:text-gray-200 transition-colors duration-300">
                 Convert trading session times between different time zones to never miss important market openings.
               </p>
             </div>
             
             {/* Trading Session Countdown */}
-            <div className="flex flex-col p-6 bg-gray-900/90 backdrop-blur-sm rounded-lg border border-gray-800 shadow-xl hover:shadow-cyan-500/10 hover:border-cyan-500/30 transition-all duration-300 transform hover:-translate-y-1 animate-in fade-in-0 slide-in-from-bottom-3 duration-500 delay-500 group">
+            <div className="flex flex-col p-6 bg-gradient-to-b from-black/90 to-gray-900/80 backdrop-blur-sm rounded-lg border border-sky-900/30 shadow-xl shadow-sky-500/5 hover:shadow-sky-500/20 hover:border-sky-700/40 transition-all duration-300 transform hover:-translate-y-1 animate-in fade-in-0 slide-in-from-bottom-3 duration-500 delay-500 group">
               <div className="flex items-center mb-4">
-                <div className="p-2 rounded-full bg-gradient-to-br from-cyan-600/30 to-cyan-600/10 mr-3 group-hover:from-cyan-500/40 group-hover:to-cyan-500/20 transition-all duration-300">
-                  <Timer className="h-5 w-5 text-cyan-500 group-hover:animate-bounce" />
+                <div className="p-2 rounded-full bg-gradient-to-br from-sky-600/40 to-sky-900/20 mr-3 group-hover:from-sky-500/50 group-hover:to-sky-800/30 transition-all duration-300">
+                  <Timer className="h-5 w-5 text-sky-400 group-hover:text-sky-300 group-hover:animate-bounce transition-colors duration-300" />
                 </div>
-                <h3 className="text-lg font-semibold text-white group-hover:text-cyan-300 transition-colors duration-300">Session Countdown</h3>
+                <h3 className="text-lg font-semibold text-white group-hover:text-sky-300 transition-colors duration-300">Session Countdown</h3>
               </div>
-              <p className="text-gray-400 flex-grow group-hover:text-gray-300 transition-colors duration-300">
+              <p className="text-gray-300 flex-grow group-hover:text-gray-200 transition-colors duration-300">
                 Interactive countdown timer to major trading sessions, helping you prepare for market opens and closes.
               </p>
             </div>
