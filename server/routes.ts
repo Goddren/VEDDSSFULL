@@ -423,6 +423,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Special endpoint for serving shared images directly
+  app.get("/api/shared-image/:filename", (req: Request, res: Response) => {
+    try {
+      const filename = req.params.filename;
+      // Sanitize the filename to prevent directory traversal attacks
+      const sanitizedFilename = path.basename(filename);
+      const filePath = path.join(process.cwd(), 'uploads', sanitizedFilename);
+      
+      // Check if the file exists
+      if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ message: "Image not found" });
+      }
+      
+      // Send the file
+      res.sendFile(filePath);
+    } catch (error) {
+      console.error("Error serving image:", error);
+      res.status(500).json({ message: "Error serving image" });
+    }
+  });
+  
   // API key validation endpoint
   app.get("/api/validate-key", async (_req: Request, res: Response) => {
     try {

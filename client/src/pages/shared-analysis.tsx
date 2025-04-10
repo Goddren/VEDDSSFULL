@@ -135,7 +135,11 @@ const SharedAnalysisPage: React.FC = () => {
       <div className="animate-in fade-in-50 duration-500">
         <AnalysisResult
           analysis={convertToChartAnalysisResponse(analysis)}
-          imageUrl={analysis.imageUrl ? (analysis.imageUrl.startsWith('http') ? analysis.imageUrl : `${window.location.origin}${analysis.imageUrl}`) : ''}
+          imageUrl={analysis.imageUrl 
+            ? (analysis.imageUrl.startsWith('http') 
+              ? analysis.imageUrl 
+              : `/api/shared-image/${analysis.imageUrl.split('/').pop()}`) 
+            : ''}
           onReanalyze={() => {}}
         />
       </div>
