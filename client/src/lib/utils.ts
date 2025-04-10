@@ -72,3 +72,31 @@ export function getBase64(file: File): Promise<string> {
     reader.onerror = error => reject(error);
   });
 }
+
+/**
+ * Normalizes an image URL to ensure it loads properly across the application
+ * @param imageUrl The raw image URL from the database
+ * @returns A properly formatted URL for loading the image
+ */
+export function normalizeImageUrl(imageUrl: string): string {
+  if (!imageUrl) return '';
+  
+  // If it's an external URL (starts with http), use it as is
+  if (imageUrl.startsWith('http')) {
+    return imageUrl;
+  }
+  
+  // If it's a path with /uploads/ prefix, extract the filename and use shared-image endpoint
+  if (imageUrl.startsWith('/uploads/')) {
+    const filename = imageUrl.split('/').pop();
+    return `/api/shared-image/${filename}`;
+  }
+  
+  // If it's just a filename, assume it's in uploads dir
+  if (!imageUrl.includes('/')) {
+    return `/api/shared-image/${imageUrl}`;
+  }
+  
+  // Default case - use shared-image endpoint with extracted filename
+  return `/api/shared-image/${imageUrl.split('/').pop()}`;
+}

@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'wouter';
 import { ChartAnalysis } from '@shared/schema';
+import { normalizeImageUrl } from '@/lib/utils';
 
 const Historical: React.FC = () => {
   const [searchQuery, setSearchQuery] = React.useState('');
@@ -93,9 +94,13 @@ const Historical: React.FC = () => {
                     <div className="md:w-1/4 lg:w-1/6">
                       <div className="h-32 md:h-20 rounded bg-[#1E1E1E] overflow-hidden">
                         <img 
-                          src={analysis.imageUrl} 
+                          src={normalizeImageUrl(analysis.imageUrl)} 
                           alt={`${analysis.symbol || 'Chart'} analysis`}
                           className="h-full w-full object-cover"
+                          onError={(e) => {
+                            console.error("Image failed to load:", analysis.imageUrl);
+                            e.currentTarget.src = "https://placehold.co/600x400/black/gray?text=Chart+Image+Unavailable";
+                          }}
                         />
                       </div>
                     </div>

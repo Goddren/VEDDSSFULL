@@ -7,7 +7,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ChevronLeft, TrendingUp, TrendingDown, AlertTriangle, BarChart2, LineChart, Share2 } from 'lucide-react';
-import { getConfidenceColor, getDirectionColor } from '@/lib/utils';
+import { getConfidenceColor, getDirectionColor, normalizeImageUrl } from '@/lib/utils';
 import { NewsAlert, NewsEvent } from '@/components/ui/news-alert';
 import { getNewsForSymbol } from '@/lib/news-service';
 import { useToast } from '@/hooks/use-toast';
@@ -157,9 +157,13 @@ const AnalysisDetail: React.FC = () => {
           <Card className="lg:col-span-2">
             <CardContent className="p-0 overflow-hidden">
               <img 
-                src={analysis.imageUrl} 
+                src={normalizeImageUrl(analysis.imageUrl)} 
                 alt={`${analysis.symbol || 'Chart'} analysis`}
                 className="w-full h-auto object-contain border-b border-border"
+                onError={(e) => {
+                  console.error("Image failed to load:", analysis.imageUrl);
+                  e.currentTarget.src = "https://placehold.co/600x400/black/gray?text=Chart+Image+Unavailable";
+                }}
               />
               <div className="p-6">
                 <h2 className="text-xl font-bold mb-4">Recommendation</h2>
