@@ -509,30 +509,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error: any) {
       console.error("Error configuring API key:", error);
+    }
+  });
+  
+  // Generate trading tips based on symbol, timeframe, and market context
+  app.post("/api/generate-trading-tip", async (req: Request, res: Response) => {
+    try {
+      // Check if user is authenticated
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ 
+          success: false,
+          message: "Authentication required" 
+        });
+      }
       
-      // Check for specific OpenAI error types
+      const { symbol, timeframe, marketContext } = req.body;
+      
+      if (!symbol) {
+        return res.status(400).json({ error: "Symbol is required" });
+      }
+
+      const tip = await generateTradingTip(symbol, timeframe, marketContext);
+      res.json(tip);
+    } catch (error: any) {
+      console.error("Error generating trading tip:", error);
+      
+      // Handle specific OpenAI errors like we do for other endpoints
       if (error && error.code === 'billing_not_active' || 
           (error && error.error && error.error.code === 'billing_not_active')) {
         return res.status(403).json({ 
-          message: "Billing not active",
+          message: "OpenAI API key billing issue", 
           error: "Your OpenAI account is not active. Please check your billing details on the OpenAI website.",
-          code: "BILLING_INACTIVE",
-          valid: false
-        });
-      } else if (error && error.status === 401 || 
-                (error && error.error && error.error.type === 'invalid_request_error')) {
-        return res.status(401).json({ 
-          message: "Invalid API key",
-          error: "The provided API key is invalid. Please check your API key and try again.",
-          code: "INVALID_API_KEY",
-          valid: false
+          code: "BILLING_INACTIVE"
         });
       }
       
       res.status(500).json({ 
-        message: "Error configuring API key",
-        error: error instanceof Error ? error.message : "Unknown error",
-        valid: false
+        message: "Error generating trading tip", 
+        error: error instanceof Error ? error.message : "Unknown error" 
       });
     }
   });
