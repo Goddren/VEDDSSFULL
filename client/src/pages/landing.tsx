@@ -13,9 +13,16 @@ import {
   AlertTriangle,
   PieChart,
   TrendingUp,
-  TrendingDown
+  TrendingDown,
+  Sparkles,
+  Target,
+  BarChart3,
+  LineChart,
+  Lightbulb,
+  FlaskConical
 } from "lucide-react";
 import logoImg from "@assets/IMG_3645.png";
+import { FeatureSlider } from "@/components/ui/feature-slider";
 
 export default function LandingPage() {
   return (
@@ -182,6 +189,50 @@ export default function LandingPage() {
             <p className="mt-4 text-lg text-gray-300 max-w-3xl mx-auto animate-in fade-in slide-in-from-bottom-3 duration-700 delay-200">
               Cutting-edge features to enhance your trading experience and decision-making.
             </p>
+          </div>
+          
+          {/* Feature Slider */}
+          <div className="mb-16 animate-in fade-in-0 slide-in-from-bottom-3 duration-700">
+            <FeatureSlider
+              items={[
+                {
+                  icon: <Sparkles className="h-7 w-7 text-white" />,
+                  title: "AI-Powered Trading Tip Generator",
+                  description: "Get instant trading tips and insights for any symbol with one click. Our AI analyzes market conditions and provides actionable recommendations.",
+                  color: "bg-gradient-to-br from-red-600/50 to-pink-600/50",
+                  bgGradient: "bg-gradient-to-b from-black/90 to-rose-900/20 border border-rose-600/30"
+                },
+                {
+                  icon: <Clock className="h-7 w-7 text-white" />,
+                  title: "Trading Session Countdown Timer",
+                  description: "Never miss important trading sessions. Our interactive timer tracks major market openings across global time zones.",
+                  color: "bg-gradient-to-br from-blue-600/50 to-indigo-600/50",
+                  bgGradient: "bg-gradient-to-b from-black/90 to-blue-900/20 border border-blue-600/30"
+                },
+                {
+                  icon: <Target className="h-7 w-7 text-white" />,
+                  title: "Support & Resistance Detector",
+                  description: "Automatically identify key support and resistance levels with strength indicators to help you make better entry and exit decisions.",
+                  color: "bg-gradient-to-br from-emerald-600/50 to-green-600/50",
+                  bgGradient: "bg-gradient-to-b from-black/90 to-emerald-900/20 border border-emerald-600/30"
+                },
+                {
+                  icon: <LineChart className="h-7 w-7 text-white" />,
+                  title: "Volume Analysis By Session",
+                  description: "Analyze trading volume across different market sessions to identify the best times to trade specific pairs for maximum liquidity.",
+                  color: "bg-gradient-to-br from-amber-600/50 to-yellow-600/50",
+                  bgGradient: "bg-gradient-to-b from-black/90 to-amber-900/20 border border-amber-600/30"
+                },
+                {
+                  icon: <Timer className="h-7 w-7 text-white" />,
+                  title: "Time Zone Converter Tool",
+                  description: "Easily convert trading times between different time zones to coordinate your strategy with global market movements.",
+                  color: "bg-gradient-to-br from-purple-600/50 to-violet-600/50",
+                  bgGradient: "bg-gradient-to-b from-black/90 to-purple-900/20 border border-purple-600/30"
+                }
+              ]}
+              className="min-h-[250px] md:min-h-[280px]"
+            />
           </div>
           
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
