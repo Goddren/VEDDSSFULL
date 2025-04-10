@@ -15,6 +15,7 @@ import ShareAnalysis from '@/components/charts/share-analysis';
 import VolatilityMeter from '@/components/charts/volatility-meter';
 import { calculateVolatilityScore } from '@/lib/analysis-utils';
 import { apiRequest } from '@/lib/queryClient';
+import { AnimatedInsightTooltip } from '@/components/tooltips';
 
 const AnalysisDetail: React.FC = () => {
   const { id } = useParams();

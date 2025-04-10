@@ -323,9 +323,14 @@ const Dashboard: React.FC = () => {
                       Achievements
                     </Button>
                   </Link>
-                  <Link href="/subscription">
+                  <Link href="/tooltips">
+                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-amber-600 hover:border-amber-600 transition-colors">
+                      AI Tooltips
+                    </Button>
+                  </Link>
+                  <Link href="/subscription" className="col-span-2">
                     <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-rose-600 hover:border-rose-600 transition-colors">
-                      Upgrade
+                      Upgrade Account
                     </Button>
                   </Link>
                 </div>
