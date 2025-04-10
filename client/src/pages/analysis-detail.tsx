@@ -6,7 +6,8 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ChevronLeft, TrendingUp, TrendingDown, AlertTriangle, BarChart2, LineChart, Share2 } from 'lucide-react';
+import { ChevronLeft, TrendingUp, TrendingDown, AlertTriangle, BarChart2, LineChart, Share2, Pencil, Image } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
 import { getConfidenceColor, getDirectionColor } from '@/lib/utils';
 import { NewsAlert, NewsEvent } from '@/components/ui/news-alert';
 import { getNewsForSymbol } from '@/lib/news-service';
@@ -158,13 +159,38 @@ const AnalysisDetail: React.FC = () => {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
           <Card className="lg:col-span-2">
             <CardContent className="p-0 overflow-hidden">
+              {/* Chart toggle controls */}
+              <div className="flex items-center justify-end gap-2 p-2 border-b border-border bg-black/5">
+                <div className="flex items-center gap-2">
+                  <Image className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-xs text-muted-foreground">Original</span>
+                </div>
+                <Switch 
+                  checked={showAnnotations} 
+                  onCheckedChange={setShowAnnotations}
+                  className="mx-2"
+                />
+                <div className="flex items-center gap-2">
+                  <Pencil className="h-4 w-4 text-primary" />
+                  <span className="text-xs text-muted-foreground">Annotated</span>
+                </div>
+              </div>
+              
               {/* Chart with trade signals */}
               <div className="w-full border-b border-border">
-                <ChartAnnotator
-                  analysis={convertToChartAnalysisResponse(analysis)}
-                  imageUrl={analysis.imageUrl}
-                  className="w-full"
-                />
+                {showAnnotations ? (
+                  <ChartAnnotator
+                    analysis={convertToChartAnalysisResponse(analysis)}
+                    imageUrl={analysis.imageUrl}
+                    className="w-full"
+                  />
+                ) : (
+                  <img 
+                    src={analysis.imageUrl} 
+                    alt={`${analysis.symbol || 'Chart'} analysis`}
+                    className="w-full h-auto object-contain"
+                  />
+                )}
               </div>
               <div className="p-6">
                 <h2 className="text-xl font-bold mb-4">Recommendation</h2>

@@ -8,7 +8,8 @@ import { convertToChartAnalysisResponse, calculateVolatilityScore } from '@/lib/
 import AnalysisResult from '@/components/charts/analysis-result';
 import ChartAnnotator from '@/components/charts/chart-annotator';
 import { Card } from '@/components/ui/card';
-import { Loader2, Share2, Link as LinkIcon, Info, Terminal, ArrowLeft } from 'lucide-react';
+import { Loader2, Share2, Link as LinkIcon, Info, Terminal, ArrowLeft, Pencil, Image } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/use-auth';
 import { Link } from 'wouter';
@@ -19,6 +20,7 @@ const SharedAnalysisPage: React.FC = () => {
   const [_, navigate] = useLocation();
   const { user } = useAuth();
   const [copySuccess, setCopySuccess] = useState(false);
+  const [showAnnotations, setShowAnnotations] = useState<boolean>(true);
 
   const { data: analysis, isLoading, error } = useQuery<ChartAnalysis, Error>({
     queryKey: [`/api/shared/${shareId}`],
@@ -146,15 +148,44 @@ const SharedAnalysisPage: React.FC = () => {
         
         {/* Chart with trade signals */}
         <Card className="mb-6 overflow-hidden">
-          <ChartAnnotator
-            analysis={convertToChartAnalysisResponse(analysis)}
-            imageUrl={analysis.imageUrl 
-              ? (analysis.imageUrl.startsWith('http') 
-                ? analysis.imageUrl 
-                : `/api/shared-image/${analysis.imageUrl.split('/').pop()}`) 
-              : ''}
-            className="w-full"
-          />
+          {/* Chart toggle controls */}
+          <div className="flex items-center justify-end gap-2 p-2 border-b border-[#333333] bg-black/5">
+            <div className="flex items-center gap-2">
+              <Image className="h-4 w-4 text-muted-foreground" />
+              <span className="text-xs text-muted-foreground">Original</span>
+            </div>
+            <Switch 
+              checked={showAnnotations} 
+              onCheckedChange={setShowAnnotations}
+              className="mx-2"
+            />
+            <div className="flex items-center gap-2">
+              <Pencil className="h-4 w-4 text-[#E64A4A]" />
+              <span className="text-xs text-muted-foreground">Annotated</span>
+            </div>
+          </div>
+          
+          {showAnnotations ? (
+            <ChartAnnotator
+              analysis={convertToChartAnalysisResponse(analysis)}
+              imageUrl={analysis.imageUrl 
+                ? (analysis.imageUrl.startsWith('http') 
+                  ? analysis.imageUrl 
+                  : `/api/shared-image/${analysis.imageUrl.split('/').pop()}`) 
+                : ''}
+              className="w-full"
+            />
+          ) : (
+            <img 
+              src={analysis.imageUrl 
+                ? (analysis.imageUrl.startsWith('http') 
+                  ? analysis.imageUrl 
+                  : `/api/shared-image/${analysis.imageUrl.split('/').pop()}`) 
+                : ''}
+              alt={`${analysis.symbol || 'Chart'} analysis`}
+              className="w-full h-auto object-contain"
+            />
+          )}
         </Card>
         
         {/* Original analysis result for detailed info */}
