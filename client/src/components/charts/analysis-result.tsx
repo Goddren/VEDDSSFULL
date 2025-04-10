@@ -36,11 +36,21 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({ analysis, imageUrl, onR
         <div className="flex flex-col md:flex-row gap-6">
           <div className="flex-1">
             <div className="bg-[#0A0A0A] rounded-lg overflow-hidden">
-              <img
-                src={imageUrl}
-                alt="Uploaded trading chart"
-                className="w-full h-auto object-cover"
-              />
+              {imageUrl ? (
+                <img
+                  src={imageUrl}
+                  alt="Uploaded trading chart"
+                  className="w-full h-auto object-cover"
+                  onError={(e) => {
+                    console.error("Image failed to load:", imageUrl);
+                    e.currentTarget.src = "https://placehold.co/600x400/black/gray?text=Chart+Image+Unavailable";
+                  }}
+                />
+              ) : (
+                <div className="h-64 flex items-center justify-center bg-[#222222]">
+                  <p className="text-gray-400">Chart image not available</p>
+                </div>
+              )}
             </div>
             <div className="mt-4 flex justify-between items-center">
               <div>
