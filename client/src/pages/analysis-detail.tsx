@@ -185,11 +185,16 @@ const AnalysisDetail: React.FC = () => {
                     className="w-full"
                   />
                 ) : (
-                  <img 
-                    src={analysis.imageUrl} 
-                    alt={`${analysis.symbol || 'Chart'} analysis`}
-                    className="w-full h-auto object-contain"
-                  />
+                  <div className="relative">
+                    <img 
+                      src={analysis.imageUrl} 
+                      alt={`${analysis.symbol || 'Chart'} analysis`}
+                      className="w-full h-auto object-contain"
+                    />
+                    <div className="absolute top-3 right-3 bg-black/70 text-white text-xs px-3 py-1 rounded-full">
+                      Original Chart
+                    </div>
+                  </div>
                 )}
               </div>
               <div className="p-6">

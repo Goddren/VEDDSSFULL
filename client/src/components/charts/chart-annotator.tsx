@@ -64,8 +64,9 @@ const ChartAnnotator: React.FC<ChartAnnotatorProps> = ({
 
   // Draw the annotations when the image loads
   useEffect(() => {
-    if (!isImageLoaded || !imageRef.current || !canvasRef.current || !arePricesValid) return;
+    if (!isImageLoaded || !imageRef.current || !canvasRef.current) return;
     
+    // If prices are not valid, we'll just show the original image
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
@@ -76,6 +77,9 @@ const ChartAnnotator: React.FC<ChartAnnotatorProps> = ({
     
     // Draw the image first
     ctx.drawImage(imageRef.current, 0, 0, canvasWidth, canvasHeight);
+    
+    // If prices are not valid, just show the original image without annotations
+    if (!arePricesValid) return;
     
     // Get price range from the chart (assumes prices are displayed vertically)
     // In a real app, this might need more sophisticated analysis of the chart
