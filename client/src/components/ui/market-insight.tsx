@@ -2,17 +2,7 @@ import React from "react";
 import { InfoIcon, AlertCircle, TrendingUp, TrendingDown, Activity } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { 
-  MarketTrendInsight, 
-  ConfidenceInsight,
-  PatternInsight,
-  IndicatorInsight,
-  InsightTooltip,
-  BullishInsight,
-  BearishInsight,
-  VolatilityInsight,
-  ConsolidationInsight 
-} from "@/components/tooltips";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 type InsightCategory = 'risk' | 'pattern' | 'indicator' | 'level' | 'strategy';
 
@@ -86,52 +76,33 @@ export function MarketInsight({ term, category, description, animation, classNam
   const { badgeColor, label } = getBadgeDetails();
   const tooltipType = getTooltipType();
 
-  // Handle special cases based on category
-  if (category === 'pattern') {
+  // Create a simple insight tooltip
+  const SimpleTooltip = ({ title, description, children }: { title: string, description: string, children: React.ReactNode }) => {
     return (
-      <div className={cn("flex items-center gap-2", className)}>
-        <span className="font-medium text-sm">{term}</span>
-        <PatternInsight pattern={term} iconSize="sm">
-          <Badge 
-            variant="outline"
-            className={cn("text-xs px-1.5 py-0 h-5", badgeColor)}
-          >
-            {label}
-          </Badge>
-        </PatternInsight>
-      </div>
+      <TooltipProvider>
+        <Tooltip delayDuration={300}>
+          <TooltipTrigger asChild>
+            <div className="inline-flex items-center gap-1 cursor-help">
+              {children}
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="max-w-xs bg-[#181818] border-[#333333]">
+            <div className="flex flex-col gap-1">
+              <h4 className="font-medium">{title}</h4>
+              <p className="text-xs text-gray-400">{description}</p>
+            </div>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
     );
-  }
+  };
 
-  if (category === 'indicator') {
-    return (
-      <div className={cn("flex items-center gap-2", className)}>
-        <span className="font-medium text-sm">{term}</span>
-        <IndicatorInsight 
-          indicator={term} 
-          signal={animation === 'bullish' ? 'bullish' : animation === 'bearish' ? 'bearish' : 'neutral'}
-          iconSize="sm"
-        >
-          <Badge 
-            variant="outline"
-            className={cn("text-xs px-1.5 py-0 h-5", badgeColor)}
-          >
-            {label}
-          </Badge>
-        </IndicatorInsight>
-      </div>
-    );
-  }
-
-  // For other categories, use the generic insight tooltip
   return (
     <div className={cn("flex items-center gap-2", className)}>
       <span className="font-medium text-sm">{term}</span>
-      <InsightTooltip
-        type={tooltipType}
+      <SimpleTooltip
         title={term}
         description={description}
-        iconSize="sm"
       >
         <Badge 
           variant="outline"
@@ -139,7 +110,7 @@ export function MarketInsight({ term, category, description, animation, classNam
         >
           {label}
         </Badge>
-      </InsightTooltip>
+      </SimpleTooltip>
     </div>
   );
 }
@@ -150,35 +121,46 @@ export function DirectionInsight({ direction, description, className }: Directio
   const badgeColor = isBuy ? "bg-green-500/10 text-green-500" : "bg-red-500/10 text-red-500";
   const label = isBuy ? "BUY" : "SELL";
   
+  // Simple tooltip component
+  const DirectionTooltip = ({ title, description, children }: { title: string, description: string, children: React.ReactNode }) => {
+    return (
+      <TooltipProvider>
+        <Tooltip delayDuration={300}>
+          <TooltipTrigger asChild>
+            <div className="inline-flex items-center gap-1 cursor-help">
+              {children}
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="max-w-xs bg-[#181818] border-[#333333]">
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center gap-2">
+                <h4 className="font-medium">{title}</h4>
+                {isBuy ? 
+                  <TrendingUp size={16} className="text-green-500" /> : 
+                  <TrendingDown size={16} className="text-red-500" />
+                }
+              </div>
+              <p className="text-xs text-gray-400">{description}</p>
+            </div>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
+  };
+  
   return (
     <div className={cn("flex items-center gap-2", className)}>
-      {isBuy ? (
-        <BullishInsight
-          title={`${direction} Signal`}
-          description={description}
-          iconSize="sm"
+      <DirectionTooltip
+        title={`${direction} Signal`}
+        description={description}
+      >
+        <Badge 
+          variant="outline"
+          className={cn("text-xs px-2 py-0.5 h-6", badgeColor)}
         >
-          <Badge 
-            variant="outline"
-            className={cn("text-xs px-2 py-0.5 h-6", badgeColor)}
-          >
-            {label}
-          </Badge>
-        </BullishInsight>
-      ) : (
-        <BearishInsight
-          title={`${direction} Signal`}
-          description={description}
-          iconSize="sm"
-        >
-          <Badge 
-            variant="outline"
-            className={cn("text-xs px-2 py-0.5 h-6", badgeColor)}
-          >
-            {label}
-          </Badge>
-        </BearishInsight>
-      )}
+          {label}
+        </Badge>
+      </DirectionTooltip>
     </div>
   );
 }

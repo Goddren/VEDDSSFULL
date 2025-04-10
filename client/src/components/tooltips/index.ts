@@ -1,7 +1,7 @@
 // Export all tooltip types
 export * from './tooltip-types';
 
-// Export animated components for the showcase
+// Export animated tooltips
 export { 
   default as AnimatedInsightTooltip,
   TrendTooltip,
@@ -22,9 +22,9 @@ export {
   BearishInsight,
   NeutralInsight,
   VolatileInsight,
-  ConfidenceInsight,
-  PatternInsight,
-  IndicatorInsight
+  ConfidenceInsight as SimpleConfidenceInsight,
+  PatternInsight as SimplePatternInsight,
+  IndicatorInsight as SimpleIndicatorInsight
 } from './simple-insight';
 
 // Aliases for backward compatibility

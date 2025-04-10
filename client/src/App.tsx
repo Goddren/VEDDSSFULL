@@ -49,7 +49,7 @@ function AppLayout() {
           <Route path="/auth" component={AuthPage} />
           <Route path="/subscription" component={SubscriptionPage} />
           <Route path="/shared/:shareId" component={SharedAnalysisPage} />
-          <Route path="/tooltips" component={TooltipShowcase} />
+          <Route path="/tooltips" component={SimpleTooltipShowcase} />
           <Route path="/simple-tooltips" component={SimpleTooltipShowcase} />
           <Route path="/buttons" component={ButtonShowcase} />
           

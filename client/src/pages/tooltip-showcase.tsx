@@ -17,17 +17,21 @@ import {
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import {
-  AnimatedInsightTooltip,
-  TrendTooltip,
-  ConfidenceTooltip,
-  PatternTooltip,
-  IndicatorTooltip,
+  SimpleInsight,
+  BullishInsight,
+  BearishInsight,
+  NeutralInsight,
+  VolatileInsight
+} from "@/components/tooltips";
+
+// Import types from tooltip-types
+import {
   AnimationType,
   MarketTrend,
   ConfidenceLevel,
   PatternType,
   IndicatorType
-} from "@/components/tooltips";
+} from "@/components/tooltips/tooltip-types";
 
 export default function TooltipShowcase() {
   const [, setLocation] = useLocation();
