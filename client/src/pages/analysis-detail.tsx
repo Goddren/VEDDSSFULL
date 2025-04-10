@@ -12,6 +12,8 @@ import { NewsAlert, NewsEvent } from '@/components/ui/news-alert';
 import { getNewsForSymbol } from '@/lib/news-service';
 import { useToast } from '@/hooks/use-toast';
 import ShareAnalysis from '@/components/charts/share-analysis';
+import VolatilityMeter from '@/components/charts/volatility-meter';
+import { calculateVolatilityScore } from '@/lib/analysis-utils';
 import { apiRequest } from '@/lib/queryClient';
 
 const AnalysisDetail: React.FC = () => {
@@ -308,6 +310,15 @@ const AnalysisDetail: React.FC = () => {
             </CardContent>
           </Card>
         )}
+        
+        {/* Volatility Meter */}
+        <div className="mb-6">
+          <VolatilityMeter 
+            volatility={calculateVolatilityScore(analysis)}
+            symbol={analysis.symbol || 'Unknown'} 
+            direction={analysis.direction} 
+          />
+        </div>
         
         {/* News Alerts Section */}
         {newsEvents.length > 0 && (

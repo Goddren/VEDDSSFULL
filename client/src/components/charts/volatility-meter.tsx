@@ -102,8 +102,8 @@ export const VolatilityMeter: React.FC<VolatilityMeterProps> = ({
     <div className={`rounded-lg border border-border bg-card p-4 ${className}`}>
       <div className="flex items-center justify-between mb-3">
         <h3 className="font-semibold text-lg">Market Volatility</h3>
-        <div className={`px-2 py-1 rounded-full ${colors.primary}/20 ${colors.secondary} text-xs font-medium`}>
-          {riskLevel} Risk
+        <div className={`px-2 py-1 rounded-full ${colors.primary}/20 flex items-center gap-1`}>
+          <span className={`${colors.secondary} text-xs font-medium`}>{riskLevel} Risk</span>
         </div>
       </div>
       

@@ -4,13 +4,14 @@ import { ChartAnalysis } from '@shared/schema';
 import { ChartAnalysisResponse } from '@shared/types';
 import { useQuery } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/queryClient';
-import { convertToChartAnalysisResponse } from '@/lib/analysis-utils';
+import { convertToChartAnalysisResponse, calculateVolatilityScore } from '@/lib/analysis-utils';
 import AnalysisResult from '@/components/charts/analysis-result';
 import { Card } from '@/components/ui/card';
 import { Loader2, Share2, Link as LinkIcon, Info, Terminal, ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/use-auth';
 import { Link } from 'wouter';
+import VolatilityMeter from '@/components/charts/volatility-meter';
 
 const SharedAnalysisPage: React.FC = () => {
   const { shareId } = useParams();
@@ -133,6 +134,15 @@ const SharedAnalysisPage: React.FC = () => {
       )}
 
       <div className="animate-in fade-in-50 duration-500">
+        {/* Volatility Meter */}
+        <div className="mb-6">
+          <VolatilityMeter 
+            volatility={calculateVolatilityScore(analysis)}
+            symbol={analysis.symbol || 'Unknown'} 
+            direction={analysis.direction}
+          />
+        </div>
+        
         <AnalysisResult
           analysis={convertToChartAnalysisResponse(analysis)}
           imageUrl={analysis.imageUrl 
