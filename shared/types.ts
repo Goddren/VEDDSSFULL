@@ -40,6 +40,20 @@ export interface VolatilityData {
   riskFactor: number;         // Risk factor based on volatility (0-100)
 }
 
+export interface TrendCell {
+  pair: string;               // Currency or trading pair (e.g., "EUR/USD")
+  probability: number;        // Likelihood of trend direction (0-100)
+  direction: 'bullish' | 'bearish' | 'neutral';  // Market trend direction
+  strength: number;           // Strength of the trend signal (0-100)
+  timestamp: number;          // Timestamp when prediction was made
+}
+
+export interface MarketTrendData {
+  trends: TrendCell[];        // Array of trend predictions for different pairs
+  lastUpdated: number;        // Timestamp of last data update
+  source: string;             // Source of prediction (AI model, etc.)
+}
+
 export interface ChartAnalysisResponse {
   symbol: string;
   timeframe: string;
@@ -55,6 +69,7 @@ export interface ChartAnalysisResponse {
   potentialPips: string;
   volatilityScore: number;
   volatilityData: VolatilityData;
+  marketTrends?: TrendCell[];  // Optional market trend data for related pairs
   patterns: Pattern[];
   indicators: Indicator[];
   supportResistance: SupportResistanceLevel[];
