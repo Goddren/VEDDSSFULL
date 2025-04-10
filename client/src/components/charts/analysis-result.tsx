@@ -9,7 +9,6 @@ import { NewsAlert, NewsEvent } from '@/components/ui/news-alert';
 import { getNewsForSymbol } from '@/lib/news-service';
 import { useNewsNotifications } from '@/components/news-notification-scheduler';
 import VolumeAnalysisChart from './volume-analysis';
-import { MarketTrendHeatmap } from './market-trend-heatmap';
 import { InsightTooltip, ConfidenceInsight, PatternInsight, IndicatorInsight, MarketTrendInsight } from '@/components/tooltips';
 
 interface AnalysisResultProps {
@@ -311,22 +310,7 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({ analysis, imageUrl, onR
             </p>
           </div>
           
-          {/* Market Trend Heatmap */}
-          <div className="bg-[#0A0A0A] p-4 rounded-lg animate-in fade-in-0 slide-in-from-bottom-3 duration-700 mt-4">
-            <h4 className="font-medium mb-2">Market Trend Heatmap</h4>
-            <p className="text-sm text-gray-300 mb-3">
-              Correlation analysis of related currency pairs based on the analysis of {analysis.symbol}:
-            </p>
-            {analysis.marketTrends && analysis.marketTrends.length > 0 ? (
-              <MarketTrendHeatmap
-                data={analysis.marketTrends}
-                title="Related Market Predictions"
-                description={`Showing correlation data for ${analysis.marketTrends.length} related currency pairs to ${analysis.symbol}`}
-              />
-            ) : (
-              <div className="text-center text-gray-400 my-3 py-6">No market trend data available</div>
-            )}
-          </div>
+          {/* Market Trend Heatmap removed as requested */}
         </div>
       </div>
       
