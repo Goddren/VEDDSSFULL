@@ -31,6 +31,15 @@ export interface VolumeAnalysis {
   quality: string;
 }
 
+export interface VolatilityData {
+  score: number;              // Overall volatility score (0-100)
+  atr: number;                // Average True Range
+  standardDeviation: number;  // Standard deviation of price movements
+  range: number;              // Range between high and low
+  historicalRank: number;     // Where current volatility ranks historically (0-100)
+  riskFactor: number;         // Risk factor based on volatility (0-100)
+}
+
 export interface ChartAnalysisResponse {
   symbol: string;
   timeframe: string;
@@ -44,6 +53,8 @@ export interface ChartAnalysisResponse {
   takeProfit: string;
   riskRewardRatio: string;
   potentialPips: string;
+  volatilityScore: number;
+  volatilityData: VolatilityData;
   patterns: Pattern[];
   indicators: Indicator[];
   supportResistance: SupportResistanceLevel[];
@@ -78,5 +89,6 @@ export const analysisPipeline = [
   { id: "analyzing", name: "Analyzing patterns and indicators", message: "Identifying key patterns, trend strength and signals" },
   { id: "support-resistance", name: "Detecting support/resistance", message: "Finding key support and resistance levels" },
   { id: "volume-analysis", name: "Analyzing volume patterns", message: "Determining optimal trading sessions based on volume" },
+  { id: "volatility-analysis", name: "Measuring volatility", message: "Calculating market volatility score and risk assessment" },
   { id: "generating", name: "Generating recommendations", message: "Calculating entry/exit points and risk metrics" }
 ];

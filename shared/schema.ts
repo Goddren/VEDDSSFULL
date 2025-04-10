@@ -29,6 +29,8 @@ export const chartAnalyses = pgTable("chart_analyses", {
   takeProfit: text("take_profit").notNull(),
   riskRewardRatio: text("risk_reward_ratio"),
   potentialPips: text("potential_pips"),
+  volatilityScore: integer("volatility_score"),
+  volatilityData: jsonb("volatility_data"),
   patterns: jsonb("patterns").notNull(),
   indicators: jsonb("indicators").notNull(),
   supportResistance: jsonb("support_resistance"),

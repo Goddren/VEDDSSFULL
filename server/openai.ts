@@ -1,6 +1,126 @@
 import OpenAI from "openai";
-import { ChartAnalysisResponse } from "@shared/types";
+import { ChartAnalysisResponse, VolatilityData } from "@shared/types";
 import fs from "fs";
+
+/**
+ * Calculates a volatility score based on chart analysis response and symbol
+ * @param response The parsed response from OpenAI
+ * @param symbol The trading symbol
+ * @returns A volatility score from 0-100
+ */
+function calculateVolatilityScore(response: any, symbol: string): number {
+  // Default medium volatility
+  let baseScore = 50;
+  
+  // Adjust based on currency pair if applicable
+  if (symbol.includes("JPY") || symbol.includes("GBP")) {
+    // JPY and GBP pairs tend to be more volatile
+    baseScore += 10;
+  } else if (symbol.includes("CHF") || symbol.includes("EUR")) {
+    // CHF and EUR pairs tend to be less volatile
+    baseScore -= 5;
+  } else if (symbol.includes("BTC") || symbol.includes("ETH") || symbol.includes("XRP")) {
+    // Crypto tends to be highly volatile
+    baseScore += 20;
+  }
+
+  // Adjust based on patterns if available
+  if (Array.isArray(response.patterns)) {
+    response.patterns.forEach((pattern: any) => {
+      if (typeof pattern.name === 'string') {
+        // Certain patterns indicate higher volatility
+        if (pattern.name.includes("Breakout") || 
+            pattern.name.includes("Double") || 
+            pattern.name.includes("Triple") ||
+            pattern.name.includes("Head") ||
+            pattern.name.includes("Flag")) {
+          baseScore += 5;
+        }
+      }
+    });
+  }
+  
+  // Adjust based on confidence
+  if (typeof response.confidence === 'string') {
+    if (response.confidence.includes("High")) {
+      baseScore -= 5; // High confidence often means less volatility risk
+    } else if (response.confidence.includes("Low")) {
+      baseScore += 10; // Low confidence often means more volatility risk
+    }
+  }
+  
+  // Ensure the score stays within 0-100 range
+  return Math.max(0, Math.min(100, baseScore));
+}
+
+/**
+ * Calculates detailed volatility data based on analysis and trading direction
+ * @param response The parsed response from OpenAI
+ * @param direction Trading direction (Buy/Sell)
+ * @param confidence Analysis confidence level
+ * @returns Volatility data object
+ */
+function calculateVolatilityData(response: any, direction: string, confidence: string): VolatilityData {
+  // Calculate volatility score first
+  const symbol = typeof response.symbol === 'string' ? response.symbol : "Unknown";
+  const score = calculateVolatilityScore(response, symbol);
+  
+  // Calculate ATR based on stop loss and take profit if available
+  let atr = 0.0010; // Default ATR
+  if (typeof response.stopLoss === 'string' && typeof response.takeProfit === 'string') {
+    try {
+      const stopLossNum = parseFloat(response.stopLoss.replace(/[^0-9.]/g, ''));
+      const takeProfitNum = parseFloat(response.takeProfit.replace(/[^0-9.]/g, ''));
+      const currentPriceNum = parseFloat(response.currentPrice.replace(/[^0-9.]/g, ''));
+      
+      if (!isNaN(stopLossNum) && !isNaN(currentPriceNum)) {
+        // Calculate a rough ATR based on stop loss distance
+        const slDistance = Math.abs(currentPriceNum - stopLossNum);
+        if (slDistance > 0) {
+          atr = (slDistance / 2).toFixed(5) as unknown as number;
+        }
+      }
+    } catch (error) {
+      console.log("Error calculating ATR from price values:", error);
+    }
+  }
+  
+  // Calculate standard deviation - typically 1.5-2x ATR
+  const standardDeviation = parseFloat((atr * 1.5).toFixed(5));
+  
+  // Calculate price range
+  let range = atr * 10; // Default range is 10x ATR
+  
+  // Historical rank is based on the volatility score
+  const historicalRank = score;
+  
+  // Risk factor is influenced by volatility and direction
+  let riskFactor = score;
+  if (direction.toLowerCase() === 'buy') {
+    riskFactor = score - 5; // Buying is often slightly less risky in volatile markets
+  } else {
+    riskFactor = score + 5; // Selling can be more risky in volatile markets
+  }
+  
+  // Adjust risk factor based on confidence
+  if (confidence.toLowerCase() === 'high') {
+    riskFactor -= 10;
+  } else if (confidence.toLowerCase() === 'low') {
+    riskFactor += 10;
+  }
+  
+  // Ensure all values are within valid ranges
+  riskFactor = Math.max(0, Math.min(100, riskFactor));
+  
+  return {
+    score,
+    atr,
+    standardDeviation,
+    range,
+    historicalRank,
+    riskFactor
+  };
+}
 
 // Function to get an OpenAI instance with the current API key
 // This ensures we're always using the most up-to-date key
@@ -153,6 +273,8 @@ export async function analyzeChartImage(base64Image: string): Promise<ChartAnaly
       takeProfit: typeof response.takeProfit === 'string' ? response.takeProfit : "Unknown", 
       riskRewardRatio: typeof response.riskRewardRatio === 'string' ? response.riskRewardRatio : "Unknown",
       potentialPips: typeof response.potentialPips === 'string' ? response.potentialPips : "Unknown",
+      volatilityScore: calculateVolatilityScore(response, typeof response.symbol === 'string' ? response.symbol : "Unknown"),
+      volatilityData: calculateVolatilityData(response, typeof response.direction === 'string' ? response.direction : "Unknown", typeof response.confidence === 'string' ? response.confidence : "Medium"),
       patterns: Array.isArray(response.patterns) ? response.patterns : [],
       indicators: Array.isArray(response.indicators) ? response.indicators : [],
       supportResistance: Array.isArray(response.supportResistance) ? response.supportResistance : [],
