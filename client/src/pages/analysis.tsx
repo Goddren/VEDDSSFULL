@@ -12,7 +12,8 @@ import { useMutation } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/queryClient';
 import { AnalysisState, analysisPipeline, ChartAnalysisResponse } from '@shared/types';
 import { delay } from '@/lib/utils';
-import { BarChart3, CameraIcon, LayoutDashboard, Upload } from 'lucide-react';
+import { BarChart3, CameraIcon, LayoutDashboard, Upload, Sparkles } from 'lucide-react';
+import { QuickTipGenerator } from '@/components/trading/quick-tip-generator';
 
 // Image compression utility
 interface CompressOptions {
@@ -405,6 +406,22 @@ const Analysis: React.FC = () => {
 
         {/* Analysis Section */}
         <div className="lg:col-span-2">
+          {/* Quick Trading Tip Generator */}
+          <Card className="mb-6">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2">
+                <Sparkles className="h-5 w-5 text-primary" />
+                <span>Quick Trading Tip Generator</span>
+              </CardTitle>
+              <CardDescription>
+                Generate AI-powered trading tips and insights without uploading a chart
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <QuickTipGenerator />
+            </CardContent>
+          </Card>
+
           {/* API Key Configuration Card */}
           {apiKeyValid === false && (
             <Card className="mb-6">
