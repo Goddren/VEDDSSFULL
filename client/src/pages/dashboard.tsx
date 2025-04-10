@@ -308,6 +308,29 @@ const Dashboard: React.FC = () => {
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-2 gap-3">
+                  <Link href="/tooltips">
+                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 hover:border-rose-500/50 hover:bg-gray-800/80 text-left justify-start p-3 h-auto">
+                      <div className="w-9 h-9 rounded-full bg-purple-500/20 flex items-center justify-center mr-3">
+                        <BarChart2 className="h-4 w-4 text-purple-500" />
+                      </div>
+                      <div className="text-left">
+                        <p className="font-medium text-white text-sm">AI Tooltips</p>
+                        <p className="text-xs text-gray-400">Interactive market insights</p>
+                      </div>
+                    </Button>
+                  </Link>
+                  
+                  <Link href="/buttons">
+                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 hover:border-rose-500/50 hover:bg-gray-800/80 text-left justify-start p-3 h-auto">
+                      <div className="w-9 h-9 rounded-full bg-amber-500/20 flex items-center justify-center mr-3">
+                        <Activity className="h-4 w-4 text-amber-500" />
+                      </div>
+                      <div className="text-left">
+                        <p className="font-medium text-white text-sm">UI Elements</p>
+                        <p className="text-xs text-gray-400">Interactive buttons & inputs</p>
+                      </div>
+                    </Button>
+                  </Link>
                   <Link href="/analysis">
                     <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-rose-600 hover:border-rose-600 transition-colors">
                       New Analysis
@@ -323,14 +346,14 @@ const Dashboard: React.FC = () => {
                       Achievements
                     </Button>
                   </Link>
-                  <Link href="/tooltips">
+                  <Link href="/profile">
                     <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-amber-600 hover:border-amber-600 transition-colors">
-                      AI Tooltips
+                      Profile
                     </Button>
                   </Link>
-                  <Link href="/buttons">
+                  <Link href="/support">
                     <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-amber-600 hover:border-amber-600 transition-colors">
-                      Button Effects
+                      Support
                     </Button>
                   </Link>
                   <Link href="/subscription" className="col-span-2">
