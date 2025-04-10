@@ -25,6 +25,7 @@ import SecurityPage from "@/pages/security";
 import AnalysisDetail from "@/pages/analysis-detail";
 import SharedAnalysisPage from "@/pages/shared-analysis";
 import TooltipShowcase from "@/pages/tooltip-showcase";
+import ButtonShowcase from "@/pages/button-showcase";
 import { NewsNotificationScheduler } from "@/components/news-notification-scheduler";
 
 import { useLocation } from "wouter";
@@ -48,6 +49,7 @@ function AppLayout() {
           <Route path="/subscription" component={SubscriptionPage} />
           <Route path="/shared/:shareId" component={SharedAnalysisPage} />
           <Route path="/tooltips" component={TooltipShowcase} />
+          <Route path="/buttons" component={ButtonShowcase} />
           
           {/* Footer pages */}
           <Route path="/about" component={AboutPage} />
