@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Progress } from '@/components/ui/progress';
-import { Award, Calendar, ChartBar, CheckCircle, Clock, Compass, Crown, Lock, Target, Zap } from 'lucide-react';
+import { Award, Calendar, ChartBar, CheckCircle, ChevronLeft, Clock, Compass, Crown, Lock, Target, Zap } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Achievement } from '@shared/schema';
 import { AchievementGallery } from '@/components/achievements/achievement-gallery';
@@ -149,6 +149,19 @@ export default function AchievementsPage() {
 
   return (
     <div className="container py-8">
+      {/* Back button */}
+      <div className="mb-6">
+        <Link href="/dashboard">
+          <Badge 
+            variant="outline" 
+            className="cursor-pointer hover:bg-secondary flex items-center gap-1 pl-2 pr-3 py-1.5"
+          >
+            <ChevronLeft className="h-3.5 w-3.5" />
+            <span>Back to Dashboard</span>
+          </Badge>
+        </Link>
+      </div>
+      
       <div className="flex flex-col space-y-4 md:flex-row md:justify-between md:space-y-0 mb-6">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Achievements</h1>
