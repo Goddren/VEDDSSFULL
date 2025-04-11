@@ -348,29 +348,13 @@ const TopTraderCard: React.FC<{
   return (
     <Card className="overflow-hidden hover:shadow-md transition-all duration-200">
       <CardHeader className="pb-2">
-        <div className="flex justify-between items-start">
-          <div className="flex items-center">
-            <Avatar className="h-10 w-10 border-2 border-primary">
-              <AvatarImage src={trader.profileImage} />
-              <AvatarFallback>{getInitials(trader.fullName || trader.username)}</AvatarFallback>
-            </Avatar>
-            <div className="ml-3">
-              <div className="flex items-center gap-2">
-                <CardTitle className="text-lg">{trader.fullName || trader.username}</CardTitle>
-                <Badge className={cn("font-bold", getTradeGradeColor(trader.tradeGrade))}>
-                  {getTradeGradeText(trader.tradeGrade)}
-                </Badge>
-              </div>
-              <div className="flex items-center">
-                <Badge variant="outline" className={getExperienceColor(trader.tradingExperience)}>
-                  {trader.tradingExperience || 'Trader'}
-                </Badge>
-                {trader.winRate > 65 && (
-                  <Badge className="ml-2 bg-amber-500">Top Performer</Badge>
-                )}
-              </div>
-            </div>
-          </div>
+        {/* Trader Level Badge - Moved to top for more prominence */}
+        <div className="flex items-center justify-between mb-3">
+          <Badge className={cn("py-1 px-2 font-bold text-sm flex items-center gap-1", getTradeGradeColor(trader.tradeGrade))}>
+            <Award className="h-3.5 w-3.5" />
+            {getTradeGradeText(trader.tradeGrade)} Trader • Level {Math.ceil(trader.tradeGrade / 10)}
+          </Badge>
+          
           <Button
             variant={trader.isFollowing ? "outline" : "default"}
             size="sm"
@@ -379,6 +363,24 @@ const TopTraderCard: React.FC<{
           >
             {trader.isFollowing ? "Following" : "Follow"}
           </Button>
+        </div>
+        
+        <div className="flex items-start">
+          <Avatar className="h-10 w-10 border-2 border-primary">
+            <AvatarImage src={trader.profileImage} />
+            <AvatarFallback>{getInitials(trader.fullName || trader.username)}</AvatarFallback>
+          </Avatar>
+          <div className="ml-3">
+            <CardTitle className="text-lg">{trader.fullName || trader.username}</CardTitle>
+            <div className="flex items-center flex-wrap gap-1 mt-1">
+              <Badge variant="outline" className={getExperienceColor(trader.tradingExperience)}>
+                {trader.tradingExperience || 'Trader'}
+              </Badge>
+              {trader.winRate > 65 && (
+                <Badge className="bg-amber-500">Top Performer</Badge>
+              )}
+            </div>
+          </div>
         </div>
       </CardHeader>
       <CardContent className="pt-0">
