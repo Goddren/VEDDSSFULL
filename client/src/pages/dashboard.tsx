@@ -16,11 +16,13 @@ import {
   ChevronRight,
   Info,
   Sparkles,
-  Trophy
+  Trophy,
+  AlertTriangle
 } from 'lucide-react';
 import { QuickTipGenerator } from '@/components/trading/quick-tip-generator';
 import { RecentAchievements } from '@/components/achievements/recent-achievements';
 import { UserLevel } from '@/components/achievements/user-level';
+import { VolatilityMeter } from '@/components/ui/volatility-meter';
 
 interface Analysis {
   id: number;
@@ -339,6 +341,53 @@ const Dashboard: React.FC = () => {
             
             {/* Trading Tip Generator */}
             <QuickTipGenerator />
+
+            {/* Market Volatility Risk Meter */}
+            <Card className="bg-gray-900 border-gray-800 shadow-xl overflow-hidden mb-6">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="text-xl text-white flex items-center gap-2">
+                      Market Volatility
+                      <div className="h-6 w-6 rounded-full bg-amber-600/20 flex items-center justify-center">
+                        <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                      </div>
+                    </CardTitle>
+                    <CardDescription>Current market risk assessment</CardDescription>
+                  </div>
+                  <Link href="/volatility-meter">
+                    <Button variant="ghost" className="text-gray-400 hover:text-white">
+                      Details
+                    </Button>
+                  </Link>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="p-2 bg-gray-950 rounded-lg border border-gray-800">
+                  <VolatilityMeter 
+                    value={72} 
+                    symbol="EURUSD" 
+                    direction="Buy"
+                    size="md"
+                    animated={true}
+                  />
+                </div>
+                <div className="grid grid-cols-3 gap-4 mt-4">
+                  <div className="bg-gray-950 border border-gray-800 p-3 rounded-lg">
+                    <div className="text-xs text-gray-500 mb-1">BTC/USD</div>
+                    <VolatilityMeter value={88} size="sm" showLabel={false} />
+                  </div>
+                  <div className="bg-gray-950 border border-gray-800 p-3 rounded-lg">
+                    <div className="text-xs text-gray-500 mb-1">EUR/USD</div>
+                    <VolatilityMeter value={45} size="sm" showLabel={false} />
+                  </div>
+                  <div className="bg-gray-950 border border-gray-800 p-3 rounded-lg">
+                    <div className="text-xs text-gray-500 mb-1">GBP/JPY</div>
+                    <VolatilityMeter value={68} size="sm" showLabel={false} />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
             
             {/* User Level & Achievements */}
             {/* User Level Progress */}
@@ -385,6 +434,11 @@ const Dashboard: React.FC = () => {
                   <Link href="/support">
                     <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-amber-600 hover:border-amber-600 transition-colors">
                       Support
+                    </Button>
+                  </Link>
+                  <Link href="/volatility-meter">
+                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-amber-600 hover:border-amber-600 transition-colors">
+                      Volatility Meter
                     </Button>
                   </Link>
                   <Link href="/subscription" className="col-span-2">
