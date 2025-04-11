@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
+// @ts-ignore
 import * as d3 from 'd3';
+// @ts-ignore
 import cloud from 'd3-cloud';
 import { Card, CardContent } from '@/components/ui/card';
 import { Loader2 } from 'lucide-react';
@@ -89,13 +91,13 @@ export const MarketSentimentCloud: React.FC<MarketSentimentCloudProps> = ({
           .attr('transform', (d: any) => `translate(${d.x},${d.y})`)
           .text((d: any) => d.text)
           .style('cursor', 'pointer')
-          .on('mouseenter', function() {
+          .on('mouseenter', function(this: SVGTextElement) {
             d3.select(this)
               .transition()
               .duration(200)
               .style('font-size', (d: any) => `${d.size * 1.2}px`);
           })
-          .on('mouseleave', function() {
+          .on('mouseleave', function(this: SVGTextElement) {
             d3.select(this)
               .transition()
               .duration(200)

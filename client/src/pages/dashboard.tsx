@@ -492,6 +492,12 @@ const Dashboard: React.FC = () => {
                       Market Mood
                     </Button>
                   </Link>
+                  <Link href="/market-sentiment">
+                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-purple-600 hover:border-purple-600 transition-colors">
+                      <BarChart2 className="h-4 w-4 mr-2 text-purple-400" />
+                      Sentiment Cloud
+                    </Button>
+                  </Link>
                   <Link href="/subscription" className="col-span-2">
                     <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-rose-600 hover:border-rose-600 transition-colors">
                       Upgrade Account
