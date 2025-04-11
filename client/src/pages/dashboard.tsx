@@ -55,21 +55,21 @@ const Dashboard: React.FC = () => {
     enabled: !!user
   });
   
-  // Format user achievements for the RecentAchievements component
-  const formattedUserAchievements = React.useMemo(() => {
-    if (!userAchievements || !achievements) return [];
+  // Calculate total achievement points (for UserLevel component)
+  const totalAchievementPoints = React.useMemo(() => {
+    if (!userAchievements || !Array.isArray(userAchievements) || !achievements || !Array.isArray(achievements)) {
+      return 0;
+    }
     
     return userAchievements
-      .filter(ua => ua.isCompleted)
-      .map(ua => {
-        const achievement = achievements.find(a => a.id === ua.achievementId);
-        if (!achievement) return null;
-        
-        return {
-          ...ua,
-          achievement
-        };
-      }).filter(Boolean);
+      .filter((ua: any) => ua.isCompleted)
+      .reduce((total: number, ua: any) => {
+        const achievement = achievements.find((a: any) => a.id === ua.achievementId);
+        if (achievement) {
+          return total + achievement.points;
+        }
+        return total;
+      }, 0);
   }, [userAchievements, achievements]);
   
   // Calculate stats
@@ -343,18 +343,16 @@ const Dashboard: React.FC = () => {
             {/* User Level & Achievements */}
             {/* User Level Progress */}
             <UserLevel 
-              totalPoints={formattedUserAchievements.reduce((total, ua) => total + ua.achievement.points, 0)}
+              totalPoints={totalAchievementPoints}
               className="mb-6"
             />
             
             {/* Recent Achievements */}
-            {formattedUserAchievements.length > 0 && (
-              <RecentAchievements
-                limit={3}
-                showProgress={true}
-                className="mb-6"
-              />
-            )}
+            <RecentAchievements
+              limit={3}
+              showProgress={true}
+              className="mb-6"
+            />
             
             {/* Quick Links */}
             <Card className="bg-gray-900 border-gray-800 shadow-xl">

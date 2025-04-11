@@ -132,10 +132,15 @@ export default function AchievementsPage() {
       const achievement = achievements.find(a => a.id === ua.achievementId);
       if (!achievement) return null;
       
-      return {
+      // Convert string dates to Date objects if needed
+      const processedUserAchievement = {
         ...ua,
+        // Ensure proper type handling for unlockedAt
+        unlockedAt: ua.unlockedAt ? new Date(ua.unlockedAt) : null,
         achievement
       };
+      
+      return processedUserAchievement;
     }).filter(Boolean) as (UserAchievement & { achievement: Achievement })[];
   }, [userAchievements, achievements]);
 
