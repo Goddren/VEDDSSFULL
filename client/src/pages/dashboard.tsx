@@ -3,6 +3,7 @@ import { Link } from 'wouter';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useQuery } from '@tanstack/react-query';
+import { useAuth } from '@/hooks/use-auth';
 import { 
   BarChart2, 
   TrendingUp, 
@@ -17,6 +18,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import { QuickTipGenerator } from '@/components/trading/quick-tip-generator';
+import { RecentAchievements } from '@/components/achievements/recent-achievements';
 
 interface Analysis {
   id: number;
@@ -34,9 +36,39 @@ interface Analysis {
 }
 
 const Dashboard: React.FC = () => {
+  const { user } = useAuth();
   const { data: analyses = [], isLoading, isError } = useQuery<Analysis[]>({
     queryKey: ['/api/analyses'],
   });
+  
+  // Get user achievements
+  const { data: userAchievements = [] } = useQuery({
+    queryKey: ['/api/user-achievements'],
+    enabled: !!user
+  });
+  
+  // Get all achievements
+  const { data: achievements = [] } = useQuery({
+    queryKey: ['/api/achievements'],
+    enabled: !!user
+  });
+  
+  // Format user achievements for the RecentAchievements component
+  const formattedUserAchievements = React.useMemo(() => {
+    if (!userAchievements || !achievements) return [];
+    
+    return userAchievements
+      .filter(ua => ua.isCompleted)
+      .map(ua => {
+        const achievement = achievements.find(a => a.id === ua.achievementId);
+        if (!achievement) return null;
+        
+        return {
+          ...ua,
+          achievement
+        };
+      }).filter(Boolean);
+  }, [userAchievements, achievements]);
   
   // Calculate stats
   const totalAnalyses = analyses.length;
@@ -305,6 +337,14 @@ const Dashboard: React.FC = () => {
             
             {/* Trading Tip Generator */}
             <QuickTipGenerator />
+            
+            {/* Recent Achievements */}
+            {formattedUserAchievements.length > 0 && (
+              <RecentAchievements
+                recentAchievements={formattedUserAchievements}
+                compact={true}
+              />
+            )}
             
             {/* Quick Links */}
             <Card className="bg-gray-900 border-gray-800 shadow-xl">
