@@ -340,11 +340,19 @@ const Dashboard: React.FC = () => {
             {/* Trading Tip Generator */}
             <QuickTipGenerator />
             
+            {/* User Level & Achievements */}
+            {/* User Level Progress */}
+            <UserLevel 
+              totalPoints={formattedUserAchievements.reduce((total, ua) => total + ua.achievement.points, 0)}
+              className="mb-6"
+            />
+            
             {/* Recent Achievements */}
             {formattedUserAchievements.length > 0 && (
               <RecentAchievements
-                recentAchievements={formattedUserAchievements}
-                compact={true}
+                limit={3}
+                showProgress={true}
+                className="mb-6"
               />
             )}
             

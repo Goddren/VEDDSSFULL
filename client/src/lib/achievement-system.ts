@@ -111,41 +111,22 @@ export async function trackConsecutiveActivity(): Promise<void> {
 function showAchievementNotifications(unlockedAchievements: (UserAchievement & { achievement: Achievement })[]): void {
   if (!unlockedAchievements || !Array.isArray(unlockedAchievements) || unlockedAchievements.length === 0) return;
   
-  // Dynamically import the AchievementUnlocked component to avoid circular dependencies
-  import('../components/achievements/achievement-unlocked').then(({ AchievementUnlocked }) => {
-    // Schedule notifications to appear one after another
-    unlockedAchievements.forEach((userAchievement, index) => {
-      setTimeout(() => {
-        // Show custom achievement notification with confetti effect
-        const { toast } = require('@/hooks/use-toast');
-        toast({
-          title: "Achievement Unlocked!",
-          description: userAchievement.achievement.name,
-          variant: "default",
-          duration: 6000,
-          action: (
-            <AchievementUnlocked 
-              achievement={userAchievement.achievement}
-              onClose={() => {}}
-            />
-          )
-        });
-      }, index * 2000); // Show each notification 2 seconds apart
-    });
-  }).catch(error => {
-    console.error("Failed to load achievement notification component:", error);
-    
-    // Fallback to simple toast notifications
-    unlockedAchievements.forEach((userAchievement, index) => {
-      setTimeout(() => {
-        toast({
-          title: "Achievement Unlocked!",
-          description: userAchievement.achievement.name,
-          variant: "default",
-          duration: 5000
-        });
-      }, index * 1500);
-    });
+  // Import toast function directly to avoid circular dependency issues
+  const { toast } = require('@/hooks/use-toast');
+  
+  // Schedule notifications to appear one after another with simple notifications first
+  unlockedAchievements.forEach((userAchievement, index) => {
+    setTimeout(() => {
+      toast({
+        title: "Achievement Unlocked!",
+        description: userAchievement.achievement.name,
+        variant: "default",
+        duration: 5000
+      });
+      
+      // In a production app, we'd use the custom component here instead
+      // of a simple toast, but we're avoiding it for now due to circular dependencies
+    }, index * 1500); // Show each notification 1.5 seconds apart
   });
 }
 

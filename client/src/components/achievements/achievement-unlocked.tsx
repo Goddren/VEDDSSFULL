@@ -1,9 +1,46 @@
-import React from "react";
-import { Achievement } from "@shared/schema";
-import { motion } from "framer-motion";
-import { Award, Trophy, X } from "lucide-react";
-import { cn } from "@/lib/utils";
-import confetti from "canvas-confetti";
+import React, { useEffect, useRef } from 'react';
+import { motion } from 'framer-motion';
+import confetti from 'canvas-confetti';
+import { 
+  Trophy,
+  ChartBar, 
+  Calendar,
+  Target,
+  Crown,
+  Compass,
+  Clock,
+  Zap,
+  Award,
+  Medal,
+  Globe,
+  TrendingUp,
+  Lightbulb
+} from 'lucide-react';
+import { Achievement } from '@shared/schema';
+import { cn } from '@/lib/utils';
+
+// Map of icon names to Lucide React components
+export const iconMap: Record<string, React.ReactNode> = {
+  'chart-line': <ChartBar className="h-6 w-6" />,
+  'chart-bar': <ChartBar className="h-6 w-6" />,
+  'chart-pie': <ChartBar className="h-6 w-6" />,
+  'analytics': <ChartBar className="h-6 w-6" />,
+  'calendar-check': <Calendar className="h-6 w-6" />,
+  'calendar-week': <Calendar className="h-6 w-6" />,
+  'calendar-star': <Calendar className="h-6 w-6" />,
+  'bullseye': <Target className="h-6 w-6" />,
+  'crosshairs': <Target className="h-6 w-6" />,
+  'gem': <Crown className="h-6 w-6" />,
+  'compass': <Compass className="h-6 w-6" />,
+  'globe': <Globe className="h-6 w-6" />,
+  'moon': <Clock className="h-6 w-6" />,
+  'puzzle-piece': <Zap className="h-6 w-6" />,
+  'medal': <Medal className="h-6 w-6" />,
+  'award': <Award className="h-6 w-6" />,
+  'trophy': <Trophy className="h-6 w-6" />,
+  'trending-up': <TrendingUp className="h-6 w-6" />,
+  'lightbulb': <Lightbulb className="h-6 w-6" />,
+};
 
 export interface AchievementUnlockedProps {
   achievement: Achievement;
@@ -11,136 +48,62 @@ export interface AchievementUnlockedProps {
 }
 
 export function AchievementUnlocked({ 
-  achievement, 
-  onClose 
+  achievement,
+  onClose
 }: AchievementUnlockedProps) {
-  const containerRef = React.useRef<HTMLDivElement>(null);
-  
-  // Trigger confetti effect when component mounts
-  React.useEffect(() => {
-    if (containerRef.current) {
-      const rect = containerRef.current.getBoundingClientRect();
-      const x = rect.left + rect.width / 2;
-      const y = rect.top + rect.height / 2;
+  const confettiRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (confettiRef.current) {
+      const rect = confettiRef.current.getBoundingClientRect();
+      const x = rect.x + rect.width / 2;
+      const y = rect.y + rect.height / 2;
       
-      // Create a confetti burst
-      confetti({
-        particleCount: 80,
+      // Create a canvas confetti instance
+      const myConfetti = confetti.create();
+      
+      // Trigger confetti
+      myConfetti({
+        particleCount: 100,
         spread: 70,
         origin: { 
           x: x / window.innerWidth, 
           y: y / window.innerHeight 
         },
-        colors: ['#FFD700', '#FFC107', '#FF9800', primary],
-        zIndex: 9999,
+        colors: ['#FFC107', '#FF5722', '#E91E63', '#9C27B0'],
+        disableForReducedMotion: true
       });
+      
+      // Clean up the confetti canvas after animation
+      return () => {
+        myConfetti.reset();
+      };
     }
-    
-    // Auto-close after 5 seconds
-    const timer = setTimeout(() => {
-      onClose();
-    }, 5000);
-    
-    return () => clearTimeout(timer);
-  }, [onClose]);
-  
-  // Get primary color from CSS custom property
-  const primaryStyle = getComputedStyle(document.documentElement);
-  const primary = primaryStyle.getPropertyValue('--primary').trim() || '#0ea5e9';
-  
+  }, []);
+
   return (
     <motion.div
-      ref={containerRef}
-      className="fixed inset-x-0 top-6 z-50 flex justify-center pointer-events-none"
-      initial={{ opacity: 0, y: -20 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -20 }}
+      ref={confettiRef}
+      initial={{ scale: 0.8, opacity: 0 }}
+      animate={{ scale: 1, opacity: 1 }}
+      transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+      className="bg-gray-950 border border-amber-500/30 shadow-lg rounded-lg p-4 max-w-md overflow-hidden"
     >
-      <div className="bg-background border rounded-lg shadow-lg p-4 pointer-events-auto max-w-md w-full mx-4">
-        <div className="flex items-start gap-3">
-          <div className="flex-shrink-0">
-            <div className="relative">
-              <div className="w-14 h-14 rounded-full bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center">
-                <Trophy className="h-7 w-7 text-primary-foreground" />
-                
-                {/* Animated pulse effect */}
-                <motion.div 
-                  className="absolute inset-0 rounded-full border-2 border-primary/40"
-                  animate={{ 
-                    scale: [1, 1.15, 1],
-                    opacity: [1, 0.8, 1]
-                  }}
-                  transition={{ 
-                    duration: 2, 
-                    repeat: Infinity,
-                    ease: "easeInOut" 
-                  }}
-                />
-              </div>
-              
-              <motion.div 
-                className="absolute -bottom-1 -right-1 bg-primary text-primary-foreground rounded-full w-6 h-6 flex items-center justify-center border-2 border-background"
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                transition={{ 
-                  type: "spring", 
-                  stiffness: 500, 
-                  damping: 30,
-                  delay: 0.3 
-                }}
-              >
-                <Award className="h-3 w-3" />
-              </motion.div>
-            </div>
-          </div>
-          
-          <div className="flex-1">
-            <div className="flex justify-between items-start">
-              <div>
-                <motion.h3 
-                  className="font-bold text-lg text-foreground"
-                  initial={{ opacity: 0, x: -5 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: 0.1 }}
-                >
-                  Achievement Unlocked!
-                </motion.h3>
-                
-                <motion.p 
-                  className="font-medium text-primary"
-                  initial={{ opacity: 0, x: -5 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: 0.2 }}
-                >
-                  {achievement.name}
-                </motion.p>
-                
-                <motion.p 
-                  className="text-sm text-muted-foreground mt-1"
-                  initial={{ opacity: 0, x: -5 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: 0.3 }}
-                >
-                  {achievement.description}
-                </motion.p>
-                
-                <motion.div 
-                  className="mt-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary"
-                  initial={{ opacity: 0, scale: 0.8 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ delay: 0.4 }}
-                >
-                  +{achievement.points} points
-                </motion.div>
-              </div>
-              
-              <button 
-                onClick={onClose}
-                className="text-muted-foreground hover:text-foreground rounded-full p-1 transition-colors"
-              >
-                <X className="h-4 w-4" />
-                <span className="sr-only">Close</span>
-              </button>
+      <div className="flex gap-4 items-center">
+        <div className={cn(
+          "flex items-center justify-center h-12 w-12 rounded-full",
+          "bg-amber-500/20 text-amber-500 shadow-inner shadow-amber-500/10"
+        )}>
+          {iconMap[achievement.icon] || <Trophy className="h-6 w-6" />}
+        </div>
+        
+        <div className="flex-1">
+          <h3 className="font-bold text-lg text-amber-500">Achievement Unlocked!</h3>
+          <p className="text-white font-medium">{achievement.name}</p>
+          <p className="text-gray-400 text-sm mt-1">{achievement.description}</p>
+          <div className="flex items-center gap-2 mt-2">
+            <div className="bg-amber-500/20 text-amber-500 px-2 py-0.5 rounded-full text-xs font-medium">
+              +{achievement.points} points
             </div>
           </div>
         </div>
