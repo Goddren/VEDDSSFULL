@@ -62,7 +62,7 @@ export interface AchievementBadgeProps
   extends React.HTMLAttributes<HTMLDivElement>,
     VariantProps<typeof badgeVariants> {
   achievement: Achievement;
-  userAchievement?: UserAchievement;
+  userAchievement?: UserAchievement | any;
   showProgress?: boolean;
   showTooltip?: boolean;
   animate?: boolean;

@@ -65,7 +65,7 @@ export async function checkAchievements(
       case AchievementTrigger.MULTIPLE_TIMEFRAMES:
         // Track timeframes analyzed in localStorage
         const analyzedTimeframes = JSON.parse(localStorage.getItem('analyzedTimeframes') || '[]');
-        if (data?.timeframe && !analyzedTimeframes.includes(data.timeframe)) {
+        if (data && data.timeframe && !analyzedTimeframes.includes(data.timeframe)) {
           analyzedTimeframes.push(data.timeframe);
           localStorage.setItem('analyzedTimeframes', JSON.stringify(analyzedTimeframes));
           // Add the count to the data
@@ -75,7 +75,7 @@ export async function checkAchievements(
         
       case AchievementTrigger.PERFECT_ANALYSIS:
         // Track perfect analyses (high confidence)
-        if (data?.confidence && parseFloat(data.confidence) > 90) {
+        if (data && data.confidence && parseFloat(data.confidence) > 90) {
           const perfectAnalysesCount = parseInt(localStorage.getItem('perfectAnalysesCount') || '0') + 1;
           localStorage.setItem('perfectAnalysesCount', perfectAnalysesCount.toString());
           data.perfectAnalysesCount = perfectAnalysesCount;
@@ -84,11 +84,11 @@ export async function checkAchievements(
         
       case AchievementTrigger.HIGH_ACCURACY_STREAK:
         // Track accuracy streak
-        if (data?.isAccurate) {
+        if (data && data.isAccurate) {
           const currentStreak = parseInt(localStorage.getItem('accuracyStreak') || '0') + 1;
           localStorage.setItem('accuracyStreak', currentStreak.toString());
           data.accuracyStreak = currentStreak;
-        } else {
+        } else if (data) {
           // Reset streak if analysis was not accurate
           localStorage.setItem('accuracyStreak', '0');
           data.accuracyStreak = 0;
@@ -97,7 +97,7 @@ export async function checkAchievements(
         
       case AchievementTrigger.TOOL_USAGE:
         // Track tool usage count
-        if (data?.toolName) {
+        if (data && data.toolName) {
           const toolUsage = JSON.parse(localStorage.getItem('toolUsage') || '{}');
           toolUsage[data.toolName] = (toolUsage[data.toolName] || 0) + 1;
           localStorage.setItem('toolUsage', JSON.stringify(toolUsage));

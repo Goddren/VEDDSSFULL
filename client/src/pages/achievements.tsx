@@ -164,7 +164,7 @@ export default function AchievementsPage() {
       {/* Use the new AchievementGallery component */}
       <AchievementGallery 
         achievements={achievements || []}
-        userAchievements={formattedUserAchievements}
+        userAchievements={formattedUserAchievements as any}
       />
     </div>
   );

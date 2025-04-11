@@ -9,7 +9,15 @@ import { Input } from "@/components/ui/input";
 
 interface AchievementGalleryProps {
   achievements: Achievement[];
-  userAchievements: (UserAchievement & { achievement: Achievement })[];
+  userAchievements: {
+    id: number;
+    userId: number;
+    achievementId: number;
+    unlockedAt: Date | string | null;
+    progress: number;
+    isCompleted: boolean;
+    achievement: Achievement;
+  }[];
   className?: string;
 }
 
@@ -138,7 +146,7 @@ export function AchievementGallery({
               <div key={achievement.id} className="flex flex-col items-center text-center">
                 <AchievementBadge
                   achievement={achievement}
-                  userAchievement={userAchievement}
+                  userAchievement={userAchievement as any}
                   size="lg"
                   showProgress={true}
                   showTooltip={true}
