@@ -23,6 +23,7 @@ import { QuickTipGenerator } from '@/components/trading/quick-tip-generator';
 import { RecentAchievements } from '@/components/achievements/recent-achievements';
 import { UserLevel } from '@/components/achievements/user-level';
 import { VolatilityMeter } from '@/components/ui/volatility-meter';
+import { getUserLevel } from '@/lib/achievement-system';
 
 interface Analysis {
   id: number;
