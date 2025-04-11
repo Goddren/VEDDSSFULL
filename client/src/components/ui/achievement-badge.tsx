@@ -13,7 +13,7 @@ import { Progress } from "@/components/ui/progress";
 
 // Define size variants
 const badgeVariants = cva(
-  "relative flex items-center justify-center rounded-full transition-all duration-200",
+  "relative flex items-center justify-center rounded-full transition-all duration-200 overflow-hidden bg-gradient-to-b",
   {
     variants: {
       size: {
@@ -24,13 +24,13 @@ const badgeVariants = cva(
         xl: "w-32 h-32",
       },
       variant: {
-        analysis: "bg-blue-500 text-white",
-        consistency: "bg-green-500 text-white",
-        accuracy: "bg-purple-500 text-white",
-        exploration: "bg-amber-500 text-white",
-        special: "bg-gradient-to-r from-pink-500 to-orange-500 text-white",
-        default: "bg-primary text-primary-foreground",
-        locked: "bg-muted text-muted-foreground",
+        analysis: "from-blue-400 to-blue-600 text-white shadow-md shadow-blue-600/30",
+        consistency: "from-green-400 to-green-600 text-white shadow-md shadow-green-600/30",
+        accuracy: "from-purple-400 to-purple-600 text-white shadow-md shadow-purple-600/30",
+        exploration: "from-amber-400 to-amber-600 text-white shadow-md shadow-amber-600/30",
+        special: "from-pink-400 via-rose-500 to-orange-400 text-white shadow-lg shadow-orange-600/40",
+        default: "from-primary/80 to-primary text-primary-foreground shadow-md shadow-primary/20",
+        locked: "from-gray-300 to-gray-400 text-gray-600 shadow-inner shadow-gray-500/50",
       },
     },
     defaultVariants: {
@@ -44,7 +44,7 @@ const badgeVariants = cva(
 const animations = {
   locked: {
     filter: "grayscale(100%)",
-    opacity: 0.5,
+    opacity: 0.7,
   },
   unlocked: {
     filter: "grayscale(0%)",
@@ -54,7 +54,7 @@ const animations = {
   animate: {
     transition: "all 0.3s ease",
     transform: "scale(1.05)",
-    boxShadow: "0 0 15px rgba(255, 200, 50, 0.6)",
+    boxShadow: "0 0 20px rgba(255, 215, 0, 0.7)",
   },
 };
 
@@ -122,23 +122,40 @@ export function AchievementBadge({
       className={cn(
         badgeVariants({ size, variant: badgeVariant }),
         isLocked && "grayscale opacity-50",
-        isCompleted && !isLocked && "ring-2 ring-yellow-400",
+        isCompleted && !isLocked && "ring-4 ring-yellow-300/70 ring-offset-2 ring-offset-background",
         animate && isCompleted && !isLocked && "animate-pulse",
+        "transition-all transform hover:scale-105 relative",
         className
       )}
       style={{
         ...(animate && isCompleted && !isLocked
           ? {
-              boxShadow: "0 0 10px rgba(255, 215, 0, 0.7)",
-              transition: "all 0.3s ease",
+              boxShadow: "0 0 20px rgba(255, 215, 0, 0.8)",
+              transition: "all 0.3s ease-in-out",
             }
           : {}),
       }}
       {...props}
     >
+      {/* Background pattern for badges */}
+      <div className="absolute inset-0 rounded-full overflow-hidden opacity-30">
+        <div className="w-full h-full bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-white/20 via-transparent to-transparent" />
+      </div>
+
+      {/* Shine effect */}
+      <div className="absolute inset-0 rounded-full overflow-hidden">
+        <div className="w-full h-full bg-gradient-to-tr from-transparent via-white/20 to-transparent opacity-20" />
+      </div>
+      
+      {/* Rim/border effect for all badges */}
+      <div className={cn(
+        "absolute inset-0 rounded-full",
+        isLocked ? "border border-white/10" : "border-2 border-white/30"
+      )}></div>
+      
       {/* Lock icon overlay for locked achievements */}
       {isLocked && (
-        <div className="absolute inset-0 rounded-full flex items-center justify-center bg-black bg-opacity-40">
+        <div className="absolute inset-0 rounded-full flex items-center justify-center bg-black bg-opacity-40 backdrop-blur-[1px]">
           <svg
             xmlns="http://www.w3.org/2000/svg"
             viewBox="0 0 24 24"
@@ -147,7 +164,7 @@ export function AchievementBadge({
             strokeWidth="2"
             strokeLinecap="round"
             strokeLinejoin="round"
-            className="w-1/2 h-1/2 text-white opacity-70"
+            className="w-1/2 h-1/2 text-white opacity-70 drop-shadow-md"
           >
             <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
             <path d="M7 11V7a5 5 0 0 1 10 0v4" />
@@ -156,27 +173,34 @@ export function AchievementBadge({
       )}
       
       {/* Main icon */}
-      <div className={cn("text-current", {
-        "w-3 h-3": size === "xs",
-        "w-5 h-5": size === "sm",
-        "w-8 h-8": size === "md",
-        "w-12 h-12": size === "lg",
-        "w-16 h-16": size === "xl",
-      })}>
+      <div className={cn(
+        "text-current relative z-10 drop-shadow-md", 
+        {
+          "w-3 h-3": size === "xs",
+          "w-5 h-5": size === "sm",
+          "w-8 h-8": size === "md",
+          "w-12 h-12": size === "lg",
+          "w-16 h-16": size === "xl",
+        },
+        isCompleted && !isLocked && "text-shadow-sm text-white"
+      )}>
         {getIcon()}
       </div>
       
-      {/* Show glow effect for completed achievements */}
+      {/* Glow effect for completed achievements */}
       {isCompleted && !isLocked && (
-        <div className="absolute inset-0 rounded-full bg-white opacity-20 animate-pulse" />
+        <>
+          <div className="absolute inset-0 rounded-full bg-gradient-radial from-white/40 to-transparent animate-pulse-slow opacity-60" />
+          <div className="absolute inset-0 rounded-full bg-gradient-to-r from-yellow-300/20 via-amber-400/20 to-yellow-300/20 animate-shine-slow" />
+        </>
       )}
       
       {/* Progress indicator for partially completed achievements */}
       {showProgress && !isLocked && !isCompleted && progress > 0 && (
         <div className="absolute bottom-0 left-0 right-0 px-1">
-          <div className="h-1 bg-white/30 rounded-full overflow-hidden">
+          <div className="h-1.5 bg-black/30 rounded-full overflow-hidden backdrop-blur-sm">
             <div 
-              className="h-full bg-white rounded-full" 
+              className="h-full bg-gradient-to-r from-white/70 to-white/90 rounded-full" 
               style={{ width: `${progressPercent}%` }} 
             />
           </div>

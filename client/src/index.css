@@ -45,6 +45,42 @@
   animation: bounce 2s ease-in-out infinite;
 }
 
+/* Achievement Badge Animations */
+@keyframes pulse-slow {
+  0% { opacity: 0.4; }
+  50% { opacity: 0.8; }
+  100% { opacity: 0.4; }
+}
+
+@keyframes shine-slow {
+  0% { 
+    opacity: 0;
+    transform: translateX(-100%) rotate(-45deg); 
+  }
+  30% { 
+    opacity: 0.3; 
+  }
+  70% { 
+    opacity: 0.3; 
+  }
+  100% { 
+    opacity: 0;
+    transform: translateX(100%) rotate(-45deg); 
+  }
+}
+
+.animate-pulse-slow {
+  animation: pulse-slow 3s ease-in-out infinite;
+}
+
+.animate-shine-slow {
+  animation: shine-slow 5s ease-out infinite;
+}
+
+.text-shadow-sm {
+  text-shadow: 0 0 8px rgba(255, 255, 255, 0.5);
+}
+
 @layer base {
   * {
     @apply border-border;
