@@ -41,7 +41,7 @@ export default function ProfilePage() {
   
   // If viewing another user's profile, fetch their data
   const { data: profileUser, isLoading: isLoadingProfileUser } = useQuery({
-    queryKey: viewingUserId ? [`/api/profile/${viewingUserId}`] : null,
+    queryKey: viewingUserId ? [`/api/profile/${viewingUserId}`] : ['no-query'],
     enabled: !!viewingUserId && viewingUserId !== user?.id,
   });
   

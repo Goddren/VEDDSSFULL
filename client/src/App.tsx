@@ -26,6 +26,7 @@ import AnalysisDetail from "@/pages/analysis-detail";
 import SharedAnalysisPage from "@/pages/shared-analysis";
 import SocialHub from "@/pages/social-hub";
 import VolatilityMeterShowcase from "@/pages/volatility-meter-showcase";
+import MarketInsightsPage from "@/pages/market-insights";
 import { NewsNotificationScheduler } from "@/components/news-notification-scheduler";
 
 import { useLocation } from "wouter";
@@ -68,6 +69,7 @@ function AppLayout() {
           <ProtectedRoute path="/achievements" component={AchievementsPage} />
           <ProtectedRoute path="/home" component={Home} />
           <ProtectedRoute path="/social-hub" component={SocialHub} />
+          <ProtectedRoute path="/market-insights" component={MarketInsightsPage} />
           
           <Route component={NotFound} />
         </Switch>
