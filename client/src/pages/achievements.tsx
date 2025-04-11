@@ -7,20 +7,11 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Progress } from '@/components/ui/progress';
-import { 
-  Award, 
-  Calendar, 
-  ChartBar, 
-  CheckCircle, 
-  Clock, 
-  Compass, 
-  Crown, 
-  Lock, 
-  Target, 
-  Zap 
-} from 'lucide-react';
+import { Award, Calendar, ChartBar, CheckCircle, Clock, Compass, Crown, Lock, Target, Zap } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Achievement } from '@shared/schema';
+import { AchievementGallery } from '@/components/achievements/achievement-gallery';
+import { AchievementBadge } from '@/components/ui/achievement-badge';
 
 // Map of icon names to Lucide React components
 const iconMap: Record<string, React.ReactNode> = {
