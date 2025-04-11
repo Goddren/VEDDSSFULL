@@ -1,333 +1,598 @@
-import React, { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { cn } from "@/lib/utils";
-import { useToast } from "@/hooks/use-toast";
-import { 
-  TrendingUp, 
-  TrendingDown, 
-  BarChart2, 
-  ArrowRight, 
-  ChevronsUp, 
-  ChevronsDown, 
-  AlertCircle,
-  Info,
-  Waves
-} from "lucide-react";
+import React, { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { cn } from '@/lib/utils';
+import { Info, AlertTriangle, TrendingUp, TrendingDown, BarChart2, Zap, ArrowRight } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
-export type InsightType = 
-  | "bullish"
-  | "bearish"
-  | "neutral"
-  | "volatility"
-  | "pattern"
-  | "support"
-  | "resistance"
-  | "volume"
-  | "momentum";
-
-export type MarketPattern =
-  | "double-top"
-  | "double-bottom"
-  | "head-shoulders"
-  | "inverse-head-shoulders"
-  | "flag"
-  | "triangle"
-  | "wedge"
-  | "channel"
-  | "fibonacci";
-
-interface InsightTooltipProps {
-  type: InsightType;
+export interface InsightTooltipProps {
   title: string;
-  description: string;
-  probability?: number; // 0-100
-  pattern?: MarketPattern;
-  timeframe?: string;
+  content: string;
+  icon?: 'info' | 'warning' | 'bullish' | 'bearish' | 'volatility' | 'signal';
+  animationType?: 'uptrend' | 'downtrend' | 'volatility' | 'consolidation' | 'breakout' | 'none';
   className?: string;
-  showAnimation?: boolean;
+  showButton?: boolean;
+  buttonText?: string;
+  onButtonClick?: () => void;
 }
 
 export function InsightTooltip({
-  type,
   title,
-  description,
-  probability = 0,
-  pattern,
-  timeframe,
+  content,
+  icon = 'info',
+  animationType = 'none',
   className,
-  showAnimation = true,
+  showButton = false,
+  buttonText = 'Learn More',
+  onButtonClick
 }: InsightTooltipProps) {
   const [isExpanded, setIsExpanded] = useState(false);
-  const { toast } = useToast();
-  
-  const getTypeIcon = () => {
-    switch (type) {
-      case "bullish":
-        return <TrendingUp className="text-green-500" />;
-      case "bearish":
-        return <TrendingDown className="text-red-500" />;
-      case "neutral":
-        return <Waves className="text-blue-500" />;
-      case "volatility":
-        return <BarChart2 className="text-amber-500" />;
-      case "pattern":
-        return <BarChart2 className="text-purple-500" />;
-      case "support":
-        return <ChevronsUp className="text-emerald-500" />;
-      case "resistance":
-        return <ChevronsDown className="text-rose-500" />;
-      case "volume":
-        return <BarChart2 className="text-blue-500" />;
-      case "momentum":
-        return <ArrowRight className="text-amber-500" />;
+  const tooltipRef = useRef<HTMLDivElement>(null);
+  const animationRef = useRef<HTMLDivElement>(null);
+
+  // Handle outside click to close tooltip
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (tooltipRef.current && !tooltipRef.current.contains(event.target as Node)) {
+        setIsExpanded(false);
+      }
+    }
+    
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
+  // Get icon based on type
+  const getIcon = () => {
+    switch (icon) {
+      case 'info':
+        return <Info className="h-4 w-4 text-blue-500" />;
+      case 'warning':
+        return <AlertTriangle className="h-4 w-4 text-amber-500" />;
+      case 'bullish':
+        return <TrendingUp className="h-4 w-4 text-emerald-500" />;
+      case 'bearish':
+        return <TrendingDown className="h-4 w-4 text-rose-500" />;
+      case 'volatility':
+        return <BarChart2 className="h-4 w-4 text-purple-500" />;
+      case 'signal':
+        return <Zap className="h-4 w-4 text-amber-500" />;
       default:
-        return <Info className="text-blue-500" />;
+        return <Info className="h-4 w-4 text-blue-500" />;
     }
   };
-  
-  const getBackgroundColor = () => {
-    switch (type) {
-      case "bullish":
-        return "bg-gradient-to-r from-green-500/10 to-emerald-500/10";
-      case "bearish":
-        return "bg-gradient-to-r from-red-500/10 to-rose-500/10";
-      case "neutral":
-        return "bg-gradient-to-r from-blue-500/10 to-cyan-500/10";
-      case "volatility":
-        return "bg-gradient-to-r from-amber-500/10 to-yellow-500/10";
-      case "pattern":
-        return "bg-gradient-to-r from-purple-500/10 to-violet-500/10";
-      case "support":
-        return "bg-gradient-to-r from-emerald-500/10 to-teal-500/10";
-      case "resistance":
-        return "bg-gradient-to-r from-rose-500/10 to-pink-500/10";
-      case "volume":
-        return "bg-gradient-to-r from-blue-500/10 to-indigo-500/10";
-      case "momentum":
-        return "bg-gradient-to-r from-amber-500/10 to-orange-500/10";
-      default:
-        return "bg-gradient-to-r from-blue-500/10 to-indigo-500/10";
-    }
-  };
-  
-  const getBorderColor = () => {
-    switch (type) {
-      case "bullish":
-        return "border-green-500/30";
-      case "bearish":
-        return "border-red-500/30";
-      case "neutral":
-        return "border-blue-500/30";
-      case "volatility":
-        return "border-amber-500/30";
-      case "pattern":
-        return "border-purple-500/30";
-      case "support":
-        return "border-emerald-500/30";
-      case "resistance":
-        return "border-rose-500/30";
-      case "volume":
-        return "border-blue-500/30";
-      case "momentum":
-        return "border-amber-500/30";
-      default:
-        return "border-blue-500/30";
-    }
-  };
-  
-  const getAnimation = () => {
-    switch (type) {
-      case "bullish":
-        return (
-          <motion.div 
-            className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-green-500/20 to-transparent"
-            initial={{ height: 0 }}
-            animate={{ height: 20 }}
-            transition={{ repeat: Infinity, repeatType: "reverse", duration: 1.5 }}
-          />
-        );
-      case "bearish":
-        return (
-          <motion.div 
-            className="absolute top-0 left-0 right-0 h-8 bg-gradient-to-b from-red-500/20 to-transparent"
-            initial={{ height: 0 }}
-            animate={{ height: 20 }}
-            transition={{ repeat: Infinity, repeatType: "reverse", duration: 1.5 }}
-          />
-        );
-      case "volatility":
-        return (
-          <motion.div
-            className="absolute inset-0 flex justify-center items-center"
-          >
-            <motion.div
-              className="h-3 w-3 rounded-full bg-amber-500"
-              initial={{ scale: 0.8, opacity: 0.5 }}
-              animate={{ scale: 1.5, opacity: 0 }}
-              transition={{ repeat: Infinity, duration: 1.2 }}
-            />
-          </motion.div>
-        );
-      case "pattern":
-        if (pattern === "double-top") {
-          return (
-            <svg 
-              viewBox="0 0 100 30" 
-              className="absolute bottom-2 left-2 w-16 h-8 opacity-40"
-            >
-              <motion.path
-                d="M0,25 L20,5 L40,25 L60,5 L80,25 L100,25"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                initial={{ pathLength: 0 }}
-                animate={{ pathLength: 1 }}
-                transition={{ duration: 2, repeat: Infinity, repeatDelay: 0.5 }}
-              />
-            </svg>
-          );
-        } else if (pattern === "head-shoulders") {
-          return (
-            <svg 
-              viewBox="0 0 100 30" 
-              className="absolute bottom-2 left-2 w-16 h-8 opacity-40"
-            >
-              <motion.path
-                d="M0,20 L15,10 L30,20 L50,5 L70,20 L85,10 L100,20"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                initial={{ pathLength: 0 }}
-                animate={{ pathLength: 1 }}
-                transition={{ duration: 2, repeat: Infinity, repeatDelay: 0.5 }}
-              />
-            </svg>
-          );
-        }
-        return null;
-      case "momentum":
-        return (
-          <motion.div 
-            className="absolute right-2 bottom-2"
-            initial={{ x: -10, opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            transition={{ repeat: Infinity, repeatType: "reverse", duration: 1, repeatDelay: 0.2 }}
-          >
-            <ArrowRight className="text-amber-500" />
-          </motion.div>
-        );
-      default:
-        return null;
-    }
-  };
-  
-  // Get probability color based on confidence level
-  const getProbabilityColor = () => {
-    if (probability >= 80) return "text-green-500";
-    if (probability >= 60) return "text-blue-500";
-    if (probability >= 40) return "text-amber-500";
-    return "text-red-500";
-  };
-  
-  const toggleExpand = () => {
-    setIsExpanded(!isExpanded);
-  };
-  
-  const shareInsight = () => {
-    toast({
-      title: "Insight saved",
-      description: "This market insight has been saved to your analysis notes.",
-    });
+
+  // Render animation based on type
+  const renderAnimation = () => {
+    if (animationType === 'none' || !isExpanded) return null;
+
+    const animationStyles = {
+      height: '120px',
+      overflow: 'hidden',
+      position: 'relative' as const,
+      borderRadius: '0.375rem',
+      marginTop: '0.75rem',
+      marginBottom: '0.75rem',
+      backgroundColor: 'rgba(0, 0, 0, 0.2)',
+    };
+
+    return (
+      <div 
+        ref={animationRef} 
+        style={animationStyles} 
+        className="relative"
+      >
+        {animationType === 'uptrend' && (
+          <UptrendAnimation />
+        )}
+        {animationType === 'downtrend' && (
+          <DowntrendAnimation />
+        )}
+        {animationType === 'volatility' && (
+          <VolatilityAnimation />
+        )}
+        {animationType === 'consolidation' && (
+          <ConsolidationAnimation />
+        )}
+        {animationType === 'breakout' && (
+          <BreakoutAnimation />
+        )}
+      </div>
+    );
   };
 
   return (
-    <motion.div
+    <div 
+      ref={tooltipRef}
       className={cn(
-        "relative overflow-hidden rounded-lg border p-3",
-        getBackgroundColor(),
-        getBorderColor(),
-        "transition-all duration-200",
-        isExpanded ? "max-w-md" : "max-w-sm",
+        "relative inline-block",
         className
       )}
-      layout
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.95 }}
-      whileHover={{ scale: 1.02 }}
-      onClick={toggleExpand}
     >
-      {showAnimation && getAnimation()}
-      
-      <div className="flex items-start space-x-3 z-10 relative">
-        <div className="mt-0.5 bg-background bg-opacity-50 rounded-full p-1.5">
-          {getTypeIcon()}
-        </div>
-        
-        <div className="flex-1">
-          <div className="flex justify-between items-start">
-            <h3 className="font-semibold">{title}</h3>
+      {/* Trigger button */}
+      <button
+        type="button"
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="flex items-center justify-center p-1 rounded-full bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+        aria-label={`Tooltip for ${title}`}
+      >
+        {getIcon()}
+      </button>
+
+      {/* Tooltip content */}
+      <AnimatePresence>
+        {isExpanded && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: -5 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: -5 }}
+            transition={{ duration: 0.15 }}
+            className="absolute z-50 w-72 md:w-80 p-4 bg-white dark:bg-gray-900 shadow-lg rounded-lg border border-gray-200 dark:border-gray-800 mt-2 left-0"
+          >
+            <div className="flex items-start justify-between">
+              <h4 className="font-medium text-gray-900 dark:text-gray-100 flex items-center gap-1.5">
+                {getIcon()}
+                {title}
+              </h4>
+              <button
+                onClick={() => setIsExpanded(false)}
+                className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
             
-            {probability > 0 && (
-              <span className={cn("text-xs font-medium", getProbabilityColor())}>
-                {probability}% 
-              </span>
-            )}
-          </div>
-          
-          <AnimatePresence>
-            {isExpanded ? (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: "auto" }}
-                exit={{ opacity: 0, height: 0 }}
-                className="mt-1 text-sm"
+            {/* Animation area */}
+            {renderAnimation()}
+
+            <p className="text-sm text-gray-600 dark:text-gray-300 mt-2">
+              {content}
+            </p>
+
+            {showButton && (
+              <Button 
+                variant="outline" 
+                className="mt-3 text-xs py-1 h-auto w-full flex items-center justify-center gap-1"
+                onClick={onButtonClick}
               >
-                <p className="text-muted-foreground">{description}</p>
-                
-                {(timeframe || pattern) && (
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {timeframe && (
-                      <span className="inline-flex items-center px-2 py-1 text-xs rounded-md bg-background/50">
-                        {timeframe}
-                      </span>
-                    )}
-                    
-                    {pattern && (
-                      <span className="inline-flex items-center px-2 py-1 text-xs rounded-md bg-background/50">
-                        {pattern.replace("-", " ")}
-                      </span>
-                    )}
-                  </div>
-                )}
-                
-                <div className="mt-3 flex justify-end space-x-2">
-                  <motion.button
-                    className="text-xs px-2 py-1 rounded-md hover:bg-background/80 text-muted-foreground"
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      shareInsight();
-                    }}
-                  >
-                    Save insight
-                  </motion.button>
-                </div>
-              </motion.div>
-            ) : (
-              <motion.p
-                initial={{ opacity: 1 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="mt-1 text-sm text-muted-foreground truncate"
-              >
-                {description}
-              </motion.p>
+                {buttonText}
+                <ArrowRight className="h-3 w-3" />
+              </Button>
             )}
-          </AnimatePresence>
-        </div>
-      </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+// Animation Components
+function UptrendAnimation() {
+  return (
+    <motion.div className="w-full h-full p-2 flex items-center justify-center">
+      <svg width="100%" height="100%" viewBox="0 0 100 60" preserveAspectRatio="none">
+        {/* Background grid lines */}
+        <g stroke="rgba(255,255,255,0.1)" strokeWidth="0.5">
+          {[0, 20, 40, 60, 80, 100].map(x => (
+            <line key={`vline-${x}`} x1={x} y1="0" x2={x} y2="60" />
+          ))}
+          {[0, 15, 30, 45, 60].map(y => (
+            <line key={`hline-${y}`} x1="0" y1={y} x2="100" y2={y} />
+          ))}
+        </g>
+        
+        {/* Uptrend line */}
+        <motion.path
+          d="M0,60 L20,50 L40,45 L60,30 L80,20 L100,5"
+          stroke="#10b981"
+          strokeWidth="2"
+          fill="none"
+          initial={{ pathLength: 0, opacity: 0 }}
+          animate={{ pathLength: 1, opacity: 1 }}
+          transition={{ duration: 2, ease: "easeInOut" }}
+        />
+        
+        {/* Price candles */}
+        {[
+          { x: 10, open: 55, close: 50, high: 48, low: 58 },
+          { x: 30, open: 48, close: 42, high: 40, low: 50 },
+          { x: 50, open: 38, close: 30, high: 28, low: 40 },
+          { x: 70, open: 25, close: 18, high: 16, low: 28 },
+          { x: 90, open: 16, close: 8, high: 5, low: 18 },
+        ].map((candle, i) => (
+          <motion.g key={`candle-${i}`} 
+            initial={{ opacity: 0, scale: 0 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ delay: i * 0.2 + 0.5, duration: 0.3 }}
+          >
+            {/* Candle wick */}
+            <line 
+              x1={candle.x} y1={candle.high} 
+              x2={candle.x} y2={candle.low} 
+              stroke="#10b981" 
+              strokeWidth="1"
+            />
+            {/* Candle body */}
+            <rect 
+              x={candle.x - 3} 
+              y={Math.min(candle.open, candle.close)} 
+              width="6" 
+              height={Math.abs(candle.open - candle.close)} 
+              fill="#10b981" 
+              opacity="0.8"
+            />
+          </motion.g>
+        ))}
+        
+        {/* Moving average */}
+        <motion.path
+          d="M0,58 L25,48 L50,38 L75,25 L100,12"
+          stroke="rgba(59, 130, 246, 0.6)"
+          strokeWidth="1.5"
+          strokeDasharray="2,2"
+          fill="none"
+          initial={{ pathLength: 0, opacity: 0 }}
+          animate={{ pathLength: 1, opacity: 1 }}
+          transition={{ duration: 1.5, delay: 1 }}
+        />
+      </svg>
+    </motion.div>
+  );
+}
+
+function DowntrendAnimation() {
+  return (
+    <motion.div className="w-full h-full p-2 flex items-center justify-center">
+      <svg width="100%" height="100%" viewBox="0 0 100 60" preserveAspectRatio="none">
+        {/* Background grid lines */}
+        <g stroke="rgba(255,255,255,0.1)" strokeWidth="0.5">
+          {[0, 20, 40, 60, 80, 100].map(x => (
+            <line key={`vline-${x}`} x1={x} y1="0" x2={x} y2="60" />
+          ))}
+          {[0, 15, 30, 45, 60].map(y => (
+            <line key={`hline-${y}`} x1="0" y1={y} x2="100" y2={y} />
+          ))}
+        </g>
+        
+        {/* Downtrend line */}
+        <motion.path
+          d="M0,5 L20,15 L40,25 L60,35 L80,45 L100,58"
+          stroke="#ef4444"
+          strokeWidth="2"
+          fill="none"
+          initial={{ pathLength: 0, opacity: 0 }}
+          animate={{ pathLength: 1, opacity: 1 }}
+          transition={{ duration: 2, ease: "easeInOut" }}
+        />
+        
+        {/* Price candles */}
+        {[
+          { x: 10, open: 8, close: 12, high: 5, low: 15 },
+          { x: 30, open: 17, close: 22, high: 15, low: 25 },
+          { x: 50, open: 30, close: 37, high: 28, low: 40 },
+          { x: 70, open: 42, close: 48, high: 40, low: 50 },
+          { x: 90, open: 53, close: 58, high: 50, low: 60 },
+        ].map((candle, i) => (
+          <motion.g key={`candle-${i}`}
+            initial={{ opacity: 0, scale: 0 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ delay: i * 0.2 + 0.5, duration: 0.3 }}
+          >
+            {/* Candle wick */}
+            <line 
+              x1={candle.x} y1={candle.high} 
+              x2={candle.x} y2={candle.low} 
+              stroke="#ef4444" 
+              strokeWidth="1"
+            />
+            {/* Candle body */}
+            <rect 
+              x={candle.x - 3} 
+              y={Math.min(candle.open, candle.close)} 
+              width="6" 
+              height={Math.abs(candle.open - candle.close)} 
+              fill="#ef4444" 
+              opacity="0.8"
+            />
+          </motion.g>
+        ))}
+        
+        {/* Moving average */}
+        <motion.path
+          d="M0,8 L25,18 L50,28 L75,40 L100,52"
+          stroke="rgba(59, 130, 246, 0.6)"
+          strokeWidth="1.5"
+          strokeDasharray="2,2"
+          fill="none"
+          initial={{ pathLength: 0, opacity: 0 }}
+          animate={{ pathLength: 1, opacity: 1 }}
+          transition={{ duration: 1.5, delay: 1 }}
+        />
+      </svg>
+    </motion.div>
+  );
+}
+
+function VolatilityAnimation() {
+  return (
+    <motion.div className="w-full h-full p-2 flex items-center justify-center">
+      <svg width="100%" height="100%" viewBox="0 0 100 60" preserveAspectRatio="none">
+        {/* Background grid lines */}
+        <g stroke="rgba(255,255,255,0.1)" strokeWidth="0.5">
+          {[0, 20, 40, 60, 80, 100].map(x => (
+            <line key={`vline-${x}`} x1={x} y1="0" x2={x} y2="60" />
+          ))}
+          {[0, 15, 30, 45, 60].map(y => (
+            <line key={`hline-${y}`} x1="0" y1={y} x2="100" y2={y} />
+          ))}
+        </g>
+        
+        {/* Volatility line */}
+        <motion.path
+          d="M0,30 L10,15 L20,45 L30,10 L40,50 L50,25 L60,40 L70,5 L80,55 L90,20 L100,35"
+          stroke="#a855f7"
+          strokeWidth="2"
+          fill="none"
+          initial={{ pathLength: 0, opacity: 0 }}
+          animate={{ pathLength: 1, opacity: 1 }}
+          transition={{ duration: 2, ease: "easeInOut" }}
+        />
+        
+        {/* Volatility candles with large wicks */}
+        {[
+          { x: 10, open: 20, close: 10, high: 5, low: 40 },   // Large bearish
+          { x: 30, open: 15, close: 35, high: 5, low: 45 },   // Large bullish
+          { x: 50, open: 40, close: 25, high: 15, low: 45 },  // Medium bearish
+          { x: 70, open: 20, close: 35, high: 5, low: 45 },   // Medium bullish
+          { x: 90, open: 35, close: 25, high: 15, low: 45 },  // Small bearish
+        ].map((candle, i) => (
+          <motion.g key={`candle-${i}`}
+            initial={{ opacity: 0, scale: 0 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ delay: i * 0.15 + 0.5, duration: 0.3 }}
+          >
+            {/* Candle wick */}
+            <line 
+              x1={candle.x} y1={candle.high} 
+              x2={candle.x} y2={candle.low} 
+              stroke={candle.open > candle.close ? "#ef4444" : "#10b981"} 
+              strokeWidth="1"
+            />
+            {/* Candle body */}
+            <rect 
+              x={candle.x - 3} 
+              y={Math.min(candle.open, candle.close)} 
+              width="6" 
+              height={Math.abs(candle.open - candle.close)} 
+              fill={candle.open > candle.close ? "#ef4444" : "#10b981"} 
+              opacity="0.8"
+            />
+          </motion.g>
+        ))}
+        
+        {/* Volatility bands */}
+        <motion.path
+          d="M0,15 L20,20 L40,25 L60,15 L80,20 L100,15"
+          stroke="rgba(168, 85, 247, 0.4)"
+          strokeWidth="1.5"
+          strokeDasharray="2,2"
+          fill="none"
+          initial={{ pathLength: 0, opacity: 0 }}
+          animate={{ pathLength: 1, opacity: 1 }}
+          transition={{ duration: 1.5, delay: 0.7 }}
+        />
+        <motion.path
+          d="M0,45 L20,40 L40,35 L60,45 L80,40 L100,45"
+          stroke="rgba(168, 85, 247, 0.4)"
+          strokeWidth="1.5"
+          strokeDasharray="2,2"
+          fill="none"
+          initial={{ pathLength: 0, opacity: 0 }}
+          animate={{ pathLength: 1, opacity: 1 }}
+          transition={{ duration: 1.5, delay: 0.7 }}
+        />
+      </svg>
+    </motion.div>
+  );
+}
+
+function ConsolidationAnimation() {
+  return (
+    <motion.div className="w-full h-full p-2 flex items-center justify-center">
+      <svg width="100%" height="100%" viewBox="0 0 100 60" preserveAspectRatio="none">
+        {/* Background grid lines */}
+        <g stroke="rgba(255,255,255,0.1)" strokeWidth="0.5">
+          {[0, 20, 40, 60, 80, 100].map(x => (
+            <line key={`vline-${x}`} x1={x} y1="0" x2={x} y2="60" />
+          ))}
+          {[0, 15, 30, 45, 60].map(y => (
+            <line key={`hline-${y}`} x1="0" y1={y} x2="100" y2={y} />
+          ))}
+        </g>
+        
+        {/* Consolidation range lines */}
+        <motion.line
+          x1="0" y1="25" x2="100" y2="25"
+          stroke="rgba(59, 130, 246, 0.5)"
+          strokeWidth="1"
+          strokeDasharray="3,2"
+          initial={{ pathLength: 0, opacity: 0 }}
+          animate={{ pathLength: 1, opacity: 1 }}
+          transition={{ duration: 1, delay: 0.5 }}
+        />
+        <motion.line
+          x1="0" y1="35" x2="100" y2="35"
+          stroke="rgba(59, 130, 246, 0.5)"
+          strokeWidth="1"
+          strokeDasharray="3,2"
+          initial={{ pathLength: 0, opacity: 0 }}
+          animate={{ pathLength: 1, opacity: 1 }}
+          transition={{ duration: 1, delay: 0.5 }}
+        />
+        
+        {/* Price line */}
+        <motion.path
+          d="M0,28 L10,32 L20,27 L30,33 L40,29 L50,34 L60,26 L70,31 L80,28 L90,33 L100,30"
+          stroke="#f59e0b"
+          strokeWidth="2"
+          fill="none"
+          initial={{ pathLength: 0, opacity: 0 }}
+          animate={{ pathLength: 1, opacity: 1 }}
+          transition={{ duration: 2, ease: "easeInOut" }}
+        />
+        
+        {/* Small candles in tight range */}
+        {[
+          { x: 10, open: 29, close: 32, high: 26, low: 33 },
+          { x: 30, open: 33, close: 30, high: 28, low: 34 },
+          { x: 50, open: 28, close: 31, high: 27, low: 32 },
+          { x: 70, open: 32, close: 29, high: 27, low: 33 },
+          { x: 90, open: 28, close: 31, high: 26, low: 33 },
+        ].map((candle, i) => (
+          <motion.g key={`candle-${i}`}
+            initial={{ opacity: 0, scale: 0 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ delay: i * 0.2 + 0.5, duration: 0.3 }}
+          >
+            {/* Candle wick */}
+            <line 
+              x1={candle.x} y1={candle.high} 
+              x2={candle.x} y2={candle.low} 
+              stroke={candle.open > candle.close ? "#ef4444" : "#10b981"} 
+              strokeWidth="1"
+            />
+            {/* Candle body */}
+            <rect 
+              x={candle.x - 3} 
+              y={Math.min(candle.open, candle.close)} 
+              width="6" 
+              height={Math.abs(candle.open - candle.close)} 
+              fill={candle.open > candle.close ? "#ef4444" : "#10b981"} 
+              opacity="0.8"
+            />
+          </motion.g>
+        ))}
+        
+        {/* Volume bars - decreasing during consolidation */}
+        {[10, 30, 50, 70, 90].map((x, i) => (
+          <motion.rect 
+            key={`vol-${i}`}
+            x={x - 4} 
+            y={50} 
+            width="8" 
+            height={10 - i * 1.5} 
+            fill="rgba(249, 168, 212, 0.5)"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 10 - i * 1.5, opacity: 1 }}
+            transition={{ delay: i * 0.15 + 1, duration: 0.3 }}
+          />
+        ))}
+      </svg>
+    </motion.div>
+  );
+}
+
+function BreakoutAnimation() {
+  return (
+    <motion.div className="w-full h-full p-2 flex items-center justify-center">
+      <svg width="100%" height="100%" viewBox="0 0 100 60" preserveAspectRatio="none">
+        {/* Background grid lines */}
+        <g stroke="rgba(255,255,255,0.1)" strokeWidth="0.5">
+          {[0, 20, 40, 60, 80, 100].map(x => (
+            <line key={`vline-${x}`} x1={x} y1="0" x2={x} y2="60" />
+          ))}
+          {[0, 15, 30, 45, 60].map(y => (
+            <line key={`hline-${y}`} x1="0" y1={y} x2="100" y2={y} />
+          ))}
+        </g>
+        
+        {/* Resistance level that gets broken */}
+        <motion.line
+          x1="0" y1="25" x2="100" y2="25"
+          stroke="rgba(239, 68, 68, 0.7)"
+          strokeWidth="1.5"
+          strokeDasharray="4,2"
+          initial={{ pathLength: 0, opacity: 0 }}
+          animate={{ pathLength: 1, opacity: 1 }}
+          transition={{ duration: 1, delay: 0.2 }}
+        />
+        
+        {/* Support level */}
+        <motion.line
+          x1="0" y1="40" x2="100" y2="40"
+          stroke="rgba(16, 185, 129, 0.7)"
+          strokeWidth="1.5"
+          strokeDasharray="4,2"
+          initial={{ pathLength: 0, opacity: 0 }}
+          animate={{ pathLength: 1, opacity: 1 }}
+          transition={{ duration: 1, delay: 0.2 }}
+        />
+        
+        {/* Price line with breakout */}
+        <motion.path
+          d="M0,35 L10,32 L20,38 L30,34 L40,36 L50,30 L60,25 L70,20 L80,15 L90,10 L100,5"
+          stroke="#10b981"
+          strokeWidth="2"
+          fill="none"
+          initial={{ pathLength: 0, opacity: 0 }}
+          animate={{ pathLength: 1, opacity: 1 }}
+          transition={{ duration: 2.5, ease: "easeInOut" }}
+        />
+        
+        {/* Candles showing consolidation then breakout */}
+        {[
+          { x: 10, open: 34, close: 36, high: 32, low: 38 }, // Consolidation
+          { x: 30, open: 36, close: 34, high: 32, low: 38 }, // Consolidation
+          { x: 50, open: 32, close: 26, high: 24, low: 34 }, // Breakout candle
+          { x: 70, open: 24, close: 18, high: 16, low: 26 }, // Follow-through
+          { x: 90, open: 15, close: 8, high: 5, low: 17 },   // Continuation
+        ].map((candle, i) => (
+          <motion.g key={`candle-${i}`}
+            initial={{ opacity: 0, scale: 0 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ delay: i * 0.25 + 0.5, duration: 0.3 }}
+          >
+            {/* Candle wick */}
+            <line 
+              x1={candle.x} y1={candle.high} 
+              x2={candle.x} y2={candle.low} 
+              stroke={candle.open > candle.close ? "#ef4444" : "#10b981"} 
+              strokeWidth="1"
+            />
+            {/* Candle body */}
+            <rect 
+              x={candle.x - 3} 
+              y={Math.min(candle.open, candle.close)} 
+              width="6" 
+              height={Math.abs(candle.open - candle.close)} 
+              fill={candle.open > candle.close ? "#ef4444" : "#10b981"} 
+              opacity="0.8"
+            />
+          </motion.g>
+        ))}
+        
+        {/* Volume bars - increasing during breakout */}
+        {[10, 30, 50, 70, 90].map((x, i) => {
+          // Volume increases dramatically at breakout (index 2)
+          const height = i < 2 ? 4 : i === 2 ? 15 : 10;
+          return (
+            <motion.rect 
+              key={`vol-${i}`}
+              x={x - 4} 
+              y={50} 
+              width="8" 
+              height={height} 
+              fill={i < 2 ? "rgba(249, 168, 212, 0.5)" : "rgba(16, 185, 129, 0.7)"}
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height, opacity: 1 }}
+              transition={{ delay: i * 0.25 + 1, duration: 0.3 }}
+            />
+          );
+        })}
+      </svg>
     </motion.div>
   );
 }

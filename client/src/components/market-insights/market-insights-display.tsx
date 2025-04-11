@@ -1,277 +1,256 @@
-import { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Button } from "@/components/ui/button";
-import { InsightTooltip, type InsightType, type MarketPattern } from "@/components/ui/insight-tooltip";
-import { cn } from "@/lib/utils";
-import { ChevronRight, RefreshCw, ChevronsRight, Lightbulb, Sparkles } from "lucide-react";
+import React from 'react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { ArrowBigDown, ArrowBigUp, BarChart3, Waves, LineChart, TrendingDown, TrendingUp, AlertTriangle, Lightbulb, ChevronRight } from 'lucide-react';
+import { InsightTooltip } from '@/components/ui/insight-tooltip';
+import { Button } from '@/components/ui/button';
+import { motion } from 'framer-motion';
+import { Link } from 'wouter';
 
-interface InsightData {
-  id: string;
-  type: InsightType;
-  title: string;
-  description: string;
-  probability?: number; 
-  pattern?: MarketPattern;
-  timeframe?: string;
-}
-
-const MARKET_INSIGHTS: Record<string, InsightData[]> = {
-  patterns: [
-    {
-      id: "pattern-1",
-      type: "pattern",
-      title: "Potential Double Top Detected",
-      description: "A double top pattern has formed, suggesting a potential reversal of the current uptrend. Consider setting stop-loss orders below the neckline.",
-      probability: 85,
-      pattern: "double-top",
-      timeframe: "4H"
-    },
-    {
-      id: "pattern-2",
-      type: "pattern",
-      title: "Head and Shoulders Formation",
-      description: "A possible head and shoulders pattern is forming on the 1H chart, which could indicate a bearish reversal if the neckline is broken.",
-      probability: 72,
-      pattern: "head-shoulders",
-      timeframe: "1H"
-    },
-    {
-      id: "pattern-3",
-      type: "pattern",
-      title: "Ascending Triangle Identified",
-      description: "An ascending triangle pattern has been detected, suggesting a potential bullish continuation if price breaks above resistance.",
-      probability: 78,
-      pattern: "triangle",
-      timeframe: "Daily"
-    },
-  ],
-  trends: [
-    {
-      id: "trend-1",
-      type: "bullish",
-      title: "Strong Uptrend Continuation",
-      description: "Price is making higher highs and higher lows, confirming the strength of the current uptrend. Consider buying on pullbacks to support.",
-      probability: 88,
-      timeframe: "4H"
-    },
-    {
-      id: "trend-2",
-      type: "bearish",
-      title: "Market Sentiment Shifting Bearish",
-      description: "Multiple technical indicators suggest a shift to bearish sentiment. Larger timeframes show declining buying pressure.",
-      probability: 76,
-      timeframe: "Daily"
-    },
-    {
-      id: "trend-3",
-      type: "neutral",
-      title: "Consolidation Phase",
-      description: "Price is trading in a range, suggesting a period of consolidation. Wait for a breakout before establishing new positions.",
-      probability: 82,
-      timeframe: "1H"
+// Animation variants
+const containerVariants = {
+  hidden: { opacity: 0 },
+  visible: { 
+    opacity: 1,
+    transition: { 
+      staggerChildren: 0.15
     }
-  ],
-  levels: [
-    {
-      id: "level-1",
-      type: "support",
-      title: "Key Support Level",
-      description: "Price is approaching a major support level that has held multiple times. Watch for reversal signals near this level.",
-      probability: 91,
-      timeframe: "4H"
-    },
-    {
-      id: "level-2",
-      type: "resistance",
-      title: "Strong Resistance Zone",
-      description: "Multiple resistance factors converge around the current price, including historical resistance, Fibonacci level, and round number.",
-      probability: 84,
-      timeframe: "Daily"
-    },
-    {
-      id: "level-3",
-      type: "support",
-      title: "Fibonacci Support Cluster",
-      description: "Multiple Fibonacci retracement levels creating a support cluster, watch for potential bounce.",
-      probability: 77,
-      timeframe: "4H"
-    }
-  ],
-  indicators: [
-    {
-      id: "indicator-1",
-      type: "momentum",
-      title: "RSI Divergence Alert",
-      description: "Bearish divergence detected between price and RSI indicator, suggesting potential trend weakening and reversal.",
-      probability: 82,
-      timeframe: "4H"
-    },
-    {
-      id: "indicator-2",
-      type: "volume",
-      title: "Volume Surge Detected",
-      description: "Significant volume increase with price action, confirming the strength of the current move.",
-      probability: 88,
-      timeframe: "1H"
-    },
-    {
-      id: "indicator-3",
-      type: "volatility",
-      title: "Volatility Expansion",
-      description: "Bollinger Bands widening, indicating increasing volatility. Prepare for larger price movements.",
-      probability: 79,
-      timeframe: "4H"
-    }
-  ]
+  }
 };
 
-type InsightCategory = "patterns" | "trends" | "levels" | "indicators";
+const itemVariants = {
+  hidden: { y: 20, opacity: 0 },
+  visible: { 
+    y: 0, 
+    opacity: 1,
+    transition: { type: 'spring', stiffness: 100 }
+  }
+};
+
+// Insight data for market patterns
+const marketInsights = [
+  {
+    id: 1,
+    title: 'Bullish Engulfing Pattern',
+    description: 'A powerful reversal pattern that forms after a downtrend and signals a potential upward move.',
+    icon: <ArrowBigUp className="h-5 w-5 text-emerald-500" />,
+    tooltipTitle: 'Bullish Engulfing',
+    tooltipContent: 'This pattern appears when a green (bullish) candle completely engulfs the previous red (bearish) candle. It shows buyers taking control from sellers, often signaling a trend reversal.',
+    animationType: 'uptrend',
+    category: 'candlestick'
+  },
+  {
+    id: 2,
+    title: 'Bearish Engulfing Pattern',
+    description: 'A strong reversal signal that forms after an uptrend and indicates a potential downturn.',
+    icon: <ArrowBigDown className="h-5 w-5 text-rose-500" />,
+    tooltipTitle: 'Bearish Engulfing',
+    tooltipContent: 'This pattern forms when a red (bearish) candle completely engulfs the previous green (bullish) candle. It shows sellers overpowering buyers, often marking the beginning of a downtrend.',
+    animationType: 'downtrend',
+    category: 'candlestick'
+  },
+  {
+    id: 3,
+    title: 'Volatility Squeeze',
+    description: 'A period of low volatility and tight price consolidation that often precedes a major price move.',
+    icon: <BarChart3 className="h-5 w-5 text-purple-500" />,
+    tooltipTitle: 'Volatility Squeeze',
+    tooltipContent: 'When Bollinger Bands contract and price moves in a narrow range, it often indicates a period of low volatility that precedes an explosive breakout. Watch for increasing volume as a confirmation signal.',
+    animationType: 'volatility',
+    category: 'technical'
+  },
+  {
+    id: 4,
+    title: 'Price Consolidation',
+    description: 'A period where price moves sideways within a range, often before continuing the prior trend.',
+    icon: <Waves className="h-5 w-5 text-blue-500" />,
+    tooltipTitle: 'Price Consolidation',
+    tooltipContent: 'During consolidation, the market is in equilibrium with neither buyers nor sellers dominating. These periods often appear as rectangles on charts and can lead to powerful breakouts when resolved.',
+    animationType: 'consolidation',
+    category: 'technical'
+  },
+  {
+    id: 5,
+    title: 'Breakout Trading',
+    description: 'A strategy focusing on entering when price breaks through a significant support or resistance level.',
+    icon: <LineChart className="h-5 w-5 text-amber-500" />,
+    tooltipTitle: 'Trading Breakouts',
+    tooltipContent: 'Breakouts occur when price moves beyond an established support or resistance level with increased volume. The best breakouts often come after periods of tight consolidation with decreasing volume.',
+    animationType: 'breakout',
+    category: 'strategy'
+  },
+  {
+    id: 6,
+    title: 'Overbought Conditions',
+    description: 'Market states where prices have risen too quickly and may be due for a correction.',
+    icon: <TrendingUp className="h-5 w-5 text-emerald-500" />,
+    tooltipTitle: 'Overbought Markets',
+    tooltipContent: 'When RSI rises above 70 or stochastics above 80, the market may be overbought. While these conditions can persist in strong trends, they often precede pullbacks or trend exhaustion.',
+    animationType: 'uptrend',
+    category: 'technical'
+  },
+  {
+    id: 7,
+    title: 'Oversold Conditions',
+    description: 'Market states where prices have fallen too quickly and may be due for a bounce.',
+    icon: <TrendingDown className="h-5 w-5 text-rose-500" />,
+    tooltipTitle: 'Oversold Markets',
+    tooltipContent: 'When RSI falls below 30 or stochastics below 20, the market may be oversold. These conditions often present buying opportunities, especially when accompanied by bullish divergence.',
+    animationType: 'downtrend',
+    category: 'technical'
+  },
+  {
+    id: 8,
+    title: 'Risk Management Rules',
+    description: 'Essential guidelines for protecting capital and ensuring long-term trading success.',
+    icon: <AlertTriangle className="h-5 w-5 text-amber-500" />,
+    tooltipTitle: 'Risk Management',
+    tooltipContent: 'Never risk more than 1-2% of your capital on a single trade. Always use stop losses and have a clear exit strategy. Remember that protecting your capital is more important than making profits.',
+    animationType: 'none',
+    category: 'strategy'
+  },
+  {
+    id: 9,
+    title: 'Trading Psychology',
+    description: 'Understanding emotional biases and maintaining discipline for consistent trading.',
+    icon: <Lightbulb className="h-5 w-5 text-blue-500" />,
+    tooltipTitle: 'Trading Psychology',
+    tooltipContent: 'Successful trading is 80% psychology and 20% strategy. Focus on executing your plan rather than the money. Keep a trading journal to identify patterns in your behavior and improve decision-making.',
+    animationType: 'none',
+    category: 'strategy'
+  }
+];
+
+interface FilterProps {
+  category: string;
+  active: boolean;
+  onClick: () => void;
+}
+
+function CategoryFilter({ category, active, onClick }: FilterProps) {
+  return (
+    <Badge 
+      variant={active ? "default" : "outline"}
+      className={`cursor-pointer ${active ? 'bg-primary' : 'hover:bg-secondary'}`}
+      onClick={onClick}
+    >
+      {category === 'all' ? 'All' : 
+       category === 'candlestick' ? 'Candlestick Patterns' :
+       category === 'technical' ? 'Technical Indicators' : 'Trading Strategies'}
+    </Badge>
+  );
+}
 
 export function MarketInsightsDisplay() {
-  const [activeTab, setActiveTab] = useState<InsightCategory>("patterns");
-  const [visibleInsights, setVisibleInsights] = useState<InsightData[]>(
-    MARKET_INSIGHTS.patterns.slice(0, 1)
-  );
-  const [isLoading, setIsLoading] = useState(false);
+  const [activeCategory, setActiveCategory] = React.useState('all');
   
-  const loadMoreInsights = () => {
-    setIsLoading(true);
-    
-    // Simulate API delay
-    setTimeout(() => {
-      const currentInsights = MARKET_INSIGHTS[activeTab];
-      const currentCount = visibleInsights.length;
-      const nextInsight = currentInsights[currentCount % currentInsights.length];
-      
-      if (nextInsight) {
-        setVisibleInsights(prev => [...prev, {...nextInsight, id: `${nextInsight.id}-${Date.now()}`}]);
-      }
-      
-      setIsLoading(false);
-    }, 600);
-  };
-  
-  const refreshInsights = () => {
-    setIsLoading(true);
-    
-    // Simulate API delay
-    setTimeout(() => {
-      setVisibleInsights(MARKET_INSIGHTS[activeTab].slice(0, 1));
-      setIsLoading(false);
-    }, 600);
-  };
-  
-  const handleTabChange = (value: string) => {
-    setActiveTab(value as InsightCategory);
-    setVisibleInsights(MARKET_INSIGHTS[value as InsightCategory].slice(0, 1));
-  };
+  const filteredInsights = React.useMemo(() => {
+    if (activeCategory === 'all') {
+      return marketInsights;
+    }
+    return marketInsights.filter(insight => insight.category === activeCategory);
+  }, [activeCategory]);
 
   return (
-    <Card className="w-full max-w-3xl mx-auto shadow-lg overflow-hidden">
-      <CardHeader className="bg-gradient-to-r from-gray-900 to-gray-800 text-white">
-        <div className="flex items-center">
-          <Sparkles className="h-5 w-5 mr-2 text-yellow-400" />
-          <CardTitle>Interactive Market Insights</CardTitle>
-        </div>
-        <CardDescription className="text-gray-300">
-          AI-powered analysis and contextual market insights
-        </CardDescription>
-      </CardHeader>
-      
-      <div className="overflow-hidden">
-        <Tabs 
-          defaultValue="patterns" 
-          value={activeTab} 
-          onValueChange={handleTabChange}
-          className="w-full"
-        >
-          <div className="px-4 pt-2">
-            <TabsList className="w-full grid grid-cols-4">
-              <TabsTrigger value="patterns" className="text-xs sm:text-sm">Patterns</TabsTrigger>
-              <TabsTrigger value="trends" className="text-xs sm:text-sm">Trends</TabsTrigger>
-              <TabsTrigger value="levels" className="text-xs sm:text-sm">Key Levels</TabsTrigger>
-              <TabsTrigger value="indicators" className="text-xs sm:text-sm">Indicators</TabsTrigger>
-            </TabsList>
-          </div>
-          
-          <CardContent className="p-4">
-            <div className="space-y-4 min-h-[400px]">
-              <AnimatePresence mode="popLayout">
-                {visibleInsights.map((insight, index) => (
-                  <motion.div
-                    key={insight.id}
-                    layout
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.9 }}
-                    transition={{ duration: 0.3 }}
-                    className="relative"
-                  >
-                    <InsightTooltip
-                      type={insight.type}
-                      title={insight.title}
-                      description={insight.description}
-                      probability={insight.probability}
-                      pattern={insight.pattern}
-                      timeframe={insight.timeframe}
-                      className={cn(
-                        "w-full cursor-pointer",
-                        index === 0 && "border-2"
-                      )}
-                    />
-                    
-                    {index === 0 && (
-                      <motion.div 
-                        className="absolute -right-1 -top-1 bg-primary text-primary-foreground rounded-full p-1"
-                        initial={{ scale: 0 }}
-                        animate={{ scale: 1 }}
-                        transition={{ delay: 0.3 }}
-                      >
-                        <Lightbulb className="h-3.5 w-3.5" />
-                      </motion.div>
-                    )}
-                  </motion.div>
-                ))}
-              </AnimatePresence>
-              
-              <div className="flex justify-center pt-4 space-x-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={refreshInsights}
-                  disabled={isLoading}
-                >
-                  <RefreshCw className={cn("h-4 w-4 mr-2", isLoading && "animate-spin")} />
-                  Reset
-                </Button>
-                
-                <Button
-                  onClick={loadMoreInsights}
-                  disabled={isLoading || visibleInsights.length >= 3}
-                  className="bg-gradient-to-r from-blue-600 to-indigo-600"
-                  size="sm"
-                >
-                  {isLoading ? (
-                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                  ) : (
-                    <ChevronRight className="h-4 w-4 mr-2" />
-                  )}
-                  Generate Insight
-                </Button>
-              </div>
-              
-              <div className="text-center mt-2">
-                <p className="text-xs text-muted-foreground flex items-center justify-center">
-                  <ChevronsRight className="h-3 w-3 mr-1" />
-                  Click on insights to expand details
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Tabs>
+    <div className="container py-8">
+      <div className="mb-6">
+        <Link href="/dashboard">
+          <Badge 
+            variant="outline" 
+            className="cursor-pointer hover:bg-secondary flex items-center gap-1 pl-2 pr-3 py-1.5"
+          >
+            <ChevronRight className="h-3.5 w-3.5 rotate-180" />
+            <span>Back to Dashboard</span>
+          </Badge>
+        </Link>
       </div>
-    </Card>
+      
+      <div className="flex flex-col space-y-4 md:flex-row md:justify-between md:space-y-0 mb-6">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Market Insights</h1>
+          <p className="text-muted-foreground mt-1">
+            Interactive guides to common market patterns and indicators
+          </p>
+        </div>
+      </div>
+      
+      <div className="flex flex-wrap gap-2 mb-8">
+        <CategoryFilter 
+          category="all" 
+          active={activeCategory === 'all'} 
+          onClick={() => setActiveCategory('all')}
+        />
+        <CategoryFilter 
+          category="candlestick" 
+          active={activeCategory === 'candlestick'} 
+          onClick={() => setActiveCategory('candlestick')}
+        />
+        <CategoryFilter 
+          category="technical" 
+          active={activeCategory === 'technical'} 
+          onClick={() => setActiveCategory('technical')}
+        />
+        <CategoryFilter 
+          category="strategy" 
+          active={activeCategory === 'strategy'} 
+          onClick={() => setActiveCategory('strategy')}
+        />
+      </div>
+      
+      <motion.div 
+        className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
+        variants={containerVariants}
+        initial="hidden"
+        animate="visible"
+      >
+        {filteredInsights.map((insight) => (
+          <motion.div key={insight.id} variants={itemVariants}>
+            <Card className="h-full bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow duration-300">
+              <CardHeader className="pb-4">
+                <div className="flex justify-between items-start">
+                  <div className="flex items-start space-x-4">
+                    <div className="p-2 rounded-full bg-gray-100 dark:bg-gray-800">
+                      {insight.icon}
+                    </div>
+                    <div>
+                      <CardTitle className="text-lg text-left">{insight.title}</CardTitle>
+                      <CardDescription className="text-left mt-1">
+                        {insight.description}
+                      </CardDescription>
+                    </div>
+                  </div>
+                  <InsightTooltip 
+                    title={insight.tooltipTitle}
+                    content={insight.tooltipContent}
+                    icon={insight.category === 'candlestick' ? 
+                      (insight.title.includes('Bullish') ? 'bullish' : 'bearish') : 
+                      insight.category === 'technical' ? 'volatility' : 'info'}
+                    animationType={insight.animationType as any}
+                    showButton={true}
+                    buttonText="Apply to Analysis"
+                  />
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center text-sm text-gray-500 dark:text-gray-400">
+                  <Badge variant="outline" className="mr-2">
+                    {insight.category === 'candlestick' ? 'Pattern' : 
+                     insight.category === 'technical' ? 'Indicator' : 'Strategy'}
+                  </Badge>
+                  {insight.category === 'candlestick' && (
+                    <span className="flex items-center gap-1">
+                      <span className={insight.title.includes('Bullish') ? 'text-emerald-500' : 'text-rose-500'}>
+                        {insight.title.includes('Bullish') ? 'Bullish' : 'Bearish'}
+                      </span> 
+                      signal
+                    </span>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </motion.div>
+        ))}
+      </motion.div>
+    </div>
   );
 }
