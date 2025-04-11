@@ -72,9 +72,14 @@ const moodMap: Record<MoodType, MoodInfo> = {
   }
 };
 
-// Animation variants for emoji
-const containerVariants = {
-  hidden: { opacity: 0, scale: 0.8 },
+// Animation variants for emoji are defined above
+
+// Define animation variants for the emoji
+const variants = {
+  hidden: { 
+    opacity: 0, 
+    scale: 0.8 
+  },
   visible: { 
     opacity: 1, 
     scale: 1,
@@ -85,21 +90,20 @@ const containerVariants = {
       damping: 15
     }
   },
-  exit: { 
-    opacity: 0,
-    scale: 0.8,
-    transition: { duration: 0.2 }
-  }
-};
-
-// Framer Motion animation for pulsing effect
-const pulseVariant = {
   pulse: {
+    opacity: 1,
     scale: [1, 1.05, 1],
     transition: {
       duration: 2,
       repeat: Infinity,
       repeatType: "reverse" as const
+    }
+  },
+  exit: { 
+    opacity: 0,
+    scale: 0.8,
+    transition: { 
+      duration: 0.2 
     }
   }
 };
@@ -219,10 +223,9 @@ export function MarketMoodEmoji({
                   {!isChanging && (
                     <motion.div
                       key={currentMood}
-                      variants={containerVariants}
                       initial="hidden"
-                      animate={pulse ? "visible" : "visible"}
-                      whileInView={pulse ? pulseAnimation : undefined}
+                      animate={pulse ? "pulse" : "visible"}
+                      variants={variants}
                       exit="exit"
                       className={`${sizeClasses[size]} font-emoji leading-none select-none`}
                     >
