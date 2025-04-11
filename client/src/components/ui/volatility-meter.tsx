@@ -3,7 +3,10 @@ import { motion } from "framer-motion";
 import { AlertTriangle, AlertCircle, ArrowRight } from "lucide-react";
 
 export interface VolatilityMeterProps {
-  value: number;
+  value?: number;
+  volatility?: number; // For backward compatibility with existing component
+  symbol?: string;
+  direction?: string;
   size?: "sm" | "md" | "lg";
   showLabel?: boolean;
   animated?: boolean;
@@ -12,17 +15,22 @@ export interface VolatilityMeterProps {
 }
 
 export function VolatilityMeter({
-  value = 50,
+  value,
+  volatility = 50,
+  symbol = "Unknown",
+  direction = "Neutral",
   size = "md",
   showLabel = true,
   animated = true,
   className = "",
   onChange
 }: VolatilityMeterProps) {
-  const [displayValue, setDisplayValue] = useState(value);
+  // Use value if provided, otherwise use volatility for backward compatibility
+  const actualValue: number = value !== undefined ? value : volatility;
+  const [displayValue, setDisplayValue] = useState(actualValue);
   
   // Ensure value is between 0 and 100
-  const normalizedValue = Math.max(0, Math.min(100, value));
+  const normalizedValue = Math.max(0, Math.min(100, actualValue));
   
   // Size mappings
   const sizeClasses = {
@@ -185,7 +193,7 @@ export function VolatilityMeter({
                   ? "text-orange-400" 
                   : "text-red-400"
             }`}>
-              Risk Rating: {displayValue}/100
+              {symbol} Risk Rating: {displayValue}/100
             </span>
             <div className="flex-grow"></div>
             {normalizedValue > 70 && (
@@ -195,15 +203,46 @@ export function VolatilityMeter({
             )}
           </div>
           <p className="text-xs text-gray-400">
-            {normalizedValue < 25 && "Low volatility suggests stable market conditions. Good for conservative trading strategies."}
-            {normalizedValue >= 25 && normalizedValue < 50 && "Moderate volatility with reasonable risk levels. Suitable for balanced trading approaches."}
-            {normalizedValue >= 50 && normalizedValue < 75 && "High volatility indicates significant market uncertainty. Apply stronger risk management."}
-            {normalizedValue >= 75 && "Extreme volatility detected. Consider reducing position sizes and implementing strict stop losses."}
+            {normalizedValue < 25 && `Low volatility detected for ${symbol}. ${direction.toLowerCase() === 'buy' ? 'Buying' : 'Selling'} conditions are relatively stable. Good for conservative trading strategies.`}
+            {normalizedValue >= 25 && normalizedValue < 50 && `Moderate volatility for ${symbol} with reasonable risk levels. Suitable for balanced ${direction.toLowerCase()} approaches.`}
+            {normalizedValue >= 50 && normalizedValue < 75 && `High volatility indicates significant market uncertainty for ${symbol}. Apply stronger risk management with your ${direction.toLowerCase()} position.`}
+            {normalizedValue >= 75 && `Extreme volatility detected for ${symbol}! Consider reducing position sizes and implementing strict stop losses for this ${direction.toLowerCase()} signal.`}
           </p>
-          {normalizedValue > 70 && (
+          {normalizedValue > 50 && (
             <div className="mt-2 flex items-center">
-              <ArrowRight className="h-3 w-3 text-red-400 mr-1" />
-              <span className="text-xs text-red-400">Recommended action: Reduce position size by {Math.round((normalizedValue - 50) / 50 * 100)}%</span>
+              <ArrowRight className="h-3 w-3 text-amber-400 mr-1" />
+              <span className="text-xs text-amber-400">
+                {normalizedValue > 70 ? (
+                  `Recommended action: Reduce position size by ${Math.round((normalizedValue - 50) / 50 * 100)}%`
+                ) : (
+                  `Consider tighter stop losses for this ${direction.toLowerCase()} position`
+                )}
+              </span>
+            </div>
+          )}
+          
+          {/* Symbol-specific additional info */}
+          {symbol !== "Unknown" && (
+            <div className="mt-3 pt-2 border-t border-gray-800 text-xs text-gray-400 grid grid-cols-3 gap-2">
+              <div>
+                <span className="block text-gray-500">ATR Est.</span>
+                <span className="font-medium">{(normalizedValue / 1000).toFixed(4)}</span>
+              </div>
+              <div>
+                <span className="block text-gray-500">Trend Strength</span>
+                <span className={`font-medium ${
+                  normalizedValue < 40 ? "text-blue-400" : 
+                  normalizedValue < 70 ? "text-amber-400" : "text-red-400"
+                }`}>
+                  {normalizedValue < 40 ? "Weak" : normalizedValue < 70 ? "Moderate" : "Strong"}
+                </span>
+              </div>
+              <div>
+                <span className="block text-gray-500">Suggested Lot</span>
+                <span className="font-medium">
+                  {normalizedValue > 70 ? "0.01" : normalizedValue > 50 ? "0.05" : "0.1"}
+                </span>
+              </div>
             </div>
           )}
         </div>
