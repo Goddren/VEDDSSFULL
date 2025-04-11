@@ -368,6 +368,15 @@ const AnalysisDetail: React.FC = () => {
           </Card>
         )}
         
+        {/* Chart Insights Panel with interactive tooltips */}
+        <ChartInsightsPanel
+          trend={analysis.trend}
+          confidence={analysis.confidence}
+          patterns={patterns && patterns.length > 0 ? patterns.map((p: any) => p.name) : []}
+          timeframe={analysis.timeframe}
+          symbol={analysis.symbol}
+        />
+        
         {/* Volatility Meter */}
         <div className="mb-6">
           <VolatilityMeter 
