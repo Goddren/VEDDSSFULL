@@ -74,7 +74,7 @@ export default function LandingPage() {
             />
           </div>
           <h1 className="text-4xl font-bold tracking-tight text-white sm:text-5xl md:text-6xl animate-in slide-in-from-bottom-3 duration-500">
-            <span className="bg-clip-text text-transparent bg-gradient-to-r from-red-600 via-rose-500 to-amber-500">
+            <span className="bg-clip-text text-transparent bg-gradient-to-r from-red-600 via-rose-500 to-red-400">
               AI-Powered
             </span> Chart Analysis
           </h1>
@@ -131,7 +131,7 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto px-6 lg:px-8 relative z-10">
           <div className="text-center mb-16">
             <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl animate-in fade-in slide-in-from-bottom-3 duration-700">
-              <span className="bg-clip-text text-transparent bg-gradient-to-r from-red-600 via-rose-500 to-amber-500">
+              <span className="bg-clip-text text-transparent bg-gradient-to-r from-red-600 via-rose-500 to-red-400">
                 Powerful Trading Intelligence
               </span>
             </h2>
@@ -182,7 +182,7 @@ export default function LandingPage() {
           {/* New Features Section */}
           <div className="text-center mb-12">
             <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl animate-in fade-in slide-in-from-bottom-3 duration-700">
-              <span className="bg-clip-text text-transparent bg-gradient-to-r from-amber-500 via-red-600 to-rose-500">
+              <span className="bg-clip-text text-transparent bg-gradient-to-r from-red-500 via-red-600 to-rose-500">
                 Latest Trading Tools
               </span>
             </h2>
@@ -220,8 +220,8 @@ export default function LandingPage() {
                   icon: <LineChart className="h-7 w-7 text-white" />,
                   title: "Volume Analysis By Session",
                   description: "Analyze trading volume across different market sessions to identify the best times to trade specific pairs for maximum liquidity.",
-                  color: "bg-gradient-to-br from-amber-600/50 to-yellow-600/50",
-                  bgGradient: "bg-gradient-to-b from-black/90 to-amber-900/20 border border-amber-600/30"
+                  color: "bg-gradient-to-br from-red-600/50 to-rose-600/50",
+                  bgGradient: "bg-gradient-to-b from-black/90 to-red-900/20 border border-red-600/30"
                 },
                 {
                   icon: <Timer className="h-7 w-7 text-white" />,
@@ -250,12 +250,12 @@ export default function LandingPage() {
             </div>
             
             {/* Volatility Risk Meter */}
-            <div className="flex flex-col p-6 bg-gradient-to-b from-black/90 to-gray-900/80 backdrop-blur-sm rounded-lg border border-amber-900/30 shadow-xl shadow-amber-500/5 hover:shadow-amber-500/20 hover:border-amber-700/40 transition-all duration-300 transform hover:-translate-y-1 animate-in fade-in-0 slide-in-from-bottom-3 duration-500 delay-100 group">
+            <div className="flex flex-col p-6 bg-gradient-to-b from-black/90 to-gray-900/80 backdrop-blur-sm rounded-lg border border-red-900/30 shadow-xl shadow-red-500/5 hover:shadow-red-500/20 hover:border-red-700/40 transition-all duration-300 transform hover:-translate-y-1 animate-in fade-in-0 slide-in-from-bottom-3 duration-500 delay-100 group">
               <div className="flex items-center mb-4">
-                <div className="p-2 rounded-full bg-gradient-to-br from-amber-600/40 to-amber-900/20 mr-3 group-hover:from-amber-500/50 group-hover:to-amber-800/30 transition-all duration-300">
-                  <AlertTriangle className="h-5 w-5 text-amber-400 group-hover:text-amber-300 group-hover:animate-pulse transition-colors duration-300" />
+                <div className="p-2 rounded-full bg-gradient-to-br from-red-600/40 to-red-900/20 mr-3 group-hover:from-red-500/50 group-hover:to-red-800/30 transition-all duration-300">
+                  <AlertTriangle className="h-5 w-5 text-red-400 group-hover:text-red-300 group-hover:animate-pulse transition-colors duration-300" />
                 </div>
-                <h3 className="text-lg font-semibold text-white group-hover:text-amber-300 transition-colors duration-300">Volatility Risk Meter</h3>
+                <h3 className="text-lg font-semibold text-white group-hover:text-red-300 transition-colors duration-300">Volatility Risk Meter</h3>
               </div>
               <p className="text-gray-300 flex-grow group-hover:text-gray-200 transition-colors duration-300">
                 Visual gauge showing market volatility levels with animated insights to help manage risk.
@@ -351,7 +351,7 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto px-6 lg:px-8 relative z-10">
           <div className="text-center mb-12">
             <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl animate-in fade-in slide-in-from-bottom-3 duration-700">
-              <span className="bg-clip-text text-transparent bg-gradient-to-r from-amber-400 via-orange-600 to-red-600">
+              <span className="bg-clip-text text-transparent bg-gradient-to-r from-red-400 via-red-600 to-red-800">
                 Pattern Distribution
               </span>
             </h2>
@@ -365,7 +365,7 @@ export default function LandingPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                 {[
                   { name: "Double Top/Bottom", type: "Reversal", percentage: 22, icon: <PieChart className="h-5 w-5 text-rose-500" />, bgClass: "bg-rose-600/20", barClass: "bg-rose-500" },
-                  { name: "Head & Shoulders", type: "Reversal", percentage: 18, icon: <ChartLine className="h-5 w-5 text-orange-500" />, bgClass: "bg-orange-600/20", barClass: "bg-orange-500" },
+                  { name: "Head & Shoulders", type: "Reversal", percentage: 18, icon: <ChartLine className="h-5 w-5 text-red-500" />, bgClass: "bg-red-600/20", barClass: "bg-red-500" },
                   { name: "Triangle Patterns", type: "Continuation", percentage: 25, icon: <BarChart2 className="h-5 w-5 text-blue-500" />, bgClass: "bg-blue-600/20", barClass: "bg-blue-500" },
                   { name: "Flags & Pennants", type: "Continuation", percentage: 15, icon: <Share2 className="h-5 w-5 text-green-500" />, bgClass: "bg-green-600/20", barClass: "bg-green-500" },
                   { name: "Channel Patterns", type: "Trend", percentage: 12, icon: <TrendingUp className="h-5 w-5 text-violet-500" />, bgClass: "bg-violet-600/20", barClass: "bg-violet-500" },
