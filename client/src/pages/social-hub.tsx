@@ -424,7 +424,7 @@ const TopTraderCard: React.FC<{
         </div>
         
         <div className="mt-2">
-          <Link to={`/trader/${trader.userId}`} className="text-sm text-primary hover:underline">
+          <Link to={`/profile/${trader.userId}`} className="text-sm text-primary hover:underline">
             View Profile
           </Link>
         </div>
@@ -729,6 +729,19 @@ export default function SocialHub() {
       <header className="mb-8">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
+            {/* Back button */}
+            <div className="flex items-center gap-2 mb-2">
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={() => setLocation('/dashboard')}
+                className="flex items-center text-muted-foreground hover:text-foreground"
+              >
+                <ChevronLeft className="h-4 w-4 mr-1" />
+                Back to Dashboard
+              </Button>
+            </div>
+            
             <h1 className="text-3xl font-bold tracking-tight">Social Trading</h1>
             <p className="text-muted-foreground mt-1">
               Discover trading ideas, follow traders, and share your analyses

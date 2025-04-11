@@ -64,6 +64,7 @@ function AppLayout() {
           <ProtectedRoute path="/analysis/:id" component={AnalysisDetail} />
           <ProtectedRoute path="/historical" component={Historical} />
           <ProtectedRoute path="/profile" component={ProfilePage} />
+          <ProtectedRoute path="/profile/:userId" component={ProfilePage} />
           <ProtectedRoute path="/achievements" component={AchievementsPage} />
           <ProtectedRoute path="/home" component={Home} />
           <ProtectedRoute path="/social-hub" component={SocialHub} />

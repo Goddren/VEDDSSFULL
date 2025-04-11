@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -11,8 +11,10 @@ import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
-import { Loader2, User, Key, Shield } from "lucide-react";
+import { Loader2, User, Key, Shield, ChevronLeft } from "lucide-react";
 import { updateUserProfileSchema } from "@shared/schema";
+import { useLocation, useParams } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 
 // Form for profile information
 const profileFormSchema = updateUserProfileSchema;
@@ -32,7 +34,20 @@ type PasswordFormValues = z.infer<typeof passwordFormSchema>;
 export default function ProfilePage() {
   const { user, updateProfileMutation, changePasswordMutation } = useAuth();
   const [activeTab, setActiveTab] = useState("profile");
-
+  const [location, setLocation] = useLocation();
+  const params = useParams();
+  const viewingUserId = params.userId ? parseInt(params.userId, 10) : undefined;
+  const isViewingOwnProfile = !viewingUserId || (user && viewingUserId === user.id);
+  
+  // If viewing another user's profile, fetch their data
+  const { data: profileUser, isLoading: isLoadingProfileUser } = useQuery({
+    queryKey: viewingUserId ? [`/api/profile/${viewingUserId}`] : null,
+    enabled: !!viewingUserId && viewingUserId !== user?.id,
+  });
+  
+  // Determine which user data to display
+  const displayUser = viewingUserId && profileUser ? profileUser : user;
+  
   // Profile form setup
   const profileForm = useForm<ProfileFormValues>({
     resolver: zodResolver(profileFormSchema),
