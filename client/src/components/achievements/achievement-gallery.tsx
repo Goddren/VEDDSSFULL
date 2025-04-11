@@ -7,6 +7,7 @@ import { Progress } from "@/components/ui/progress";
 import { Search, Award } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { AchievementDetailModal } from "./achievement-detail-modal";
 
 interface AchievementGalleryProps {
   achievements: Achievement[];
@@ -29,6 +30,8 @@ export function AchievementGallery({
 }: AchievementGalleryProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState<string>("all");
+  const [selectedAchievement, setSelectedAchievement] = useState<Achievement | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   // Get all unique categories
   const categories = Array.from(new Set(achievements.map(a => a.category)));
@@ -206,7 +209,14 @@ export function AchievementGallery({
           {filteredAchievements.map(achievement => {
             const userAchievement = findUserAchievement(achievement.id);
             return (
-              <div key={achievement.id} className="flex flex-col items-center text-center group">
+              <div 
+                key={achievement.id} 
+                className="flex flex-col items-center text-center group cursor-pointer"
+                onClick={() => {
+                  setSelectedAchievement(achievement);
+                  setIsModalOpen(true);
+                }}
+              >
                 <div className="relative flex items-center justify-center mb-4 transition-transform duration-300 transform group-hover:scale-110">
                   {/* Badge drop shadow */}
                   <div className={cn(
@@ -263,6 +273,16 @@ export function AchievementGallery({
             Try changing your search query or category filter.
           </p>
         </div>
+      )}
+
+      {/* Achievement Detail Modal */}
+      {selectedAchievement && (
+        <AchievementDetailModal
+          achievement={selectedAchievement}
+          userAchievement={findUserAchievement(selectedAchievement.id)}
+          isOpen={isModalOpen}
+          onOpenChange={setIsModalOpen}
+        />
       )}
     </div>
   );
