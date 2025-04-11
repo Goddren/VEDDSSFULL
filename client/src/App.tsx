@@ -28,6 +28,7 @@ import SocialHub from "@/pages/social-hub";
 import VolatilityMeterShowcase from "@/pages/volatility-meter-showcase";
 import MarketInsightsPage from "@/pages/market-insights";
 import MarketTrendGamePage from "@/pages/market-trend-game";
+import MarketMoodPage from "@/pages/market-mood";
 import { NewsNotificationScheduler } from "@/components/news-notification-scheduler";
 
 import { useLocation } from "wouter";
@@ -72,6 +73,7 @@ function AppLayout() {
           <ProtectedRoute path="/social-hub" component={SocialHub} />
           <ProtectedRoute path="/market-insights" component={MarketInsightsPage} />
           <ProtectedRoute path="/market-trend-game" component={MarketTrendGamePage} />
+          <ProtectedRoute path="/market-mood" component={MarketMoodPage} />
           
           <Route component={NotFound} />
         </Switch>
