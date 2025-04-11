@@ -102,8 +102,7 @@ export function AchievementUnlocked({
                 achievementId: achievement.id,
                 progress: achievement.threshold,
                 isCompleted: true,
-                createdAt: new Date(),
-                updatedAt: new Date(),
+                unlockedAt: new Date(),
               }}
               size="md"
               variant={achievement.category as any}

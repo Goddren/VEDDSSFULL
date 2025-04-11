@@ -20,7 +20,12 @@ export function RecentAchievements({
 }: RecentAchievementsProps) {
   // Show a maximum of 5 most recent achievements
   const displayAchievements = recentAchievements
-    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+    .sort((a, b) => {
+      // Sort by unlockedAt date if available, otherwise by creation
+      const dateA = a.unlockedAt ? new Date(a.unlockedAt).getTime() : 0;
+      const dateB = b.unlockedAt ? new Date(b.unlockedAt).getTime() : 0;
+      return dateB - dateA;
+    })
     .slice(0, compact ? 3 : 5);
 
   if (displayAchievements.length === 0 && compact) {
@@ -81,7 +86,7 @@ export function RecentAchievements({
                   )}
                 </div>
                 <div className="flex-shrink-0 ml-2 text-xs text-muted-foreground">
-                  {new Date(userAchievement.updatedAt).toLocaleDateString()}
+                  {userAchievement.unlockedAt ? new Date(userAchievement.unlockedAt).toLocaleDateString() : 'In progress'}
                 </div>
               </motion.div>
             ))}

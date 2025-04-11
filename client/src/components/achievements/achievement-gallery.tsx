@@ -83,8 +83,10 @@ export function AchievementGallery({
                         name: category,
                         description: "",
                         category,
+                        icon: "trophy",
+                        points: 0,
                         threshold: 0,
-                        createdAt: new Date(),
+                        isSecret: false
                       }}
                       size="sm"
                       variant={category as any}

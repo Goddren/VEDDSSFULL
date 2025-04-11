@@ -124,6 +124,21 @@ export default function AchievementsPage() {
     );
   }
   
+  // Format user achievements into the expected format for the gallery
+  const formattedUserAchievements = React.useMemo(() => {
+    if (!userAchievements || !achievements) return [];
+    
+    return userAchievements.map(ua => {
+      const achievement = achievements.find(a => a.id === ua.achievementId);
+      if (!achievement) return null;
+      
+      return {
+        ...ua,
+        achievement
+      };
+    }).filter(Boolean) as (UserAchievement & { achievement: Achievement })[];
+  }, [userAchievements, achievements]);
+
   return (
     <div className="container py-8">
       <div className="flex flex-col space-y-4 md:flex-row md:justify-between md:space-y-0 mb-6">
@@ -140,79 +155,12 @@ export default function AchievementsPage() {
           </div>
         </div>
       </div>
-      
-      <Tabs defaultValue="all" value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="mb-4">
-          <TabsTrigger value="all">All</TabsTrigger>
-          {categories.map(category => (
-            <TabsTrigger key={category} value={category}>
-              {CategoryTitles[category] || category}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-        
-        <TabsContent value="all" className="space-y-8">
-          {categories.map(category => (
-            <div key={category} className="space-y-4">
-              <div className="flex items-center space-x-2">
-                <h2 className="text-2xl font-bold">{CategoryTitles[category] || category}</h2>
-                <Separator className="flex-1" />
-              </div>
-              <p className="text-muted-foreground mb-4">{CategoryDescriptions[category]}</p>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {achievementsByCategory[category]?.map(achievement => {
-                  const { progress, isCompleted } = getAchievementProgress(achievement.id);
-                  const progressPercent = Math.min(100, Math.round((progress / achievement.threshold) * 100));
-                  
-                  // Don't show secret achievements that aren't completed
-                  if (achievement.isSecret && !isCompleted) return null;
-                  
-                  return (
-                    <AchievementCard 
-                      key={achievement.id}
-                      achievement={achievement}
-                      progress={progress}
-                      progressPercent={progressPercent}
-                      isCompleted={isCompleted}
-                    />
-                  );
-                })}
-              </div>
-            </div>
-          ))}
-        </TabsContent>
-        
-        {categories.map(category => (
-          <TabsContent key={category} value={category} className="space-y-4">
-            <div className="flex items-center space-x-2">
-              <h2 className="text-2xl font-bold">{CategoryTitles[category] || category}</h2>
-              <Separator className="flex-1" />
-            </div>
-            <p className="text-muted-foreground mb-4">{CategoryDescriptions[category]}</p>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {achievementsByCategory[category]?.map(achievement => {
-                const { progress, isCompleted } = getAchievementProgress(achievement.id);
-                const progressPercent = Math.min(100, Math.round((progress / achievement.threshold) * 100));
-                
-                // Don't show secret achievements that aren't completed
-                if (achievement.isSecret && !isCompleted) return null;
-                
-                return (
-                  <AchievementCard 
-                    key={achievement.id}
-                    achievement={achievement}
-                    progress={progress}
-                    progressPercent={progressPercent}
-                    isCompleted={isCompleted}
-                  />
-                );
-              })}
-            </div>
-          </TabsContent>
-        ))}
-      </Tabs>
+
+      {/* Use the new AchievementGallery component */}
+      <AchievementGallery 
+        achievements={achievements || []}
+        userAchievements={formattedUserAchievements}
+      />
     </div>
   );
 }
