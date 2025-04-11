@@ -59,19 +59,21 @@ const CategoryDescriptions: Record<string, string> = {
 
 export default function AchievementsPage() {
   const { user } = useAuth();
+  
+  // Define all state hooks at the top of the component
   const [activeTab, setActiveTab] = useState('all');
   
-  // Get all achievements
+  // Define all query hooks next
   const { data: achievements, isLoading: achievementsLoading } = useQuery<Achievement[]>({
     queryKey: ['/api/achievements'],
   });
   
-  // Get user achievements
   const { data: userAchievements, isLoading: userAchievementsLoading } = useQuery<UserAchievement[]>({
     queryKey: ['/api/user-achievements'],
     enabled: !!user
   });
   
+  // Define all memo hooks together
   // Group achievements by category
   const achievementsByCategory = React.useMemo(() => {
     if (!achievements) return {};
@@ -91,19 +93,6 @@ export default function AchievementsPage() {
     return Array.from(new Set(achievements.map(a => a.category)));
   }, [achievements]);
   
-  // Get achievement progress info
-  const getAchievementProgress = (achievementId: number) => {
-    if (!userAchievements) return { progress: 0, isCompleted: false };
-    
-    const userAchievement = userAchievements.find(ua => ua.achievementId === achievementId);
-    if (!userAchievement) return { progress: 0, isCompleted: false };
-    
-    return {
-      progress: userAchievement.progress,
-      isCompleted: userAchievement.isCompleted
-    };
-  };
-  
   // Calculate user's total points
   const totalPoints = React.useMemo(() => {
     if (!userAchievements) return 0;
@@ -115,14 +104,6 @@ export default function AchievementsPage() {
       return total;
     }, 0);
   }, [userAchievements]);
-  
-  if (achievementsLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
-      </div>
-    );
-  }
   
   // Format user achievements into the expected format for the gallery
   const formattedUserAchievements = React.useMemo(() => {
@@ -143,6 +124,28 @@ export default function AchievementsPage() {
       return processedUserAchievement;
     }).filter(Boolean) as (UserAchievement & { achievement: Achievement })[];
   }, [userAchievements, achievements]);
+  
+  // Define helper functions after all hooks
+  // Get achievement progress info
+  const getAchievementProgress = (achievementId: number) => {
+    if (!userAchievements) return { progress: 0, isCompleted: false };
+    
+    const userAchievement = userAchievements.find(ua => ua.achievementId === achievementId);
+    if (!userAchievement) return { progress: 0, isCompleted: false };
+    
+    return {
+      progress: userAchievement.progress,
+      isCompleted: userAchievement.isCompleted
+    };
+  };
+  
+  if (achievementsLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="container py-8">
