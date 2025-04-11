@@ -88,9 +88,34 @@ const Dashboard: React.FC = () => {
       <div className="bg-gray-900/80 backdrop-blur-sm border-b border-gray-800 sticky top-0 z-10">
         <div className="container mx-auto px-4 md:px-8 py-6">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <div>
-              <h1 className="text-2xl md:text-3xl font-bold text-white">Trader Dashboard</h1>
-              <p className="text-gray-400 mt-1">Track your analyses, patterns, and trading signals</p>
+            <div className="flex items-center gap-4">
+              <div>
+                <h1 className="text-2xl md:text-3xl font-bold text-white">Trader Dashboard</h1>
+                <p className="text-gray-400 mt-1">Track your analyses, patterns, and trading signals</p>
+              </div>
+              
+              {/* Add Trader Level Badge in the header */}
+              {totalAchievementPoints > 0 && (
+                <div className="flex items-center gap-2 bg-gradient-to-r from-amber-600/20 to-amber-600/10 border border-amber-500/20 p-2 rounded-lg">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-500/20 text-amber-500">
+                    <Trophy className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <div className="text-amber-400 font-medium text-sm flex items-center">
+                      Level {getUserLevel(totalAchievementPoints).level}
+                      <span className="text-xs text-amber-500/60 ml-1">
+                        • {getUserLevel(totalAchievementPoints).title}
+                      </span>
+                    </div>
+                    <div className="w-32 h-1.5 bg-gray-800 rounded-full mt-1">
+                      <div 
+                        className="h-1.5 rounded-full bg-gradient-to-r from-amber-500 to-yellow-600" 
+                        style={{ width: `${getUserLevel(totalAchievementPoints).progress}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
             <Link href="/analysis">
               <Button className="bg-rose-600 hover:bg-rose-700 text-white shadow-lg shadow-rose-900/20">
