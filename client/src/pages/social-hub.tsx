@@ -355,7 +355,12 @@ const TopTraderCard: React.FC<{
               <AvatarFallback>{getInitials(trader.fullName || trader.username)}</AvatarFallback>
             </Avatar>
             <div className="ml-3">
-              <CardTitle className="text-lg">{trader.fullName || trader.username}</CardTitle>
+              <div className="flex items-center gap-2">
+                <CardTitle className="text-lg">{trader.fullName || trader.username}</CardTitle>
+                <Badge className={cn("font-bold", getTradeGradeColor(trader.tradeGrade))}>
+                  {getTradeGradeText(trader.tradeGrade)}
+                </Badge>
+              </div>
               <div className="flex items-center">
                 <Badge variant="outline" className={getExperienceColor(trader.tradingExperience)}>
                   {trader.tradingExperience || 'Trader'}
@@ -383,18 +388,6 @@ const TopTraderCard: React.FC<{
         
         <div className="grid grid-cols-2 gap-x-2 gap-y-3 mb-3">
           <div className="bg-muted rounded-md p-2">
-            <div className="text-xs text-muted-foreground mb-1">Trade Grade</div>
-            <div className="flex items-center">
-              <span className={cn("text-lg font-bold", getTradeGradeColor(trader.tradeGrade))}>
-                {trader.tradeGrade}
-              </span>
-              <span className="text-xs ml-1 text-muted-foreground">
-                ({getTradeGradeText(trader.tradeGrade)})
-              </span>
-            </div>
-          </div>
-          
-          <div className="bg-muted rounded-md p-2">
             <div className="text-xs text-muted-foreground mb-1">Win Rate</div>
             <div className="flex items-center">
               <span className={cn(
@@ -404,6 +397,16 @@ const TopTraderCard: React.FC<{
               )}>
                 {trader.winRate}%
               </span>
+            </div>
+          </div>
+          
+          <div className="bg-muted rounded-md p-2">
+            <div className="text-xs text-muted-foreground mb-1">Performance Score</div>
+            <div className="flex items-center">
+              <span className={cn("text-lg font-bold", getTradeGradeColor(trader.tradeGrade))}>
+                {trader.tradeGrade}
+              </span>
+              <span className="text-xs ml-1 text-muted-foreground">/ 100</span>
             </div>
           </div>
           
