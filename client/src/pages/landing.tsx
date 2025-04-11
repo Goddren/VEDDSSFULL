@@ -362,6 +362,11 @@ export default function LandingPage() {
             </p>
           </div>
           
+          {/* Pattern Slider */}
+          <div className="mb-16 animate-in fade-in-0 slide-in-from-bottom-3 duration-700">
+            <PatternSlider className="max-w-6xl mx-auto" />
+          </div>
+          
           <div className="grid grid-cols-1 md:grid-cols-2 gap-10 items-center">
             <div className="order-2 md:order-1">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
