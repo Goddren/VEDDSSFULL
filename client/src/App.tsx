@@ -25,7 +25,7 @@ import SecurityPage from "@/pages/security";
 import AnalysisDetail from "@/pages/analysis-detail";
 import SharedAnalysisPage from "@/pages/shared-analysis";
 import SocialHub from "@/pages/social-hub";
-// Removed unused showcase components
+import VolatilityMeterShowcase from "@/pages/volatility-meter-showcase";
 import { NewsNotificationScheduler } from "@/components/news-notification-scheduler";
 
 import { useLocation } from "wouter";
@@ -48,7 +48,7 @@ function AppLayout() {
           <Route path="/auth" component={AuthPage} />
           <Route path="/subscription" component={SubscriptionPage} />
           <Route path="/shared/:shareId" component={SharedAnalysisPage} />
-          {/* Removed tool showcase routes */}
+          <Route path="/volatility-meter" component={VolatilityMeterShowcase} />
           
           {/* Footer pages */}
           <Route path="/about" component={AboutPage} />
