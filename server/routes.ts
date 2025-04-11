@@ -3,6 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { analyzeChartImage, testOpenAIApiKey, generateTradingTip, generateMarketTrendPredictions } from "./openai";
 import { setupTwilio, sendTradingSignal } from "./twilio";
+import { checkUserAchievements } from "./achievement-tracker";
 import multer from "multer";
 import fs from "fs";
 import path from "path";
@@ -687,111 +688,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
           message: "Authentication required" 
         });
       }
-
+      
       const userId = (req.user as Express.User).id;
       
-      // Get all user's analyses to calculate achievement progress
-      const analyses = await storage.getChartAnalysesByUserId(userId);
-      const userAchievements = await storage.getUserAchievements(userId);
-      const allAchievements = await storage.getAllAchievements();
+      // Get trigger and data from request body
+      const { trigger, data } = req.body;
       
-      // Calculate progress based on analyses
-      const updatedAchievements = [];
-      const newlyUnlockedAchievements = [];
-      
-      // For each achievement, check if user has it, and if not, create it with progress
-      for (const achievement of allAchievements) {
-        const userAchievement = userAchievements.find(ua => ua.achievementId === achievement.id);
-        
-        // Calculate progress based on achievement category and type
-        let progress = 0;
-        let isCompleted = false;
-        
-        switch (achievement.category) {
-          case 'analysis':
-            // Count total analyses
-            progress = analyses.length;
-            isCompleted = progress >= achievement.threshold;
-            break;
-            
-          case 'consistency':
-            // Check if user has done analyses on consecutive days
-            // (simplified for this example)
-            const uniqueDays = new Set(
-              analyses.map(a => new Date(a.createdAt).toISOString().split('T')[0])
-            );
-            progress = uniqueDays.size;
-            isCompleted = progress >= achievement.threshold;
-            break;
-            
-          case 'accuracy':
-            // Calculate based on high confidence analyses
-            const highConfidenceAnalyses = analyses.filter(a => 
-              a.confidence.toLowerCase() === 'high' || a.confidence.toLowerCase() === 'very high'
-            );
-            progress = highConfidenceAnalyses.length;
-            isCompleted = progress >= achievement.threshold;
-            break;
-            
-          case 'exploration':
-            // Count unique symbols analyzed
-            const uniqueSymbols = new Set(analyses.map(a => a.symbol));
-            progress = uniqueSymbols.size;
-            isCompleted = progress >= achievement.threshold;
-            break;
-        }
-        
-        if (!userAchievement) {
-          // Create new user achievement with calculated progress
-          const newUserAchievement = await storage.createUserAchievement({
-            userId,
-            achievementId: achievement.id,
-            progress,
-            isCompleted
-          });
-          
-          if (isCompleted) {
-            newlyUnlockedAchievements.push({
-              ...newUserAchievement,
-              achievement
-            });
-          }
-          
-          updatedAchievements.push({
-            ...newUserAchievement,
-            achievement
-          });
-        } else if (!userAchievement.isCompleted && progress >= achievement.threshold) {
-          // Update existing achievement to completed status
-          const completedAchievement = await storage.completeUserAchievement(userAchievement.id);
-          
-          newlyUnlockedAchievements.push({
-            ...completedAchievement,
-            achievement
-          });
-          
-          updatedAchievements.push({
-            ...completedAchievement,
-            achievement
-          });
-        } else if (progress > userAchievement.progress) {
-          // Update progress on existing achievement
-          const updatedUserAchievement = await storage.updateUserAchievementProgress(
-            userAchievement.id, 
-            progress
-          );
-          
-          updatedAchievements.push({
-            ...updatedUserAchievement,
-            achievement
-          });
-        }
+      if (!trigger) {
+        return res.status(400).json({ message: "Missing trigger parameter" });
       }
       
-      res.json({
-        updated: updatedAchievements,
-        newlyUnlocked: newlyUnlockedAchievements
-      });
+      // Use our achievement tracker module
+      const request = {
+        trigger,
+        data,
+        userId
+      };
+      
+      // Import and use the checkUserAchievements function
+      const { checkUserAchievements } = await import('./achievement-tracker');
+      
+      // Check for unlocked achievements
+      const unlockedAchievements = await checkUserAchievements(request);
+      
+      // If any achievements were unlocked, return them
+      res.json(unlockedAchievements);
     } catch (error) {
       console.error("Error checking achievements:", error);
       res.status(500).json({ message: "Error checking achievements" });
