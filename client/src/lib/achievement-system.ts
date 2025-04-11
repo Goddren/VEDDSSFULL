@@ -109,22 +109,43 @@ export async function trackConsecutiveActivity(): Promise<void> {
 
 // Display achievement notifications to the user
 function showAchievementNotifications(unlockedAchievements: (UserAchievement & { achievement: Achievement })[]): void {
-  if (!unlockedAchievements || unlockedAchievements.length === 0) return;
+  if (!unlockedAchievements || !Array.isArray(unlockedAchievements) || unlockedAchievements.length === 0) return;
   
-  // Schedule notifications to appear one after another
-  unlockedAchievements.forEach((achievement, index) => {
-    setTimeout(() => {
-      // Using toast to show the achievement notification
-      toast({
-        title: "Achievement Unlocked!",
-        description: achievement.achievement.name,
-        variant: "default",
-        duration: 5000
-      });
-      
-      // We'll use a simpler approach initially, and later integrate the actual component
-      // when the circular dependency is resolved
-    }, index * 1500); // Show each notification 1.5 seconds apart
+  // Dynamically import the AchievementUnlocked component to avoid circular dependencies
+  import('../components/achievements/achievement-unlocked').then(({ AchievementUnlocked }) => {
+    // Schedule notifications to appear one after another
+    unlockedAchievements.forEach((userAchievement, index) => {
+      setTimeout(() => {
+        // Show custom achievement notification with confetti effect
+        const { toast } = require('@/hooks/use-toast');
+        toast({
+          title: "Achievement Unlocked!",
+          description: userAchievement.achievement.name,
+          variant: "default",
+          duration: 6000,
+          action: (
+            <AchievementUnlocked 
+              achievement={userAchievement.achievement}
+              onClose={() => {}}
+            />
+          )
+        });
+      }, index * 2000); // Show each notification 2 seconds apart
+    });
+  }).catch(error => {
+    console.error("Failed to load achievement notification component:", error);
+    
+    // Fallback to simple toast notifications
+    unlockedAchievements.forEach((userAchievement, index) => {
+      setTimeout(() => {
+        toast({
+          title: "Achievement Unlocked!",
+          description: userAchievement.achievement.name,
+          variant: "default",
+          duration: 5000
+        });
+      }, index * 1500);
+    });
   });
 }
 

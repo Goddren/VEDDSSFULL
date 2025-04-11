@@ -15,10 +15,12 @@ import {
   Plus,
   ChevronRight,
   Info,
-  Sparkles
+  Sparkles,
+  Trophy
 } from 'lucide-react';
 import { QuickTipGenerator } from '@/components/trading/quick-tip-generator';
 import { RecentAchievements } from '@/components/achievements/recent-achievements';
+import { UserLevel } from '@/components/achievements/user-level';
 
 interface Analysis {
   id: number;
