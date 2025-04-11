@@ -467,6 +467,11 @@ const Dashboard: React.FC = () => {
                       Volatility Meter
                     </Button>
                   </Link>
+                  <Link href="/market-insights">
+                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-indigo-600 hover:border-indigo-600 transition-colors">
+                      Market Insights
+                    </Button>
+                  </Link>
                   <Link href="/subscription" className="col-span-2">
                     <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-rose-600 hover:border-rose-600 transition-colors">
                       Upgrade Account
