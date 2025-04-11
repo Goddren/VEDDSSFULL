@@ -17,6 +17,7 @@ import { calculateVolatilityScore } from '@/lib/analysis-utils';
 import { apiRequest } from '@/lib/queryClient';
 import { AnimatedInsightTooltip } from '@/components/tooltips';
 import { ChartInsightsPanel } from '@/components/market-insights/chart-insights-panel';
+import { MarketMoodDisplay } from '@/components/market/market-mood-display';
 
 const AnalysisDetail: React.FC = () => {
   const { id } = useParams();
@@ -251,6 +252,12 @@ const AnalysisDetail: React.FC = () => {
           </Card>
           
           <div className="space-y-6">
+            <MarketMoodDisplay
+              trend={analysis.trend}
+              symbol={analysis.symbol}
+              timeframe={analysis.timeframe}
+              volatility={analysis.volatilityScore ? analysis.volatilityScore / 100 : 0.5}
+            />
             <Card>
               <CardContent className="p-6">
                 <div className="flex items-center gap-2 mb-4">
