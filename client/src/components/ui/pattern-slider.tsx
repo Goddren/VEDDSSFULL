@@ -84,7 +84,12 @@ export function PatternSlider({ className = "" }: PatternSliderProps) {
                       <img 
                         src={pattern.imageUrl} 
                         alt={pattern.name}
-                        className="w-20 h-20 object-contain"
+                        className="w-20 h-20 object-contain bg-gray-900 rounded-md"
+                        onError={(e) => {
+                          console.error(`Failed to load image: ${pattern.imageUrl}`);
+                          e.currentTarget.onerror = null;
+                          e.currentTarget.src = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgdmlld0JveD0iMCAwIDIwMCAyMDAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjIwMCIgaGVpZ2h0PSIyMDAiIGZpbGw9IiMzMzMiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIyMCIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZmlsbD0iI2ZmZiIgZHk9Ii4zZW0iPkltYWdlIE5vdCBGb3VuZDwvdGV4dD48L3N2Zz4=";
+                        }}
                       />
                     </div>
                   </div>
