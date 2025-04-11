@@ -17,7 +17,8 @@ import {
   Info,
   Sparkles,
   Trophy,
-  AlertTriangle
+  AlertTriangle,
+  Gamepad as GamepadIcon
 } from 'lucide-react';
 import { QuickTipGenerator } from '@/components/trading/quick-tip-generator';
 import { RecentAchievements } from '@/components/achievements/recent-achievements';
@@ -476,6 +477,12 @@ const Dashboard: React.FC = () => {
                   <Link href="/social-hub">
                     <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-blue-600 hover:border-blue-600 transition-colors">
                       Social Hub
+                    </Button>
+                  </Link>
+                  <Link href="/market-trend-game">
+                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-purple-600 hover:border-purple-600 transition-colors">
+                      <GamepadIcon className="h-4 w-4 mr-2 text-purple-400" />
+                      Prediction Game
                     </Button>
                   </Link>
                   <Link href="/subscription" className="col-span-2">
