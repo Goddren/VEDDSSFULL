@@ -1144,22 +1144,32 @@ export default function SocialHub() {
               <div className="mt-4">
                 <h4 className="text-sm font-medium mb-1">Patterns Identified</h4>
                 <div className="flex flex-wrap gap-2">
-                  {JSON.parse(selectedAnalysis.patterns).map((pattern: any, i: number) => (
-                    <Badge key={i} variant="outline" className="border-blue-500 text-blue-500">
-                      {pattern.name} ({pattern.strength})
+                  {typeof selectedAnalysis.patterns === 'string' && selectedAnalysis.patterns ? 
+                    JSON.parse(selectedAnalysis.patterns).map((pattern: any, i: number) => (
+                      <Badge key={i} variant="outline" className="border-blue-500 text-blue-500">
+                        {pattern.name} ({pattern.strength})
+                      </Badge>
+                    )) : 
+                    <Badge variant="outline" className="border-gray-500 text-gray-500">
+                      No patterns detected
                     </Badge>
-                  ))}
+                  }
                 </div>
               </div>
               
               <div className="mt-4">
                 <h4 className="text-sm font-medium mb-1">Indicators</h4>
                 <div className="flex flex-wrap gap-2">
-                  {JSON.parse(selectedAnalysis.indicators).map((indicator: any, i: number) => (
-                    <Badge key={i} variant="outline" className="border-purple-500 text-purple-500">
-                      {indicator.name} ({indicator.signal})
+                  {typeof selectedAnalysis.indicators === 'string' && selectedAnalysis.indicators ? 
+                    JSON.parse(selectedAnalysis.indicators).map((indicator: any, i: number) => (
+                      <Badge key={i} variant="outline" className="border-purple-500 text-purple-500">
+                        {indicator.name} ({indicator.signal})
+                      </Badge>
+                    )) : 
+                    <Badge variant="outline" className="border-gray-500 text-gray-500">
+                      No indicators detected
                     </Badge>
-                  ))}
+                  }
                 </div>
               </div>
               

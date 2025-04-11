@@ -564,8 +564,11 @@ const Analysis: React.FC = () => {
                   symbol={analysisResult.symbol}
                   timeframe={analysisResult.timeframe}
                   direction={analysisResult.direction}
-                  pattern={analysisResult.patterns ? 
-                    JSON.parse(analysisResult.patterns)[0]?.name : undefined}
+                  pattern={typeof analysisResult.patterns === 'string' && analysisResult.patterns
+                    ? JSON.parse(analysisResult.patterns)[0]?.name 
+                    : Array.isArray(analysisResult.patterns) && analysisResult.patterns.length > 0
+                      ? analysisResult.patterns[0]?.name
+                      : undefined}
                   entryPoint={analysisResult.entryPoint}
                   exitPoint={analysisResult.exitPoint}
                   className="border-indigo-700/20"

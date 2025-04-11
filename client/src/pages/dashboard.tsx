@@ -447,6 +447,12 @@ const Dashboard: React.FC = () => {
                       History
                     </Button>
                   </Link>
+                  <Link href="/market-insights">
+                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-indigo-600 hover:border-indigo-600 transition-colors">
+                      <Sparkles className="h-4 w-4 mr-2 text-indigo-400" />
+                      Market Insights
+                    </Button>
+                  </Link>
                   <Link href="/achievements">
                     <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-rose-600 hover:border-rose-600 transition-colors">
                       Achievements
@@ -467,9 +473,9 @@ const Dashboard: React.FC = () => {
                       Volatility Meter
                     </Button>
                   </Link>
-                  <Link href="/market-insights">
-                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-indigo-600 hover:border-indigo-600 transition-colors">
-                      Market Insights
+                  <Link href="/social-hub">
+                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-blue-600 hover:border-blue-600 transition-colors">
+                      Social Hub
                     </Button>
                   </Link>
                   <Link href="/subscription" className="col-span-2">
