@@ -1,7 +1,10 @@
 import { 
   users, chartAnalyses, achievements, userAchievements,
+  userProfiles, follows, analysisFeedback, analysisViews,
   type User, type InsertUser, type ChartAnalysis, type InsertChartAnalysis,
-  type Achievement, type InsertAchievement, type UserAchievement, type InsertUserAchievement 
+  type Achievement, type InsertAchievement, type UserAchievement, type InsertUserAchievement,
+  type UserProfile, type InsertUserProfile, type Follow, type InsertFollow,
+  type AnalysisFeedback, type InsertAnalysisFeedback, type AnalysisView
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, sql } from "drizzle-orm";
@@ -21,6 +24,7 @@ export interface IStorage {
   getChartAnalysis(id: number): Promise<ChartAnalysis | undefined>;
   getChartAnalysesByUserId(userId: number): Promise<ChartAnalysis[]>;
   getAllChartAnalyses(): Promise<ChartAnalysis[]>;
+  getPublicChartAnalyses(limit?: number): Promise<ChartAnalysis[]>;
   updateChartAnalysis(id: number, data: Partial<ChartAnalysis>): Promise<ChartAnalysis | undefined>;
   shareChartAnalysis(id: number, notes?: string): Promise<ChartAnalysis | undefined>;
   getAnalysisByShareId(shareId: string): Promise<ChartAnalysis | undefined>;
@@ -36,6 +40,27 @@ export interface IStorage {
   getUserAchievements(userId: number): Promise<(UserAchievement & { achievement: Achievement })[]>;
   updateUserAchievementProgress(id: number, progress: number): Promise<UserAchievement>;
   completeUserAchievement(id: number): Promise<UserAchievement>;
+  
+  // User Profile methods
+  getUserProfile(userId: number): Promise<UserProfile | undefined>;
+  createUserProfile(profile: InsertUserProfile): Promise<UserProfile>;
+  updateUserProfile(userId: number, data: Partial<UserProfile>): Promise<UserProfile | undefined>;
+  
+  // Follow methods
+  followUser(followerId: number, followingId: number): Promise<Follow>;
+  unfollowUser(followerId: number, followingId: number): Promise<boolean>;
+  getFollowers(userId: number): Promise<User[]>;
+  getFollowing(userId: number): Promise<User[]>;
+  isFollowing(followerId: number, followingId: number): Promise<boolean>;
+  
+  // Analysis Feedback methods
+  addAnalysisFeedback(feedback: InsertAnalysisFeedback): Promise<AnalysisFeedback>;
+  removeAnalysisFeedback(analysisId: number, userId: number, feedbackType: string): Promise<boolean>;
+  getAnalysisFeedback(analysisId: number): Promise<AnalysisFeedback[]>;
+  
+  // Analysis Feed methods
+  getAnalysisFeed(userId: number, limit?: number): Promise<ChartAnalysis[]>;
+  getPopularAnalyses(limit?: number): Promise<ChartAnalysis[]>;
   
   // Session store for authentication
   sessionStore: session.Store;
@@ -267,6 +292,204 @@ export class DatabaseStorage implements IStorage {
       .where(eq(userAchievements.id, id))
       .returning();
     return completedUserAchievement;
+  }
+
+  // User Profile methods
+  async getUserProfile(userId: number): Promise<UserProfile | undefined> {
+    const [profile] = await db
+      .select()
+      .from(userProfiles)
+      .where(eq(userProfiles.userId, userId));
+    return profile;
+  }
+
+  async createUserProfile(profile: InsertUserProfile): Promise<UserProfile> {
+    const [newProfile] = await db
+      .insert(userProfiles)
+      .values(profile)
+      .returning();
+    return newProfile;
+  }
+
+  async updateUserProfile(userId: number, data: Partial<UserProfile>): Promise<UserProfile | undefined> {
+    const [updatedProfile] = await db
+      .update(userProfiles)
+      .set({
+        ...data,
+        updatedAt: new Date()
+      })
+      .where(eq(userProfiles.userId, userId))
+      .returning();
+    return updatedProfile;
+  }
+
+  // Follow methods
+  async followUser(followerId: number, followingId: number): Promise<Follow> {
+    if (followerId === followingId) {
+      throw new Error("Cannot follow yourself");
+    }
+    
+    // Create follow relationship
+    const [follow] = await db
+      .insert(follows)
+      .values({
+        followerId,
+        followingId
+      })
+      .returning();
+    
+    // Increment follower counts
+    await db
+      .update(userProfiles)
+      .set({
+        following: sql`${userProfiles.following} + 1`
+      })
+      .where(eq(userProfiles.userId, followerId));
+    
+    await db
+      .update(userProfiles)
+      .set({
+        followers: sql`${userProfiles.followers} + 1`
+      })
+      .where(eq(userProfiles.userId, followingId));
+    
+    return follow;
+  }
+
+  async unfollowUser(followerId: number, followingId: number): Promise<boolean> {
+    // Remove follow relationship
+    const result = await db
+      .delete(follows)
+      .where(and(
+        eq(follows.followerId, followerId),
+        eq(follows.followingId, followingId)
+      ));
+    
+    if (result.count > 0) {
+      // Decrement follower counts
+      await db
+        .update(userProfiles)
+        .set({
+          following: sql`${userProfiles.following} - 1`
+        })
+        .where(eq(userProfiles.userId, followerId));
+      
+      await db
+        .update(userProfiles)
+        .set({
+          followers: sql`${userProfiles.followers} - 1`
+        })
+        .where(eq(userProfiles.userId, followingId));
+      
+      return true;
+    }
+    
+    return false;
+  }
+
+  async getFollowers(userId: number): Promise<User[]> {
+    const followersResult = await db
+      .select({
+        user: users
+      })
+      .from(follows)
+      .innerJoin(users, eq(follows.followerId, users.id))
+      .where(eq(follows.followingId, userId));
+    
+    return followersResult.map(row => row.user);
+  }
+
+  async getFollowing(userId: number): Promise<User[]> {
+    const followingResult = await db
+      .select({
+        user: users
+      })
+      .from(follows)
+      .innerJoin(users, eq(follows.followingId, users.id))
+      .where(eq(follows.followerId, userId));
+    
+    return followingResult.map(row => row.user);
+  }
+
+  async isFollowing(followerId: number, followingId: number): Promise<boolean> {
+    const [follow] = await db
+      .select()
+      .from(follows)
+      .where(and(
+        eq(follows.followerId, followerId),
+        eq(follows.followingId, followingId)
+      ));
+    
+    return !!follow;
+  }
+
+  // Analysis Feedback methods
+  async addAnalysisFeedback(feedback: InsertAnalysisFeedback): Promise<AnalysisFeedback> {
+    const [newFeedback] = await db
+      .insert(analysisFeedback)
+      .values(feedback)
+      .returning();
+    return newFeedback;
+  }
+
+  async removeAnalysisFeedback(analysisId: number, userId: number, feedbackType: string): Promise<boolean> {
+    const result = await db
+      .delete(analysisFeedback)
+      .where(and(
+        eq(analysisFeedback.analysisId, analysisId),
+        eq(analysisFeedback.userId, userId),
+        eq(analysisFeedback.feedbackType, feedbackType)
+      ));
+    
+    return result.count > 0;
+  }
+
+  async getAnalysisFeedback(analysisId: number): Promise<AnalysisFeedback[]> {
+    return db
+      .select()
+      .from(analysisFeedback)
+      .where(eq(analysisFeedback.analysisId, analysisId));
+  }
+
+  // Missing methods from IStorage interface
+  async getPublicChartAnalyses(limit: number = 10): Promise<ChartAnalysis[]> {
+    return db
+      .select()
+      .from(chartAnalyses)
+      .where(eq(chartAnalyses.isPublic, true))
+      .orderBy(sql`${chartAnalyses.createdAt} DESC`)
+      .limit(limit);
+  }
+
+  async getAnalysisFeed(userId: number, limit: number = 20): Promise<ChartAnalysis[]> {
+    // Get analyses from users that the current user follows
+    const followingUserIds = (await this.getFollowing(userId)).map(user => user.id);
+    
+    if (followingUserIds.length === 0) {
+      // If not following anyone, return popular analyses
+      return this.getPopularAnalyses(limit);
+    }
+    
+    return db
+      .select()
+      .from(chartAnalyses)
+      .where(and(
+        eq(chartAnalyses.isPublic, true),
+        sql`${chartAnalyses.userId} IN (${followingUserIds.join(',')})`
+      ))
+      .orderBy(sql`${chartAnalyses.createdAt} DESC`)
+      .limit(limit);
+  }
+
+  async getPopularAnalyses(limit: number = 10): Promise<ChartAnalysis[]> {
+    // This is a simple implementation. For a real app, you would want to
+    // use the feedback data (likes, etc.) to determine popularity
+    return db
+      .select()
+      .from(chartAnalyses)
+      .where(eq(chartAnalyses.isPublic, true))
+      .orderBy(sql`${chartAnalyses.createdAt} DESC`)
+      .limit(limit);
   }
 }
 

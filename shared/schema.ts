@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, jsonb, real, unique } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -108,3 +108,83 @@ export type InsertAchievement = z.infer<typeof insertAchievementSchema>;
 export type Achievement = typeof achievements.$inferSelect;
 export type InsertUserAchievement = z.infer<typeof insertUserAchievementSchema>;
 export type UserAchievement = typeof userAchievements.$inferSelect;
+
+// Social Networking Schema
+export const userProfiles = pgTable("user_profiles", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull().unique(),
+  bio: text("bio"),
+  tradingExperience: text("trading_experience"), // 'beginner', 'intermediate', 'advanced', 'expert'
+  tradingStyle: text("trading_style"), // 'day', 'swing', 'position', 'scalping'
+  preferredMarkets: jsonb("preferred_markets"), // Array of markets: forex, stocks, crypto, etc.
+  tradeGrade: real("trade_grade").default(0), // 0-100 score based on trade accuracy
+  winRate: real("win_rate").default(0), // Percentage of winning trades
+  followers: integer("followers").default(0),
+  following: integer("following").default(0),
+  socialLinks: jsonb("social_links"), // Object with social media links
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Follows (user follows another user)
+export const follows = pgTable("follows", {
+  id: serial("id").primaryKey(),
+  followerId: integer("follower_id").references(() => users.id).notNull(),
+  followingId: integer("following_id").references(() => users.id).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => {
+  return {
+    uniqueFollow: unique().on(table.followerId, table.followingId),
+  };
+});
+
+// Analysis Feedback (likes, dislikes, comments)
+export const analysisFeedback = pgTable("analysis_feedback", {
+  id: serial("id").primaryKey(),
+  analysisId: integer("analysis_id").references(() => chartAnalyses.id).notNull(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  feedbackType: text("feedback_type").notNull(), // 'like', 'dislike', 'save'
+  comment: text("comment"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => {
+  return {
+    uniqueFeedback: unique().on(table.analysisId, table.userId, table.feedbackType),
+  };
+});
+
+// Analysis View History (for recommendations)
+export const analysisViews = pgTable("analysis_views", {
+  id: serial("id").primaryKey(),
+  analysisId: integer("analysis_id").references(() => chartAnalyses.id).notNull(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  viewedAt: timestamp("viewed_at").defaultNow().notNull(),
+});
+
+// Insert schemas for social features
+export const insertUserProfileSchema = createInsertSchema(userProfiles).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  followers: true,
+  following: true,
+  tradeGrade: true,
+  winRate: true,
+});
+
+export const insertFollowSchema = createInsertSchema(follows).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertAnalysisFeedbackSchema = createInsertSchema(analysisFeedback).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type UserProfile = typeof userProfiles.$inferSelect;
+export type InsertUserProfile = z.infer<typeof insertUserProfileSchema>;
+export type Follow = typeof follows.$inferSelect;
+export type InsertFollow = z.infer<typeof insertFollowSchema>;
+export type AnalysisFeedback = typeof analysisFeedback.$inferSelect;
+export type InsertAnalysisFeedback = z.infer<typeof insertAnalysisFeedbackSchema>;
+export type AnalysisView = typeof analysisViews.$inferSelect;
