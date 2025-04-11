@@ -18,6 +18,7 @@ export interface IStorage {
   createUser(user: InsertUser): Promise<User>;
   updateUser(id: number, userData: Partial<User>): Promise<User | undefined>;
   updateUserPassword(id: number, hashedPassword: string): Promise<User | undefined>;
+  getAllUsers(): Promise<User[]>;
   
   // Chart analysis methods
   createChartAnalysis(analysis: InsertChartAnalysis): Promise<ChartAnalysis>;
@@ -215,6 +216,10 @@ export class DatabaseStorage implements IStorage {
       .where(eq(users.id, id))
       .returning();
     return updatedUser;
+  }
+  
+  async getAllUsers(): Promise<User[]> {
+    return db.select().from(users);
   }
 
   // Achievement methods

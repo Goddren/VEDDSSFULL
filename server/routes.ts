@@ -8,7 +8,14 @@ import multer from "multer";
 import fs from "fs";
 import path from "path";
 import { v4 as uuidv4 } from "uuid";
-import { insertChartAnalysisSchema, insertAchievementSchema, insertUserAchievementSchema } from "@shared/schema";
+import { 
+  insertChartAnalysisSchema, 
+  insertAchievementSchema, 
+  insertUserAchievementSchema,
+  insertUserProfileSchema,
+  insertFollowSchema,
+  insertAnalysisFeedbackSchema
+} from "@shared/schema";
 
 // Configure multer for file uploads
 const upload = multer({
@@ -716,6 +723,485 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error checking achievements:", error);
       res.status(500).json({ message: "Error checking achievements" });
+    }
+  });
+
+  // -------------------- SOCIAL NETWORK ROUTES --------------------
+
+  // Get user profile
+  app.get("/api/profile/:userId", async (req: Request, res: Response) => {
+    try {
+      // Check if user is authenticated
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ 
+          success: false,
+          message: "Authentication required" 
+        });
+      }
+
+      const userId = parseInt(req.params.userId);
+      if (isNaN(userId)) {
+        return res.status(400).json({ message: "Invalid user ID" });
+      }
+
+      const profile = await storage.getUserProfile(userId);
+      if (!profile) {
+        return res.status(404).json({ message: "Profile not found" });
+      }
+
+      // Get user basic info
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      // Check if the current user follows this user
+      const currentUserId = (req.user as Express.User).id;
+      const isFollowing = await storage.isFollowing(currentUserId, userId);
+
+      res.json({
+        ...profile,
+        username: user.username,
+        fullName: user.fullName,
+        profileImage: user.profileImage,
+        isFollowing
+      });
+    } catch (error) {
+      console.error("Error fetching profile:", error);
+      res.status(500).json({ message: "Error fetching profile" });
+    }
+  });
+
+  // Create or update user profile
+  app.post("/api/profile", async (req: Request, res: Response) => {
+    try {
+      // Check if user is authenticated
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ 
+          success: false,
+          message: "Authentication required" 
+        });
+      }
+
+      const userId = (req.user as Express.User).id;
+      const profileData = req.body;
+
+      // Validate profile data
+      const result = insertUserProfileSchema.safeParse({
+        userId,
+        ...profileData
+      });
+
+      if (!result.success) {
+        return res.status(400).json({ 
+          message: "Invalid profile data",
+          errors: result.error.format()
+        });
+      }
+
+      // Check if profile exists
+      const existingProfile = await storage.getUserProfile(userId);
+      
+      if (existingProfile) {
+        // Update existing profile
+        const updatedProfile = await storage.updateUserProfile(userId, profileData);
+        return res.json(updatedProfile);
+      } else {
+        // Create new profile
+        const newProfile = await storage.createUserProfile({
+          userId,
+          ...profileData
+        });
+        return res.json(newProfile);
+      }
+    } catch (error) {
+      console.error("Error updating profile:", error);
+      res.status(500).json({ message: "Error updating profile" });
+    }
+  });
+
+  // Follow user
+  app.post("/api/social/follow", async (req: Request, res: Response) => {
+    try {
+      // Check if user is authenticated
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ 
+          success: false,
+          message: "Authentication required" 
+        });
+      }
+
+      const { followingId } = req.body;
+      if (!followingId) {
+        return res.status(400).json({ message: "Missing followingId parameter" });
+      }
+
+      const followerId = (req.user as Express.User).id;
+      
+      // Prevent self-following
+      if (followerId === followingId) {
+        return res.status(400).json({ message: "Cannot follow yourself" });
+      }
+
+      // Check if already following
+      const isAlreadyFollowing = await storage.isFollowing(followerId, followingId);
+      
+      if (isAlreadyFollowing) {
+        return res.status(400).json({ message: "Already following this user" });
+      }
+
+      // Create follow relationship
+      const follow = await storage.followUser(followerId, followingId);
+      
+      // Trigger achievement check for new follow
+      try {
+        await checkUserAchievements({
+          trigger: "user_followed",
+          userId: followerId,
+          data: { followingId }
+        });
+      } catch (achievementError) {
+        console.error("Error checking achievements for follow:", achievementError);
+      }
+      
+      res.json(follow);
+    } catch (error) {
+      console.error("Error following user:", error);
+      res.status(500).json({ message: "Error following user" });
+    }
+  });
+
+  // Unfollow user
+  app.post("/api/social/unfollow", async (req: Request, res: Response) => {
+    try {
+      // Check if user is authenticated
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ 
+          success: false,
+          message: "Authentication required" 
+        });
+      }
+
+      const { followingId } = req.body;
+      if (!followingId) {
+        return res.status(400).json({ message: "Missing followingId parameter" });
+      }
+
+      const followerId = (req.user as Express.User).id;
+      
+      // Remove follow relationship
+      const success = await storage.unfollowUser(followerId, followingId);
+      
+      if (!success) {
+        return res.status(404).json({ message: "Follow relationship not found" });
+      }
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error unfollowing user:", error);
+      res.status(500).json({ message: "Error unfollowing user" });
+    }
+  });
+
+  // Get followers
+  app.get("/api/social/followers/:userId", async (req: Request, res: Response) => {
+    try {
+      // Check if user is authenticated
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ 
+          success: false,
+          message: "Authentication required" 
+        });
+      }
+
+      const userId = parseInt(req.params.userId);
+      if (isNaN(userId)) {
+        return res.status(400).json({ message: "Invalid user ID" });
+      }
+
+      const followers = await storage.getFollowers(userId);
+      res.json(followers);
+    } catch (error) {
+      console.error("Error getting followers:", error);
+      res.status(500).json({ message: "Error getting followers" });
+    }
+  });
+
+  // Get following
+  app.get("/api/social/following/:userId", async (req: Request, res: Response) => {
+    try {
+      // Check if user is authenticated
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ 
+          success: false,
+          message: "Authentication required" 
+        });
+      }
+
+      const userId = parseInt(req.params.userId);
+      if (isNaN(userId)) {
+        return res.status(400).json({ message: "Invalid user ID" });
+      }
+
+      const following = await storage.getFollowing(userId);
+      res.json(following);
+    } catch (error) {
+      console.error("Error getting following:", error);
+      res.status(500).json({ message: "Error getting following" });
+    }
+  });
+
+  // Get public analyses for social feed
+  app.get("/api/social/analyses", async (req: Request, res: Response) => {
+    try {
+      // Check if user is authenticated
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ 
+          success: false,
+          message: "Authentication required" 
+        });
+      }
+
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 20;
+      const analyses = await storage.getPublicChartAnalyses(limit);
+      
+      // Get user data for each analysis
+      const analysesWithUserData = await Promise.all(analyses.map(async (analysis) => {
+        if (!analysis.userId) {
+          return {
+            ...analysis,
+            user: { id: 0, username: "Anonymous" },
+            feedbackCounts: { likes: 0, dislikes: 0, saves: 0, comments: 0 },
+            userFeedback: { hasLiked: false, hasDisliked: false, hasSaved: false }
+          };
+        }
+        
+        const user = await storage.getUser(analysis.userId);
+        const feedback = await storage.getAnalysisFeedback(analysis.id);
+        const currentUserId = (req.user as Express.User).id;
+        
+        const feedbackCounts = {
+          likes: feedback.filter(f => f.feedbackType === 'like').length,
+          dislikes: feedback.filter(f => f.feedbackType === 'dislike').length,
+          saves: feedback.filter(f => f.feedbackType === 'save').length,
+          comments: feedback.filter(f => f.feedbackType === 'comment').length
+        };
+        
+        const userFeedback = {
+          hasLiked: feedback.some(f => f.userId === currentUserId && f.feedbackType === 'like'),
+          hasDisliked: feedback.some(f => f.userId === currentUserId && f.feedbackType === 'dislike'),
+          hasSaved: feedback.some(f => f.userId === currentUserId && f.feedbackType === 'save')
+        };
+        
+        return {
+          ...analysis,
+          user: {
+            id: user?.id || 0,
+            username: user?.username || "Unknown",
+            fullName: user?.fullName,
+            profileImage: user?.profileImage
+          },
+          feedbackCounts,
+          userFeedback
+        };
+      }));
+      
+      res.json(analysesWithUserData);
+    } catch (error) {
+      console.error("Error getting social analyses:", error);
+      res.status(500).json({ message: "Error getting social analyses" });
+    }
+  });
+
+  // Get feed for a user (analyses from followed users)
+  app.get("/api/social/feed", async (req: Request, res: Response) => {
+    try {
+      // Check if user is authenticated
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ 
+          success: false,
+          message: "Authentication required" 
+        });
+      }
+
+      const userId = (req.user as Express.User).id;
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 20;
+      
+      const analyses = await storage.getAnalysisFeed(userId, limit);
+      
+      // Get user data for each analysis (same as above)
+      const analysesWithUserData = await Promise.all(analyses.map(async (analysis) => {
+        if (!analysis.userId) {
+          return {
+            ...analysis,
+            user: { id: 0, username: "Anonymous" },
+            feedbackCounts: { likes: 0, dislikes: 0, saves: 0, comments: 0 },
+            userFeedback: { hasLiked: false, hasDisliked: false, hasSaved: false }
+          };
+        }
+        
+        const user = await storage.getUser(analysis.userId);
+        const feedback = await storage.getAnalysisFeedback(analysis.id);
+        
+        const feedbackCounts = {
+          likes: feedback.filter(f => f.feedbackType === 'like').length,
+          dislikes: feedback.filter(f => f.feedbackType === 'dislike').length,
+          saves: feedback.filter(f => f.feedbackType === 'save').length,
+          comments: feedback.filter(f => f.feedbackType === 'comment').length
+        };
+        
+        const userFeedback = {
+          hasLiked: feedback.some(f => f.userId === userId && f.feedbackType === 'like'),
+          hasDisliked: feedback.some(f => f.userId === userId && f.feedbackType === 'dislike'),
+          hasSaved: feedback.some(f => f.userId === userId && f.feedbackType === 'save')
+        };
+        
+        return {
+          ...analysis,
+          user: {
+            id: user?.id || 0,
+            username: user?.username || "Unknown",
+            fullName: user?.fullName,
+            profileImage: user?.profileImage
+          },
+          feedbackCounts,
+          userFeedback
+        };
+      }));
+      
+      res.json(analysesWithUserData);
+    } catch (error) {
+      console.error("Error getting feed:", error);
+      res.status(500).json({ message: "Error getting feed" });
+    }
+  });
+
+  // Add feedback to analysis (like, dislike, save)
+  app.post("/api/social/analyses/:analysisId/feedback", async (req: Request, res: Response) => {
+    try {
+      // Check if user is authenticated
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ 
+          success: false,
+          message: "Authentication required" 
+        });
+      }
+
+      const analysisId = parseInt(req.params.analysisId);
+      if (isNaN(analysisId)) {
+        return res.status(400).json({ message: "Invalid analysis ID" });
+      }
+
+      const { feedbackType, comment } = req.body;
+      if (!feedbackType) {
+        return res.status(400).json({ message: "Missing feedbackType parameter" });
+      }
+
+      if (!['like', 'dislike', 'save', 'comment'].includes(feedbackType)) {
+        return res.status(400).json({ message: "Invalid feedbackType. Must be 'like', 'dislike', 'save', or 'comment'" });
+      }
+
+      const userId = (req.user as Express.User).id;
+      
+      // Check if analysis exists
+      const analysis = await storage.getChartAnalysis(analysisId);
+      if (!analysis) {
+        return res.status(404).json({ message: "Analysis not found" });
+      }
+
+      // Check if feedback already exists and remove it to toggle
+      const existingFeedback = await storage.getAnalysisFeedback(analysisId);
+      const hasExistingFeedback = existingFeedback.some(
+        f => f.userId === userId && f.feedbackType === feedbackType
+      );
+      
+      if (hasExistingFeedback) {
+        // Remove existing feedback (toggle off)
+        await storage.removeAnalysisFeedback(analysisId, userId, feedbackType);
+        res.json({ success: true, action: "removed" });
+      } else {
+        // If adding a new like, remove any existing dislike (and vice versa)
+        if (feedbackType === 'like') {
+          await storage.removeAnalysisFeedback(analysisId, userId, 'dislike');
+        } else if (feedbackType === 'dislike') {
+          await storage.removeAnalysisFeedback(analysisId, userId, 'like');
+        }
+        
+        // Add the new feedback
+        const feedback = await storage.addAnalysisFeedback({
+          analysisId,
+          userId,
+          feedbackType,
+          comment: comment || null
+        });
+        
+        // If it's a like, trigger achievement check
+        if (feedbackType === 'like' && analysis.userId) {
+          try {
+            await checkUserAchievements({
+              trigger: "analysis_liked",
+              userId: analysis.userId,
+              data: { analysisId }
+            });
+          } catch (achievementError) {
+            console.error("Error checking achievements for like:", achievementError);
+          }
+        }
+        
+        res.json({ success: true, action: "added", feedback });
+      }
+    } catch (error) {
+      console.error("Error adding feedback:", error);
+      res.status(500).json({ message: "Error adding feedback" });
+    }
+  });
+
+  // Get popular traders
+  app.get("/api/social/popular-traders", async (req: Request, res: Response) => {
+    try {
+      // Check if user is authenticated
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ 
+          success: false,
+          message: "Authentication required" 
+        });
+      }
+
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 10;
+      const currentUserId = (req.user as Express.User).id;
+      
+      // This would be replaced with a more sophisticated algorithm in a real app
+      // For now, just get users who have profiles
+      const allUsers = await Promise.all((await storage.getAllUsers()).map(async (user: User) => {
+        const profile = await storage.getUserProfile(user.id);
+        const isFollowing = await storage.isFollowing(currentUserId, user.id);
+        
+        return {
+          userId: user.id,
+          username: user.username,
+          fullName: user.fullName,
+          profileImage: user.profileImage,
+          bio: profile?.bio,
+          tradingExperience: profile?.tradingExperience,
+          tradingStyle: profile?.tradingStyle,
+          tradeGrade: profile?.tradeGrade || Math.floor(Math.random() * 40) + 60, // Fallback for demo
+          winRate: profile?.winRate || Math.floor(Math.random() * 30) + 50, // Fallback for demo
+          followers: profile?.followers || 0,
+          following: profile?.following || 0,
+          isFollowing
+        };
+      }));
+      
+      // Sort by tradeGrade for now
+      const popularTraders = allUsers
+        .filter(user => user.userId !== currentUserId) // Exclude current user
+        .sort((a, b) => b.tradeGrade - a.tradeGrade)
+        .slice(0, limit);
+      
+      res.json(popularTraders);
+    } catch (error) {
+      console.error("Error getting popular traders:", error);
+      res.status(500).json({ message: "Error getting popular traders" });
     }
   });
 
