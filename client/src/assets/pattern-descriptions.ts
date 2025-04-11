@@ -5,10 +5,9 @@ import {
   Share2,
   TrendingUp,
   TrendingDown,
-  Candlestick,
   ArrowUpDown
 } from "lucide-react";
-import { PatternSlideItem } from "@/components/ui/pattern-slider";
+import type { PatternSlideItem } from "@/components/ui/pattern-slider";
 
 export const patternDescriptions: PatternSlideItem[] = [
   {

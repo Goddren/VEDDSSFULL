@@ -23,6 +23,8 @@ import {
 } from "lucide-react";
 import logoImg from "@assets/IMG_3645.png";
 import { FeatureSlider } from "@/components/ui/feature-slider";
+import { PatternSlider } from "@/components/ui/pattern-slider";
+import { patternDescriptions } from "@/assets/pattern-descriptions";
 
 export default function LandingPage() {
   return (

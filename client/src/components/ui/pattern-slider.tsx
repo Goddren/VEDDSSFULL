@@ -1,168 +1,147 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import useEmblaCarousel from 'embla-carousel-react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { useState, useEffect, useCallback, type ReactNode } from "react";
+import { ChevronRight, ChevronLeft } from "lucide-react";
+import useEmblaCarousel from "embla-carousel-react";
 
-export type PatternSlideItem = {
+export interface PatternSlideItem {
   name: string;
   type: string;
-  description: string;
   percentage: number;
-  icon: React.ReactNode;
+  description: string;
   bgClass: string;
   barClass: string;
-  imageUrl?: string; // Optional chart pattern image
-};
-
-interface PatternSliderProps {
-  items: PatternSlideItem[];
-  className?: string;
-  autoplay?: boolean;
-  autoplayInterval?: number;
+  icon: React.ComponentType<{ className?: string }>;
+  imageUrl: string;
 }
 
-export function PatternSlider({ 
-  items, 
-  className,
-  autoplay = true,
-  autoplayInterval = 5000
-}: PatternSliderProps) {
-  const [emblaRef, emblaApi] = useEmblaCarousel({ loop: true, align: 'center' });
+interface PatternSliderProps {
+  className?: string;
+}
+
+export function PatternSlider({ className = "" }: PatternSliderProps) {
+  const [emblaRef, emblaApi] = useEmblaCarousel({ 
+    loop: true,
+    align: "start",
+    skipSnaps: false
+  });
+  
+  const [slides, setSlides] = useState<PatternSlideItem[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [scrollSnaps, setScrollSnaps] = useState<number[]>([]);
-
+  
+  // Load pattern slides from the pattern-descriptions module
+  useEffect(() => {
+    const loadPatterns = async () => {
+      try {
+        const { patternDescriptions } = await import('@/assets/pattern-descriptions');
+        setSlides(patternDescriptions);
+      } catch (error) {
+        console.error("Failed to load pattern descriptions:", error);
+      }
+    };
+    
+    loadPatterns();
+  }, []);
+  
+  // Set up embla carousel hooks
   const scrollPrev = useCallback(() => {
     if (emblaApi) emblaApi.scrollPrev();
   }, [emblaApi]);
-
+  
   const scrollNext = useCallback(() => {
     if (emblaApi) emblaApi.scrollNext();
   }, [emblaApi]);
-
-  const scrollTo = useCallback(
-    (index: number) => {
-      if (emblaApi) emblaApi.scrollTo(index);
-    },
-    [emblaApi]
-  );
-
+  
   const onSelect = useCallback(() => {
     if (!emblaApi) return;
     setSelectedIndex(emblaApi.selectedScrollSnap());
   }, [emblaApi]);
-
+  
   useEffect(() => {
     if (!emblaApi) return;
     
-    onSelect();
     setScrollSnaps(emblaApi.scrollSnapList());
-    emblaApi.on('select', onSelect);
+    emblaApi.on("select", onSelect);
+    onSelect();
     
     return () => {
-      emblaApi.off('select', onSelect);
+      emblaApi.off("select", onSelect);
     };
   }, [emblaApi, onSelect]);
-
-  // Autoplay effect
-  useEffect(() => {
-    if (!autoplay || !emblaApi) return;
-    
-    const intervalId = setInterval(() => {
-      emblaApi.scrollNext();
-    }, autoplayInterval);
-    
-    return () => clearInterval(intervalId);
-  }, [emblaApi, autoplay, autoplayInterval]);
-
+  
   return (
-    <div className={cn("relative overflow-hidden", className)}>
+    <div className={`${className} relative overflow-hidden`}>
       <div className="overflow-hidden" ref={emblaRef}>
         <div className="flex">
-          {items.map((pattern, index) => (
-            <div
+          {slides.map((pattern, index) => (
+            <div 
               key={index}
-              className="flex-[0_0_100%] min-w-0 relative px-4 md:px-8 transition-opacity duration-500"
-              style={{ opacity: selectedIndex === index ? 1 : 0.6 }}
+              className="flex-[0_0_100%] min-w-0 sm:flex-[0_0_calc(50%-1rem)] lg:flex-[0_0_calc(33.333%-1rem)] pl-4 first:pl-0"
             >
-              <div className="bg-gray-900/80 backdrop-blur-md p-6 rounded-xl border border-gray-800 shadow-xl h-full transform transition-all duration-300 hover:border-gray-700">
-                <div className="flex flex-col md:flex-row gap-6 items-center md:items-start">
-                  {/* Pattern image (if available) */}
-                  {pattern.imageUrl && (
-                    <div className="w-full md:w-1/2 flex-shrink-0 rounded-lg overflow-hidden border border-gray-800 shadow-inner">
+              <div className={`flex flex-col h-full p-6 rounded-lg ${pattern.bgClass} border border-white/10 shadow-lg transition-all duration-300 hover:border-white/20 hover:shadow-xl`}>
+                <div className="flex flex-col items-center mb-6 sm:mb-4 sm:items-start sm:flex-row">
+                  <div className="flex-shrink-0 mb-3 sm:mb-0 sm:mr-3">
+                    <div className="relative">
                       <img 
                         src={pattern.imageUrl} 
-                        alt={`${pattern.name} pattern example`} 
-                        className="w-full h-auto object-cover"
+                        alt={pattern.name}
+                        className="w-20 h-20 object-contain"
                       />
                     </div>
-                  )}
+                  </div>
                   
-                  {/* Pattern details */}
-                  <div className={!pattern.imageUrl ? "w-full" : "w-full md:w-1/2"}>
-                    <div className="flex items-center gap-3 mb-4">
-                      <div className={`p-3 rounded-full ${pattern.bgClass} transition-colors duration-300`}>
-                        <div className="animate-pulse">
-                          {pattern.icon}
-                        </div>
-                      </div>
-                      <div>
-                        <h3 className="text-xl font-semibold text-white">{pattern.name}</h3>
-                        <span className="text-sm text-gray-400">{pattern.type} Pattern</span>
-                      </div>
-                    </div>
+                  <div className="flex flex-col text-center sm:text-left">
+                    <h3 className="text-lg font-bold text-white mb-1">{pattern.name}</h3>
+                    <span className="text-sm font-medium text-white/70 mb-2">{pattern.type} Pattern</span>
                     
-                    <p className="text-gray-300 mb-4 leading-relaxed">{pattern.description}</p>
-                    
-                    <div className="mt-3">
-                      <div className="flex justify-between text-sm mb-1">
-                        <span className="text-gray-400">Distribution</span>
-                        <span className="text-white font-medium">{pattern.percentage}%</span>
+                    <div className="flex flex-col">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-white/60">Frequency</span>
+                        <span className="text-xs font-semibold text-white">{pattern.percentage}%</span>
                       </div>
-                      <div className="w-full bg-gray-800 rounded-full h-2 overflow-hidden">
+                      
+                      <div className="w-full h-2 bg-white/10 rounded-full mt-1 overflow-hidden">
                         <div 
-                          className={`${pattern.barClass} h-2 rounded-full transform-gpu transition-all duration-1000 ease-out`}
-                          style={{ 
-                            width: `${pattern.percentage}%`,
-                            animation: 'width 1.5s ease-out',
-                          }}
+                          className={`h-full ${pattern.barClass} rounded-full`}
+                          style={{ width: `${pattern.percentage}%` }}
                         ></div>
                       </div>
                     </div>
                   </div>
                 </div>
+                
+                <p className="text-sm text-white/80 flex-grow">{pattern.description}</p>
               </div>
             </div>
           ))}
         </div>
       </div>
-
-      {/* Navigation arrows */}
-      <button
-        className="absolute left-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center text-white hover:bg-black/80 transition-colors z-10"
+      
+      {/* Navigation buttons */}
+      <button 
+        className="absolute top-1/2 left-1 transform -translate-y-1/2 bg-black/50 hover:bg-black/70 transition-all p-2 rounded-full backdrop-blur-sm"
         onClick={scrollPrev}
-        aria-label="Previous pattern"
       >
-        <ChevronLeft className="h-6 w-6" />
+        <ChevronLeft className="h-5 w-5 text-white" />
       </button>
-      <button
-        className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center text-white hover:bg-black/80 transition-colors z-10"
+      
+      <button 
+        className="absolute top-1/2 right-1 transform -translate-y-1/2 bg-black/50 hover:bg-black/70 transition-all p-2 rounded-full backdrop-blur-sm"
         onClick={scrollNext}
-        aria-label="Next pattern"
       >
-        <ChevronRight className="h-6 w-6" />
+        <ChevronRight className="h-5 w-5 text-white" />
       </button>
-
-      {/* Dots indicator */}
+      
+      {/* Pagination dots */}
       <div className="flex justify-center mt-4">
         {scrollSnaps.map((_, index) => (
           <button
             key={index}
-            className={`w-3 h-3 mx-1 rounded-full transition-all ${
+            className={`mx-1 w-2 h-2 rounded-full transition-all ${
               index === selectedIndex 
-                ? 'bg-red-500 scale-125' 
-                : 'bg-gray-500 opacity-50 hover:opacity-75'
+                ? "bg-white w-4" 
+                : "bg-white/30 hover:bg-white/50"
             }`}
-            onClick={() => scrollTo(index)}
+            onClick={() => emblaApi?.scrollTo(index)}
             aria-label={`Go to slide ${index + 1}`}
           />
         ))}
