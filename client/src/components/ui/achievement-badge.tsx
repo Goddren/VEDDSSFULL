@@ -217,25 +217,85 @@ export function AchievementBadge({
           <TooltipTrigger asChild>
             {badge}
           </TooltipTrigger>
-          <TooltipContent>
-            <div className="text-center">
-              <p className="font-bold">{achievement.name}</p>
-              <p className="text-xs text-muted-foreground">{achievement.description}</p>
-              {!isLocked && !isCompleted && (
-                <div className="mt-1">
-                  <div className="flex justify-between text-xs">
-                    <span>Progress:</span>
-                    <span>{progress}/{achievement.threshold}</span>
+          <TooltipContent className="p-0 overflow-hidden">
+            <div className="relative">
+              {/* Header with colored background based on category */}
+              <div className={cn(
+                "p-3 text-center relative overflow-hidden",
+                isLocked ? "bg-gray-600 text-gray-100" : 
+                  achievement.category === 'analysis' ? "bg-blue-600 text-white" : 
+                  achievement.category === 'consistency' ? "bg-green-600 text-white" : 
+                  achievement.category === 'accuracy' ? "bg-purple-600 text-white" : 
+                  achievement.category === 'exploration' ? "bg-amber-600 text-white" : 
+                  achievement.category === 'special' ? "bg-rose-600 text-white" : 
+                  "bg-primary text-white"
+              )}>
+                {/* Shine overlay effect */}
+                <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/10 to-white/0 opacity-70" />
+                
+                {/* Badge icon */}
+                <div className="mx-auto mb-1">
+                  <div className="inline-flex items-center justify-center bg-white/20 rounded-full p-1.5 mb-1">
+                    <div className="text-white w-5 h-5">
+                      {getIcon()}
+                    </div>
                   </div>
-                  <Progress
-                    value={progressPercent}
-                    className="h-1 mt-1"
-                  />
                 </div>
-              )}
-              {isLocked && (
-                <p className="text-xs italic mt-1">Keep trading to unlock this achievement</p>
-              )}
+                
+                <h4 className="font-bold text-sm">{achievement.name}</h4>
+                
+                {/* Point value chip */}
+                <div className="absolute top-2 right-2 bg-white/20 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+                  {achievement.points} pts
+                </div>
+              </div>
+              
+              {/* Content */}
+              <div className="p-3">
+                <p className="text-xs text-foreground">{achievement.description}</p>
+                
+                {/* Progress for in-progress achievements */}
+                {!isLocked && !isCompleted && (
+                  <div className="mt-2 bg-secondary/40 p-2 rounded-md">
+                    <div className="flex justify-between text-xs mb-1">
+                      <span className="font-medium">Progress</span>
+                      <span>{progress}/{achievement.threshold}</span>
+                    </div>
+                    <Progress
+                      value={progressPercent}
+                      className="h-1.5"
+                    />
+                  </div>
+                )}
+                
+                {/* Completion status */}
+                {isCompleted && (
+                  <div className="flex items-center mt-2 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 text-xs p-2 rounded-md">
+                    <Award className="h-3.5 w-3.5 mr-1" />
+                    <span>Completed on {userAchievement?.unlockedAt ? new Date(userAchievement.unlockedAt).toLocaleDateString() : 'unknown date'}</span>
+                  </div>
+                )}
+                
+                {/* Locked message */}
+                {isLocked && (
+                  <div className="flex items-center mt-2 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 text-xs italic p-2 rounded-md">
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="h-3.5 w-3.5 mr-1.5"
+                    >
+                      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                    </svg>
+                    <span>Keep trading to unlock this achievement</span>
+                  </div>
+                )}
+              </div>
             </div>
           </TooltipContent>
         </Tooltip>
