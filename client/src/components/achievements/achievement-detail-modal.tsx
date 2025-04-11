@@ -13,7 +13,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 
 interface AchievementDetailModalProps {
@@ -168,18 +167,19 @@ export function AchievementDetailModal({
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl p-0 overflow-hidden">
+        <div className="absolute top-3 left-3 z-10">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => onOpenChange(false)}
+            className="rounded-full text-white/90 hover:text-white hover:bg-white/10 flex items-center gap-1"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            <span>Back</span>
+          </Button>
+        </div>
+        
         <DialogHeader className={cn("p-6 text-white", categoryInfo.color)}>
-          <div className="absolute top-3 right-3">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => onOpenChange(false)}
-              className="rounded-full text-white/80 hover:text-white hover:bg-white/10"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              <span className="sr-only">Back</span>
-            </Button>
-          </div>
           
           <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4">
             <div className="relative">
@@ -199,8 +199,11 @@ export function AchievementDetailModal({
                 <span className="ml-2">{categoryInfo.title}</span>
               </div>
               <DialogTitle className="text-2xl sm:text-3xl font-bold mb-2">{achievement.name}</DialogTitle>
-              <DialogDescription className="text-white/80">
-                <p>{achievement.description}</p>
+              
+              {/* Description */}
+              <div className="text-white/80 mt-2">
+                <div>{achievement.description}</div>
+                
                 {isCompleted ? (
                   <div className="flex items-center mt-2 text-white/90 text-sm">
                     <Award className="h-4 w-4 mr-1" />
@@ -235,7 +238,7 @@ export function AchievementDetailModal({
                     />
                   </div>
                 )}
-              </DialogDescription>
+              </div>
             </div>
           </div>
         </DialogHeader>
@@ -321,7 +324,17 @@ export function AchievementDetailModal({
         </div>
 
         <DialogFooter className="p-6 pt-0">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button 
+            variant="outline" 
+            onClick={() => onOpenChange(false)}
+            className="mr-2"
+          >
+            <ArrowLeft className="h-4 w-4 mr-1" />
+            Back
+          </Button>
+          <Button 
+            onClick={() => onOpenChange(false)}
+          >
             Close
           </Button>
         </DialogFooter>
