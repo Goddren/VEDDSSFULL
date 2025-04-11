@@ -12,8 +12,9 @@ import { useMutation } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/queryClient';
 import { AnalysisState, analysisPipeline, ChartAnalysisResponse } from '@shared/types';
 import { delay } from '@/lib/utils';
-import { BarChart3, CameraIcon, LayoutDashboard, Upload, Sparkles } from 'lucide-react';
+import { BarChart3, CameraIcon, LayoutDashboard, Upload, Sparkles, Lightbulb } from 'lucide-react';
 import { QuickTipGenerator } from '@/components/trading/quick-tip-generator';
+import { ChartInsightsPanel } from '@/components/market-insights/chart-insights-panel';
 
 // Image compression utility
 interface CompressOptions {
@@ -550,11 +551,27 @@ const Analysis: React.FC = () => {
 
           {/* Complete State - Show Results */}
           {analysisState === AnalysisState.COMPLETE && analysisResult && (
-            <AnalysisResult 
-              analysis={analysisResult} 
-              imageUrl={uploadedImageUrl} 
-              onReanalyze={handleReanalyze}
-            />
+            <>
+              <AnalysisResult 
+                analysis={analysisResult} 
+                imageUrl={uploadedImageUrl} 
+                onReanalyze={handleReanalyze}
+              />
+              
+              {/* Interactive AI Market Insights */}
+              <div className="mt-6">
+                <ChartInsightsPanel
+                  symbol={analysisResult.symbol}
+                  timeframe={analysisResult.timeframe}
+                  direction={analysisResult.direction}
+                  pattern={analysisResult.patterns ? 
+                    JSON.parse(analysisResult.patterns)[0]?.name : undefined}
+                  entryPoint={analysisResult.entryPoint}
+                  exitPoint={analysisResult.exitPoint}
+                  className="border-indigo-700/20"
+                />
+              </div>
+            </>
           )}
         </div>
       </div>
