@@ -12,8 +12,8 @@ import { useMutation } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/queryClient';
 import { AnalysisState, analysisPipeline, ChartAnalysisResponse } from '@shared/types';
 import { delay } from '@/lib/utils';
-import { BarChart3, CameraIcon, LayoutDashboard, Upload, Sparkles, Lightbulb } from 'lucide-react';
-import { QuickTipGenerator } from '@/components/trading/quick-tip-generator';
+import { BarChart3, CameraIcon, LayoutDashboard, Upload, Calendar, Sparkles, Lightbulb } from 'lucide-react';
+import { MarketCalendar } from '@/components/market/market-calendar';
 import { ChartInsightsPanel } from '@/components/market-insights/chart-insights-panel';
 
 // Image compression utility
@@ -407,19 +407,19 @@ const Analysis: React.FC = () => {
 
         {/* Analysis Section */}
         <div className="lg:col-span-2">
-          {/* Quick Trading Tip Generator */}
+          {/* Economic Calendar */}
           <Card className="mb-6">
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2">
-                <Sparkles className="h-5 w-5 text-red-500" />
-                <span className="text-red-500">Quick Trading Tip Generator</span>
+                <Calendar className="h-5 w-5 text-blue-500" />
+                <span className="text-blue-500">Economic Calendar</span>
               </CardTitle>
               <CardDescription>
-                Generate AI-powered trading tips and insights without uploading a chart
+                Upcoming market-moving events that could impact your trading decisions
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <QuickTipGenerator />
+              <MarketCalendar />
             </CardContent>
           </Card>
 
