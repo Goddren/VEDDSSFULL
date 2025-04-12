@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ChevronLeft, TrendingUp, TrendingDown, AlertTriangle, BarChart2, LineChart, Share2 } from 'lucide-react';
+import { ChevronLeft, TrendingUp, TrendingDown, AlertTriangle, BarChart2, LineChart, Share2, Check } from 'lucide-react';
 import { getConfidenceColor, getDirectionColor, normalizeImageUrl } from '@/lib/utils';
 import { NewsAlert, NewsEvent } from '@/components/ui/news-alert';
 import { getNewsForSymbol } from '@/lib/news-service';
@@ -401,11 +401,57 @@ const AnalysisDetail: React.FC = () => {
           <p className="text-sm text-muted-foreground mb-4">
             Trading involves risk. This analysis is for informational purposes only and should not be considered financial advice.
           </p>
-          <Link to="/analysis">
-            <Button>
-              Analyze a New Chart
-            </Button>
-          </Link>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mb-4">
+            {!analysis.isPublic && (
+              <Button 
+                onClick={async () => {
+                  try {
+                    await apiRequest('POST', `/api/analyses/${analysisId}/publish-to-social`, {
+                      isPublic: true
+                    });
+                    toast({
+                      title: "Success!",
+                      description: "Your analysis has been published to the social hub.",
+                      variant: "default",
+                    });
+                    // Refresh data
+                    window.location.reload();
+                  } catch (error) {
+                    toast({
+                      title: "Error",
+                      description: "Failed to publish analysis to social hub. Please try again.",
+                      variant: "destructive",
+                    });
+                  }
+                }}
+                className="w-full sm:w-auto"
+                variant="secondary"
+              >
+                <Share2 className="mr-2 h-4 w-4" />
+                Publish to Social Hub
+              </Button>
+            )}
+            {analysis.isPublic && (
+              <Button 
+                variant="outline" 
+                className="w-full sm:w-auto"
+                disabled
+              >
+                <Check className="mr-2 h-4 w-4 text-green-500" />
+                Published to Social Hub
+              </Button>
+            )}
+            <Link to="/social-hub" className="w-full sm:w-auto">
+              <Button variant="outline" className="w-full">
+                Go to Social Hub
+              </Button>
+            </Link>
+            <Link to="/analysis" className="w-full sm:w-auto">
+              <Button className="w-full">
+                Analyze a New Chart
+              </Button>
+            </Link>
+          </div>
         </div>
         
         {/* Share Modal */}
