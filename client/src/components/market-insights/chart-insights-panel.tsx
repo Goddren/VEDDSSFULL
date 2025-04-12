@@ -7,17 +7,23 @@ export interface ChartInsightsPanelProps {
   symbol?: string;
   timeframe?: string;
   pattern?: string;
+  patterns?: any[];
   trend?: string;
+  confidence?: string;
   entryPoint?: string;
   exitPoint?: string;
   className?: string;
+  direction?: string;
 }
 
 export const ChartInsightsPanel: React.FC<ChartInsightsPanelProps> = ({
   symbol = 'unknown',
   timeframe = 'H1',
   pattern,
+  patterns = [],
   trend = 'neutral',
+  confidence = 'medium',
+  direction,
   entryPoint,
   exitPoint,
   className = ''
@@ -77,6 +83,23 @@ export const ChartInsightsPanel: React.FC<ChartInsightsPanelProps> = ({
     }
   };
   
+  // Get primary pattern from patterns array or use provided pattern
+  const primaryPattern = pattern || (patterns && patterns.length > 0 ? 
+    (typeof patterns[0] === 'string' ? patterns[0] : patterns[0].name) : undefined);
+  
+  // Get pattern type based on direction or trend
+  const getPatternTypeFromDirection = (): 'bullish' | 'bearish' | 'neutral' | 'volatile' => {
+    if (!direction) return getTrendType(trend);
+    
+    const dir = direction.toLowerCase();
+    if (dir === 'buy') return 'bullish';
+    if (dir === 'sell') return 'bearish';
+    
+    return getTrendType(trend);
+  };
+  
+  const patternType = getPatternTypeFromDirection();
+  
   return (
     <Card className={`bg-gray-900 border-gray-800 shadow-xl ${className}`}>
       <CardHeader className="pb-2">
@@ -88,23 +111,23 @@ export const ChartInsightsPanel: React.FC<ChartInsightsPanelProps> = ({
       <CardContent>
         <div className="space-y-4">
           {/* Chart Pattern */}
-          {pattern && (
+          {primaryPattern && (
             <div className="flex flex-col gap-1.5">
               <span className="text-xs text-gray-400">Chart Pattern</span>
               <InteractiveInsightTooltip
-                title={pattern}
-                description={getPatternDescription(pattern)}
-                type={getTrendType(trend)}
-                context={getPatternContext(pattern)}
+                title={primaryPattern}
+                description={getPatternDescription(primaryPattern)}
+                type={patternType}
+                context={getPatternContext(primaryPattern)}
               >
                 <div className={`
                   inline-flex p-1.5 px-3 rounded-lg text-sm font-medium
-                  ${getTrendType(trend) === 'bullish' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 
-                    getTrendType(trend) === 'bearish' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' : 
-                    getTrendType(trend) === 'volatile' ? 'bg-orange-500/10 text-orange-400 border border-orange-500/20' : 
+                  ${patternType === 'bullish' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 
+                    patternType === 'bearish' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' : 
+                    patternType === 'volatile' ? 'bg-orange-500/10 text-orange-400 border border-orange-500/20' : 
                     'bg-amber-500/10 text-amber-400 border border-amber-500/20'}
                 `}>
-                  {pattern}
+                  {primaryPattern}
                 </div>
               </InteractiveInsightTooltip>
             </div>
@@ -115,16 +138,16 @@ export const ChartInsightsPanel: React.FC<ChartInsightsPanelProps> = ({
             <div className="flex flex-col gap-1.5">
               <span className="text-xs text-gray-400">Market Trend</span>
               <InteractiveInsightTooltip
-                title={`${getTrendType(trend).charAt(0).toUpperCase() + getTrendType(trend).slice(1)} Trend`}
+                title={`${patternType.charAt(0).toUpperCase() + patternType.slice(1)} Trend`}
                 description={getTrendDescription(trend)}
-                type={getTrendType(trend)}
+                type={patternType}
                 context="trend"
               >
                 <div className={`
                   inline-flex p-1.5 px-3 rounded-lg text-sm font-medium
-                  ${getTrendType(trend) === 'bullish' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 
-                    getTrendType(trend) === 'bearish' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' : 
-                    getTrendType(trend) === 'volatile' ? 'bg-orange-500/10 text-orange-400 border border-orange-500/20' : 
+                  ${patternType === 'bullish' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 
+                    patternType === 'bearish' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' : 
+                    patternType === 'volatile' ? 'bg-orange-500/10 text-orange-400 border border-orange-500/20' : 
                     'bg-amber-500/10 text-amber-400 border border-amber-500/20'}
                 `}>
                   {trend}
@@ -140,16 +163,16 @@ export const ChartInsightsPanel: React.FC<ChartInsightsPanelProps> = ({
               <InteractiveInsightTooltip
                 title={`Entry at ${entryPoint}`}
                 description={`Suggested market entry point for ${symbol} is at ${entryPoint}. ${
-                  getTrendType(trend) === 'bullish' 
+                  patternType === 'bullish' 
                     ? 'This represents a potential support level or breakout confirmation.' 
                     : 'This represents a potential resistance level or breakdown confirmation.'
                 }`}
-                type={getTrendType(trend)}
+                type={patternType}
                 context={getPriceContext(true)}
               >
                 <div className={`
                   inline-flex p-1.5 px-3 rounded-lg text-sm font-medium
-                  ${getTrendType(trend) === 'bullish' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 
+                  ${patternType === 'bullish' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 
                     'bg-rose-500/10 text-rose-400 border border-rose-500/20'}
                 `}>
                   {entryPoint}
@@ -164,13 +187,13 @@ export const ChartInsightsPanel: React.FC<ChartInsightsPanelProps> = ({
               <span className="text-xs text-gray-400">Take Profit Target</span>
               <InteractiveInsightTooltip
                 title={`Take Profit at ${exitPoint}`}
-                description={`Suggested take profit level for ${symbol} is at ${exitPoint}. This target is based on the identified pattern and recent price action.`}
-                type={getTrendType(trend)}
+                description={`Suggested take profit level for ${symbol} is at ${exitPoint}. This target is based on the identified ${patternType === 'bullish' ? 'bullish' : 'bearish'} pattern and recent price action.`}
+                type={patternType}
                 context={getPriceContext(false)}
               >
                 <div className={`
                   inline-flex p-1.5 px-3 rounded-lg text-sm font-medium
-                  ${getTrendType(trend) === 'bullish' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 
+                  ${patternType === 'bullish' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 
                     'bg-rose-500/10 text-rose-400 border border-rose-500/20'}
                 `}>
                   {exitPoint}
@@ -186,7 +209,7 @@ export const ChartInsightsPanel: React.FC<ChartInsightsPanelProps> = ({
               <InteractiveInsightTooltip
                 title={`${timeframe.toUpperCase()} Timeframe`}
                 description={getTimeframeDescription(timeframe)}
-                type={getTrendType(trend)}
+                type={patternType}
                 context={getTimeframeContext(timeframe)}
               >
                 <div className={`
