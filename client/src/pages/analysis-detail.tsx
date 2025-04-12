@@ -15,7 +15,7 @@ import ShareAnalysis from '@/components/charts/share-analysis';
 import VolatilityMeter from '@/components/charts/volatility-meter';
 import { calculateVolatilityScore } from '@/lib/analysis-utils';
 import { apiRequest } from '@/lib/queryClient';
-import { AnimatedInsightTooltip } from '@/components/tooltips';
+import { InteractiveInsightTooltip } from '@/components/ui/interactive-insight-tooltip';
 import { ChartInsightsPanel } from '@/components/market-insights/chart-insights-panel';
 import { MarketMoodDisplay } from '@/components/market/market-mood-display';
 
@@ -382,6 +382,10 @@ const AnalysisDetail: React.FC = () => {
           patterns={patterns && patterns.length > 0 ? patterns.map((p: any) => p.name) : []}
           timeframe={analysis.timeframe}
           symbol={analysis.symbol}
+          direction={analysis.direction}
+          entryPoint={analysis.entryPoint}
+          exitPoint={analysis.exitPoint}
+          className="mb-6"
         />
         
         {/* Volatility Meter */}
