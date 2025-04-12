@@ -1,264 +1,283 @@
 import React from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { AlertTriangle, BarChart2, Lightbulb, TrendingDown, TrendingUp, InfoIcon } from 'lucide-react';
-import { InsightTooltip } from '@/components/ui/insight-tooltip';
-import { Link } from 'wouter';
-import { motion } from 'framer-motion';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { InteractiveInsightTooltip } from '@/components/ui/interactive-insight-tooltip';
+import { Sparkles } from 'lucide-react';
 
-// Animation variants
-const containerVariants = {
-  hidden: { opacity: 0 },
-  visible: { 
-    opacity: 1,
-    transition: { 
-      staggerChildren: 0.1,
-      delayChildren: 0.2
-    }
-  }
-};
-
-const itemVariants = {
-  hidden: { opacity: 0, x: -5 },
-  visible: { opacity: 1, x: 0 }
-};
-
-interface ChartInsightsPanelProps {
-  trend?: string;
-  confidence?: string;
-  patterns?: string[];
-  timeframe?: string;
+export interface ChartInsightsPanelProps {
   symbol?: string;
+  timeframe?: string;
+  pattern?: string;
+  trend?: string;
+  entryPoint?: string;
+  exitPoint?: string;
+  className?: string;
 }
 
-export function ChartInsightsPanel({ 
-  trend, 
-  confidence, 
-  patterns = [], 
-  timeframe,
-  symbol
-}: ChartInsightsPanelProps) {
-  // Generate insights based on analysis data
-  const insights = React.useMemo(() => {
-    const result = [];
+export const ChartInsightsPanel: React.FC<ChartInsightsPanelProps> = ({
+  symbol = 'unknown',
+  timeframe = 'H1',
+  pattern,
+  trend = 'neutral',
+  entryPoint,
+  exitPoint,
+  className = ''
+}) => {
+  // Determine market context based on pattern
+  const getPatternContext = (patternName?: string): 'pattern' | 'reversal' | 'trend' => {
+    if (!patternName) return 'trend';
     
-    // Add trend insight
-    if (trend) {
-      const isBullish = trend.toLowerCase().includes('bullish');
-      result.push({
-        id: 'trend',
-        title: `${isBullish ? 'Bullish' : 'Bearish'} Trend Detected`,
-        description: `The overall market direction appears to be ${trend.toLowerCase()}.`,
-        icon: isBullish ? <TrendingUp className="h-4 w-4 text-emerald-500" /> : <TrendingDown className="h-4 w-4 text-rose-500" />,
-        tooltipTitle: `${isBullish ? 'Bullish' : 'Bearish'} Market`,
-        tooltipContent: isBullish 
-          ? 'In a bullish market, prices are expected to rise over time. Look for buying opportunities on pullbacks and consider trail stops to protect profits.' 
-          : 'In a bearish market, prices are expected to fall over time. Consider short positions or staying in cash, and be cautious with long positions.',
-        animationType: isBullish ? 'uptrend' : 'downtrend'
-      });
+    const reversalPatterns = ['double top', 'double bottom', 'head and shoulders', 'inverse head', 'reversal'];
+    const lowerPattern = patternName.toLowerCase();
+    
+    if (reversalPatterns.some(p => lowerPattern.includes(p))) {
+      return 'reversal';
     }
     
-    // Add confidence insight
-    if (confidence) {
-      const confidenceLevel = 
-        confidence.toLowerCase().includes('high') ? 'high' :
-        confidence.toLowerCase().includes('medium') ? 'medium' : 'low';
-      
-      const confidenceIcon = 
-        confidenceLevel === 'high' ? <Lightbulb className="h-4 w-4 text-amber-500" /> :
-        confidenceLevel === 'medium' ? <InfoIcon className="h-4 w-4 text-blue-500" /> :
-        <AlertTriangle className="h-4 w-4 text-rose-500" />;
-      
-      result.push({
-        id: 'confidence',
-        title: `${confidenceLevel.charAt(0).toUpperCase() + confidenceLevel.slice(1)} Confidence Signal`,
-        description: `The AI has ${confidenceLevel} confidence in this analysis.`,
-        icon: confidenceIcon,
-        tooltipTitle: 'Signal Confidence',
-        tooltipContent: confidenceLevel === 'high'
-          ? 'High confidence signals are backed by multiple confirming factors and clear pattern recognition. Consider allocating more capital to these trades.'
-          : confidenceLevel === 'medium'
-          ? 'Medium confidence signals have some confirming factors but may include conflicting indicators. Use standard position sizing.'
-          : 'Low confidence signals have weak pattern recognition or conflicting indicators. Consider smaller position sizes or avoiding the trade.',
-        animationType: 'none'
-      });
+    return 'pattern';
+  };
+  
+  // Determine market trend type
+  const getTrendType = (trendDesc?: string): 'bullish' | 'bearish' | 'neutral' | 'volatile' => {
+    if (!trendDesc) return 'neutral';
+    
+    const lowerTrend = trendDesc.toLowerCase();
+    
+    if (lowerTrend.includes('bullish') || lowerTrend.includes('uptrend')) {
+      return 'bullish';
+    } else if (lowerTrend.includes('bearish') || lowerTrend.includes('downtrend')) {
+      return 'bearish';
+    } else if (lowerTrend.includes('volatile') || lowerTrend.includes('choppy')) {
+      return 'volatile';
     }
     
-    // Add timeframe insight
-    if (timeframe) {
-      result.push({
-        id: 'timeframe',
-        title: `${timeframe} Timeframe Analysis`,
-        description: `This analysis is based on the ${timeframe} chart.`,
-        icon: <BarChart2 className="h-4 w-4 text-purple-500" />,
-        tooltipTitle: 'Timeframe Significance',
-        tooltipContent: `The ${timeframe} timeframe is suitable for ${
-          timeframe.toLowerCase().includes('1m') || timeframe.toLowerCase().includes('5m') ? 'scalping and very short-term trades lasting minutes to hours.' :
-          timeframe.toLowerCase().includes('15m') || timeframe.toLowerCase().includes('30m') ? 'intraday trading with positions held for several hours.' :
-          timeframe.toLowerCase().includes('1h') || timeframe.toLowerCase().includes('4h') ? 'swing trading with positions held for days to weeks.' :
-          'position trading with longer-term outlook spanning weeks to months.'
-        }`,
-        animationType: 'none'
-      });
+    return 'neutral';
+  };
+  
+  // Get candlestick context based on time frame
+  const getTimeframeContext = (tm?: string): 'candlestick' | 'indicator' => {
+    if (!tm) return 'candlestick';
+    
+    const lowerTm = tm.toLowerCase();
+    
+    if (['h4', 'd1', 'daily', 'weekly', 'monthly', 'w1', 'm1'].some(t => lowerTm.includes(t))) {
+      return 'candlestick';
     }
     
-    // Add pattern insights
-    if (patterns.length > 0) {
-      patterns.forEach((pattern, index) => {
-        const isBullish = pattern.toLowerCase().includes('bull') || 
-                          pattern.toLowerCase().includes('support') ||
-                          pattern.toLowerCase().includes('double bottom') ||
-                          pattern.toLowerCase().includes('ascending');
-        
-        const isBearish = pattern.toLowerCase().includes('bear') || 
-                          pattern.toLowerCase().includes('resistance') ||
-                          pattern.toLowerCase().includes('double top') ||
-                          pattern.toLowerCase().includes('descending');
-        
-        result.push({
-          id: `pattern-${index}`,
-          title: pattern,
-          description: `${isBullish ? 'Bullish' : isBearish ? 'Bearish' : 'Neutral'} chart pattern detected.`,
-          icon: isBullish ? <TrendingUp className="h-4 w-4 text-emerald-500" /> : 
-                isBearish ? <TrendingDown className="h-4 w-4 text-rose-500" /> :
-                <InfoIcon className="h-4 w-4 text-blue-500" />,
-          tooltipTitle: pattern,
-          tooltipContent: getPatternDescription(pattern),
-          animationType: isBullish ? 'uptrend' : isBearish ? 'downtrend' : 'consolidation'
-        });
-      });
+    return 'indicator';
+  };
+  
+  // Entry and exit points
+  const getPriceContext = (isPriceEntry: boolean): 'support' | 'resistance' | 'breakout' => {
+    const trendType = getTrendType(trend);
+    
+    if (isPriceEntry) {
+      return trendType === 'bullish' ? 'support' : 'resistance';
+    } else {
+      return 'breakout';
     }
-    
-    // Add market volatility insight
-    result.push({
-      id: 'volatility',
-      title: 'Market Volatility Assessment',
-      description: `Analyze the current volatility for ${symbol || 'this market'}.`,
-      icon: <BarChart2 className="h-4 w-4 text-purple-500" />,
-      tooltipTitle: 'Volatility Impact',
-      tooltipContent: 'Higher volatility increases both risk and potential reward. During volatile periods, use wider stops and consider reducing position sizes to manage risk appropriately.',
-      animationType: 'volatility'
-    });
-    
-    return result;
-  }, [trend, confidence, patterns, timeframe, symbol]);
-
+  };
+  
   return (
-    <Card className="border border-gray-200 dark:border-gray-800 shadow-sm mb-6">
+    <Card className={`bg-gray-900 border-gray-800 shadow-xl ${className}`}>
       <CardHeader className="pb-2">
-        <div className="flex justify-between items-center">
-          <div>
-            <CardTitle className="text-lg">Chart Insights</CardTitle>
-            <CardDescription>
-              Interactive explanations for this analysis
-            </CardDescription>
-          </div>
-          <Link href="/market-insights">
-            <Badge variant="outline" className="cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800">
-              View All Insights
-            </Badge>
-          </Link>
-        </div>
+        <CardTitle className="flex items-center gap-2 text-white">
+          <Sparkles className="h-5 w-5 text-indigo-500" />
+          <span>Interactive Chart Insights</span>
+        </CardTitle>
       </CardHeader>
       <CardContent>
-        <motion.div 
-          className="space-y-3"
-          variants={containerVariants}
-          initial="hidden"
-          animate="visible"
-        >
-          {insights.map((insight) => (
-            <motion.div 
-              key={insight.id}
-              variants={itemVariants}
-              className="flex items-start justify-between p-3 rounded-lg bg-gray-50 dark:bg-gray-800"
-            >
-              <div className="flex items-start gap-3">
-                <div className="flex h-6 w-6 items-center justify-center rounded-full bg-white dark:bg-gray-700 shadow-sm">
-                  {insight.icon}
+        <div className="space-y-4">
+          {/* Chart Pattern */}
+          {pattern && (
+            <div className="flex flex-col gap-1.5">
+              <span className="text-xs text-gray-400">Chart Pattern</span>
+              <InteractiveInsightTooltip
+                title={pattern}
+                description={getPatternDescription(pattern)}
+                type={getTrendType(trend)}
+                context={getPatternContext(pattern)}
+              >
+                <div className={`
+                  inline-flex p-1.5 px-3 rounded-lg text-sm font-medium
+                  ${getTrendType(trend) === 'bullish' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 
+                    getTrendType(trend) === 'bearish' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' : 
+                    getTrendType(trend) === 'volatile' ? 'bg-orange-500/10 text-orange-400 border border-orange-500/20' : 
+                    'bg-amber-500/10 text-amber-400 border border-amber-500/20'}
+                `}>
+                  {pattern}
                 </div>
-                <div>
-                  <h4 className="text-sm font-medium">{insight.title}</h4>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                    {insight.description}
-                  </p>
+              </InteractiveInsightTooltip>
+            </div>
+          )}
+          
+          {/* Market Trend */}
+          {trend && (
+            <div className="flex flex-col gap-1.5">
+              <span className="text-xs text-gray-400">Market Trend</span>
+              <InteractiveInsightTooltip
+                title={`${getTrendType(trend).charAt(0).toUpperCase() + getTrendType(trend).slice(1)} Trend`}
+                description={getTrendDescription(trend)}
+                type={getTrendType(trend)}
+                context="trend"
+              >
+                <div className={`
+                  inline-flex p-1.5 px-3 rounded-lg text-sm font-medium
+                  ${getTrendType(trend) === 'bullish' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 
+                    getTrendType(trend) === 'bearish' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' : 
+                    getTrendType(trend) === 'volatile' ? 'bg-orange-500/10 text-orange-400 border border-orange-500/20' : 
+                    'bg-amber-500/10 text-amber-400 border border-amber-500/20'}
+                `}>
+                  {trend}
                 </div>
-              </div>
-              <InsightTooltip 
-                title={insight.tooltipTitle}
-                content={insight.tooltipContent}
-                icon={insight.icon.type.name?.toLowerCase().includes('trending') ? 
-                  (insight.title.toLowerCase().includes('bull') ? 'bullish' : 'bearish') : 
-                  insight.icon.type.name?.toLowerCase().includes('chart') ? 'volatility' : 'info'}
-                animationType={insight.animationType as any}
-                className="mt-0.5"
-              />
-            </motion.div>
-          ))}
-        </motion.div>
+              </InteractiveInsightTooltip>
+            </div>
+          )}
+          
+          {/* Entry Point */}
+          {entryPoint && (
+            <div className="flex flex-col gap-1.5">
+              <span className="text-xs text-gray-400">Entry Point</span>
+              <InteractiveInsightTooltip
+                title={`Entry at ${entryPoint}`}
+                description={`Suggested market entry point for ${symbol} is at ${entryPoint}. ${
+                  getTrendType(trend) === 'bullish' 
+                    ? 'This represents a potential support level or breakout confirmation.' 
+                    : 'This represents a potential resistance level or breakdown confirmation.'
+                }`}
+                type={getTrendType(trend)}
+                context={getPriceContext(true)}
+              >
+                <div className={`
+                  inline-flex p-1.5 px-3 rounded-lg text-sm font-medium
+                  ${getTrendType(trend) === 'bullish' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 
+                    'bg-rose-500/10 text-rose-400 border border-rose-500/20'}
+                `}>
+                  {entryPoint}
+                </div>
+              </InteractiveInsightTooltip>
+            </div>
+          )}
+          
+          {/* Exit Point */}
+          {exitPoint && (
+            <div className="flex flex-col gap-1.5">
+              <span className="text-xs text-gray-400">Take Profit Target</span>
+              <InteractiveInsightTooltip
+                title={`Take Profit at ${exitPoint}`}
+                description={`Suggested take profit level for ${symbol} is at ${exitPoint}. This target is based on the identified pattern and recent price action.`}
+                type={getTrendType(trend)}
+                context={getPriceContext(false)}
+              >
+                <div className={`
+                  inline-flex p-1.5 px-3 rounded-lg text-sm font-medium
+                  ${getTrendType(trend) === 'bullish' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 
+                    'bg-rose-500/10 text-rose-400 border border-rose-500/20'}
+                `}>
+                  {exitPoint}
+                </div>
+              </InteractiveInsightTooltip>
+            </div>
+          )}
+          
+          {/* Timeframe Context */}
+          {timeframe && (
+            <div className="flex flex-col gap-1.5">
+              <span className="text-xs text-gray-400">Timeframe Context</span>
+              <InteractiveInsightTooltip
+                title={`${timeframe.toUpperCase()} Timeframe`}
+                description={getTimeframeDescription(timeframe)}
+                type={getTrendType(trend)}
+                context={getTimeframeContext(timeframe)}
+              >
+                <div className={`
+                  inline-flex p-1.5 px-3 rounded-lg text-sm font-medium bg-gray-800 text-gray-300 border border-gray-700
+                `}>
+                  {timeframe.toUpperCase()}
+                </div>
+              </InteractiveInsightTooltip>
+            </div>
+          )}
+        </div>
       </CardContent>
     </Card>
   );
+};
+
+// Helper function to get pattern descriptions
+function getPatternDescription(pattern: string): string {
+  const lowerPattern = pattern.toLowerCase();
+  
+  if (lowerPattern.includes('double top')) {
+    return "A double top is a bearish reversal pattern that forms after an uptrend when price tests a resistance level twice before moving lower, indicating a potential trend change to the downside.";
+  } else if (lowerPattern.includes('double bottom')) {
+    return "A double bottom is a bullish reversal pattern that forms after a downtrend when price tests a support level twice before moving higher, indicating a potential trend change to the upside.";
+  } else if (lowerPattern.includes('head and shoulders')) {
+    return "A head and shoulders pattern is a reversal pattern characterized by a peak (shoulder), followed by a higher peak (head), and then another lower peak (shoulder), signaling a bearish reversal.";
+  } else if (lowerPattern.includes('inverse head')) {
+    return "An inverse head and shoulders pattern is a bullish reversal pattern characterized by a trough (shoulder), followed by a lower trough (head), and then another higher trough (shoulder), signaling a potential uptrend.";
+  } else if (lowerPattern.includes('triangle')) {
+    if (lowerPattern.includes('ascending')) {
+      return "An ascending triangle is a bullish continuation pattern characterized by a horizontal upper resistance line and an upward-sloping lower support line, suggesting a potential breakout to the upside.";
+    } else if (lowerPattern.includes('descending')) {
+      return "A descending triangle is a bearish continuation pattern characterized by a horizontal lower support line and a downward-sloping upper resistance line, suggesting a potential breakdown to the downside.";
+    } else {
+      return "A triangle pattern occurs when price consolidates between converging support and resistance lines, indicating a potential breakout in either direction.";
+    }
+  } else if (lowerPattern.includes('flag')) {
+    return "A flag pattern is a continuation pattern that forms as a small counter-trend rectangle after a sharp price movement, usually followed by a continuation in the direction of the prior trend.";
+  } else if (lowerPattern.includes('wedge')) {
+    return "A wedge pattern forms when price consolidates between converging support and resistance lines. Falling wedges are typically bullish, while rising wedges are typically bearish.";
+  } else if (lowerPattern.includes('channel')) {
+    return "A channel pattern forms when price moves between parallel support and resistance lines. Ascending channels suggest bullish conditions, while descending channels suggest bearish conditions.";
+  }
+  
+  return `The ${pattern} pattern may indicate a potential trading opportunity based on historical price behavior. Click for more details on this pattern.`;
 }
 
-// Helper function to get detailed pattern descriptions
-function getPatternDescription(pattern: string): string {
-  const patternLower = pattern.toLowerCase();
+// Helper function for trend descriptions
+function getTrendDescription(trend: string): string {
+  const lowerTrend = trend.toLowerCase();
   
-  if (patternLower.includes('engulfing') && patternLower.includes('bull')) {
-    return 'Bullish engulfing patterns occur when a green (bullish) candle completely engulfs the previous red (bearish) candle. This signals strong buying pressure and often marks the end of a downtrend.';
+  if (lowerTrend.includes('strong') && lowerTrend.includes('bullish')) {
+    return "A strong bullish trend shows price consistently making higher highs and higher lows, with strong buying pressure and often increased volume on upward movements.";
+  } else if (lowerTrend.includes('bullish')) {
+    return "A bullish trend is characterized by a general upward movement in price, with higher highs and higher lows forming over time.";
+  } else if (lowerTrend.includes('strong') && lowerTrend.includes('bearish')) {
+    return "A strong bearish trend shows price consistently making lower highs and lower lows, with strong selling pressure and often increased volume on downward movements.";
+  } else if (lowerTrend.includes('bearish')) {
+    return "A bearish trend is characterized by a general downward movement in price, with lower highs and lower lows forming over time.";
+  } else if (lowerTrend.includes('neutral') || lowerTrend.includes('sideways')) {
+    return "A neutral or sideways trend shows price moving horizontally with no clear directional bias, often contained within a trading range.";
+  } else if (lowerTrend.includes('volatile')) {
+    return "A volatile trend shows extreme price movements in both directions, with large candles and significant price swings, indicating uncertainty in the market.";
   }
   
-  if (patternLower.includes('engulfing') && patternLower.includes('bear')) {
-    return 'Bearish engulfing patterns occur when a red (bearish) candle completely engulfs the previous green (bullish) candle. This signals strong selling pressure and often marks the end of an uptrend.';
+  return "The current market trend indicates the overall direction of price movement, which can help inform entry and exit decisions.";
+}
+
+// Helper function for timeframe descriptions
+function getTimeframeDescription(timeframe: string): string {
+  const lowerTimeframe = timeframe.toLowerCase();
+  
+  if (lowerTimeframe.includes('m1') || lowerTimeframe.includes('1m')) {
+    return "The 1-minute timeframe shows very short-term price movements and is typically used by scalpers for quick trades with small profit targets.";
+  } else if (lowerTimeframe.includes('m5') || lowerTimeframe.includes('5m')) {
+    return "The 5-minute timeframe provides a short-term view of price action, suitable for intraday trading and identifying short-term support/resistance levels.";
+  } else if (lowerTimeframe.includes('m15') || lowerTimeframe.includes('15m')) {
+    return "The 15-minute timeframe offers a balance between detail and noise reduction, commonly used by day traders to identify intraday patterns.";
+  } else if (lowerTimeframe.includes('m30') || lowerTimeframe.includes('30m')) {
+    return "The 30-minute timeframe reduces market noise while maintaining intraday detail, making it useful for swing traders and intraday position management.";
+  } else if (lowerTimeframe.includes('h1') || lowerTimeframe.includes('1h')) {
+    return "The 1-hour timeframe provides a medium-term view that balances detail and trend visibility, popular among both day traders and swing traders.";
+  } else if (lowerTimeframe.includes('h4') || lowerTimeframe.includes('4h')) {
+    return "The 4-hour timeframe offers a broader market perspective with reduced noise, ideal for swing traders and identifying medium-term trends.";
+  } else if (lowerTimeframe.includes('d1') || lowerTimeframe.includes('daily')) {
+    return "The daily timeframe shows long-term price movements and trend development, filtering out short-term noise and providing a clear view of market structure.";
+  } else if (lowerTimeframe.includes('w1') || lowerTimeframe.includes('weekly')) {
+    return "The weekly timeframe reveals major market trends and significant support/resistance levels, used primarily by position traders and investors.";
+  } else if (lowerTimeframe.includes('mn') || lowerTimeframe.includes('monthly')) {
+    return "The monthly timeframe shows very long-term market cycles and historical price levels, used mainly for strategic investment decisions and identifying major market shifts.";
   }
   
-  if (patternLower.includes('doji')) {
-    return 'Doji candles have virtually the same open and close prices, creating a cross-like appearance. They indicate indecision in the market and potential trend reversals, especially after strong trends.';
-  }
-  
-  if (patternLower.includes('hammer')) {
-    return 'The hammer is a bullish reversal pattern that forms during a downtrend. It has a small body at the upper end of the trading range with a long lower shadow, showing buyers stepping in after selling pressure.';
-  }
-  
-  if (patternLower.includes('shooting star')) {
-    return 'The shooting star is a bearish reversal pattern that forms during an uptrend. It has a small body at the lower end of the trading range with a long upper shadow, showing sellers entering after an upward move.';
-  }
-  
-  if (patternLower.includes('double top')) {
-    return 'A double top is a bearish reversal pattern where price reaches a high twice with a moderate decline between the highs. The pattern completes when price breaks below the support level between the two tops.';
-  }
-  
-  if (patternLower.includes('double bottom')) {
-    return 'A double bottom is a bullish reversal pattern where price reaches a low twice with a moderate rally between the lows. The pattern completes when price breaks above the resistance level between the two bottoms.';
-  }
-  
-  if (patternLower.includes('head and shoulders')) {
-    return 'The head and shoulders pattern is a reversal pattern with three peaks - the middle peak (head) being higher than the two outer peaks (shoulders). A breakdown below the neckline confirms the pattern.';
-  }
-  
-  if (patternLower.includes('triangle')) {
-    if (patternLower.includes('ascending')) {
-      return 'An ascending triangle is a bullish continuation pattern with a flat upper resistance line and an ascending lower support line. It indicates accumulation and typically breaks to the upside.';
-    }
-    if (patternLower.includes('descending')) {
-      return 'A descending triangle is a bearish continuation pattern with a flat lower support line and a descending upper resistance line. It indicates distribution and typically breaks to the downside.';
-    }
-    return 'Triangle patterns show convergence of support and resistance lines, indicating decreasing volatility before a breakout. The direction of the breakout often indicates the next trend direction.';
-  }
-  
-  if (patternLower.includes('flag') || patternLower.includes('pennant')) {
-    return 'Flags and pennants are short-term continuation patterns that form after a sharp price move. They represent brief consolidations before the price continues in the direction of the previous trend.';
-  }
-  
-  if (patternLower.includes('support')) {
-    return 'Support levels are price areas where buying pressure is strong enough to overcome selling pressure, causing the price to stop falling and potentially reverse upward.';
-  }
-  
-  if (patternLower.includes('resistance')) {
-    return 'Resistance levels are price areas where selling pressure is strong enough to overcome buying pressure, causing the price to stop rising and potentially reverse downward.';
-  }
-  
-  // Default description for unrecognized patterns
-  return `${pattern} is a technical chart pattern that traders use to identify potential trading opportunities. Monitor price action around this pattern for confirmation signals.`;
+  return `The ${timeframe} timeframe provides a specific perspective on price movement that can influence trading decisions and strategy selection.`;
 }
