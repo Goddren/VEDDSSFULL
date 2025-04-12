@@ -449,6 +449,76 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Publish analysis to the social hub
+  app.post("/api/analyses/:id/publish-to-social", async (req: Request, res: Response) => {
+    try {
+      // Check if user is authenticated
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ 
+          success: false,
+          message: "Authentication required" 
+        });
+      }
+      
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid analysis ID" });
+      }
+      
+      const { isPublic } = req.body;
+      
+      // Get analysis to verify ownership
+      const analysis = await storage.getChartAnalysis(id);
+      if (!analysis) {
+        return res.status(404).json({ message: "Analysis not found" });
+      }
+      
+      // Check if the user owns this analysis
+      if (analysis.userId !== (req.user as Express.User).id) {
+        return res.status(403).json({ 
+          success: false,
+          message: "You don't have permission to modify this analysis" 
+        });
+      }
+      
+      // Update the analysis isPublic status
+      const updatedAnalysis = await storage.updateChartAnalysis(id, {
+        isPublic: isPublic === false ? false : true  // Default to true if not explicitly set to false
+      });
+      
+      if (!updatedAnalysis) {
+        return res.status(500).json({ message: "Failed to update analysis" });
+      }
+      
+      // Trigger achievement check for publishing to social hub
+      if (isPublic !== false) {
+        try {
+          await checkUserAchievements({
+            trigger: 'PUBLISH_ANALYSIS',
+            userId: (req.user as Express.User).id,
+            data: {
+              analysisId: id
+            }
+          });
+        } catch (err) {
+          console.error("Error checking achievements:", err);
+          // Don't fail the request if achievement checking fails
+        }
+      }
+      
+      res.json({
+        success: true,
+        analysis: updatedAnalysis
+      });
+    } catch (error) {
+      console.error("Error publishing to social hub:", error);
+      res.status(500).json({ 
+        success: false,
+        message: "Error publishing analysis to social hub" 
+      });
+    }
+  });
+
   // Special endpoint for serving shared images directly
   app.get("/api/shared-image/:filename", (req: Request, res: Response) => {
     try {
