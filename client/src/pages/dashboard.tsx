@@ -21,7 +21,7 @@ import {
   Gamepad as GamepadIcon,
   Smile
 } from 'lucide-react';
-import { QuickTipGenerator } from '@/components/trading/quick-tip-generator';
+import { MarketCalendar } from '@/components/market/market-calendar';
 import { RecentAchievements } from '@/components/achievements/recent-achievements';
 import { UserLevel } from '@/components/achievements/user-level';
 import { VolatilityMeter } from '@/components/ui/volatility-meter';
@@ -367,8 +367,8 @@ const Dashboard: React.FC = () => {
               </CardContent>
             </Card>
             
-            {/* Trading Tip Generator */}
-            <QuickTipGenerator />
+            {/* Economic Calendar */}
+            <MarketCalendar />
 
             {/* Market Volatility Risk Meter */}
             <Card className="bg-gray-900 border-gray-800 shadow-xl overflow-hidden mb-6">
