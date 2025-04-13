@@ -18,9 +18,12 @@ export function ReferralCard({ className = '', preview = false }: ReferralCardPr
   const { user } = useAuth();
   const [copied, setCopied] = useState(false);
   
+  // Force preview mode until database is updated
+  preview = true;
+  
   // This will be populated from the backend once fully implemented
-  const referralCode = user?.referralCode || 'COMINGSOON';
-  const referralCredits = user?.referralCredits || 0;
+  const referralCode = 'COMINGSOON';
+  const referralCredits = 0;
   const referralUrl = `${window.location.origin}/auth?ref=${referralCode}`;
   
   // Mock leaderboard data for preview
