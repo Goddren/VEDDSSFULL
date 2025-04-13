@@ -371,6 +371,26 @@ const Dashboard: React.FC = () => {
             
             {/* Economic Calendar */}
             <MarketCalendar />
+            
+            {/* Trading Coach */}
+            <Card className="bg-gray-900 border-gray-800 shadow-xl overflow-hidden mb-6">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="text-xl text-white flex items-center">
+                      <Lightbulb className="h-5 w-5 mr-2 text-amber-500" />
+                      Trading Coach
+                    </CardTitle>
+                    <CardDescription>Get personalized trading advice</CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="pb-4">
+                <div className="h-[400px]">
+                  <TradingCoach personality="friendly" />
+                </div>
+              </CardContent>
+            </Card>
 
             {/* Market Volatility Risk Meter */}
             <Card className="bg-gray-900 border-gray-800 shadow-xl overflow-hidden mb-6">
