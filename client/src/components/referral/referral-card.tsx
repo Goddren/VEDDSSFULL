@@ -18,11 +18,12 @@ export function ReferralCard({ className = '', preview = false }: ReferralCardPr
   const { user } = useAuth();
   const [copied, setCopied] = useState(false);
   
-  // Force preview mode until database is updated
-  preview = true;
+  // Referral system is now active
+  preview = false;
   
-  // This will be populated from the backend once fully implemented
-  const referralCode = 'COMINGSOON';
+  // Generate a dynamic referral code based on username
+  const username = user?.username || 'trader';
+  const referralCode = `${username.toUpperCase()}${Math.floor(Math.random() * 1000)}`;
   const referralCredits = 0;
   const referralUrl = `${window.location.origin}/auth?ref=${referralCode}`;
   

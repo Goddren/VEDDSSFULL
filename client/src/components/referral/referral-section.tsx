@@ -8,8 +8,8 @@ interface ReferralSectionProps {
 }
 
 export function ReferralSection({ className = '', preview = false }: ReferralSectionProps) {
-  // Force preview mode until database is updated
-  preview = true;
+  // Referral system is now active
+  preview = false;
   return (
     <div className={`${className} space-y-6`}>
       <h2 className="text-2xl font-bold">

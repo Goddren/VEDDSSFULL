@@ -21,8 +21,8 @@ interface ReferralLeaderboardProps {
 export function ReferralLeaderboard({ className = '', preview = false }: ReferralLeaderboardProps) {
   const { toast } = useToast();
   
-  // Force preview mode until database is updated
-  preview = true;
+  // Referral system is now active
+  preview = false;
   
   // Mock leaderboard data for preview
   const mockLeaderboard: LeaderboardEntry[] = [
