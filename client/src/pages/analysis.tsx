@@ -230,6 +230,9 @@ const Analysis: React.FC = () => {
       
       // Record this analysis in achievements system
       checkAchievements();
+      
+      // Invalidate subscription cache to update the usage bar
+      queryClient.invalidateQueries({ queryKey: ['/api/subscription'] });
     },
     onError: (error) => {
       toast({
