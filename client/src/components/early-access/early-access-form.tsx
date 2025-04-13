@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
-import { Sparkles, CheckCheck, XCircle, Copy } from 'lucide-react';
+import { Sparkles, CheckCheck, XCircle, Copy, Clock } from 'lucide-react';
 import { createEarlyAccessPromo } from '@/lib/promo-codes';
 
 export function EarlyAccessForm() {
@@ -15,7 +15,30 @@ export function EarlyAccessForm() {
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState('');
   const [promoCode, setPromoCode] = useState('');
+  const [timeLeft, setTimeLeft] = useState({
+    hours: 23,
+    minutes: 59,
+    seconds: 59
+  });
   const { toast } = useToast();
+  
+  // Countdown timer effect
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setTimeLeft(prev => {
+        if (prev.seconds > 0) {
+          return { ...prev, seconds: prev.seconds - 1 };
+        } else if (prev.minutes > 0) {
+          return { ...prev, minutes: prev.minutes - 1, seconds: 59 };
+        } else if (prev.hours > 0) {
+          return { hours: prev.hours - 1, minutes: 59, seconds: 59 };
+        }
+        return prev; // Time's up
+      });
+    }, 1000);
+    
+    return () => clearInterval(timer);
+  }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -83,7 +106,7 @@ export function EarlyAccessForm() {
             </span>
           </div>
           <div className="absolute -bottom-5 left-0 right-0 text-center">
-            <span className="text-xs font-medium text-amber-300">Limited Time Offer</span>
+            <span className="text-xs font-medium text-red-400">Only <span className="font-bold">5 spots</span> left!</span>
           </div>
         </div>
       </DialogTrigger>
@@ -94,8 +117,32 @@ export function EarlyAccessForm() {
             Get Exclusive Early Access
           </DialogTitle>
           <DialogDescription className="text-gray-400">
-            Be among the first to experience our premium features at 50% off the regular price.
+            Be among the first to experience our premium features at 50% off the regular price. <span className="text-red-400 font-bold">Only 5 spots remaining!</span>
           </DialogDescription>
+          
+          {/* Countdown Timer */}
+          <div className="mt-4 mx-auto bg-gray-800 rounded-lg p-3 flex items-center justify-center border border-amber-500/30">
+            <Clock className="text-amber-500 mr-2 h-5 w-5" />
+            <div className="text-center">
+              <p className="text-xs text-gray-400 mb-1">This offer expires in:</p>
+              <div className="flex items-center justify-center space-x-2 text-white">
+                <div className="bg-gray-700 rounded px-2 py-1 min-w-[40px] text-center">
+                  <span className="font-mono text-lg font-bold">{timeLeft.hours.toString().padStart(2, '0')}</span>
+                  <span className="text-xs block text-gray-400">hours</span>
+                </div>
+                <span className="text-gray-400">:</span>
+                <div className="bg-gray-700 rounded px-2 py-1 min-w-[40px] text-center">
+                  <span className="font-mono text-lg font-bold">{timeLeft.minutes.toString().padStart(2, '0')}</span>
+                  <span className="text-xs block text-gray-400">mins</span>
+                </div>
+                <span className="text-gray-400">:</span>
+                <div className="bg-gray-700 rounded px-2 py-1 min-w-[40px] text-center">
+                  <span className="font-mono text-lg font-bold">{timeLeft.seconds.toString().padStart(2, '0')}</span>
+                  <span className="text-xs block text-gray-400">secs</span>
+                </div>
+              </div>
+            </div>
+          </div>
         </DialogHeader>
         
         {submitted ? (
@@ -205,7 +252,7 @@ export function EarlyAccessForm() {
                     Processing...
                   </div>
                 : 
-                  <>Reserve My Spot</>
+                  <>Claim My Spot <span className="text-red-900 font-bold">(5 left!)</span></>
                 }
               </Button>
             </div>
