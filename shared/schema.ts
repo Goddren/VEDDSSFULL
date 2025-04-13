@@ -2,6 +2,21 @@ import { pgTable, text, serial, integer, boolean, timestamp, jsonb, real, unique
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
+export const subscriptionPlans = pgTable("subscription_plans", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull().unique(),
+  description: text("description").notNull(),
+  price: integer("price").notNull(), // Price in cents
+  interval: text("interval").notNull().default('month'), // month, year, etc.
+  features: jsonb("features").notNull(),
+  analysisLimit: integer("analysis_limit").notNull(),
+  socialShareLimit: integer("social_share_limit").notNull(),
+  stripeProductId: text("stripe_product_id"),
+  stripePriceId: text("stripe_price_id"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   username: text("username").notNull().unique(),
@@ -9,6 +24,14 @@ export const users = pgTable("users", {
   email: text("email").notNull(),
   fullName: text("full_name"),
   profileImage: text("profile_image"),
+  subscriptionPlanId: integer("subscription_plan_id").references(() => subscriptionPlans.id),
+  stripeCustomerId: text("stripe_customer_id"),
+  stripeSubscriptionId: text("stripe_subscription_id"),
+  subscriptionStatus: text("subscription_status").default('none'), // none, active, trialing, past_due, canceled, unpaid
+  subscriptionCurrentPeriodEnd: timestamp("subscription_current_period_end"),
+  monthlyAnalysisCount: integer("monthly_analysis_count").default(0),
+  monthlySocialShareCount: integer("monthly_social_share_count").default(0),
+  lastCountReset: timestamp("last_count_reset"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -181,6 +204,14 @@ export const insertAnalysisFeedbackSchema = createInsertSchema(analysisFeedback)
   createdAt: true,
 });
 
+// Subscription-related schemas
+export const insertSubscriptionPlanSchema = createInsertSchema(subscriptionPlans).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type SubscriptionPlan = typeof subscriptionPlans.$inferSelect;
+export type InsertSubscriptionPlan = z.infer<typeof insertSubscriptionPlanSchema>;
 export type UserProfile = typeof userProfiles.$inferSelect;
 export type InsertUserProfile = z.infer<typeof insertUserProfileSchema>;
 export type Follow = typeof follows.$inferSelect;
