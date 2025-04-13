@@ -33,7 +33,7 @@ export const users = pgTable("users", {
   monthlySocialShareCount: integer("monthly_social_share_count").default(0),
   lastCountReset: timestamp("last_count_reset"),
   // referralCode field temporarily removed due to database issues
-  referralCredits: integer("referral_credits").default(0),
+  // referralCredits field temporarily removed due to database issues
   referredBy: integer("referred_by").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),

@@ -581,14 +581,12 @@ export class DatabaseStorage implements IStorage {
   }
   
   async addReferralCredits(userId: number, credits: number): Promise<User | undefined> {
-    const [updatedUser] = await db
-      .update(users)
-      .set({
-        referralCredits: sql`COALESCE(${users.referralCredits}, 0) + ${credits}`,
-      })
-      .where(eq(users.id, userId))
-      .returning();
-    return updatedUser;
+    // Temporarily just return the user without updating credits since the column was removed
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, userId));
+    return user;
   }
 }
 
