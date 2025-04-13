@@ -30,6 +30,7 @@ import MarketInsightsPage from "@/pages/market-insights";
 import MarketTrendGamePage from "@/pages/market-trend-game";
 import MarketMoodPage from "@/pages/market-mood";
 import MarketSentimentPage from "@/pages/market-sentiment";
+import InteractiveTooltipShowcase from "@/pages/interactive-tooltip-showcase";
 import { NewsNotificationScheduler } from "@/components/news-notification-scheduler";
 
 import { useLocation } from "wouter";
@@ -76,6 +77,7 @@ function AppLayout() {
           <ProtectedRoute path="/market-trend-game" component={MarketTrendGamePage} />
           <ProtectedRoute path="/market-mood" component={MarketMoodPage} />
           <ProtectedRoute path="/market-sentiment" component={MarketSentimentPage} />
+          <ProtectedRoute path="/interactive-tooltips" component={InteractiveTooltipShowcase} />
           
           <Route component={NotFound} />
         </Switch>
