@@ -5,6 +5,7 @@ import { analyzeChartImage, testOpenAIApiKey, generateTradingTip, generateMarket
 import { setupTwilio, sendTradingSignal } from "./twilio";
 import { checkUserAchievements } from "./achievement-tracker";
 import { tradingCoachHandler, tradingTipsHandler } from "./trading-coach";
+import { contextualInsightHandler, marketInsightsHandler } from "./market-insights";
 import { 
   getSubscriptionPlans,
   getUserSubscription,
@@ -1462,6 +1463,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Trading Tips endpoint
   app.get('/api/trading-tips', tradingTipsHandler);
+
+  // Market insights endpoints
+  app.get('/api/market-insights', marketInsightsHandler);
+  app.post('/api/market-insights/contextual', contextualInsightHandler);
 
   const httpServer = createServer(app);
   return httpServer;
