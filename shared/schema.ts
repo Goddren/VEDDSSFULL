@@ -32,6 +32,7 @@ export const users = pgTable("users", {
   monthlyAnalysisCount: integer("monthly_analysis_count").default(0),
   monthlySocialShareCount: integer("monthly_social_share_count").default(0),
   lastCountReset: timestamp("last_count_reset"),
+  faithBasedContent: boolean("faith_based_content").default(true), // Enable/disable faith-based content
   // referralCode field temporarily removed due to database issues
   // referralCredits field temporarily removed due to database issues
   // referredBy field temporarily removed due to database issues
@@ -87,6 +88,7 @@ export const updateUserProfileSchema = z.object({
   email: z.string().email("Invalid email address").optional(),
   fullName: z.string().optional(),
   profileImage: z.string().optional(),
+  faithBasedContent: z.boolean().optional(),
 });
 
 export const insertChartAnalysisSchema = createInsertSchema(chartAnalyses).omit({
