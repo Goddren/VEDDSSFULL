@@ -29,6 +29,7 @@ interface UserSubscription {
   planName: string;
   status: 'active' | 'canceled' | 'none';
   currentPeriodEnd?: string;
+  stripeSubscriptionId?: string;
   monthlyAnalysisCount: number;
   monthlySocialShareCount: number;
   analysisLimit: number;
@@ -60,6 +61,7 @@ export function SubscriptionUsageHeader() {
     monthlySocialShareCount = 0,
     analysisLimit = 3,
     socialShareLimit = 1,
+    currentPeriodEnd,
   } = subscription;
   
   // Get current plan and next tier if available
@@ -148,7 +150,7 @@ export function SubscriptionUsageHeader() {
             </DropdownMenu>
             
             {/* Only show warning for nearly expired */}
-            {subscription.currentPeriodEnd && new Date(subscription.currentPeriodEnd).getTime() - Date.now() < 5 * 24 * 60 * 60 * 1000 && (
+            {currentPeriodEnd && new Date(currentPeriodEnd).getTime() - Date.now() < 5 * 24 * 60 * 60 * 1000 && (
               <div className="flex items-center text-amber-500 text-xs gap-1">
                 <AlertTriangle className="h-3.5 w-3.5" />
                 <span>Expires soon</span>
