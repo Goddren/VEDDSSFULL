@@ -515,23 +515,15 @@ export class DatabaseStorage implements IStorage {
   }
   
   async saveReferralCode(userId: number, code: string): Promise<User | undefined> {
-    const [updatedUser] = await db
-      .update(users)
-      .set({
-        referralCode: code,
-        updatedAt: new Date(),
-      })
-      .where(eq(users.id, userId))
-      .returning();
-    return updatedUser;
+    // This is a temporary implementation until the referral_code column is added to the database
+    // For now, just return the user without updating the referral code
+    return this.getUser(userId);
   }
   
   async getUserByReferralCode(code: string): Promise<User | undefined> {
-    const [user] = await db
-      .select()
-      .from(users)
-      .where(eq(users.referralCode, code));
-    return user;
+    // This is a temporary implementation until the referral_code column is added to the database
+    // For now, just return undefined since we can't look up users by referral code
+    return undefined;
   }
   
   async recordReferral(referrerId: number, referredId: number): Promise<Referral> {
