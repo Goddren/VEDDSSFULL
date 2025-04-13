@@ -27,6 +27,7 @@ import { RecentAchievements } from '@/components/achievements/recent-achievement
 import { UserLevel } from '@/components/achievements/user-level';
 import { VolatilityMeter } from '@/components/ui/volatility-meter';
 import { getUserLevel } from '@/lib/achievement-system';
+import TradingCoach from '@/components/trading-coach/trading-coach';
 
 interface Analysis {
   id: number;

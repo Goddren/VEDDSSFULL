@@ -1457,6 +1457,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Trading Coach endpoints
+  app.post('/api/trading-coach', tradingCoachHandler);
+  
+  // Trading Tips endpoint
+  app.get('/api/trading-tips', tradingTipsHandler);
+
   const httpServer = createServer(app);
   return httpServer;
 }

@@ -214,5 +214,8 @@ export function getTipById(id: string): TradingTip | undefined {
 
 // Function to get all available categories
 export function getAllCategories(): string[] {
-  return [...new Set(TRADING_TIPS.map(tip => tip.category))];
+  // Convert Set to Array to avoid TypeScript issues
+  const categoriesSet = new Set<string>();
+  TRADING_TIPS.forEach(tip => categoriesSet.add(tip.category));
+  return Array.from(categoriesSet);
 }
