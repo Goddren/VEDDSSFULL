@@ -3,12 +3,13 @@ import { db } from './db';
 import { subscriptionPlans, users } from '@shared/schema';
 import { eq } from 'drizzle-orm';
 
-if (!process.env.STRIPE_SECRET_KEY) {
-  throw new Error('Missing required Stripe secret: STRIPE_SECRET_KEY');
-}
+// Initialize Stripe client if key is available
+export const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
 
-// Initialize Stripe client
-export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+// Log warning if Stripe is not configured
+if (!process.env.STRIPE_SECRET_KEY) {
+  console.warn('Warning: STRIPE_SECRET_KEY not found. Stripe features will be disabled.');
+}
 
 // Create a Stripe customer for user
 export async function createStripeCustomer(userId: number, email: string, name?: string) {
