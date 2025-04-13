@@ -32,12 +32,21 @@ type PatternType =
   | 'undefined';
 
 interface InteractiveInsightTooltipProps {
-  insight: string;
+  // Original props
+  insight?: string;
   type?: 'info' | 'warning' | 'success' | 'error';
   patternType?: PatternType;
   marketTrend?: 'bullish' | 'bearish' | 'neutral';
-  className?: string;
   expandByDefault?: boolean;
+  
+  // Market insights page props
+  title?: string;
+  description?: string;
+  context?: 'candlestick' | 'pattern' | 'support' | 'resistance' | 'breakout' | 'trend' | 'volume' | 'divergence' | 'indicator' | 'reversal';
+  children?: React.ReactNode;
+  
+  // Common props
+  className?: string;
 }
 
 // Animations based on pattern types and market trends
@@ -206,16 +215,40 @@ const PathAnimation = ({ path, color }: { path: string, color: string }) => {
 };
 
 export const InteractiveInsightTooltip: React.FC<InteractiveInsightTooltipProps> = ({
+  // Handle both API interfaces
   insight,
+  title,
+  description,
   type = 'info',
   patternType,
   marketTrend,
+  context,
   className = '',
   expandByDefault = false,
+  children,
 }) => {
   const [isExpanded, setIsExpanded] = useState(expandByDefault);
   const tooltipRef = useRef<HTMLDivElement>(null);
-  const animation = getAnimation(patternType, marketTrend);
+  
+  // Determine what type of content we have
+  const isNewFormat = !!title || !!description || !!context;
+  
+  // Map context to patternType if needed
+  const effectivePatternType = patternType || 
+    (context === 'candlestick' ? 'continuation' :
+    context === 'support' ? 'support' :
+    context === 'resistance' ? 'resistance' :
+    context === 'breakout' ? 'breakout' :
+    context === 'reversal' ? 'reversal' :
+    context === 'pattern' ? 'triangle' : undefined);
+  
+  // Map type string to trend if applicable
+  const effectiveMarketTrend = marketTrend || 
+    (type === 'bullish' ? 'bullish' : 
+    type === 'bearish' ? 'bearish' : 
+    type === 'neutral' ? 'neutral' : undefined);
+  
+  const animation = getAnimation(effectivePatternType as PatternType, effectiveMarketTrend);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -234,6 +267,20 @@ export const InteractiveInsightTooltip: React.FC<InteractiveInsightTooltipProps>
   }, [isExpanded]);
 
   const getIcon = () => {
+    // Support both the new format from market-insights.tsx and original format
+    if (isNewFormat) {
+      if (type === 'bullish') {
+        return <TrendingUp className="h-5 w-5 text-green-500" />;
+      } else if (type === 'bearish') {
+        return <TrendingDown className="h-5 w-5 text-red-500" />;
+      } else if (type === 'volatile') {
+        return <Activity className="h-5 w-5 text-amber-500" />;
+      } else if (type === 'neutral') {
+        return <BarChart4 className="h-5 w-5 text-blue-500" />;
+      }
+    }
+    
+    // Original format icon selection
     switch (type) {
       case 'warning':
         return <AlertCircle className="h-5 w-5 text-amber-500" />;
@@ -243,10 +290,10 @@ export const InteractiveInsightTooltip: React.FC<InteractiveInsightTooltipProps>
         return <XCircle className="h-5 w-5 text-red-500" />;
       case 'info':
       default:
-        if (patternType) {
-          if (patternType.includes('bullish') || marketTrend === 'bullish') {
+        if (effectivePatternType) {
+          if (effectivePatternType.includes('bullish') || effectiveMarketTrend === 'bullish') {
             return <TrendingUp className="h-5 w-5 text-green-500" />;
-          } else if (patternType.includes('bearish') || marketTrend === 'bearish') {
+          } else if (effectivePatternType.includes('bearish') || effectiveMarketTrend === 'bearish') {
             return <TrendingDown className="h-5 w-5 text-red-500" />;
           } else {
             return <BarChart4 className="h-5 w-5 text-blue-500" />;
@@ -258,6 +305,20 @@ export const InteractiveInsightTooltip: React.FC<InteractiveInsightTooltipProps>
 
   // Get background color based on type
   const getBgColor = () => {
+    // Support market trend colors for new format
+    if (isNewFormat) {
+      if (type === 'bullish') {
+        return 'bg-emerald-50 border-emerald-200 dark:bg-emerald-950 dark:border-emerald-800';
+      } else if (type === 'bearish') {
+        return 'bg-rose-50 border-rose-200 dark:bg-rose-950 dark:border-rose-800';
+      } else if (type === 'volatile') {
+        return 'bg-amber-50 border-amber-200 dark:bg-amber-950 dark:border-amber-800';
+      } else if (type === 'neutral') {
+        return 'bg-blue-50 border-blue-200 dark:bg-blue-950 dark:border-blue-800';
+      }
+    }
+    
+    // Original type colors
     switch (type) {
       case 'warning':
         return 'bg-amber-50 border-amber-200 dark:bg-amber-950 dark:border-amber-800';
@@ -272,17 +333,19 @@ export const InteractiveInsightTooltip: React.FC<InteractiveInsightTooltipProps>
   };
 
   const getColorBasedOnMarketTrend = () => {
-    if (marketTrend === 'bullish') {
+    if (effectiveMarketTrend === 'bullish' || type === 'bullish') {
       return 'text-green-600 dark:text-green-400';
-    } else if (marketTrend === 'bearish') {
+    } else if (effectiveMarketTrend === 'bearish' || type === 'bearish') {
       return 'text-red-600 dark:text-red-400';
+    } else if (type === 'volatile') {
+      return 'text-amber-600 dark:text-amber-400';
     }
     return '';
   };
 
   // Render the arrow based on market trend
   const renderTrendArrow = () => {
-    if (marketTrend === 'bullish') {
+    if (effectiveMarketTrend === 'bullish' || type === 'bullish') {
       return (
         <motion.div
           className="text-green-500"
@@ -293,7 +356,7 @@ export const InteractiveInsightTooltip: React.FC<InteractiveInsightTooltipProps>
           <ArrowUp className="h-5 w-5" />
         </motion.div>
       );
-    } else if (marketTrend === 'bearish') {
+    } else if (effectiveMarketTrend === 'bearish' || type === 'bearish') {
       return (
         <motion.div
           className="text-red-500"
@@ -313,21 +376,29 @@ export const InteractiveInsightTooltip: React.FC<InteractiveInsightTooltipProps>
       className={`relative ${className}`}
       ref={tooltipRef}
     >
-      {/* Clickable Tooltip Trigger */}
-      <div
-        onClick={() => setIsExpanded(!isExpanded)}
-        className={`
-          inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm 
-          font-medium border cursor-pointer transition-colors hover:opacity-80
-          ${getBgColor()}
-        `}
-      >
-        {getIcon()}
-        <span className={getColorBasedOnMarketTrend()}>
-          {patternType ? patternType.replace(/_/g, ' ') : 'Insight'}
-        </span>
-        {renderTrendArrow()}
-      </div>
+      {/* Clickable Tooltip Trigger - Supporting both formats */}
+      {children ? (
+        // Market insights style with children as trigger
+        <div onClick={() => setIsExpanded(!isExpanded)}>
+          {children}
+        </div>
+      ) : (
+        // Original style with pill button
+        <div
+          onClick={() => setIsExpanded(!isExpanded)}
+          className={`
+            inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm 
+            font-medium border cursor-pointer transition-colors hover:opacity-80
+            ${getBgColor()}
+          `}
+        >
+          {getIcon()}
+          <span className={getColorBasedOnMarketTrend()}>
+            {title || (effectivePatternType ? effectivePatternType.replace(/_/g, ' ') : 'Insight')}
+          </span>
+          {renderTrendArrow()}
+        </div>
+      )}
 
       {/* Expanded Tooltip Content */}
       <AnimatePresence>
@@ -348,9 +419,10 @@ export const InteractiveInsightTooltip: React.FC<InteractiveInsightTooltipProps>
                 <div className="flex items-center gap-2">
                   {getIcon()}
                   <h3 className="font-semibold">
-                    {patternType 
-                      ? patternType.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) 
-                      : 'Market Insight'}
+                    {title || 
+                      (effectivePatternType 
+                        ? effectivePatternType.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) 
+                        : 'Market Insight')}
                   </h3>
                 </div>
                 <button 
@@ -373,7 +445,7 @@ export const InteractiveInsightTooltip: React.FC<InteractiveInsightTooltipProps>
                 </div>
               )}
 
-              <p className="text-sm">{insight}</p>
+              <p className="text-sm">{description || insight}</p>
             </div>
           </motion.div>
         )}
