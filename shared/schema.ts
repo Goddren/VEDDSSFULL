@@ -32,6 +32,9 @@ export const users = pgTable("users", {
   monthlyAnalysisCount: integer("monthly_analysis_count").default(0),
   monthlySocialShareCount: integer("monthly_social_share_count").default(0),
   lastCountReset: timestamp("last_count_reset"),
+  referralCode: text("referral_code").unique(),
+  referralCredits: integer("referral_credits").default(0),
+  referredBy: integer("referred_by").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -216,6 +219,25 @@ export type UserProfile = typeof userProfiles.$inferSelect;
 export type InsertUserProfile = z.infer<typeof insertUserProfileSchema>;
 export type Follow = typeof follows.$inferSelect;
 export type InsertFollow = z.infer<typeof insertFollowSchema>;
+// Referrals table
+export const referrals = pgTable("referrals", {
+  id: serial("id").primaryKey(),
+  referrerId: integer("referrer_id").references(() => users.id).notNull(),
+  referredId: integer("referred_id").references(() => users.id).notNull(),
+  status: text("status").notNull().default('pending'), // pending, completed, credited
+  creditAmount: integer("credit_amount").notNull().default(500), // 500 credits as default reward
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  completedAt: timestamp("completed_at"),
+});
+
+export const insertReferralSchema = createInsertSchema(referrals).omit({
+  id: true,
+  createdAt: true,
+  completedAt: true,
+});
+
 export type AnalysisFeedback = typeof analysisFeedback.$inferSelect;
 export type InsertAnalysisFeedback = z.infer<typeof insertAnalysisFeedbackSchema>;
 export type AnalysisView = typeof analysisViews.$inferSelect;
+export type Referral = typeof referrals.$inferSelect;
+export type InsertReferral = z.infer<typeof insertReferralSchema>;

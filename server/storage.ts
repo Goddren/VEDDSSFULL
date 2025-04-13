@@ -63,6 +63,16 @@ export interface IStorage {
   getAnalysisFeed(userId: number, limit?: number): Promise<ChartAnalysis[]>;
   getPopularAnalyses(limit?: number): Promise<ChartAnalysis[]>;
   
+  // Referral methods
+  generateReferralCode(userId: number): Promise<string>;
+  saveReferralCode(userId: number, code: string): Promise<User | undefined>;
+  getUserByReferralCode(code: string): Promise<User | undefined>;
+  recordReferral(referrerId: number, referredId: number): Promise<Referral>;
+  getReferrals(userId: number): Promise<Referral[]>;
+  completeReferral(referralId: number): Promise<Referral | undefined>;
+  getReferralLeaderboard(limit?: number): Promise<{ username: string; referrals: number }[]>;
+  addReferralCredits(userId: number, credits: number): Promise<User | undefined>;
+  
   // Session store for authentication
   sessionStore: session.Store;
 }
@@ -495,6 +505,98 @@ export class DatabaseStorage implements IStorage {
       .where(eq(chartAnalyses.isPublic, true))
       .orderBy(sql`${chartAnalyses.createdAt} DESC`)
       .limit(limit);
+  }
+  
+  // Referral methods
+  async generateReferralCode(userId: number): Promise<string> {
+    // Generate a unique referral code using user ID and random string
+    const randomPart = Math.random().toString(36).substring(2, 8).toUpperCase();
+    return `${userId.toString(36)}${randomPart}`;
+  }
+  
+  async saveReferralCode(userId: number, code: string): Promise<User | undefined> {
+    const [updatedUser] = await db
+      .update(users)
+      .set({
+        referralCode: code,
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, userId))
+      .returning();
+    return updatedUser;
+  }
+  
+  async getUserByReferralCode(code: string): Promise<User | undefined> {
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(eq(users.referralCode, code));
+    return user;
+  }
+  
+  async recordReferral(referrerId: number, referredId: number): Promise<Referral> {
+    const [newReferral] = await db
+      .insert(referrals)
+      .values({
+        referrerId,
+        referredId,
+        status: 'pending'
+      })
+      .returning();
+    return newReferral;
+  }
+  
+  async getReferrals(userId: number): Promise<Referral[]> {
+    return db
+      .select()
+      .from(referrals)
+      .where(eq(referrals.referrerId, userId));
+  }
+  
+  async completeReferral(referralId: number): Promise<Referral | undefined> {
+    const [updatedReferral] = await db
+      .update(referrals)
+      .set({
+        status: 'completed',
+        completedAt: new Date(),
+      })
+      .where(eq(referrals.id, referralId))
+      .returning();
+    
+    if (updatedReferral) {
+      // Add credits to the referrer
+      await this.addReferralCredits(updatedReferral.referrerId, updatedReferral.creditAmount);
+    }
+    
+    return updatedReferral;
+  }
+  
+  async getReferralLeaderboard(limit: number = 10): Promise<{ username: string; referrals: number }[]> {
+    const leaderboard = await db.execute(sql`
+      SELECT u.username, COUNT(r.id) as referrals
+      FROM ${referrals} r
+      JOIN ${users} u ON r.referrer_id = u.id
+      WHERE r.status = 'completed'
+      GROUP BY u.username
+      ORDER BY referrals DESC
+      LIMIT ${limit}
+    `);
+    
+    return leaderboard.rows.map((row: any) => ({
+      username: row.username,
+      referrals: parseInt(row.referrals, 10),
+    }));
+  }
+  
+  async addReferralCredits(userId: number, credits: number): Promise<User | undefined> {
+    const [updatedUser] = await db
+      .update(users)
+      .set({
+        referralCredits: sql`COALESCE(${users.referralCredits}, 0) + ${credits}`,
+      })
+      .where(eq(users.id, userId))
+      .returning();
+    return updatedUser;
   }
 }
 
