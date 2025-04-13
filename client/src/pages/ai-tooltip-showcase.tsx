@@ -248,7 +248,7 @@ export default function AITooltipShowcase() {
                       <SelectValue placeholder="Select pattern" />
                     </SelectTrigger>
                     <SelectContent className="bg-gray-800 border-gray-700">
-                      <SelectItem value="">None</SelectItem>
+                      <SelectItem value="none">None</SelectItem>
                       {patterns.map(pattern => (
                         <SelectItem key={pattern} value={pattern}>
                           {pattern}
@@ -265,7 +265,7 @@ export default function AITooltipShowcase() {
                       <SelectValue placeholder="Select timeframe" />
                     </SelectTrigger>
                     <SelectContent className="bg-gray-800 border-gray-700">
-                      <SelectItem value="">None</SelectItem>
+                      <SelectItem value="none">None</SelectItem>
                       {timeframes.map(timeframe => (
                         <SelectItem key={timeframe} value={timeframe}>
                           {timeframe}
