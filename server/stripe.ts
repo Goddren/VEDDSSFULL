@@ -152,7 +152,7 @@ export async function createSubscription(userId: number, planId: number) {
       ],
       payment_behavior: 'default_incomplete',
       payment_settings: { save_default_payment_method: 'on_subscription' },
-      expand: ['latest_invoice.payment_intent'],
+      expand: ['latest_invoice'],
       metadata: {
         userId: user.id.toString(),
         planId: plan.id.toString(),
@@ -162,7 +162,7 @@ export async function createSubscription(userId: number, planId: number) {
     // Get current_period_end from metadata or use default (30 days)
     const currentPeriodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
-    // Update user with subscription info
+    // First update the user record
     await db
       .update(users)
       .set({
@@ -172,11 +172,24 @@ export async function createSubscription(userId: number, planId: number) {
         subscriptionCurrentPeriodEnd: currentPeriodEnd,
       })
       .where(eq(users.id, userId));
+    
+    // Get the payment intent details in a separate call if needed
+    let clientSecret = null;
+    if (subscription.latest_invoice && typeof subscription.latest_invoice !== 'string') {
+      const invoice = subscription.latest_invoice;
+      if (invoice.payment_intent && typeof invoice.payment_intent !== 'string') {
+        clientSecret = invoice.payment_intent.client_secret;
+      } else if (invoice.payment_intent) {
+        // If we only have the ID, fetch the payment intent
+        const paymentIntent = await stripe.paymentIntents.retrieve(invoice.payment_intent as string);
+        clientSecret = paymentIntent.client_secret;
+      }
+    }
 
     return {
       status: subscription.status,
       currentPeriodEnd: currentPeriodEnd,
-      clientSecret: (subscription.latest_invoice as any)?.payment_intent?.client_secret || null,
+      clientSecret: clientSecret,
     };
   } catch (error) {
     console.error('Error creating subscription:', error);
