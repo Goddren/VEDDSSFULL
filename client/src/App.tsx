@@ -31,6 +31,7 @@ import MarketTrendGamePage from "@/pages/market-trend-game";
 import MarketMoodPage from "@/pages/market-mood";
 import MarketSentimentPage from "@/pages/market-sentiment";
 import InteractiveTooltipShowcase from "@/pages/interactive-tooltip-showcase";
+import BlogPage from "@/pages/blog";
 import { NewsNotificationScheduler } from "@/components/news-notification-scheduler";
 import { SubscriptionUsageHeader } from "@/components/ui/subscription-usage-header";
 
@@ -58,6 +59,7 @@ function AppLayout() {
           <Route path="/" component={LandingPage} />
           <Route path="/auth" component={AuthPage} />
           <Route path="/subscription" component={SubscriptionPage} />
+          <Route path="/blog" component={BlogPage} />
           <Route path="/shared/:shareId" component={SharedAnalysisPage} />
           <Route path="/volatility-meter" component={VolatilityMeterShowcase} />
           

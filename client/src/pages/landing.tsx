@@ -19,7 +19,8 @@ import {
   BarChart3,
   LineChart,
   Lightbulb,
-  FlaskConical
+  FlaskConical,
+  Newspaper
 } from "lucide-react";
 import { EarlyAccessForm } from "@/components/early-access/early-access-form";
 import logoImg from "@assets/IMG_3645.png";
@@ -95,6 +96,12 @@ export default function LandingPage() {
             <Link href="/subscription">
               <Button size="lg" variant="outline" className="border-red-600 text-white hover:bg-red-700/20 hover:border-red-500 transition-all duration-300 transform hover:scale-105">
                 View Pricing
+              </Button>
+            </Link>
+            <Link href="/blog">
+              <Button size="lg" variant="outline" className="border-amber-600 text-white hover:bg-amber-700/20 hover:border-amber-500 transition-all duration-300 transform hover:scale-105">
+                <Newspaper className="mr-2 h-4 w-4" />
+                Trading Articles
               </Button>
             </Link>
             <a href="#features">
