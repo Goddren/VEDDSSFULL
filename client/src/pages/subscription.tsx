@@ -315,6 +315,209 @@ export default function SubscriptionPage() {
         ))}
       </div>
 
+      {/* Feature Comparison Table */}
+      <div className="mt-16">
+        <h2 className="text-3xl font-bold tracking-tight text-center mb-2">Feature Comparison</h2>
+        <p className="text-center text-muted-foreground mb-8">See what's included in each subscription tier</p>
+        
+        <div className="overflow-x-auto rounded-lg border border-border shadow-lg">
+          <table className="w-full">
+            <thead>
+              <tr className="bg-gradient-to-r from-primary/10 to-primary/5">
+                <th className="px-6 py-5 text-left font-medium text-muted-foreground">
+                  <span className="text-base">Feature</span>
+                </th>
+                {plans?.map((plan) => (
+                  <th key={plan.id} className={`px-6 py-5 text-center ${subscription?.planId === plan.id ? 'bg-primary/15' : ''}`}>
+                    <span className="text-lg font-bold">{plan.name}</span>
+                    <div className="text-base font-medium mt-1">
+                      {formatPrice(plan.price)}
+                      <span className="text-xs text-muted-foreground">/month</span>
+                    </div>
+                    {subscription?.planId === plan.id && 
+                      <Badge className="mt-2 bg-primary hover:bg-primary">Current Plan</Badge>
+                    }
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {/* Group 1: Basic Features */}
+              <tr className="bg-muted/30">
+                <td colSpan={plans?.length ? plans.length + 1 : 4} className="px-6 py-3 text-sm font-bold">
+                  Core Trading Features
+                </td>
+              </tr>
+              <tr className="hover:bg-muted/20 transition-colors">
+                <td className="px-6 py-4 text-sm font-medium">Chart Analyses per Month</td>
+                {plans?.map((plan) => (
+                  <td key={plan.id} className={`px-6 py-4 text-center ${subscription?.planId === plan.id ? 'bg-primary/5' : ''}`}>
+                    <span className="font-semibold">{plan.analysisLimit > 999 ? 'Unlimited' : plan.analysisLimit}</span>
+                  </td>
+                ))}
+              </tr>
+              <tr className="hover:bg-muted/20 transition-colors">
+                <td className="px-6 py-4 text-sm font-medium">Social Shares per Month</td>
+                {plans?.map((plan) => (
+                  <td key={plan.id} className={`px-6 py-4 text-center ${subscription?.planId === plan.id ? 'bg-primary/5' : ''}`}>
+                    <span className="font-semibold">{plan.socialShareLimit > 999 ? 'Unlimited' : plan.socialShareLimit}</span>
+                  </td>
+                ))}
+              </tr>
+              <tr className="hover:bg-muted/20 transition-colors">
+                <td className="px-6 py-4 text-sm font-medium">Pattern Recognition</td>
+                {plans?.map((plan) => (
+                  <td key={plan.id} className={`px-6 py-4 text-center ${subscription?.planId === plan.id ? 'bg-primary/5' : ''}`}>
+                    {plan.id >= 1 ? 
+                      <div className="flex items-center justify-center">
+                        <div className="p-1 rounded-full bg-primary/10">
+                          <Check className="h-4 w-4 text-primary" />
+                        </div>
+                      </div> : 
+                      <span className="text-muted-foreground">-</span>
+                    }
+                  </td>
+                ))}
+              </tr>
+              <tr className="hover:bg-muted/20 transition-colors">
+                <td className="px-6 py-4 text-sm font-medium">Entry & Exit Points</td>
+                {plans?.map((plan) => (
+                  <td key={plan.id} className={`px-6 py-4 text-center ${subscription?.planId === plan.id ? 'bg-primary/5' : ''}`}>
+                    {plan.id >= 1 ? 
+                      <div className="flex items-center justify-center">
+                        <div className="p-1 rounded-full bg-primary/10">
+                          <Check className="h-4 w-4 text-primary" />
+                        </div>
+                      </div> : 
+                      <span className="text-muted-foreground">-</span>
+                    }
+                  </td>
+                ))}
+              </tr>
+              <tr className="hover:bg-muted/20 transition-colors">
+                <td className="px-6 py-4 text-sm font-medium">Support & Resistance Levels</td>
+                {plans?.map((plan) => (
+                  <td key={plan.id} className={`px-6 py-4 text-center ${subscription?.planId === plan.id ? 'bg-primary/5' : ''}`}>
+                    {plan.id >= 1 ? 
+                      <div className="flex items-center justify-center">
+                        <div className="p-1 rounded-full bg-primary/10">
+                          <Check className="h-4 w-4 text-primary" />
+                        </div>
+                      </div> : 
+                      <span className="text-muted-foreground">-</span>
+                    }
+                  </td>
+                ))}
+              </tr>
+
+              {/* Group 2: Standard Features */}
+              <tr className="bg-muted/30">
+                <td colSpan={plans?.length ? plans.length + 1 : 4} className="px-6 py-3 text-sm font-bold">
+                  Advanced Features
+                </td>
+              </tr>
+              <tr className="hover:bg-muted/20 transition-colors">
+                <td className="px-6 py-4 text-sm font-medium">AI Trading Tip Generator</td>
+                {plans?.map((plan) => (
+                  <td key={plan.id} className={`px-6 py-4 text-center ${subscription?.planId === plan.id ? 'bg-primary/5' : ''}`}>
+                    {plan.id >= 2 ? 
+                      <div className="flex items-center justify-center">
+                        <div className="p-1 rounded-full bg-primary/10">
+                          <Check className="h-4 w-4 text-primary" />
+                        </div>
+                      </div> : 
+                      <span className="text-muted-foreground">-</span>
+                    }
+                  </td>
+                ))}
+              </tr>
+              <tr className="hover:bg-muted/20 transition-colors">
+                <td className="px-6 py-4 text-sm font-medium">Christian Market Wisdom</td>
+                {plans?.map((plan) => (
+                  <td key={plan.id} className={`px-6 py-4 text-center ${subscription?.planId === plan.id ? 'bg-primary/5' : ''}`}>
+                    {plan.id >= 2 ? 
+                      <div className="flex items-center justify-center">
+                        <div className="p-1 rounded-full bg-primary/10">
+                          <Check className="h-4 w-4 text-primary" />
+                        </div>
+                      </div> : 
+                      <span className="text-muted-foreground">-</span>
+                    }
+                  </td>
+                ))}
+              </tr>
+              <tr className="hover:bg-muted/20 transition-colors">
+                <td className="px-6 py-4 text-sm font-medium">Social Trading Features</td>
+                {plans?.map((plan) => (
+                  <td key={plan.id} className={`px-6 py-4 text-center ${subscription?.planId === plan.id ? 'bg-primary/5' : ''}`}>
+                    {plan.id >= 2 ? 
+                      <div className="flex items-center justify-center">
+                        <div className="p-1 rounded-full bg-primary/10">
+                          <Check className="h-4 w-4 text-primary" />
+                        </div>
+                      </div> : 
+                      <span className="text-muted-foreground">-</span>
+                    }
+                  </td>
+                ))}
+              </tr>
+
+              {/* Group 3: Premium Features */}
+              <tr className="bg-muted/30">
+                <td colSpan={plans?.length ? plans.length + 1 : 4} className="px-6 py-3 text-sm font-bold">
+                  Premium Features
+                </td>
+              </tr>
+              <tr className="hover:bg-muted/20 transition-colors">
+                <td className="px-6 py-4 text-sm font-medium">Advanced Pattern Analysis</td>
+                {plans?.map((plan) => (
+                  <td key={plan.id} className={`px-6 py-4 text-center ${subscription?.planId === plan.id ? 'bg-primary/5' : ''}`}>
+                    {plan.id >= 3 ? 
+                      <div className="flex items-center justify-center">
+                        <div className="p-1 rounded-full bg-primary/10">
+                          <Check className="h-4 w-4 text-primary" />
+                        </div>
+                      </div> : 
+                      <span className="text-muted-foreground">-</span>
+                    }
+                  </td>
+                ))}
+              </tr>
+              <tr className="hover:bg-muted/20 transition-colors">
+                <td className="px-6 py-4 text-sm font-medium">Priority Customer Support</td>
+                {plans?.map((plan) => (
+                  <td key={plan.id} className={`px-6 py-4 text-center ${subscription?.planId === plan.id ? 'bg-primary/5' : ''}`}>
+                    {plan.id >= 3 ? 
+                      <div className="flex items-center justify-center">
+                        <div className="p-1 rounded-full bg-primary/10">
+                          <Check className="h-4 w-4 text-primary" />
+                        </div>
+                      </div> : 
+                      <span className="text-muted-foreground">-</span>
+                    }
+                  </td>
+                ))}
+              </tr>
+              <tr className="hover:bg-muted/20 transition-colors">
+                <td className="px-6 py-4 text-sm font-medium">API Access</td>
+                {plans?.map((plan) => (
+                  <td key={plan.id} className={`px-6 py-4 text-center ${subscription?.planId === plan.id ? 'bg-primary/5' : ''}`}>
+                    {plan.id >= 3 ? 
+                      <div className="flex items-center justify-center">
+                        <div className="p-1 rounded-full bg-primary/10">
+                          <Check className="h-4 w-4 text-primary" />
+                        </div>
+                      </div> : 
+                      <span className="text-muted-foreground">-</span>
+                    }
+                  </td>
+                ))}
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <div className="mt-12 text-center text-sm text-muted-foreground">
         <p>All subscriptions are automatically renewed monthly. You can cancel at any time.</p>
         <p className="mt-2">
