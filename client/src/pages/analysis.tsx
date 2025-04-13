@@ -439,21 +439,6 @@ const Analysis: React.FC = () => {
 
         {/* Analysis Section */}
         <div className="lg:col-span-2">
-          {/* Economic Calendar */}
-          <Card className="mb-6">
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2">
-                <Calendar className="h-5 w-5 text-blue-500" />
-                <span className="text-blue-500">Economic Calendar</span>
-              </CardTitle>
-              <CardDescription>
-                Upcoming market-moving events that could impact your trading decisions
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <MarketCalendar />
-            </CardContent>
-          </Card>
 
           {/* API Key Configuration Card */}
           {apiKeyValid === false && (
@@ -474,20 +459,38 @@ const Analysis: React.FC = () => {
           
           {/* Initial State - No Upload Yet */}
           {analysisState === AnalysisState.INITIAL && (
-            <Card className="h-[500px] flex flex-col items-center justify-center">
-              <CardContent className="text-center max-w-md py-12">
-                <div className="rounded-full w-20 h-20 mx-auto mb-6 bg-muted flex items-center justify-center">
-                  <BarChart3 className="h-10 w-10 text-muted-foreground" />
-                </div>
-                <h3 className="text-xl font-semibold mb-3">Upload a chart to begin analysis</h3>
-                <p className="text-muted-foreground mb-6">
-                  Our AI will analyze your chart for patterns, indicators, support/resistance levels, and provide detailed trading recommendations
-                </p>
-                <p className="text-sm text-muted-foreground/80">
-                  You can drag & drop an image, paste from clipboard, or use the file browser to upload
-                </p>
-              </CardContent>
-            </Card>
+            <>
+              <Card className="h-[500px] flex flex-col items-center justify-center mb-6">
+                <CardContent className="text-center max-w-md py-12">
+                  <div className="rounded-full w-20 h-20 mx-auto mb-6 bg-muted flex items-center justify-center">
+                    <BarChart3 className="h-10 w-10 text-muted-foreground" />
+                  </div>
+                  <h3 className="text-xl font-semibold mb-3">Upload a chart to begin analysis</h3>
+                  <p className="text-muted-foreground mb-6">
+                    Our AI will analyze your chart for patterns, indicators, support/resistance levels, and provide detailed trading recommendations
+                  </p>
+                  <p className="text-sm text-muted-foreground/80">
+                    You can drag & drop an image, paste from clipboard, or use the file browser to upload
+                  </p>
+                </CardContent>
+              </Card>
+              
+              {/* Economic Calendar for Initial State */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center gap-2">
+                    <Calendar className="h-5 w-5 text-blue-500" />
+                    <span className="text-blue-500">Economic Calendar</span>
+                  </CardTitle>
+                  <CardDescription>
+                    Upcoming market-moving events that could impact your trading decisions
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <MarketCalendar />
+                </CardContent>
+              </Card>
+            </>
           )}
 
           {/* Loading/Processing State */}
@@ -613,6 +616,22 @@ const Analysis: React.FC = () => {
                   className="border-indigo-700/20"
                 />
               </div>
+              
+              {/* Economic Calendar - Moved below results */}
+              <Card className="mt-6">
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center gap-2">
+                    <Calendar className="h-5 w-5 text-blue-500" />
+                    <span className="text-blue-500">Economic Calendar</span>
+                  </CardTitle>
+                  <CardDescription>
+                    Upcoming market-moving events that could impact your trading decisions
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <MarketCalendar />
+                </CardContent>
+              </Card>
             </>
           )}
         </div>
