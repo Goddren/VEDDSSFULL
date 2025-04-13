@@ -21,6 +21,7 @@ import {
   Lightbulb,
   FlaskConical
 } from "lucide-react";
+import { EarlyAccessForm } from "@/components/early-access/early-access-form";
 import logoImg from "@assets/IMG_3645.png";
 import { FeatureSlider } from "@/components/ui/feature-slider";
 import { PatternSlider } from "@/components/ui/pattern-slider";
@@ -90,6 +91,7 @@ export default function LandingPage() {
                 Get Started <ArrowRight className="ml-2 h-4 w-4 animate-bounce-custom" />
               </Button>
             </Link>
+            <EarlyAccessForm />
             <Link href="/subscription">
               <Button size="lg" variant="outline" className="border-red-600 text-white hover:bg-red-700/20 hover:border-red-500 transition-all duration-300 transform hover:scale-105">
                 View Pricing
