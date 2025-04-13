@@ -32,7 +32,7 @@ export const users = pgTable("users", {
   monthlyAnalysisCount: integer("monthly_analysis_count").default(0),
   monthlySocialShareCount: integer("monthly_social_share_count").default(0),
   lastCountReset: timestamp("last_count_reset"),
-  referralCode: text("referral_code").unique(),
+  // referralCode field temporarily removed due to database issues
   referralCredits: integer("referral_credits").default(0),
   referredBy: integer("referred_by").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -95,7 +95,9 @@ export const insertChartAnalysisSchema = createInsertSchema(chartAnalyses).omit(
 });
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
-export type User = typeof users.$inferSelect;
+export type User = typeof users.$inferSelect & { 
+  referralCode?: string; // Temporarily defining it here since it's removed from the schema 
+};
 
 // Achievements schema
 export const achievements = pgTable("achievements", {
