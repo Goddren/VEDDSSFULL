@@ -5,7 +5,7 @@ import { analyzeChartImage, testOpenAIApiKey, generateTradingTip, generateMarket
 import { setupTwilio, sendTradingSignal } from "./twilio";
 import { checkUserAchievements } from "./achievement-tracker";
 import { tradingCoachHandler, tradingTipsHandler } from "./trading-coach";
-import { contextualInsightHandler, marketInsightsHandler } from "./market-insights";
+import { marketInsightsHandler, contextualInsightHandler } from "./market-insights";
 import { 
   getSubscriptionPlans,
   getUserSubscription,
