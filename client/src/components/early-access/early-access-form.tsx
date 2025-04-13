@@ -4,7 +4,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
-import { Sparkles, CheckCheck, XCircle } from 'lucide-react';
+import { Sparkles, CheckCheck, XCircle, Copy } from 'lucide-react';
+import { createEarlyAccessPromo } from '@/lib/promo-codes';
 
 export function EarlyAccessForm() {
   const [open, setOpen] = useState(false);
@@ -13,6 +14,7 @@ export function EarlyAccessForm() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState('');
+  const [promoCode, setPromoCode] = useState('');
   const { toast } = useToast();
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -39,10 +41,15 @@ export function EarlyAccessForm() {
     // For now, we'll simulate a successful submission
     setTimeout(() => {
       setIsSubmitting(false);
+      
+      // Generate a 50% off promo code
+      const promoCodeObj = createEarlyAccessPromo(email);
+      setPromoCode(promoCodeObj.code);
+      
       setSubmitted(true);
       toast({
         title: "Early Access Reserved!",
-        description: "You'll be among the first to get access to our premium features.",
+        description: "You've received a special 50% OFF promo code for premium plans.",
         duration: 5000,
       });
 
@@ -50,19 +57,12 @@ export function EarlyAccessForm() {
       localStorage.setItem('earlyAccessSignup', JSON.stringify({
         email,
         phone: phoneDigits,
-        date: new Date().toISOString()
+        date: new Date().toISOString(),
+        promoCode: promoCodeObj.code
       }));
       
-      // Close dialog after a short delay
-      setTimeout(() => {
-        setOpen(false);
-        // Reset form after dialog is closed
-        setTimeout(() => {
-          setSubmitted(false);
-          setEmail('');
-          setPhone('');
-        }, 300);
-      }, 2000);
+      // Keep dialog open so user can see promo code
+      // Don't auto-close to give user time to copy the code
     }, 1500);
   };
 
@@ -104,12 +104,60 @@ export function EarlyAccessForm() {
               <CheckCheck className="h-8 w-8 text-green-500" />
             </div>
             <h3 className="text-xl font-semibold text-white mb-2">You're In!</h3>
-            <p className="text-gray-400 mb-6">
+            <p className="text-gray-400 mb-4">
               Thank you for your interest! We'll contact you as soon as early access is available.
             </p>
-            <div className="bg-green-500/10 border border-green-500/20 rounded-md py-2 px-4">
-              <p className="text-green-400 text-sm">Early access discount secured: <span className="font-bold">50% OFF</span></p>
+            
+            {/* 50% OFF Promo Code Display */}
+            <div className="w-full mb-5">
+              <Label htmlFor="promo-code" className="text-sm font-medium text-gray-300 mb-1 block text-left">
+                Your Exclusive Promo Code:
+              </Label>
+              <div className="relative">
+                <Input 
+                  id="promo-code"
+                  value={promoCode}
+                  readOnly
+                  className="bg-gray-800 border border-amber-500/50 focus:border-amber-500 text-amber-400 font-medium text-center pr-10"
+                />
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 rounded-md text-amber-400 hover:text-amber-300 hover:bg-amber-900/30"
+                  onClick={() => {
+                    navigator.clipboard.writeText(promoCode);
+                    toast({
+                      title: "Copied!",
+                      description: "Promo code copied to clipboard",
+                      duration: 2000,
+                    });
+                  }}
+                >
+                  <Copy className="h-4 w-4" />
+                </Button>
+              </div>
+              <p className="text-xs text-gray-500 mt-1 text-left">
+                Use this code at checkout to get 50% OFF any premium plan. Valid for 7 days.
+              </p>
             </div>
+            
+            <div className="bg-amber-500/10 border border-amber-500/20 rounded-md py-3 px-4 w-full">
+              <h4 className="font-medium text-amber-400 mb-1">How to use your code:</h4>
+              <ol className="text-sm text-gray-300 text-left list-decimal pl-5 space-y-1">
+                <li>Go to our subscription page</li>
+                <li>Select any premium plan</li>
+                <li>Enter this code at checkout</li>
+                <li>Enjoy 50% off your subscription</li>
+              </ol>
+            </div>
+            
+            <Button 
+              className="mt-6 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 text-black font-semibold"
+              onClick={() => setOpen(false)}
+            >
+              Done
+            </Button>
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-5">
