@@ -13,6 +13,7 @@ import { InsightTooltip, ConfidenceInsight, PatternInsight, IndicatorInsight, Ma
 import { SocialShare } from '@/components/trading/social-share';
 import { QuickShareDialog } from '@/components/trading/quick-share-dialog';
 import { Share2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 interface AnalysisResultProps {
   analysis: ChartAnalysisResponse;
@@ -373,7 +374,25 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({ analysis, imageUrl, onR
       
       {/* Social Media Sharing */}
       <div className="bg-[#1E1E1E] rounded-xl p-6 shadow-lg">
-        <SocialShare analysis={analysis} imageUrl={imageUrl} />
+        <div className="flex flex-col gap-4">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-xl font-semibold">Share Your Analysis</h2>
+            <QuickShareDialog 
+              analysis={analysis} 
+              imageUrl={imageUrl} 
+              trigger={
+                <Button size="sm" variant="secondary" className="flex items-center gap-2">
+                  <Share2 className="h-4 w-4" />
+                  One-Click Share
+                </Button>
+              }
+            />
+          </div>
+          <p className="text-sm text-gray-400 mb-4">
+            Share this analysis with your trading community or add personalized trading notes with our quick share feature.
+          </p>
+          <SocialShare analysis={analysis} imageUrl={imageUrl} />
+        </div>
       </div>
       
       {/* Economic News Alerts Section - Only show if we have news events */}

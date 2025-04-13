@@ -1,9 +1,10 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { ChartAnalysisResponse } from "@shared/types";
+import { ChartAnalysis } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
 import { Copy, Share2, Clipboard, Check, Link, Twitter } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -37,9 +38,22 @@ export function QuickShareDialog({ analysis, imageUrl, trigger, onShareComplete 
       return;
     }
 
+    // We need to use the analysis ID provided by the API
+    // This will be set by the parent component that passes the analysis from the API
+    const analysisId = (analysis as unknown as { id?: number }).id;
+    
+    if (!analysisId) {
+      toast({
+        title: "Error",
+        description: "Analysis ID is missing. Please save this analysis first.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsLoading(true);
     try {
-      const response = await apiRequest("POST", `/api/analyses/${analysis.id}/share`, {
+      const response = await apiRequest("POST", `/api/analyses/${analysisId}/share`, {
         notes: tradingNotes
       });
       
@@ -62,10 +76,10 @@ export function QuickShareDialog({ analysis, imageUrl, trigger, onShareComplete 
         title: "Analysis Shared!",
         description: "Your analysis has been shared successfully.",
       });
-    } catch (error) {
+    } catch (error: unknown) {
       toast({
         title: "Error",
-        description: error.message || "Failed to share analysis",
+        description: error instanceof Error ? error.message : "Failed to share analysis",
         variant: "destructive",
       });
     } finally {
@@ -122,23 +136,23 @@ ${tradingNotes ? `💭 My Analysis:\n${tradingNotes}\n\n` : ""}
   // Handle social shares
   const handleSocialShare = (platform: string) => {
     const content = encodeURIComponent(createShareableContent());
-    const url = encodeURIComponent(shareUrl);
+    const encodedUrl = encodeURIComponent(shareUrl);
     
-    let shareUrl = "";
+    let platformUrl = "";
     
     switch (platform) {
       case "telegram":
-        shareUrl = `https://t.me/share/url?url=${url}&text=${content}`;
+        platformUrl = `https://t.me/share/url?url=${encodedUrl}&text=${content}`;
         break;
       case "twitter":
-        shareUrl = `https://x.com/intent/tweet?text=${content}`;
+        platformUrl = `https://x.com/intent/tweet?text=${content}`;
         break;
       default:
         handleCopyMessage();
         return;
     }
     
-    window.open(shareUrl, "_blank");
+    window.open(platformUrl, "_blank");
   };
 
   return (
