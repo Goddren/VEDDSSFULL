@@ -34,7 +34,7 @@ export const users = pgTable("users", {
   lastCountReset: timestamp("last_count_reset"),
   // referralCode field temporarily removed due to database issues
   // referralCredits field temporarily removed due to database issues
-  referredBy: integer("referred_by").references(() => users.id),
+  // referredBy field temporarily removed due to database issues
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
