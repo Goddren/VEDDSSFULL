@@ -45,9 +45,9 @@ const TradingCoach: React.FC<TradingCoachProps> = ({ personality = 'professional
   
   // Placeholder greeting based on personality
   const placeholderMessages = {
-    friendly: "Hi there, trader friend! 👋 I'm your AI Trading Coach! Ask me anything about trading patterns, strategies, or market analysis!",
-    professional: "Welcome. I'm your AI Trading Coach. How can I assist with your trading analysis today?",
-    casual: "Hey! 🚀 Ready to crush the markets? Ask me anything about trading!"
+    friendly: "Hi there, trader friend! 👋 I'm VEDDAI! Ask me anything about trading patterns, strategies, or market analysis!",
+    professional: "Welcome. I'm VEDDAI. How can I assist with your trading analysis today?",
+    casual: "Hey! 🚀 I'm VEDDAI and I'm ready to help you crush the markets! Ask me anything about trading!"
   };
 
   // Add initial message when component mounts
@@ -81,7 +81,7 @@ const TradingCoach: React.FC<TradingCoachProps> = ({ personality = 'professional
     return acc;
   }, {} as Record<string, TradingTip[]>);
   
-  // Send message to AI Trading Coach
+  // Send message to VEDDAI
   const coachMutation = useMutation({
     mutationFn: async (message: string) => {
       const response = await apiRequest('POST', '/api/trading-coach', { message, personality });
@@ -99,10 +99,10 @@ const TradingCoach: React.FC<TradingCoachProps> = ({ personality = 'professional
     onError: (error) => {
       toast({
         title: 'Error',
-        description: 'Failed to get response from Trading Coach. Please try again.',
+        description: 'Failed to get response from VEDDAI. Please try again.',
         variant: 'destructive',
       });
-      console.error('Trading coach error:', error);
+      console.error('VEDDAI error:', error);
     }
   });
 
@@ -134,7 +134,7 @@ const TradingCoach: React.FC<TradingCoachProps> = ({ personality = 'professional
         <TabsList className="mb-4 grid grid-cols-2">
           <TabsTrigger value="chat" className="flex items-center gap-1.5">
             <MessageSquare className="h-4 w-4" />
-            Chat with Coach
+            Chat with VEDDAI
           </TabsTrigger>
           <TabsTrigger value="tips" className="flex items-center gap-1.5">
             <Lightbulb className="h-4 w-4" />
@@ -162,7 +162,7 @@ const TradingCoach: React.FC<TradingCoachProps> = ({ personality = 'professional
                     {message.sender === 'coach' && (
                       <div className="flex items-center gap-2 mb-1.5">
                         <div className="text-xl">{coachAvatars[personality]}</div>
-                        <div className="text-xs font-semibold text-rose-400">Trading Coach</div>
+                        <div className="text-xs font-semibold text-rose-400">VEDDAI</div>
                       </div>
                     )}
                     <div className="text-sm whitespace-pre-wrap">{message.content}</div>
