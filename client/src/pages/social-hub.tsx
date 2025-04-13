@@ -20,7 +20,8 @@ import {
   Info,
   Filter,
   RefreshCcw,
-  Search
+  Search,
+  Gift
 } from 'lucide-react';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { useAuth } from '@/hooks/use-auth';
@@ -56,7 +57,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { cn } from '@/lib/utils';
-
+import ReferralSection from '@/components/referral/referral-section';
 
 // Type definitions for our social features
 interface TraderProfile {
@@ -510,7 +511,7 @@ export default function SocialHub() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [location, setLocation] = useLocation();
-  const [activeTab, setActiveTab] = useState<'discover' | 'followers' | 'your-feed'>('discover');
+  const [activeTab, setActiveTab] = useState<'discover' | 'followers' | 'your-feed' | 'referrals'>('discover');
   const [currentIndex, setCurrentIndex] = useState(0);
   const [lastAction, setLastAction] = useState<'like' | 'dislike' | 'none'>('none');
   const [searchQuery, setSearchQuery] = useState('');
@@ -774,10 +775,14 @@ export default function SocialHub() {
       
       <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as any)} className="mb-8">
         <div className="flex items-center justify-between mb-4">
-          <TabsList className="grid w-full max-w-md grid-cols-3">
+          <TabsList className="grid w-full max-w-md grid-cols-4">
             <TabsTrigger value="discover">Discover</TabsTrigger>
             <TabsTrigger value="followers">Traders</TabsTrigger>
             <TabsTrigger value="your-feed">Your Feed</TabsTrigger>
+            <TabsTrigger value="referrals" className="flex items-center">
+              <Gift className="h-4 w-4 mr-1" />
+              Referrals
+            </TabsTrigger>
           </TabsList>
           
           <div className="hidden md:flex items-center">
@@ -1067,7 +1072,10 @@ export default function SocialHub() {
           )}
         </TabsContent>
 
-
+        <TabsContent value="referrals" className="mt-0">
+          {/* Import the referral components */}
+          <ReferralSection preview={true} />
+        </TabsContent>
       </Tabs>
       
       {/* Analysis Detail Modal */}
