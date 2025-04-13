@@ -20,8 +20,7 @@ import {
   Info,
   Filter,
   RefreshCcw,
-  Search,
-  Gift
+  Search
 } from 'lucide-react';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { useAuth } from '@/hooks/use-auth';
