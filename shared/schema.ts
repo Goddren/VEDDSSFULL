@@ -32,7 +32,8 @@ export const users = pgTable("users", {
   monthlyAnalysisCount: integer("monthly_analysis_count").default(0),
   monthlySocialShareCount: integer("monthly_social_share_count").default(0),
   lastCountReset: timestamp("last_count_reset"),
-  faithBasedContent: boolean("faith_based_content").default(true), // Enable/disable faith-based content
+  // faithBasedContent field temporarily removed due to database issues
+  // Using localStorage instead of database column for faith-based content preferences
   // referralCode field temporarily removed due to database issues
   // referralCredits field temporarily removed due to database issues
   // referredBy field temporarily removed due to database issues
