@@ -98,12 +98,6 @@ export default function LandingPage() {
                 View Pricing
               </Button>
             </Link>
-            <Link href="/blog">
-              <Button size="lg" variant="outline" className="border-amber-600 text-white hover:bg-amber-700/20 hover:border-amber-500 transition-all duration-300 transform hover:scale-105">
-                <Newspaper className="mr-2 h-4 w-4" />
-                Trading Articles
-              </Button>
-            </Link>
             <a href="#features">
               <Button size="lg" variant="outline" className="border-gray-500 text-white hover:bg-white/10 transition-all duration-300 transform hover:scale-105">
                 Learn More
