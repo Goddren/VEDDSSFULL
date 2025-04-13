@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'wouter';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/use-auth';
+import { BiBook } from 'react-icons/bi';
 import { 
   BarChart2, 
   TrendingUp, 
@@ -28,6 +29,7 @@ import { UserLevel } from '@/components/achievements/user-level';
 import { VolatilityMeter } from '@/components/ui/volatility-meter';
 import { getUserLevel } from '@/lib/achievement-system';
 import TradingCoach from '@/components/trading-coach/trading-coach';
+import { DailyScriptureWisdom } from '@/components/scripture/daily-wisdom';
 
 interface Analysis {
   id: number;
@@ -46,6 +48,21 @@ interface Analysis {
 
 const Dashboard: React.FC = () => {
   const { user } = useAuth();
+  const [showFaithContent, setShowFaithContent] = useState<boolean>(true);
+  
+  // Initialize faith content preference from localStorage
+  useEffect(() => {
+    const savedPreference = localStorage.getItem('faithBasedContent');
+    if (savedPreference !== null) {
+      setShowFaithContent(savedPreference === 'true');
+    }
+  }, []);
+  
+  // Save faith content preference to localStorage when it changes
+  useEffect(() => {
+    localStorage.setItem('faithBasedContent', String(showFaithContent));
+  }, [showFaithContent]);
+  
   const { data: analyses = [], isLoading, isError } = useQuery<Analysis[]>({
     queryKey: ['/api/analyses'],
   });
@@ -372,6 +389,24 @@ const Dashboard: React.FC = () => {
             {/* Economic Calendar */}
             <MarketCalendar />
             
+            {/* Scripture Wisdom */}
+            {showFaithContent && (
+              <div className="mb-6">
+                <div className="flex justify-between items-center mb-2">
+                  <h3 className="text-sm font-medium text-gray-300">Daily Scripture Wisdom</h3>
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    onClick={() => setShowFaithContent(false)}
+                    className="h-8 text-xs text-gray-400"
+                  >
+                    Hide
+                  </Button>
+                </div>
+                <DailyScriptureWisdom />
+              </div>
+            )}
+            
             {/* Trading Coach */}
             <Card className="bg-gray-900 border-gray-800 shadow-xl overflow-hidden mb-6">
               <CardHeader>
@@ -452,6 +487,22 @@ const Dashboard: React.FC = () => {
               showProgress={true}
               className="mb-6"
             />
+            
+            {/* Show Scripture Wisdom button when hidden */}
+            {!showFaithContent && (
+              <Card className="bg-gray-900 border-gray-800 shadow-xl mb-6">
+                <CardContent className="py-4">
+                  <Button 
+                    variant="outline" 
+                    onClick={() => setShowFaithContent(true)}
+                    className="w-full flex items-center justify-center bg-gray-800 border-gray-700 text-white hover:bg-blue-600 hover:border-blue-600 transition-colors"
+                  >
+                    <BiBook className="h-4 w-4 mr-2" /> 
+                    Show Scripture Wisdom
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
             
             {/* Quick Links */}
             <Card className="bg-gray-900 border-gray-800 shadow-xl">
