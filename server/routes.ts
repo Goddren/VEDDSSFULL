@@ -4,6 +4,13 @@ import { storage } from "./storage";
 import { analyzeChartImage, testOpenAIApiKey, generateTradingTip, generateMarketTrendPredictions } from "./openai";
 import { setupTwilio, sendTradingSignal } from "./twilio";
 import { checkUserAchievements } from "./achievement-tracker";
+import { 
+  getSubscriptionPlans,
+  getUserSubscription,
+  createSubscription,
+  cancelSubscription,
+  checkUserSubscriptionLimits
+} from "./stripe";
 import multer from "multer";
 import fs from "fs";
 import path from "path";
