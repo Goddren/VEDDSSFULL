@@ -1282,6 +1282,180 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ===== Subscription Management Endpoints =====
+  
+  // Get subscription plans
+  app.get("/api/subscription/plans", async (_req: Request, res: Response) => {
+    try {
+      const plans = await getSubscriptionPlans();
+      res.json(plans);
+    } catch (error) {
+      console.error("Error fetching subscription plans:", error);
+      res.status(500).json({ message: "Error fetching subscription plans" });
+    }
+  });
+
+  // Get user's current subscription
+  app.get("/api/subscription", async (req: Request, res: Response) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ message: "Authentication required" });
+      }
+
+      const userId = (req.user as Express.User).id;
+      const subscription = await getUserSubscription(userId);
+      
+      res.json(subscription || { planId: 1, planName: "Free", status: "active" });
+    } catch (error) {
+      console.error("Error fetching user subscription:", error);
+      res.status(500).json({ message: "Error fetching user subscription" });
+    }
+  });
+
+  // Subscribe to a plan
+  app.post("/api/subscription/subscribe", async (req: Request, res: Response) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ message: "Authentication required" });
+      }
+
+      const { planId } = req.body;
+      if (!planId) {
+        return res.status(400).json({ message: "Plan ID is required" });
+      }
+
+      const userId = (req.user as Express.User).id;
+      const result = await createSubscription(userId, planId);
+      
+      res.json(result);
+    } catch (error) {
+      console.error("Error creating subscription:", error);
+      res.status(500).json({ 
+        message: "Error creating subscription", 
+        error: error instanceof Error ? error.message : "Unknown error" 
+      });
+    }
+  });
+
+  // Cancel subscription
+  app.post("/api/subscription/cancel", async (req: Request, res: Response) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ message: "Authentication required" });
+      }
+
+      const userId = (req.user as Express.User).id;
+      const result = await cancelSubscription(userId);
+      
+      res.json(result);
+    } catch (error) {
+      console.error("Error cancelling subscription:", error);
+      res.status(500).json({ 
+        message: "Error cancelling subscription", 
+        error: error instanceof Error ? error.message : "Unknown error" 
+      });
+    }
+  });
+
+  // Check if a user can perform an action based on their subscription limits
+  app.post("/api/subscription/check-limits", async (req: Request, res: Response) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ message: "Authentication required" });
+      }
+
+      const { actionType } = req.body;
+      if (!actionType || !['analysis', 'social_share'].includes(actionType)) {
+        return res.status(400).json({ message: "Valid action type (analysis or social_share) is required" });
+      }
+
+      const userId = (req.user as Express.User).id;
+      const result = await checkUserSubscriptionLimits(userId, actionType);
+      
+      res.json(result);
+    } catch (error) {
+      console.error("Error checking subscription limits:", error);
+      res.status(500).json({ 
+        message: "Error checking subscription limits", 
+        error: error instanceof Error ? error.message : "Unknown error" 
+      });
+    }
+  });
+
+  // Get Stripe checkout session for client
+  app.post("/api/subscription/create-checkout-session", async (req: Request, res: Response) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ message: "Authentication required" });
+      }
+
+      const { planId } = req.body;
+      if (!planId) {
+        return res.status(400).json({ message: "Plan ID is required" });
+      }
+
+      const userId = (req.user as Express.User).id;
+      const result = await createSubscription(userId, planId);
+      
+      res.json(result);
+    } catch (error) {
+      console.error("Error creating checkout session:", error);
+      res.status(500).json({ 
+        message: "Error creating checkout session", 
+        error: error instanceof Error ? error.message : "Unknown error" 
+      });
+    }
+  });
+
+  // Stripe webhook endpoint (for handling subscription events)
+  app.post('/api/subscription/webhook', async (req: Request, res: Response) => {
+    const signature = req.headers['stripe-signature'] as string;
+    
+    // In a production environment, we would verify the webhook signature
+    // let event;
+    // try {
+    //   event = stripe.webhooks.constructEvent(
+    //     req.body,
+    //     signature,
+    //     process.env.STRIPE_WEBHOOK_SECRET
+    //   );
+    // } catch (err) {
+    //   return res.status(400).send(`Webhook Error: ${err.message}`);
+    // }
+
+    const event = req.body;
+
+    // Handle specific events
+    try {
+      switch (event.type) {
+        case 'customer.subscription.created':
+        case 'customer.subscription.updated':
+          // Update subscription in database
+          console.log('Subscription created or updated:', event.data.object);
+          break;
+        case 'customer.subscription.deleted':
+          // Cancel subscription in database
+          console.log('Subscription cancelled:', event.data.object);
+          break;
+        case 'invoice.payment_succeeded':
+          // Update payment status
+          console.log('Payment succeeded:', event.data.object);
+          break;
+        case 'invoice.payment_failed':
+          // Handle failed payment
+          console.log('Payment failed:', event.data.object);
+          break;
+        default:
+          console.log(`Unhandled event type: ${event.type}`);
+      }
+
+      res.json({ received: true });
+    } catch (error) {
+      console.error('Error handling webhook:', error);
+      res.status(500).json({ message: 'Error handling webhook' });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

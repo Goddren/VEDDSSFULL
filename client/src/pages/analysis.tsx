@@ -265,7 +265,7 @@ const Analysis: React.FC = () => {
     }
   }, []);
 
-  const handleImageUpload = useCallback((file: File) => {
+  const handleImageUpload = useCallback(async (file: File) => {
     // Check for API key validity first
     if (apiKeyValid === false) {
       toast({
@@ -276,8 +276,34 @@ const Analysis: React.FC = () => {
       return;
     }
     
-    setAnalysisState(AnalysisState.UPLOADING);
-    uploadMutation.mutate(file);
+    // Check subscription limits before uploading
+    try {
+      const response = await apiRequest('POST', '/api/subscription/check-limits', {
+        actionType: 'analysis'
+      });
+      
+      const result = await response.json();
+      
+      if (!result.allowed) {
+        toast({
+          title: 'Subscription Limit Reached',
+          description: `You've reached your monthly limit of ${result.limit} analyses on your ${result.planName} plan. Please upgrade to continue analyzing charts.`,
+          variant: 'destructive',
+        });
+        return;
+      }
+      
+      // If limit check passes, proceed with upload and analysis
+      setAnalysisState(AnalysisState.UPLOADING);
+      uploadMutation.mutate(file);
+    } catch (error) {
+      console.error('Error checking subscription limits:', error);
+      toast({
+        title: 'Error Checking Subscription',
+        description: error instanceof Error ? error.message : 'Failed to check subscription limits. Please try again.',
+        variant: 'destructive',
+      });
+    }
   }, [uploadMutation, apiKeyValid, toast]);
 
   const startAnalysis = useCallback((imageUrl: string) => {

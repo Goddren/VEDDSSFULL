@@ -1,151 +1,325 @@
-import React from "react";
-import { Link } from "wouter";
-import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Check, X } from "lucide-react";
-import { useAuth } from "@/hooks/use-auth";
+import { useEffect, useState } from 'react';
+import { apiRequest } from '@/lib/queryClient';
+import { useQuery } from '@tanstack/react-query';
+import { useAuth } from '@/hooks/use-auth';
+import { useLocation } from 'wouter';
+import { Loader2, Check, AlertCircle } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 
-interface PricingPlan {
+type Plan = {
+  id: number;
   name: string;
-  price: string;
   description: string;
-  features: Array<{
-    text: string;
-    included: boolean;
-  }>;
-  buttonText: string;
-  popular?: boolean;
-}
+  price: number;
+  interval: string;
+  features: string[];
+  analysisLimit: number;
+  socialShareLimit: number;
+  isActive: boolean;
+};
 
-const pricingPlans: PricingPlan[] = [
-  {
-    name: "Basic",
-    price: "$9.99",
-    description: "Essential chart analysis for beginning traders",
-    features: [
-      { text: "10 chart analyses per month", included: true },
-      { text: "Basic pattern recognition", included: true },
-      { text: "Support & resistance levels", included: true },
-      { text: "Entry & exit points", included: true },
-      { text: "Historical analysis storage (7 days)", included: true },
-      { text: "Advanced indicator analysis", included: false },
-      { text: "Priority support", included: false },
-      { text: "Custom timeframe analysis", included: false },
-    ],
-    buttonText: "Get Started",
-  },
-  {
-    name: "Pro",
-    price: "$19.99",
-    description: "Advanced analysis for serious traders",
-    features: [
-      { text: "30 chart analyses per month", included: true },
-      { text: "Advanced pattern recognition", included: true },
-      { text: "Support & resistance levels", included: true },
-      { text: "Entry & exit points", included: true },
-      { text: "Historical analysis storage (30 days)", included: true },
-      { text: "Advanced indicator analysis", included: true },
-      { text: "Priority support", included: false },
-      { text: "Custom timeframe analysis", included: true },
-    ],
-    buttonText: "Upgrade to Pro",
-    popular: true,
-  },
-  {
-    name: "Enterprise",
-    price: "$39.99",
-    description: "Complete solution for professional traders",
-    features: [
-      { text: "Unlimited chart analyses", included: true },
-      { text: "Advanced pattern recognition", included: true },
-      { text: "Support & resistance levels", included: true },
-      { text: "Entry & exit points", included: true },
-      { text: "Unlimited historical analysis storage", included: true },
-      { text: "Advanced indicator analysis", included: true },
-      { text: "Priority support", included: true },
-      { text: "Custom timeframe analysis", included: true },
-    ],
-    buttonText: "Contact Sales",
-  },
-];
+type Subscription = {
+  planId: number;
+  planName: string;
+  status: string;
+  currentPeriodEnd?: Date;
+  monthlyAnalysisCount: number;
+  monthlySocialShareCount: number;
+  analysisLimit: number;
+  socialShareLimit: number;
+};
 
 export default function SubscriptionPage() {
   const { user } = useAuth();
+  const [, setLocation] = useLocation();
+  const { toast } = useToast();
+  const [selectedPlanId, setSelectedPlanId] = useState<number | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+
+  // Redirect if not logged in
+  useEffect(() => {
+    if (!user) {
+      setLocation('/auth');
+    }
+  }, [user, setLocation]);
+
+  // Fetch subscription plans
+  const { data: plans, isLoading: plansLoading } = useQuery<Plan[]>({
+    queryKey: ['/api/subscription/plans'],
+    queryFn: async () => {
+      const response = await apiRequest('GET', '/api/subscription/plans');
+      return response.json();
+    },
+  });
+
+  // Fetch current subscription
+  const { data: subscription, isLoading: subscriptionLoading } = useQuery<Subscription>({
+    queryKey: ['/api/subscription'],
+    queryFn: async () => {
+      const response = await apiRequest('GET', '/api/subscription');
+      return response.json();
+    },
+    enabled: !!user,
+  });
+
+  // Format price for display
+  const formatPrice = (price: number): string => {
+    if (price === 0) return 'Free';
+    return `$${(price / 100).toFixed(2)}`;
+  };
+
+  // Handle subscription
+  const handleSubscribe = async (planId: number) => {
+    try {
+      setIsLoading(true);
+      setSelectedPlanId(planId);
+
+      // Check if already subscribed to this plan
+      if (subscription?.planId === planId) {
+        toast({
+          title: 'Already Subscribed',
+          description: `You are already subscribed to the ${subscription.planName} plan.`,
+          variant: 'default',
+        });
+        setIsLoading(false);
+        return;
+      }
+
+      // Create subscription
+      const response = await apiRequest('POST', '/api/subscription/subscribe', { planId });
+      const result = await response.json();
+
+      if (result.clientSecret) {
+        // For paid plans, redirect to Stripe checkout
+        toast({
+          title: 'Redirecting to Payment',
+          description: 'Please complete your payment to activate your subscription.',
+          variant: 'default',
+        });
+        // In a real application, we would use Stripe Elements here
+        // For now, we'll just show a success message
+        setTimeout(() => {
+          window.location.reload();
+        }, 1500);
+      } else {
+        // For free plan
+        toast({
+          title: 'Subscription Updated',
+          description: `You are now subscribed to the ${plans?.find(p => p.id === planId)?.name} plan.`,
+          variant: 'default',
+        });
+        window.location.reload();
+      }
+    } catch (error) {
+      console.error('Error subscribing:', error);
+      toast({
+        title: 'Subscription Failed',
+        description: error instanceof Error ? error.message : 'An error occurred while processing your subscription.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoading(false);
+      setSelectedPlanId(null);
+    }
+  };
+
+  // Handle cancel subscription
+  const handleCancelSubscription = async () => {
+    try {
+      setIsLoading(true);
+      
+      // Free plan doesn't need cancellation
+      if (subscription?.planId === 1) {
+        toast({
+          title: 'Cannot Cancel Free Plan',
+          description: 'You are on the Free plan which cannot be cancelled.',
+          variant: 'default',
+        });
+        setIsLoading(false);
+        return;
+      }
+
+      // Cancel subscription
+      const response = await apiRequest('POST', '/api/subscription/cancel');
+      const result = await response.json();
+
+      toast({
+        title: 'Subscription Cancelled',
+        description: 'Your subscription has been cancelled. You will still have access until the end of your billing period.',
+        variant: 'default',
+      });
+      
+      // Reload to show updated subscription status
+      window.location.reload();
+    } catch (error) {
+      console.error('Error cancelling subscription:', error);
+      toast({
+        title: 'Cancellation Failed',
+        description: error instanceof Error ? error.message : 'An error occurred while cancelling your subscription.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  if (plansLoading || subscriptionLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-b from-background to-muted/20">
+        <Loader2 className="h-12 w-12 animate-spin text-primary" />
+        <h2 className="mt-4 text-xl font-semibold">Loading Subscription Plans...</h2>
+      </div>
+    );
+  }
 
   return (
-    <div className="container max-w-6xl py-10">
-      <div className="mx-auto mb-10 max-w-md text-center">
-        <h1 className="text-3xl font-bold">Choose Your Trading Plan</h1>
-        <p className="mt-4 text-muted-foreground">
-          Select the perfect plan to elevate your trading analysis and decision making
+    <div className="container mx-auto py-10 px-4 max-w-6xl">
+      <div className="text-center mb-10">
+        <h1 className="text-4xl font-bold tracking-tight">Subscription Plans</h1>
+        <p className="mt-4 text-xl text-muted-foreground">
+          Choose the perfect plan to enhance your trading analytics experience
         </p>
       </div>
 
-      <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3">
-        {pricingPlans.map((plan) => (
-          <Card
-            key={plan.name}
-            className={cn(
-              "flex flex-col",
-              plan.popular && "border-primary shadow-lg"
-            )}
-          >
-            {plan.popular && (
-              <div className="absolute right-0 top-0">
-                <div className="rounded-bl-lg rounded-tr-lg bg-primary px-3 py-1 text-xs font-medium text-primary-foreground">
-                  Most Popular
+      {subscription && (
+        <div className="mb-8">
+          <Alert className="bg-card border-primary/20">
+            <AlertCircle className="h-5 w-5 text-primary" />
+            <AlertTitle className="text-primary font-medium">Current Subscription</AlertTitle>
+            <AlertDescription>
+              <div className="flex flex-col space-y-2 mt-2">
+                <div>
+                  You are currently on the <span className="font-semibold">{subscription.planName}</span> plan.
+                  {subscription.status === 'active' && subscription.currentPeriodEnd && (
+                    <span className="ml-2">
+                      Your subscription will renew on {new Date(subscription.currentPeriodEnd).toLocaleDateString()}.
+                    </span>
+                  )}
                 </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+                  <div className="flex items-center space-x-2">
+                    <div className="text-sm font-medium">Chart Analysis Usage:</div>
+                    <div className="text-sm">
+                      {subscription.monthlyAnalysisCount} / {subscription.analysisLimit} 
+                      {subscription.analysisLimit > 999 ? ' (Unlimited)' : ''}
+                    </div>
+                    <div className="w-24 h-2 bg-muted rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-primary" 
+                        style={{ 
+                          width: `${Math.min(100, (subscription.monthlyAnalysisCount / subscription.analysisLimit) * 100)}%` 
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <div className="text-sm font-medium">Social Sharing Usage:</div>
+                    <div className="text-sm">
+                      {subscription.monthlySocialShareCount} / {subscription.socialShareLimit}
+                      {subscription.socialShareLimit > 999 ? ' (Unlimited)' : ''}
+                    </div>
+                    <div className="w-24 h-2 bg-muted rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-primary" 
+                        style={{ 
+                          width: `${Math.min(100, (subscription.monthlySocialShareCount / subscription.socialShareLimit) * 100)}%` 
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </AlertDescription>
+          </Alert>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+        {plans?.map((plan) => (
+          <Card key={plan.id} className={`relative overflow-hidden transition-all duration-300 ${
+            subscription?.planId === plan.id 
+              ? 'border-primary shadow-lg' 
+              : 'hover:shadow-md hover:border-primary/50'
+          }`}>
+            {subscription?.planId === plan.id && (
+              <div className="absolute top-0 right-0">
+                <Badge className="m-2 bg-primary hover:bg-primary">Current Plan</Badge>
               </div>
             )}
             <CardHeader>
-              <CardTitle>{plan.name}</CardTitle>
-              <div className="flex items-baseline">
-                <span className="text-3xl font-bold">{plan.price}</span>
-                <span className="ml-1 text-muted-foreground">/month</span>
-              </div>
-              <CardDescription>{plan.description}</CardDescription>
+              <CardTitle className="flex justify-between items-start">
+                <span>{plan.name}</span>
+                <span className="text-2xl font-bold">{formatPrice(plan.price)}</span>
+              </CardTitle>
+              <CardDescription>{plan.interval === 'month' ? 'per month' : plan.interval}</CardDescription>
             </CardHeader>
-            <CardContent className="flex-1">
+            <CardContent className="min-h-[200px]">
+              <div className="text-sm mb-4">{plan.description}</div>
               <ul className="space-y-2">
                 {plan.features.map((feature, index) => (
-                  <li key={index} className="flex items-center">
-                    {feature.included ? (
-                      <>
-                        <Check className="mr-2 h-4 w-4 text-primary" />
-                        <span>{feature.text}</span>
-                      </>
-                    ) : (
-                      <>
-                        <X className="mr-2 h-4 w-4 text-muted-foreground" />
-                        <span className="text-muted-foreground">{feature.text}</span>
-                      </>
-                    )}
+                  <li key={index} className="flex items-start">
+                    <Check className="h-5 w-5 mr-2 text-primary flex-shrink-0" />
+                    <span className="text-sm">{feature}</span>
                   </li>
                 ))}
+                <li className="flex items-start">
+                  <Check className="h-5 w-5 mr-2 text-primary flex-shrink-0" />
+                  <span className="text-sm">
+                    <strong>{plan.analysisLimit > 999 ? 'Unlimited' : plan.analysisLimit}</strong> chart analyses per month
+                  </span>
+                </li>
+                <li className="flex items-start">
+                  <Check className="h-5 w-5 mr-2 text-primary flex-shrink-0" />
+                  <span className="text-sm">
+                    <strong>{plan.socialShareLimit > 999 ? 'Unlimited' : plan.socialShareLimit}</strong> social shares per month
+                  </span>
+                </li>
               </ul>
             </CardContent>
             <CardFooter>
-              <Button
-                className={cn("w-full", plan.popular ? "" : "bg-muted hover:bg-muted/80")}
-                variant={plan.popular ? "default" : "outline"}
-              >
-                {plan.buttonText}
-              </Button>
+              {subscription?.planId === plan.id ? (
+                subscription.planId !== 1 ? (
+                  <Button 
+                    variant="outline" 
+                    className="w-full" 
+                    onClick={handleCancelSubscription}
+                    disabled={isLoading}
+                  >
+                    {isLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                    Cancel Subscription
+                  </Button>
+                ) : (
+                  <Button variant="outline" className="w-full" disabled>
+                    Current Plan
+                  </Button>
+                )
+              ) : (
+                <Button 
+                  variant="default" 
+                  className="w-full" 
+                  onClick={() => handleSubscribe(plan.id)}
+                  disabled={isLoading || selectedPlanId === plan.id}
+                >
+                  {isLoading && selectedPlanId === plan.id ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  ) : null}
+                  {plan.price === 0 ? 'Select Free Plan' : 'Subscribe'}
+                </Button>
+              )}
             </CardFooter>
           </Card>
         ))}
       </div>
 
-      <div className="mt-10 text-center">
-        <p className="text-muted-foreground">
-          All plans include our core AI-powered chart analysis technology
+      <div className="mt-12 text-center text-sm text-muted-foreground">
+        <p>All subscriptions are automatically renewed monthly. You can cancel at any time.</p>
+        <p className="mt-2">
+          Need help? <a href="/contact" className="text-primary hover:underline">Contact support</a>
         </p>
-        {!user && (
-          <Button asChild className="mt-4">
-            <Link href="/auth">Sign up to get started</Link>
-          </Button>
-        )}
       </div>
     </div>
   );
