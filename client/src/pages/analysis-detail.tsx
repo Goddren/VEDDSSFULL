@@ -406,6 +406,22 @@ const AnalysisDetail: React.FC = () => {
               <Button 
                 onClick={async () => {
                   try {
+                    // Check subscription limits before sharing
+                    const limitResponse = await apiRequest('POST', '/api/subscription/check-limits', {
+                      actionType: 'social_share'
+                    });
+                    const limitResult = await limitResponse.json();
+                    
+                    if (!limitResult.allowed) {
+                      toast({
+                        title: "Subscription Limit Reached",
+                        description: `You've reached your monthly limit of ${limitResult.limit} social shares on your ${limitResult.planName} plan. Please upgrade to continue sharing analyses.`,
+                        variant: "destructive",
+                      });
+                      return;
+                    }
+                    
+                    // If limit check passes, proceed with publishing
                     await apiRequest('POST', `/api/analyses/${analysisId}/publish-to-social`, {
                       isPublic: true
                     });
@@ -417,9 +433,10 @@ const AnalysisDetail: React.FC = () => {
                     // Refresh data
                     window.location.reload();
                   } catch (error) {
+                    console.error('Error publishing to social:', error);
                     toast({
                       title: "Error",
-                      description: "Failed to publish analysis to social hub. Please try again.",
+                      description: error instanceof Error ? error.message : "Failed to publish analysis to social hub. Please try again.",
                       variant: "destructive",
                     });
                   }
