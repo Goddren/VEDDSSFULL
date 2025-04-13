@@ -9,7 +9,7 @@ import { ApiKeySettings } from '@/components/ui/api-key-settings';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { useMutation } from '@tanstack/react-query';
-import { apiRequest } from '@/lib/queryClient';
+import { apiRequest, queryClient } from '@/lib/queryClient';
 import { AnalysisState, analysisPipeline, ChartAnalysisResponse } from '@shared/types';
 import { delay } from '@/lib/utils';
 import { BarChart3, CameraIcon, LayoutDashboard, Upload, Calendar, Sparkles, Lightbulb } from 'lucide-react';
@@ -157,6 +157,9 @@ const Analysis: React.FC = () => {
         setAnalysisProgress(100);
         setAnalysisState(AnalysisState.COMPLETE);
         checkAchievements();
+        
+        // Invalidate subscription cache to update the usage bar
+        queryClient.invalidateQueries({ queryKey: ['/api/subscription'] });
       } else {
         // Fall back to the old flow if we don't have analysis results yet
         startAnalysis(data.url);
