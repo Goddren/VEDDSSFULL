@@ -32,20 +32,26 @@ import MarketMoodPage from "@/pages/market-mood";
 import MarketSentimentPage from "@/pages/market-sentiment";
 import InteractiveTooltipShowcase from "@/pages/interactive-tooltip-showcase";
 import { NewsNotificationScheduler } from "@/components/news-notification-scheduler";
+import { SubscriptionUsageHeader } from "@/components/ui/subscription-usage-header";
 
 import { useLocation } from "wouter";
+import { useAuth } from "@/hooks/use-auth";
 
 function AppLayout() {
   const [location] = useLocation();
+  const { user } = useAuth();
   
   // Determine if we should show the header/footer
   const isLandingPage = location === "/";
   const isAuthPage = location === "/auth";
   const showHeaderFooter = !isLandingPage;
+  const showSubscriptionBar = user && !isLandingPage && !isAuthPage && 
+    !['/subscription', '/auth', '/'].includes(location);
   
   return (
     <div className="flex flex-col min-h-screen bg-background text-foreground">
       {showHeaderFooter && <Header />}
+      {showSubscriptionBar && <SubscriptionUsageHeader />}
       <main className="flex-grow">
         <Switch>
           {/* Public routes */}
