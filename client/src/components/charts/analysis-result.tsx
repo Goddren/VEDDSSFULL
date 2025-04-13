@@ -11,6 +11,8 @@ import { useNewsNotifications } from '@/components/news-notification-scheduler';
 import VolumeAnalysisChart from './volume-analysis';
 import { InsightTooltip, ConfidenceInsight, PatternInsight, IndicatorInsight, MarketTrendInsight } from '@/components/tooltips';
 import { SocialShare } from '@/components/trading/social-share';
+import { QuickShareDialog } from '@/components/trading/quick-share-dialog';
+import { Share2 } from 'lucide-react';
 
 interface AnalysisResultProps {
   analysis: ChartAnalysisResponse;
