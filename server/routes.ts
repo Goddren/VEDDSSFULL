@@ -4,6 +4,7 @@ import { storage } from "./storage";
 import { analyzeChartImage, testOpenAIApiKey, generateTradingTip, generateMarketTrendPredictions } from "./openai";
 import { setupTwilio, sendTradingSignal } from "./twilio";
 import { checkUserAchievements } from "./achievement-tracker";
+import { tradingCoachHandler, tradingTipsHandler } from "./trading-coach";
 import { 
   getSubscriptionPlans,
   getUserSubscription,

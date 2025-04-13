@@ -2,13 +2,16 @@ import OpenAI from "openai";
 import { ChartAnalysisResponse, TrendCell } from "@shared/types";
 import fs from "fs";
 
+// Create and export an OpenAI instance
+export const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
 // Function to get an OpenAI instance with the current API key
 // This ensures we're always using the most up-to-date key
 function getOpenAIInstance() {
   // the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
-  return new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-  });
+  return openai;
 }
 
 // Function to test if OpenAI API key is valid
