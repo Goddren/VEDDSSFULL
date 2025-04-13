@@ -1,317 +1,144 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { AlertCircle, TrendingUp, TrendingDown, DollarSign, BarChart, Activity, Info } from 'lucide-react';
+import React, { ReactNode, useState } from 'react';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { BarChart2, TrendingUp, TrendingDown, AlertCircle } from 'lucide-react';
+import { cn } from "@/lib/utils";
 
-type MarketTrend = 'bullish' | 'bearish' | 'neutral' | 'volatile';
+export type MarketTrend = 'bullish' | 'bearish' | 'neutral' | 'volatile';
 
 interface AIInsightTooltipProps {
-  children: React.ReactNode;
+  children: ReactNode;
   insight: string;
-  marketTrend?: MarketTrend;
+  marketTrend: MarketTrend;
   title?: string;
-  position?: 'top' | 'bottom' | 'left' | 'right';
-  width?: string;
-  icon?: React.ReactNode;
+  icon?: ReactNode;
+  position?: 'top' | 'right' | 'bottom' | 'left';
+  className?: string;
 }
 
 export function AIInsightTooltip({
   children,
   insight,
-  marketTrend = 'neutral',
-  title = 'AI Insight',
+  marketTrend,
+  title,
+  icon,
   position = 'top',
-  width = '300px',
-  icon
+  className
 }: AIInsightTooltipProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const triggerRef = useRef<HTMLDivElement>(null);
-  const tooltipRef = useRef<HTMLDivElement>(null);
-  
-  // Handle clicks outside to close tooltip
-  useEffect(() => {
-    if (!isOpen) return;
-    
-    function handleClickOutside(event: MouseEvent) {
-      if (
-        tooltipRef.current && 
-        !tooltipRef.current.contains(event.target as Node) &&
-        triggerRef.current &&
-        !triggerRef.current.contains(event.target as Node)
-      ) {
-        setIsOpen(false);
-      }
-    }
-    
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [isOpen]);
-  
-  // Get trend-specific styles and animations
-  const getTrendConfig = (trend: MarketTrend) => {
-    switch (trend) {
-      case 'bullish':
-        return {
-          icon: icon || <TrendingUp className="h-5 w-5 text-green-500" />,
-          color: 'border-green-500',
-          animationColor: 'rgba(34, 197, 94, 0.4)', // green-500 with opacity
-          textColor: 'text-green-400'
-        };
-      case 'bearish':
-        return {
-          icon: icon || <TrendingDown className="h-5 w-5 text-red-500" />,
-          color: 'border-red-500',
-          animationColor: 'rgba(239, 68, 68, 0.4)', // red-500 with opacity
-          textColor: 'text-red-400'
-        };
-      case 'volatile':
-        return {
-          icon: icon || <Activity className="h-5 w-5 text-amber-500" />,
-          color: 'border-amber-500',
-          animationColor: 'rgba(245, 158, 11, 0.4)', // amber-500 with opacity
-          textColor: 'text-amber-400'
-        };
-      case 'neutral':
-      default:
-        return {
-          icon: icon || <Info className="h-5 w-5 text-blue-500" />,
-          color: 'border-blue-500',
-          animationColor: 'rgba(59, 130, 246, 0.4)', // blue-500 with opacity
-          textColor: 'text-blue-400'
-        };
-    }
-  };
-  
-  const trendConfig = getTrendConfig(marketTrend);
-  
-  // Determine position-specific styles
-  const getPositionStyles = () => {
-    switch (position) {
-      case 'bottom':
-        return {
-          position: 'top-full mt-2',
-          transform: 'translateX(-50%)',
-          arrow: 'top-0 left-1/2 -translate-x-1/2 -translate-y-full border-b-gray-900'
-        };
-      case 'left':
-        return {
-          position: 'right-full top-1/2 -translate-y-1/2 mr-2',
-          transform: '',
-          arrow: 'right-0 top-1/2 -translate-y-1/2 translate-x-full border-l-gray-900'
-        };
-      case 'right':
-        return {
-          position: 'left-full top-1/2 -translate-y-1/2 ml-2',
-          transform: '',
-          arrow: 'left-0 top-1/2 -translate-y-1/2 -translate-x-full border-r-gray-900'
-        };
-      case 'top':
-      default:
-        return {
-          position: 'bottom-full mb-2',
-          transform: 'translateX(-50%)',
-          arrow: 'bottom-0 left-1/2 -translate-x-1/2 translate-y-full border-t-gray-900'
-        };
-    }
-  };
-  
-  const posStyles = getPositionStyles();
-  
-  // BullishAnimation component
-  const BullishAnimation = () => (
-    <motion.div 
-      className="absolute inset-0 z-0 overflow-hidden"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 0.8 }}
-      exit={{ opacity: 0 }}
-    >
-      {[...Array(5)].map((_, i) => (
-        <motion.div
-          key={i}
-          className="absolute w-4 h-4 rounded-full"
-          style={{ backgroundColor: trendConfig.animationColor }}
-          initial={{ 
-            x: Math.random() * 100 - 50 + 100, 
-            y: Math.random() * 100 - 50 + 100,
-            scale: 0.5,
-            opacity: 0
-          }}
-          animate={{ 
-            y: [null, -20, -40], 
-            scale: [null, 0.8, 1],
-            opacity: [0, 0.8, 0]
-          }}
-          transition={{ 
-            duration: 2, 
-            repeat: Infinity, 
-            delay: i * 0.4, 
-            ease: "easeOut" 
-          }}
-        />
-      ))}
-    </motion.div>
-  );
-  
-  // BearishAnimation component
-  const BearishAnimation = () => (
-    <motion.div 
-      className="absolute inset-0 z-0 overflow-hidden"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 0.8 }}
-      exit={{ opacity: 0 }}
-    >
-      {[...Array(5)].map((_, i) => (
-        <motion.div
-          key={i}
-          className="absolute w-4 h-4 rounded-full"
-          style={{ backgroundColor: trendConfig.animationColor }}
-          initial={{ 
-            x: Math.random() * 100 - 50 + 100, 
-            y: Math.random() * 100 - 50 + 100,
-            scale: 0.5,
-            opacity: 0
-          }}
-          animate={{ 
-            y: [null, 20, 40], 
-            scale: [null, 0.8, 1],
-            opacity: [0, 0.8, 0]
-          }}
-          transition={{ 
-            duration: 2, 
-            repeat: Infinity, 
-            delay: i * 0.4, 
-            ease: "easeOut" 
-          }}
-        />
-      ))}
-    </motion.div>
-  );
-  
-  // VolatileAnimation component
-  const VolatileAnimation = () => (
-    <motion.div 
-      className="absolute inset-0 z-0 overflow-hidden"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 0.8 }}
-      exit={{ opacity: 0 }}
-    >
-      {[...Array(8)].map((_, i) => (
-        <motion.div
-          key={i}
-          className="absolute w-3 h-3 rounded-full"
-          style={{ backgroundColor: trendConfig.animationColor }}
-          initial={{ 
-            x: Math.random() * 200, 
-            y: Math.random() * 100,
-            scale: 0.5,
-            opacity: 0
-          }}
-          animate={{ 
-            x: [null, Math.random() * 200], 
-            y: [null, Math.random() * 100],
-            scale: [null, 0.8, 1],
-            opacity: [0, 0.8, 0]
-          }}
-          transition={{ 
-            duration: 1.5, 
-            repeat: Infinity, 
-            delay: i * 0.2, 
-            ease: "easeInOut" 
-          }}
-        />
-      ))}
-    </motion.div>
-  );
-  
-  // NeutralAnimation component
-  const NeutralAnimation = () => (
-    <motion.div 
-      className="absolute inset-0 z-0 overflow-hidden"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 0.8 }}
-      exit={{ opacity: 0 }}
-    >
-      {[...Array(3)].map((_, i) => (
-        <motion.div
-          key={i}
-          className="absolute top-1/2 h-0.5 rounded-full"
-          style={{ 
-            backgroundColor: trendConfig.animationColor,
-            width: '80%',
-            left: '10%',
-            y: i * 15 - 15
-          }}
-          animate={{ 
-            opacity: [0.3, 0.7, 0.3],
-            scaleX: [0.9, 1, 0.9]
-          }}
-          transition={{ 
-            duration: 3, 
-            repeat: Infinity, 
-            delay: i * 0.5, 
-            ease: "easeInOut" 
-          }}
-        />
-      ))}
-    </motion.div>
-  );
-  
-  // Select the appropriate animation based on market trend
-  const renderTrendAnimation = () => {
+
+  // Determine background color and animation based on market trend
+  const getTrendStyles = () => {
     switch (marketTrend) {
       case 'bullish':
-        return <BullishAnimation />;
+        return {
+          bgClass: 'bg-gradient-to-r from-green-900/90 to-green-800/90 border-green-700',
+          iconColor: 'text-green-400',
+          animationClass: 'ai-tooltip-bullish-animation',
+          icon: icon || <TrendingUp className="h-5 w-5 text-green-400" />
+        };
       case 'bearish':
-        return <BearishAnimation />;
+        return {
+          bgClass: 'bg-gradient-to-r from-red-900/90 to-red-800/90 border-red-700',
+          iconColor: 'text-red-400',
+          animationClass: 'ai-tooltip-bearish-animation',
+          icon: icon || <TrendingDown className="h-5 w-5 text-red-400" />
+        };
       case 'volatile':
-        return <VolatileAnimation />;
+        return {
+          bgClass: 'bg-gradient-to-r from-amber-900/90 to-amber-800/90 border-amber-700',
+          iconColor: 'text-amber-400',
+          animationClass: 'ai-tooltip-volatile-animation',
+          icon: icon || <AlertCircle className="h-5 w-5 text-amber-400" />
+        };
       case 'neutral':
       default:
-        return <NeutralAnimation />;
+        return {
+          bgClass: 'bg-gradient-to-r from-blue-900/90 to-blue-800/90 border-blue-700',
+          iconColor: 'text-blue-400',
+          animationClass: 'ai-tooltip-neutral-animation',
+          icon: icon || <BarChart2 className="h-5 w-5 text-blue-400" />
+        };
     }
   };
-  
+
+  const { bgClass, iconColor, animationClass, icon: trendIcon } = getTrendStyles();
+
+  // Side based on position
+  const getSide = () => {
+    switch (position) {
+      case 'right': return 'left';
+      case 'bottom': return 'top';
+      case 'left': return 'right';
+      case 'top':
+      default:
+        return 'bottom';
+    }
+  };
+
   return (
-    <div className="relative inline-block">
-      <div
-        ref={triggerRef}
-        onClick={() => setIsOpen(!isOpen)}
-        className="cursor-help relative z-10"
+    <TooltipProvider>
+      <Tooltip
+        open={isOpen}
+        onOpenChange={setIsOpen}
+        delayDuration={200}
       >
-        {children}
-      </div>
-      
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div
-            ref={tooltipRef}
-            className={`absolute ${posStyles.position} z-50`}
-            style={{ width, transform: posStyles.transform ? posStyles.transform : undefined }}
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.9 }}
-            transition={{ duration: 0.2 }}
-          >
-            <div className={`relative rounded-md border ${trendConfig.color} bg-gray-900 p-3 shadow-lg`}>
-              {/* Arrow indicator */}
-              <div className={`absolute w-0 h-0 border-4 border-transparent ${posStyles.arrow}`}></div>
-              
-              {/* Animation container */}
-              {renderTrendAnimation()}
-              
-              {/* Content */}
-              <div className="relative z-10">
-                <div className="flex items-center mb-2">
-                  {trendConfig.icon}
-                  <h4 className={`font-medium ml-2 ${trendConfig.textColor}`}>{title}</h4>
-                </div>
-                <p className="text-sm text-gray-300">{insight}</p>
-              </div>
+        <TooltipTrigger
+          className={cn("cursor-help outline-none", className)}
+          onClick={(e) => {
+            e.stopPropagation();
+            setIsOpen(!isOpen);
+          }}
+        >
+          {children}
+        </TooltipTrigger>
+        <TooltipContent 
+          side={getSide()}
+          className={cn(
+            "p-0 max-w-[280px] border rounded-lg shadow-lg", 
+            bgClass
+          )}
+          sideOffset={8}
+        >
+          <div className="relative overflow-hidden rounded-lg">
+            {/* Animated background effect */}
+            <div className={cn(
+              "absolute inset-0 opacity-30 pointer-events-none",
+              animationClass
+            )}>
+              {marketTrend === 'bullish' && (
+                <div className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-green-500/20 via-green-400/10 to-transparent animate-pulse"></div>
+              )}
+              {marketTrend === 'bearish' && (
+                <div className="absolute top-0 left-0 right-0 h-12 bg-gradient-to-b from-red-500/20 via-red-400/10 to-transparent animate-pulse"></div>
+              )}
+              {marketTrend === 'volatile' && (
+                <div className="absolute inset-0 bg-gradient-to-r from-amber-500/10 via-amber-400/5 to-amber-500/10 animate-shimmer"></div>
+              )}
+              {marketTrend === 'neutral' && (
+                <div className="absolute inset-0 bg-gradient-to-r from-blue-500/10 via-blue-400/5 to-blue-500/10"></div>
+              )}
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
+
+            <div className="relative z-10 p-3">
+              {/* Header with icon */}
+              <div className="flex items-center mb-2">
+                <div className="mr-2">{trendIcon}</div>
+                <h3 className={cn("font-medium text-sm", iconColor)}>
+                  {title || `${marketTrend.charAt(0).toUpperCase() + marketTrend.slice(1)} Market Insight`}
+                </h3>
+              </div>
+
+              {/* Insight text */}
+              <p className="text-sm text-white">{insight}</p>
+            </div>
+          </div>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }
