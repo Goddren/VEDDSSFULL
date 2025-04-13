@@ -13,16 +13,38 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 
+// Define the subscription types
+interface SubscriptionPlan {
+  id: number;
+  name: string;
+  description: string;
+  price: number;
+  featuresIncluded: string[];
+  analysisLimit: number;
+  socialShareLimit: number;
+}
+
+interface UserSubscription {
+  planId: number;
+  planName: string;
+  status: 'active' | 'canceled' | 'none';
+  currentPeriodEnd?: string;
+  monthlyAnalysisCount: number;
+  monthlySocialShareCount: number;
+  analysisLimit: number;
+  socialShareLimit: number;
+}
+
 export function SubscriptionUsageHeader() {
   const [isExpanded, setIsExpanded] = React.useState(false);
   
   // Fetch the user's subscription data
-  const { data: subscription, isLoading: isLoadingSubscription } = useQuery({
+  const { data: subscription, isLoading: isLoadingSubscription } = useQuery<UserSubscription>({
     queryKey: ['/api/subscription'],
   });
   
   // Fetch subscription plans for tier comparison
-  const { data: plans, isLoading: isLoadingPlans } = useQuery({
+  const { data: plans, isLoading: isLoadingPlans } = useQuery<SubscriptionPlan[]>({
     queryKey: ['/api/subscription/plans'],
   });
   
@@ -41,8 +63,8 @@ export function SubscriptionUsageHeader() {
   } = subscription;
   
   // Get current plan and next tier if available
-  const currentPlan = plans?.find((p: any) => p.id === planId);
-  const nextTier = plans?.find((p: any) => p.id > planId);
+  const currentPlan = plans?.find((p) => p.id === planId);
+  const nextTier = plans?.find((p) => p.id > planId);
   
   // Format the price from cents to dollars
   const formatPrice = (cents: number) => {
