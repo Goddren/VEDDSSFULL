@@ -589,7 +589,7 @@ const Analysis: React.FC = () => {
             <>
               <AnalysisResult 
                 analysis={analysisResult} 
-                imageUrl={uploadedImageUrl} 
+                imageUrl={analysisResult.imageUrl || uploadedImageUrl} 
                 onReanalyze={handleReanalyze}
               />
               

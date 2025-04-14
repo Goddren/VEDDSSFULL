@@ -77,6 +77,7 @@ export interface ChartAnalysisResponse {
   volumeAnalysis: VolumeAnalysis[];
   recommendation: string;
   steps: string[];
+  imageUrl?: string;  // URL to the saved chart image
 }
 
 export interface ImageUploadResponse {

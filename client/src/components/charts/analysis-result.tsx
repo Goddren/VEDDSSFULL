@@ -43,7 +43,7 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({ analysis, imageUrl, onR
             <div className="bg-[#0A0A0A] rounded-lg overflow-hidden">
               {imageUrl ? (
                 <img
-                  src={imageUrl}
+                  src={normalizeImageUrl(imageUrl)}
                   alt="Uploaded trading chart"
                   className="w-full h-auto object-cover"
                   onError={(e) => {
