@@ -186,8 +186,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Continue even if database storage fails
       }
 
-      // Return the analysis result
-      res.json(analysis);
+      // Return the analysis result with the image URL
+      res.json({
+        ...analysis,
+        imageUrl
+      });
     } catch (error: any) {
       console.error("Analysis error:", error);
       
@@ -294,8 +297,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Continue processing even if storage fails
       }
 
-      // Return the full analysis to the client
-      res.json(analysis);
+      // Return the full analysis to the client with the image URL
+      res.json({
+        ...analysis,
+        imageUrl
+      });
     } catch (error: any) {
       console.error("Analysis error:", error);
       
