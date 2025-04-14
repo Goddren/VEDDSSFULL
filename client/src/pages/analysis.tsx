@@ -15,6 +15,7 @@ import { delay } from '@/lib/utils';
 import { BarChart3, CameraIcon, LayoutDashboard, Upload, Calendar, Sparkles, Lightbulb } from 'lucide-react';
 import { MarketCalendar } from '@/components/market/market-calendar';
 import { ChartInsightsPanel } from '@/components/market-insights/chart-insights-panel';
+import AnalysisStatusNotification from '@/components/ui/analysis-status-notification';
 
 // Image compression utility
 interface CompressOptions {
@@ -345,6 +346,9 @@ const Analysis: React.FC = () => {
 
   return (
     <div className="container mx-auto px-4 py-8">
+      {/* Analysis Status Notification */}
+      <AnalysisStatusNotification state={analysisState} progress={analysisProgress} />
+      
       {/* Page Header */}
       <div className="mb-8 space-y-2">
         <h1 className="text-3xl font-bold tracking-tight">Chart Analysis</h1>
