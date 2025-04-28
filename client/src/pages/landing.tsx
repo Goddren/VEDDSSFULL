@@ -57,7 +57,7 @@ export default function LandingPage() {
   };
   
   return (
-    <div className="flex flex-col min-h-screen bg-slate-100">
+    <div className="flex flex-col min-h-screen bg-theme-off">
       {/* Header with Logo */}
       <header className="w-full border-b border-theme-light py-4 px-6 bg-theme-light">
         <div className="max-w-7xl mx-auto flex justify-between items-center">
@@ -176,10 +176,10 @@ export default function LandingPage() {
           
           {/* New Features Section */}
           <motion.div variants={fadeIn} className="text-center mb-12">
-            <h2 className="text-3xl font-bold tracking-tight text-black sm:text-4xl">
+            <h2 className="text-3xl font-bold tracking-tight text-theme-main sm:text-4xl">
               <span className="text-red-500">Latest Trading Tools</span>
             </h2>
-            <p className="mt-4 text-lg text-gray-600 max-w-3xl mx-auto">
+            <p className="mt-4 text-lg text-theme-muted max-w-3xl mx-auto">
               Cutting-edge features to enhance your trading experience and decision-making.
             </p>
           </motion.div>
@@ -230,79 +230,79 @@ export default function LandingPage() {
           
           <motion.div variants={staggerContainer} className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
             {/* News Notifications */}
-            <motion.div variants={fadeIn} className="flex flex-col p-6 bg-white rounded-lg border border-gray-200 shadow-sm transform hover:translate-y-[-4px] transition-all duration-300 group">
+            <motion.div variants={fadeIn} className="flex flex-col p-6 bg-theme-light rounded-lg border-theme-light shadow-theme transform hover:translate-y-[-4px] transition-all duration-300 group">
               <div className="flex items-center mb-4">
-                <div className="p-2 rounded-full bg-red-50 mr-3 group-hover:bg-red-100 transition-all duration-300">
+                <div className="p-2 rounded-full bg-red-50 dark:bg-red-900/20 mr-3 group-hover:bg-red-100 dark:group-hover:bg-red-900/30 transition-all duration-300">
                   <Bell className="h-5 w-5 text-red-500" />
                 </div>
-                <h3 className="text-lg font-semibold text-black">News Notifications</h3>
+                <h3 className="text-lg font-semibold text-theme-main">News Notifications</h3>
               </div>
-              <p className="text-gray-600 flex-grow">
+              <p className="text-theme-muted flex-grow">
                 Get instant alerts about market news events that may impact your analyzed trading pairs.
               </p>
             </motion.div>
             
             {/* Volatility Risk Meter */}
-            <motion.div variants={fadeIn} className="flex flex-col p-6 bg-white rounded-lg border border-gray-200 shadow-sm transform hover:translate-y-[-4px] transition-all duration-300 group">
+            <motion.div variants={fadeIn} className="flex flex-col p-6 bg-theme-light rounded-lg border-theme-light shadow-theme transform hover:translate-y-[-4px] transition-all duration-300 group">
               <div className="flex items-center mb-4">
-                <div className="p-2 rounded-full bg-orange-50 mr-3 group-hover:bg-orange-100 transition-all duration-300">
+                <div className="p-2 rounded-full bg-orange-50 dark:bg-orange-900/20 mr-3 group-hover:bg-orange-100 dark:group-hover:bg-orange-900/30 transition-all duration-300">
                   <AlertTriangle className="h-5 w-5 text-orange-500" />
                 </div>
-                <h3 className="text-lg font-semibold text-black">Volatility Risk Meter</h3>
+                <h3 className="text-lg font-semibold text-theme-main">Volatility Risk Meter</h3>
               </div>
-              <p className="text-gray-600 flex-grow">
+              <p className="text-theme-muted flex-grow">
                 Visual gauge showing market volatility levels with animated insights to help manage risk.
               </p>
             </motion.div>
             
             {/* One-Click Chart Sharing */}
-            <motion.div variants={fadeIn} className="flex flex-col p-6 bg-white rounded-lg border border-gray-200 shadow-sm transform hover:translate-y-[-4px] transition-all duration-300 group">
+            <motion.div variants={fadeIn} className="flex flex-col p-6 bg-theme-light rounded-lg border-theme-light shadow-theme transform hover:translate-y-[-4px] transition-all duration-300 group">
               <div className="flex items-center mb-4">
-                <div className="p-2 rounded-full bg-blue-50 mr-3 group-hover:bg-blue-100 transition-all duration-300">
+                <div className="p-2 rounded-full bg-blue-50 dark:bg-blue-900/20 mr-3 group-hover:bg-blue-100 dark:group-hover:bg-blue-900/30 transition-all duration-300">
                   <Share2 className="h-5 w-5 text-blue-500" />
                 </div>
-                <h3 className="text-lg font-semibold text-black">One-Click Sharing</h3>
+                <h3 className="text-lg font-semibold text-theme-main">One-Click Sharing</h3>
               </div>
-              <p className="text-gray-600 flex-grow">
+              <p className="text-theme-muted flex-grow">
                 Share your chart analyses with trading notes via public links to collaborate with other traders.
               </p>
             </motion.div>
             
             {/* Volume Analysis */}
-            <motion.div variants={fadeIn} className="flex flex-col p-6 bg-white rounded-lg border border-gray-200 shadow-sm transform hover:translate-y-[-4px] transition-all duration-300 group">
+            <motion.div variants={fadeIn} className="flex flex-col p-6 bg-theme-light rounded-lg border-theme-light shadow-theme transform hover:translate-y-[-4px] transition-all duration-300 group">
               <div className="flex items-center mb-4">
-                <div className="p-2 rounded-full bg-green-50 mr-3 group-hover:bg-green-100 transition-all duration-300">
+                <div className="p-2 rounded-full bg-green-50 dark:bg-green-900/20 mr-3 group-hover:bg-green-100 dark:group-hover:bg-green-900/30 transition-all duration-300">
                   <BarChart className="h-5 w-5 text-green-500" />
                 </div>
-                <h3 className="text-lg font-semibold text-black">Volume Analysis</h3>
+                <h3 className="text-lg font-semibold text-theme-main">Volume Analysis</h3>
               </div>
-              <p className="text-gray-600 flex-grow">
+              <p className="text-theme-muted flex-grow">
                 Monitor trading volumes across Asian, European, and US sessions to identify the best times to trade.
               </p>
             </motion.div>
             
             {/* Time Zone Converter */}
-            <motion.div variants={fadeIn} className="flex flex-col p-6 bg-white rounded-lg border border-gray-200 shadow-sm transform hover:translate-y-[-4px] transition-all duration-300 group">
+            <motion.div variants={fadeIn} className="flex flex-col p-6 bg-theme-light rounded-lg border-theme-light shadow-theme transform hover:translate-y-[-4px] transition-all duration-300 group">
               <div className="flex items-center mb-4">
-                <div className="p-2 rounded-full bg-purple-50 mr-3 group-hover:bg-purple-100 transition-all duration-300">
+                <div className="p-2 rounded-full bg-purple-50 dark:bg-purple-900/20 mr-3 group-hover:bg-purple-100 dark:group-hover:bg-purple-900/30 transition-all duration-300">
                   <Clock className="h-5 w-5 text-purple-500" />
                 </div>
-                <h3 className="text-lg font-semibold text-black">Time Zone Converter</h3>
+                <h3 className="text-lg font-semibold text-theme-main">Time Zone Converter</h3>
               </div>
-              <p className="text-gray-600 flex-grow">
+              <p className="text-theme-muted flex-grow">
                 Convert trading session times between different time zones to never miss important market openings.
               </p>
             </motion.div>
             
             {/* Trading Session Countdown */}
-            <motion.div variants={fadeIn} className="flex flex-col p-6 bg-white rounded-lg border border-gray-200 shadow-sm transform hover:translate-y-[-4px] transition-all duration-300 group">
+            <motion.div variants={fadeIn} className="flex flex-col p-6 bg-theme-light rounded-lg border-theme-light shadow-theme transform hover:translate-y-[-4px] transition-all duration-300 group">
               <div className="flex items-center mb-4">
-                <div className="p-2 rounded-full bg-cyan-50 mr-3 group-hover:bg-cyan-100 transition-all duration-300">
+                <div className="p-2 rounded-full bg-cyan-50 dark:bg-cyan-900/20 mr-3 group-hover:bg-cyan-100 dark:group-hover:bg-cyan-900/30 transition-all duration-300">
                   <Timer className="h-5 w-5 text-cyan-500" />
                 </div>
-                <h3 className="text-lg font-semibold text-black">Session Countdown</h3>
+                <h3 className="text-lg font-semibold text-theme-main">Session Countdown</h3>
               </div>
-              <p className="text-gray-600 flex-grow">
+              <p className="text-theme-muted flex-grow">
                 Interactive countdown timer to major trading sessions, helping you prepare for market opens and closes.
               </p>
             </motion.div>
@@ -316,14 +316,14 @@ export default function LandingPage() {
         whileInView="visible"
         viewport={{ once: true }}
         variants={staggerContainer}
-        className="py-16 bg-slate-100 border-t border-black/10"
+        className="py-16 bg-theme-off border-t border-theme-light"
       >
         <div className="max-w-7xl mx-auto px-6 lg:px-8">
           <motion.div variants={fadeIn} className="text-center mb-12">
-            <h2 className="text-3xl font-bold tracking-tight text-black sm:text-4xl">
+            <h2 className="text-3xl font-bold tracking-tight text-theme-main sm:text-4xl">
               <span className="text-red-500">Pattern Distribution</span>
             </h2>
-            <p className="mt-4 text-lg text-gray-600 max-w-3xl mx-auto">
+            <p className="mt-4 text-lg text-theme-muted max-w-3xl mx-auto">
               Our AI recognizes a wide range of technical patterns across different market conditions.
             </p>
           </motion.div>
@@ -333,37 +333,37 @@ export default function LandingPage() {
           </motion.div>
           
           <motion.div variants={fadeIn} className="mt-12 grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
-            <div className="flex flex-col items-center p-4 bg-white rounded-lg border border-gray-200 shadow-sm">
+            <div className="flex flex-col items-center p-4 bg-theme-light rounded-lg border border-theme-light shadow-theme">
               <PieChart className="h-10 w-10 text-pink-500 mb-2" />
-              <span className="font-medium text-black">Double Top</span>
+              <span className="font-medium text-theme-main">Double Top</span>
             </div>
-            <div className="flex flex-col items-center p-4 bg-white rounded-lg border border-gray-200 shadow-sm">
+            <div className="flex flex-col items-center p-4 bg-theme-light rounded-lg border border-theme-light shadow-theme">
               <ChartLine className="h-10 w-10 text-blue-500 mb-2" />
-              <span className="font-medium text-black">Bull Flag</span>
+              <span className="font-medium text-theme-main">Bull Flag</span>
             </div>
-            <div className="flex flex-col items-center p-4 bg-white rounded-lg border border-gray-200 shadow-sm">
+            <div className="flex flex-col items-center p-4 bg-theme-light rounded-lg border border-theme-light shadow-theme">
               <BarChart2 className="h-10 w-10 text-purple-500 mb-2" />
-              <span className="font-medium text-black">Head & Shoulders</span>
+              <span className="font-medium text-theme-main">Head & Shoulders</span>
             </div>
-            <div className="flex flex-col items-center p-4 bg-white rounded-lg border border-gray-200 shadow-sm">
+            <div className="flex flex-col items-center p-4 bg-theme-light rounded-lg border border-theme-light shadow-theme">
               <Share2 className="h-10 w-10 text-green-500 mb-2" />
-              <span className="font-medium text-black">Triangle</span>
+              <span className="font-medium text-theme-main">Triangle</span>
             </div>
-            <div className="flex flex-col items-center p-4 bg-white rounded-lg border border-gray-200 shadow-sm">
+            <div className="flex flex-col items-center p-4 bg-theme-light rounded-lg border border-theme-light shadow-theme">
               <TrendingUp className="h-10 w-10 text-red-500 mb-2" />
-              <span className="font-medium text-black">Ascending Channel</span>
+              <span className="font-medium text-theme-main">Ascending Channel</span>
             </div>
-            <div className="flex flex-col items-center p-4 bg-white rounded-lg border border-gray-200 shadow-sm">
+            <div className="flex flex-col items-center p-4 bg-theme-light rounded-lg border border-theme-light shadow-theme">
               <TrendingDown className="h-10 w-10 text-orange-500 mb-2" />
-              <span className="font-medium text-black">Descending Channel</span>
+              <span className="font-medium text-theme-main">Descending Channel</span>
             </div>
-            <div className="flex flex-col items-center p-4 bg-white rounded-lg border border-gray-200 shadow-sm">
+            <div className="flex flex-col items-center p-4 bg-theme-light rounded-lg border border-theme-light shadow-theme">
               <Lightbulb className="h-10 w-10 text-yellow-500 mb-2" />
-              <span className="font-medium text-black">Divergence</span>
+              <span className="font-medium text-theme-main">Divergence</span>
             </div>
-            <div className="flex flex-col items-center p-4 bg-white rounded-lg border border-gray-200 shadow-sm">
+            <div className="flex flex-col items-center p-4 bg-theme-light rounded-lg border border-theme-light shadow-theme">
               <BarChart className="h-10 w-10 text-cyan-500 mb-2" />
-              <span className="font-medium text-black">Support/Resistance</span>
+              <span className="font-medium text-theme-main">Support/Resistance</span>
             </div>
           </motion.div>
         </div>
@@ -375,13 +375,13 @@ export default function LandingPage() {
         whileInView="visible"
         viewport={{ once: true }}
         variants={staggerContainer}
-        className="py-16 bg-slate-900 text-white border-t border-white/10"
+        className="py-16 bg-red-600 dark:bg-red-800 text-white border-t border-white/10"
       >
         <div className="max-w-7xl mx-auto px-6 lg:px-8 text-center">
           <motion.h2 variants={fadeIn} className="text-3xl font-bold sm:text-4xl mb-4 text-white">
             Ready to Elevate Your Trading?
           </motion.h2>
-          <motion.p variants={fadeIn} className="text-lg text-gray-100 max-w-2xl mx-auto mb-8">
+          <motion.p variants={fadeIn} className="text-lg text-white/90 max-w-2xl mx-auto mb-8">
             Join traders who are using VEDD's AI-powered analysis to transform their results.
           </motion.p>
           <motion.div variants={fadeIn} className="flex flex-col sm:flex-row gap-4 justify-center">
@@ -403,7 +403,7 @@ export default function LandingPage() {
       </motion.section>
       
       {/* Footer */}
-      <footer className="w-full border-t border-black/10 py-6 px-6 bg-white">
+      <footer className="w-full border-t border-theme-light py-6 px-6 bg-theme-light">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center">
           <div className="flex items-center mb-4 md:mb-0">
             <img src={logoImg} alt="VEDD Logo" className="h-8" />
@@ -411,16 +411,16 @@ export default function LandingPage() {
           </div>
           
           <div className="flex items-center space-x-8">
-            <Link href="/blog" className="text-sm text-black hover:text-red-500 transition-colors duration-300">
+            <Link href="/blog" className="text-sm text-theme-main hover:text-red-500 transition-colors duration-300">
               Blog
             </Link>
-            <Link href="/subscription" className="text-sm text-black hover:text-red-500 transition-colors duration-300">
+            <Link href="/subscription" className="text-sm text-theme-main hover:text-red-500 transition-colors duration-300">
               Pricing
             </Link>
-            <Link href="/auth" className="text-sm text-black hover:text-red-500 transition-colors duration-300">
+            <Link href="/auth" className="text-sm text-theme-main hover:text-red-500 transition-colors duration-300">
               Login
             </Link>
-            <Link href="/contact" className="text-sm text-black hover:text-red-500 transition-colors duration-300">
+            <Link href="/contact" className="text-sm text-theme-main hover:text-red-500 transition-colors duration-300">
               Contact
             </Link>
           </div>

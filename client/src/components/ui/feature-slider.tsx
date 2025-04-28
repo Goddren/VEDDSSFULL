@@ -81,14 +81,14 @@ export function FeatureSlider({
               className="flex-[0_0_100%] min-w-0 relative px-4 md:px-10 transition-opacity duration-500"
               style={{ opacity: selectedIndex === index ? 1 : 0.7 }}
             >
-              <div className={`${item.bgGradient} p-6 md:p-8 rounded-2xl shadow-xl h-full flex flex-col`}>
+              <div className={`bg-theme-light border border-theme-light p-6 md:p-8 rounded-2xl shadow-theme h-full flex flex-col`}>
                 <div className="flex items-center mb-4">
-                  <div className={`p-3 rounded-full ${item.color} mr-4 shadow-lg`}>
+                  <div className={`p-3 rounded-full ${item.color} dark:bg-opacity-20 mr-4 shadow-lg`}>
                     {item.icon}
                   </div>
-                  <h3 className="text-xl md:text-2xl font-bold text-gray-800">{item.title}</h3>
+                  <h3 className="text-xl md:text-2xl font-bold text-theme-main">{item.title}</h3>
                 </div>
-                <p className="text-gray-600 text-base md:text-lg">{item.description}</p>
+                <p className="text-theme-muted text-base md:text-lg">{item.description}</p>
               </div>
             </div>
           ))}
@@ -97,14 +97,14 @@ export function FeatureSlider({
 
       {/* Navigation arrows */}
       <button
-        className="absolute left-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center text-white hover:bg-black/80 transition-colors z-10"
+        className="absolute left-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/40 dark:bg-white/20 backdrop-blur-sm flex items-center justify-center text-white hover:bg-black/60 dark:hover:bg-white/30 transition-colors z-10"
         onClick={scrollPrev}
         aria-label="Previous feature"
       >
         <ChevronLeft className="h-6 w-6" />
       </button>
       <button
-        className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center text-white hover:bg-black/80 transition-colors z-10"
+        className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/40 dark:bg-white/20 backdrop-blur-sm flex items-center justify-center text-white hover:bg-black/60 dark:hover:bg-white/30 transition-colors z-10"
         onClick={scrollNext}
         aria-label="Next feature"
       >
@@ -119,7 +119,7 @@ export function FeatureSlider({
             className={`w-3 h-3 mx-1 rounded-full transition-all ${
               index === selectedIndex 
                 ? 'bg-red-500 scale-125' 
-                : 'bg-gray-500 opacity-50 hover:opacity-75'
+                : 'bg-gray-400 dark:bg-gray-600 opacity-50 hover:opacity-75'
             }`}
             onClick={() => scrollTo(index)}
             aria-label={`Go to slide ${index + 1}`}
