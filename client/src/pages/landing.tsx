@@ -37,6 +37,9 @@ import { PatternSlider } from "@/components/ui/pattern-slider";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { patternDescriptions } from "@/assets/pattern-descriptions";
 import logoImg from "@/assets/IMG_3645.png";
+import appScreenOne from "@/assets/1.png";
+import appScreenTwo from "@/assets/3.png";
+import appScreenThree from "@/assets/4.png";
 
 export default function LandingPage() {
   // Animation variants
