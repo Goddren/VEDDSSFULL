@@ -62,7 +62,7 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto flex justify-between items-center">
           <div className="flex items-center">
             <img src={logoImg} alt="VEDD Logo" className="h-12" />
-            <span className="ml-2 text-xs text-amber-500 italic font-light">seize the day divine</span>
+            <span className="ml-2 text-xs text-red-500 italic font-light">seize the day divine</span>
           </div>
           <div className="flex items-center space-x-3">
             <div className="w-2 h-2 bg-black rounded-full"></div>
@@ -89,7 +89,7 @@ export default function LandingPage() {
           </motion.div>
           
           <motion.h1 variants={slideUp} className="text-4xl font-bold tracking-tight text-black sm:text-5xl md:text-6xl">
-            <span className="text-amber-300">AI-Powered</span> Chart Analysis
+            <span className="text-red-500">AI-Powered</span> Chart Analysis
           </motion.h1>
           
           <motion.p variants={slideUp} className="mt-6 text-xl text-gray-700 max-w-3xl mx-auto">
@@ -99,7 +99,7 @@ export default function LandingPage() {
           
           <motion.div variants={slideUp} className="mt-10 flex flex-col sm:flex-row gap-4 justify-center">
             <Link href="/auth">
-              <Button size="lg" className="bg-amber-500 hover:bg-amber-600 text-white shadow-sm transition-all duration-300 transform hover:translate-y-[-2px]">
+              <Button size="lg" className="bg-red-500 hover:bg-red-600 text-white shadow-sm transition-all duration-300 transform hover:translate-y-[-2px]">
                 Get Started <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
             </Link>
@@ -124,7 +124,7 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto px-6 lg:px-8">
           <motion.div variants={fadeIn} className="text-center mb-16">
             <h2 className="text-3xl font-bold tracking-tight text-black sm:text-4xl">
-              <span className="text-amber-300">Powerful Trading Intelligence</span>
+              <span className="text-red-500">Powerful Trading Intelligence</span>
             </h2>
             <p className="mt-4 text-lg text-gray-600 max-w-3xl mx-auto">
               Our AI-powered platform analyzes chart patterns and market conditions to provide you with accurate insights and trading recommendations.
@@ -135,14 +135,14 @@ export default function LandingPage() {
           <motion.div variants={staggerContainer} className="grid grid-cols-1 gap-8 md:grid-cols-3 mb-16">
             {/* Feature 1 */}
             <motion.div variants={fadeIn} className="group flex flex-col items-center p-6 bg-white rounded-lg border border-gray-200 shadow-sm transform hover:translate-y-[-4px] transition-all duration-300">
-              <div className="p-3 rounded-full bg-amber-50 mb-4 group-hover:bg-amber-100 transition-all duration-300">
-                <BarChart2 className="h-8 w-8 text-amber-400" />
+              <div className="p-3 rounded-full bg-red-50 mb-4 group-hover:bg-red-100 transition-all duration-300">
+                <BarChart2 className="h-8 w-8 text-red-500" />
               </div>
               <h3 className="text-xl font-semibold text-black mb-2">Pattern Recognition</h3>
               <p className="text-center text-gray-600">
                 Identify chart patterns and technical indicators with advanced AI analysis.
               </p>
-              <div className="mt-4 w-24 h-[1px] bg-amber-400 rounded-full transform origin-left scale-0 group-hover:scale-100 transition-transform duration-500"></div>
+              <div className="mt-4 w-24 h-[1px] bg-red-500 rounded-full transform origin-left scale-0 group-hover:scale-100 transition-transform duration-500"></div>
             </motion.div>
             
             {/* Feature 2 */}
@@ -173,7 +173,7 @@ export default function LandingPage() {
           {/* New Features Section */}
           <motion.div variants={fadeIn} className="text-center mb-12">
             <h2 className="text-3xl font-bold tracking-tight text-black sm:text-4xl">
-              <span className="text-amber-300">Latest Trading Tools</span>
+              <span className="text-red-500">Latest Trading Tools</span>
             </h2>
             <p className="mt-4 text-lg text-gray-600 max-w-3xl mx-auto">
               Cutting-edge features to enhance your trading experience and decision-making.
@@ -185,7 +185,7 @@ export default function LandingPage() {
             <FeatureSlider
               items={[
                 {
-                  icon: <Sparkles className="h-7 w-7 text-amber-400" />,
+                  icon: <Sparkles className="h-7 w-7 text-red-500" />,
                   title: "AI-Powered Trading Tip Generator",
                   description: "Get instant trading tips and insights for any symbol with one click. Our AI analyzes market conditions and provides actionable recommendations.",
                   color: "bg-red-50",
@@ -317,7 +317,7 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto px-6 lg:px-8">
           <motion.div variants={fadeIn} className="text-center mb-12">
             <h2 className="text-3xl font-bold tracking-tight text-black sm:text-4xl">
-              <span className="text-amber-300">Pattern Distribution</span>
+              <span className="text-red-500">Pattern Distribution</span>
             </h2>
             <p className="mt-4 text-lg text-gray-600 max-w-3xl mx-auto">
               Our AI recognizes a wide range of technical patterns across different market conditions.
@@ -330,7 +330,7 @@ export default function LandingPage() {
           
           <motion.div variants={fadeIn} className="mt-12 grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
             <div className="flex flex-col items-center p-4 bg-white rounded-lg border border-gray-200 shadow-sm">
-              <PieChart className="h-10 w-10 text-amber-200 mb-2" />
+              <PieChart className="h-10 w-10 text-pink-500 mb-2" />
               <span className="font-medium text-black">Double Top</span>
             </div>
             <div className="flex flex-col items-center p-4 bg-white rounded-lg border border-gray-200 shadow-sm">
@@ -382,7 +382,7 @@ export default function LandingPage() {
           </motion.p>
           <motion.div variants={fadeIn} className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link href="/auth">
-              <Button size="lg" className="bg-amber-500 hover:bg-amber-600 text-white font-medium">
+              <Button size="lg" className="bg-red-500 hover:bg-red-600 text-white font-medium">
                 Get Started <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
             </Link>
@@ -403,20 +403,20 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center">
           <div className="flex items-center mb-4 md:mb-0">
             <img src={logoImg} alt="VEDD Logo" className="h-8" />
-            <span className="ml-2 text-xs text-amber-500 italic font-light">seize the day divine</span>
+            <span className="ml-2 text-xs text-red-500 italic font-light">seize the day divine</span>
           </div>
           
           <div className="flex items-center space-x-8">
-            <Link href="/blog" className="text-sm text-black hover:text-amber-500 transition-colors duration-300">
+            <Link href="/blog" className="text-sm text-black hover:text-red-500 transition-colors duration-300">
               Blog
             </Link>
-            <Link href="/subscription" className="text-sm text-black hover:text-amber-500 transition-colors duration-300">
+            <Link href="/subscription" className="text-sm text-black hover:text-red-500 transition-colors duration-300">
               Pricing
             </Link>
-            <Link href="/auth" className="text-sm text-black hover:text-amber-500 transition-colors duration-300">
+            <Link href="/auth" className="text-sm text-black hover:text-red-500 transition-colors duration-300">
               Login
             </Link>
-            <Link href="/contact" className="text-sm text-black hover:text-amber-500 transition-colors duration-300">
+            <Link href="/contact" className="text-sm text-black hover:text-red-500 transition-colors duration-300">
               Contact
             </Link>
           </div>
