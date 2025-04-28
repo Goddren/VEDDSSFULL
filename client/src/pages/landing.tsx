@@ -371,13 +371,13 @@ export default function LandingPage() {
         whileInView="visible"
         viewport={{ once: true }}
         variants={staggerContainer}
-        className="py-16 bg-black text-white border-t border-white/10"
+        className="py-16 bg-slate-900 text-white border-t border-white/10"
       >
         <div className="max-w-7xl mx-auto px-6 lg:px-8 text-center">
-          <motion.h2 variants={fadeIn} className="text-3xl font-bold sm:text-4xl mb-4">
+          <motion.h2 variants={fadeIn} className="text-3xl font-bold sm:text-4xl mb-4 text-white">
             Ready to Elevate Your Trading?
           </motion.h2>
-          <motion.p variants={fadeIn} className="text-lg text-gray-300 max-w-2xl mx-auto mb-8">
+          <motion.p variants={fadeIn} className="text-lg text-gray-100 max-w-2xl mx-auto mb-8">
             Join traders who are using VEDD's AI-powered analysis to transform their results.
           </motion.p>
           <motion.div variants={fadeIn} className="flex flex-col sm:flex-row gap-4 justify-center">
