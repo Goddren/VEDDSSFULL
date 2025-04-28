@@ -431,6 +431,33 @@ const Dashboard: React.FC = () => {
               </CardContent>
             </Card>
 
+            {/* Day/Night Scene Card */}
+            <Card className="bg-gray-900 border-gray-800 shadow-xl overflow-hidden mb-6">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="text-xl text-white flex items-center gap-2">
+                      <div className="flex items-center gap-1">
+                        <Sun className="h-5 w-5 text-yellow-500" />
+                        <span className="text-gray-500">/</span>
+                        <Moon className="h-5 w-5 text-blue-400" />
+                      </div>
+                      Day & Night Theme
+                    </CardTitle>
+                    <CardDescription>Customize your trading environment</CardDescription>
+                  </div>
+                  <ThemeToggle />
+                </div>
+              </CardHeader>
+              <CardContent className="flex flex-col items-center pb-6">
+                <DayNightScene size="md" className="mb-4" />
+                <p className="text-gray-400 text-sm text-center max-w-md">
+                  Toggle between light and dark mode to suit your trading environment.
+                  Reduce eye strain during night trading sessions with our dark theme.
+                </p>
+              </CardContent>
+            </Card>
+
             {/* Market Volatility Risk Meter */}
             <Card className="bg-gray-900 border-gray-800 shadow-xl overflow-hidden mb-6">
               <CardHeader>

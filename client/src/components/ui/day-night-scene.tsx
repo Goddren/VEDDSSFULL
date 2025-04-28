@@ -11,33 +11,51 @@ export function DayNightScene({ className = '', size = 'md' }: DayNightSceneProp
   const [isNight, setIsNight] = useState<boolean>(false);
   
   useEffect(() => {
-    // Check if we're in dark mode
-    const savedTheme = localStorage.getItem('veddTheme') as 'light' | 'dark' | null;
-    setIsNight(savedTheme === 'dark');
-    
-    // Listen for theme changes
-    const handleThemeChange = () => {
-      const theme = localStorage.getItem('veddTheme');
-      setIsNight(theme === 'dark');
-    };
-    
-    window.addEventListener('storage', handleThemeChange);
-    
-    // Also setup a mutation observer to detect class changes on the document
-    const observer = new MutationObserver((mutations) => {
-      mutations.forEach((mutation) => {
-        if (mutation.attributeName === 'class') {
-          setIsNight(document.documentElement.classList.contains('dark'));
+    try {
+      // Check if we're in dark mode
+      const savedTheme = localStorage.getItem('veddTheme') as 'light' | 'dark' | null;
+      setIsNight(savedTheme === 'dark');
+      
+      // Listen for theme changes
+      const handleThemeChange = () => {
+        try {
+          const theme = localStorage.getItem('veddTheme');
+          setIsNight(theme === 'dark');
+        } catch (error) {
+          console.error('Error handling theme change:', error);
+        }
+      };
+      
+      window.addEventListener('storage', handleThemeChange);
+      
+      // Also setup a mutation observer to detect class changes on the document
+      const observer = new MutationObserver((mutations) => {
+        try {
+          for (const mutation of mutations) {
+            if (mutation.attributeName === 'class') {
+              setIsNight(document.documentElement.classList.contains('dark'));
+              break;
+            }
+          }
+        } catch (error) {
+          console.error('Error in mutation observer:', error);
         }
       });
-    });
-    
-    observer.observe(document.documentElement, { attributes: true });
-    
-    return () => {
-      window.removeEventListener('storage', handleThemeChange);
-      observer.disconnect();
-    };
+      
+      if (typeof document !== 'undefined' && document.documentElement) {
+        observer.observe(document.documentElement, { attributes: true });
+      }
+      
+      return () => {
+        window.removeEventListener('storage', handleThemeChange);
+        if (observer) {
+          observer.disconnect();
+        }
+      };
+    } catch (error) {
+      console.error('Error setting up theme detection:', error);
+      return () => {};
+    }
   }, []);
   
   // Determine dimensions based on size
