@@ -77,14 +77,14 @@ export function PatternSlider({ className = "" }: PatternSliderProps) {
               key={index}
               className="flex-[0_0_100%] min-w-0 sm:flex-[0_0_calc(50%-1rem)] lg:flex-[0_0_calc(33.333%-1rem)] pl-4 first:pl-0"
             >
-              <div className="flex flex-col h-full p-6 rounded-lg bg-white border border-gray-200 shadow-lg transition-all duration-300 hover:border-gray-300 hover:shadow-xl">
+              <div className="flex flex-col h-full p-6 rounded-lg bg-theme-light border border-theme-light shadow-theme transition-all duration-300 hover:border-theme-hover">
                 <div className="flex flex-col items-center mb-6 sm:mb-4 sm:items-start sm:flex-row">
                   <div className="flex-shrink-0 mb-3 sm:mb-0 sm:mr-3">
                     <div className="relative">
                       <img 
                         src={pattern.imageUrl} 
                         alt={pattern.name}
-                        className="w-20 h-20 object-contain bg-gray-900 rounded-md"
+                        className="w-20 h-20 object-contain bg-gray-900 dark:bg-gray-800 rounded-md"
                         onError={(e) => {
                           console.error(`Failed to load image: ${pattern.imageUrl}`);
                           e.currentTarget.onerror = null;
@@ -95,16 +95,16 @@ export function PatternSlider({ className = "" }: PatternSliderProps) {
                   </div>
                   
                   <div className="flex flex-col text-center sm:text-left">
-                    <h3 className="text-lg font-bold text-gray-800 mb-1">{pattern.name}</h3>
-                    <span className="text-sm font-medium text-gray-600 mb-2">{pattern.type} Pattern</span>
+                    <h3 className="text-lg font-bold text-theme-main mb-1">{pattern.name}</h3>
+                    <span className="text-sm font-medium text-theme-muted mb-2">{pattern.type} Pattern</span>
                     
                     <div className="flex flex-col">
                       <div className="flex items-center justify-between">
-                        <span className="text-xs text-gray-500">Frequency</span>
-                        <span className="text-xs font-semibold text-gray-800">{pattern.percentage}%</span>
+                        <span className="text-xs text-theme-muted">Frequency</span>
+                        <span className="text-xs font-semibold text-theme-main">{pattern.percentage}%</span>
                       </div>
                       
-                      <div className="w-full h-2 bg-gray-200 rounded-full mt-1 overflow-hidden">
+                      <div className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-full mt-1 overflow-hidden">
                         <div 
                           className={`h-full ${pattern.barClass} rounded-full`}
                           style={{ width: `${pattern.percentage}%` }}
@@ -114,7 +114,7 @@ export function PatternSlider({ className = "" }: PatternSliderProps) {
                   </div>
                 </div>
                 
-                <p className="text-sm text-gray-600 flex-grow">{pattern.description}</p>
+                <p className="text-sm text-theme-muted flex-grow">{pattern.description}</p>
               </div>
             </div>
           ))}
@@ -123,14 +123,14 @@ export function PatternSlider({ className = "" }: PatternSliderProps) {
       
       {/* Navigation buttons */}
       <button 
-        className="absolute top-1/2 left-1 transform -translate-y-1/2 bg-black/50 hover:bg-black/70 transition-all p-2 rounded-full backdrop-blur-sm"
+        className="absolute top-1/2 left-1 transform -translate-y-1/2 bg-black/40 dark:bg-white/20 hover:bg-black/60 dark:hover:bg-white/30 transition-all p-2 rounded-full backdrop-blur-sm"
         onClick={scrollPrev}
       >
         <ChevronLeft className="h-5 w-5 text-white" />
       </button>
       
       <button 
-        className="absolute top-1/2 right-1 transform -translate-y-1/2 bg-black/50 hover:bg-black/70 transition-all p-2 rounded-full backdrop-blur-sm"
+        className="absolute top-1/2 right-1 transform -translate-y-1/2 bg-black/40 dark:bg-white/20 hover:bg-black/60 dark:hover:bg-white/30 transition-all p-2 rounded-full backdrop-blur-sm"
         onClick={scrollNext}
       >
         <ChevronRight className="h-5 w-5 text-white" />
@@ -144,7 +144,7 @@ export function PatternSlider({ className = "" }: PatternSliderProps) {
             className={`mx-1 w-2 h-2 rounded-full transition-all ${
               index === selectedIndex 
                 ? "bg-red-500 w-4" 
-                : "bg-gray-300 hover:bg-gray-400"
+                : "bg-gray-300 dark:bg-gray-600 hover:bg-gray-400 dark:hover:bg-gray-500"
             }`}
             onClick={() => emblaApi?.scrollTo(index)}
             aria-label={`Go to slide ${index + 1}`}

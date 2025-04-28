@@ -192,36 +192,36 @@ export default function LandingPage() {
                   icon: <Sparkles className="h-7 w-7 text-red-500" />,
                   title: "AI-Powered Trading Tip Generator",
                   description: "Get instant trading tips and insights for any symbol with one click. Our AI analyzes market conditions and provides actionable recommendations.",
-                  color: "bg-red-50",
-                  bgGradient: "bg-white border border-red-100"
+                  color: "bg-red-50 dark:bg-red-900/20",
+                  bgGradient: "bg-theme-light border border-theme-light"
                 },
                 {
                   icon: <Clock className="h-7 w-7 text-blue-500" />,
                   title: "Trading Session Countdown Timer",
                   description: "Never miss important trading sessions. Our interactive timer tracks major market openings across global time zones.",
-                  color: "bg-blue-50",
-                  bgGradient: "bg-white border border-blue-100"
+                  color: "bg-blue-50 dark:bg-blue-900/20",
+                  bgGradient: "bg-theme-light border border-theme-light"
                 },
                 {
                   icon: <Target className="h-7 w-7 text-green-500" />,
                   title: "Support & Resistance Detector",
                   description: "Automatically identify key support and resistance levels with strength indicators to help you make better entry and exit decisions.",
-                  color: "bg-green-50",
-                  bgGradient: "bg-white border border-green-100"
+                  color: "bg-green-50 dark:bg-green-900/20",
+                  bgGradient: "bg-theme-light border border-theme-light"
                 },
                 {
                   icon: <LineChart className="h-7 w-7 text-purple-500" />,
                   title: "Volume Analysis By Session",
                   description: "Analyze trading volume across different market sessions to identify the best times to trade specific pairs for maximum liquidity.",
-                  color: "bg-purple-50",
-                  bgGradient: "bg-white border border-purple-100"
+                  color: "bg-purple-50 dark:bg-purple-900/20",
+                  bgGradient: "bg-theme-light border border-theme-light"
                 },
                 {
                   icon: <Timer className="h-7 w-7 text-orange-500" />,
                   title: "Time Zone Converter Tool",
                   description: "Easily convert trading times between different time zones to coordinate your strategy with global market movements.",
-                  color: "bg-orange-50",
-                  bgGradient: "bg-white border border-orange-100"
+                  color: "bg-orange-50 dark:bg-orange-900/20",
+                  bgGradient: "bg-theme-light border border-theme-light"
                 }
               ]}
               className="min-h-[250px] md:min-h-[280px]"
