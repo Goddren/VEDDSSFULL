@@ -62,7 +62,7 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto flex justify-between items-center">
           <div className="flex items-center">
             <img src={logoImg} alt="VEDD Logo" className="h-12" />
-            <span className="ml-2 text-xs text-red-500 italic font-light">seize the day divine</span>
+            <span className="ml-2 text-xs text-amber-500 italic font-light">seize the day divine</span>
           </div>
           <div className="flex items-center space-x-3">
             <div className="w-2 h-2 bg-black rounded-full"></div>
@@ -185,7 +185,7 @@ export default function LandingPage() {
             <FeatureSlider
               items={[
                 {
-                  icon: <Sparkles className="h-7 w-7 text-red-500" />,
+                  icon: <Sparkles className="h-7 w-7 text-amber-400" />,
                   title: "AI-Powered Trading Tip Generator",
                   description: "Get instant trading tips and insights for any symbol with one click. Our AI analyzes market conditions and provides actionable recommendations.",
                   color: "bg-red-50",
@@ -382,7 +382,7 @@ export default function LandingPage() {
           </motion.p>
           <motion.div variants={fadeIn} className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link href="/auth">
-              <Button size="lg" className="bg-red-500 hover:bg-red-600 text-white font-medium">
+              <Button size="lg" className="bg-amber-500 hover:bg-amber-600 text-white font-medium">
                 Get Started <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
             </Link>
@@ -403,20 +403,20 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center">
           <div className="flex items-center mb-4 md:mb-0">
             <img src={logoImg} alt="VEDD Logo" className="h-8" />
-            <span className="ml-2 text-xs text-red-500 italic font-light">seize the day divine</span>
+            <span className="ml-2 text-xs text-amber-500 italic font-light">seize the day divine</span>
           </div>
           
           <div className="flex items-center space-x-8">
-            <Link href="/blog" className="text-sm text-black hover:text-red-500 transition-colors duration-300">
+            <Link href="/blog" className="text-sm text-black hover:text-amber-500 transition-colors duration-300">
               Blog
             </Link>
-            <Link href="/subscription" className="text-sm text-black hover:text-red-500 transition-colors duration-300">
+            <Link href="/subscription" className="text-sm text-black hover:text-amber-500 transition-colors duration-300">
               Pricing
             </Link>
-            <Link href="/auth" className="text-sm text-black hover:text-red-500 transition-colors duration-300">
+            <Link href="/auth" className="text-sm text-black hover:text-amber-500 transition-colors duration-300">
               Login
             </Link>
-            <Link href="/contact" className="text-sm text-black hover:text-red-500 transition-colors duration-300">
+            <Link href="/contact" className="text-sm text-black hover:text-amber-500 transition-colors duration-300">
               Contact
             </Link>
           </div>
