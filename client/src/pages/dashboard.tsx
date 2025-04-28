@@ -21,7 +21,9 @@ import {
   AlertTriangle,
   Lightbulb,
   Gamepad as GamepadIcon,
-  Smile
+  Smile,
+  Sun,
+  Moon
 } from 'lucide-react';
 import { MarketCalendar } from '@/components/market/market-calendar';
 import { RecentAchievements } from '@/components/achievements/recent-achievements';
@@ -30,6 +32,8 @@ import { VolatilityMeter } from '@/components/ui/volatility-meter';
 import { getUserLevel } from '@/lib/achievement-system';
 import TradingCoach from '@/components/trading-coach/trading-coach';
 import { DailyScriptureWisdom } from '@/components/scripture/daily-wisdom';
+import { DayNightScene } from '@/components/ui/day-night-scene';
+import { ThemeToggle } from '@/components/ui/theme-toggle';
 
 interface Analysis {
   id: number;
