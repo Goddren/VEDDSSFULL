@@ -17,8 +17,19 @@ import {
   Sparkles,
   Target,
   LineChart,
-  Lightbulb
+  Lightbulb,
+  MoreVertical,
+  Menu,
+  User,
+  Settings,
+  Info
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { motion } from "framer-motion";
 import { EarlyAccessForm } from "@/components/early-access/early-access-form";
 import { FeatureSlider } from "@/components/ui/feature-slider";
@@ -67,11 +78,35 @@ export default function LandingPage() {
           </div>
           <div className="flex items-center space-x-4">
             <ThemeToggle />
-            <div className="flex items-center space-x-3">
-              <div className="w-2 h-2 bg-black dark:bg-white rounded-full"></div>
-              <div className="w-2 h-2 bg-black dark:bg-white rounded-full"></div>
-              <div className="w-2 h-2 bg-black dark:bg-white rounded-full"></div>
-            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors focus:outline-none">
+                <div className="flex items-center space-x-1.5">
+                  <div className="w-1.5 h-1.5 bg-black dark:bg-white rounded-full"></div>
+                  <div className="w-1.5 h-1.5 bg-black dark:bg-white rounded-full"></div>
+                  <div className="w-1.5 h-1.5 bg-black dark:bg-white rounded-full"></div>
+                </div>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="min-w-[180px]">
+                <Link href="/auth">
+                  <DropdownMenuItem className="cursor-pointer">
+                    <User className="h-4 w-4 mr-2" />
+                    <span>Sign In</span>
+                  </DropdownMenuItem>
+                </Link>
+                <Link href="/subscription">
+                  <DropdownMenuItem className="cursor-pointer">
+                    <Settings className="h-4 w-4 mr-2" />
+                    <span>Plans & Pricing</span>
+                  </DropdownMenuItem>
+                </Link>
+                <Link href="/blog">
+                  <DropdownMenuItem className="cursor-pointer">
+                    <Info className="h-4 w-4 mr-2" />
+                    <span>Blog</span>
+                  </DropdownMenuItem>
+                </Link>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </header>
