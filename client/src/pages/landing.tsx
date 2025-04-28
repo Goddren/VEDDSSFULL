@@ -56,9 +56,9 @@ export default function LandingPage() {
   };
   
   return (
-    <div className="flex flex-col min-h-screen bg-[#fcf8ef]">
+    <div className="flex flex-col min-h-screen bg-slate-100">
       {/* Header with Logo */}
-      <header className="w-full border-b border-black/10 py-4 px-6">
+      <header className="w-full border-b border-black/10 py-4 px-6 bg-white">
         <div className="max-w-7xl mx-auto flex justify-between items-center">
           <div className="flex items-center">
             <img src={logoImg} alt="VEDD Logo" className="h-12" />
@@ -77,7 +77,7 @@ export default function LandingPage() {
         initial="hidden"
         animate="visible"
         variants={staggerContainer}
-        className="flex flex-col items-center justify-center px-6 py-16 bg-[#fcf8ef] lg:px-8 lg:py-24"
+        className="flex flex-col items-center justify-center px-6 py-16 bg-white lg:px-8 lg:py-24"
       >
         <div className="max-w-7xl mx-auto text-center">
           <motion.div variants={fadeIn} className="mb-8 flex justify-center">
@@ -134,7 +134,7 @@ export default function LandingPage() {
           {/* Main Features */}
           <motion.div variants={staggerContainer} className="grid grid-cols-1 gap-8 md:grid-cols-3 mb-16">
             {/* Feature 1 */}
-            <motion.div variants={fadeIn} className="group flex flex-col items-center p-6 bg-[#fcf8ef] rounded-lg border border-black/10 shadow-sm transform hover:translate-y-[-4px] transition-all duration-300">
+            <motion.div variants={fadeIn} className="group flex flex-col items-center p-6 bg-white rounded-lg border border-gray-200 shadow-sm transform hover:translate-y-[-4px] transition-all duration-300">
               <div className="p-3 rounded-full bg-red-50 mb-4 group-hover:bg-red-100 transition-all duration-300">
                 <BarChart2 className="h-8 w-8 text-red-500" />
               </div>
@@ -146,7 +146,7 @@ export default function LandingPage() {
             </motion.div>
             
             {/* Feature 2 */}
-            <motion.div variants={fadeIn} className="group flex flex-col items-center p-6 bg-[#fcf8ef] rounded-lg border border-black/10 shadow-sm transform hover:translate-y-[-4px] transition-all duration-300">
+            <motion.div variants={fadeIn} className="group flex flex-col items-center p-6 bg-white rounded-lg border border-gray-200 shadow-sm transform hover:translate-y-[-4px] transition-all duration-300">
               <div className="p-3 rounded-full bg-blue-50 mb-4 group-hover:bg-blue-100 transition-all duration-300">
                 <ChartLine className="h-8 w-8 text-blue-500" />
               </div>
@@ -158,7 +158,7 @@ export default function LandingPage() {
             </motion.div>
             
             {/* Feature 3 */}
-            <motion.div variants={fadeIn} className="group flex flex-col items-center p-6 bg-[#fcf8ef] rounded-lg border border-black/10 shadow-sm transform hover:translate-y-[-4px] transition-all duration-300">
+            <motion.div variants={fadeIn} className="group flex flex-col items-center p-6 bg-white rounded-lg border border-gray-200 shadow-sm transform hover:translate-y-[-4px] transition-all duration-300">
               <div className="p-3 rounded-full bg-green-50 mb-4 group-hover:bg-green-100 transition-all duration-300">
                 <Zap className="h-8 w-8 text-green-500" />
               </div>
@@ -226,7 +226,7 @@ export default function LandingPage() {
           
           <motion.div variants={staggerContainer} className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
             {/* News Notifications */}
-            <motion.div variants={fadeIn} className="flex flex-col p-6 bg-[#fcf8ef] rounded-lg border border-black/10 shadow-sm transform hover:translate-y-[-4px] transition-all duration-300 group">
+            <motion.div variants={fadeIn} className="flex flex-col p-6 bg-white rounded-lg border border-gray-200 shadow-sm transform hover:translate-y-[-4px] transition-all duration-300 group">
               <div className="flex items-center mb-4">
                 <div className="p-2 rounded-full bg-red-50 mr-3 group-hover:bg-red-100 transition-all duration-300">
                   <Bell className="h-5 w-5 text-red-500" />
@@ -239,7 +239,7 @@ export default function LandingPage() {
             </motion.div>
             
             {/* Volatility Risk Meter */}
-            <motion.div variants={fadeIn} className="flex flex-col p-6 bg-[#fcf8ef] rounded-lg border border-black/10 shadow-sm transform hover:translate-y-[-4px] transition-all duration-300 group">
+            <motion.div variants={fadeIn} className="flex flex-col p-6 bg-white rounded-lg border border-gray-200 shadow-sm transform hover:translate-y-[-4px] transition-all duration-300 group">
               <div className="flex items-center mb-4">
                 <div className="p-2 rounded-full bg-orange-50 mr-3 group-hover:bg-orange-100 transition-all duration-300">
                   <AlertTriangle className="h-5 w-5 text-orange-500" />
@@ -252,7 +252,7 @@ export default function LandingPage() {
             </motion.div>
             
             {/* One-Click Chart Sharing */}
-            <motion.div variants={fadeIn} className="flex flex-col p-6 bg-[#fcf8ef] rounded-lg border border-black/10 shadow-sm transform hover:translate-y-[-4px] transition-all duration-300 group">
+            <motion.div variants={fadeIn} className="flex flex-col p-6 bg-white rounded-lg border border-gray-200 shadow-sm transform hover:translate-y-[-4px] transition-all duration-300 group">
               <div className="flex items-center mb-4">
                 <div className="p-2 rounded-full bg-blue-50 mr-3 group-hover:bg-blue-100 transition-all duration-300">
                   <Share2 className="h-5 w-5 text-blue-500" />
@@ -265,7 +265,7 @@ export default function LandingPage() {
             </motion.div>
             
             {/* Volume Analysis */}
-            <motion.div variants={fadeIn} className="flex flex-col p-6 bg-[#fcf8ef] rounded-lg border border-black/10 shadow-sm transform hover:translate-y-[-4px] transition-all duration-300 group">
+            <motion.div variants={fadeIn} className="flex flex-col p-6 bg-white rounded-lg border border-gray-200 shadow-sm transform hover:translate-y-[-4px] transition-all duration-300 group">
               <div className="flex items-center mb-4">
                 <div className="p-2 rounded-full bg-green-50 mr-3 group-hover:bg-green-100 transition-all duration-300">
                   <BarChart className="h-5 w-5 text-green-500" />
@@ -278,7 +278,7 @@ export default function LandingPage() {
             </motion.div>
             
             {/* Time Zone Converter */}
-            <motion.div variants={fadeIn} className="flex flex-col p-6 bg-[#fcf8ef] rounded-lg border border-black/10 shadow-sm transform hover:translate-y-[-4px] transition-all duration-300 group">
+            <motion.div variants={fadeIn} className="flex flex-col p-6 bg-white rounded-lg border border-gray-200 shadow-sm transform hover:translate-y-[-4px] transition-all duration-300 group">
               <div className="flex items-center mb-4">
                 <div className="p-2 rounded-full bg-purple-50 mr-3 group-hover:bg-purple-100 transition-all duration-300">
                   <Clock className="h-5 w-5 text-purple-500" />
@@ -291,7 +291,7 @@ export default function LandingPage() {
             </motion.div>
             
             {/* Trading Session Countdown */}
-            <motion.div variants={fadeIn} className="flex flex-col p-6 bg-[#fcf8ef] rounded-lg border border-black/10 shadow-sm transform hover:translate-y-[-4px] transition-all duration-300 group">
+            <motion.div variants={fadeIn} className="flex flex-col p-6 bg-white rounded-lg border border-gray-200 shadow-sm transform hover:translate-y-[-4px] transition-all duration-300 group">
               <div className="flex items-center mb-4">
                 <div className="p-2 rounded-full bg-cyan-50 mr-3 group-hover:bg-cyan-100 transition-all duration-300">
                   <Timer className="h-5 w-5 text-cyan-500" />
@@ -312,7 +312,7 @@ export default function LandingPage() {
         whileInView="visible"
         viewport={{ once: true }}
         variants={staggerContainer}
-        className="py-16 bg-[#fcf8ef] border-t border-black/10"
+        className="py-16 bg-slate-100 border-t border-black/10"
       >
         <div className="max-w-7xl mx-auto px-6 lg:px-8">
           <motion.div variants={fadeIn} className="text-center mb-12">
@@ -329,35 +329,35 @@ export default function LandingPage() {
           </motion.div>
           
           <motion.div variants={fadeIn} className="mt-12 grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
-            <div className="flex flex-col items-center p-4 bg-white rounded-lg border border-black/10 shadow-sm">
+            <div className="flex flex-col items-center p-4 bg-white rounded-lg border border-gray-200 shadow-sm">
               <PieChart className="h-10 w-10 text-pink-500 mb-2" />
               <span className="font-medium text-black">Double Top</span>
             </div>
-            <div className="flex flex-col items-center p-4 bg-white rounded-lg border border-black/10 shadow-sm">
+            <div className="flex flex-col items-center p-4 bg-white rounded-lg border border-gray-200 shadow-sm">
               <ChartLine className="h-10 w-10 text-blue-500 mb-2" />
               <span className="font-medium text-black">Bull Flag</span>
             </div>
-            <div className="flex flex-col items-center p-4 bg-white rounded-lg border border-black/10 shadow-sm">
+            <div className="flex flex-col items-center p-4 bg-white rounded-lg border border-gray-200 shadow-sm">
               <BarChart2 className="h-10 w-10 text-purple-500 mb-2" />
               <span className="font-medium text-black">Head & Shoulders</span>
             </div>
-            <div className="flex flex-col items-center p-4 bg-white rounded-lg border border-black/10 shadow-sm">
+            <div className="flex flex-col items-center p-4 bg-white rounded-lg border border-gray-200 shadow-sm">
               <Share2 className="h-10 w-10 text-green-500 mb-2" />
               <span className="font-medium text-black">Triangle</span>
             </div>
-            <div className="flex flex-col items-center p-4 bg-white rounded-lg border border-black/10 shadow-sm">
+            <div className="flex flex-col items-center p-4 bg-white rounded-lg border border-gray-200 shadow-sm">
               <TrendingUp className="h-10 w-10 text-red-500 mb-2" />
               <span className="font-medium text-black">Ascending Channel</span>
             </div>
-            <div className="flex flex-col items-center p-4 bg-white rounded-lg border border-black/10 shadow-sm">
+            <div className="flex flex-col items-center p-4 bg-white rounded-lg border border-gray-200 shadow-sm">
               <TrendingDown className="h-10 w-10 text-orange-500 mb-2" />
               <span className="font-medium text-black">Descending Channel</span>
             </div>
-            <div className="flex flex-col items-center p-4 bg-white rounded-lg border border-black/10 shadow-sm">
+            <div className="flex flex-col items-center p-4 bg-white rounded-lg border border-gray-200 shadow-sm">
               <Lightbulb className="h-10 w-10 text-yellow-500 mb-2" />
               <span className="font-medium text-black">Divergence</span>
             </div>
-            <div className="flex flex-col items-center p-4 bg-white rounded-lg border border-black/10 shadow-sm">
+            <div className="flex flex-col items-center p-4 bg-white rounded-lg border border-gray-200 shadow-sm">
               <BarChart className="h-10 w-10 text-cyan-500 mb-2" />
               <span className="font-medium text-black">Support/Resistance</span>
             </div>
@@ -399,7 +399,7 @@ export default function LandingPage() {
       </motion.section>
       
       {/* Footer */}
-      <footer className="w-full border-t border-black/10 py-6 px-6 bg-[#fcf8ef]">
+      <footer className="w-full border-t border-black/10 py-6 px-6 bg-white">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center">
           <div className="flex items-center mb-4 md:mb-0">
             <img src={logoImg} alt="VEDD Logo" className="h-8" />
