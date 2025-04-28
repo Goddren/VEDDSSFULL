@@ -37,9 +37,9 @@ import { PatternSlider } from "@/components/ui/pattern-slider";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { patternDescriptions } from "@/assets/pattern-descriptions";
 import logoImg from "@/assets/IMG_3645.png";
-import appScreenOne from "@/assets/1.png";
-import appScreenTwo from "@/assets/3.png";
-import appScreenThree from "@/assets/4.png";
+import appScreenOne from "@/assets/IMG_5262.png";
+import appScreenTwo from "@/assets/IMG_5277.png";
+import appScreenThree from "@/assets/IMG_5278.png";
 
 export default function LandingPage() {
   // Animation variants
@@ -437,7 +437,7 @@ export default function LandingPage() {
                   <div className="w-2.5 h-2.5 rounded-full bg-red-500"></div>
                   <div className="w-2.5 h-2.5 rounded-full bg-yellow-500"></div>
                   <div className="w-2.5 h-2.5 rounded-full bg-green-500"></div>
-                  <div className="text-xs text-gray-500 ml-2">VEDDAI Trading Suite</div>
+                  <div className="text-xs text-gray-500 ml-2">VEDDAI Chart Analysis</div>
                 </div>
               </div>
               <img 
@@ -446,8 +446,8 @@ export default function LandingPage() {
                 className="w-full object-cover"
               />
               <div className="p-5">
-                <h3 className="text-lg font-semibold text-theme-main mb-2">Initiation to Automation</h3>
-                <p className="text-sm text-theme-muted">Our elegant landing page introduces you to the power of AI-driven trading analysis and decision support.</p>
+                <h3 className="text-lg font-semibold text-theme-main mb-2">AI-Powered Chart Analysis</h3>
+                <p className="text-sm text-theme-muted">AI instantly analyzes your trading charts to identify patterns, predict trends, and provide actionable insights.</p>
               </div>
             </motion.div>
             
@@ -462,17 +462,17 @@ export default function LandingPage() {
                   <div className="w-2.5 h-2.5 rounded-full bg-red-500"></div>
                   <div className="w-2.5 h-2.5 rounded-full bg-yellow-500"></div>
                   <div className="w-2.5 h-2.5 rounded-full bg-green-500"></div>
-                  <div className="text-xs text-gray-500 ml-2">VEDDAI Trading Problem</div>
+                  <div className="text-xs text-gray-500 ml-2">VEDDAI Pattern Recognition</div>
                 </div>
               </div>
               <img 
                 src={appScreenTwo} 
-                alt="VEDDAI Analysis Dashboard" 
+                alt="VEDDAI Pattern Recognition" 
                 className="w-full object-cover"
               />
               <div className="p-5">
-                <h3 className="text-lg font-semibold text-theme-main mb-2">The Trading Problem</h3>
-                <p className="text-sm text-theme-muted">We address the real problem with trading - not the lack of information, but the ability to process it effectively.</p>
+                <h3 className="text-lg font-semibold text-theme-main mb-2">Advanced Pattern Recognition</h3>
+                <p className="text-sm text-theme-muted">Our system identifies multiple chart patterns simultaneously and provides probability scores for each potential trading setup.</p>
               </div>
             </motion.div>
             
@@ -487,17 +487,17 @@ export default function LandingPage() {
                   <div className="w-2.5 h-2.5 rounded-full bg-red-500"></div>
                   <div className="w-2.5 h-2.5 rounded-full bg-yellow-500"></div>
                   <div className="w-2.5 h-2.5 rounded-full bg-green-500"></div>
-                  <div className="text-xs text-gray-500 ml-2">VEDDAI Trading Answer</div>
+                  <div className="text-xs text-gray-500 ml-2">VEDDAI Trading Signals</div>
                 </div>
               </div>
               <img 
                 src={appScreenThree} 
-                alt="VEDDAI Chart Analysis" 
+                alt="VEDDAI Trading Signals" 
                 className="w-full object-cover"
               />
               <div className="p-5">
-                <h3 className="text-lg font-semibold text-theme-main mb-2">The VEDDAI Answer</h3>
-                <p className="text-sm text-theme-muted">Our algorithm leverages data analysis and EMA crosses to create powerful, data-driven trading strategies that maximize your returns.</p>
+                <h3 className="text-lg font-semibold text-theme-main mb-2">Actionable Trading Signals</h3>
+                <p className="text-sm text-theme-muted">Get precise buy/sell signals with entry, exit, stop-loss, and take-profit levels backed by AI-powered market analysis.</p>
               </div>
             </motion.div>
           </motion.div>
