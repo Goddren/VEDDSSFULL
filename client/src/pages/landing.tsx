@@ -23,6 +23,7 @@ import { motion } from "framer-motion";
 import { EarlyAccessForm } from "@/components/early-access/early-access-form";
 import { FeatureSlider } from "@/components/ui/feature-slider";
 import { PatternSlider } from "@/components/ui/pattern-slider";
+import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { patternDescriptions } from "@/assets/pattern-descriptions";
 import logoImg from "@/assets/IMG_3645.png";
 
@@ -58,16 +59,19 @@ export default function LandingPage() {
   return (
     <div className="flex flex-col min-h-screen bg-slate-100">
       {/* Header with Logo */}
-      <header className="w-full border-b border-black/10 py-4 px-6 bg-white">
+      <header className="w-full border-b border-theme-light py-4 px-6 bg-theme-light">
         <div className="max-w-7xl mx-auto flex justify-between items-center">
           <div className="flex items-center">
             <img src={logoImg} alt="VEDD Logo" className="h-12" />
             <span className="ml-2 text-xs text-red-500 italic font-light">seize the day divine</span>
           </div>
-          <div className="flex items-center space-x-3">
-            <div className="w-2 h-2 bg-black rounded-full"></div>
-            <div className="w-2 h-2 bg-black rounded-full"></div>
-            <div className="w-2 h-2 bg-black rounded-full"></div>
+          <div className="flex items-center space-x-4">
+            <ThemeToggle />
+            <div className="flex items-center space-x-3">
+              <div className="w-2 h-2 bg-black dark:bg-white rounded-full"></div>
+              <div className="w-2 h-2 bg-black dark:bg-white rounded-full"></div>
+              <div className="w-2 h-2 bg-black dark:bg-white rounded-full"></div>
+            </div>
           </div>
         </div>
       </header>
@@ -77,7 +81,7 @@ export default function LandingPage() {
         initial="hidden"
         animate="visible"
         variants={staggerContainer}
-        className="flex flex-col items-center justify-center px-6 py-16 bg-white lg:px-8 lg:py-24"
+        className="flex flex-col items-center justify-center px-6 py-16 bg-theme-light lg:px-8 lg:py-24"
       >
         <div className="max-w-7xl mx-auto text-center">
           <motion.div variants={fadeIn} className="mb-8 flex justify-center">
@@ -88,11 +92,11 @@ export default function LandingPage() {
             />
           </motion.div>
           
-          <motion.h1 variants={slideUp} className="text-4xl font-bold tracking-tight text-black sm:text-5xl md:text-6xl">
+          <motion.h1 variants={slideUp} className="text-4xl font-bold tracking-tight text-theme-main sm:text-5xl md:text-6xl">
             <span className="text-red-500">AI-Powered</span> Chart Analysis
           </motion.h1>
           
-          <motion.p variants={slideUp} className="mt-6 text-xl text-gray-700 max-w-3xl mx-auto">
+          <motion.p variants={slideUp} className="mt-6 text-xl text-theme-muted max-w-3xl mx-auto">
             Transform your trading with advanced AI analysis. Upload charts from MT4, MT5, or TradingView 
             and get precise market insights, patterns, and actionable signals instantly.
           </motion.p>
@@ -119,14 +123,14 @@ export default function LandingPage() {
         whileInView="visible"
         viewport={{ once: true }}
         variants={staggerContainer}
-        className="py-16 bg-white border-t border-black/10"
+        className="py-16 bg-theme-light border-t border-theme-light"
       >
         <div className="max-w-7xl mx-auto px-6 lg:px-8">
           <motion.div variants={fadeIn} className="text-center mb-16">
-            <h2 className="text-3xl font-bold tracking-tight text-black sm:text-4xl">
+            <h2 className="text-3xl font-bold tracking-tight text-theme-main sm:text-4xl">
               <span className="text-red-500">Powerful Trading Intelligence</span>
             </h2>
-            <p className="mt-4 text-lg text-gray-600 max-w-3xl mx-auto">
+            <p className="mt-4 text-lg text-theme-muted max-w-3xl mx-auto">
               Our AI-powered platform analyzes chart patterns and market conditions to provide you with accurate insights and trading recommendations.
             </p>
           </motion.div>
@@ -134,36 +138,36 @@ export default function LandingPage() {
           {/* Main Features */}
           <motion.div variants={staggerContainer} className="grid grid-cols-1 gap-8 md:grid-cols-3 mb-16">
             {/* Feature 1 */}
-            <motion.div variants={fadeIn} className="group flex flex-col items-center p-6 bg-white rounded-lg border border-gray-200 shadow-sm transform hover:translate-y-[-4px] transition-all duration-300">
-              <div className="p-3 rounded-full bg-red-50 mb-4 group-hover:bg-red-100 transition-all duration-300">
+            <motion.div variants={fadeIn} className="group flex flex-col items-center p-6 bg-theme-light rounded-lg border border-theme-light shadow-theme transform hover:translate-y-[-4px] transition-all duration-300">
+              <div className="p-3 rounded-full bg-red-50 dark:bg-red-900/20 mb-4 group-hover:bg-red-100 dark:group-hover:bg-red-900/30 transition-all duration-300">
                 <BarChart2 className="h-8 w-8 text-red-500" />
               </div>
-              <h3 className="text-xl font-semibold text-black mb-2">Pattern Recognition</h3>
-              <p className="text-center text-gray-600">
+              <h3 className="text-xl font-semibold text-theme-main mb-2">Pattern Recognition</h3>
+              <p className="text-center text-theme-muted">
                 Identify chart patterns and technical indicators with advanced AI analysis.
               </p>
               <div className="mt-4 w-24 h-[1px] bg-red-500 rounded-full transform origin-left scale-0 group-hover:scale-100 transition-transform duration-500"></div>
             </motion.div>
             
             {/* Feature 2 */}
-            <motion.div variants={fadeIn} className="group flex flex-col items-center p-6 bg-white rounded-lg border border-gray-200 shadow-sm transform hover:translate-y-[-4px] transition-all duration-300">
-              <div className="p-3 rounded-full bg-blue-50 mb-4 group-hover:bg-blue-100 transition-all duration-300">
+            <motion.div variants={fadeIn} className="group flex flex-col items-center p-6 bg-theme-light rounded-lg border border-theme-light shadow-theme transform hover:translate-y-[-4px] transition-all duration-300">
+              <div className="p-3 rounded-full bg-blue-50 dark:bg-blue-900/20 mb-4 group-hover:bg-blue-100 dark:group-hover:bg-blue-900/30 transition-all duration-300">
                 <ChartLine className="h-8 w-8 text-blue-500" />
               </div>
-              <h3 className="text-xl font-semibold text-black mb-2">Price Predictions</h3>
-              <p className="text-center text-gray-600">
+              <h3 className="text-xl font-semibold text-theme-main mb-2">Price Predictions</h3>
+              <p className="text-center text-theme-muted">
                 Get accurate entry/exit points, stop-loss levels, and potential profit targets.
               </p>
               <div className="mt-4 w-24 h-[1px] bg-blue-500 rounded-full transform origin-left scale-0 group-hover:scale-100 transition-transform duration-500"></div>
             </motion.div>
             
             {/* Feature 3 */}
-            <motion.div variants={fadeIn} className="group flex flex-col items-center p-6 bg-white rounded-lg border border-gray-200 shadow-sm transform hover:translate-y-[-4px] transition-all duration-300">
-              <div className="p-3 rounded-full bg-green-50 mb-4 group-hover:bg-green-100 transition-all duration-300">
+            <motion.div variants={fadeIn} className="group flex flex-col items-center p-6 bg-theme-light rounded-lg border border-theme-light shadow-theme transform hover:translate-y-[-4px] transition-all duration-300">
+              <div className="p-3 rounded-full bg-green-50 dark:bg-green-900/20 mb-4 group-hover:bg-green-100 dark:group-hover:bg-green-900/30 transition-all duration-300">
                 <Zap className="h-8 w-8 text-green-500" />
               </div>
-              <h3 className="text-xl font-semibold text-black mb-2">Instant Analysis</h3>
-              <p className="text-center text-gray-600">
+              <h3 className="text-xl font-semibold text-theme-main mb-2">Instant Analysis</h3>
+              <p className="text-center text-theme-muted">
                 Upload a chart and receive comprehensive analysis in seconds.
               </p>
               <div className="mt-4 w-24 h-[1px] bg-green-500 rounded-full transform origin-left scale-0 group-hover:scale-100 transition-transform duration-500"></div>

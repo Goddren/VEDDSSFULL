@@ -228,4 +228,49 @@
   body {
     @apply font-sans antialiased bg-background text-foreground;
   }
+
+  /* Light mode (default) */
+  :root {
+    --primary-color: 10 100% 50%; /* Red */
+    --background-light: 0 0% 100%; /* White */
+    --background-off: 210 40% 96.1%; /* Slate-100 */
+    --text-main: 0 0% 10%; /* Very dark gray almost black */
+    --text-muted: 0 0% 45%; /* Medium gray */
+    --border-light: 0 0% 90%; /* Very light gray */
+  }
+
+  /* Dark mode */
+  .dark {
+    --primary-color: 10 100% 50%; /* Keep red accent */
+    --background-light: 222 47% 11%; /* Dark blue-gray */
+    --background-off: 215 28% 17%; /* Slightly lighter blue-gray */
+    --text-main: 210 40% 98%; /* Very light gray almost white */
+    --text-muted: 210 40% 80%; /* Light gray */
+    --border-light: 215 28% 25%; /* Dark gray with blue tint */
+  }
+}
+
+/* Theme utility classes */
+.bg-theme-light {
+  @apply bg-white dark:bg-slate-900;
+}
+
+.bg-theme-off {
+  @apply bg-slate-100 dark:bg-slate-800;
+}
+
+.text-theme-main {
+  @apply text-gray-900 dark:text-gray-100;
+}
+
+.text-theme-muted {
+  @apply text-gray-600 dark:text-gray-400;
+}
+
+.border-theme-light {
+  @apply border-gray-200 dark:border-gray-700;
+}
+
+.shadow-theme {
+  @apply shadow-sm dark:shadow-md dark:shadow-black/20;
 }
