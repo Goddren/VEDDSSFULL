@@ -20,180 +20,224 @@ import {
   LineChart,
   Lightbulb,
   FlaskConical,
-  Newspaper
+  Newspaper,
+  CandlestickChart
 } from "lucide-react";
 import { EarlyAccessForm } from "@/components/early-access/early-access-form";
 import logoImg from "@assets/IMG_3645.png";
 import { FeatureSlider } from "@/components/ui/feature-slider";
 import { PatternSlider } from "@/components/ui/pattern-slider";
 import { patternDescriptions } from "@/assets/pattern-descriptions";
+import { motion } from "framer-motion";
+
+// Import new design assets - correct paths with @/ prefix 
+import tshirtImg from "@/assets/images/IMG_4114.png";
+import iconicFigureImg from "@/assets/images/IMG_3792.png";
+import jesusBlueImg from "@/assets/images/IMG_3866.png";
+import jesusGreenImg from "@/assets/images/IMG_3868.png";
+import sacredGroupImg from "@/assets/images/IMG_3867.png";
+import veddSSBotImg from "@/assets/images/vedd-ss-bot.png";
+import quoteImg from "@/assets/images/quote-post.png";
+import vousEtesDieuxImg from "@/assets/images/vous-etes-dieux.png";
 
 export default function LandingPage() {
   return (
-    <div className="flex flex-col min-h-screen">
-      {/* Hero section */}
-      <div className="flex flex-col items-center justify-center relative px-6 py-16 bg-gradient-to-r from-black via-gray-900 to-black lg:px-8 lg:py-24 overflow-hidden">
-        {/* Animated background elements */}
-        <div className="absolute inset-0 overflow-hidden">
-          <div className="absolute -left-10 top-1/4 w-40 h-40 bg-rose-600/20 rounded-full filter blur-3xl animate-pulse"></div>
-          <div className="absolute right-10 top-3/4 w-60 h-60 bg-blue-600/20 rounded-full filter blur-3xl animate-pulse" style={{ animationDelay: '1s' }}></div>
-          <div className="absolute left-1/3 bottom-0 w-80 h-80 bg-purple-600/20 rounded-full filter blur-3xl animate-pulse" style={{ animationDelay: '2s' }}></div>
-          
-          {/* Animated chart elements */}
-          <div className="absolute left-0 top-1/3 flex space-x-1 opacity-30">
-            {[40, 65, 30, 85, 55, 75, 40, 90, 60, 45, 70].map((height, i) => (
-              <div 
-                key={i}
-                className="w-2 bg-emerald-500 rounded-t-sm animate-bounce-custom" 
-                style={{ 
-                  height: `${height}px`,
-                  animationDelay: `${i * 0.1}s`,
-                  animationDuration: '2s'
-                }}
-              ></div>
-            ))}
-          </div>
-          
-          <div className="absolute right-0 bottom-1/4 flex space-x-1 opacity-30">
-            {[70, 45, 60, 90, 40, 75, 55, 85, 30, 65, 40].map((height, i) => (
-              <div 
-                key={i}
-                className="w-2 bg-red-600 rounded-t-sm animate-bounce-custom" 
-                style={{ 
-                  height: `${height}px`,
-                  animationDelay: `${i * 0.1}s`,
-                  animationDuration: '2s'
-                }}
-              ></div>
-            ))}
+    <div className="flex flex-col min-h-screen bg-black">
+      {/* Hero section with new design inspiration */}
+      <div className="relative min-h-screen flex flex-col">
+        {/* Brand Statement overlay - fixed position */}
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 1, duration: 1 }}
+            className="flex flex-col items-center"
+          >
+            <h1 className="text-5xl md:text-[7rem] lg:text-[9rem] font-extrabold tracking-tight text-white font-condensed uppercase leading-none">
+              VOUS
+            </h1>
+            <h1 className="text-5xl md:text-[7rem] lg:text-[9rem] font-extrabold tracking-tight text-white font-condensed uppercase leading-none -mt-5">
+              ÊTES DES
+            </h1>
+            <h1 className="text-5xl md:text-[7rem] lg:text-[9rem] font-extrabold tracking-tight text-white font-condensed uppercase leading-none -mt-5">
+              DIEUX
+            </h1>
+          </motion.div>
+        </div>
+
+        {/* Background image/display */}
+        <div className="absolute inset-0 flex items-center justify-center z-10 overflow-hidden">
+          <div className="relative w-full h-full flex items-center justify-center">
+            {/* Sacred imagery on left side */}
+            <motion.div 
+              initial={{ opacity: 0, x: -100 }}
+              animate={{ opacity: 0.8, x: 0 }}
+              transition={{ duration: 1 }}
+              className="absolute left-0 md:left-20 h-full flex items-center justify-center"
+            >
+              <img src={jesusBlueImg} alt="Sacred figure" className="h-[50vh] md:h-[80vh] object-contain opacity-70" />
+            </motion.div>
+            
+            {/* Sacred imagery on right side */}
+            <motion.div 
+              initial={{ opacity: 0, x: 100 }}
+              animate={{ opacity: 0.8, x: 0 }}
+              transition={{ duration: 1 }}
+              className="absolute right-0 md:right-20 h-full flex items-center justify-center"
+            >
+              <img src={jesusGreenImg} alt="Sacred figure" className="h-[50vh] md:h-[80vh] object-contain opacity-70" />
+            </motion.div>
+            
+            {/* Logo overlay */}
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ delay: 0.5, duration: 1 }}
+              className="absolute top-8 left-1/2 transform -translate-x-1/2"
+            >
+              <div className="flex flex-col items-center">
+                <img 
+                  src={logoImg} 
+                  alt="VEDD Logo" 
+                  className="h-16 md:h-24 drop-shadow-[0_0_15px_rgba(255,255,255,0.3)]"
+                />
+                <div className="text-amber-500 font-medium text-sm uppercase tracking-wider mt-2">STILL SURVN</div>
+              </div>
+            </motion.div>
           </div>
         </div>
-        
-        <div className="max-w-7xl mx-auto text-center relative z-10">
-          <div className="mb-8 flex justify-center">
-            <img 
-              src={logoImg} 
-              alt="VEDD Logo" 
-              className="h-20 md:h-28 animate-pulse hover:animate-none transition-all duration-300 drop-shadow-[0_0_15px_rgba(255,255,255,0.3)]"
-            />
-          </div>
-          <h1 className="text-4xl font-bold tracking-tight text-white sm:text-5xl md:text-6xl animate-in slide-in-from-bottom-3 duration-500">
-            <span className="bg-clip-text text-transparent bg-gradient-to-r from-red-600 via-rose-500 to-red-400">
-              AI-Powered
-            </span> Chart Analysis
-          </h1>
-          <p className="mt-6 text-xl text-gray-200 max-w-3xl mx-auto animate-in fade-in slide-in-from-bottom-3 duration-700 delay-200">
-            Transform your trading with advanced AI analysis. Upload charts from MT4, MT5, or TradingView 
-            and get precise market insights, patterns, and actionable signals instantly.
-          </p>
-          <div className="mt-10 flex flex-col sm:flex-row gap-4 justify-center animate-in fade-in slide-in-from-bottom-3 duration-1000 delay-300">
-            <Link href="/auth">
-              <Button size="lg" className="bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-700 hover:to-rose-700 text-white shadow-lg shadow-red-500/30 hover:shadow-red-500/50 transition-all duration-300 transform hover:scale-105">
-                Get Started <ArrowRight className="ml-2 h-4 w-4 animate-bounce-custom" />
-              </Button>
-            </Link>
-            <EarlyAccessForm />
-            <Link href="/subscription">
-              <Button size="lg" variant="outline" className="border-red-600 text-white hover:bg-red-700/20 hover:border-red-500 transition-all duration-300 transform hover:scale-105">
-                View Pricing
-              </Button>
-            </Link>
-            <a href="#features">
-              <Button size="lg" variant="outline" className="border-gray-500 text-white hover:bg-white/10 transition-all duration-300 transform hover:scale-105">
-                Learn More
-              </Button>
-            </a>
+
+        {/* Bottom action bar */}
+        <div className="absolute bottom-0 left-0 right-0 bg-black/80 backdrop-blur-sm border-t border-amber-900/30 z-30">
+          <div className="max-w-7xl mx-auto px-4 py-6 flex flex-col md:flex-row items-center justify-between gap-6">
+            <div className="text-white font-medium max-w-xl">
+              <span className="text-amber-500 font-bold">VEDD</span> combines AI-powered chart analysis with Christian wisdom for divine trading signals. Upload MT4, MT5, or TradingView charts for instant market insights.
+            </div>
+            
+            <div className="flex flex-wrap gap-3">
+              <Link href="/auth">
+                <Button size="lg" className="bg-amber-600 hover:bg-amber-700 text-black hover:text-white font-medium border-0">
+                  Get Started
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              </Link>
+              <EarlyAccessForm />
+              <Link href="/subscription">
+                <Button size="lg" variant="outline" className="border-amber-600 text-amber-500 hover:bg-amber-900/20 hover:border-amber-400">
+                  View Pricing
+                </Button>
+              </Link>
+            </div>
           </div>
         </div>
       </div>
 
       {/* Features section */}
-      <div id="features" className="py-16 bg-gradient-to-b from-black to-gray-950 relative overflow-hidden">
-        {/* Animated background */}
-        <div className="absolute inset-0 overflow-hidden opacity-30">
-          {/* Stock market grid background */}
-          <div className="absolute inset-0">
-            {Array.from({ length: 20 }).map((_, rowIndex) => (
-              <div key={`grid-row-${rowIndex}`} className="flex">
-                {Array.from({ length: 30 }).map((_, colIndex) => {
-                  const randomOpacity = (Math.random() * 0.1).toFixed(2);
-                  return (
-                    <div 
-                      key={`grid-cell-${rowIndex}-${colIndex}`} 
-                      className={`border border-fuchsia-900/10 w-10 h-10`}
-                      style={{ 
-                        opacity: randomOpacity,
-                        animationDelay: `${(rowIndex + colIndex) * 0.1}s`,
-                      }}
-                    ></div>
-                  );
-                })}
-              </div>
-            ))}
+      <div id="features" className="py-20 bg-black relative overflow-hidden">
+        {/* VEDD SURVN Background */}
+        <div className="absolute inset-0 flex items-center justify-center opacity-5">
+          <div className="text-[20rem] font-bold tracking-tighter text-white uppercase rotate-12">
+            VEDD
           </div>
         </div>
       
         <div className="max-w-7xl mx-auto px-6 lg:px-8 relative z-10">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl animate-in fade-in slide-in-from-bottom-3 duration-700">
-              <span className="bg-clip-text text-transparent bg-gradient-to-r from-red-600 via-rose-500 to-red-400">
-                Powerful Trading Intelligence
-              </span>
-            </h2>
-            <p className="mt-4 text-lg text-gray-300 max-w-3xl mx-auto animate-in fade-in slide-in-from-bottom-3 duration-700 delay-200">
-              Our AI-powered platform analyzes chart patterns and market conditions to provide you with accurate insights and trading recommendations.
+          {/* Main title with design inspiration from shared images */}
+          <div className="text-center mb-24">
+            <div className="inline-block">
+              <h2 className="text-6xl md:text-8xl font-extrabold uppercase text-white tracking-tighter">
+                <span className="block">HANDS-FREE</span>
+                <span className="block text-amber-500">TRADING</span>
+              </h2>
+              <div className="text-sm uppercase tracking-wider text-white/60 mt-4">STILL SURVN</div>
+            </div>
+            <div className="h-0.5 w-28 bg-amber-500 mx-auto my-8"></div>
+            <p className="text-lg text-white/80 max-w-3xl mx-auto">
+              Our AI-powered platform analyzes chart patterns and market conditions to provide you with divine trading insights and recommendations.
             </p>
+          </div>
+          
+          {/* Featured image section */}
+          <div className="mb-32">
+            <div className="bg-neutral-900 p-1">
+              <div className="relative aspect-video bg-black">
+                <img 
+                  src={veddSSBotImg} 
+                  alt="VEDD Trading Bot" 
+                  className="w-full h-full object-contain"
+                />
+                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black to-transparent h-32"></div>
+                <div className="absolute bottom-6 left-6 text-white">
+                  <div className="text-xs uppercase tracking-widest text-amber-500 mb-2">Trade a day with VEDD</div>
+                  <div className="text-2xl font-bold uppercase">$25,000 PROP ACCOUNT CHALLENGE</div>
+                </div>
+              </div>
+            </div>
           </div>
           
           {/* Main Features */}
-          <div className="grid grid-cols-1 gap-8 md:grid-cols-3 mb-16">
+          <div className="grid grid-cols-1 gap-16 md:grid-cols-3 mb-24">
             {/* Feature 1 */}
-            <div className="group flex flex-col items-center p-6 bg-gradient-to-b from-black/80 to-gray-900/60 backdrop-blur-md rounded-lg border border-red-900/40 shadow-lg shadow-red-500/5 transform hover:scale-105 hover:shadow-red-500/20 hover:border-red-700/50 transition-all duration-300 animate-in fade-in-0 slide-in-from-bottom-3 duration-500">
-              <div className="p-3 rounded-full bg-gradient-to-br from-red-600/40 to-red-900/20 mb-4 group-hover:from-red-500/50 group-hover:to-red-800/30 transition-all duration-300">
-                <BarChart2 className="h-8 w-8 text-red-400 group-hover:text-red-300 animate-pulse transition-colors duration-300" />
+            <div className="group flex flex-col">
+              <div className="p-4 border border-amber-500/20 bg-black mb-6">
+                <div className="aspect-square flex items-center justify-center">
+                  <CandlestickChart className="h-20 w-20 text-amber-500" />
+                </div>
               </div>
-              <h3 className="text-xl font-semibold text-white mb-2 group-hover:text-red-300 transition-colors duration-300">Pattern Recognition</h3>
-              <p className="text-center text-gray-300 group-hover:text-gray-200 transition-colors duration-300">
-                Identify chart patterns and technical indicators with advanced AI analysis.
+              <h3 className="text-2xl font-bold text-white mb-3 uppercase tracking-tight">Pattern Recognition</h3>
+              <div className="h-0.5 w-16 bg-amber-500 mb-4"></div>
+              <p className="text-white/70">
+                Identify chart patterns and technical indicators with advanced AI analysis inspired by divine wisdom.
               </p>
-              <div className="mt-4 w-24 h-1 bg-gradient-to-r from-red-500 to-rose-500 rounded-full transform origin-left scale-0 group-hover:scale-100 transition-transform duration-500"></div>
             </div>
             
             {/* Feature 2 */}
-            <div className="group flex flex-col items-center p-6 bg-gradient-to-b from-black/80 to-gray-900/60 backdrop-blur-md rounded-lg border border-indigo-900/40 shadow-lg shadow-indigo-500/5 transform hover:scale-105 hover:shadow-indigo-500/20 hover:border-indigo-700/50 transition-all duration-300 animate-in fade-in-0 slide-in-from-bottom-3 duration-500 delay-150">
-              <div className="p-3 rounded-full bg-gradient-to-br from-indigo-600/40 to-indigo-900/20 mb-4 group-hover:from-indigo-500/50 group-hover:to-indigo-800/30 transition-all duration-300">
-                <ChartLine className="h-8 w-8 text-indigo-400 group-hover:text-indigo-300 animate-pulse transition-colors duration-300" style={{ animationDelay: '0.5s' }} />
+            <div className="group flex flex-col">
+              <div className="p-4 border border-amber-500/20 bg-black mb-6">
+                <div className="aspect-square flex items-center justify-center">
+                  <ChartLine className="h-20 w-20 text-amber-500" />
+                </div>
               </div>
-              <h3 className="text-xl font-semibold text-white mb-2 group-hover:text-indigo-300 transition-colors duration-300">Price Predictions</h3>
-              <p className="text-center text-gray-300 group-hover:text-gray-200 transition-colors duration-300">
-                Get accurate entry/exit points, stop-loss levels, and potential profit targets.
+              <h3 className="text-2xl font-bold text-white mb-3 uppercase tracking-tight">Price Predictions</h3>
+              <div className="h-0.5 w-16 bg-amber-500 mb-4"></div>
+              <p className="text-white/70">
+                Get accurate entry/exit points, stop-loss levels, and potential profit targets with spiritual precision.
               </p>
-              <div className="mt-4 w-24 h-1 bg-gradient-to-r from-indigo-500 to-blue-500 rounded-full transform origin-left scale-0 group-hover:scale-100 transition-transform duration-500"></div>
             </div>
             
             {/* Feature 3 */}
-            <div className="group flex flex-col items-center p-6 bg-gradient-to-b from-black/80 to-gray-900/60 backdrop-blur-md rounded-lg border border-rose-900/40 shadow-lg shadow-rose-500/5 transform hover:scale-105 hover:shadow-rose-500/20 hover:border-rose-700/50 transition-all duration-300 animate-in fade-in-0 slide-in-from-bottom-3 duration-500 delay-300">
-              <div className="p-3 rounded-full bg-gradient-to-br from-rose-600/40 to-rose-900/20 mb-4 group-hover:from-rose-500/50 group-hover:to-rose-800/30 transition-all duration-300">
-                <Zap className="h-8 w-8 text-rose-400 group-hover:text-rose-300 animate-pulse transition-colors duration-300" style={{ animationDelay: '1s' }} />
+            <div className="group flex flex-col">
+              <div className="p-4 border border-amber-500/20 bg-black mb-6">
+                <div className="aspect-square flex items-center justify-center">
+                  <Zap className="h-20 w-20 text-amber-500" />
+                </div>
               </div>
-              <h3 className="text-xl font-semibold text-white mb-2 group-hover:text-rose-300 transition-colors duration-300">Instant Analysis</h3>
-              <p className="text-center text-gray-300 group-hover:text-gray-200 transition-colors duration-300">
-                Upload a chart and receive comprehensive analysis in seconds.
+              <h3 className="text-2xl font-bold text-white mb-3 uppercase tracking-tight">Instant Analysis</h3>
+              <div className="h-0.5 w-16 bg-amber-500 mb-4"></div>
+              <p className="text-white/70">
+                Upload a chart and receive comprehensive analysis in seconds with the power of divine AI guidance.
               </p>
-              <div className="mt-4 w-24 h-1 bg-gradient-to-r from-rose-500 to-pink-500 rounded-full transform origin-left scale-0 group-hover:scale-100 transition-transform duration-500"></div>
             </div>
           </div>
           
-          {/* New Features Section */}
-          <div className="text-center mb-12">
-            <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl animate-in fade-in slide-in-from-bottom-3 duration-700">
-              <span className="bg-clip-text text-transparent bg-gradient-to-r from-red-500 via-red-600 to-rose-500">
-                Latest Trading Tools
-              </span>
-            </h2>
-            <p className="mt-4 text-lg text-gray-300 max-w-3xl mx-auto animate-in fade-in slide-in-from-bottom-3 duration-700 delay-200">
-              Cutting-edge features to enhance your trading experience and decision-making.
-            </p>
+          {/* Quote Section */}
+          <div className="py-20 relative">
+            <div className="absolute inset-0 flex items-center justify-center">
+              <img 
+                src={sacredGroupImg} 
+                alt="Spiritual imagery" 
+                className="h-full w-full object-cover opacity-10" 
+              />
+            </div>
+            <div className="relative z-10 max-w-4xl mx-auto text-center">
+              <div className="text-amber-500 text-7xl font-serif leading-none">"</div>
+              <p className="text-2xl md:text-3xl font-light italic text-white my-8 px-4">
+                Life is much easier when you figure out who or what you 'survn'.
+              </p>
+              <div className="text-amber-500 text-7xl font-serif leading-none rotate-180">"</div>
+              <div className="h-0.5 w-12 bg-amber-500 mx-auto my-8"></div>
+              <div className="text-sm uppercase tracking-wider text-amber-500">STILL SURVN</div>
+            </div>
           </div>
           
           {/* Feature Slider */}
