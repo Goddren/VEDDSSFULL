@@ -407,6 +407,114 @@ export default function LandingPage() {
         </div>
       </motion.section>
       
+      {/* App Screenshots Showcase Section */}
+      <motion.section 
+        initial="hidden"
+        whileInView="visible"
+        viewport={{ once: true }}
+        variants={staggerContainer}
+        className="py-16 bg-theme-off border-t border-theme-light"
+      >
+        <div className="max-w-7xl mx-auto px-6 lg:px-8">
+          <motion.div variants={fadeIn} className="text-center mb-12">
+            <h2 className="text-3xl font-bold tracking-tight text-theme-main sm:text-4xl">
+              <span className="text-red-500">The VEDDAI Experience</span>
+            </h2>
+            <p className="mt-4 text-lg text-theme-muted max-w-3xl mx-auto">
+              Take a tour of our intuitive interface and powerful trading tools
+            </p>
+          </motion.div>
+          
+          <motion.div variants={staggerContainer} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {/* Screenshot 1 */}
+            <motion.div 
+              variants={fadeIn}
+              whileHover={{ y: -8, transition: { duration: 0.3 } }}
+              className="bg-theme-light rounded-xl overflow-hidden shadow-xl border border-theme-light"
+            >
+              <div className="p-1 bg-gradient-to-r from-gray-200 to-gray-100 dark:from-gray-800 dark:to-gray-900">
+                <div className="flex items-center space-x-1.5 px-3 py-2">
+                  <div className="w-2.5 h-2.5 rounded-full bg-red-500"></div>
+                  <div className="w-2.5 h-2.5 rounded-full bg-yellow-500"></div>
+                  <div className="w-2.5 h-2.5 rounded-full bg-green-500"></div>
+                  <div className="text-xs text-gray-500 ml-2">VEDDAI Trading Suite</div>
+                </div>
+              </div>
+              <img 
+                src={appScreenOne} 
+                alt="VEDDAI Interface" 
+                className="w-full object-cover"
+              />
+              <div className="p-5">
+                <h3 className="text-lg font-semibold text-theme-main mb-2">Initiation to Automation</h3>
+                <p className="text-sm text-theme-muted">Our elegant landing page introduces you to the power of AI-driven trading analysis and decision support.</p>
+              </div>
+            </motion.div>
+            
+            {/* Screenshot 2 */}
+            <motion.div 
+              variants={fadeIn}
+              whileHover={{ y: -8, transition: { duration: 0.3 } }}
+              className="bg-theme-light rounded-xl overflow-hidden shadow-xl border border-theme-light"
+            >
+              <div className="p-1 bg-gradient-to-r from-gray-200 to-gray-100 dark:from-gray-800 dark:to-gray-900">
+                <div className="flex items-center space-x-1.5 px-3 py-2">
+                  <div className="w-2.5 h-2.5 rounded-full bg-red-500"></div>
+                  <div className="w-2.5 h-2.5 rounded-full bg-yellow-500"></div>
+                  <div className="w-2.5 h-2.5 rounded-full bg-green-500"></div>
+                  <div className="text-xs text-gray-500 ml-2">VEDDAI Trading Problem</div>
+                </div>
+              </div>
+              <img 
+                src={appScreenTwo} 
+                alt="VEDDAI Analysis Dashboard" 
+                className="w-full object-cover"
+              />
+              <div className="p-5">
+                <h3 className="text-lg font-semibold text-theme-main mb-2">The Trading Problem</h3>
+                <p className="text-sm text-theme-muted">We address the real problem with trading - not the lack of information, but the ability to process it effectively.</p>
+              </div>
+            </motion.div>
+            
+            {/* Screenshot 3 */}
+            <motion.div 
+              variants={fadeIn}
+              whileHover={{ y: -8, transition: { duration: 0.3 } }}
+              className="bg-theme-light rounded-xl overflow-hidden shadow-xl border border-theme-light"
+            >
+              <div className="p-1 bg-gradient-to-r from-gray-200 to-gray-100 dark:from-gray-800 dark:to-gray-900">
+                <div className="flex items-center space-x-1.5 px-3 py-2">
+                  <div className="w-2.5 h-2.5 rounded-full bg-red-500"></div>
+                  <div className="w-2.5 h-2.5 rounded-full bg-yellow-500"></div>
+                  <div className="w-2.5 h-2.5 rounded-full bg-green-500"></div>
+                  <div className="text-xs text-gray-500 ml-2">VEDDAI Trading Answer</div>
+                </div>
+              </div>
+              <img 
+                src={appScreenThree} 
+                alt="VEDDAI Chart Analysis" 
+                className="w-full object-cover"
+              />
+              <div className="p-5">
+                <h3 className="text-lg font-semibold text-theme-main mb-2">The VEDDAI Answer</h3>
+                <p className="text-sm text-theme-muted">Our algorithm leverages data analysis and EMA crosses to create powerful, data-driven trading strategies that maximize your returns.</p>
+              </div>
+            </motion.div>
+          </motion.div>
+          
+          <motion.div 
+            variants={fadeIn}
+            className="mt-10 text-center"
+          >
+            <Link href="/auth">
+              <Button className="bg-red-500 hover:bg-red-600 text-white">
+                Experience it Yourself <ArrowRight className="ml-2 h-4 w-4" />
+              </Button>
+            </Link>
+          </motion.div>
+        </div>
+      </motion.section>
+      
       {/* Call to Action */}
       <motion.section 
         initial="hidden"
