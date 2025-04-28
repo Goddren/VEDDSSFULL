@@ -24,7 +24,7 @@ import {
   CandlestickChart
 } from "lucide-react";
 import { EarlyAccessForm } from "@/components/early-access/early-access-form";
-import logoImg from "@assets/IMG_3645.png";
+import logoImg from "@/assets/images/IMG_3645.png";
 import { FeatureSlider } from "@/components/ui/feature-slider";
 import { PatternSlider } from "@/components/ui/pattern-slider";
 import { patternDescriptions } from "@/assets/pattern-descriptions";
