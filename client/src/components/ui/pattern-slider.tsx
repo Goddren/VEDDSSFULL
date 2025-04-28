@@ -77,7 +77,7 @@ export function PatternSlider({ className = "" }: PatternSliderProps) {
               key={index}
               className="flex-[0_0_100%] min-w-0 sm:flex-[0_0_calc(50%-1rem)] lg:flex-[0_0_calc(33.333%-1rem)] pl-4 first:pl-0"
             >
-              <div className={`flex flex-col h-full p-6 rounded-lg ${pattern.bgClass} border border-white/10 shadow-lg transition-all duration-300 hover:border-white/20 hover:shadow-xl`}>
+              <div className="flex flex-col h-full p-6 rounded-lg bg-white border border-gray-200 shadow-lg transition-all duration-300 hover:border-gray-300 hover:shadow-xl">
                 <div className="flex flex-col items-center mb-6 sm:mb-4 sm:items-start sm:flex-row">
                   <div className="flex-shrink-0 mb-3 sm:mb-0 sm:mr-3">
                     <div className="relative">
@@ -95,16 +95,16 @@ export function PatternSlider({ className = "" }: PatternSliderProps) {
                   </div>
                   
                   <div className="flex flex-col text-center sm:text-left">
-                    <h3 className="text-lg font-bold text-white mb-1">{pattern.name}</h3>
-                    <span className="text-sm font-medium text-white/70 mb-2">{pattern.type} Pattern</span>
+                    <h3 className="text-lg font-bold text-gray-800 mb-1">{pattern.name}</h3>
+                    <span className="text-sm font-medium text-gray-600 mb-2">{pattern.type} Pattern</span>
                     
                     <div className="flex flex-col">
                       <div className="flex items-center justify-between">
-                        <span className="text-xs text-white/60">Frequency</span>
-                        <span className="text-xs font-semibold text-white">{pattern.percentage}%</span>
+                        <span className="text-xs text-gray-500">Frequency</span>
+                        <span className="text-xs font-semibold text-gray-800">{pattern.percentage}%</span>
                       </div>
                       
-                      <div className="w-full h-2 bg-white/10 rounded-full mt-1 overflow-hidden">
+                      <div className="w-full h-2 bg-gray-200 rounded-full mt-1 overflow-hidden">
                         <div 
                           className={`h-full ${pattern.barClass} rounded-full`}
                           style={{ width: `${pattern.percentage}%` }}
@@ -114,7 +114,7 @@ export function PatternSlider({ className = "" }: PatternSliderProps) {
                   </div>
                 </div>
                 
-                <p className="text-sm text-white/80 flex-grow">{pattern.description}</p>
+                <p className="text-sm text-gray-600 flex-grow">{pattern.description}</p>
               </div>
             </div>
           ))}
@@ -143,8 +143,8 @@ export function PatternSlider({ className = "" }: PatternSliderProps) {
             key={index}
             className={`mx-1 w-2 h-2 rounded-full transition-all ${
               index === selectedIndex 
-                ? "bg-white w-4" 
-                : "bg-white/30 hover:bg-white/50"
+                ? "bg-red-500 w-4" 
+                : "bg-gray-300 hover:bg-gray-400"
             }`}
             onClick={() => emblaApi?.scrollTo(index)}
             aria-label={`Go to slide ${index + 1}`}

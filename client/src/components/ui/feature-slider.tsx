@@ -86,9 +86,9 @@ export function FeatureSlider({
                   <div className={`p-3 rounded-full ${item.color} mr-4 shadow-lg`}>
                     {item.icon}
                   </div>
-                  <h3 className="text-xl md:text-2xl font-bold text-white">{item.title}</h3>
+                  <h3 className="text-xl md:text-2xl font-bold text-gray-800">{item.title}</h3>
                 </div>
-                <p className="text-gray-200 text-base md:text-lg">{item.description}</p>
+                <p className="text-gray-600 text-base md:text-lg">{item.description}</p>
               </div>
             </div>
           ))}
