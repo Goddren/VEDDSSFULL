@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'wouter';
+import { Link, useLocation } from 'wouter';
 import { useQuery } from '@tanstack/react-query';
 import { getQueryFn } from '@/lib/queryClient';
 import { useAuth } from '@/hooks/use-auth';
@@ -34,6 +34,7 @@ import {
   TrendingDown,
   Clock,
   ArrowUp,
+  ArrowLeft,
   Info,
 } from 'lucide-react';
 import { 
@@ -255,12 +256,25 @@ export default function Community() {
     );
   }
 
+  const [_, navigate] = useLocation();
+
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="flex flex-col md:flex-row justify-between items-start gap-6 mb-8">
-        <div>
-          <h1 className="text-3xl font-bold">VEDDAI Community</h1>
-          <p className="text-muted-foreground mt-1">Share and discover trading analyses from the community</p>
+        <div className="flex items-center gap-3">
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            onClick={() => navigate('/')}
+            className="rounded-full hover:bg-card transition-colors"
+            aria-label="Back to home"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+          <div>
+            <h1 className="text-3xl font-bold">VEDDAI Community</h1>
+            <p className="text-muted-foreground mt-1">Share and discover trading analyses from the community</p>
+          </div>
         </div>
         
         <div className="flex items-center gap-3">
