@@ -456,9 +456,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
       
-      // Share the analysis
-      const sharedAnalysis = await storage.shareChartAnalysis(id, notes);
-      res.json(sharedAnalysis);
+      // Import the image processor
+      const { addWatermarkToImage, createSharedImageUrl } = await import('./image-processor');
+      
+      try {
+        // Get the original image path
+        const originalImageUrl = analysis.imageUrl;
+        const originalImagePath = path.join(process.cwd(), 'uploads', path.basename(originalImageUrl));
+        
+        // Create a unique filename for the watermarked image
+        const timestamp = Date.now();
+        const watermarkedFilename = `${id}_${timestamp}_watermarked.jpg`;
+        
+        // Add watermark to the image
+        const watermarkedImagePath = await addWatermarkToImage(originalImagePath, watermarkedFilename);
+        
+        // Create URL for the watermarked image
+        const watermarkedImageUrl = createSharedImageUrl(watermarkedFilename);
+        
+        // Update analysis with the watermarked image URL before sharing
+        await storage.updateChartAnalysis(id, {
+          sharedImageUrl: watermarkedImageUrl
+        });
+        
+        // Share the analysis
+        const sharedAnalysis = await storage.shareChartAnalysis(id, notes);
+        res.json(sharedAnalysis);
+      } catch (watermarkError) {
+        console.error("Error adding watermark to image:", watermarkError);
+        // If watermarking fails, still share the analysis with the original image
+        const sharedAnalysis = await storage.shareChartAnalysis(id, notes);
+        res.json(sharedAnalysis);
+      }
     } catch (error) {
       console.error("Error sharing analysis:", error);
       res.status(500).json({ message: "Error sharing analysis" });
@@ -558,15 +587,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const filename = req.params.filename;
       // Sanitize the filename to prevent directory traversal attacks
       const sanitizedFilename = path.basename(filename);
-      const filePath = path.join(process.cwd(), 'uploads', sanitizedFilename);
       
-      // Check if the file exists
-      if (!fs.existsSync(filePath)) {
-        return res.status(404).json({ message: "Image not found" });
+      // First check in shared directory for watermarked images
+      const sharedPath = path.join(process.cwd(), 'uploads', 'shared', sanitizedFilename);
+      if (fs.existsSync(sharedPath)) {
+        return res.sendFile(sharedPath);
       }
       
-      // Send the file
-      res.sendFile(filePath);
+      // If not found in shared directory, check in regular uploads
+      const regularPath = path.join(process.cwd(), 'uploads', sanitizedFilename);
+      if (fs.existsSync(regularPath)) {
+        return res.sendFile(regularPath);
+      }
+      
+      // If file doesn't exist in either location
+      return res.status(404).json({ message: "Image not found" });
     } catch (error) {
       console.error("Error serving image:", error);
       res.status(500).json({ message: "Error serving image" });
