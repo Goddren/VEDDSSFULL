@@ -803,7 +803,7 @@ export default function StrategyWizard() {
       case 'select':
         return (
           <div className="space-y-6">
-            {/* Category Filter Controls */}
+            {/* Filter Controls */}
             <div className="mb-6 p-4 bg-card border rounded-lg">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
                 <div>
@@ -939,60 +939,63 @@ export default function StrategyWizard() {
               </div>
             </div>
             
+            {/* Strategy Cards */}
             {filteredStrategies.length > 0 ? (
               <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
-                {filteredStrategies.map((strategy, index) => (
-                <Card 
-                  key={strategy.id} 
-                  className={cn(
-                    "cursor-pointer transition-all hover:border-primary/50 overflow-hidden",
-                    selectedStrategy?.id === strategy.id ? "border-2 border-primary" : ""
-                  )}
-                  onClick={() => handleSelectStrategy(strategy)}
-                >
-                  <div className={cn(
-                    "h-2 w-full",
-                    strategy.riskLevel === 'low' ? "bg-green-500" : 
-                    strategy.riskLevel === 'medium' ? "bg-amber-500" : "bg-rose-500"
-                  )} />
-                  <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="text-lg">{strategy.name}</CardTitle>
-                      {getCategoryIcon(strategy.category)}
-                    </div>
-                    <CardDescription>
-                      {strategy.description}
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-sm">
-                      <div className="font-medium mb-2">Key Parameters:</div>
-                      <ul className="space-y-1">
-                        {strategy.parameters.slice(0, 2).map(param => (
-                          <li key={param.id} className="flex items-center gap-2">
-                            <CircleDot className="h-3 w-3 text-primary/60" />
-                            <span>{param.name}: </span>
-                            <span className="text-muted-foreground">{param.value}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  </CardContent>
-                  <CardFooter>
-                    <div className="w-full flex justify-between items-center">
-                      <div className="text-xs text-muted-foreground">
-                        Risk Level: <span className={cn(
-                          strategy.riskLevel === 'low' ? "text-green-500" : 
-                          strategy.riskLevel === 'medium' ? "text-amber-500" : "text-rose-500"
-                        )}>{strategy.riskLevel.toUpperCase()}</span>
-                      </div>
-                      <Button size="sm" variant="ghost">
-                        Select <ChevronRight className="h-4 w-4 ml-1" />
-                      </Button>
-                    </div>
-                  </CardFooter>
-                </Card>
-              ))}
+                {filteredStrategies.map((strategy, index) => {
+                  return (
+                    <Card 
+                      key={strategy.id} 
+                      className={cn(
+                        "cursor-pointer transition-all hover:border-primary/50 overflow-hidden",
+                        selectedStrategy?.id === strategy.id ? "border-2 border-primary" : ""
+                      )}
+                      onClick={() => handleSelectStrategy(strategy)}
+                    >
+                      <div className={cn(
+                        "h-2 w-full",
+                        strategy.riskLevel === 'low' ? "bg-green-500" : 
+                        strategy.riskLevel === 'medium' ? "bg-amber-500" : "bg-rose-500"
+                      )} />
+                      <CardHeader>
+                        <div className="flex items-center justify-between">
+                          <CardTitle className="text-lg">{strategy.name}</CardTitle>
+                          {getCategoryIcon(strategy.category)}
+                        </div>
+                        <CardDescription>
+                          {strategy.description}
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-sm">
+                          <div className="font-medium mb-2">Key Parameters:</div>
+                          <ul className="space-y-1">
+                            {strategy.parameters.slice(0, 2).map(param => (
+                              <li key={param.id} className="flex items-center gap-2">
+                                <CircleDot className="h-3 w-3 text-primary/60" />
+                                <span>{param.name}: </span>
+                                <span className="text-muted-foreground">{param.value}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      </CardContent>
+                      <CardFooter>
+                        <div className="w-full flex justify-between items-center">
+                          <div className="text-xs text-muted-foreground">
+                            Risk Level: <span className={cn(
+                              strategy.riskLevel === 'low' ? "text-green-500" : 
+                              strategy.riskLevel === 'medium' ? "text-amber-500" : "text-rose-500"
+                            )}>{strategy.riskLevel.toUpperCase()}</span>
+                          </div>
+                          <Button size="sm" variant="ghost">
+                            Select <ChevronRight className="h-4 w-4 ml-1" />
+                          </Button>
+                        </div>
+                      </CardFooter>
+                    </Card>
+                  );
+                })}
               </div>
             ) : (
               <div className="p-10 border rounded-lg text-center">
