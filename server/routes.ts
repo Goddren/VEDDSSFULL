@@ -1544,6 +1544,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Market insights endpoints
   app.get('/api/market-insights', marketInsightsHandler);
   app.post('/api/market-insights/contextual', contextualInsightHandler);
+  
+  // Import strategy from GitHub
+  app.post('/api/strategies/import', async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ message: "Not authenticated" });
+    }
+    
+    try {
+      const { strategy, metadata } = req.body;
+      
+      if (!strategy || !metadata) {
+        return res.status(400).json({ message: "Missing strategy or metadata" });
+      }
+      
+      // You would integrate with your strategy storage system here
+      // For now, we'll just return a successful response
+      // In a full implementation, you would:
+      // 1. Validate the strategy format
+      // 2. Store it in the database using Drizzle ORM
+      // 3. Associate it with the current user
+      
+      // This is a simplified implementation that returns the strategy with a generated ID
+      return res.status(200).json({
+        id: `imported-${Date.now()}`, // Placeholder ID
+        ...metadata,
+        userId: req.user.id,
+        createdAt: new Date().toISOString(),
+        source: metadata.source,
+        isImported: true,
+        strategyData: strategy
+      });
+    } catch (error) {
+      console.error("Error importing strategy:", error);
+      return res.status(500).json({ message: "Error importing strategy" });
+    }
+  });
 
   const httpServer = createServer(app);
   return httpServer;

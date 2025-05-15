@@ -18,6 +18,7 @@ import {
   ArrowLeftRight, Waves, CandlestickChart, FilterX
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { GitHubStrategyImport } from '@/components/trading/github-strategy-import';
 import { motion } from 'framer-motion';
 
 // Types for trading strategy
@@ -1109,6 +1110,7 @@ export default function StrategyWizard() {
                 </div>
                 
                 <div className="flex items-center gap-2">
+                  <GitHubStrategyImport />
                   <Button 
                     variant="outline" 
                     size="sm"
