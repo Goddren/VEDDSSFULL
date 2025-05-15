@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -8,10 +8,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { 
   LineChart, BarChart3, TrendingUp, Settings2, Save, Play, BarChart, 
-  ChevronRight, ChevronLeft, CheckCircle2, CircleDot, Filter, Sliders
+  ChevronRight, ChevronLeft, CheckCircle2, CircleDot, Filter, Sliders,
+  Activity, ArrowUpRight, Undo, Flame,
+  ShieldCheck, Scale, Settings,
+  ArrowLeftRight, Waves, CandlestickChart, FilterX
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { motion } from 'framer-motion';
@@ -536,21 +540,21 @@ function getTradingSessionBasedOnStrategy(strategyId: string | undefined): strin
 function getCategoryIcon(category: string) {
   switch (category) {
     case 'trend':
-      return <TrendingUpIcon className="w-4 h-4" />;
+      return <TrendingUp className="w-4 h-4" />;
     case 'reversal':
-      return <UndoIcon className="w-4 h-4" />;
+      return <Undo className="w-4 h-4" />;
     case 'breakout':
-      return <ArrowUpRightIcon className="w-4 h-4" />;
+      return <ArrowUpRight className="w-4 h-4" />;
     case 'oscillator':
-      return <WaveformIcon className="w-4 h-4" />;
+      return <Waves className="w-4 h-4" />;
     case 'pattern':
-      return <CandlestickChartIcon className="w-4 h-4" />;
+      return <CandlestickChart className="w-4 h-4" />;
     case 'range':
-      return <ArrowLeftRightIcon className="w-4 h-4" />;
+      return <ArrowLeftRight className="w-4 h-4" />;
     case 'volatility':
-      return <ActivityIcon className="w-4 h-4" />;
+      return <Activity className="w-4 h-4" />;
     default:
-      return <SettingsIcon className="w-4 h-4" />;
+      return <Settings2 className="w-4 h-4" />;
   }
 }
 
