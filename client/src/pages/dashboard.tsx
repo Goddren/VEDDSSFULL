@@ -144,8 +144,11 @@ const Dashboard: React.FC = () => {
               )}
             </div>
             <Link href="/analysis">
-              <Button className="bg-rose-600 hover:bg-rose-700 text-white shadow-lg shadow-rose-900/20">
-                <Plus className="h-4 w-4 mr-2" /> New Analysis
+              <Button className="bg-gradient-to-r from-rose-600 to-rose-700 hover:from-rose-700 hover:to-rose-800 text-white shadow-lg shadow-rose-900/30 rounded-full px-6 border border-rose-500/20">
+                <div className="mr-2 h-5 w-5 rounded-full bg-white/20 flex items-center justify-center">
+                  <Plus className="h-3 w-3" />
+                </div>
+                New Analysis
               </Button>
             </Link>
           </div>
@@ -256,8 +259,9 @@ const Dashboard: React.FC = () => {
                     <CardDescription>Your most recent chart analyses</CardDescription>
                   </div>
                   <Link href="/historical">
-                    <Button variant="ghost" className="text-gray-400 hover:text-white">
-                      View All
+                    <Button variant="ghost" className="text-gray-400 hover:text-white rounded-full px-4 border border-gray-800 hover:border-rose-500/30 hover:bg-rose-500/10">
+                      <span>View All</span>
+                      <ChevronRight className="h-4 w-4 ml-1" />
                     </Button>
                   </Link>
                 </div>
@@ -281,7 +285,10 @@ const Dashboard: React.FC = () => {
                     </div>
                     <p>No analyses yet. Upload your first chart to get started.</p>
                     <Link href="/analysis">
-                      <Button className="mt-6 bg-rose-600 hover:bg-rose-700 text-white">
+                      <Button className="mt-6 bg-gradient-to-r from-rose-600 to-rose-700 hover:from-rose-700 hover:to-rose-800 text-white shadow-lg shadow-rose-900/30 rounded-full px-6 border border-rose-500/20">
+                        <div className="mr-2 h-6 w-6 rounded-full bg-white/20 flex items-center justify-center">
+                          <Plus className="h-4 w-4" />
+                        </div>
                         Analyze Chart
                       </Button>
                     </Link>
@@ -402,9 +409,9 @@ const Dashboard: React.FC = () => {
                     variant="ghost" 
                     size="sm" 
                     onClick={() => setShowFaithContent(false)}
-                    className="h-8 text-xs text-gray-400"
+                    className="h-8 text-xs text-gray-400 rounded-full px-3 border border-gray-800 hover:border-blue-500/30 hover:bg-blue-500/10 hover:text-white"
                   >
-                    Hide
+                    <span>Hide</span>
                   </Button>
                 </div>
                 <DailyScriptureWisdom />
@@ -472,8 +479,9 @@ const Dashboard: React.FC = () => {
                     <CardDescription>Current market risk assessment</CardDescription>
                   </div>
                   <Link href="/volatility-meter">
-                    <Button variant="ghost" className="text-gray-400 hover:text-white">
-                      Details
+                    <Button variant="ghost" className="text-gray-400 hover:text-white rounded-full px-4 border border-gray-800 hover:border-amber-500/30 hover:bg-amber-500/10">
+                      <span>Details</span>
+                      <ChevronRight className="h-4 w-4 ml-1" />
                     </Button>
                   </Link>
                 </div>

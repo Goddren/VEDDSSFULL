@@ -148,8 +148,8 @@ const SharedAnalysisPage: React.FC = () => {
         <div className="mb-6 border border-[#333333] rounded-xl overflow-hidden">
           <ChartImage 
             imageUrl={analysis.imageUrl}
-            sharedImageUrl={analysis.sharedImageUrl}
-            altText={`${analysis.symbol} Chart Analysis`}
+            sharedImageUrl={analysis.sharedImageUrl as string | undefined}
+            altText={`${analysis.symbol || 'Chart'} Analysis`}
             className="w-full aspect-video object-cover"
             showWatermark={true}
           />
