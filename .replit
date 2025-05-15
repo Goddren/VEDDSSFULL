@@ -7,7 +7,7 @@ channel = "stable-24_05"
 
 [deployment]
 deploymentTarget = "autoscale"
-build = ["sh", "-c", "apt-get update && apt-get install -y libuuid1 && npm run build"]
+build = ["sh", "-c", "apt-get update && apt-get install -y libuuid1 uuid-dev build-essential libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev && npm run build"]
 run = ["sh", "-c", "npm run start"]
 
 [[ports]]
