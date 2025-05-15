@@ -33,7 +33,7 @@ interface TradingStrategy {
   id: string;
   name: string;
   description: string;
-  category: 'trend' | 'reversal' | 'breakout' | 'volatility' | 'custom';
+  category: 'trend' | 'reversal' | 'breakout' | 'volatility' | 'custom' | 'range' | 'oscillator' | 'pattern';
   parameters: StrategyParameter[];
   riskLevel: 'low' | 'medium' | 'high';
 }
@@ -207,6 +207,297 @@ const predefinedStrategies: TradingStrategy[] = [
         ]
       }
     ]
+  },
+  {
+    id: 'macd-signal-crossover',
+    name: 'MACD Signal Line Crossover',
+    description: 'Uses MACD indicator to identify momentum shifts when the MACD line crosses its signal line',
+    category: 'trend',
+    riskLevel: 'medium',
+    parameters: [
+      {
+        id: 'fast-ema',
+        name: 'Fast EMA Period',
+        type: 'number',
+        description: 'Period for the fast EMA in MACD calculation',
+        value: 12,
+        min: 5,
+        max: 30,
+        step: 1
+      },
+      {
+        id: 'slow-ema',
+        name: 'Slow EMA Period',
+        type: 'number',
+        description: 'Period for the slow EMA in MACD calculation',
+        value: 26,
+        min: 10,
+        max: 50,
+        step: 1
+      },
+      {
+        id: 'signal-period',
+        name: 'Signal Line Period',
+        type: 'number',
+        description: 'Period for the signal line calculation',
+        value: 9,
+        min: 3,
+        max: 25,
+        step: 1
+      },
+      {
+        id: 'histogram-confirmation',
+        name: 'Histogram Confirmation',
+        type: 'boolean',
+        description: 'Require histogram direction confirmation',
+        value: true
+      }
+    ]
+  },
+  {
+    id: 'double-top-bottom',
+    name: 'Double Top/Bottom Pattern',
+    description: 'Identifies reversal patterns where price tests a level twice before changing direction',
+    category: 'reversal',
+    riskLevel: 'high',
+    parameters: [
+      {
+        id: 'pattern-type',
+        name: 'Pattern Type',
+        type: 'select',
+        description: 'Type of pattern to look for',
+        value: 'both',
+        options: [
+          { label: 'Double Top Only', value: 'top' },
+          { label: 'Double Bottom Only', value: 'bottom' },
+          { label: 'Both Types', value: 'both' }
+        ]
+      },
+      {
+        id: 'price-threshold',
+        name: 'Price Threshold (%)',
+        type: 'number',
+        description: 'Maximum percentage difference between tops/bottoms',
+        value: 3,
+        min: 0.5,
+        max: 10,
+        step: 0.5
+      },
+      {
+        id: 'confirmation-break',
+        name: 'Need Neckline Breakout',
+        type: 'boolean',
+        description: 'Require price to break neckline for confirmation',
+        value: true
+      },
+      {
+        id: 'volume-confirmation',
+        name: 'Volume Confirmation',
+        type: 'boolean',
+        description: 'Require increasing volume on breakout',
+        value: true
+      }
+    ]
+  },
+  {
+    id: 'channel-trading',
+    name: 'Channel Trading Strategy',
+    description: 'Trades within established price channels by buying at support and selling at resistance',
+    category: 'range',
+    riskLevel: 'medium',
+    parameters: [
+      {
+        id: 'channel-type',
+        name: 'Channel Type',
+        type: 'select',
+        description: 'Type of channel to identify',
+        value: 'horizontal',
+        options: [
+          { label: 'Horizontal Channel', value: 'horizontal' },
+          { label: 'Ascending Channel', value: 'ascending' },
+          { label: 'Descending Channel', value: 'descending' }
+        ]
+      },
+      {
+        id: 'lookback-periods',
+        name: 'Lookback Periods',
+        type: 'number',
+        description: 'Number of periods to identify channel',
+        value: 50,
+        min: 20,
+        max: 200,
+        step: 10
+      },
+      {
+        id: 'touch-count',
+        name: 'Minimum Touches',
+        type: 'number',
+        description: 'Minimum number of touches required for valid channel',
+        value: 2,
+        min: 2,
+        max: 10,
+        step: 1
+      },
+      {
+        id: 'entry-position',
+        name: 'Entry Position',
+        type: 'number',
+        description: 'Entry position within channel (0-100%)',
+        value: 20,
+        min: 5,
+        max: 45,
+        step: 5
+      }
+    ]
+  },
+  {
+    id: 'stochastic-crossover',
+    name: 'Stochastic Crossover',
+    description: 'Uses stochastic oscillator crossovers to identify overbought and oversold conditions',
+    category: 'oscillator',
+    riskLevel: 'medium',
+    parameters: [
+      {
+        id: 'k-period',
+        name: '%K Period',
+        type: 'number',
+        description: 'Number of periods for %K line',
+        value: 14,
+        min: 5,
+        max: 30,
+        step: 1
+      },
+      {
+        id: 'd-period',
+        name: '%D Period',
+        type: 'number',
+        description: 'Number of periods for %D line',
+        value: 3,
+        min: 1,
+        max: 10,
+        step: 1
+      },
+      {
+        id: 'overbought',
+        name: 'Overbought Level',
+        type: 'number',
+        description: 'Level above which market is considered overbought',
+        value: 80,
+        min: 70,
+        max: 95,
+        step: 1
+      },
+      {
+        id: 'oversold',
+        name: 'Oversold Level',
+        type: 'number',
+        description: 'Level below which market is considered oversold',
+        value: 20,
+        min: 5,
+        max: 30,
+        step: 1
+      }
+    ]
+  },
+  {
+    id: 'support-resistance-bounce',
+    name: 'Support & Resistance Bounce',
+    description: 'Identifies key support and resistance levels and trades price reactions at these levels',
+    category: 'reversal',
+    riskLevel: 'medium',
+    parameters: [
+      {
+        id: 'lookback-period',
+        name: 'Lookback Period',
+        type: 'number',
+        description: 'Number of periods to identify S&R levels',
+        value: 100,
+        min: 50,
+        max: 500,
+        step: 50
+      },
+      {
+        id: 'level-strength',
+        name: 'Level Strength',
+        type: 'number',
+        description: 'Minimum touches required for valid level',
+        value: 3,
+        min: 2,
+        max: 10,
+        step: 1
+      },
+      {
+        id: 'bounce-threshold',
+        name: 'Bounce Threshold (%)',
+        type: 'number',
+        description: 'Minimum price percentage for valid bounce',
+        value: 0.5,
+        min: 0.1,
+        max: 2,
+        step: 0.1
+      },
+      {
+        id: 'confirmation-candles',
+        name: 'Confirmation Candles',
+        type: 'number',
+        description: 'Number of candles to confirm bounce',
+        value: 2,
+        min: 1,
+        max: 5,
+        step: 1
+      }
+    ]
+  },
+  {
+    id: 'wedge-patterns',
+    name: 'Wedge Pattern Strategy',
+    description: 'Identifies and trades wedge patterns, which are powerful continuation or reversal signals',
+    category: 'pattern',
+    riskLevel: 'high',
+    parameters: [
+      {
+        id: 'wedge-type',
+        name: 'Wedge Type',
+        type: 'select',
+        description: 'Type of wedge pattern to identify',
+        value: 'both',
+        options: [
+          { label: 'Rising Wedge Only', value: 'rising' },
+          { label: 'Falling Wedge Only', value: 'falling' },
+          { label: 'Both Types', value: 'both' }
+        ]
+      },
+      {
+        id: 'min-points',
+        name: 'Minimum Touch Points',
+        type: 'number',
+        description: 'Minimum points required on each trendline',
+        value: 3,
+        min: 2,
+        max: 10,
+        step: 1
+      },
+      {
+        id: 'breakout-percent',
+        name: 'Breakout Threshold (%)',
+        type: 'number',
+        description: 'Percentage beyond trendline for breakout confirmation',
+        value: 1,
+        min: 0.2,
+        max: 5,
+        step: 0.2
+      },
+      {
+        id: 'volume-increase',
+        name: 'Volume Increase (%)',
+        type: 'number',
+        description: 'Minimum volume increase on breakout',
+        value: 130,
+        min: 100,
+        max: 300,
+        step: 10
+      }
+    ]
   }
 ];
 
@@ -224,8 +515,42 @@ function getTradingSessionBasedOnStrategy(strategyId: string | undefined): strin
       return "End of New York Session (19:00-21:00 GMT)";
     case 'breakout-with-volume':
       return "London Opening (08:00-10:00 GMT)";
+    case 'macd-signal-crossover':
+      return "London Session (09:00-12:00 GMT)";
+    case 'double-top-bottom':
+      return "New York Session (14:00-17:00 GMT)";
+    case 'channel-trading':
+      return "Asian/London Overlap (07:00-09:00 GMT)";
+    case 'stochastic-crossover':
+      return "End of Asian Session (06:00-08:00 GMT)";
+    case 'support-resistance-bounce':
+      return "London/New York Overlap (13:00-15:00 GMT)";
+    case 'wedge-patterns':
+      return "New York Opening (13:00-15:00 GMT)";
     default:
       return "London Session (08:00-16:00 GMT)";
+  }
+}
+
+// Helper function to get strategy category icon
+function getCategoryIcon(category: string) {
+  switch (category) {
+    case 'trend':
+      return <TrendingUpIcon className="w-4 h-4" />;
+    case 'reversal':
+      return <UndoIcon className="w-4 h-4" />;
+    case 'breakout':
+      return <ArrowUpRightIcon className="w-4 h-4" />;
+    case 'oscillator':
+      return <WaveformIcon className="w-4 h-4" />;
+    case 'pattern':
+      return <CandlestickChartIcon className="w-4 h-4" />;
+    case 'range':
+      return <ArrowLeftRightIcon className="w-4 h-4" />;
+    case 'volatility':
+      return <ActivityIcon className="w-4 h-4" />;
+    default:
+      return <SettingsIcon className="w-4 h-4" />;
   }
 }
 
@@ -238,6 +563,19 @@ export default function StrategyWizard() {
   const [testPeriod, setTestPeriod] = useState<string>('6M');
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [results, setResults] = useState<StrategyResults | null>(null);
+  
+  // Filter states
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all');
+  const [selectedRiskFilter, setSelectedRiskFilter] = useState<string>('all');
+  
+  // Filtered strategies based on selected filters
+  const filteredStrategies = useMemo(() => {
+    return predefinedStrategies.filter(strategy => {
+      const categoryMatch = selectedCategoryFilter === 'all' || strategy.category === selectedCategoryFilter;
+      const riskMatch = selectedRiskFilter === 'all' || strategy.riskLevel === selectedRiskFilter;
+      return categoryMatch && riskMatch;
+    });
+  }, [selectedCategoryFilter, selectedRiskFilter]);
   
   const { toast } = useToast();
 
