@@ -35,6 +35,7 @@ import BlogPage from "@/pages/blog";
 import StrategyWizard from "@/pages/strategy-wizard";
 import { NewsNotificationScheduler } from "@/components/news-notification-scheduler";
 import { SubscriptionUsageHeader } from "@/components/ui/subscription-usage-header";
+import { PageTransition } from "@/components/ui/page-transition";
 
 import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
@@ -55,42 +56,44 @@ function AppLayout() {
       {showHeaderFooter && <Header />}
       {showSubscriptionBar && <SubscriptionUsageHeader />}
       <main className="flex-grow">
-        <Switch>
-          {/* Public routes */}
-          <Route path="/" component={LandingPage} />
-          <Route path="/auth" component={AuthPage} />
-          <Route path="/subscription" component={SubscriptionPage} />
-          <Route path="/blog" component={BlogPage} />
-          <Route path="/shared/:shareId" component={SharedAnalysisPage} />
-          <Route path="/volatility-meter" component={VolatilityMeterShowcase} />
-          
-          {/* Footer pages */}
-          <Route path="/about" component={AboutPage} />
-          <Route path="/contact" component={ContactPage} />
-          <Route path="/support" component={SupportPage} />
-          <Route path="/privacy" component={PrivacyPage} />
-          <Route path="/terms" component={TermsPage} />
-          <Route path="/security" component={SecurityPage} />
-          
-          {/* Protected routes */}
-          <ProtectedRoute path="/dashboard" component={Dashboard} />
-          <ProtectedRoute path="/analysis" component={Analysis} />
-          <ProtectedRoute path="/analysis/:id" component={AnalysisDetail} />
-          <ProtectedRoute path="/historical" component={Historical} />
-          <ProtectedRoute path="/profile" component={ProfilePage} />
-          <ProtectedRoute path="/profile/:userId" component={ProfilePage} />
-          <ProtectedRoute path="/achievements" component={AchievementsPage} />
-          <ProtectedRoute path="/home" component={Home} />
-          <ProtectedRoute path="/community" component={Community} />
-          <ProtectedRoute path="/market-insights" component={MarketInsightsPage} />
-          <ProtectedRoute path="/market-trend-game" component={MarketTrendGamePage} />
-          <ProtectedRoute path="/market-mood" component={MarketMoodPage} />
-          <ProtectedRoute path="/market-sentiment" component={MarketSentimentPage} />
-          <ProtectedRoute path="/strategy-wizard" component={StrategyWizard} />
-          <ProtectedRoute path="/interactive-tooltips" component={InteractiveTooltipShowcase} />
-          
-          <Route component={NotFound} />
-        </Switch>
+        <PageTransition>
+          <Switch>
+            {/* Public routes */}
+            <Route path="/" component={LandingPage} />
+            <Route path="/auth" component={AuthPage} />
+            <Route path="/subscription" component={SubscriptionPage} />
+            <Route path="/blog" component={BlogPage} />
+            <Route path="/shared/:shareId" component={SharedAnalysisPage} />
+            <Route path="/volatility-meter" component={VolatilityMeterShowcase} />
+            
+            {/* Footer pages */}
+            <Route path="/about" component={AboutPage} />
+            <Route path="/contact" component={ContactPage} />
+            <Route path="/support" component={SupportPage} />
+            <Route path="/privacy" component={PrivacyPage} />
+            <Route path="/terms" component={TermsPage} />
+            <Route path="/security" component={SecurityPage} />
+            
+            {/* Protected routes */}
+            <ProtectedRoute path="/dashboard" component={Dashboard} />
+            <ProtectedRoute path="/analysis" component={Analysis} />
+            <ProtectedRoute path="/analysis/:id" component={AnalysisDetail} />
+            <ProtectedRoute path="/historical" component={Historical} />
+            <ProtectedRoute path="/profile" component={ProfilePage} />
+            <ProtectedRoute path="/profile/:userId" component={ProfilePage} />
+            <ProtectedRoute path="/achievements" component={AchievementsPage} />
+            <ProtectedRoute path="/home" component={Home} />
+            <ProtectedRoute path="/community" component={Community} />
+            <ProtectedRoute path="/market-insights" component={MarketInsightsPage} />
+            <ProtectedRoute path="/market-trend-game" component={MarketTrendGamePage} />
+            <ProtectedRoute path="/market-mood" component={MarketMoodPage} />
+            <ProtectedRoute path="/market-sentiment" component={MarketSentimentPage} />
+            <ProtectedRoute path="/strategy-wizard" component={StrategyWizard} />
+            <ProtectedRoute path="/interactive-tooltips" component={InteractiveTooltipShowcase} />
+            
+            <Route component={NotFound} />
+          </Switch>
+        </PageTransition>
       </main>
       {showHeaderFooter && !isAuthPage && <Footer />}
       <Toaster />

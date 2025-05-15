@@ -2,6 +2,25 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer utilities {
+  .bg-size-200 {
+    background-size: 200% 100%;
+  }
+  
+  .animate-gradient-x {
+    animation: gradientX 3s linear infinite;
+  }
+
+  @keyframes gradientX {
+    0% {
+      background-position: 0% 0%;
+    }
+    100% {
+      background-position: 200% 0%;
+    }
+  }
+}
+
 /* Custom animations for image upload */
 @keyframes pulse {
   0%, 100% {
