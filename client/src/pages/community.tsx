@@ -52,6 +52,7 @@ interface Analysis {
   id: number;
   userId: number;
   imageUrl: string;
+  sharedImageUrl?: string;
   symbol?: string;
   timeframe?: string;
   direction?: string;
@@ -576,9 +577,11 @@ export default function Community() {
               <div>
                 <div className="aspect-video relative overflow-hidden rounded-lg border border-border mb-4">
                   <ChartImage 
-                    imageUrl={selectedAnalysis.imageUrl} 
+                    imageUrl={selectedAnalysis.imageUrl}
+                    sharedImageUrl={selectedAnalysis.sharedImageUrl}
                     altText={`${selectedAnalysis.symbol} Chart Analysis`}
                     className="w-full h-full object-cover"
+                    showWatermark={true}
                   />
                 </div>
                 
@@ -729,8 +732,10 @@ function AnalysisCard({
           <div className="w-full md:w-48 h-48 relative cursor-pointer" onClick={() => onSelect(analysis)}>
             <ChartImage 
               imageUrl={analysis.imageUrl} 
+              sharedImageUrl={analysis.sharedImageUrl}
               altText={`${analysis.symbol} Chart Analysis`}
               className="w-full h-full object-cover"
+              showWatermark={true}
             />
             <div className="absolute top-2 right-2">
               <Badge variant={analysis.direction?.toLowerCase() === 'buy' ? 'success' : 'destructive'}>

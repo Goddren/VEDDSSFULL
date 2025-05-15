@@ -13,6 +13,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { Link } from 'wouter';
 import VolatilityMeter from '@/components/charts/volatility-meter';
 import { normalizeImageUrl } from '@/lib/utils';
+import { ChartImage } from '@/components/ui/chart-image';
 
 const SharedAnalysisPage: React.FC = () => {
   const { shareId } = useParams();
@@ -141,6 +142,16 @@ const SharedAnalysisPage: React.FC = () => {
             volatility={calculateVolatilityScore(analysis)}
             symbol={analysis.symbol || 'Unknown'} 
             direction={analysis.direction}
+          />
+        </div>
+        
+        <div className="mb-6 border border-[#333333] rounded-xl overflow-hidden">
+          <ChartImage 
+            imageUrl={analysis.imageUrl}
+            sharedImageUrl={analysis.sharedImageUrl}
+            altText={`${analysis.symbol} Chart Analysis`}
+            className="w-full aspect-video object-cover"
+            showWatermark={true}
           />
         </div>
         

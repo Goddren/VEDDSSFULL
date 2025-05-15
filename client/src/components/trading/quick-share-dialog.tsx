@@ -9,6 +9,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { Copy, Share2, Clipboard, Check, Link, Twitter } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { SiTelegram, SiX } from "react-icons/si";
+import { ChartImage } from "@/components/ui/chart-image";
 
 interface QuickShareDialogProps {
   analysis: ChartAnalysisResponse;
