@@ -2,11 +2,11 @@ import React, { useState } from 'react';
 import { useSpring, animated } from 'react-spring';
 import { useDrag } from '@use-gesture/react';
 import { ChartAnalysis } from '@shared/schema';
-import { normalizeImageUrl } from '@/lib/utils';
 import { Card } from '@/components/ui/card';
 import { X, Heart, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useLocation } from 'wouter';
+import { ChartImage } from '@/components/ui/chart-image';
 
 interface SwipeCardProps {
   analysis: ChartAnalysis;
@@ -160,14 +160,10 @@ export const SwipeCard: React.FC<SwipeCardProps> = ({ analysis, onSwipe, isTop }
         <div className="flex flex-col h-full">
           {/* Chart Image */}
           <div className="h-[55%] bg-[#1A1A1A] relative">
-            <img 
-              src={normalizeImageUrl(analysis.imageUrl)} 
-              alt={`${analysis.symbol || 'Chart'} analysis`}
-              className="h-full w-full object-cover"
-              onError={(e) => {
-                console.error("Image failed to load:", analysis.imageUrl);
-                e.currentTarget.src = "https://placehold.co/600x400/black/gray?text=Chart+Image+Unavailable";
-              }}
+            <ChartImage
+              imageUrl={analysis.imageUrl}
+              altText={`${analysis.symbol || 'Chart'} analysis`}
+              className="h-full w-full"
             />
             
             {/* Symbol and Direction Flag */}

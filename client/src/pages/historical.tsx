@@ -5,10 +5,10 @@ import { Button } from '@/components/ui/button';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'wouter';
 import { ChartAnalysis } from '@shared/schema';
-import { normalizeImageUrl } from '@/lib/utils';
 import { SwipeDeck } from '@/components/trading/swipe-deck';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Filter, List, Shuffle } from 'lucide-react';
+import { ChartImage } from '@/components/ui/chart-image';
 
 const Historical: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -165,14 +165,10 @@ const Historical: React.FC = () => {
                         <div className="bg-[#0A0A0A] hover:bg-[#1A1A1A] p-4 rounded-lg flex flex-col md:flex-row md:items-center gap-4 cursor-pointer transition-colors">
                           <div className="md:w-1/4 lg:w-1/6">
                             <div className="h-32 md:h-20 rounded bg-[#1E1E1E] overflow-hidden">
-                              <img 
-                                src={normalizeImageUrl(analysis.imageUrl)} 
-                                alt={`${analysis.symbol || 'Chart'} analysis`}
-                                className="h-full w-full object-cover"
-                                onError={(e) => {
-                                  console.error("Image failed to load:", analysis.imageUrl);
-                                  e.currentTarget.src = "https://placehold.co/600x400/black/gray?text=Chart+Image+Unavailable";
-                                }}
+                              <ChartImage 
+                                imageUrl={analysis.imageUrl}
+                                altText={`${analysis.symbol || 'Chart'} analysis`}
+                                className="h-full w-full"
                               />
                             </div>
                           </div>
