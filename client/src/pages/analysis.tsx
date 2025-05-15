@@ -157,10 +157,16 @@ const Analysis: React.FC = () => {
         setAnalysisResult(data.analysisResult);
         setAnalysisProgress(100);
         setAnalysisState(AnalysisState.COMPLETE);
-        checkAchievements();
+        
+        // Track achievements properly with the analysis data
+        trackAnalysisCompleted(data.analysisResult);
         
         // Invalidate subscription cache to update the usage bar
         queryClient.invalidateQueries({ queryKey: ['/api/subscription'] });
+        
+        // Invalidate analyses and achievements to update dashboard stats
+        queryClient.invalidateQueries({ queryKey: ['/api/analyses'] });
+        queryClient.invalidateQueries({ queryKey: ['/api/user-achievements'] });
       } else {
         // Fall back to the old flow if we don't have analysis results yet
         startAnalysis(data.url);
