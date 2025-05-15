@@ -109,19 +109,19 @@ export default function Community() {
   // Get all public analyses
   const { data: analyses, isLoading, error, refetch } = useQuery<Analysis[]>({
     queryKey: ['/api/analyses'],
-    queryFn: getQueryFn(),
+    queryFn: getQueryFn({ on401: "throw" }),
   });
 
   // Get popular users
   const { data: popularUsers, isLoading: isLoadingUsers } = useQuery<User[]>({
     queryKey: ['/api/popular-traders'],
-    queryFn: getQueryFn(),
+    queryFn: getQueryFn({ on401: "throw" }),
   });
 
   // Get followed analyses (analyses from users the current user follows)
   const { data: followingAnalyses, isLoading: isLoadingFollowing } = useQuery<Analysis[]>({
     queryKey: ['/api/social/feed'],
-    queryFn: getQueryFn(),
+    queryFn: getQueryFn({ on401: "throw" }),
     enabled: activeTab === 'following',
   });
 

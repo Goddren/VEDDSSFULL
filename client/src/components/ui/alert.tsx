@@ -11,6 +11,16 @@ const alertVariants = cva(
         default: "bg-background text-foreground",
         destructive:
           "border-destructive/50 text-destructive dark:border-destructive [&>svg]:text-destructive",
+        bullish:
+          "border-green-500/50 text-green-600 dark:text-green-500 dark:border-green-500/30 [&>svg]:text-green-600 dark:[&>svg]:text-green-500",
+        bearish:
+          "border-red-500/50 text-red-600 dark:text-red-500 dark:border-red-500/30 [&>svg]:text-red-600 dark:[&>svg]:text-red-500",
+        neutral:
+          "border-yellow-500/50 text-yellow-600 dark:text-yellow-500 dark:border-yellow-500/30 [&>svg]:text-yellow-600 dark:[&>svg]:text-yellow-500", 
+        error: "border-destructive/50 text-destructive dark:border-destructive [&>svg]:text-destructive",
+        success: "border-green-500/50 text-green-600 dark:text-green-500 dark:border-green-500/30 [&>svg]:text-green-600 dark:[&>svg]:text-green-500",
+        info: "border-blue-500/50 text-blue-600 dark:text-blue-500 dark:border-blue-500/30 [&>svg]:text-blue-600 dark:[&>svg]:text-blue-500",
+        warning: "border-yellow-500/50 text-yellow-600 dark:text-yellow-500 dark:border-yellow-500/30 [&>svg]:text-yellow-600 dark:[&>svg]:text-yellow-500",
       },
     },
     defaultVariants: {
