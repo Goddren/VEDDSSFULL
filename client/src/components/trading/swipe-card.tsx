@@ -80,7 +80,7 @@ export const SwipeCard: React.FC<SwipeCardProps> = ({ analysis, onSwipe, isTop }
   // Visual indicator for like/dislike based on drag direction
   const likeOpacity = x.to({ map: Math.abs, range: [0, 150], output: [0, 1], extrapolate: 'clamp' });
   const likeTransform = x.to({
-    map: (value) => (value > 0 ? 1 : 0),
+    map: (value: number) => (value > 0 ? 1 : 0),
     range: [0, 1],
     output: [0, 1],
     extrapolate: 'clamp'
@@ -88,7 +88,7 @@ export const SwipeCard: React.FC<SwipeCardProps> = ({ analysis, onSwipe, isTop }
   
   const dislikeOpacity = x.to({ map: Math.abs, range: [0, 150], output: [0, 1], extrapolate: 'clamp' });
   const dislikeTransform = x.to({
-    map: (value) => (value < 0 ? 1 : 0),
+    map: (value: number) => (value < 0 ? 1 : 0),
     range: [0, 1],
     output: [0, 1],
     extrapolate: 'clamp'
@@ -198,7 +198,7 @@ export const SwipeCard: React.FC<SwipeCardProps> = ({ analysis, onSwipe, isTop }
                 
                 <div className="flex justify-between">
                   <span className="text-gray-400">Pattern:</span>
-                  <span className="font-medium">{analysis.patternDetected || 'None detected'}</span>
+                  <span className="font-medium">{analysis.patterns || 'None detected'}</span>
                 </div>
               </div>
               
