@@ -226,11 +226,16 @@ const ImageUpload: React.FC<ImageUploadProps> = ({ onImageUpload, isUploading = 
                   <div className="relative">
                     <Button
                       variant="default"
-                      className="bg-primary hover:bg-primary/80 relative z-10"
+                      className="bg-primary hover:bg-primary/80 relative z-10 active:scale-95 active:shadow-inner transform transition-all duration-150"
                       disabled={isUploading}
                     >
-                      <ArrowUpFromLine className="mr-2 h-4 w-4" />
-                      Browse Files
+                      <div className="flex items-center">
+                        <span className="relative">
+                          <span className="absolute inset-0 rounded-full bg-white/20 animate-ping opacity-30 h-full w-full"></span>
+                          <ArrowUpFromLine className="mr-2 h-4 w-4" />
+                        </span>
+                        Browse Files
+                      </div>
                     </Button>
                     <input 
                       type="file" 
@@ -250,6 +255,7 @@ const ImageUpload: React.FC<ImageUploadProps> = ({ onImageUpload, isUploading = 
                   
                   <Button
                     variant="outline"
+                    className="hover:bg-muted/50 hover:border-primary/50 active:scale-95 transform transition-all duration-150"
                     onClick={() => {
                       toast({
                         title: "Clipboard access",
@@ -257,8 +263,13 @@ const ImageUpload: React.FC<ImageUploadProps> = ({ onImageUpload, isUploading = 
                       });
                     }}
                   >
-                    <Clipboard className="mr-2 h-4 w-4" />
-                    Paste Image
+                    <div className="flex items-center">
+                      <span className="relative mr-2">
+                        <span className="absolute inset-0 rounded-full bg-primary/10 animate-pulse-custom h-full w-full"></span>
+                        <Clipboard className="h-4 w-4" />
+                      </span>
+                      Paste Image
+                    </div>
                   </Button>
                 </div>
               </div>
