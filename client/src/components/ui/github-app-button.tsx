@@ -89,11 +89,6 @@ export function GitHubAppButton({
       </Button>
 
       <Dialog open={isConfigOpen} onOpenChange={setIsConfigOpen}>
-        <DialogTrigger asChild>
-          <Button variant="ghost" size="icon" className="ml-1">
-            <Settings className="h-4 w-4" />
-          </Button>
-        </DialogTrigger>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>GitHub App Configuration</DialogTitle>
