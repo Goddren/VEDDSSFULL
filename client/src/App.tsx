@@ -32,6 +32,7 @@ import MarketSentimentPage from "@/pages/market-sentiment";
 import Community from "@/pages/community";
 import InteractiveTooltipShowcase from "@/pages/interactive-tooltip-showcase";
 import BlogPage from "@/pages/blog";
+import StrategyWizard from "@/pages/strategy-wizard";
 import { NewsNotificationScheduler } from "@/components/news-notification-scheduler";
 import { SubscriptionUsageHeader } from "@/components/ui/subscription-usage-header";
 
@@ -85,6 +86,7 @@ function AppLayout() {
           <ProtectedRoute path="/market-trend-game" component={MarketTrendGamePage} />
           <ProtectedRoute path="/market-mood" component={MarketMoodPage} />
           <ProtectedRoute path="/market-sentiment" component={MarketSentimentPage} />
+          <ProtectedRoute path="/strategy-wizard" component={StrategyWizard} />
           <ProtectedRoute path="/interactive-tooltips" component={InteractiveTooltipShowcase} />
           
           <Route component={NotFound} />
