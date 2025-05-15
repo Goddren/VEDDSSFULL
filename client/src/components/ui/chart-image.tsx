@@ -4,11 +4,21 @@ import { Loader2 } from 'lucide-react';
 
 interface ChartImageProps {
   imageUrl: string;
+  sharedImageUrl?: string;
   altText?: string;
   className?: string;
+  showWatermark?: boolean;
 }
 
-export function ChartImage({ imageUrl, altText = 'Chart analysis', className = '' }: ChartImageProps) {
+export function ChartImage({ 
+  imageUrl, 
+  sharedImageUrl, 
+  altText = 'Chart analysis', 
+  className = '',
+  showWatermark = true 
+}: ChartImageProps) {
+  // Use shared image URL if available and watermark should be shown
+  const effectiveImageUrl = showWatermark && sharedImageUrl ? sharedImageUrl : imageUrl;
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
   
@@ -93,7 +103,7 @@ export function ChartImage({ imageUrl, altText = 'Chart analysis', className = '
       
       {/* Actual image */}
       <img
-        src={normalizeImageUrl(imageUrl)}
+        src={normalizeImageUrl(effectiveImageUrl)}
         alt={altText}
         className={`h-full w-full object-cover ${hasError ? 'hidden' : ''}`}
         onLoad={handleImageLoad}

@@ -63,6 +63,7 @@ export const chartAnalyses = pgTable("chart_analyses", {
   recommendation: text("recommendation"),
   notes: text("notes"),
   shareId: text("share_id"),
+  sharedImageUrl: text("shared_image_url"),
   isPublic: boolean("is_public").default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

@@ -40,6 +40,10 @@ export async function addWatermarkToImage(originalImagePath: string, outputFilen
     ctx.textBaseline = 'middle';
     ctx.fillText('VEDDAI', logoX + logoWidth / 2, logoY + logoHeight / 2);
     
+    // Add a small tagline below the logo
+    ctx.font = `${logoHeight * 0.25}px Arial`;
+    ctx.fillText('AI-Powered Trading Analysis', logoX + logoWidth / 2, logoY + logoHeight * 0.75);
+    
     // Ensure the shared directory exists
     const sharedDir = path.join('uploads', 'shared');
     if (!fs.existsSync(sharedDir)) {

@@ -462,17 +462,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
       try {
         // Get the original image path
         const originalImageUrl = analysis.imageUrl;
-        const originalImagePath = path.join(process.cwd(), 'uploads', path.basename(originalImageUrl));
+        console.log("Original image URL:", originalImageUrl);
+        
+        // Extract the filename from the URL
+        const imagePath = originalImageUrl.startsWith('/') ? originalImageUrl.substring(1) : originalImageUrl;
+        const basename = path.basename(imagePath);
+        console.log("Image basename:", basename);
+        
+        // Create the full path to the image
+        const originalImagePath = path.join(process.cwd(), 'uploads', basename);
+        console.log("Full image path:", originalImagePath);
+        
+        // Verify the original image exists
+        if (!fs.existsSync(originalImagePath)) {
+          console.error("Original image not found at path:", originalImagePath);
+          throw new Error(`Original image not found: ${originalImagePath}`);
+        }
         
         // Create a unique filename for the watermarked image
         const timestamp = Date.now();
         const watermarkedFilename = `${id}_${timestamp}_watermarked.jpg`;
+        console.log("Watermarked filename:", watermarkedFilename);
         
         // Add watermark to the image
         const watermarkedImagePath = await addWatermarkToImage(originalImagePath, watermarkedFilename);
+        console.log("Watermarked image created at:", watermarkedImagePath);
         
         // Create URL for the watermarked image
         const watermarkedImageUrl = createSharedImageUrl(watermarkedFilename);
+        console.log("Watermarked image URL:", watermarkedImageUrl);
         
         // Update analysis with the watermarked image URL before sharing
         await storage.updateChartAnalysis(id, {
