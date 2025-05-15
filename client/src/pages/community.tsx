@@ -114,7 +114,7 @@ export default function Community() {
 
   // Get popular users
   const { data: popularUsers, isLoading: isLoadingUsers } = useQuery<User[]>({
-    queryKey: ['/api/popular-traders'],
+    queryKey: ['/api/social/popular-traders'],
     queryFn: getQueryFn({ on401: "throw" }),
   });
 
@@ -607,8 +607,9 @@ export default function Community() {
                         <div key={index} className="p-3 border border-border rounded-lg">
                           <div className="flex items-center justify-between mb-1">
                             <InteractiveInsightTooltip
-                              type={pattern.type?.toLowerCase().includes('bullish') ? 'bullish' : 
-                                   pattern.type?.toLowerCase().includes('bearish') ? 'bearish' : 'neutral'}
+                              type="info"
+                              marketTrend={pattern.type?.toLowerCase().includes('bullish') ? 'bullish' : 
+                                  pattern.type?.toLowerCase().includes('bearish') ? 'bearish' : 'neutral'}
                               title={pattern.name}
                               description={pattern.description}
                               context="pattern"
