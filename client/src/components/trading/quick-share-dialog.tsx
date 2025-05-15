@@ -160,9 +160,16 @@ ${tradingNotes ? `💭 My Analysis:\n${tradingNotes}\n\n` : ""}
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogTrigger asChild>
         {trigger || (
-          <Button size="sm" variant="outline" className="flex items-center gap-2">
-            <Share2 className="h-4 w-4" />
-            Quick Share
+          <Button 
+            size="sm" 
+            variant="outline" 
+            className="flex items-center gap-2 bg-gradient-to-r from-primary/10 to-primary/5 border-primary/30 hover:border-primary/70 shadow-sm hover:shadow-md hover:shadow-primary/10 transition-all duration-200 hover:scale-105 active:scale-95"
+          >
+            <div className="relative">
+              <div className="absolute -inset-1 rounded-full bg-primary/20 animate-pulse-custom"></div>
+              <Share2 className="h-4 w-4 text-primary" />
+            </div>
+            <span>Quick Share</span>
           </Button>
         )}
       </DialogTrigger>
@@ -222,17 +229,28 @@ ${tradingNotes ? `💭 My Analysis:\n${tradingNotes}\n\n` : ""}
             </div>
             
             <DialogFooter>
-              <Button variant="outline" onClick={() => setIsOpen(false)}>
+              <Button 
+                variant="outline" 
+                onClick={() => setIsOpen(false)}
+                className="border-gray-600/30 hover:bg-gray-800/10 hover:border-gray-500/50 hover:shadow-md hover:shadow-gray-800/5 transition-all duration-200 active:scale-95"
+              >
                 Cancel
               </Button>
-              <Button onClick={handleShare} disabled={isLoading}>
+              <Button 
+                onClick={handleShare} 
+                disabled={isLoading}
+                className="bg-gradient-to-r from-primary to-primary/80 hover:opacity-90 shadow-md shadow-primary/20 hover:shadow-lg hover:shadow-primary/30 transition-all duration-200 hover:scale-105 active:scale-95 disabled:opacity-70"
+              >
                 {isLoading ? (
                   <>
                     <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></span>
                     Sharing...
                   </>
                 ) : (
-                  "Continue"
+                  <div className="flex items-center gap-1">
+                    <Share2 className="h-4 w-4 mr-1" />
+                    Continue
+                  </div>
                 )}
               </Button>
             </DialogFooter>
@@ -251,8 +269,16 @@ ${tradingNotes ? `💭 My Analysis:\n${tradingNotes}\n\n` : ""}
                     readOnly
                     className="flex-1"
                   />
-                  <Button size="icon" variant="outline" onClick={handleCopy}>
-                    {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                  <Button 
+                    size="icon" 
+                    variant="outline" 
+                    className="bg-gradient-to-r from-blue-500/10 to-blue-600/5 border-blue-500/30 hover:border-blue-500/70 hover:shadow-md hover:shadow-blue-500/10 hover:scale-105 transition-all duration-200 active:scale-95"
+                    onClick={handleCopy}
+                  >
+                    {copied ? 
+                      <Check className="h-4 w-4 text-green-500" /> : 
+                      <Copy className="h-4 w-4 text-blue-500" />
+                    }
                   </Button>
                 </div>
                 <p className="text-xs text-muted-foreground">
@@ -262,33 +288,48 @@ ${tradingNotes ? `💭 My Analysis:\n${tradingNotes}\n\n` : ""}
               
               <div className="mt-2">
                 <h4 className="text-sm font-medium mb-2">Share on Social Media</h4>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-3">
                   <Button 
                     variant="outline" 
                     size="sm" 
-                    className="flex items-center gap-2"
+                    className="flex items-center gap-2 bg-gradient-to-r from-[#0088cc]/10 to-[#0099ee]/10 border-[#0088cc]/30 hover:border-[#0088cc] hover:shadow-md hover:shadow-[#0088cc]/10 hover:scale-105 transition-all duration-200 active:scale-95"
                     onClick={() => handleSocialShare("telegram")}
                   >
-                    <SiTelegram className="h-4 w-4 text-[#0088cc]" />
-                    Telegram
+                    <div className="flex items-center">
+                      <div className="relative">
+                        <div className="absolute -inset-1 rounded-full bg-[#0088cc]/20 animate-pulse-custom"></div>
+                        <SiTelegram className="h-4 w-4 text-[#0088cc]" />
+                      </div>
+                      <span className="ml-2">Telegram</span>
+                    </div>
                   </Button>
                   <Button 
                     variant="outline" 
                     size="sm" 
-                    className="flex items-center gap-2"
+                    className="flex items-center gap-2 bg-gradient-to-r from-gray-800/10 to-gray-900/10 border-gray-700/30 hover:border-gray-600 hover:shadow-md hover:shadow-gray-800/10 hover:scale-105 transition-all duration-200 active:scale-95"
                     onClick={() => handleSocialShare("twitter")}
                   >
-                    <SiX className="h-4 w-4" />
-                    X (Twitter)
+                    <div className="flex items-center">
+                      <div className="relative">
+                        <div className="absolute -inset-1 rounded-full bg-gray-700/20 animate-pulse-custom"></div>
+                        <SiX className="h-4 w-4" />
+                      </div>
+                      <span className="ml-2">X (Twitter)</span>
+                    </div>
                   </Button>
                   <Button 
                     variant="outline" 
                     size="sm" 
-                    className="flex items-center gap-2"
+                    className="flex items-center gap-2 bg-gradient-to-r from-primary/10 to-primary/5 border-primary/30 hover:border-primary/70 hover:shadow-md hover:shadow-primary/10 hover:scale-105 transition-all duration-200 active:scale-95"
                     onClick={handleCopyMessage}
                   >
-                    <Clipboard className="h-4 w-4" />
-                    Copy Text
+                    <div className="flex items-center">
+                      <div className="relative">
+                        <div className="absolute -inset-1 rounded-full bg-primary/20 animate-pulse-custom"></div>
+                        <Clipboard className="h-4 w-4 text-primary" />
+                      </div>
+                      <span className="ml-2">Copy Text</span>
+                    </div>
                   </Button>
                 </div>
               </div>
@@ -302,8 +343,21 @@ ${tradingNotes ? `💭 My Analysis:\n${tradingNotes}\n\n` : ""}
             </div>
             
             <DialogFooter>
-              <Button variant="outline" onClick={() => setIsOpen(false)}>
+              <Button 
+                variant="outline" 
+                onClick={() => setIsOpen(false)}
+                className="border-gray-600/30 hover:bg-gray-800/10 hover:border-gray-500/50 hover:shadow-md hover:shadow-gray-800/5 transition-all duration-200 active:scale-95"
+              >
                 Close
+              </Button>
+              <Button 
+                onClick={() => setShareStep("notes")} 
+                className="bg-gradient-to-r from-green-600 to-green-700 hover:opacity-90 shadow-md shadow-green-800/20 hover:shadow-lg hover:shadow-green-700/30 transition-all duration-200 hover:scale-105 active:scale-95"
+              >
+                <div className="flex items-center gap-1">
+                  <Link className="h-4 w-4 mr-1" />
+                  New Share
+                </div>
               </Button>
             </DialogFooter>
           </>
