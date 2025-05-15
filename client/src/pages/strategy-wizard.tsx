@@ -77,6 +77,286 @@ interface StrategyResults {
 
 // Predefined strategies
 const predefinedStrategies: TradingStrategy[] = [
+  // Additional pattern indicators
+  {
+    id: 'head-and-shoulders',
+    name: 'Head & Shoulders Pattern',
+    description: 'Classic reversal pattern with three peaks, the middle one being the highest',
+    category: 'pattern',
+    riskLevel: 'medium',
+    parameters: [
+      {
+        id: 'symmetry-tolerance',
+        name: 'Symmetry Tolerance',
+        type: 'number',
+        description: 'Maximum % difference between shoulders',
+        value: 15,
+        min: 5,
+        max: 30,
+        step: 1
+      },
+      {
+        id: 'neckline-slope',
+        name: 'Max Neckline Slope',
+        type: 'number',
+        description: 'Maximum slope of neckline in degrees',
+        value: 10,
+        min: 0,
+        max: 15,
+        step: 1
+      },
+      {
+        id: 'volume-profile',
+        name: 'Volume Profile Check',
+        type: 'boolean',
+        description: 'Confirm with decreasing volume on right shoulder',
+        value: true
+      },
+      {
+        id: 'min-pattern-height',
+        name: 'Min Pattern Height',
+        type: 'number',
+        description: 'Minimum pattern height as % of price',
+        value: 3,
+        min: 1,
+        max: 10,
+        step: 0.5
+      }
+    ]
+  },
+  {
+    id: 'flag-pennant',
+    name: 'Flag/Pennant Pattern',
+    description: 'Trade continuation patterns after strong trend moves',
+    category: 'pattern',
+    riskLevel: 'medium',
+    parameters: [
+      {
+        id: 'pattern-type',
+        name: 'Pattern Type',
+        type: 'select',
+        description: 'Type of continuation pattern',
+        value: 'flag',
+        options: [
+          { label: 'Bull Flag', value: 'bull-flag' },
+          { label: 'Bear Flag', value: 'bear-flag' },
+          { label: 'Pennant', value: 'pennant' }
+        ]
+      },
+      {
+        id: 'pole-height',
+        name: 'Minimum Pole Height',
+        type: 'number',
+        description: 'Minimum height of flagpole as % of price',
+        value: 5,
+        min: 2,
+        max: 15,
+        step: 1
+      },
+      {
+        id: 'consolidation-duration',
+        name: 'Max Consolidation',
+        type: 'number',
+        description: 'Maximum duration of flag/pennant in candles',
+        value: 15,
+        min: 5,
+        max: 30,
+        step: 1
+      },
+      {
+        id: 'breakout-volume',
+        name: 'Require Volume Surge',
+        type: 'boolean',
+        description: 'Require volume increase on breakout',
+        value: true
+      }
+    ]
+  },
+  {
+    id: 'harmonic-patterns',
+    name: 'Harmonic Patterns',
+    description: 'Trade precise Fibonacci retracement levels in Gartley, Butterfly and Bat patterns',
+    category: 'pattern',
+    riskLevel: 'high',
+    parameters: [
+      {
+        id: 'pattern-type',
+        name: 'Pattern Type',
+        type: 'select',
+        description: 'Type of harmonic pattern to identify',
+        value: 'butterfly',
+        options: [
+          { label: 'Gartley', value: 'gartley' },
+          { label: 'Butterfly', value: 'butterfly' },
+          { label: 'Bat', value: 'bat' },
+          { label: 'Crab', value: 'crab' }
+        ]
+      },
+      {
+        id: 'fib-tolerance',
+        name: 'Fibonacci Tolerance',
+        type: 'number',
+        description: 'Tolerance % for Fibonacci ratios',
+        value: 3,
+        min: 1,
+        max: 5,
+        step: 0.5
+      },
+      {
+        id: 'minimum-size',
+        name: 'Minimum Pattern Size',
+        type: 'number',
+        description: 'Minimum pattern size as % of price',
+        value: 1,
+        min: 0.5,
+        max: 5,
+        step: 0.5
+      },
+      {
+        id: 'structure-quality',
+        name: 'Structure Quality Check',
+        type: 'boolean',
+        description: 'Apply strict geometric validation',
+        value: true
+      }
+    ]
+  },
+  {
+    id: 'engulfing-candles',
+    name: 'Engulfing Candle Pattern',
+    description: 'Trade powerful reversal signals from engulfing candlestick patterns',
+    category: 'reversal',
+    riskLevel: 'high',
+    parameters: [
+      {
+        id: 'body-size',
+        name: 'Minimum Body Size',
+        type: 'number',
+        description: 'Minimum engulfing candle body size as ATR multiple',
+        value: 1.5,
+        min: 1,
+        max: 3,
+        step: 0.1
+      },
+      {
+        id: 'trend-length',
+        name: 'Prior Trend Length',
+        type: 'number',
+        description: 'Minimum prior trend length in candles',
+        value: 5,
+        min: 3,
+        max: 10,
+        step: 1
+      },
+      {
+        id: 'at-key-level',
+        name: 'At Key Level Only',
+        type: 'boolean',
+        description: 'Only take signals at support/resistance levels',
+        value: true
+      },
+      {
+        id: 'volume-confirmation',
+        name: 'Volume Confirmation',
+        type: 'boolean',
+        description: 'Require above-average volume on engulfing candle',
+        value: true
+      }
+    ]
+  },
+  {
+    id: 'three-drive-pattern',
+    name: 'Three Drive Pattern',
+    description: 'Trade reversal signals after three successive drives in one direction',
+    category: 'reversal',
+    riskLevel: 'high',
+    parameters: [
+      {
+        id: 'drive-equality',
+        name: 'Drive Equality %',
+        type: 'number',
+        description: 'Maximum % difference between drive lengths',
+        value: 10,
+        min: 5,
+        max: 20,
+        step: 1
+      },
+      {
+        id: 'fib-relationship',
+        name: 'Fibonacci Relationship',
+        type: 'boolean',
+        description: 'Require Fibonacci relationship between drives',
+        value: true
+      },
+      {
+        id: 'time-symmetry',
+        name: 'Time Symmetry',
+        type: 'number',
+        description: 'Max % difference in time between drives',
+        value: 30,
+        min: 10,
+        max: 50,
+        step: 5
+      },
+      {
+        id: 'reversal-confirmation',
+        name: 'Confirmation Candles',
+        type: 'number',
+        description: 'Candles for reversal confirmation',
+        value: 1,
+        min: 1,
+        max: 3,
+        step: 1
+      }
+    ]
+  },
+  {
+    id: 'cup-and-handle',
+    name: 'Cup and Handle',
+    description: 'Bullish continuation pattern resembling a cup with a handle',
+    category: 'pattern',
+    riskLevel: 'low',
+    parameters: [
+      {
+        id: 'cup-depth',
+        name: 'Cup Depth %',
+        type: 'number',
+        description: 'Depth of cup as % of price',
+        value: 30,
+        min: 10,
+        max: 50,
+        step: 5
+      },
+      {
+        id: 'handle-retracement',
+        name: 'Handle Retracement %',
+        type: 'number',
+        description: 'Handle retracement as % of cup depth',
+        value: 38,
+        min: 20,
+        max: 50,
+        step: 1
+      },
+      {
+        id: 'cup-width',
+        name: 'Cup Width (candles)',
+        type: 'number',
+        description: 'Width of cup in number of candles',
+        value: 40,
+        min: 20,
+        max: 100,
+        step: 5
+      },
+      {
+        id: 'volume-pattern',
+        name: 'Volume Pattern Check',
+        type: 'boolean',
+        description: 'Confirm with appropriate volume pattern',
+        value: true
+      }
+    ]
+  },
+  // Original strategies
   {
     id: 'moving-average-crossover',
     name: 'Moving Average Crossover',
@@ -513,6 +793,7 @@ function getTradingSessionBasedOnStrategy(strategyId: string | undefined): strin
   if (!strategyId) return "London Session (08:00-16:00 GMT)";
   
   switch (strategyId) {
+    // Original strategies
     case 'moving-average-crossover':
       return "London/New York Overlap (13:00-16:00 GMT)";
     case 'rsi-overbought-oversold':
@@ -531,6 +812,20 @@ function getTradingSessionBasedOnStrategy(strategyId: string | undefined): strin
       return "London/New York Overlap (13:00-15:00 GMT)";
     case 'wedge-patterns':
       return "New York Opening (13:00-15:00 GMT)";
+      
+    // New pattern indicators
+    case 'head-and-shoulders':
+      return "New York Session (14:00-17:00 GMT)";
+    case 'flag-pennant':
+      return "London/New York Overlap (13:00-16:00 GMT)";
+    case 'harmonic-patterns':
+      return "London Session (09:00-12:00 GMT)";
+    case 'engulfing-candles':
+      return "Asian/London Overlap (07:00-09:00 GMT)";
+    case 'three-drive-pattern':
+      return "New York Session (14:00-17:00 GMT)";
+    case 'cup-and-handle':
+      return "London/New York Overlap (13:00-16:00 GMT)";
     default:
       return "London Session (08:00-16:00 GMT)";
   }
