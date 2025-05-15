@@ -421,22 +421,22 @@ const AnalysisDetail: React.FC = () => {
                       return;
                     }
                     
-                    // If limit check passes, proceed with publishing
-                    await apiRequest('POST', `/api/analyses/${analysisId}/publish-to-social`, {
-                      isPublic: true
+                    // Social publishing has been removed
+                    await apiRequest('POST', `/api/analyses/${analysisId}/share`, {
+                      notes: "Shared publicly"
                     });
                     toast({
                       title: "Success!",
-                      description: "Your analysis has been published to the social hub.",
+                      description: "Your analysis has been shared publicly.",
                       variant: "default",
                     });
                     // Refresh data
                     window.location.reload();
                   } catch (error) {
-                    console.error('Error publishing to social:', error);
+                    console.error('Error sharing analysis:', error);
                     toast({
                       title: "Error",
-                      description: error instanceof Error ? error.message : "Failed to publish analysis to social hub. Please try again.",
+                      description: error instanceof Error ? error.message : "Failed to share this analysis. Please try again.",
                       variant: "destructive",
                     });
                   }
@@ -445,7 +445,7 @@ const AnalysisDetail: React.FC = () => {
                 variant="secondary"
               >
                 <Share2 className="mr-2 h-4 w-4" />
-                Publish to Social Hub
+                Share Analysis
               </Button>
             )}
             {analysis.isPublic && (
@@ -455,14 +455,9 @@ const AnalysisDetail: React.FC = () => {
                 disabled
               >
                 <Check className="mr-2 h-4 w-4 text-green-500" />
-                Published to Social Hub
+                Analysis Shared
               </Button>
             )}
-            <Link to="/social-hub" className="w-full sm:w-auto">
-              <Button variant="outline" className="w-full">
-                Go to Social Hub
-              </Button>
-            </Link>
             <Link to="/analysis" className="w-full sm:w-auto">
               <Button className="w-full">
                 Analyze a New Chart
