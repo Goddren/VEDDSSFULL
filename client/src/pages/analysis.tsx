@@ -354,6 +354,18 @@ const Analysis: React.FC = () => {
 
   return (
     <div className="container mx-auto px-4 py-8">
+      {/* Fullscreen Loading Animation */}
+      <FullscreenLoading 
+        visible={analysisState === AnalysisState.UPLOADING || analysisState === AnalysisState.ANALYZING}
+        isUploading={analysisState === AnalysisState.UPLOADING}
+        isAnalyzing={analysisState === AnalysisState.ANALYZING}
+        progress={analysisProgress}
+        message={analysisState === AnalysisState.UPLOADING 
+          ? 'Please wait while we process your chart image' 
+          : 'Our AI is analyzing your chart for patterns and signals'
+        }
+      />
+      
       {/* Analysis Status Notification */}
       <AnalysisStatusNotification state={analysisState} progress={analysisProgress} />
       
@@ -505,47 +517,7 @@ const Analysis: React.FC = () => {
             </>
           )}
 
-          {/* Loading/Processing State */}
-          {(analysisState === AnalysisState.UPLOADING || analysisState === AnalysisState.ANALYZING) && (
-            <Card>
-              <CardHeader>
-                <CardTitle>
-                  {analysisState === AnalysisState.UPLOADING 
-                    ? 'Uploading Chart' 
-                    : 'Analyzing Chart'
-                  }
-                </CardTitle>
-                <CardDescription>
-                  {analysisState === AnalysisState.UPLOADING 
-                    ? 'Please wait while we process your chart image' 
-                    : 'Our AI is analyzing your chart for patterns and signals'
-                  }
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="pt-2">
-                <div className="flex flex-col items-center py-8">
-                  <LoadingIndicator progress={analysisProgress} />
-                  
-                  <h3 className="text-lg font-medium mt-8">
-                    {analysisState === AnalysisState.UPLOADING 
-                      ? 'Preparing your chart...' 
-                      : 'AI Analysis in Progress...'
-                    }
-                  </h3>
-                  <p className="text-muted-foreground mt-2 text-center max-w-md">
-                    {analysisState === AnalysisState.UPLOADING 
-                      ? 'Your chart is being processed and optimized for analysis' 
-                      : 'Analyzing price action, patterns, and trend direction'
-                    }
-                  </p>
-                  
-                  <div className="w-full max-w-lg mt-8 border rounded-lg p-6 bg-card">
-                    <ProgressSteps steps={getProgressSteps()} />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
+          {/* Loading State removed - now using fullscreen loading */}
 
           {/* Error State */}
           {analysisState === AnalysisState.ERROR && (
