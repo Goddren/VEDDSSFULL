@@ -188,10 +188,23 @@ const Analysis: React.FC = () => {
   // Analyze chart mutation
   const analysisMutation = useMutation({
     mutationFn: async (imageUrl: string) => {
-      // Simulate the steps with delays
+      // Simulate the steps with variable delays to highlight our amazing animation
+      const stepDelays = [900, 1200, 1800, 1500, 1000]; // Different delay for each step
+      
       for (let i = 0; i < analysisPipeline.length; i++) {
-        setAnalysisProgress(((i + 0.5) / analysisPipeline.length) * 100);
-        await delay(800); // Simulate processing time
+        // Set progress to 10%, 30%, 50%, 70%, 90% during each step
+        const startProgress = (i / analysisPipeline.length) * 100;
+        const endProgress = ((i + 1) / analysisPipeline.length) * 100;
+        
+        // Smooth progress animation within each step
+        const stepDelay = stepDelays[i] || 1000;
+        const incrementCount = 8; // How many progress increments per step
+        
+        for (let j = 0; j < incrementCount; j++) {
+          const progress = startProgress + ((endProgress - startProgress) * (j / incrementCount));
+          setAnalysisProgress(progress);
+          await delay(stepDelay / incrementCount);
+        }
       }
       
       try {
