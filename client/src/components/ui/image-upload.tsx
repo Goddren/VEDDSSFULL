@@ -136,12 +136,12 @@ const ImageUpload: React.FC<ImageUploadProps> = ({ onImageUpload, isUploading = 
   // Animation classes based on state
   const getBorderClasses = () => {
     if (dragHighlight) {
-      return 'border-primary border-2 bg-primary/10 scale-102';
+      return 'border-primary border-3 bg-primary/10 scale-[1.02] shadow-lg shadow-primary/20';
     }
     if (previewUrl) {
-      return 'border-primary/50 border';
+      return 'border-primary/60 border-2 shadow-md';
     }
-    return 'border-dashed border-2 border-muted-foreground/50 hover:border-primary/50';
+    return 'border-dashed border-2 border-muted-foreground/50 hover:border-primary/50 hover:shadow-md transition-all duration-300 hover:scale-[1.01]';
   };
 
   return (
@@ -199,8 +199,20 @@ const ImageUpload: React.FC<ImageUploadProps> = ({ onImageUpload, isUploading = 
         ) : (
           <div className="p-6 text-center">
             <div className="flex flex-col items-center justify-center gap-6 py-8">
-              <div className="w-20 h-20 rounded-full bg-muted flex items-center justify-center">
-                <ImageIcon className="h-10 w-10 text-primary" />
+              <div className="relative">
+                <div className="w-24 h-24 rounded-full bg-muted flex items-center justify-center relative z-10 shadow-inner overflow-hidden">
+                  <div className="absolute inset-0 bg-primary/5 rounded-full"></div>
+                  <div className="absolute inset-0 rounded-full bg-primary/10 animate-pulse-custom"></div>
+                  <div className="animate-float">
+                    <ImageIcon className="h-12 w-12 text-primary drop-shadow-md" />
+                  </div>
+                </div>
+                
+                {/* Pulsing rings */}
+                <div
+                  className="absolute inset-0 rounded-full border-2 border-primary z-0 animate-pulse-ring"
+                  style={{ top: '-12%', left: '-12%', right: '-12%', bottom: '-12%' }}
+                ></div>
               </div>
               
               <div className="space-y-2">
