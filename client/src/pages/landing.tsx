@@ -141,18 +141,28 @@ export default function LandingPage() {
           
           <motion.div variants={slideUp} className="mt-10 flex flex-col sm:flex-row gap-4 justify-center">
             <Link href="/auth">
-              <div className="relative overflow-hidden bg-gradient-to-r from-red-600 to-red-700 rounded-full h-14 pr-4 pl-6 flex items-center shadow-lg shadow-red-500/20 text-white cursor-pointer group">
-                <div className="flex-1 text-left font-semibold">
+              <div className="relative w-[220px] h-14 rounded-full bg-gray-800 p-1 overflow-hidden cursor-pointer shadow-lg shadow-gray-900/20 group">
+                {/* Track and sliding handle */}
+                <div className="absolute inset-0 bg-gradient-to-r from-red-600 to-red-700 opacity-90"></div>
+                
+                {/* Animated background effects */}
+                <div className="absolute inset-0 overflow-hidden">
+                  <div className="absolute -bottom-10 -left-5 h-20 w-20 bg-white/20 rounded-full transition-all duration-500 group-hover:scale-150"></div>
+                  <div className="absolute -top-10 -right-5 h-20 w-20 bg-white/20 rounded-full transition-all duration-500 group-hover:scale-150"></div>
+                </div>
+                
+                {/* Text label */}
+                <div className="absolute top-0 bottom-0 left-4 flex items-center text-white font-semibold">
                   Get Started
                 </div>
-                <div className="relative">
-                  <div className="absolute inset-0 bg-white rounded-full opacity-20 scale-75 group-hover:scale-100 transition-all duration-300 animate-pulse-custom"></div>
-                  <div className="h-10 w-10 rounded-full bg-white flex items-center justify-center transform translate-x-0 group-hover:translate-x-1 transition-transform duration-300">
-                    <ArrowRight className="h-5 w-5 text-red-600" />
+                
+                {/* Sliding handle with animated position */}
+                <div className="absolute right-1 top-1 bottom-1 flex items-center">
+                  <div className="h-12 w-12 rounded-full bg-white transform group-hover:translate-x-[-10px] transition-all duration-300 flex items-center justify-center">
+                    <div className="absolute inset-0 rounded-full animate-pulse-custom opacity-0 group-hover:opacity-20 bg-red-500"></div>
+                    <ArrowRight className="h-5 w-5 text-red-600 transform group-hover:translate-x-1 transition-all duration-300" />
                   </div>
                 </div>
-                <div className="absolute -bottom-10 -left-10 h-20 w-20 bg-white/10 rounded-full transition-all duration-500 group-hover:scale-150 group-hover:opacity-20"></div>
-                <div className="absolute -top-10 -right-10 h-20 w-20 bg-white/10 rounded-full transition-all duration-500 group-hover:scale-150 group-hover:opacity-20"></div>
               </div>
             </Link>
             <EarlyAccessForm />
@@ -517,9 +527,31 @@ export default function LandingPage() {
             className="mt-10 text-center"
           >
             <Link href="/auth">
-              <Button className="bg-red-500 hover:bg-red-600 text-white">
-                Experience it Yourself <ArrowRight className="ml-2 h-4 w-4" />
-              </Button>
+              <div className="inline-block">
+                <div className="relative w-[260px] h-14 rounded-full bg-gray-800 p-1 overflow-hidden cursor-pointer shadow-lg shadow-gray-900/20 group">
+                  {/* Track and sliding handle */}
+                  <div className="absolute inset-0 bg-gradient-to-r from-red-600 to-red-700 opacity-90"></div>
+                  
+                  {/* Animated background effects */}
+                  <div className="absolute inset-0 overflow-hidden">
+                    <div className="absolute -bottom-10 -left-5 h-20 w-20 bg-white/20 rounded-full transition-all duration-500 group-hover:scale-150"></div>
+                    <div className="absolute -top-10 -right-5 h-20 w-20 bg-white/20 rounded-full transition-all duration-500 group-hover:scale-150"></div>
+                  </div>
+                  
+                  {/* Text label */}
+                  <div className="absolute top-0 bottom-0 left-4 flex items-center text-white font-semibold">
+                    Experience it Yourself
+                  </div>
+                  
+                  {/* Sliding handle with animated position */}
+                  <div className="absolute right-1 top-1 bottom-1 flex items-center">
+                    <div className="h-12 w-12 rounded-full bg-white transform group-hover:translate-x-[-10px] transition-all duration-300 flex items-center justify-center">
+                      <div className="absolute inset-0 rounded-full animate-pulse-custom opacity-0 group-hover:opacity-20 bg-red-500"></div>
+                      <ArrowRight className="h-5 w-5 text-red-600 transform group-hover:translate-x-1 transition-all duration-300" />
+                    </div>
+                  </div>
+                </div>
+              </div>
             </Link>
           </motion.div>
         </div>
@@ -542,9 +574,31 @@ export default function LandingPage() {
           </motion.p>
           <motion.div variants={fadeIn} className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link href="/auth">
-              <Button size="lg" className="bg-red-500 hover:bg-red-600 text-white font-medium">
-                Get Started <ArrowRight className="ml-2 h-4 w-4" />
-              </Button>
+              <div className="inline-block">
+                <div className="relative w-[220px] h-14 rounded-full bg-gray-800 p-1 overflow-hidden cursor-pointer shadow-lg shadow-red-500/20 group">
+                  {/* Track and sliding handle */}
+                  <div className="absolute inset-0 bg-gradient-to-r from-red-600 to-red-700 opacity-90"></div>
+                  
+                  {/* Animated background effects */}
+                  <div className="absolute inset-0 overflow-hidden">
+                    <div className="absolute -bottom-10 -left-5 h-20 w-20 bg-white/20 rounded-full transition-all duration-500 group-hover:scale-150"></div>
+                    <div className="absolute -top-10 -right-5 h-20 w-20 bg-white/20 rounded-full transition-all duration-500 group-hover:scale-150"></div>
+                  </div>
+                  
+                  {/* Text label */}
+                  <div className="absolute top-0 bottom-0 left-4 flex items-center text-white font-semibold">
+                    Get Started
+                  </div>
+                  
+                  {/* Sliding handle with animated position */}
+                  <div className="absolute right-1 top-1 bottom-1 flex items-center">
+                    <div className="h-12 w-12 rounded-full bg-white transform group-hover:translate-x-[-10px] transition-all duration-300 flex items-center justify-center">
+                      <div className="absolute inset-0 rounded-full animate-pulse-custom opacity-0 group-hover:opacity-20 bg-red-500"></div>
+                      <ArrowRight className="h-5 w-5 text-red-600 transform group-hover:translate-x-1 transition-all duration-300" />
+                    </div>
+                  </div>
+                </div>
+              </div>
             </Link>
             
             <EarlyAccessForm />
