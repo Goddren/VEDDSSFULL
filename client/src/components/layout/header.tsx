@@ -15,6 +15,7 @@ import {
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { Menu, Bell, User, LogOut, Settings, History, LineChart, CreditCard, Award, Users, Newspaper, Wand2 } from 'lucide-react';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
+import { GitHubAppButton } from '@/components/ui/github-app-button';
 
 const Header: React.FC = () => {
   const [location] = useLocation();
@@ -72,6 +73,7 @@ const Header: React.FC = () => {
         </div>
         
         <div className="flex items-center space-x-4">
+          <GitHubAppButton variant="outline" size="sm" className="hidden md:flex mr-2" />
           <ThemeToggle />
           
           <Button variant="ghost" size="icon" className="rounded-full">
@@ -109,6 +111,12 @@ const Header: React.FC = () => {
                   </div>
                 </Link>
               </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem className="cursor-pointer">
+                <div className="flex items-center w-full">
+                  <GitHubAppButton variant="ghost" className="w-full p-0 h-auto justify-start font-normal" />
+                </div>
+              </DropdownMenuItem>
               {/* Social Hub removed as requested */}
 
               <DropdownMenuSeparator />
@@ -144,6 +152,9 @@ const Header: React.FC = () => {
                   <User className="h-4 w-4 mr-2" />
                   Profile
                 </Link>
+                <div className="my-2">
+                  <GitHubAppButton variant="outline" className="w-full" />
+                </div>
                 <button 
                   onClick={handleLogout}
                   className="text-lg font-medium transition-colors flex items-center text-muted-foreground hover:text-foreground text-left"
