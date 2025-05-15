@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Separator } from '@/components/ui/separator';
 import ImageUpload from '@/components/ui/image-upload';
 import LoadingIndicator from '@/components/ui/loading-indicator';
+import { FullscreenLoading } from '@/components/ui/fullscreen-loading';
 import ProgressSteps from '@/components/ui/progress-steps';
 import AnalysisResult from '@/components/charts/analysis-result';
 import { ApiKeySettings } from '@/components/ui/api-key-settings';

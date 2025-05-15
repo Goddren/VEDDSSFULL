@@ -575,14 +575,25 @@ export default function Community() {
       {selectedAnalysis && (
         <Dialog open={isDetailModalOpen} onOpenChange={setIsDetailModalOpen}>
           <DialogContent className="max-w-4xl">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
+            <DialogHeader className="relative">
+              <div className="absolute left-0 top-0">
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  onClick={() => setIsDetailModalOpen(false)}
+                  className="rounded-full hover:bg-card transition-colors"
+                  aria-label="Back"
+                >
+                  <ArrowLeft className="h-5 w-5" />
+                </Button>
+              </div>
+              <DialogTitle className="flex items-center justify-center gap-2 pt-2">
                 {selectedAnalysis.symbol} Analysis
                 <Badge variant={selectedAnalysis.direction?.toLowerCase() === 'buy' ? 'success' : 'destructive'}>
                   {selectedAnalysis.direction}
                 </Badge>
               </DialogTitle>
-              <DialogDescription>
+              <DialogDescription className="text-center">
                 Shared by {selectedAnalysis.user?.username || "Anonymous"} • {formatDistanceToNow(new Date(selectedAnalysis.createdAt), { addSuffix: true })}
               </DialogDescription>
             </DialogHeader>
