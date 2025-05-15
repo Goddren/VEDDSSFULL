@@ -263,13 +263,15 @@ export default function Community() {
         </div>
         
         <div className="flex items-center gap-3">
-          <Input
-            placeholder="Search by symbol, trader or pattern..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full md:w-64"
-            icon={<Search className="h-4 w-4 text-muted-foreground" />}
-          />
+          <div className="relative">
+            <Input
+              placeholder="Search by symbol, trader or pattern..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full md:w-64 pl-9"
+            />
+            <Search className="h-4 w-4 text-muted-foreground absolute left-3 top-1/2 transform -translate-y-1/2" />
+          </div>
           
           <div className="flex items-center gap-2">
             <Button 
@@ -574,9 +576,8 @@ export default function Community() {
               <div>
                 <div className="aspect-video relative overflow-hidden rounded-lg border border-border mb-4">
                   <ChartImage 
-                    src={selectedAnalysis.imageUrl} 
-                    alt={`${selectedAnalysis.symbol} Chart Analysis`}
-                    symbol={selectedAnalysis.symbol}
+                    imageUrl={selectedAnalysis.imageUrl} 
+                    altText={`${selectedAnalysis.symbol} Chart Analysis`}
                     className="w-full h-full object-cover"
                   />
                 </div>
@@ -726,9 +727,8 @@ function AnalysisCard({
         <div className="flex flex-col md:flex-row">
           <div className="w-full md:w-48 h-48 relative cursor-pointer" onClick={() => onSelect(analysis)}>
             <ChartImage 
-              src={analysis.imageUrl} 
-              alt={`${analysis.symbol} Chart Analysis`}
-              symbol={analysis.symbol}
+              imageUrl={analysis.imageUrl} 
+              altText={`${analysis.symbol} Chart Analysis`}
               className="w-full h-full object-cover"
             />
             <div className="absolute top-2 right-2">

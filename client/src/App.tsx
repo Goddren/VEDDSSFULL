@@ -29,6 +29,7 @@ import MarketInsightsPage from "@/pages/market-insights";
 import MarketTrendGamePage from "@/pages/market-trend-game";
 import MarketMoodPage from "@/pages/market-mood";
 import MarketSentimentPage from "@/pages/market-sentiment";
+import Community from "@/pages/community";
 import InteractiveTooltipShowcase from "@/pages/interactive-tooltip-showcase";
 import BlogPage from "@/pages/blog";
 import { NewsNotificationScheduler } from "@/components/news-notification-scheduler";
@@ -79,7 +80,7 @@ function AppLayout() {
           <ProtectedRoute path="/profile/:userId" component={ProfilePage} />
           <ProtectedRoute path="/achievements" component={AchievementsPage} />
           <ProtectedRoute path="/home" component={Home} />
-          {/* Social Hub removed as requested */}
+          <ProtectedRoute path="/community" component={Community} />
           <ProtectedRoute path="/market-insights" component={MarketInsightsPage} />
           <ProtectedRoute path="/market-trend-game" component={MarketTrendGamePage} />
           <ProtectedRoute path="/market-mood" component={MarketMoodPage} />
