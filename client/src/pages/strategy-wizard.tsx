@@ -803,8 +803,145 @@ export default function StrategyWizard() {
       case 'select':
         return (
           <div className="space-y-6">
-            <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
-              {predefinedStrategies.map(strategy => (
+            {/* Category Filter Controls */}
+            <div className="mb-6 p-4 bg-card border rounded-lg">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
+                <div>
+                  <h3 className="text-lg font-medium mb-1">Filter Strategies</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Find the perfect strategy for your trading style
+                  </p>
+                </div>
+                
+                <div className="flex items-center gap-2">
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => {
+                      setSelectedCategoryFilter('all');
+                      setSelectedRiskFilter('all');
+                    }}
+                    className="flex items-center gap-1"
+                  >
+                    <FilterX className="h-4 w-4" />
+                    <span>Reset</span>
+                  </Button>
+                </div>
+              </div>
+              
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <Label className="mb-2 block">Category</Label>
+                  <div className="flex flex-wrap gap-2">
+                    <Button 
+                      variant={selectedCategoryFilter === 'all' ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setSelectedCategoryFilter('all')}
+                    >
+                      All
+                    </Button>
+                    <Button 
+                      variant={selectedCategoryFilter === 'trend' ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setSelectedCategoryFilter('trend')}
+                      className="flex items-center gap-1"
+                    >
+                      <TrendingUp className="h-3.5 w-3.5" />
+                      <span>Trend</span>
+                    </Button>
+                    <Button 
+                      variant={selectedCategoryFilter === 'reversal' ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setSelectedCategoryFilter('reversal')}
+                      className="flex items-center gap-1"
+                    >
+                      <Undo className="h-3.5 w-3.5" />
+                      <span>Reversal</span>
+                    </Button>
+                    <Button 
+                      variant={selectedCategoryFilter === 'breakout' ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setSelectedCategoryFilter('breakout')}
+                      className="flex items-center gap-1"
+                    >
+                      <ArrowUpRight className="h-3.5 w-3.5" />
+                      <span>Breakout</span>
+                    </Button>
+                    <Button 
+                      variant={selectedCategoryFilter === 'oscillator' ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setSelectedCategoryFilter('oscillator')}
+                      className="flex items-center gap-1"
+                    >
+                      <Waves className="h-3.5 w-3.5" />
+                      <span>Oscillator</span>
+                    </Button>
+                    <Button 
+                      variant={selectedCategoryFilter === 'pattern' ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setSelectedCategoryFilter('pattern')}
+                      className="flex items-center gap-1"
+                    >
+                      <CandlestickChart className="h-3.5 w-3.5" />
+                      <span>Pattern</span>
+                    </Button>
+                    <Button 
+                      variant={selectedCategoryFilter === 'range' ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setSelectedCategoryFilter('range')}
+                      className="flex items-center gap-1"
+                    >
+                      <ArrowLeftRight className="h-3.5 w-3.5" />
+                      <span>Range</span>
+                    </Button>
+                  </div>
+                </div>
+                
+                <div>
+                  <Label className="mb-2 block">Risk Level</Label>
+                  <div className="flex flex-wrap gap-2">
+                    <Button 
+                      variant={selectedRiskFilter === 'all' ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setSelectedRiskFilter('all')}
+                    >
+                      All
+                    </Button>
+                    <Button 
+                      variant={selectedRiskFilter === 'low' ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setSelectedRiskFilter('low')}
+                      className="flex items-center gap-1 text-green-600 border-green-600 hover:text-green-700 hover:border-green-700"
+                    >
+                      <ShieldCheck className="h-3.5 w-3.5" />
+                      <span>Low Risk</span>
+                    </Button>
+                    <Button 
+                      variant={selectedRiskFilter === 'medium' ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setSelectedRiskFilter('medium')}
+                      className="flex items-center gap-1 text-amber-600 border-amber-600 hover:text-amber-700 hover:border-amber-700"
+                    >
+                      <Scale className="h-3.5 w-3.5" />
+                      <span>Medium Risk</span>
+                    </Button>
+                    <Button 
+                      variant={selectedRiskFilter === 'high' ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setSelectedRiskFilter('high')}
+                      className="flex items-center gap-1 text-rose-600 border-rose-600 hover:text-rose-700 hover:border-rose-700"
+                    >
+                      <Flame className="h-3.5 w-3.5" />
+                      <span>High Risk</span>
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            {filteredStrategies.length > 0 ? (
+              <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
+                {filteredStrategies.map((strategy, index) => (
                 <Card 
                   key={strategy.id} 
                   className={cn(
@@ -821,10 +958,7 @@ export default function StrategyWizard() {
                   <CardHeader>
                     <div className="flex items-center justify-between">
                       <CardTitle className="text-lg">{strategy.name}</CardTitle>
-                      {strategy.category === 'trend' && <TrendingUp className="h-5 w-5 text-blue-500" />}
-                      {strategy.category === 'reversal' && <BarChart3 className="h-5 w-5 text-purple-500" />}
-                      {strategy.category === 'breakout' && <LineChart className="h-5 w-5 text-amber-500" />}
-                      {strategy.category === 'volatility' && <BarChart className="h-5 w-5 text-rose-500" />}
+                      {getCategoryIcon(strategy.category)}
                     </div>
                     <CardDescription>
                       {strategy.description}
@@ -859,7 +993,26 @@ export default function StrategyWizard() {
                   </CardFooter>
                 </Card>
               ))}
-            </div>
+              </div>
+            ) : (
+              <div className="p-10 border rounded-lg text-center">
+                <FilterX className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
+                <h3 className="text-lg font-medium mb-2">No matching strategies</h3>
+                <p className="text-muted-foreground mb-4">
+                  No strategies match your current filters. Try adjusting your criteria or reset the filters.
+                </p>
+                <Button 
+                  variant="outline" 
+                  onClick={() => {
+                    setSelectedCategoryFilter('all');
+                    setSelectedRiskFilter('all');
+                  }}
+                  className="mx-auto"
+                >
+                  Reset All Filters
+                </Button>
+              </div>
+            )}
           </div>
         );
         
