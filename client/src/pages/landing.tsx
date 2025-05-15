@@ -141,9 +141,19 @@ export default function LandingPage() {
           
           <motion.div variants={slideUp} className="mt-10 flex flex-col sm:flex-row gap-4 justify-center">
             <Link href="/auth">
-              <Button size="lg" className="bg-red-500 hover:bg-red-600 text-white shadow-sm transition-all duration-300 transform hover:translate-y-[-2px]">
-                Get Started <ArrowRight className="ml-2 h-4 w-4" />
-              </Button>
+              <div className="relative overflow-hidden bg-gradient-to-r from-red-600 to-red-700 rounded-full h-14 pr-4 pl-6 flex items-center shadow-lg shadow-red-500/20 text-white cursor-pointer group">
+                <div className="flex-1 text-left font-semibold">
+                  Get Started
+                </div>
+                <div className="relative">
+                  <div className="absolute inset-0 bg-white rounded-full opacity-20 scale-75 group-hover:scale-100 transition-all duration-300 animate-pulse-custom"></div>
+                  <div className="h-10 w-10 rounded-full bg-white flex items-center justify-center transform translate-x-0 group-hover:translate-x-1 transition-transform duration-300">
+                    <ArrowRight className="h-5 w-5 text-red-600" />
+                  </div>
+                </div>
+                <div className="absolute -bottom-10 -left-10 h-20 w-20 bg-white/10 rounded-full transition-all duration-500 group-hover:scale-150 group-hover:opacity-20"></div>
+                <div className="absolute -top-10 -right-10 h-20 w-20 bg-white/10 rounded-full transition-all duration-500 group-hover:scale-150 group-hover:opacity-20"></div>
+              </div>
             </Link>
             <EarlyAccessForm />
             <Link href="/subscription">
