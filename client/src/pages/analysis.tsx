@@ -16,6 +16,7 @@ import { BarChart3, CameraIcon, LayoutDashboard, Upload, Calendar, Sparkles, Lig
 import { MarketCalendar } from '@/components/market/market-calendar';
 import { ChartInsightsPanel } from '@/components/market-insights/chart-insights-panel';
 import AnalysisStatusNotification from '@/components/ui/analysis-status-notification';
+import { trackAnalysisCompleted } from '@/lib/achievement-system';
 
 // Image compression utility
 interface CompressOptions {

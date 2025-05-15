@@ -293,6 +293,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
         
         console.log("Stored analysis in database with ID:", chartAnalysis.id);
+        
+        // Trigger achievement check for analysis creation
+        try {
+          await checkUserAchievements({
+            trigger: 'analysis_created',
+            userId: (req.user as Express.User).id,
+            data: {
+              analysisId: chartAnalysis.id,
+              symbol: analysis.symbol,
+              timeframe: analysis.timeframe,
+              patterns: analysis.patterns
+            }
+          });
+        } catch (achievementError) {
+          console.error("Error checking achievements:", achievementError);
+          // Don't fail the request if achievement checking fails
+        }
       } catch (storageError) {
         console.error("Error storing analysis in database:", storageError);
         // Continue processing even if storage fails
