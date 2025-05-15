@@ -45,14 +45,30 @@ interface StrategyResults {
   averageLoss: number;
   maxDrawdown: number;
   sharpeRatio: number;
+  averageHoldingTime: string; // Average time in trade
+  optimalEntryTime: string; // Best time to enter trades
   trades: {
     date: string;
+    time: string; // Time of day for the signal
     type: 'buy' | 'sell';
     price: number;
     result: 'win' | 'loss';
     profit: number;
+    holdingPeriod: string; // How long the trade was held
+    exitReason: string; // Why the trade was closed
   }[];
   equity: { date: string; value: number }[];
+  optimalTradingHours: {
+    session: string;
+    winRate: number;
+    averageProfit: number;
+    volume: string;
+  }[];
+  exitIndicators: {
+    name: string;
+    description: string;
+    reliability: number;
+  }[];
 }
 
 // Predefined strategies
@@ -197,6 +213,22 @@ const predefinedStrategies: TradingStrategy[] = [
 // Wizard steps
 type WizardStep = 'select' | 'configure' | 'backtest' | 'results';
 
+// Helper function to get optimal trading session based on strategy
+function getTradingSessionBasedOnStrategy(strategyId: string | undefined): string {
+  if (!strategyId) return "London Session (08:00-16:00 GMT)";
+  
+  switch (strategyId) {
+    case 'moving-average-crossover':
+      return "London/New York Overlap (13:00-16:00 GMT)";
+    case 'rsi-overbought-oversold':
+      return "End of New York Session (19:00-21:00 GMT)";
+    case 'breakout-with-volume':
+      return "London Opening (08:00-10:00 GMT)";
+    default:
+      return "London Session (08:00-16:00 GMT)";
+  }
+}
+
 export default function StrategyWizard() {
   const [currentStep, setCurrentStep] = useState<WizardStep>('select');
   const [selectedStrategy, setSelectedStrategy] = useState<TradingStrategy | null>(null);
@@ -265,7 +297,7 @@ export default function StrategyWizard() {
       // In a real implementation, this would be an API call to the backend
       await new Promise(resolve => setTimeout(resolve, 2000));
       
-      // Generate mock results
+      // Generate mock results with detailed timing information
       const mockResults: StrategyResults = {
         winRate: 65 + Math.random() * 10,
         profitFactor: 1.5 + Math.random(),
@@ -273,29 +305,116 @@ export default function StrategyWizard() {
         averageLoss: 30 + Math.random() * 10,
         maxDrawdown: 15 + Math.random() * 5,
         sharpeRatio: 1.2 + Math.random() * 0.5,
+        averageHoldingTime: `${Math.floor(4 + Math.random() * 8)} hours`,
+        optimalEntryTime: getTradingSessionBasedOnStrategy(customizedStrategy?.id),
         trades: [],
-        equity: []
+        equity: [],
+        optimalTradingHours: [
+          {
+            session: "Asian Session (00:00-08:00 GMT)",
+            winRate: 58 + Math.random() * 10,
+            averageProfit: 35 + Math.random() * 15,
+            volume: "Moderate"
+          },
+          {
+            session: "London Session (08:00-16:00 GMT)",
+            winRate: 72 + Math.random() * 10,
+            averageProfit: 55 + Math.random() * 20,
+            volume: "High"
+          },
+          {
+            session: "New York Session (13:00-21:00 GMT)",
+            winRate: 67 + Math.random() * 10,
+            averageProfit: 48 + Math.random() * 20,
+            volume: "High"
+          }
+        ],
+        exitIndicators: [
+          {
+            name: "Price Action Reversal",
+            description: "Exit when candle closes against trend with increased volume",
+            reliability: 75 + Math.random() * 15
+          },
+          {
+            name: "Moving Average Crossover",
+            description: "Exit when fast MA crosses back over slow MA",
+            reliability: 68 + Math.random() * 12
+          },
+          {
+            name: "Take Profit Target",
+            description: "Exit at predetermined price target based on support/resistance",
+            reliability: 85 + Math.random() * 10
+          },
+          {
+            name: "RSI Divergence",
+            description: "Exit when RSI shows divergence against price movement",
+            reliability: 70 + Math.random() * 15
+          }
+        ]
       };
       
-      // Generate mock trade history
+      // Generate mock trade history with timing details
       const startDate = new Date();
       startDate.setMonth(startDate.getMonth() - 6);
+      
+      // Trading sessions with their time ranges
+      const tradingSessions = [
+        { name: "Asian", hours: [0, 1, 2, 3, 4, 5, 6, 7] },
+        { name: "London", hours: [8, 9, 10, 11, 12, 13, 14, 15] },
+        { name: "New York", hours: [13, 14, 15, 16, 17, 18, 19, 20] }
+      ];
+      
+      // Exit reasons
+      const exitReasons = [
+        "Take Profit Target Reached",
+        "Stop Loss Triggered",
+        "Technical Indicator Signal",
+        "Pattern Completion",
+        "Time-Based Exit",
+        "Support/Resistance Level Reached",
+        "Volatility Spike",
+        "Risk Management Rule"
+      ];
       
       for (let i = 0; i < 50; i++) {
         const tradeDate = new Date(startDate);
         tradeDate.setDate(tradeDate.getDate() + i * 3);
         
+        // Randomly select session and hour within session
+        const randomSession = tradingSessions[Math.floor(Math.random() * tradingSessions.length)];
+        const randomHour = randomSession.hours[Math.floor(Math.random() * randomSession.hours.length)];
+        const randomMinute = Math.floor(Math.random() * 60);
+        
+        // Format time
+        const timeString = `${randomHour.toString().padStart(2, '0')}:${randomMinute.toString().padStart(2, '0')} GMT`;
+        
+        // Determine holding period (longer for winning trades typically)
         const isWin = Math.random() > 0.35;
+        const holdingHours = isWin ? 
+          Math.floor(3 + Math.random() * 12) : 
+          Math.floor(1 + Math.random() * 6);
+        const holdingMinutes = Math.floor(Math.random() * 60);
+        const holdingPeriod = `${holdingHours}h ${holdingMinutes}m`;
+        
+        // Calculate profit
         const profit = isWin 
           ? mockResults.averageWin * (0.8 + Math.random() * 0.4) 
           : -mockResults.averageLoss * (0.8 + Math.random() * 0.4);
         
+        // Select exit reason based on result
+        const exitReason = isWin ? 
+          exitReasons[Math.floor(Math.random() * 3)] : // Better exit reasons for wins
+          exitReasons[3 + Math.floor(Math.random() * 5)]; // Different reasons for losses
+        
         mockResults.trades.push({
           date: tradeDate.toISOString().split('T')[0],
+          time: timeString,
           type: Math.random() > 0.5 ? 'buy' : 'sell',
           price: 1.1000 + (Math.random() * 0.1000),
           result: isWin ? 'win' : 'loss',
-          profit
+          profit,
+          holdingPeriod,
+          exitReason
         });
       }
       
@@ -679,11 +798,97 @@ export default function StrategyWizard() {
                         </div>
                       </div>
                     </div>
+
+                    {/* Timing and Exit Information */}
+                    <div className="mb-8 grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <Card>
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-lg">Optimal Trading Timing</CardTitle>
+                          <CardDescription>
+                            Best times to enter and exit trades based on historical data
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="space-y-4">
+                            <div className="flex justify-between items-center border-b pb-2">
+                              <span className="font-medium">Best Entry Time</span>
+                              <span className="text-primary font-medium">{results.optimalEntryTime}</span>
+                            </div>
+                            <div className="flex justify-between items-center border-b pb-2">
+                              <span className="font-medium">Average Holding Period</span>
+                              <span>{results.averageHoldingTime}</span>
+                            </div>
+
+                            <div className="pt-2">
+                              <h4 className="font-medium mb-3">Session Performance</h4>
+                              <div className="space-y-3">
+                                {results.optimalTradingHours.map((session, index) => (
+                                  <div key={index} className="flex flex-col">
+                                    <div className="flex justify-between mb-1">
+                                      <span className="text-sm">{session.session}</span>
+                                      <span className="text-sm font-medium">
+                                        Win Rate: {session.winRate.toFixed(1)}%
+                                      </span>
+                                    </div>
+                                    <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
+                                      <div 
+                                        className="h-full bg-primary rounded-full" 
+                                        style={{ width: `${session.winRate}%` }}
+                                      ></div>
+                                    </div>
+                                    <div className="flex justify-between mt-1 text-xs text-muted-foreground">
+                                      <span>Avg. Profit: ${session.averageProfit.toFixed(2)}</span>
+                                      <span>Volume: {session.volume}</span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+
+                      <Card>
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-lg">Exit Indicators</CardTitle>
+                          <CardDescription>
+                            Recommended exit conditions for this strategy
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="space-y-3">
+                            {results.exitIndicators.map((indicator, index) => (
+                              <div key={index} className="border-b pb-3 last:border-0">
+                                <div className="flex justify-between mb-1">
+                                  <span className="font-medium">{indicator.name}</span>
+                                  <span className="text-sm">
+                                    Reliability: {indicator.reliability.toFixed(0)}%
+                                  </span>
+                                </div>
+                                <p className="text-sm text-muted-foreground">{indicator.description}</p>
+                                <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden mt-2">
+                                  <div 
+                                    className={cn(
+                                      "h-full rounded-full",
+                                      indicator.reliability > 80 ? "bg-green-500" :
+                                      indicator.reliability > 70 ? "bg-blue-500" :
+                                      "bg-amber-500"
+                                    )}
+                                    style={{ width: `${indicator.reliability}%` }}
+                                  ></div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
                     
                     <Tabs defaultValue="equity">
-                      <TabsList className="grid w-full grid-cols-2">
+                      <TabsList className="grid w-full grid-cols-3">
                         <TabsTrigger value="equity">Equity Curve</TabsTrigger>
                         <TabsTrigger value="trades">Trade History</TabsTrigger>
+                        <TabsTrigger value="timing">Timing Analysis</TabsTrigger>
                       </TabsList>
                       
                       <TabsContent value="equity" className="pt-4">
@@ -703,9 +908,11 @@ export default function StrategyWizard() {
                             <thead>
                               <tr className="bg-muted/50">
                                 <th className="text-left p-3 font-medium">Date</th>
+                                <th className="text-left p-3 font-medium">Time</th>
                                 <th className="text-left p-3 font-medium">Type</th>
                                 <th className="text-left p-3 font-medium">Price</th>
                                 <th className="text-left p-3 font-medium">Result</th>
+                                <th className="text-left p-3 font-medium">Duration</th>
                                 <th className="text-right p-3 font-medium">Profit/Loss</th>
                               </tr>
                             </thead>
@@ -713,6 +920,7 @@ export default function StrategyWizard() {
                               {results.trades.slice(0, 10).map((trade, index) => (
                                 <tr key={index} className="border-t">
                                   <td className="p-3">{trade.date}</td>
+                                  <td className="p-3">{trade.time}</td>
                                   <td className="p-3">
                                     <span className={cn(
                                       "px-2 py-1 text-xs font-medium rounded-full",
@@ -734,6 +942,7 @@ export default function StrategyWizard() {
                                       {trade.result.toUpperCase()}
                                     </span>
                                   </td>
+                                  <td className="p-3">{trade.holdingPeriod}</td>
                                   <td className={cn(
                                     "p-3 text-right font-medium",
                                     trade.profit > 0 ? "text-green-500" : "text-red-500"
@@ -749,6 +958,62 @@ export default function StrategyWizard() {
                               Showing 10 of {results.trades.length} trades
                             </div>
                           )}
+                        </div>
+                      </TabsContent>
+
+                      <TabsContent value="timing" className="pt-4">
+                        <div className="border rounded-lg p-4">
+                          <h3 className="text-lg font-medium mb-4">Exit Reason Analysis</h3>
+                          <div className="space-y-4">
+                            {results.trades.slice(0, 5).map((trade, index) => (
+                              <div key={index} className="border rounded-lg p-4">
+                                <div className="flex justify-between items-center mb-2">
+                                  <div>
+                                    <span className="text-sm text-muted-foreground">Trade #{index + 1} - </span>
+                                    <span className={cn(
+                                      "font-medium",
+                                      trade.result === 'win' ? "text-green-500" : "text-red-500"
+                                    )}>
+                                      {trade.result === 'win' ? 'Win' : 'Loss'}
+                                    </span>
+                                  </div>
+                                  <div className="text-sm">
+                                    {trade.date} at {trade.time}
+                                  </div>
+                                </div>
+                                
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 py-2">
+                                  <div>
+                                    <div className="text-xs text-muted-foreground mb-1">Entry</div>
+                                    <div className="flex items-center gap-2">
+                                      <div className={cn(
+                                        "w-3 h-3 rounded-full",
+                                        trade.type === 'buy' ? "bg-green-500" : "bg-red-500"
+                                      )}></div>
+                                      <span>{trade.type === 'buy' ? 'BUY' : 'SELL'} @ {trade.price.toFixed(4)}</span>
+                                    </div>
+                                  </div>
+                                  
+                                  <div>
+                                    <div className="text-xs text-muted-foreground mb-1">Duration</div>
+                                    <div>{trade.holdingPeriod}</div>
+                                  </div>
+                                  
+                                  <div>
+                                    <div className="text-xs text-muted-foreground mb-1">Profit/Loss</div>
+                                    <div className={trade.profit > 0 ? "text-green-500" : "text-red-500"}>
+                                      {trade.profit > 0 ? '+' : ''}{trade.profit.toFixed(2)}
+                                    </div>
+                                  </div>
+                                </div>
+                                
+                                <div className="mt-2 pt-2 border-t">
+                                  <div className="text-xs text-muted-foreground mb-1">Exit Reason</div>
+                                  <div className="font-medium">{trade.exitReason}</div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       </TabsContent>
                     </Tabs>
