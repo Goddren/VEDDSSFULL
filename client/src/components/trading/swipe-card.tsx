@@ -198,7 +198,15 @@ export const SwipeCard: React.FC<SwipeCardProps> = ({ analysis, onSwipe, isTop }
                 
                 <div className="flex justify-between">
                   <span className="text-gray-400">Pattern:</span>
-                  <span className="font-medium">{analysis.patterns || 'None detected'}</span>
+                  <span className="font-medium">
+                    {analysis.patterns 
+                      ? (Array.isArray(analysis.patterns) 
+                        ? analysis.patterns.map(p => typeof p === 'string' ? p : '').join(', ')
+                        : typeof analysis.patterns === 'object'
+                          ? JSON.stringify(analysis.patterns).substring(0, 30) + '...'
+                          : String(analysis.patterns))
+                      : 'None detected'}
+                  </span>
                 </div>
               </div>
               
