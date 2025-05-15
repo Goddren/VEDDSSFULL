@@ -24,7 +24,6 @@ import TermsPage from "@/pages/terms";
 import SecurityPage from "@/pages/security";
 import AnalysisDetail from "@/pages/analysis-detail";
 import SharedAnalysisPage from "@/pages/shared-analysis";
-import SocialHub from "@/pages/social-hub";
 import VolatilityMeterShowcase from "@/pages/volatility-meter-showcase";
 import MarketInsightsPage from "@/pages/market-insights";
 import MarketTrendGamePage from "@/pages/market-trend-game";
@@ -80,7 +79,7 @@ function AppLayout() {
           <ProtectedRoute path="/profile/:userId" component={ProfilePage} />
           <ProtectedRoute path="/achievements" component={AchievementsPage} />
           <ProtectedRoute path="/home" component={Home} />
-          <ProtectedRoute path="/social-hub" component={SocialHub} />
+          {/* Social Hub removed as requested */}
           <ProtectedRoute path="/market-insights" component={MarketInsightsPage} />
           <ProtectedRoute path="/market-trend-game" component={MarketTrendGamePage} />
           <ProtectedRoute path="/market-mood" component={MarketMoodPage} />
