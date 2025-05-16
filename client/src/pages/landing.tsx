@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { SlidingButton } from "@/components/ui/sliding-button";
 import { Link } from "wouter";
 import { 
   ArrowRight, 
