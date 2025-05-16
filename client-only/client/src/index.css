@@ -1,0 +1,343 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer utilities {
+  .bg-size-200 {
+    background-size: 200% 100%;
+  }
+  
+  .animate-gradient-x {
+    animation: gradientX 3s linear infinite;
+  }
+
+  @keyframes gradientX {
+    0% {
+      background-position: 0% 0%;
+    }
+    100% {
+      background-position: 200% 0%;
+    }
+  }
+}
+
+/* Custom animations for image upload */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 0.7;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.1);
+  }
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-5px) scale(1.05);
+  }
+}
+
+@keyframes pulseRing {
+  0% {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 0.3;
+    transform: scale(1.5);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+}
+
+.animate-pulse-custom {
+  animation: pulse 3s ease-in-out infinite;
+}
+
+.animate-float {
+  animation: float 2s ease-in-out infinite;
+}
+
+.animate-pulse-ring {
+  animation: pulseRing 3s ease-in-out infinite;
+}
+
+/* Custom Tooltip Animations for Trading Chart Analysis */
+@keyframes rise {
+  0% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+  100% { transform: translateY(0); }
+}
+
+@keyframes fall {
+  0% { transform: translateY(0); }
+  50% { transform: translateY(6px); }
+  100% { transform: translateY(0); }
+}
+
+@keyframes shake {
+  0% { transform: translateX(0); }
+  25% { transform: translateX(-3px); }
+  50% { transform: translateX(3px); }
+  75% { transform: translateX(-3px); }
+  100% { transform: translateX(0); }
+}
+
+@keyframes bounce {
+  0%, 20%, 50%, 80%, 100% { transform: translateY(0); }
+  40% { transform: translateY(-6px); }
+  60% { transform: translateY(-3px); }
+}
+
+/* Enhanced Market Animation Keyframes */
+@keyframes candlestick-anim {
+  0% { height: 100%; }
+  25% { height: 60%; }
+  50% { height: 80%; }
+  75% { height: 40%; }
+  100% { height: 100%; }
+}
+
+@keyframes volume-pulse {
+  0% { transform: scaleY(0.6); opacity: 0.7; }
+  50% { transform: scaleY(1); opacity: 1; }
+  100% { transform: scaleY(0.6); opacity: 0.7; }
+}
+
+@keyframes price-wave {
+  0% { transform: translateX(0) translateY(0); }
+  25% { transform: translateX(2px) translateY(-3px); }
+  50% { transform: translateX(4px) translateY(0); }
+  75% { transform: translateX(6px) translateY(3px); }
+  100% { transform: translateX(8px) translateY(0); }
+}
+
+@keyframes support-resistance {
+  0% { transform: scaleX(0.95); opacity: 0.5; }
+  50% { transform: scaleX(1.05); opacity: 1; }
+  100% { transform: scaleX(0.95); opacity: 0.5; }
+}
+
+@keyframes indicator-flash {
+  0%, 100% { opacity: 0.8; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.1); }
+}
+
+@keyframes trend-arrows {
+  0% { transform: translateY(0) scale(1); }
+  25% { transform: translateY(-3px) scale(1.1); }
+  50% { transform: translateY(-5px) scale(1.2); }
+  75% { transform: translateY(-3px) scale(1.1); }
+  100% { transform: translateY(0) scale(1); }
+}
+
+@keyframes divergence-anim {
+  0% { transform: skewX(0deg); }
+  25% { transform: skewX(3deg); }
+  75% { transform: skewX(-3deg); }
+  100% { transform: skewX(0deg); }
+}
+
+@keyframes breakout-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.4); }
+  70% { box-shadow: 0 0 0 10px rgba(220, 38, 38, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
+}
+
+.animate-rise {
+  animation: rise 2s ease-in-out infinite;
+}
+
+.animate-fall {
+  animation: fall 2s ease-in-out infinite;
+}
+
+.animate-shake {
+  animation: shake 1.5s ease-in-out infinite;
+}
+
+.animate-bounce-custom {
+  animation: bounce 2s ease-in-out infinite;
+}
+
+/* Market Animation Utility Classes */
+.animate-candlestick {
+  animation: candlestick-anim 3s ease-in-out infinite;
+}
+
+.animate-volume {
+  animation: volume-pulse 2s ease-in-out infinite;
+  transform-origin: bottom;
+}
+
+.animate-price-wave {
+  animation: price-wave 6s linear infinite;
+}
+
+.animate-support-resistance {
+  animation: support-resistance 3s ease-in-out infinite;
+  transform-origin: center;
+}
+
+.animate-indicator {
+  animation: indicator-flash 2s ease-in-out infinite;
+}
+
+.animate-trend-arrows {
+  animation: trend-arrows 2s ease-in-out infinite;
+}
+
+.animate-divergence {
+  animation: divergence-anim 4s ease-in-out infinite;
+}
+
+.animate-breakout {
+  animation: breakout-pulse 2s infinite;
+}
+
+/* Achievement Badge Animations */
+@keyframes pulse-slow {
+  0% { opacity: 0.4; }
+  50% { opacity: 0.8; }
+  100% { opacity: 0.4; }
+}
+
+@keyframes shine-slow {
+  0% { 
+    opacity: 0;
+    transform: translateX(-100%) rotate(-45deg); 
+  }
+  30% { 
+    opacity: 0.3; 
+  }
+  70% { 
+    opacity: 0.3; 
+  }
+  100% { 
+    opacity: 0;
+    transform: translateX(100%) rotate(-45deg); 
+  }
+}
+
+.animate-pulse-slow {
+  animation: pulse-slow 3s ease-in-out infinite;
+}
+
+.animate-shine-slow {
+  animation: shine-slow 5s ease-out infinite;
+}
+
+.text-shadow-sm {
+  text-shadow: 0 0 8px rgba(255, 255, 255, 0.5);
+}
+
+/* AI Insight Tooltip Animations */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.animate-shimmer {
+  background-size: 200% 100%;
+  animation: shimmer 3s linear infinite;
+}
+
+.ai-tooltip-bullish-animation::before {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 20px;
+  background: linear-gradient(to top, rgba(34, 197, 94, 0.2), transparent);
+  animation: rise 2s ease-in-out infinite;
+}
+
+.ai-tooltip-bearish-animation::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 20px;
+  background: linear-gradient(to bottom, rgba(239, 68, 68, 0.2), transparent);
+  animation: fall 2s ease-in-out infinite;
+}
+
+.ai-tooltip-volatile-animation::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(45deg, rgba(245, 158, 11, 0) 0%, rgba(245, 158, 11, 0.1) 50%, rgba(245, 158, 11, 0) 100%);
+  animation: shimmer 2s linear infinite;
+}
+
+.ai-tooltip-neutral-animation::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(59, 130, 246, 0) 0%, rgba(59, 130, 246, 0.1) 50%, rgba(59, 130, 246, 0) 100%);
+  animation: support-resistance 3s ease-in-out infinite;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply font-sans antialiased bg-background text-foreground;
+  }
+
+  /* Light mode (default) */
+  :root {
+    --primary-color: 10 100% 50%; /* Red */
+    --background-light: 0 0% 100%; /* White */
+    --background-off: 210 40% 96.1%; /* Slate-100 */
+    --text-main: 0 0% 10%; /* Very dark gray almost black */
+    --text-muted: 0 0% 45%; /* Medium gray */
+    --border-light: 0 0% 90%; /* Very light gray */
+  }
+
+  /* Dark mode */
+  .dark {
+    --primary-color: 10 100% 50%; /* Keep red accent */
+    --background-light: 222 47% 11%; /* Dark blue-gray */
+    --background-off: 215 28% 17%; /* Slightly lighter blue-gray */
+    --text-main: 210 40% 98%; /* Very light gray almost white */
+    --text-muted: 210 40% 80%; /* Light gray */
+    --border-light: 215 28% 25%; /* Dark gray with blue tint */
+  }
+}
+
+/* Theme utility classes */
+.bg-theme-light {
+  @apply bg-white dark:bg-slate-900;
+}
+
+.bg-theme-off {
+  @apply bg-slate-100 dark:bg-slate-800;
+}
+
+.text-theme-main {
+  @apply text-gray-900 dark:text-gray-100;
+}
+
+.text-theme-muted {
+  @apply text-gray-600 dark:text-gray-400;
+}
+
+.border-theme-light {
+  @apply border-gray-200 dark:border-gray-700;
+}
+
+.shadow-theme {
+  @apply shadow-sm dark:shadow-md dark:shadow-black/20;
+}

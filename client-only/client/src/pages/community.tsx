@@ -1,0 +1,858 @@
+import React, { useState, useEffect } from 'react';
+import { Link, useLocation } from 'wouter';
+import { useQuery } from '@tanstack/react-query';
+import { getQueryFn } from '@/lib/queryClient';
+import { useAuth } from '@/hooks/use-auth';
+import { useToast } from '@/hooks/use-toast';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
+import { ChartImage } from '@/components/ui/chart-image';
+import {
+  Share2,
+  MessageSquare,
+  ThumbsUp,
+  ThumbsDown,
+  Heart,
+  Filter,
+  Users,
+  Lightbulb,
+  Search,
+  Calendar,
+  TrendingUp,
+  TrendingDown,
+  Clock,
+  ArrowUp,
+  ArrowLeft,
+  Info,
+} from 'lucide-react';
+import { 
+  Dialog, 
+  DialogContent, 
+  DialogDescription, 
+  DialogFooter, 
+  DialogHeader, 
+  DialogTitle 
+} from '@/components/ui/dialog';
+import { formatDistanceToNow } from 'date-fns';
+import { cn } from '@/lib/utils';
+import { InteractiveInsightTooltip } from '@/components/ui/interactive-insight-tooltip';
+
+interface Analysis {
+  id: number;
+  userId: number;
+  imageUrl: string;
+  sharedImageUrl?: string;
+  symbol?: string;
+  timeframe?: string;
+  direction?: string;
+  trend?: string;
+  confidence?: string;
+  createdAt: string;
+  isPublic?: boolean;
+  shareId?: string;
+  notes?: string;
+  user?: {
+    username: string;
+    fullName?: string;
+    profileImageUrl?: string;
+  };
+  feedbackCount?: {
+    likes: number;
+    dislikes: number;
+    hearts: number;
+  };
+  patterns?: Array<{
+    name: string;
+    type: string;
+    description: string;
+    strength: string;
+  }>;
+  comments?: Array<{
+    id: number;
+    userId: number;
+    username: string;
+    text: string;
+    createdAt: string;
+  }>;
+}
+
+interface User {
+  id: number;
+  username: string;
+  fullName?: string;
+  profileImageUrl?: string;
+  analysisCount?: number;
+  followersCount?: number;
+  isFollowing?: boolean;
+}
+
+export default function Community() {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const [activeTab, setActiveTab] = useState<'discover' | 'following' | 'popular'>('discover');
+  const [filter, setFilter] = useState<'all' | 'buy' | 'sell'>('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedAnalysis, setSelectedAnalysis] = useState<Analysis | null>(null);
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [commentText, setCommentText] = useState('');
+
+  // Get all public analyses
+  const { data: analyses, isLoading, error, refetch } = useQuery<Analysis[]>({
+    queryKey: ['/api/analyses'],
+    queryFn: getQueryFn({ on401: "throw" }),
+  });
+
+  // Get popular users
+  const { data: popularUsers, isLoading: isLoadingUsers } = useQuery<User[]>({
+    queryKey: ['/api/social/popular-traders'],
+    queryFn: getQueryFn({ on401: "throw" }),
+  });
+
+  // Get followed analyses (analyses from users the current user follows)
+  const { data: followingAnalyses, isLoading: isLoadingFollowing } = useQuery<Analysis[]>({
+    queryKey: ['/api/social/feed'],
+    queryFn: getQueryFn({ on401: "throw" }),
+    enabled: activeTab === 'following',
+  });
+
+  // Filter and search analyses
+  const filteredAnalyses = React.useMemo(() => {
+    if (!analyses) return [];
+    
+    return analyses
+      .filter(analysis => {
+        // Filter by direction
+        if (filter === 'buy' && analysis.direction?.toLowerCase() !== 'buy') return false;
+        if (filter === 'sell' && analysis.direction?.toLowerCase() !== 'sell') return false;
+        
+        // Filter by search query
+        if (searchQuery && !(
+          analysis.symbol?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          analysis.user?.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          analysis.patterns?.some(p => p.name.toLowerCase().includes(searchQuery.toLowerCase()))
+        )) {
+          return false;
+        }
+        
+        return true;
+      })
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [analyses, filter, searchQuery]);
+
+  // Get the analyses to display based on active tab
+  const displayedAnalyses = activeTab === 'following' 
+    ? followingAnalyses || []
+    : activeTab === 'popular'
+      ? [...(analyses || [])].sort((a, b) => (b.feedbackCount?.likes || 0) - (a.feedbackCount?.likes || 0)).slice(0, 10)
+      : filteredAnalyses;
+
+  // Handle analysis feedback (like, dislike, heart)
+  const handleFeedback = async (analysisId: number, feedbackType: 'like' | 'dislike' | 'heart') => {
+    try {
+      await fetch(`/api/social/analyses/${analysisId}/feedback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ feedbackType }),
+      });
+      
+      toast({
+        title: 'Feedback Submitted',
+        description: 'Your feedback has been recorded.',
+      });
+      
+      // Refresh analyses data
+      refetch();
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to submit feedback. Please try again.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  // Handle follow/unfollow user
+  const handleFollowToggle = async (userId: number, isFollowing: boolean) => {
+    try {
+      await fetch(`/api/social/${isFollowing ? 'unfollow' : 'follow'}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId }),
+      });
+      
+      toast({
+        title: isFollowing ? 'Unfollowed' : 'Following',
+        description: `You are ${isFollowing ? 'no longer following' : 'now following'} this trader.`,
+      });
+      
+      // Refresh users data
+      refetch();
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to update follow status. Please try again.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  // Handle adding a comment
+  const handleAddComment = async () => {
+    if (!selectedAnalysis || !commentText.trim()) return;
+    
+    try {
+      await fetch(`/api/social/analyses/${selectedAnalysis.id}/comment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: commentText }),
+      });
+      
+      toast({
+        title: 'Comment Added',
+        description: 'Your comment has been added successfully.',
+      });
+      
+      // Clear comment text and refresh data
+      setCommentText('');
+      refetch();
+      
+      // Update the selected analysis with the new comment
+      if (selectedAnalysis && analyses) {
+        const updatedAnalysis = analyses.find(a => a.id === selectedAnalysis.id);
+        if (updatedAnalysis) {
+          setSelectedAnalysis(updatedAnalysis);
+        }
+      }
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to add comment. Please try again.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  if (error) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <div className="text-center">
+          <h2 className="text-2xl font-bold text-red-500">Error Loading Data</h2>
+          <p className="mt-2 text-gray-600">Failed to load community data. Please try again later.</p>
+          <Button onClick={() => refetch()} className="mt-4">Retry</Button>
+        </div>
+      </div>
+    );
+  }
+
+  const [_, navigate] = useLocation();
+
+  return (
+    <div className="container mx-auto px-4 py-8">
+      <div className="flex flex-col md:flex-row justify-between items-start gap-6 mb-8">
+        <div className="flex items-center gap-3">
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            onClick={() => navigate('/')}
+            className="rounded-full hover:bg-card transition-colors"
+            aria-label="Back to home"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+          <div>
+            <h1 className="text-3xl font-bold">VEDDAI Community</h1>
+            <p className="text-muted-foreground mt-1">Share and discover trading analyses from the community</p>
+          </div>
+        </div>
+        
+        <div className="flex items-center gap-3">
+          <div className="relative">
+            <Input
+              placeholder="Search by symbol, trader or pattern..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full md:w-64 pl-9"
+            />
+            <Search className="h-4 w-4 text-muted-foreground absolute left-3 top-1/2 transform -translate-y-1/2" />
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <Button 
+              variant={filter === 'all' ? "default" : "outline"} 
+              size="sm"
+              onClick={() => setFilter('all')}
+            >
+              All
+            </Button>
+            <Button 
+              variant={filter === 'buy' ? "default" : "outline"} 
+              size="sm"
+              onClick={() => setFilter('buy')}
+              className={filter === 'buy' ? "bg-emerald-600 hover:bg-emerald-700" : ""}
+            >
+              <TrendingUp className="h-3 w-3 mr-1" /> Buy
+            </Button>
+            <Button 
+              variant={filter === 'sell' ? "default" : "outline"} 
+              size="sm"
+              onClick={() => setFilter('sell')}
+              className={filter === 'sell' ? "bg-rose-600 hover:bg-rose-700" : ""}
+            >
+              <TrendingDown className="h-3 w-3 mr-1" /> Sell
+            </Button>
+          </div>
+        </div>
+      </div>
+      
+      <Tabs defaultValue="discover" value={activeTab} onValueChange={(value) => setActiveTab(value as any)}>
+        <TabsList className="mb-6">
+          <TabsTrigger value="discover" className="flex items-center gap-2">
+            <Lightbulb className="h-4 w-4" />
+            <span>Discover</span>
+          </TabsTrigger>
+          <TabsTrigger value="following" className="flex items-center gap-2">
+            <Users className="h-4 w-4" />
+            <span>Following</span>
+          </TabsTrigger>
+          <TabsTrigger value="popular" className="flex items-center gap-2">
+            <TrendingUp className="h-4 w-4" />
+            <span>Popular</span>
+          </TabsTrigger>
+        </TabsList>
+        
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+          <div className="lg:col-span-3">
+            <TabsContent value="discover" className="mt-0">
+              {isLoading ? (
+                <div className="grid grid-cols-1 gap-4">
+                  {[1, 2, 3].map(i => (
+                    <Card key={i} className="animate-pulse">
+                      <CardContent className="p-6">
+                        <div className="h-40 bg-gray-200 dark:bg-gray-800 rounded mb-4" />
+                        <div className="h-6 bg-gray-200 dark:bg-gray-800 rounded mb-2 w-1/3" />
+                        <div className="h-4 bg-gray-200 dark:bg-gray-800 rounded mb-1 w-1/2" />
+                        <div className="h-4 bg-gray-200 dark:bg-gray-800 rounded w-1/4" />
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              ) : filteredAnalyses.length > 0 ? (
+                <div className="grid grid-cols-1 gap-4">
+                  {filteredAnalyses.map(analysis => (
+                    <AnalysisCard 
+                      key={analysis.id} 
+                      analysis={analysis} 
+                      onSelect={(analysis) => {
+                        setSelectedAnalysis(analysis);
+                        setIsDetailModalOpen(true);
+                      }}
+                      onFeedback={handleFeedback}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-10">
+                  <p className="text-muted-foreground">No analyses found matching your filters.</p>
+                  <Button onClick={() => {
+                    setFilter('all');
+                    setSearchQuery('');
+                  }} variant="outline" className="mt-4">
+                    Clear Filters
+                  </Button>
+                </div>
+              )}
+            </TabsContent>
+            
+            <TabsContent value="following" className="mt-0">
+              {isLoadingFollowing ? (
+                <div className="grid grid-cols-1 gap-4">
+                  {[1, 2, 3].map(i => (
+                    <Card key={i} className="animate-pulse">
+                      <CardContent className="p-6">
+                        <div className="h-40 bg-gray-200 dark:bg-gray-800 rounded mb-4" />
+                        <div className="h-6 bg-gray-200 dark:bg-gray-800 rounded mb-2 w-1/3" />
+                        <div className="h-4 bg-gray-200 dark:bg-gray-800 rounded mb-1 w-1/2" />
+                        <div className="h-4 bg-gray-200 dark:bg-gray-800 rounded w-1/4" />
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              ) : followingAnalyses && followingAnalyses.length > 0 ? (
+                <div className="grid grid-cols-1 gap-4">
+                  {followingAnalyses.map(analysis => (
+                    <AnalysisCard 
+                      key={analysis.id} 
+                      analysis={analysis} 
+                      onSelect={(analysis) => {
+                        setSelectedAnalysis(analysis);
+                        setIsDetailModalOpen(true);
+                      }}
+                      onFeedback={handleFeedback}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-10">
+                  <p className="text-muted-foreground">You're not following anyone yet, or they haven't shared any analyses.</p>
+                  <Button onClick={() => setActiveTab('discover')} variant="outline" className="mt-4">
+                    Discover Traders
+                  </Button>
+                </div>
+              )}
+            </TabsContent>
+            
+            <TabsContent value="popular" className="mt-0">
+              {isLoading ? (
+                <div className="grid grid-cols-1 gap-4">
+                  {[1, 2, 3].map(i => (
+                    <Card key={i} className="animate-pulse">
+                      <CardContent className="p-6">
+                        <div className="h-40 bg-gray-200 dark:bg-gray-800 rounded mb-4" />
+                        <div className="h-6 bg-gray-200 dark:bg-gray-800 rounded mb-2 w-1/3" />
+                        <div className="h-4 bg-gray-200 dark:bg-gray-800 rounded mb-1 w-1/2" />
+                        <div className="h-4 bg-gray-200 dark:bg-gray-800 rounded w-1/4" />
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              ) : displayedAnalyses.length > 0 ? (
+                <div className="grid grid-cols-1 gap-4">
+                  {displayedAnalyses.map(analysis => (
+                    <AnalysisCard 
+                      key={analysis.id} 
+                      analysis={analysis} 
+                      onSelect={(analysis) => {
+                        setSelectedAnalysis(analysis);
+                        setIsDetailModalOpen(true);
+                      }}
+                      onFeedback={handleFeedback}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-10">
+                  <p className="text-muted-foreground">No popular analyses found.</p>
+                  <Button onClick={() => setActiveTab('discover')} variant="outline" className="mt-4">
+                    Discover Analyses
+                  </Button>
+                </div>
+              )}
+            </TabsContent>
+          </div>
+          
+          <div className="lg:col-span-1">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Users className="h-4 w-4" /> Popular Traders
+                </CardTitle>
+                <CardDescription>Traders to follow in the community</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {isLoadingUsers ? (
+                  <div className="space-y-4">
+                    {[1, 2, 3].map(i => (
+                      <div key={i} className="flex items-center gap-3 animate-pulse">
+                        <div className="h-10 w-10 rounded-full bg-gray-200 dark:bg-gray-800" />
+                        <div>
+                          <div className="h-4 bg-gray-200 dark:bg-gray-800 rounded w-24 mb-1" />
+                          <div className="h-3 bg-gray-200 dark:bg-gray-800 rounded w-16" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : popularUsers && popularUsers.length > 0 ? (
+                  <div className="space-y-4">
+                    {popularUsers.map(trader => (
+                      <div key={trader.id} className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <Avatar>
+                            <AvatarImage src={trader.profileImageUrl} />
+                            <AvatarFallback>{trader.username.substring(0, 2).toUpperCase()}</AvatarFallback>
+                          </Avatar>
+                          <div>
+                            <Link to={`/profile/${trader.id}`} className="font-medium hover:underline">
+                              {trader.username}
+                            </Link>
+                            <div className="text-xs text-muted-foreground">
+                              {trader.analysisCount} {trader.analysisCount === 1 ? 'analysis' : 'analyses'}
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {trader.id !== user?.id && (
+                          <Button
+                            variant={trader.isFollowing ? "outline" : "default"}
+                            size="sm"
+                            onClick={() => handleFollowToggle(trader.id, !!trader.isFollowing)}
+                          >
+                            {trader.isFollowing ? 'Unfollow' : 'Follow'}
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-4">
+                    <p className="text-muted-foreground">No popular traders found</p>
+                  </div>
+                )}
+              </CardContent>
+              <CardFooter className="flex justify-center">
+                <Button variant="outline" size="sm" asChild>
+                  <Link href="/profile">View Your Profile</Link>
+                </Button>
+              </CardFooter>
+            </Card>
+            
+            <Card className="mt-6">
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Calendar className="h-4 w-4" /> Recent Activity
+                </CardTitle>
+                <CardDescription>Recent community activity</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {Array.isArray(analyses) && analyses.slice(0, 5).map(analysis => (
+                    <div key={analysis.id} className="flex items-start gap-3">
+                      <div className="h-2 w-2 rounded-full bg-primary mt-2" />
+                      <div>
+                        <div className="text-sm">
+                          <span className="font-medium">{analysis.user?.username || "Anonymous"}</span>{' '}
+                          shared a{' '}
+                          <span className={cn(
+                            "font-medium",
+                            analysis.direction?.toLowerCase() === 'buy' ? "text-emerald-500" : "text-rose-500"
+                          )}>
+                            {analysis.direction?.toLowerCase() === 'buy' ? 'buy' : 'sell'}
+                          </span>{' '}
+                          signal for {analysis.symbol || "Unknown"}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {formatDistanceToNow(new Date(analysis.createdAt), { addSuffix: true })}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+            
+            <Card className="mt-6">
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Info className="h-4 w-4" /> Community Guidelines
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ul className="text-sm space-y-2 text-muted-foreground list-disc pl-4">
+                  <li>Be respectful to fellow traders</li>
+                  <li>Don't share misleading analysis</li>
+                  <li>Give constructive feedback</li>
+                  <li>Respect others' trading opinions</li>
+                  <li>Don't share personal financial information</li>
+                </ul>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </Tabs>
+      
+      {/* Analysis Detail Modal */}
+      {selectedAnalysis && (
+        <Dialog open={isDetailModalOpen} onOpenChange={setIsDetailModalOpen}>
+          <DialogContent className="max-w-4xl">
+            <DialogHeader className="relative">
+              <div className="absolute left-0 top-0">
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  onClick={() => setIsDetailModalOpen(false)}
+                  className="rounded-full hover:bg-card transition-colors"
+                  aria-label="Back"
+                >
+                  <ArrowLeft className="h-5 w-5" />
+                </Button>
+              </div>
+              <DialogTitle className="flex items-center justify-center gap-2 pt-2">
+                {selectedAnalysis.symbol} Analysis
+                <Badge variant={selectedAnalysis.direction?.toLowerCase() === 'buy' ? 'success' : 'destructive'}>
+                  {selectedAnalysis.direction}
+                </Badge>
+              </DialogTitle>
+              <DialogDescription className="text-center">
+                Shared by {selectedAnalysis.user?.username || "Anonymous"} • {formatDistanceToNow(new Date(selectedAnalysis.createdAt), { addSuffix: true })}
+              </DialogDescription>
+            </DialogHeader>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <div className="aspect-video relative overflow-hidden rounded-lg border border-border mb-4">
+                  <ChartImage 
+                    imageUrl={selectedAnalysis.imageUrl}
+                    sharedImageUrl={selectedAnalysis.sharedImageUrl}
+                    altText={`${selectedAnalysis.symbol} Chart Analysis`}
+                    className="w-full h-full object-cover"
+                    showWatermark={true}
+                  />
+                </div>
+                
+                <div className="flex items-center gap-4 mb-4">
+                  <Badge variant="outline">{selectedAnalysis.timeframe}</Badge>
+                  <Badge variant={selectedAnalysis.trend?.toLowerCase() === 'bullish' ? 'success' : 'destructive'}>
+                    {selectedAnalysis.trend}
+                  </Badge>
+                  <Badge variant="outline">{selectedAnalysis.confidence}</Badge>
+                </div>
+                
+                {selectedAnalysis.notes && (
+                  <div className="mb-4">
+                    <h3 className="font-medium mb-1">Trader Notes:</h3>
+                    <p className="text-sm text-muted-foreground">{selectedAnalysis.notes}</p>
+                  </div>
+                )}
+              </div>
+              
+              <div>
+                {selectedAnalysis.patterns && selectedAnalysis.patterns.length > 0 && (
+                  <div className="mb-4">
+                    <h3 className="font-medium mb-2">Detected Patterns:</h3>
+                    <div className="space-y-3">
+                      {selectedAnalysis.patterns.map((pattern, index) => (
+                        <div key={index} className="p-3 border border-border rounded-lg">
+                          <div className="flex items-center justify-between mb-1">
+                            <InteractiveInsightTooltip
+                              type="info"
+                              marketTrend={pattern.type?.toLowerCase().includes('bullish') ? 'bullish' : 
+                                  pattern.type?.toLowerCase().includes('bearish') ? 'bearish' : 'neutral'}
+                              title={pattern.name}
+                              description={pattern.description}
+                              context="pattern"
+                            >
+                              <span className="font-medium cursor-help">{pattern.name}</span>
+                            </InteractiveInsightTooltip>
+                            <Badge variant="outline">{pattern.type}</Badge>
+                          </div>
+                          <p className="text-sm text-muted-foreground">{pattern.description}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                <div className="mb-4">
+                  <h3 className="font-medium mb-2">Community Feedback:</h3>
+                  <div className="flex items-center gap-4">
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      className="flex items-center gap-2"
+                      onClick={() => handleFeedback(selectedAnalysis.id, 'like')}
+                    >
+                      <ThumbsUp className="h-4 w-4" />
+                      <span>{selectedAnalysis.feedbackCount?.likes || 0}</span>
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      className="flex items-center gap-2"
+                      onClick={() => handleFeedback(selectedAnalysis.id, 'dislike')}
+                    >
+                      <ThumbsDown className="h-4 w-4" />
+                      <span>{selectedAnalysis.feedbackCount?.dislikes || 0}</span>
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      className="flex items-center gap-2"
+                      onClick={() => handleFeedback(selectedAnalysis.id, 'heart')}
+                    >
+                      <Heart className="h-4 w-4 text-rose-500" />
+                      <span>{selectedAnalysis.feedbackCount?.hearts || 0}</span>
+                    </Button>
+                  </div>
+                </div>
+                
+                <div>
+                  <h3 className="font-medium mb-2">Comments:</h3>
+                  <div className="max-h-[200px] overflow-y-auto mb-3 space-y-3">
+                    {selectedAnalysis.comments && selectedAnalysis.comments.length > 0 ? (
+                      selectedAnalysis.comments.map(comment => (
+                        <div key={comment.id} className="p-3 border border-border rounded-lg">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="font-medium">{comment.username}</span>
+                            <span className="text-xs text-muted-foreground">
+                              {formatDistanceToNow(new Date(comment.createdAt), { addSuffix: true })}
+                            </span>
+                          </div>
+                          <p className="text-sm">{comment.text}</p>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-sm text-muted-foreground">No comments yet. Be the first to comment!</p>
+                    )}
+                  </div>
+                  
+                  <div className="flex items-center gap-2">
+                    <Input
+                      placeholder="Add a comment..."
+                      value={commentText}
+                      onChange={(e) => setCommentText(e.target.value)}
+                      className="flex-1"
+                    />
+                    <Button onClick={handleAddComment} disabled={!commentText.trim()}>
+                      Post
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <DialogFooter>
+              <div className="flex items-center justify-between w-full">
+                <Button variant="outline" asChild>
+                  <Link href={`/profile/${selectedAnalysis.userId}`}>
+                    View Trader Profile
+                  </Link>
+                </Button>
+                <Button onClick={() => setIsDetailModalOpen(false)}>
+                  Close
+                </Button>
+              </div>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+    </div>
+  );
+}
+
+// Analysis Card Component
+function AnalysisCard({ 
+  analysis, 
+  onSelect, 
+  onFeedback 
+}: { 
+  analysis: Analysis; 
+  onSelect: (analysis: Analysis) => void; 
+  onFeedback: (id: number, type: 'like' | 'dislike' | 'heart') => void;
+}) {
+  return (
+    <Card className="overflow-hidden">
+      <CardContent className="p-0">
+        <div className="flex flex-col md:flex-row">
+          <div className="w-full md:w-48 h-48 relative cursor-pointer" onClick={() => onSelect(analysis)}>
+            <ChartImage 
+              imageUrl={analysis.imageUrl} 
+              sharedImageUrl={analysis.sharedImageUrl}
+              altText={`${analysis.symbol} Chart Analysis`}
+              className="w-full h-full object-cover"
+              showWatermark={true}
+            />
+            <div className="absolute top-2 right-2">
+              <Badge variant={analysis.direction?.toLowerCase() === 'buy' ? 'success' : 'destructive'}>
+                {analysis.direction}
+              </Badge>
+            </div>
+          </div>
+          
+          <div className="p-4 flex-1">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Avatar className="h-6 w-6">
+                  <AvatarImage src={analysis.user?.profileImageUrl} />
+                  <AvatarFallback>{analysis.user?.username?.substring(0, 2).toUpperCase() || 'UN'}</AvatarFallback>
+                </Avatar>
+                <Link 
+                  to={`/profile/${analysis.userId}`} 
+                  className="text-sm font-medium hover:underline"
+                >
+                  {analysis.user?.username || "Anonymous"}
+                </Link>
+                <span className="text-xs text-muted-foreground">
+                  {formatDistanceToNow(new Date(analysis.createdAt), { addSuffix: true })}
+                </span>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => onSelect(analysis)}>
+                <MessageSquare className="h-4 w-4 mr-1" />
+                Details
+              </Button>
+            </div>
+            
+            <div className="mb-3">
+              <h3 className="font-bold mb-1 flex items-center gap-2">
+                {analysis.symbol || "Unknown Symbol"}
+                <Badge variant="outline">{analysis.timeframe}</Badge>
+                <Badge 
+                  variant={analysis.trend?.toLowerCase() === 'bullish' ? 'success' : 'destructive'}
+                  className="text-xs"
+                >
+                  {analysis.trend}
+                </Badge>
+              </h3>
+              
+              {analysis.notes ? (
+                <p className="text-sm text-muted-foreground line-clamp-2">{analysis.notes}</p>
+              ) : (
+                <p className="text-sm text-muted-foreground italic">No additional notes</p>
+              )}
+            </div>
+            
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <button 
+                  className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
+                  onClick={() => onFeedback(analysis.id, 'like')}
+                >
+                  <ThumbsUp className="h-4 w-4" />
+                  <span>{analysis.feedbackCount?.likes || 0}</span>
+                </button>
+                <button 
+                  className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
+                  onClick={() => onFeedback(analysis.id, 'dislike')}
+                >
+                  <ThumbsDown className="h-4 w-4" />
+                  <span>{analysis.feedbackCount?.dislikes || 0}</span>
+                </button>
+                <button 
+                  className="flex items-center gap-1 text-sm text-muted-foreground hover:text-rose-500 transition-colors"
+                  onClick={() => onFeedback(analysis.id, 'heart')}
+                >
+                  <Heart className="h-4 w-4" />
+                  <span>{analysis.feedbackCount?.hearts || 0}</span>
+                </button>
+              </div>
+              
+              <div className="flex items-center gap-2">
+                {analysis.patterns && analysis.patterns.length > 0 && (
+                  <Badge variant="outline" className="text-xs">
+                    {analysis.patterns.length} {analysis.patterns.length === 1 ? 'pattern' : 'patterns'}
+                  </Badge>
+                )}
+                {analysis.comments && analysis.comments.length > 0 && (
+                  <Badge variant="outline" className="text-xs flex items-center gap-1">
+                    <MessageSquare className="h-3 w-3" />
+                    {analysis.comments.length}
+                  </Badge>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}

@@ -9,10 +9,12 @@ import {
 import { db } from "./db";
 import { eq, and, sql } from "drizzle-orm";
 import session from "express-session";
-import connectPg from "connect-pg-simple";
-import { pool } from "./db";
+import createMemoryStore from "memorystore";
+
+// In-memory storage will be implemented in the class
 
 export interface IStorage {
+  sessionStore: session.Store;
   getUser(id: number): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
@@ -78,7 +80,7 @@ export interface IStorage {
 }
 
 // Create PostgreSQL session store
-const PostgresSessionStore = connectPg(session);
+// Using in-memory session store instead of PostgreSQL
 
 export class DatabaseStorage implements IStorage {
   sessionStore: session.Store;
