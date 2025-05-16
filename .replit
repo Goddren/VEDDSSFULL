@@ -15,7 +15,7 @@ localPort = 5000
 externalPort = 80
 
 [workflows]
-runButton = "Build and Start"
+runButton = "Production Build and Start"
 
 [[workflows.workflow]]
 name = "Project"
@@ -58,6 +58,23 @@ mode = "sequential"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "npm install"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npm run build"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "NODE_ENV=production node dist/index.js"
+
+[[workflows.workflow]]
+name = "Production Build and Start"
+author = 41163872
+mode = "sequential"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npm ci"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
