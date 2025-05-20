@@ -90,6 +90,8 @@ async function compressImage(file: File, options: CompressOptions): Promise<File
 const Analysis: React.FC = () => {
   const [analysisState, setAnalysisState] = useState<AnalysisState>(AnalysisState.INITIAL);
   const [uploadedImageUrl, setUploadedImageUrl] = useState<string>('');
+  const [originalImageData, setOriginalImageData] = useState<string>('');
+  const [previewUrl, setPreviewUrl] = useState<string>('');
   const [analysisProgress, setAnalysisProgress] = useState<number>(0);
   const [analysisResult, setAnalysisResult] = useState<ChartAnalysisResponse | null>(null);
   const [apiKeyValid, setApiKeyValid] = useState<boolean | null>(null);
@@ -340,24 +342,23 @@ const Analysis: React.FC = () => {
   }, [analysisMutation]);
 
   const handleReanalyze = useCallback(() => {
-    if (uploadedImageUrl) {
+    // When reanalyzing, we should use the base64 image data directly
+    // instead of trying to fetch the file from the server
+    if (originalImageData && originalImageData.startsWith('data:image')) {
+      // Use the stored original image data for reanalysis
+      setAnalysisResult(null);
+      setAnalysisState(AnalysisState.ANALYZING);
+      setAnalysisProgress(0);
+      analysisMutation.mutate(originalImageData);
+    } else if (uploadedImageUrl) {
       setAnalysisResult(null);
       setAnalysisState(AnalysisState.ANALYZING);
       setAnalysisProgress(0);
       
-      // Check if the URL is a base64 image or a file path
-      if (uploadedImageUrl.startsWith('data:image')) {
-        // If it's a base64 image, send it directly
-        analysisMutation.mutate(uploadedImageUrl);
-      } else {
-        // If it's a file path, construct the full URL to ensure it works
-        const fullImageUrl = uploadedImageUrl.startsWith('/') 
-          ? uploadedImageUrl 
-          : `/${uploadedImageUrl}`;
-        
-        // Use the base64 analysis endpoint for more reliable processing
-        // Get the image data and convert to base64
-        fetch(fullImageUrl)
+      // Check if we have the uploaded image preview available
+      if (previewUrl && previewUrl.startsWith('blob:')) {
+        // Convert the blob preview to base64
+        fetch(previewUrl)
           .then(response => response.blob())
           .then(blob => {
             const reader = new FileReader();
@@ -368,7 +369,7 @@ const Analysis: React.FC = () => {
             reader.readAsDataURL(blob);
           })
           .catch(error => {
-            console.error("Error reanalyzing image:", error);
+            console.error("Error fetching preview image:", error);
             setAnalysisState(AnalysisState.ERROR);
             toast({
               title: 'Reanalysis Failed',
@@ -376,9 +377,17 @@ const Analysis: React.FC = () => {
               variant: 'destructive',
             });
           });
+      } else {
+        // Fallback to the most reliable option - asking user to reupload
+        setAnalysisState(AnalysisState.ERROR);
+        toast({
+          title: 'Cannot Reanalyze',
+          description: 'The original image data is no longer available. Please upload the image again.',
+          variant: 'destructive',
+        });
       }
     }
-  }, [uploadedImageUrl, analysisMutation, toast]);
+  }, [originalImageData, uploadedImageUrl, previewUrl, analysisMutation, toast]);
   
   // Generate progress steps based on current state
   const getProgressSteps = useCallback(() => {
