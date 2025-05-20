@@ -115,8 +115,13 @@ const Analysis: React.FC = () => {
       const fileReader = new FileReader();
       const base64Promise = new Promise<string>((resolve, reject) => {
         fileReader.onload = () => {
-          const base64 = fileReader.result?.toString().split(',')[1]; // Remove the data URL prefix
-          if (base64) {
+          const fullBase64 = fileReader.result?.toString(); // Full data URL
+          if (fullBase64) {
+            // Store the full data URL for reanalysis
+            setOriginalImageData(fullBase64);
+            
+            // Extract just the base64 part for the API
+            const base64 = fullBase64.split(',')[1];
             resolve(base64);
           } else {
             reject(new Error('Failed to read file as base64'));
@@ -342,52 +347,60 @@ const Analysis: React.FC = () => {
   }, [analysisMutation]);
 
   const handleReanalyze = useCallback(() => {
-    // When reanalyzing, we should use the base64 image data directly
-    // instead of trying to fetch the file from the server
+    // When reanalyzing, use the original image data we stored during upload
     if (originalImageData && originalImageData.startsWith('data:image')) {
-      // Use the stored original image data for reanalysis
-      setAnalysisResult(null);
-      setAnalysisState(AnalysisState.ANALYZING);
-      setAnalysisProgress(0);
-      analysisMutation.mutate(originalImageData);
-    } else if (uploadedImageUrl) {
       setAnalysisResult(null);
       setAnalysisState(AnalysisState.ANALYZING);
       setAnalysisProgress(0);
       
-      // Check if we have the uploaded image preview available
-      if (previewUrl && previewUrl.startsWith('blob:')) {
-        // Convert the blob preview to base64
-        fetch(previewUrl)
-          .then(response => response.blob())
-          .then(blob => {
-            const reader = new FileReader();
-            reader.onloadend = () => {
-              const base64data = reader.result as string;
-              analysisMutation.mutate(base64data);
-            };
-            reader.readAsDataURL(blob);
-          })
-          .catch(error => {
-            console.error("Error fetching preview image:", error);
-            setAnalysisState(AnalysisState.ERROR);
-            toast({
-              title: 'Reanalysis Failed',
-              description: 'Could not reload the image for analysis. Please try uploading again.',
-              variant: 'destructive',
-            });
-          });
-      } else {
-        // Fallback to the most reliable option - asking user to reupload
+      // Extract base64 data (without the data:image prefix)
+      const base64Data = originalImageData.split(',')[1];
+      
+      // Send the base64 data to analyze-base64 endpoint for reanalysis
+      // This is more reliable than trying to use the file URL
+      apiRequest('POST', '/api/analyze-base64', {
+        base64Image: base64Data,
+        filename: 'reanalysis-image.png' 
+      })
+      .then(response => {
+        if (!response.ok) {
+          throw new Error('Reanalysis failed');
+        }
+        return response.json();
+      })
+      .then(result => {
+        // Trigger the onSuccess handler manually
+        analysisMutation.onSuccess?.(
+          { 
+            url: uploadedImageUrl || result.url || `/uploads/${Date.now()}-reanalysis.png`,
+            analysisResult: result 
+          }, 
+          originalImageData, 
+          { 
+            onSuccess: () => {}, 
+            variables: originalImageData 
+          }
+        );
+      })
+      .catch(error => {
+        console.error("Error reanalyzing image:", error);
         setAnalysisState(AnalysisState.ERROR);
         toast({
-          title: 'Cannot Reanalyze',
-          description: 'The original image data is no longer available. Please upload the image again.',
+          title: 'Reanalysis Failed',
+          description: 'Could not reanalyze the image. Please try uploading again.',
           variant: 'destructive',
         });
-      }
+      });
+    } else {
+      // If we don't have the original image data, prompt user to upload again
+      setAnalysisState(AnalysisState.ERROR);
+      toast({
+        title: 'Cannot Reanalyze',
+        description: 'The original image data is no longer available. Please upload the image again.',
+        variant: 'destructive',
+      });
     }
-  }, [originalImageData, uploadedImageUrl, previewUrl, analysisMutation, toast]);
+  }, [originalImageData, uploadedImageUrl, analysisMutation, toast]);
   
   // Generate progress steps based on current state
   const getProgressSteps = useCallback(() => {
