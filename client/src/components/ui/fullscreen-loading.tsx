@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import LoadingIndicator from '@/components/ui/loading-indicator';
 import { cn } from '@/lib/utils';
 import { Brain, ArrowUp, Cpu, LineChart, BarChart3 } from 'lucide-react';
+import { DailyWisdom } from '@/components/scripture/daily-wisdom';
 
 interface FullscreenLoadingProps {
   visible: boolean;
