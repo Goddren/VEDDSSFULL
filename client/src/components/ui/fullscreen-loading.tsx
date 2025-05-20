@@ -312,8 +312,8 @@ export function FullscreenLoading({
               </div>
             </motion.div>
             
-            {/* Daily Scripture Wisdom - Only show during analysis, not during upload */}
-            {isAnalyzing && progress > 30 && (
+            {/* Daily Scripture Wisdom - Show during analysis or longer processes */}
+            {(isAnalyzing || progress > 40) && (
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
