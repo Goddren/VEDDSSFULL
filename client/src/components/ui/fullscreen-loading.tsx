@@ -312,17 +312,15 @@ export function FullscreenLoading({
               </div>
             </motion.div>
             
-            {/* Daily Scripture Wisdom - Show during analysis or longer processes */}
-            {(isAnalyzing || progress > 40) && (
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.7, duration: 0.5 }}
-                className="mt-12 mb-4"
-              >
-                <DailyWisdom />
-              </motion.div>
-            )}
+            {/* Daily Scripture Wisdom - Always show during loading */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.7, duration: 0.5 }}
+              className="mt-12 mb-4"
+            >
+              <DailyWisdom />
+            </motion.div>
           </div>
         </motion.div>
       )}
