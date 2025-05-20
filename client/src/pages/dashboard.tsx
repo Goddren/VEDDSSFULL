@@ -31,7 +31,7 @@ import { UserLevel } from '@/components/achievements/user-level';
 import { VolatilityMeter } from '@/components/ui/volatility-meter';
 import { getUserLevel } from '@/lib/achievement-system';
 import TradingCoach from '@/components/trading-coach/trading-coach';
-import { DailyScriptureWisdom } from '@/components/scripture/daily-wisdom';
+import { DailyWisdom } from '@/components/scripture/daily-wisdom';
 import { DayNightScene } from '@/components/ui/day-night-scene';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 
@@ -414,7 +414,7 @@ const Dashboard: React.FC = () => {
                     <span>Hide</span>
                   </Button>
                 </div>
-                <DailyScriptureWisdom />
+                <DailyWisdom />
               </div>
             )}
             
