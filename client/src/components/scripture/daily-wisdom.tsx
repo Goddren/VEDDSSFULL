@@ -18,7 +18,7 @@ export function DailyWisdom() {
 
   return (
     <motion.div 
-      className="max-w-md mx-auto text-center bg-gradient-to-r from-indigo-900/70 via-purple-900/70 to-indigo-900/70 rounded-lg p-6 shadow-lg border border-indigo-500/30"
+      className="max-w-md w-full mx-auto text-center bg-gradient-to-r from-indigo-900/70 via-purple-900/70 to-indigo-900/70 rounded-lg p-4 sm:p-6 shadow-lg border border-indigo-500/30"
       initial={{ opacity: 0, y: 20 }}
       animate={{ 
         opacity: isVisible ? 1 : 0, 
@@ -36,8 +36,8 @@ export function DailyWisdom() {
         animate={{ opacity: 1 }}
         transition={{ delay: 0.3, duration: 0.5 }}
       >
-        <p className="text-white/90 italic mb-2">"{scripture.verse}"</p>
-        <p className="text-indigo-300 text-sm mb-4">— {scripture.reference}</p>
+        <p className="text-white/90 italic mb-2 text-sm sm:text-base">"{scripture.verse}"</p>
+        <p className="text-indigo-300 text-xs sm:text-sm mb-4">— {scripture.reference}</p>
       </motion.div>
 
       <motion.div
@@ -50,7 +50,7 @@ export function DailyWisdom() {
           <Sparkles className="h-4 w-4 mr-2 text-amber-300" />
           <h4 className="text-sm font-medium text-amber-200">Trading Wisdom</h4>
         </div>
-        <p className="text-white/80 text-sm">{scripture.tradingWisdom}</p>
+        <p className="text-white/80 text-xs sm:text-sm">{scripture.tradingWisdom}</p>
       </motion.div>
     </motion.div>
   );

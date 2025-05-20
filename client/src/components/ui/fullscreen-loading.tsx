@@ -41,7 +41,7 @@ export function FullscreenLoading({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.3 }}
-          className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-background/95 backdrop-blur-md"
+          className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-background/95 backdrop-blur-md overflow-y-auto min-h-[100vh] py-8"
         >
           {/* Background gradient pulses */}
           <div className="absolute inset-0 overflow-hidden">
@@ -78,7 +78,7 @@ export function FullscreenLoading({
               }}
             />
           </div>
-          <div className="max-w-md w-full mx-auto px-4 py-10 text-center">
+          <div className="w-full max-w-md mx-auto px-4 py-6 sm:py-10 text-center">
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
