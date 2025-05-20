@@ -344,9 +344,41 @@ const Analysis: React.FC = () => {
       setAnalysisResult(null);
       setAnalysisState(AnalysisState.ANALYZING);
       setAnalysisProgress(0);
-      analysisMutation.mutate(uploadedImageUrl);
+      
+      // Check if the URL is a base64 image or a file path
+      if (uploadedImageUrl.startsWith('data:image')) {
+        // If it's a base64 image, send it directly
+        analysisMutation.mutate(uploadedImageUrl);
+      } else {
+        // If it's a file path, construct the full URL to ensure it works
+        const fullImageUrl = uploadedImageUrl.startsWith('/') 
+          ? uploadedImageUrl 
+          : `/${uploadedImageUrl}`;
+        
+        // Use the base64 analysis endpoint for more reliable processing
+        // Get the image data and convert to base64
+        fetch(fullImageUrl)
+          .then(response => response.blob())
+          .then(blob => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              const base64data = reader.result as string;
+              analysisMutation.mutate(base64data);
+            };
+            reader.readAsDataURL(blob);
+          })
+          .catch(error => {
+            console.error("Error reanalyzing image:", error);
+            setAnalysisState(AnalysisState.ERROR);
+            toast({
+              title: 'Reanalysis Failed',
+              description: 'Could not reload the image for analysis. Please try uploading again.',
+              variant: 'destructive',
+            });
+          });
+      }
     }
-  }, [uploadedImageUrl, analysisMutation]);
+  }, [uploadedImageUrl, analysisMutation, toast]);
   
   // Generate progress steps based on current state
   const getProgressSteps = useCallback(() => {
