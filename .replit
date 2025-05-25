@@ -15,7 +15,7 @@ localPort = 5000
 externalPort = 80
 
 [workflows]
-runButton = "Optimized Production Build"
+runButton = "Local Development"
 
 [[workflows.workflow]]
 name = "Project"
@@ -85,18 +85,10 @@ task = "shell.exec"
 args = "NODE_ENV=production node dist/index.js"
 
 [[workflows.workflow]]
-name = "Optimized Production Build"
+name = "Local Development"
 author = 41163872
 mode = "sequential"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "npm ci --production=false"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "npm run build"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "NODE_ENV=production node dist/index.js"
+args = "npm run dev"
