@@ -7,7 +7,7 @@ channel = "stable-24_05"
 
 [deployment]
 deploymentTarget = "autoscale"
-build = ["sh", "-c", "apt-get update && apt-get install -y build-essential libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev && npm run build"]
+build = ["sh", "-c", "npm ci && npm run build"]
 run = ["sh", "-c", "NODE_ENV=production node dist/index.js"]
 
 [[ports]]
@@ -15,7 +15,7 @@ localPort = 5000
 externalPort = 80
 
 [workflows]
-runButton = "Production Build and Start"
+runButton = "Optimized Production Build"
 
 [[workflows.workflow]]
 name = "Project"
@@ -75,6 +75,23 @@ mode = "sequential"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "npm install"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npm run build"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "NODE_ENV=production node dist/index.js"
+
+[[workflows.workflow]]
+name = "Optimized Production Build"
+author = 41163872
+mode = "sequential"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npm ci --production=false"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
