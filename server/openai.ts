@@ -36,8 +36,19 @@ export async function analyzeChartImage(base64Image: string): Promise<ChartAnaly
           role: "system",
           content: `You are an expert trading chart analyst. Analyze the trading chart image and provide detailed analysis.
           Identify patterns, technical indicators, support/resistance levels, and market trends.
-          Determine if the chart suggests a BUY or SELL signal, whether the trend is bullish or bearish,
-          and recommend entry points, exit points, stop loss, and take profit levels.
+          
+          CRITICAL: Provide UNBIASED analysis. Consider BOTH bullish and bearish scenarios equally:
+          - If price is at resistance with bearish indicators, suggest SELL
+          - If price is at support with bullish indicators, suggest BUY  
+          - If price is in a downtrend with bearish patterns, suggest SELL
+          - If price is in an uptrend with bullish patterns, suggest BUY
+          - Do NOT default to BUY signals - analyze the actual chart conditions objectively
+          
+          Determine if the chart suggests a BUY or SELL signal based on:
+          - Current trend direction (up = BUY consideration, down = SELL consideration)
+          - Support/resistance levels (at resistance = SELL consideration, at support = BUY consideration)
+          - Technical indicators (bearish indicators = SELL, bullish indicators = BUY)
+          - Chart patterns (bearish patterns = SELL, bullish patterns = BUY)
           
           Additionally, analyze volume patterns and provide insights on the best trading times for this pair:
           - Identify if there are clear volume patterns visible in different trading sessions
