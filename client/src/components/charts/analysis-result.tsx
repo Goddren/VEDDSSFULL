@@ -18,10 +18,11 @@ import { Button } from '@/components/ui/button';
 interface AnalysisResultProps {
   analysis: ChartAnalysisResponse;
   imageUrl: string;
+  annotatedImageUrl?: string;
   onReanalyze: () => void;
 }
 
-const AnalysisResult: React.FC<AnalysisResultProps> = ({ analysis, imageUrl, onReanalyze }) => {
+const AnalysisResult: React.FC<AnalysisResultProps> = ({ analysis, imageUrl, annotatedImageUrl, onReanalyze }) => {
   const [newsEvents, setNewsEvents] = useState<NewsEvent[]>([]);
   const { isSubscribed, subscribeToSymbol, unsubscribeFromSymbol } = useNewsNotifications();
   
@@ -40,17 +41,31 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({ analysis, imageUrl, onR
       <div className="md:col-span-2 bg-[#1E1E1E] rounded-xl p-6 shadow-lg">
         <div className="flex flex-col md:flex-row gap-6">
           <div className="flex-1">
+            {/* Display annotated image if available, otherwise show original */}
             <div className="bg-[#0A0A0A] rounded-lg overflow-hidden">
-              {imageUrl ? (
-                <img
-                  src={normalizeImageUrl(imageUrl)}
-                  alt="Uploaded trading chart"
-                  className="w-full h-auto object-cover"
-                  onError={(e) => {
-                    console.error("Image failed to load:", imageUrl);
-                    e.currentTarget.src = "https://placehold.co/600x400/black/gray?text=Chart+Image+Unavailable";
-                  }}
-                />
+              {annotatedImageUrl || imageUrl ? (
+                <>
+                  <img
+                    src={normalizeImageUrl(annotatedImageUrl || imageUrl)}
+                    alt={annotatedImageUrl ? "Annotated trading chart with trade setup" : "Uploaded trading chart"}
+                    className="w-full h-auto object-cover"
+                    onError={(e) => {
+                      console.error("Image failed to load:", annotatedImageUrl || imageUrl);
+                      e.currentTarget.src = "https://placehold.co/600x400/black/gray?text=Chart+Image+Unavailable";
+                    }}
+                  />
+                  {annotatedImageUrl && (
+                    <div className="bg-[#0A0A0A] p-2 border-t border-gray-700">
+                      <div className="flex items-center justify-between text-xs text-gray-400">
+                        <span className="flex items-center gap-1">
+                          <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                          Trade Setup Annotations Enabled
+                        </span>
+                        <span>Entry • Stop Loss • Take Profit</span>
+                      </div>
+                    </div>
+                  )}
+                </>
               ) : (
                 <div className="h-64 flex items-center justify-center bg-[#222222]">
                   <p className="text-gray-400">Chart image not available</p>

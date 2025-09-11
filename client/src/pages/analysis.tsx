@@ -90,6 +90,7 @@ async function compressImage(file: File, options: CompressOptions): Promise<File
 const Analysis: React.FC = () => {
   const [analysisState, setAnalysisState] = useState<AnalysisState>(AnalysisState.INITIAL);
   const [uploadedImageUrl, setUploadedImageUrl] = useState<string>('');
+  const [annotatedImageUrl, setAnnotatedImageUrl] = useState<string>('');
   const [originalImageData, setOriginalImageData] = useState<string>('');
   const [previewUrl, setPreviewUrl] = useState<string>('');
   const [analysisProgress, setAnalysisProgress] = useState<number>(0);
@@ -146,10 +147,9 @@ const Analysis: React.FC = () => {
         console.log('Analysis response received:', response.status);
         const result = await response.json();
         
-        // Create a fake upload URL just for display purposes
-        const fakeUrl = `/uploads/${Date.now()}-${file.name}`;
         return { 
-          url: fakeUrl,
+          url: result.imageUrl || `/uploads/${Date.now()}-${file.name}`,
+          annotatedImageUrl: result.annotatedImageUrl,
           analysisResult: result 
         };
       } catch (err) {
@@ -160,6 +160,7 @@ const Analysis: React.FC = () => {
     onSuccess: (data) => {
       console.log('Upload/analysis successful', data);
       setUploadedImageUrl(data.url);
+      setAnnotatedImageUrl(data.annotatedImageUrl || '');
       
       // Skip the separate analysis step and use the result directly
       if (data.analysisResult) {
@@ -254,6 +255,7 @@ const Analysis: React.FC = () => {
     },
     onSuccess: (data) => {
       setAnalysisResult(data);
+      setAnnotatedImageUrl(data.annotatedImageUrl || '');
       setAnalysisProgress(100);
       setAnalysisState(AnalysisState.COMPLETE);
       
@@ -640,7 +642,8 @@ const Analysis: React.FC = () => {
             <>
               <AnalysisResult 
                 analysis={analysisResult} 
-                imageUrl={analysisResult.imageUrl || uploadedImageUrl} 
+                imageUrl={analysisResult.imageUrl || uploadedImageUrl}
+                annotatedImageUrl={annotatedImageUrl}
                 onReanalyze={handleReanalyze}
               />
               
