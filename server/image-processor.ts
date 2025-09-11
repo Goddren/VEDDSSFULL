@@ -197,15 +197,7 @@ export async function addTradeSetupAnnotations(
 
     // Entry point visuals removed per user request
 
-    // Draw stop loss
-    if (analysis.stopLoss && analysis.stopLoss !== "Unknown") {
-      drawPriceLine(analysis.stopLoss, '#EF4444', 'Stop Loss', 'dashed');
-    }
-
-    // Draw take profit
-    if (analysis.takeProfit && analysis.takeProfit !== "Unknown") {
-      drawPriceLine(analysis.takeProfit, '#10B981', 'Take Profit', 'dashed');
-    }
+    // Stop loss and take profit visuals removed per user request
 
     // Draw support and resistance levels
     (analysis.supportResistance || []).forEach((sr, index) => {
