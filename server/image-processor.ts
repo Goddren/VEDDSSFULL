@@ -133,97 +133,53 @@ export async function addTradeSetupAnnotations(
       return chartArea.bottom - (normalizedPrice * chartArea.height);
     };
 
-    // Draw prominent trade direction indicator
+    // Draw trade direction indicator
     if (analysis.direction) {
       const isLong = analysis.direction.toUpperCase() === 'BUY';
-      const arrowX = chartArea.left + 30;
-      const arrowY = chartArea.top + 40;
+      const arrowX = chartArea.left + 20;
+      const arrowY = chartArea.top + 30;
       
-      // Draw background box for better visibility
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-      ctx.fillRect(arrowX - 10, arrowY - 30, 120, 60);
-      
-      // Draw white outline
-      ctx.strokeStyle = 'white';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(arrowX - 10, arrowY - 30, 120, 60);
-      
-      // Draw direction arrow with white outline
+      // Draw direction arrow
       ctx.beginPath();
-      ctx.fillStyle = 'white';
+      ctx.fillStyle = isLong ? '#10B981' : '#EF4444'; // Green for buy, red for sell
       
       if (isLong) {
-        // Draw up arrow (larger)
-        ctx.moveTo(arrowX, arrowY + 15);
-        ctx.lineTo(arrowX + 20, arrowY - 15);
-        ctx.lineTo(arrowX + 40, arrowY + 15);
-        ctx.lineTo(arrowX + 30, arrowY + 15);
-        ctx.lineTo(arrowX + 30, arrowY + 35);
-        ctx.lineTo(arrowX + 10, arrowY + 35);
+        // Draw up arrow
+        ctx.moveTo(arrowX, arrowY + 20);
+        ctx.lineTo(arrowX + 15, arrowY);
+        ctx.lineTo(arrowX + 30, arrowY + 20);
+        ctx.lineTo(arrowX + 20, arrowY + 20);
+        ctx.lineTo(arrowX + 20, arrowY + 40);
+        ctx.lineTo(arrowX + 10, arrowY + 40);
         ctx.closePath();
       } else {
-        // Draw down arrow (larger)
-        ctx.moveTo(arrowX, arrowY - 15);
-        ctx.lineTo(arrowX + 20, arrowY + 15);
-        ctx.lineTo(arrowX + 40, arrowY - 15);
-        ctx.lineTo(arrowX + 30, arrowY - 15);
-        ctx.lineTo(arrowX + 30, arrowY - 35);
-        ctx.lineTo(arrowX + 10, arrowY - 35);
-        ctx.closePath();
-      }
-      ctx.fill();
-      
-      // Draw colored arrow
-      ctx.beginPath();
-      ctx.fillStyle = isLong ? '#00CC00' : '#FF0000';
-      
-      if (isLong) {
-        // Draw up arrow (slightly smaller)
-        ctx.moveTo(arrowX + 2, arrowY + 13);
-        ctx.lineTo(arrowX + 20, arrowY - 13);
-        ctx.lineTo(arrowX + 38, arrowY + 13);
-        ctx.lineTo(arrowX + 28, arrowY + 13);
-        ctx.lineTo(arrowX + 28, arrowY + 33);
-        ctx.lineTo(arrowX + 12, arrowY + 33);
-        ctx.closePath();
-      } else {
-        // Draw down arrow (slightly smaller)
-        ctx.moveTo(arrowX + 2, arrowY - 13);
-        ctx.lineTo(arrowX + 20, arrowY + 13);
-        ctx.lineTo(arrowX + 38, arrowY - 13);
-        ctx.lineTo(arrowX + 28, arrowY - 13);
-        ctx.lineTo(arrowX + 28, arrowY - 33);
-        ctx.lineTo(arrowX + 12, arrowY - 33);
+        // Draw down arrow
+        ctx.moveTo(arrowX, arrowY);
+        ctx.lineTo(arrowX + 15, arrowY + 20);
+        ctx.lineTo(arrowX + 30, arrowY);
+        ctx.lineTo(arrowX + 20, arrowY);
+        ctx.lineTo(arrowX + 20, arrowY - 20);
+        ctx.lineTo(arrowX + 10, arrowY - 20);
         ctx.closePath();
       }
       ctx.fill();
       
       // Add direction label
       ctx.fillStyle = 'white';
-      ctx.font = 'bold 16px Arial';
-      ctx.fillText(analysis.direction.toUpperCase(), arrowX + 50, arrowY + 5);
+      ctx.font = 'bold 14px Arial';
+      ctx.fillText(analysis.direction.toUpperCase(), arrowX + 40, arrowY + 15);
     }
 
-    // Draw horizontal price levels with enhanced visibility
+    // Draw horizontal price levels
     const drawPriceLine = (price: string, color: string, label: string, style: string = 'solid') => {
       const y = priceToY(price);
       if (y === -1) return;
       
-      // Draw a white background line for better visibility
-      ctx.strokeStyle = 'white';
-      ctx.lineWidth = 6;
-      ctx.setLineDash([]);
-      ctx.beginPath();
-      ctx.moveTo(chartArea.left, y);
-      ctx.lineTo(chartArea.right, y);
-      ctx.stroke();
-      
-      // Draw the main colored line
       ctx.strokeStyle = color;
-      ctx.lineWidth = 4;
+      ctx.lineWidth = 2;
       
       if (style === 'dashed') {
-        ctx.setLineDash([15, 8]);
+        ctx.setLineDash([10, 5]);
       } else {
         ctx.setLineDash([]);
       }
@@ -233,107 +189,40 @@ export async function addTradeSetupAnnotations(
       ctx.lineTo(chartArea.right, y);
       ctx.stroke();
       
-      // Add label with background box
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-      const labelText = `${label}: ${price}`;
-      const labelX = chartArea.right + 10;
-      const labelY = y + 4;
-      
-      // Measure text to create background box
-      ctx.font = 'bold 14px Arial';
-      const textMetrics = ctx.measureText(labelText);
-      const boxWidth = textMetrics.width + 8;
-      const boxHeight = 20;
-      
-      // Draw background box
-      ctx.fillRect(labelX - 4, labelY - 14, boxWidth, boxHeight);
-      
-      // Draw label text
-      ctx.fillStyle = 'white';
-      ctx.fillText(labelText, labelX, labelY);
+      // Add label
+      ctx.fillStyle = color;
+      ctx.font = 'bold 12px Arial';
+      ctx.fillText(`${label}: ${price}`, chartArea.right + 10, y + 4);
     };
 
-    // Draw entry point with enhanced visibility
+    // Draw entry point
     if (analysis.entryPoint && analysis.entryPoint !== "Unknown") {
-      drawPriceLine(analysis.entryPoint, '#0066FF', 'ENTRY');
+      drawPriceLine(analysis.entryPoint, '#3B82F6', 'Entry');
       
-      // Add prominent entry point marker
+      // Add entry point marker
       const entryY = priceToY(analysis.entryPoint);
       if (entryY !== -1) {
-        // Draw white background circle
         ctx.beginPath();
-        ctx.fillStyle = 'white';
-        ctx.arc(chartArea.left - 20, entryY, 16, 0, 2 * Math.PI);
+        ctx.fillStyle = '#3B82F6';
+        ctx.arc(chartArea.left - 15, entryY, 8, 0, 2 * Math.PI);
         ctx.fill();
         
-        // Draw colored circle
-        ctx.beginPath();
-        ctx.fillStyle = '#0066FF';
-        ctx.arc(chartArea.left - 20, entryY, 14, 0, 2 * Math.PI);
-        ctx.fill();
-        
-        // Add text
-        ctx.fillStyle = 'white';
-        ctx.font = 'bold 12px Arial';
-        ctx.textAlign = 'center';
-        ctx.fillText('E', chartArea.left - 20, entryY + 4);
-        ctx.textAlign = 'left';
-      }
-    }
-
-    // Draw stop loss with enhanced visibility
-    if (analysis.stopLoss && analysis.stopLoss !== "Unknown") {
-      drawPriceLine(analysis.stopLoss, '#FF0000', 'STOP LOSS', 'dashed');
-      
-      // Add stop loss marker
-      const slY = priceToY(analysis.stopLoss);
-      if (slY !== -1) {
-        // Draw white background square
-        ctx.fillStyle = 'white';
-        ctx.fillRect(chartArea.left - 28, slY - 12, 24, 24);
-        
-        // Draw red square
-        ctx.fillStyle = '#FF0000';
-        ctx.fillRect(chartArea.left - 26, slY - 10, 20, 20);
-        
-        // Add text
-        ctx.fillStyle = 'white';
-        ctx.font = 'bold 12px Arial';
-        ctx.textAlign = 'center';
-        ctx.fillText('SL', chartArea.left - 16, slY + 4);
-        ctx.textAlign = 'left';
-      }
-    }
-
-    // Draw take profit with enhanced visibility
-    if (analysis.takeProfit && analysis.takeProfit !== "Unknown") {
-      drawPriceLine(analysis.takeProfit, '#00CC00', 'TAKE PROFIT', 'dashed');
-      
-      // Add take profit marker
-      const tpY = priceToY(analysis.takeProfit);
-      if (tpY !== -1) {
-        // Draw white background diamond
-        ctx.save();
-        ctx.translate(chartArea.left - 20, tpY);
-        ctx.rotate(Math.PI / 4);
-        
-        // White background
-        ctx.fillStyle = 'white';
-        ctx.fillRect(-12, -12, 24, 24);
-        
-        // Green diamond
-        ctx.fillStyle = '#00CC00';
-        ctx.fillRect(-10, -10, 20, 20);
-        
-        ctx.restore();
-        
-        // Add text
         ctx.fillStyle = 'white';
         ctx.font = 'bold 10px Arial';
         ctx.textAlign = 'center';
-        ctx.fillText('TP', chartArea.left - 20, tpY + 3);
+        ctx.fillText('E', chartArea.left - 15, entryY + 3);
         ctx.textAlign = 'left';
       }
+    }
+
+    // Draw stop loss
+    if (analysis.stopLoss && analysis.stopLoss !== "Unknown") {
+      drawPriceLine(analysis.stopLoss, '#EF4444', 'Stop Loss', 'dashed');
+    }
+
+    // Draw take profit
+    if (analysis.takeProfit && analysis.takeProfit !== "Unknown") {
+      drawPriceLine(analysis.takeProfit, '#10B981', 'Take Profit', 'dashed');
     }
 
     // Draw support and resistance levels
