@@ -86,6 +86,11 @@ export function normalizeImageUrl(imageUrl: string): string {
     return imageUrl;
   }
   
+  // If it's already an API endpoint URL, use it as is (preserves annotated-image URLs)
+  if (imageUrl.startsWith('/api/')) {
+    return imageUrl;
+  }
+  
   // If it's a path with /uploads/ prefix, extract the filename and use shared-image endpoint
   if (imageUrl.startsWith('/uploads/')) {
     const filename = imageUrl.split('/').pop();
