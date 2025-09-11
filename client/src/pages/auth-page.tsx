@@ -26,6 +26,8 @@ export default function AuthPage() {
     const savedTheme = localStorage.getItem('veddTheme');
     if (savedTheme === 'dark') {
       document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
     }
   }, []);
 
@@ -145,7 +147,7 @@ export default function AuthPage() {
                             <FormControl>
                               <Checkbox
                                 checked={field.value}
-                                onCheckedChange={field.onChange}
+                                onCheckedChange={(checked) => field.onChange(checked === true)}
                                 data-testid="checkbox-disclaimer"
                               />
                             </FormControl>
