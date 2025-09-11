@@ -26,6 +26,7 @@ import {
   insertFollowSchema,
   insertAnalysisFeedbackSchema
 } from "@shared/schema";
+import { addTradeSetupAnnotations, createAnnotatedImageUrl } from "./image-processor";
 
 // Configure multer for file uploads
 const upload = multer({
@@ -136,11 +137,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!base64Image) {
         return res.status(400).json({ message: "No base64 image data provided" });
       }
+
+      // Validate and sanitize base64 input
+      let cleanBase64 = base64Image;
+      
+      // Strip data URI prefix if present (e.g., "data:image/png;base64,")
+      if (cleanBase64.includes(',')) {
+        cleanBase64 = cleanBase64.split(',')[1];
+      }
+      
+      // Validate base64 string length (limit to ~10MB when decoded)
+      const maxBase64Length = 13 * 1024 * 1024; // ~10MB when decoded (base64 is ~33% larger)
+      if (cleanBase64.length > maxBase64Length) {
+        return res.status(413).json({ 
+          message: "Image too large", 
+          error: "Maximum image size is 10MB" 
+        });
+      }
+      
+      // Validate base64 format
+      const base64Regex = /^[A-Za-z0-9+/]*={0,2}$/;
+      if (!base64Regex.test(cleanBase64)) {
+        return res.status(400).json({ 
+          message: "Invalid image data", 
+          error: "Base64 format is invalid" 
+        });
+      }
       
       console.log('Received base64 image data, calling OpenAI');
 
       // Call OpenAI for analysis
-      const analysis = await analyzeChartImage(base64Image);
+      const analysis = await analyzeChartImage(cleanBase64);
       console.log('Analysis completed successfully');
       
       // Create a filename for storage
@@ -151,7 +178,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Save the image to disk (decode base64 to binary)
       try {
-        const imageBuffer = Buffer.from(base64Image, 'base64');
+        const imageBuffer = Buffer.from(cleanBase64, 'base64');
         await fs.promises.writeFile(filePath, imageBuffer);
         console.log('Saved image to', filePath);
       } catch (writeError) {
@@ -187,10 +214,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Continue even if database storage fails
       }
 
-      // Return the analysis result with the image URL
+      // Generate annotated chart with trade setup
+      let annotatedImageUrl = '';
+      try {
+        console.log('Generating trade setup annotations for image');
+        const annotatedFilename = `annotated_${generatedFilename}`;
+        const annotatedPath = await addTradeSetupAnnotations(filePath, analysis, annotatedFilename);
+        annotatedImageUrl = createAnnotatedImageUrl(annotatedFilename);
+        console.log('Annotated image generated successfully:', annotatedPath);
+      } catch (annotationError) {
+        console.error('Error generating trade setup annotations:', annotationError);
+        // Continue without annotated image if annotation fails
+      }
+
+      // Return the analysis result with both original and annotated image URLs
       res.json({
         ...analysis,
-        imageUrl
+        imageUrl,
+        annotatedImageUrl: annotatedImageUrl || undefined
       });
     } catch (error: any) {
       console.error("Analysis error:", error);
@@ -623,6 +664,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error serving image:", error);
       res.status(500).json({ message: "Error serving image" });
+    }
+  });
+
+  // Annotated image endpoint - serves trade setup annotated images
+  app.get("/api/annotated-image/:filename", (req: Request, res: Response) => {
+    try {
+      const filename = req.params.filename;
+      // Sanitize the filename to prevent directory traversal attacks
+      const sanitizedFilename = path.basename(filename);
+      
+      // Check in annotated directory for trade setup annotated images
+      const annotatedPath = path.join(process.cwd(), 'uploads', 'annotated', sanitizedFilename);
+      if (fs.existsSync(annotatedPath)) {
+        return res.sendFile(annotatedPath);
+      }
+      
+      // If file doesn't exist
+      return res.status(404).json({ message: "Annotated image not found" });
+    } catch (error) {
+      console.error("Error serving annotated image:", error);
+      res.status(500).json({ message: "Error serving annotated image" });
     }
   });
   

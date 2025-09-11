@@ -78,6 +78,7 @@ export interface ChartAnalysisResponse {
   recommendation: string;
   steps: string[];
   imageUrl?: string;  // URL to the saved chart image
+  annotatedImageUrl?: string;  // URL to the trade setup annotated chart image
 }
 
 export interface ImageUploadResponse {
