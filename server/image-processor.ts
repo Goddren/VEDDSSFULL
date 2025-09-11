@@ -195,25 +195,7 @@ export async function addTradeSetupAnnotations(
       ctx.fillText(`${label}: ${price}`, chartArea.right + 10, y + 4);
     };
 
-    // Draw entry point
-    if (analysis.entryPoint && analysis.entryPoint !== "Unknown") {
-      drawPriceLine(analysis.entryPoint, '#3B82F6', 'Entry');
-      
-      // Add entry point marker
-      const entryY = priceToY(analysis.entryPoint);
-      if (entryY !== -1) {
-        ctx.beginPath();
-        ctx.fillStyle = '#3B82F6';
-        ctx.arc(chartArea.left - 15, entryY, 8, 0, 2 * Math.PI);
-        ctx.fill();
-        
-        ctx.fillStyle = 'white';
-        ctx.font = 'bold 10px Arial';
-        ctx.textAlign = 'center';
-        ctx.fillText('E', chartArea.left - 15, entryY + 3);
-        ctx.textAlign = 'left';
-      }
-    }
+    // Entry point visuals removed per user request
 
     // Draw stop loss
     if (analysis.stopLoss && analysis.stopLoss !== "Unknown") {
