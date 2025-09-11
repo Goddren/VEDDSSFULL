@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -10,21 +10,37 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Loader2, AlertTriangle } from "lucide-react";
 import logoPath from "@assets/IMG_3645.png";
 
-type LoginFormValues = z.infer<typeof loginUserSchema>;
+type LoginFormValues = z.infer<typeof loginUserSchema> & { acceptDisclaimer: boolean };
 type RegisterFormValues = z.infer<typeof insertUserSchema>;
 
 export default function AuthPage() {
   const [activeTab, setActiveTab] = useState<string>("login");
   const { user, isLoading, loginMutation, registerMutation } = useAuth();
+  
+  // Apply dark mode from localStorage on component mount
+  useEffect(() => {
+    const savedTheme = localStorage.getItem('veddTheme');
+    if (savedTheme === 'dark') {
+      document.documentElement.classList.add('dark');
+    }
+  }, []);
 
+  const loginFormSchema = loginUserSchema.extend({
+    acceptDisclaimer: z.boolean().refine(val => val === true, {
+      message: "You must accept the disclaimer to continue"
+    })
+  });
+  
   const loginForm = useForm<LoginFormValues>({
-    resolver: zodResolver(loginUserSchema),
+    resolver: zodResolver(loginFormSchema),
     defaultValues: {
       username: "",
       password: "",
+      acceptDisclaimer: false,
     },
   });
 
@@ -32,6 +48,7 @@ export default function AuthPage() {
   
   const registerFormSchema = insertUserSchema.extend({
     confirmPassword: z.string(),
+    password: z.string().min(6, "Password must be at least 6 characters"),
   }).refine((data) => data.password === data.confirmPassword, {
     message: "Passwords do not match",
     path: ["confirmPassword"],
@@ -50,7 +67,9 @@ export default function AuthPage() {
   });
 
   const onLoginSubmit = (values: LoginFormValues) => {
-    loginMutation.mutate(values);
+    // Remove acceptDisclaimer from values before sending to server
+    const { acceptDisclaimer, ...loginData } = values;
+    loginMutation.mutate(loginData);
   };
 
   const onRegisterSubmit = (values: RegisterFormValues) => {
@@ -113,6 +132,39 @@ export default function AuthPage() {
                               <Input type="password" placeholder="Enter your password" {...field} />
                             </FormControl>
                             <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      
+                      {/* Trading Disclaimer */}
+                      <FormField
+                        control={loginForm.control}
+                        name="acceptDisclaimer"
+                        render={({ field }) => (
+                          <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
+                            <FormControl>
+                              <Checkbox
+                                checked={field.value}
+                                onCheckedChange={field.onChange}
+                                data-testid="checkbox-disclaimer"
+                              />
+                            </FormControl>
+                            <div className="space-y-1 leading-none">
+                              <FormLabel className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                                <div className="flex items-center gap-2">
+                                  <AlertTriangle className="h-4 w-4 text-amber-500" />
+                                  Trading Risk Acknowledgment
+                                </div>
+                              </FormLabel>
+                              <p className="text-xs text-muted-foreground">
+                                I acknowledge that trading involves substantial risk of loss and is not suitable for all investors. 
+                                All trading signals, analysis, and recommendations provided by VEDD AI are for educational purposes only 
+                                and should not be considered as financial advice. Past performance does not guarantee future results. 
+                                Market conditions may not follow predicted patterns, and I understand that I trade at my own risk 
+                                and discretion.
+                              </p>
+                              <FormMessage />
+                            </div>
                           </FormItem>
                         )}
                       />
