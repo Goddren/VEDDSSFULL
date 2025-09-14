@@ -38,9 +38,9 @@ import { PatternSlider } from "@/components/ui/pattern-slider";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { patternDescriptions } from "@/assets/pattern-descriptions";
 import logoImg from "@/assets/IMG_3645.png";
-import appScreenOne from "@/assets/1.png";
-import appScreenTwo from "@/assets/3.png";
-import appScreenThree from "@/assets/4.png";
+import veddIntro from "@/assets/vedd-style/intro.png";
+import veddProblem from "@/assets/vedd-style/problem.png";
+import veddAnswer from "@/assets/vedd-style/answer.png";
 
 export default function LandingPage() {
   // Animation variants
@@ -440,99 +440,142 @@ export default function LandingPage() {
         </div>
       </motion.section>
       
-      {/* App Screenshots Showcase Section */}
+      {/* The VEDDAI Experience Section */}
       <motion.section 
         initial="hidden"
         whileInView="visible"
         viewport={{ once: true }}
         variants={staggerContainer}
-        className="py-16 bg-theme-off border-t border-theme-light"
+        className="py-20 bg-gradient-to-b from-theme-off to-theme-light border-t border-theme-light"
       >
         <div className="max-w-7xl mx-auto px-6 lg:px-8">
-          <motion.div variants={fadeIn} className="text-center mb-12">
-            <h2 className="text-3xl font-bold tracking-tight text-theme-main sm:text-4xl">
-              <span className="text-red-500">The VEDDAI Experience</span>
+          <motion.div variants={fadeIn} className="text-center mb-16">
+            <div className="inline-flex items-center px-4 py-2 rounded-full bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 text-sm font-medium mb-6">
+              <Sparkles className="h-4 w-4 mr-2" />
+              Experience the Journey
+            </div>
+            <h2 className="text-4xl font-bold tracking-tight text-theme-main sm:text-5xl lg:text-6xl">
+              <span className="text-red-500">The VEDDAI</span> Experience
             </h2>
-            <p className="mt-4 text-lg text-theme-muted max-w-3xl mx-auto">
-              Take a tour of our intuitive interface and powerful trading tools
+            <p className="mt-6 text-xl text-theme-muted max-w-4xl mx-auto leading-relaxed">
+              Discover how VEDD transforms complex trading challenges into clear, actionable insights through our revolutionary approach
             </p>
           </motion.div>
           
-          <motion.div variants={staggerContainer} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {/* Screenshot 1 */}
+          <motion.div variants={staggerContainer} className="grid grid-cols-1 lg:grid-cols-3 gap-8 lg:gap-12">
+            {/* Step 1 - Introduction */}
             <motion.div 
               variants={fadeIn}
-              whileHover={{ y: -8, transition: { duration: 0.3 } }}
-              className="bg-theme-light rounded-xl overflow-hidden shadow-xl border border-theme-light"
+              className="group relative"
             >
-              <div className="p-1 bg-gradient-to-r from-gray-200 to-gray-100 dark:from-gray-800 dark:to-gray-900">
-                <div className="flex items-center space-x-1.5 px-3 py-2">
-                  <div className="w-2.5 h-2.5 rounded-full bg-red-500"></div>
-                  <div className="w-2.5 h-2.5 rounded-full bg-yellow-500"></div>
-                  <div className="w-2.5 h-2.5 rounded-full bg-green-500"></div>
-                  <div className="text-xs text-gray-500 ml-2">VEDDAI Trading Suite</div>
-                </div>
+              <div className="absolute -top-4 -left-4 w-8 h-8 bg-red-500 rounded-full flex items-center justify-center text-white font-bold text-sm z-10">
+                1
               </div>
-              <img 
-                src={appScreenOne} 
-                alt="VEDDAI Interface" 
-                className="w-full object-cover"
-              />
-              <div className="p-5">
-                <h3 className="text-lg font-semibold text-theme-main mb-2">Initiation to Automation</h3>
-                <p className="text-sm text-theme-muted">Our elegant landing page introduces you to the power of AI-driven trading analysis and decision support.</p>
+              <div className="relative bg-white dark:bg-gray-800 rounded-2xl overflow-hidden shadow-2xl border border-gray-100 dark:border-gray-700 group-hover:shadow-3xl transition-all duration-500 transform group-hover:-translate-y-2">
+                <div className="aspect-video overflow-hidden">
+                  <img 
+                    src={veddIntro} 
+                    alt="VEDD Introduction - Initiation to Automation" 
+                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                  />
+                </div>
+                <div className="p-8">
+                  <div className="flex items-center mb-4">
+                    <div className="w-3 h-3 rounded-full bg-red-500 mr-3"></div>
+                    <span className="text-sm font-medium text-red-500 uppercase tracking-wider">Introduction</span>
+                  </div>
+                  <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">Initiation to Automation</h3>
+                  <p className="text-gray-600 dark:text-gray-300 leading-relaxed">
+                    Begin your journey with VEDD's intuitive interface. Our platform welcomes you into a world where AI-powered trading analysis becomes accessible and actionable.
+                  </p>
+                  <div className="mt-6 flex items-center text-red-500 text-sm font-medium">
+                    <span>Learn More</span>
+                    <ArrowRight className="h-4 w-4 ml-2 transition-transform group-hover:translate-x-1" />
+                  </div>
+                </div>
               </div>
             </motion.div>
             
-            {/* Screenshot 2 */}
+            {/* Step 2 - Problem */}
             <motion.div 
               variants={fadeIn}
-              whileHover={{ y: -8, transition: { duration: 0.3 } }}
-              className="bg-theme-light rounded-xl overflow-hidden shadow-xl border border-theme-light"
+              className="group relative"
             >
-              <div className="p-1 bg-gradient-to-r from-gray-200 to-gray-100 dark:from-gray-800 dark:to-gray-900">
-                <div className="flex items-center space-x-1.5 px-3 py-2">
-                  <div className="w-2.5 h-2.5 rounded-full bg-red-500"></div>
-                  <div className="w-2.5 h-2.5 rounded-full bg-yellow-500"></div>
-                  <div className="w-2.5 h-2.5 rounded-full bg-green-500"></div>
-                  <div className="text-xs text-gray-500 ml-2">VEDDAI Trading Problem</div>
-                </div>
+              <div className="absolute -top-4 -left-4 w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white font-bold text-sm z-10">
+                2
               </div>
-              <img 
-                src={appScreenTwo} 
-                alt="VEDDAI Analysis Dashboard" 
-                className="w-full object-cover"
-              />
-              <div className="p-5">
-                <h3 className="text-lg font-semibold text-theme-main mb-2">The Trading Problem</h3>
-                <p className="text-sm text-theme-muted">We address the real problem with trading - not the lack of information, but the ability to process it effectively.</p>
+              <div className="relative bg-white dark:bg-gray-800 rounded-2xl overflow-hidden shadow-2xl border border-gray-100 dark:border-gray-700 group-hover:shadow-3xl transition-all duration-500 transform group-hover:-translate-y-2">
+                <div className="aspect-video overflow-hidden">
+                  <img 
+                    src={veddProblem} 
+                    alt="VEDD Problem Statement - Trading Information Overload" 
+                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                  />
+                </div>
+                <div className="p-8">
+                  <div className="flex items-center mb-4">
+                    <div className="w-3 h-3 rounded-full bg-blue-500 mr-3"></div>
+                    <span className="text-sm font-medium text-blue-500 uppercase tracking-wider">Problem</span>
+                  </div>
+                  <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">The Trading Challenge</h3>
+                  <p className="text-gray-600 dark:text-gray-300 leading-relaxed">
+                    The real problem with trading isn't the lack of information, but the ability to process it effectively. VEDD addresses this fundamental challenge head-on.
+                  </p>
+                  <div className="mt-6 flex items-center text-blue-500 text-sm font-medium">
+                    <span>Understand the Problem</span>
+                    <ArrowRight className="h-4 w-4 ml-2 transition-transform group-hover:translate-x-1" />
+                  </div>
+                </div>
               </div>
             </motion.div>
             
-            {/* Screenshot 3 */}
+            {/* Step 3 - Solution */}
             <motion.div 
               variants={fadeIn}
-              whileHover={{ y: -8, transition: { duration: 0.3 } }}
-              className="bg-theme-light rounded-xl overflow-hidden shadow-xl border border-theme-light"
+              className="group relative"
             >
-              <div className="p-1 bg-gradient-to-r from-gray-200 to-gray-100 dark:from-gray-800 dark:to-gray-900">
-                <div className="flex items-center space-x-1.5 px-3 py-2">
-                  <div className="w-2.5 h-2.5 rounded-full bg-red-500"></div>
-                  <div className="w-2.5 h-2.5 rounded-full bg-yellow-500"></div>
-                  <div className="w-2.5 h-2.5 rounded-full bg-green-500"></div>
-                  <div className="text-xs text-gray-500 ml-2">VEDDAI Trading Answer</div>
+              <div className="absolute -top-4 -left-4 w-8 h-8 bg-green-500 rounded-full flex items-center justify-center text-white font-bold text-sm z-10">
+                3
+              </div>
+              <div className="relative bg-white dark:bg-gray-800 rounded-2xl overflow-hidden shadow-2xl border border-gray-100 dark:border-gray-700 group-hover:shadow-3xl transition-all duration-500 transform group-hover:-translate-y-2">
+                <div className="aspect-video overflow-hidden">
+                  <img 
+                    src={veddAnswer} 
+                    alt="VEDD Solution - AI-Powered Trading Strategy" 
+                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                  />
+                </div>
+                <div className="p-8">
+                  <div className="flex items-center mb-4">
+                    <div className="w-3 h-3 rounded-full bg-green-500 mr-3"></div>
+                    <span className="text-sm font-medium text-green-500 uppercase tracking-wider">Solution</span>
+                  </div>
+                  <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">The VEDD Answer</h3>
+                  <p className="text-gray-600 dark:text-gray-300 leading-relaxed">
+                    Our algorithm leverages advanced data analysis and EMA crosses to create powerful, data-driven trading strategies that maximize your returns with precision.
+                  </p>
+                  <div className="mt-6 flex items-center text-green-500 text-sm font-medium">
+                    <span>See the Solution</span>
+                    <ArrowRight className="h-4 w-4 ml-2 transition-transform group-hover:translate-x-1" />
+                  </div>
                 </div>
               </div>
-              <img 
-                src={appScreenThree} 
-                alt="VEDDAI Chart Analysis" 
-                className="w-full object-cover"
-              />
-              <div className="p-5">
-                <h3 className="text-lg font-semibold text-theme-main mb-2">The VEDDAI Answer</h3>
-                <p className="text-sm text-theme-muted">Our algorithm leverages data analysis and EMA crosses to create powerful, data-driven trading strategies that maximize your returns.</p>
-              </div>
             </motion.div>
+          </motion.div>
+          
+          {/* Progress Indicator */}
+          <motion.div variants={fadeIn} className="flex justify-center mt-16">
+            <div className="flex items-center space-x-4">
+              <div className="flex items-center">
+                <div className="w-3 h-3 rounded-full bg-red-500"></div>
+                <div className="w-16 h-0.5 bg-gray-300 dark:bg-gray-600 mx-2"></div>
+              </div>
+              <div className="flex items-center">
+                <div className="w-3 h-3 rounded-full bg-blue-500"></div>
+                <div className="w-16 h-0.5 bg-gray-300 dark:bg-gray-600 mx-2"></div>
+              </div>
+              <div className="w-3 h-3 rounded-full bg-green-500"></div>
+            </div>
           </motion.div>
           
           <motion.div 
