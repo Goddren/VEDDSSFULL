@@ -38,9 +38,6 @@ import { PatternSlider } from "@/components/ui/pattern-slider";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { patternDescriptions } from "@/assets/pattern-descriptions";
 import logoImg from "@/assets/IMG_3645.png";
-import veddIntro from "@/assets/vedd-style/intro.png";
-import veddProblem from "@/assets/vedd-style/problem.png";
-import veddAnswer from "@/assets/vedd-style/answer.png";
 
 export default function LandingPage() {
   // Animation variants
@@ -472,12 +469,26 @@ export default function LandingPage() {
                 1
               </div>
               <div className="relative bg-white dark:bg-gray-800 rounded-2xl overflow-hidden shadow-2xl border border-gray-100 dark:border-gray-700 group-hover:shadow-3xl transition-all duration-500 transform group-hover:-translate-y-2">
-                <div className="aspect-video overflow-hidden">
-                  <img 
-                    src={veddIntro} 
-                    alt="VEDD Introduction - Initiation to Automation" 
-                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                  />
+                <div className="aspect-video bg-gradient-to-br from-red-50 to-red-100 dark:from-red-900/20 dark:to-red-800/20 flex items-center justify-center relative overflow-hidden">
+                  {/* Background Pattern */}
+                  <div className="absolute inset-0 opacity-10">
+                    <div className="absolute top-4 left-4">
+                      <BarChart2 className="h-8 w-8 text-red-500" />
+                    </div>
+                    <div className="absolute top-4 right-4">
+                      <TrendingUp className="h-6 w-6 text-red-400" />
+                    </div>
+                    <div className="absolute bottom-4 left-4">
+                      <LineChart className="h-6 w-6 text-red-400" />
+                    </div>
+                    <div className="absolute bottom-4 right-4">
+                      <PieChart className="h-8 w-8 text-red-500" />
+                    </div>
+                  </div>
+                  {/* Main Icon */}
+                  <div className="relative z-10 p-6 bg-white dark:bg-gray-800 rounded-full shadow-lg border border-red-100 dark:border-red-800 group-hover:scale-110 transition-transform duration-300">
+                    <Zap className="h-16 w-16 text-red-500" />
+                  </div>
                 </div>
                 <div className="p-8">
                   <div className="flex items-center mb-4">
@@ -505,12 +516,32 @@ export default function LandingPage() {
                 2
               </div>
               <div className="relative bg-white dark:bg-gray-800 rounded-2xl overflow-hidden shadow-2xl border border-gray-100 dark:border-gray-700 group-hover:shadow-3xl transition-all duration-500 transform group-hover:-translate-y-2">
-                <div className="aspect-video overflow-hidden">
-                  <img 
-                    src={veddProblem} 
-                    alt="VEDD Problem Statement - Trading Information Overload" 
-                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                  />
+                <div className="aspect-video bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-800/20 flex items-center justify-center relative overflow-hidden">
+                  {/* Chaos Pattern for Problem */}
+                  <div className="absolute inset-0 opacity-20">
+                    <div className="absolute top-2 left-2 animate-pulse">
+                      <BarChart className="h-4 w-4 text-blue-500" />
+                    </div>
+                    <div className="absolute top-8 left-8 animate-pulse delay-100">
+                      <TrendingDown className="h-5 w-5 text-blue-400" />
+                    </div>
+                    <div className="absolute top-4 right-8 animate-pulse delay-200">
+                      <AlertTriangle className="h-6 w-6 text-blue-600" />
+                    </div>
+                    <div className="absolute bottom-8 left-12 animate-pulse delay-300">
+                      <MoreVertical className="h-4 w-4 text-blue-500" />
+                    </div>
+                    <div className="absolute bottom-4 right-4 animate-pulse delay-150">
+                      <BarChart2 className="h-7 w-7 text-blue-500" />
+                    </div>
+                    <div className="absolute top-12 left-16 animate-pulse delay-250">
+                      <Share2 className="h-3 w-3 text-blue-400" />
+                    </div>
+                  </div>
+                  {/* Main Icon */}
+                  <div className="relative z-10 p-6 bg-white dark:bg-gray-800 rounded-full shadow-lg border border-blue-100 dark:border-blue-800 group-hover:scale-110 transition-transform duration-300">
+                    <AlertTriangle className="h-16 w-16 text-blue-500" />
+                  </div>
                 </div>
                 <div className="p-8">
                   <div className="flex items-center mb-4">
@@ -538,12 +569,29 @@ export default function LandingPage() {
                 3
               </div>
               <div className="relative bg-white dark:bg-gray-800 rounded-2xl overflow-hidden shadow-2xl border border-gray-100 dark:border-gray-700 group-hover:shadow-3xl transition-all duration-500 transform group-hover:-translate-y-2">
-                <div className="aspect-video overflow-hidden">
-                  <img 
-                    src={veddAnswer} 
-                    alt="VEDD Solution - AI-Powered Trading Strategy" 
-                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                  />
+                <div className="aspect-video bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900/20 dark:to-green-800/20 flex items-center justify-center relative overflow-hidden">
+                  {/* Solution Pattern */}
+                  <div className="absolute inset-0 opacity-15">
+                    <div className="absolute top-4 left-4">
+                      <Target className="h-6 w-6 text-green-500" />
+                    </div>
+                    <div className="absolute top-4 right-4">
+                      <TrendingUp className="h-7 w-7 text-green-600" />
+                    </div>
+                    <div className="absolute bottom-4 left-4">
+                      <BarChart2 className="h-8 w-8 text-green-500" />
+                    </div>
+                    <div className="absolute bottom-4 right-4">
+                      <Lightbulb className="h-6 w-6 text-green-400" />
+                    </div>
+                    <div className="absolute top-8 left-12">
+                      <ChartLine className="h-5 w-5 text-green-500" />
+                    </div>
+                  </div>
+                  {/* Main Icon */}
+                  <div className="relative z-10 p-6 bg-white dark:bg-gray-800 rounded-full shadow-lg border border-green-100 dark:border-green-800 group-hover:scale-110 transition-transform duration-300">
+                    <Lightbulb className="h-16 w-16 text-green-500" />
+                  </div>
                 </div>
                 <div className="p-8">
                   <div className="flex items-center mb-4">
