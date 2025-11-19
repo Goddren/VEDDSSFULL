@@ -19,6 +19,12 @@ function getOpenAIInstance() {
 // Function to test if OpenAI API key is valid
 export async function testOpenAIApiKey(): Promise<boolean> {
   try {
+    // If using Replit AI Integrations, just check if the env vars are set
+    if (process.env.AI_INTEGRATIONS_OPENAI_BASE_URL && process.env.AI_INTEGRATIONS_OPENAI_API_KEY) {
+      return true;
+    }
+    
+    // For regular OpenAI API, test with models.list()
     const openai = getOpenAIInstance();
     const response = await openai.models.list();
     return response.data.length > 0;
