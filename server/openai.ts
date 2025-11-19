@@ -2,9 +2,11 @@ import OpenAI from "openai";
 import { ChartAnalysisResponse, TrendCell } from "@shared/types";
 import fs from "fs";
 
-// Create and export an OpenAI instance
+// This is using Replit's AI Integrations service, which provides OpenAI-compatible API access without requiring your own OpenAI API key.
+// The AI integration uses Replit credits and is billed to your Replit account.
 export const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
 });
 
 // Function to get an OpenAI instance with the current API key

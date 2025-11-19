@@ -108,3 +108,6 @@ mode = "sequential"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "npm run dev"
+
+[agent]
+integrations = ["javascript_openai_ai_integrations:1.0.0"]
