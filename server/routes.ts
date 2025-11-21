@@ -265,7 +265,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      const { groupId, symbol, platformType, timeframes } = req.body;
+      const { groupId, symbol, platformType, timeframes, strategyType, eaName, tradeDuration } = req.body;
       
       if (!groupId || !symbol || !platformType || !Array.isArray(timeframes)) {
         return res.status(400).json({ 
@@ -288,12 +288,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Generate the EA code based on platform type
+      // Generate the EA code based on platform type with enhanced parameters
       let generatedCode: string;
+      const eaConfig = {
+        strategyType: strategyType || 'day_trading',
+        eaName: eaName || 'Multi-Timeframe Strategy',
+        tradeDuration: tradeDuration || 'Variable'
+      };
+
       if (platformType === 'MT5') {
-        generatedCode = generateMT5EACode(symbol, timeframes);
+        generatedCode = generateMT5EACode(symbol, timeframes, eaConfig);
       } else {
-        generatedCode = generateTradingViewCode(symbol, timeframes);
+        generatedCode = generateTradingViewCode(symbol, timeframes, eaConfig);
       }
 
       // Store the generated strategy in the database

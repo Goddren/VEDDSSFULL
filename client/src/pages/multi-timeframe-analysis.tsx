@@ -3,12 +3,15 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import ImageUpload from '@/components/ui/image-upload';
 import { useToast } from '@/hooks/use-toast';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { ChartAnalysisResponse } from '@shared/types';
-import { Clock, TrendingUp, Code, Download, Check, X } from 'lucide-react';
+import { Clock, TrendingUp, Code, Download, Check, X, Settings, Target } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 
 interface TimeframeUpload {
@@ -82,9 +85,43 @@ async function compressImage(file: File): Promise<File> {
   });
 }
 
+const STRATEGY_TYPES = [
+  { 
+    value: 'scalping', 
+    label: 'Scalping (seconds to minutes)', 
+    duration: '1-15 minutes',
+    suggestedTimeframes: ['M1', 'M5', 'M15'],
+    description: 'Quick trades, capturing small price movements'
+  },
+  { 
+    value: 'day_trading', 
+    label: 'Day Trading (minutes to hours)', 
+    duration: '15 minutes - 4 hours',
+    suggestedTimeframes: ['M15', 'M30', 'H1', 'H4'],
+    description: 'Intraday trades, closed before market close'
+  },
+  { 
+    value: 'swing_trading', 
+    label: 'Swing Trading (hours to days)', 
+    duration: '4 hours - 5 days',
+    suggestedTimeframes: ['H4', 'D1'],
+    description: 'Multi-day trades, capturing trend swings'
+  },
+  { 
+    value: 'position_trading', 
+    label: 'Position Trading (days to weeks)', 
+    duration: '5+ days',
+    suggestedTimeframes: ['D1', 'W1'],
+    description: 'Long-term trades, following major trends'
+  }
+];
+
 export default function MultiTimeframeAnalysis() {
   const [symbol, setSymbol] = useState('');
   const [groupId] = useState(uuidv4());
+  const [strategyType, setStrategyType] = useState<string>('day_trading');
+  const [eaName, setEaName] = useState('Multi-Timeframe Strategy');
+  const [tradeDuration, setTradeDuration] = useState('');
   const [timeframeUploads, setTimeframeUploads] = useState<Record<string, TimeframeUpload>>(
     TIMEFRAMES.reduce((acc, tf) => ({
       ...acc,
@@ -190,7 +227,10 @@ export default function MultiTimeframeAnalysis() {
         groupId,
         symbol: symbol || 'UNKNOWN',
         platformType,
-        timeframes: uploadedTimeframes
+        timeframes: uploadedTimeframes,
+        strategyType,
+        eaName,
+        tradeDuration
       }).then(res => res.json());
 
       return response;
@@ -213,6 +253,8 @@ export default function MultiTimeframeAnalysis() {
   const uploadedCount = Object.values(timeframeUploads).filter(tf => tf.analysis !== null).length;
   const canGenerateCode = uploadedCount >= 2;
 
+  const selectedStrategy = STRATEGY_TYPES.find(st => st.value === strategyType);
+
   return (
     <div className="container mx-auto py-8 px-4">
       <div className="max-w-6xl mx-auto space-y-6">
@@ -222,6 +264,65 @@ export default function MultiTimeframeAnalysis() {
             Upload charts from multiple timeframes to generate MT5 or TradingView EA code for automated trading
           </p>
         </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Settings className="w-5 h-5" />
+              EA Configuration
+            </CardTitle>
+            <CardDescription>
+              Customize your Expert Advisor based on your trading style
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="ea-name">EA Name</Label>
+                <Input
+                  id="ea-name"
+                  value={eaName}
+                  onChange={(e) => setEaName(e.target.value)}
+                  placeholder="My Trading Strategy"
+                  data-testid="input-ea-name"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="strategy-type">Trading Strategy Type</Label>
+                <Select value={strategyType} onValueChange={setStrategyType}>
+                  <SelectTrigger id="strategy-type" data-testid="select-strategy-type">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {STRATEGY_TYPES.map((st) => (
+                      <SelectItem key={st.value} value={st.value}>
+                        {st.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {selectedStrategy && (
+              <div className="p-4 bg-muted rounded-lg space-y-2">
+                <div className="flex items-start gap-2">
+                  <Target className="w-5 h-5 mt-0.5 text-primary" />
+                  <div>
+                    <p className="font-medium">{selectedStrategy.description}</p>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Typical trade duration: {selectedStrategy.duration}
+                    </p>
+                    <p className="text-sm text-muted-foreground mt-2">
+                      <strong>Recommended timeframes:</strong> {selectedStrategy.suggestedTimeframes.join(', ')}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         {symbol && (
           <Card>
