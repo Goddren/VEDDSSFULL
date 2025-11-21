@@ -1,6 +1,6 @@
 import { storage } from "./storage";
 import { initialAchievements } from "./data/achievement-seeds";
-import { db } from "../db";
+import { db } from "./db";
 import { subscriptionPlans } from "@shared/schema";
 
 /**

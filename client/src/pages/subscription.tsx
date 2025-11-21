@@ -238,24 +238,40 @@ export default function SubscriptionPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
         {plans?.map((plan) => (
           <Card key={plan.id} className={`relative overflow-hidden transition-all duration-300 ${
-            subscription?.planId === plan.id 
-              ? 'border-primary shadow-lg' 
-              : 'hover:shadow-md hover:border-primary/50'
+            plan.interval === 'lifetime' 
+              ? 'border-2 border-primary shadow-2xl scale-105 ring-4 ring-primary/20' 
+              : subscription?.planId === plan.id 
+                ? 'border-primary shadow-lg' 
+                : 'hover:shadow-md hover:border-primary/50'
           }`}>
+            {plan.interval === 'lifetime' && (
+              <div className="absolute top-0 left-0 right-0">
+                <div className="bg-gradient-to-r from-primary to-primary/80 text-primary-foreground text-center py-2 font-bold text-sm">
+                  🔥 BEST VALUE - LIMITED TIME
+                </div>
+              </div>
+            )}
             {subscription?.planId === plan.id && (
               <div className="absolute top-0 right-0">
                 <Badge className="m-2 bg-primary hover:bg-primary">Current Plan</Badge>
               </div>
             )}
-            <CardHeader>
+            <CardHeader className={plan.interval === 'lifetime' ? 'mt-8' : ''}>
               <CardTitle className="flex justify-between items-start">
                 <span>{plan.name}</span>
-                <span className="text-2xl font-bold">{formatPrice(plan.price)}</span>
+                <div className="text-right">
+                  <span className="text-2xl font-bold">{formatPrice(plan.price)}</span>
+                  {plan.interval === 'lifetime' && (
+                    <div className="text-xs text-muted-foreground mt-1">Save $599/year</div>
+                  )}
+                </div>
               </CardTitle>
-              <CardDescription>{plan.interval === 'month' ? 'per month' : plan.interval}</CardDescription>
+              <CardDescription>
+                {plan.interval === 'month' ? 'per month' : plan.interval === 'lifetime' ? 'one-time payment' : plan.interval}
+              </CardDescription>
             </CardHeader>
             <CardContent className="min-h-[200px]">
               <div className="text-sm mb-4">{plan.description}</div>
@@ -328,11 +344,22 @@ export default function SubscriptionPage() {
                   <span className="text-base">Feature</span>
                 </th>
                 {plans?.map((plan) => (
-                  <th key={plan.id} className={`px-6 py-5 text-center ${subscription?.planId === plan.id ? 'bg-primary/15' : ''}`}>
+                  <th key={plan.id} className={`px-6 py-5 text-center ${
+                    plan.interval === 'lifetime' 
+                      ? 'bg-primary/20 border-x-2 border-primary' 
+                      : subscription?.planId === plan.id 
+                        ? 'bg-primary/15' 
+                        : ''
+                  }`}>
+                    {plan.interval === 'lifetime' && (
+                      <Badge className="mb-2 bg-primary hover:bg-primary">🔥 BEST VALUE</Badge>
+                    )}
                     <span className="text-lg font-bold">{plan.name}</span>
                     <div className="text-base font-medium mt-1">
                       {formatPrice(plan.price)}
-                      <span className="text-xs text-muted-foreground">/month</span>
+                      <span className="text-xs text-muted-foreground">
+                        {plan.interval === 'lifetime' ? ' one-time' : '/month'}
+                      </span>
                     </div>
                     {subscription?.planId === plan.id && 
                       <Badge className="mt-2 bg-primary hover:bg-primary">Current Plan</Badge>
@@ -351,7 +378,13 @@ export default function SubscriptionPage() {
               <tr className="hover:bg-muted/20 transition-colors">
                 <td className="px-6 py-4 text-sm font-medium">Chart Analyses per Month</td>
                 {plans?.map((plan) => (
-                  <td key={plan.id} className={`px-6 py-4 text-center ${subscription?.planId === plan.id ? 'bg-primary/5' : ''}`}>
+                  <td key={plan.id} className={`px-6 py-4 text-center ${
+                    plan.interval === 'lifetime' 
+                      ? 'bg-primary/10 border-x-2 border-primary/30' 
+                      : subscription?.planId === plan.id 
+                        ? 'bg-primary/5' 
+                        : ''
+                  }`}>
                     <span className="font-semibold">{plan.analysisLimit > 999 ? 'Unlimited' : plan.analysisLimit}</span>
                   </td>
                 ))}
