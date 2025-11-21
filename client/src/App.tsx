@@ -35,6 +35,8 @@ import InteractiveTooltipShowcase from "@/pages/interactive-tooltip-showcase";
 import BlogPage from "@/pages/blog";
 import StrategyWizard from "@/pages/strategy-wizard";
 import MobileAlerts from "@/pages/mobile-alerts";
+import { MobileFAB } from "@/components/mobile-fab";
+import { NetworkStatus } from "@/components/network-status";
 import { NewsNotificationScheduler } from "@/components/news-notification-scheduler";
 import { SubscriptionUsageHeader } from "@/components/ui/subscription-usage-header";
 import { PageTransition } from "@/components/ui/page-transition";
@@ -100,6 +102,8 @@ function AppLayout() {
         </PageTransition>
       </main>
       {showHeaderFooter && !isAuthPage && <Footer />}
+      <MobileFAB />
+      <NetworkStatus />
       <Toaster />
     </div>
   );
