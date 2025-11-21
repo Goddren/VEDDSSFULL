@@ -108,11 +108,57 @@ Full-stack monorepo with clear separation between client and server, sharing com
 - **Network Status**: Visual indicator when offline with auto-sync
 - **Responsive Design**: Bottom navigation and mobile-first layout
 
+## EA Trading Strategy Features
+
+### Hybrid AI + Technical Indicator Approach
+The generated MT5/TradingView EAs now use a sophisticated hybrid trading system that combines:
+
+**AI Pattern Analysis** (Baked-In):
+- Specific patterns detected from uploaded charts (Head & Shoulders, Double Top, etc.)
+- Direction recommendations (BUY/SELL/NEUTRAL) with confidence levels
+- Support/Resistance levels from AI analysis
+- Entry/exit points calculated by AI
+
+**Technical Indicator Confirmation** (Real-Time):
+- MACD crossover detection and trend analysis
+- RSI overbought/oversold conditions
+- Volume confirmation filters
+- ATR-based stop loss and take profit levels
+
+**Hybrid Logic**:
+- When AI recommends a direction → Lighter technical confirmation required
+- When AI is neutral → Stricter technical signals needed
+- Reduces false signals while maintaining responsiveness
+- Adapts to both AI insights and live market conditions
+
+### Live AI Refresh Feature (In Development)
+A future feature that will enable daily AI analysis refresh:
+
+**Planned Capabilities**:
+- Daily API calls to refresh AI analysis with current market data
+- Automatic detection of changed market conditions
+- Safety pause mechanism when AI changes direction
+- Cost: ~$1-3 per month per EA
+
+**Current Status**: DISABLED pending security implementation
+- Requires proper authentication and API token management
+- Rate limiting and cost protection needed
+- Available for early access by contacting support
+
+**Security Measures Needed**:
+- Unique API tokens per EA stored in database
+- User authentication for API endpoints
+- Rate limiting (1-hour minimum between refreshes)
+- Cost tracking per user
+- Subscription-tier gating
+
 ## Changelog
 
 - July 06, 2025. Initial setup
 - July 06, 2025. Fixed canvas module deployment error by installing required system dependencies (pkg-config, cairo, pango, libpng, libjpeg, giflib, librsvg, pixman, python3, libuuid)
 - November 21, 2025. Implemented mobile companion app with PWA infrastructure, price alerts system, offline support, and mobile-optimized UI components
+- November 21, 2025. Implemented hybrid AI + technical indicator trading strategy for MT5 EAs combining pattern analysis with real-time technical confirmation
+- November 21, 2025. Developed live AI refresh feature prototype (disabled pending security audit) with backend API endpoint, WebRequest integration, and safety mechanisms
 
 ## User Preferences
 

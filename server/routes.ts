@@ -1852,6 +1852,148 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // EA Live Refresh endpoint - REQUIRES AUTHENTICATION
+  app.post('/api/ea/refresh-analysis', async (req: Request, res: Response) => {
+    try {
+      // SECURITY: Require user authentication
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ 
+          success: false,
+          message: "Authentication required. Please log in to use EA refresh feature." 
+        });
+      }
+
+      const userId = (req.user as Express.User).id;
+      const { symbol, timeframe, priceData, originalDirection } = req.body;
+
+      // Validation
+      if (!symbol || !timeframe || !priceData) {
+        return res.status(400).json({ 
+          success: false,
+          message: "Missing required parameters (symbol, timeframe, priceData)" 
+        });
+      }
+
+      // SECURITY: Rate limiting - check last refresh time for this user
+      // Note: In production, use Redis or database for rate limiting
+      const now = Date.now();
+      const userRefreshKey = `ea_refresh_${userId}`;
+      const globalStore = global as any;
+      const lastRefresh = globalStore[userRefreshKey] || 0;
+      const minIntervalMs = 60 * 60 * 1000; // 1 hour minimum between refreshes
+      
+      if (now - lastRefresh < minIntervalMs) {
+        const waitMinutes = Math.ceil((minIntervalMs - (now - lastRefresh)) / 60000);
+        return res.status(429).json({ 
+          success: false,
+          message: `Rate limit exceeded. Please wait ${waitMinutes} minutes before next refresh.`
+        });
+      }
+
+      // Update last refresh time
+      globalStore[userRefreshKey] = now;
+
+      // Extract OHLC data from priceData array
+      const { currentPrice, high, low, open } = priceData;
+      
+      console.log(`EA Refresh Request: ${symbol} ${timeframe}, Price: ${currentPrice}`);
+
+      // Call OpenAI for lightweight text-based analysis (no image needed)
+      const openai = new (await import('openai')).default({
+        baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL || process.env.OPENAI_BASE_URL,
+        apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY,
+      });
+
+      const analysisPrompt = `Analyze the current market conditions for ${symbol} on ${timeframe} timeframe.
+
+Current Price Data:
+- Open: ${open}
+- High: ${high}
+- Low: ${low}
+- Current: ${currentPrice}
+- Original AI Direction: ${originalDirection || 'Not specified'}
+
+Provide a brief analysis focusing on:
+1. Current trend direction (BUY/SELL/NEUTRAL)
+2. Confidence level (0-100%)
+3. Any detected patterns or warnings
+4. Whether the original direction is still valid
+
+Return ONLY a JSON object with this structure:
+{
+  "direction": "BUY|SELL|NEUTRAL",
+  "confidence": 75,
+  "patterns": ["Pattern1", "Pattern2"],
+  "directionChanged": true/false,
+  "warning": "Optional warning message",
+  "recommendation": "Brief trading recommendation"
+}`;
+
+      const response = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "system",
+            content: "You are an expert forex trading analyst. Provide concise, actionable analysis in strict JSON format."
+          },
+          {
+            role: "user",
+            content: analysisPrompt
+          }
+        ],
+        temperature: 0.7,
+        max_tokens: 500
+      });
+
+      const analysisText = response.choices[0]?.message?.content || '{}';
+      let analysis;
+      
+      try {
+        // Extract JSON from markdown code blocks if present
+        const jsonMatch = analysisText.match(/```json\n?([\s\S]*?)\n?```/) || 
+                         analysisText.match(/```\n?([\s\S]*?)\n?```/);
+        const jsonText = jsonMatch ? jsonMatch[1] : analysisText;
+        analysis = JSON.parse(jsonText);
+      } catch (parseError) {
+        console.error("Error parsing OpenAI response:", parseError);
+        analysis = {
+          direction: "NEUTRAL",
+          confidence: 0,
+          patterns: [],
+          directionChanged: false,
+          warning: "Could not parse AI response",
+          recommendation: "Use technical indicators only"
+        };
+      }
+
+      // Return the fresh analysis
+      res.json({
+        success: true,
+        timestamp: new Date().toISOString(),
+        symbol,
+        timeframe,
+        analysis: {
+          direction: analysis.direction || "NEUTRAL",
+          confidence: analysis.confidence || 0,
+          patterns: analysis.patterns || [],
+          directionChanged: analysis.directionChanged || false,
+          warning: analysis.warning || "",
+          recommendation: analysis.recommendation || ""
+        }
+      });
+
+      console.log(`EA Refresh Complete: ${symbol} - ${analysis.direction} (${analysis.confidence}%)`);
+
+    } catch (error) {
+      console.error("EA refresh analysis error:", error);
+      res.status(500).json({ 
+        success: false,
+        message: "Error performing refresh analysis",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

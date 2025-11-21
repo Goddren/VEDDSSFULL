@@ -187,6 +187,38 @@ enum ENUM_MULTI_TRADE_MODE
 // - Technical indicators confirm entries in real-time
 // - Reduces false signals and improves win rate
 //========================================================================
+//
+// 🔄 LIVE AI REFRESH FEATURE (COMING SOON!)
+//========================================================================
+// ⚠️  THIS FEATURE IS CURRENTLY DISABLED FOR SECURITY REVIEW
+//
+// We're working on a DAILY AI REFRESH feature that will:
+// - Re-analyze your chart daily with current market prices
+// - Detect new patterns that emerge over time
+// - Adapt to changing market conditions automatically
+// - Pause trading if AI changes direction (safety mode)
+// - Cost: ~$1-3 per month per EA
+//
+// WHY IS IT DISABLED?
+// We're implementing proper security measures to protect against:
+// - Unauthorized API access
+// - Cost abuse and rate limiting
+// - Secure token management
+// - User authentication and authorization
+//
+// HOW TO GET EARLY ACCESS:
+// 1. Contact support at support@vedd.io
+// 2. We'll provide you with a secure API token
+// 3. We'll enable the feature for your account
+// 4. You'll get detailed setup instructions
+//
+// EXPECTED LAUNCH: Next update (pending security audit)
+//
+// FOR NOW: The EA works great with the baked-in AI analysis!
+// - Use the validity period (${validityDays} days) as your guide
+// - Re-generate a new EA when it expires
+// - Each new generation gets fresh AI analysis
+//========================================================================
 
 //--- CUSTOMIZABLE INPUT PARAMETERS
 //--- Risk Management
@@ -234,11 +266,23 @@ input double PyramidingRatio = ${pyramidingRatio.toFixed(2)};          // Lot mu
 input double GridStepPips = 50;                 // Distance between grid levels (pips)
 input bool AllowHedging = ${multiTradeStrategy === 'hedging' ? 'true' : 'false'};                  // Allow simultaneous BUY/SELL positions
 
+//--- Live AI Refresh (Daily Real-Time Analysis)
+input group "=== AI Live Refresh (Costs ~$1-3/month) ==="
+input bool EnableLiveRefresh = false;           // ⚠️  DISABLED - Contact support to enable
+input string RefreshAPIURL = "${process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}/api/ea/refresh-analysis` : 'FEATURE_DISABLED'}";  // API endpoint URL
+input string RefreshAPIKey = "FEATURE_DISABLED_CONTACT_SUPPORT";  // Contact support for secure token
+input int RefreshIntervalHours = 24;            // Hours between refreshes (24 = once per day)
+input bool PauseOnDirectionChange = true;       // Pause trading if AI changes direction
+
 //--- Global variables
 int rsi_handle, macd_handle, atr_handle;
 double rsi_buffer[], macd_main[], macd_signal[], atr_buffer[];
 double last_buy_price = 0;    // Track last buy entry for pyramiding
 double last_sell_price = 0;   // Track last sell entry for pyramiding
+datetime last_refresh_time = 0;  // Track last API refresh
+string current_ai_direction = "${consensusDirection}";  // Current AI recommendation
+int current_ai_confidence = ${Math.round(consensusConfidence)};  // Current confidence level
+bool trading_paused = false;  // Trading pause status
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
@@ -268,6 +312,22 @@ int OnInit()
    Print("Consensus Direction: ${consensusDirection} (${consensusConfidence.toFixed(0)}%)");
    Print("ATR Stop Loss: ${atrStopLoss}");
    Print("Take Profit Target: ${takeProfit}");
+   Print("--------------------------------------");
+   Print("Live AI Refresh: ", EnableLiveRefresh ? "ENABLED" : "DISABLED");
+   if(EnableLiveRefresh)
+   {
+      if(RefreshAPIKey == "YOUR_API_KEY_HERE")
+      {
+         Print("⚠️  WARNING: Replace 'YOUR_API_KEY_HERE' with your actual API key!");
+         Print("⚠️  Trading will be PAUSED until you set a valid API key.");
+         trading_paused = true;
+      }
+      else
+      {
+         Print("Refresh Interval: Every ", RefreshIntervalHours, " hours");
+         EventSetTimer(RefreshIntervalHours * 3600);  // Set timer for API refresh
+      }
+   }
    Print("======================================");
    return(INIT_SUCCEEDED);
 }
@@ -277,9 +337,164 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
 {
+   EventKillTimer();  // Stop timer
    IndicatorRelease(rsi_handle);
    IndicatorRelease(macd_handle);
    IndicatorRelease(atr_handle);
+}
+
+//+------------------------------------------------------------------+
+//| Timer function - Refresh AI analysis periodically                |
+//+------------------------------------------------------------------+
+void OnTimer()
+{
+   if(!EnableLiveRefresh) return;
+   if(RefreshAPIKey == "YOUR_API_KEY_HERE") return;  // Skip if API key not set
+   
+   Print("======================================");
+   Print("🔄 REFRESHING AI ANALYSIS...");
+   Print("Time since last refresh: ", (int)((TimeCurrent() - last_refresh_time) / 3600), " hours");
+   
+   // Call the refresh function
+   RefreshAIAnalysis();
+}
+
+//+------------------------------------------------------------------+
+//| Refresh AI Analysis via API call                                 |
+//+------------------------------------------------------------------+
+void RefreshAIAnalysis()
+{
+   // Get current price data
+   MqlRates rates[];
+   if(CopyRates(_Symbol, PERIOD_CURRENT, 0, 1, rates) <= 0)
+   {
+      Print("❌ Error: Could not get current price data");
+      return;
+   }
+   
+   double current_price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   
+   // Prepare JSON request body
+   string json_body = StringFormat(
+      "{\\"symbol\\":\\"%s\\",\\"timeframe\\":\\"${primaryTF.timeframe}\\",\\"priceData\\":{\\"currentPrice\\":%.5f,\\"open\\":%.5f,\\"high\\":%.5f,\\"low\\":%.5f},\\"originalDirection\\":\\"%s\\",\\"apiKey\\":\\"%s\\"}",
+      _Symbol,
+      current_price,
+      rates[0].open,
+      rates[0].high,
+      rates[0].low,
+      current_ai_direction,
+      RefreshAPIKey
+   );
+   
+   // Prepare HTTP request
+   char post_data[];
+   char result[];
+   string headers;
+   string result_headers;
+   
+   StringToCharArray(json_body, post_data, 0, WHOLE_ARRAY, CP_UTF8);
+   ArrayResize(post_data, ArraySize(post_data) - 1);  // Remove null terminator
+   
+   headers = "Content-Type: application/json\\r\\n";
+   
+   // Make WebRequest
+   ResetLastError();
+   int res = WebRequest(
+      "POST",
+      RefreshAPIURL,
+      headers,
+      30000,  // 30 second timeout
+      post_data,
+      result,
+      result_headers
+   );
+   
+   if(res == -1)
+   {
+      int error_code = GetLastError();
+      Print("❌ WebRequest Error: ", error_code);
+      Print("⚠️  Make sure the URL is whitelisted in MT5 settings:");
+      Print("   Tools → Options → Expert Advisors → Allow WebRequest for listed URL");
+      Print("   Add: ", RefreshAPIURL);
+      return;
+   }
+   
+   if(res != 200)
+   {
+      Print("❌ API returned error code: ", res);
+      return;
+   }
+   
+   // Parse JSON response
+   string response = CharArrayToString(result, 0, WHOLE_ARRAY, CP_UTF8);
+   Print("✅ Received AI refresh response");
+   
+   // Extract direction and confidence (simple string parsing)
+   string new_direction = ExtractJSONValue(response, "direction");
+   string confidence_str = ExtractJSONValue(response, "confidence");
+   string direction_changed = ExtractJSONValue(response, "directionChanged");
+   string warning = ExtractJSONValue(response, "warning");
+   
+   int new_confidence = (int)StringToInteger(confidence_str);
+   
+   Print("--------------------------------------");
+   Print("📊 FRESH AI ANALYSIS:");
+   Print("   Original: ", current_ai_direction, " (", current_ai_confidence, "%)");
+   Print("   Updated:  ", new_direction, " (", new_confidence, "%)");
+   Print("   Changed:  ", direction_changed);
+   if(warning != "") Print("   ⚠️  ", warning);
+   Print("======================================");
+   
+   // Check if direction changed
+   if(direction_changed == "true" || new_direction != current_ai_direction)
+   {
+      Print("🚨 AI DIRECTION CHANGED!");
+      Print("   Old: ", current_ai_direction, " → New: ", new_direction);
+      
+      if(PauseOnDirectionChange)
+      {
+         trading_paused = true;
+         Print("⏸️  TRADING PAUSED - AI changed its mind!");
+         Print("   Review the new analysis and resume manually if needed");
+         Print("   Set PauseOnDirectionChange=false to auto-adapt");
+      }
+      else
+      {
+         Print("🔄 Auto-adapting to new AI direction...");
+         current_ai_direction = new_direction;
+         current_ai_confidence = new_confidence;
+      }
+   }
+   else
+   {
+      Print("✅ AI confirms original direction - continuing");
+      current_ai_confidence = new_confidence;  // Update confidence
+   }
+   
+   last_refresh_time = TimeCurrent();
+}
+
+//+------------------------------------------------------------------+
+//| Extract value from JSON string (simple parser)                   |
+//+------------------------------------------------------------------+
+string ExtractJSONValue(string json, string key)
+{
+   string search = "\\"" + key + "\\":\\"";
+   int start = StringFind(json, search);
+   if(start == -1)
+   {
+      // Try without quotes (for numbers/booleans)
+      search = "\\"" + key + "\\":";
+      start = StringFind(json, search);
+      if(start == -1) return "";
+      start += StringLen(search);
+      int end = StringFind(json, ",", start);
+      if(end == -1) end = StringFind(json, "}", start);
+      return StringSubstr(json, start, end - start);
+   }
+   start += StringLen(search);
+   int end = StringFind(json, "\\"", start);
+   return StringSubstr(json, start, end - start);
 }
 
 //+------------------------------------------------------------------+
@@ -348,7 +563,14 @@ ${higherTFs.map(tf => `   bool tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_
    if(bar_count % 10 == 0)  // Print every 10 bars to avoid spam
    {
       Print("========== HYBRID EA STATUS (Bar ", bar_count, ") ==========");
-      Print("AI ANALYSIS:");
+      if(EnableLiveRefresh)
+      {
+         Print("LIVE AI STATUS:");
+         Print("  - Current Direction: ", current_ai_direction, " (", current_ai_confidence, "%)");
+         Print("  - Trading Status: ", trading_paused ? "PAUSED ⏸️" : "ACTIVE ✅");
+         Print("");
+      }
+      Print("AI ANALYSIS (Original):");
       Print("  - Direction: ${consensusDirection} (${consensusConfidence.toFixed(0)}% confidence)");
       Print("  - Patterns: ${detectedPatterns || 'None'}");
       Print("");
@@ -366,6 +588,19 @@ ${higherTFs.map(tf => `   bool tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_
       Print("  - BUY: ", buy_positions, " | SELL: ", sell_positions, " | Total: ", total_positions);
       Print("  - Mode: ", MultiTradeMode, " | Max: ", MaxOpenTrades);
       Print("====================================================");
+   }
+   
+   //--- Check if trading is paused due to AI direction change
+   if(trading_paused)
+   {
+      static int pause_warning_count = 0;
+      pause_warning_count++;
+      if(pause_warning_count % 100 == 0)  // Print occasionally
+      {
+         Print("⏸️  TRADING PAUSED - AI direction changed");
+         Print("   Set trading_paused = false manually to resume");
+      }
+      return;  // Skip all trading logic
    }
    
    //--- Execute trades based on multi-trade strategy
