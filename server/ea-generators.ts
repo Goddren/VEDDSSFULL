@@ -307,6 +307,18 @@ ${higherTFs.map(tf => `   bool tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_
    int sell_positions = CountPositions(POSITION_TYPE_SELL);
    int total_positions = buy_positions + sell_positions;
    
+   //--- Debug info (printed every new bar)
+   static int bar_count = 0;
+   bar_count++;
+   if(bar_count % 10 == 0)  // Print every 10 bars to avoid spam
+   {
+      Print("=== EA Status ===");
+      Print("BUY Signal: ", buy_signal, " | SELL Signal: ", sell_signal);
+      Print("Volume OK: ", volume_confirmed);
+      Print("Positions - BUY: ", buy_positions, " | SELL: ", sell_positions);
+      Print("RSI: ", DoubleToString(rsi_buffer[0], 2), " | MACD: ", DoubleToString(macd_main[0], 5));
+   }
+   
    //--- Execute trades based on multi-trade strategy
    if(buy_signal && volume_confirmed && AllowBuyTrades)
    {
@@ -320,12 +332,25 @@ ${higherTFs.map(tf => `   bool tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_
             break;
             
          case MODE_PYRAMIDING:
-            can_open = (buy_positions > 0 && buy_positions < MaxOpenTrades) && CheckPyramidingConditions(true);
-            lot_size = buy_positions == 0 ? LotSize : LotSize * PyramidingRatio;
+            // Allow first trade OR pyramiding additional trades
+            if(buy_positions == 0)
+            {
+               can_open = true;
+               lot_size = LotSize;
+            }
+            else if(buy_positions < MaxOpenTrades && CheckPyramidingConditions(true))
+            {
+               can_open = true;
+               lot_size = LotSize * PyramidingRatio;
+            }
             break;
             
          case MODE_GRID:
-            can_open = (buy_positions < MaxOpenTrades) && CheckGridConditions(true);
+            // Allow first trade OR grid trades if conditions met
+            if(buy_positions == 0)
+               can_open = true;
+            else
+               can_open = (buy_positions < MaxOpenTrades) && CheckGridConditions(true);
             break;
             
          case MODE_HEDGING:
@@ -333,7 +358,7 @@ ${higherTFs.map(tf => `   bool tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_
             break;
       }
       
-      if(can_open || buy_positions == 0)
+      if(can_open)
       {
          double sl = UseATR_StopLoss ? CalculateATR_StopLoss(true) : 0;
          double tp = UseATR_StopLoss ? CalculateATR_TakeProfit(true) : 0;
@@ -352,12 +377,25 @@ ${higherTFs.map(tf => `   bool tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_
             break;
             
          case MODE_PYRAMIDING:
-            can_open = (sell_positions > 0 && sell_positions < MaxOpenTrades) && CheckPyramidingConditions(false);
-            lot_size = sell_positions == 0 ? LotSize : LotSize * PyramidingRatio;
+            // Allow first trade OR pyramiding additional trades
+            if(sell_positions == 0)
+            {
+               can_open = true;
+               lot_size = LotSize;
+            }
+            else if(sell_positions < MaxOpenTrades && CheckPyramidingConditions(false))
+            {
+               can_open = true;
+               lot_size = LotSize * PyramidingRatio;
+            }
             break;
             
          case MODE_GRID:
-            can_open = (sell_positions < MaxOpenTrades) && CheckGridConditions(false);
+            // Allow first trade OR grid trades if conditions met
+            if(sell_positions == 0)
+               can_open = true;
+            else
+               can_open = (sell_positions < MaxOpenTrades) && CheckGridConditions(false);
             break;
             
          case MODE_HEDGING:
@@ -365,7 +403,7 @@ ${higherTFs.map(tf => `   bool tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_
             break;
       }
       
-      if(can_open || sell_positions == 0)
+      if(can_open)
       {
          double sl = UseATR_StopLoss ? CalculateATR_StopLoss(false) : 0;
          double tp = UseATR_StopLoss ? CalculateATR_TakeProfit(false) : 0;
@@ -379,17 +417,19 @@ ${higherTFs.map(tf => `   bool tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_
 //+------------------------------------------------------------------+
 bool CheckBullishCondition()
 {
-   //--- RSI oversold
-   if(rsi_buffer[0] < RSI_Oversold)
+   //--- RSI not oversold (but not too extreme)
+   if(rsi_buffer[0] < 20)
       return false;
    
-   //--- MACD bullish crossover
-   bool macd_bullish = macd_main[0] > macd_signal[0] && macd_main[1] <= macd_signal[1];
+   //--- MACD bullish (crossover OR above signal line)
+   bool macd_bullish = macd_main[0] > macd_signal[0];
    
-   //--- Volume increasing (simplified check)
-   bool volume_ok = true; // Implement volume check if available
+   //--- Additional confirmation: MACD in positive territory or recent crossover
+   bool macd_positive = macd_main[0] > 0;
+   bool recent_crossover = (macd_main[0] > macd_signal[0] && macd_main[1] <= macd_signal[1]);
    
-   return macd_bullish && volume_ok;
+   //--- Return true if MACD is bullish (either above signal or recent crossover)
+   return macd_bullish || recent_crossover;
 }
 
 //+------------------------------------------------------------------+
@@ -397,14 +437,19 @@ bool CheckBullishCondition()
 //+------------------------------------------------------------------+
 bool CheckBearishCondition()
 {
-   //--- RSI overbought
-   if(rsi_buffer[0] > RSI_Overbought)
+   //--- RSI not extremely overbought
+   if(rsi_buffer[0] > 80)
       return true;
    
-   //--- MACD bearish crossover
-   bool macd_bearish = macd_main[0] < macd_signal[0] && macd_main[1] >= macd_signal[1];
+   //--- MACD bearish (crossover OR below signal line)
+   bool macd_bearish = macd_main[0] < macd_signal[0];
    
-   return macd_bearish;
+   //--- Additional confirmation: MACD in negative territory or recent crossover
+   bool macd_negative = macd_main[0] < 0;
+   bool recent_crossover = (macd_main[0] < macd_signal[0] && macd_main[1] >= macd_signal[1]);
+   
+   //--- Return true if MACD is bearish (either below signal or recent crossover)
+   return macd_bearish || recent_crossover;
 }
 
 //+------------------------------------------------------------------+
