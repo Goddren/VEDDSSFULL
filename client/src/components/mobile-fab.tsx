@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Camera, Upload, Plus, X } from "lucide-react";
+import { Camera, Upload, Plus, X, TrendingUp } from "lucide-react";
 import { useLocation } from "wouter";
 import { isMobileDevice } from "@/lib/pwa";
 
@@ -30,6 +30,15 @@ export function MobileFAB() {
         setIsOpen(false);
       },
       testId: "fab-upload"
+    },
+    {
+      icon: <TrendingUp className="w-6 h-6" />,
+      label: "Multi-TF EA",
+      action: () => {
+        setLocation("/multi-timeframe");
+        setIsOpen(false);
+      },
+      testId: "fab-multi-timeframe"
     },
   ];
 
