@@ -12,6 +12,11 @@ export function generateMT5EACode(
   symbol: string,
   timeframes: TimeframeAnalysisData[]
 ): string {
+  // Validate input
+  if (!timeframes || timeframes.length === 0) {
+    throw new Error('At least one timeframe analysis is required to generate EA code');
+  }
+
   // Sort timeframes from smallest to largest
   const sortedTimeframes = [...timeframes].sort((a, b) => {
     const order = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1'];
