@@ -160,6 +160,15 @@ export function generateMT5EACode(
 // Risk/Reward Ratio: ${primaryTF.analysis.riskRewardRatio || '1:2'}
 //========================================================================
 
+//--- ENUMERATIONS (Must be declared before inputs)
+enum ENUM_MULTI_TRADE_MODE
+{
+   MODE_SINGLE,        // Single trade only
+   MODE_PYRAMIDING,    // Add to winning positions
+   MODE_GRID,          // Multiple trades at grid levels
+   MODE_HEDGING        // Allow opposite positions
+};
+
 //--- CUSTOMIZABLE INPUT PARAMETERS
 //--- Risk Management
 input group "=== Risk Management ==="
@@ -205,15 +214,6 @@ input ENUM_MULTI_TRADE_MODE MultiTradeMode = ${multiTradeStrategy === 'pyramidin
 input double PyramidingRatio = ${pyramidingRatio.toFixed(2)};          // Lot multiplier for pyramiding (e.g., 0.5 = half size)
 input double GridStepPips = 50;                 // Distance between grid levels (pips)
 input bool AllowHedging = ${multiTradeStrategy === 'hedging' ? 'true' : 'false'};                  // Allow simultaneous BUY/SELL positions
-
-//--- Enumerations
-enum ENUM_MULTI_TRADE_MODE
-{
-   MODE_SINGLE,        // Single trade only
-   MODE_PYRAMIDING,    // Add to winning positions
-   MODE_GRID,          // Multiple trades at grid levels
-   MODE_HEDGING        // Allow opposite positions
-};
 
 //--- Global variables
 int rsi_handle, macd_handle, atr_handle;
