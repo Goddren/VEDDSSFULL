@@ -9,6 +9,14 @@ interface EAConfig {
   strategyType?: string;
   eaName?: string;
   tradeDuration?: string;
+  validityDays?: number;
+  chartDate?: string;
+  useTrailingStop?: boolean;
+  trailingStopDistance?: number;
+  trailingStopStep?: number;
+  multiTradeStrategy?: 'single' | 'pyramiding' | 'grid' | 'hedging';
+  maxSimultaneousTrades?: number;
+  pyramidingRatio?: number;
 }
 
 /**
@@ -22,6 +30,21 @@ export function generateMT5EACode(
   const eaName = config?.eaName || 'Multi-Timeframe Strategy';
   const strategyType = config?.strategyType || 'day_trading';
   const tradeDuration = config?.tradeDuration || 'Variable';
+  const validityDays = config?.validityDays || 30;
+  const chartDate = config?.chartDate || new Date().toISOString().split('T')[0];
+  const useTrailingStop = config?.useTrailingStop !== false;
+  const trailingStopDistance = config?.trailingStopDistance || 50;
+  const trailingStopStep = config?.trailingStopStep || 10;
+  const multiTradeStrategy = config?.multiTradeStrategy || 'single';
+  const maxSimultaneousTrades = config?.maxSimultaneousTrades || 1;
+  const pyramidingRatio = config?.pyramidingRatio || 0.5;
+  
+  // Calculate validity date
+  const chartDateObj = new Date(chartDate);
+  const validityDate = new Date(chartDateObj);
+  validityDate.setDate(validityDate.getDate() + validityDays);
+  const validityDateStr = validityDate.toISOString().split('T')[0];
+  
   // Validate input
   if (!timeframes || timeframes.length === 0) {
     throw new Error('At least one timeframe analysis is required to generate EA code');
@@ -117,6 +140,13 @@ export function generateMT5EACode(
 // Symbol: ${symbol}
 // Timeframes analyzed: ${sortedTimeframes.map(tf => tf.timeframe).join(', ')}
 //
+// EA VALIDITY INFORMATION
+//========================================================================
+// Chart Analysis Date: ${chartDate}
+// EA Valid Until: ${validityDateStr} (${validityDays} days from analysis)
+// ⚠️  IMPORTANT: After this date, re-analyze the chart and generate a new EA
+//    Market conditions change, and old analysis may become invalid.
+//
 // AI ANALYSIS SUMMARY
 //========================================================================
 // Detected Patterns: ${detectedPatterns || 'None specified'}
@@ -141,6 +171,13 @@ input double MaxRiskPercent = 2.0;              // Max risk per trade (% of acco
 input double StopLossPips = 50;                 // Fixed SL in pips (if not using ATR)
 input double TakeProfitPips = 100;              // Fixed TP in pips (if not using ATR)
 
+//--- Trailing Stop (Profit Protection)
+input group "=== Trailing Stop - Lock in Profits ==="
+input bool UseTrailingStop = ${useTrailingStop ? 'true' : 'false'};              // Enable trailing stop when in profit
+input double TrailingStopDistance = ${trailingStopDistance};       // Distance from current price (pips)
+input double TrailingStopStep = ${trailingStopStep};               // Minimum price movement to trail (pips)
+input double MinProfitToActivate = 20;          // Min profit (pips) before trailing activates
+
 //--- Technical Indicators
 input group "=== Technical Indicators ==="
 input int RSI_Period = 14;                      // RSI period
@@ -159,12 +196,30 @@ input bool AllowSellTrades = true;              // Allow SELL trades
 input bool UseVolumeFilter = true;              // Require volume confirmation
 input bool UseMultiTimeframeConfirmation = ${sortedTimeframes.length > 1 ? 'true' : 'false'};  // Require multi-timeframe agreement
 input int MinTimeframesAgree = ${Math.max(1, Math.floor(sortedTimeframes.length / 2))};                     // Minimum timeframes that must agree
-input int MaxOpenTrades = 1;                    // Maximum concurrent trades
+input int MaxOpenTrades = ${maxSimultaneousTrades};                    // Maximum concurrent trades
 input int MagicNumber = ${Math.floor(Math.random() * 90000) + 10000};                     // Unique identifier for this EA
+
+//--- Multiple Trade Strategy
+input group "=== Multi-Trade Strategy ==="
+input ENUM_MULTI_TRADE_MODE MultiTradeMode = ${multiTradeStrategy === 'pyramiding' ? 'MODE_PYRAMIDING' : multiTradeStrategy === 'grid' ? 'MODE_GRID' : multiTradeStrategy === 'hedging' ? 'MODE_HEDGING' : 'MODE_SINGLE'};    // Trading mode
+input double PyramidingRatio = ${pyramidingRatio.toFixed(2)};          // Lot multiplier for pyramiding (e.g., 0.5 = half size)
+input double GridStepPips = 50;                 // Distance between grid levels (pips)
+input bool AllowHedging = ${multiTradeStrategy === 'hedging' ? 'true' : 'false'};                  // Allow simultaneous BUY/SELL positions
+
+//--- Enumerations
+enum ENUM_MULTI_TRADE_MODE
+{
+   MODE_SINGLE,        // Single trade only
+   MODE_PYRAMIDING,    // Add to winning positions
+   MODE_GRID,          // Multiple trades at grid levels
+   MODE_HEDGING        // Allow opposite positions
+};
 
 //--- Global variables
 int rsi_handle, macd_handle, atr_handle;
 double rsi_buffer[], macd_main[], macd_signal[], atr_buffer[];
+double last_buy_price = 0;    // Track last buy entry for pyramiding
+double last_sell_price = 0;   // Track last sell entry for pyramiding
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
@@ -213,6 +268,10 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTick()
 {
+   //--- Manage trailing stop for existing positions (every tick)
+   if(UseTrailingStop)
+      ManageTrailingStop();
+   
    //--- Check if a new bar has formed
    static datetime last_bar_time = 0;
    datetime current_bar_time = iTime(_Symbol, PERIOD_CURRENT, 0);
@@ -242,18 +301,75 @@ ${higherTFs.map(tf => `   bool tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_
    //--- Volume confirmation
    bool volume_confirmed = CheckVolumeConfirmation();
    
-   //--- Execute trades
-   if(buy_signal && volume_confirmed && PositionsTotal() == 0)
+   //--- Count existing positions
+   int buy_positions = CountPositions(POSITION_TYPE_BUY);
+   int sell_positions = CountPositions(POSITION_TYPE_SELL);
+   int total_positions = buy_positions + sell_positions;
+   
+   //--- Execute trades based on multi-trade strategy
+   if(buy_signal && volume_confirmed && AllowBuyTrades)
    {
-      double sl = UseATR_StopLoss ? CalculateATR_StopLoss(true) : 0;
-      double tp = UseATR_StopLoss ? CalculateATR_TakeProfit(true) : 0;
-      OpenBuyPosition(sl, tp);
+      bool can_open = false;
+      double lot_size = LotSize;
+      
+      switch(MultiTradeMode)
+      {
+         case MODE_SINGLE:
+            can_open = (total_positions == 0);
+            break;
+            
+         case MODE_PYRAMIDING:
+            can_open = (buy_positions > 0 && buy_positions < MaxOpenTrades) && CheckPyramidingConditions(true);
+            lot_size = buy_positions == 0 ? LotSize : LotSize * PyramidingRatio;
+            break;
+            
+         case MODE_GRID:
+            can_open = (buy_positions < MaxOpenTrades) && CheckGridConditions(true);
+            break;
+            
+         case MODE_HEDGING:
+            can_open = (total_positions < MaxOpenTrades) && AllowHedging;
+            break;
+      }
+      
+      if(can_open || buy_positions == 0)
+      {
+         double sl = UseATR_StopLoss ? CalculateATR_StopLoss(true) : 0;
+         double tp = UseATR_StopLoss ? CalculateATR_TakeProfit(true) : 0;
+         OpenBuyPosition(sl, tp, lot_size);
+      }
    }
-   else if(sell_signal && volume_confirmed && PositionsTotal() == 0)
+   else if(sell_signal && volume_confirmed && AllowSellTrades)
    {
-      double sl = UseATR_StopLoss ? CalculateATR_StopLoss(false) : 0;
-      double tp = UseATR_StopLoss ? CalculateATR_TakeProfit(false) : 0;
-      OpenSellPosition(sl, tp);
+      bool can_open = false;
+      double lot_size = LotSize;
+      
+      switch(MultiTradeMode)
+      {
+         case MODE_SINGLE:
+            can_open = (total_positions == 0);
+            break;
+            
+         case MODE_PYRAMIDING:
+            can_open = (sell_positions > 0 && sell_positions < MaxOpenTrades) && CheckPyramidingConditions(false);
+            lot_size = sell_positions == 0 ? LotSize : LotSize * PyramidingRatio;
+            break;
+            
+         case MODE_GRID:
+            can_open = (sell_positions < MaxOpenTrades) && CheckGridConditions(false);
+            break;
+            
+         case MODE_HEDGING:
+            can_open = (total_positions < MaxOpenTrades) && AllowHedging;
+            break;
+      }
+      
+      if(can_open || sell_positions == 0)
+      {
+         double sl = UseATR_StopLoss ? CalculateATR_StopLoss(false) : 0;
+         double tp = UseATR_StopLoss ? CalculateATR_TakeProfit(false) : 0;
+         OpenSellPosition(sl, tp, lot_size);
+      }
    }
 }
 
@@ -359,10 +475,152 @@ double CalculateATR_TakeProfit(bool is_buy)
 }
 
 //+------------------------------------------------------------------+
+//| Manage trailing stop for all open positions                      |
+//+------------------------------------------------------------------+
+void ManageTrailingStop()
+{
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket <= 0) continue;
+      
+      if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+      if(PositionGetInteger(POSITION_MAGIC) != MagicNumber) continue;
+      
+      ENUM_POSITION_TYPE pos_type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+      double open_price = PositionGetDouble(POSITION_PRICE_OPEN);
+      double current_sl = PositionGetDouble(POSITION_SL);
+      double current_price = pos_type == POSITION_TYPE_BUY ? SymbolInfoDouble(_Symbol, SYMBOL_BID) : SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+      
+      double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+      double trailing_distance = TrailingStopDistance * point;
+      double trailing_step = TrailingStopStep * point;
+      
+      //--- Calculate profit in pips
+      double profit_pips = 0;
+      if(pos_type == POSITION_TYPE_BUY)
+         profit_pips = (current_price - open_price) / point;
+      else
+         profit_pips = (open_price - current_price) / point;
+      
+      //--- Only activate trailing stop if profit exceeds minimum threshold
+      if(profit_pips < MinProfitToActivate)
+         continue;
+      
+      //--- Calculate new stop loss
+      double new_sl = 0;
+      if(pos_type == POSITION_TYPE_BUY)
+      {
+         new_sl = current_price - trailing_distance;
+         
+         //--- Only move SL if it's better than current and moves by step
+         if(new_sl > current_sl && (current_sl == 0 || new_sl - current_sl >= trailing_step))
+         {
+            MqlTradeRequest request = {};
+            MqlTradeResult result = {};
+            
+            request.action = TRADE_ACTION_SLTP;
+            request.position = ticket;
+            request.sl = NormalizeDouble(new_sl, _Digits);
+            request.tp = PositionGetDouble(POSITION_TP);
+            
+            if(OrderSend(request, result))
+               Print("Trailing stop updated for BUY #", ticket, " New SL: ", new_sl);
+         }
+      }
+      else  // SELL position
+      {
+         new_sl = current_price + trailing_distance;
+         
+         //--- Only move SL if it's better than current and moves by step
+         if(new_sl < current_sl || current_sl == 0)
+         {
+            if(current_sl == 0 || current_sl - new_sl >= trailing_step)
+            {
+               MqlTradeRequest request = {};
+               MqlTradeResult result = {};
+               
+               request.action = TRADE_ACTION_SLTP;
+               request.position = ticket;
+               request.sl = NormalizeDouble(new_sl, _Digits);
+               request.tp = PositionGetDouble(POSITION_TP);
+               
+               if(OrderSend(request, result))
+                  Print("Trailing stop updated for SELL #", ticket, " New SL: ", new_sl);
+            }
+         }
+      }
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Count positions by type                                          |
+//+------------------------------------------------------------------+
+int CountPositions(ENUM_POSITION_TYPE pos_type)
+{
+   int count = 0;
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      if(PositionGetTicket(i) <= 0) continue;
+      if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+      if(PositionGetInteger(POSITION_MAGIC) != MagicNumber) continue;
+      if((ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE) == pos_type)
+         count++;
+   }
+   return count;
+}
+
+//+------------------------------------------------------------------+
+//| Check if pyramiding conditions are met                           |
+//+------------------------------------------------------------------+
+bool CheckPyramidingConditions(bool is_buy)
+{
+   //--- Get most recent position
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      if(PositionGetTicket(i) <= 0) continue;
+      if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+      if(PositionGetInteger(POSITION_MAGIC) != MagicNumber) continue;
+      
+      ENUM_POSITION_TYPE pos_type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+      
+      if((is_buy && pos_type == POSITION_TYPE_BUY) || (!is_buy && pos_type == POSITION_TYPE_SELL))
+      {
+         double profit = PositionGetDouble(POSITION_PROFIT);
+         //--- Only add to winning positions
+         return profit > 0;
+      }
+   }
+   return false;
+}
+
+//+------------------------------------------------------------------+
+//| Check if grid conditions are met                                 |
+//+------------------------------------------------------------------+
+bool CheckGridConditions(bool is_buy)
+{
+   double current_price = is_buy ? SymbolInfoDouble(_Symbol, SYMBOL_ASK) : SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+   double grid_distance = GridStepPips * point;
+   
+   //--- Check distance from last position
+   double last_position_price = is_buy ? last_buy_price : last_sell_price;
+   
+   if(last_position_price == 0)
+      return true;  // First position
+   
+   double distance = MathAbs(current_price - last_position_price);
+   return distance >= grid_distance;
+}
+
+//+------------------------------------------------------------------+
 //| Open buy position                                                |
 //+------------------------------------------------------------------+
-void OpenBuyPosition(double sl, double tp)
+void OpenBuyPosition(double sl, double tp, double lot_size = 0)
 {
+   if(lot_size == 0)
+      lot_size = LotSize;
+      
    MqlTradeRequest request = {};
    MqlTradeResult result = {};
    
@@ -370,7 +628,7 @@ void OpenBuyPosition(double sl, double tp)
    
    request.action = TRADE_ACTION_DEAL;
    request.symbol = _Symbol;
-   request.volume = LotSize;
+   request.volume = lot_size;
    request.type = ORDER_TYPE_BUY;
    request.price = price;
    request.sl = sl;
@@ -380,7 +638,10 @@ void OpenBuyPosition(double sl, double tp)
    request.comment = "Multi-TF EA Buy";
    
    if(OrderSend(request, result))
-      Print("Buy order opened successfully at ", price);
+   {
+      Print("Buy order opened successfully at ", price, " with lot size: ", lot_size);
+      last_buy_price = price;  // Track for grid/pyramiding
+   }
    else
       Print("Error opening buy order: ", GetLastError());
 }
@@ -388,8 +649,11 @@ void OpenBuyPosition(double sl, double tp)
 //+------------------------------------------------------------------+
 //| Open sell position                                               |
 //+------------------------------------------------------------------+
-void OpenSellPosition(double sl, double tp)
+void OpenSellPosition(double sl, double tp, double lot_size = 0)
 {
+   if(lot_size == 0)
+      lot_size = LotSize;
+      
    MqlTradeRequest request = {};
    MqlTradeResult result = {};
    
@@ -397,7 +661,7 @@ void OpenSellPosition(double sl, double tp)
    
    request.action = TRADE_ACTION_DEAL;
    request.symbol = _Symbol;
-   request.volume = LotSize;
+   request.volume = lot_size;
    request.type = ORDER_TYPE_SELL;
    request.price = price;
    request.sl = sl;
@@ -407,7 +671,10 @@ void OpenSellPosition(double sl, double tp)
    request.comment = "Multi-TF EA Sell";
    
    if(OrderSend(request, result))
-      Print("Sell order opened successfully at ", price);
+   {
+      Print("Sell order opened successfully at ", price, " with lot size: ", lot_size);
+      last_sell_price = price;  // Track for grid/pyramiding
+   }
    else
       Print("Error opening sell order: ", GetLastError());
 }
@@ -444,6 +711,20 @@ export function generateTradingViewCode(
   const eaName = config?.eaName || 'Multi-Timeframe Strategy';
   const strategyType = config?.strategyType || 'day_trading';
   const tradeDuration = config?.tradeDuration || 'Variable';
+  const validityDays = config?.validityDays || 30;
+  const chartDate = config?.chartDate || new Date().toISOString().split('T')[0];
+  const useTrailingStop = config?.useTrailingStop !== false;
+  const trailingStopDistance = config?.trailingStopDistance || 50;
+  const trailingStopStep = config?.trailingStopStep || 10;
+  const multiTradeStrategy = config?.multiTradeStrategy || 'single';
+  const maxSimultaneousTrades = config?.maxSimultaneousTrades || 1;
+  const pyramidingRatio = config?.pyramidingRatio || 0.5;
+  
+  // Calculate validity date
+  const chartDateObj = new Date(chartDate);
+  const validityDate = new Date(chartDateObj);
+  validityDate.setDate(validityDate.getDate() + validityDays);
+  const validityDateStr = validityDate.toISOString().split('T')[0];
 
   const sortedTimeframes = [...timeframes].sort((a, b) => {
     const order = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1'];
@@ -498,7 +779,7 @@ export function generateTradingViewCode(
   const riskReward = primaryTF.analysis.riskRewardRatio || '2:1';
 
   const code = `//@version=5
-strategy("${eaName} - ${symbol}", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=10, process_orders_on_close=true)
+strategy("${eaName} - ${symbol}", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=10, process_orders_on_close=true, pyramiding=${maxSimultaneousTrades})
 
 // ========================================================================
 // GENERATED BY VEDD CHART ANALYSIS TOOL
@@ -510,6 +791,13 @@ strategy("${eaName} - ${symbol}", overlay=true, default_qty_type=strategy.percen
 // Expected Trade Duration: ${tradeDuration}
 // Symbol: ${symbol}
 // Timeframes Analyzed: ${sortedTimeframes.map(tf => tf.timeframe).join(', ')}
+//
+// EA VALIDITY INFORMATION
+// ========================================================================
+// Chart Analysis Date: ${chartDate}
+// EA Valid Until: ${validityDateStr} (${validityDays} days from analysis)
+// ⚠️  IMPORTANT: After this date, re-analyze the chart and generate a new strategy
+//    Market conditions change, and old analysis may become invalid.
 //
 // AI ANALYSIS SUMMARY
 // ========================================================================
@@ -530,6 +818,11 @@ use_atr_sl = input.bool(true, "Use ATR-based Stop Loss", group="Risk Management"
 atr_multiplier = input.float(${atrMultiplierNum.toFixed(2)}, "ATR Multiplier for SL", minval=0.5, step=0.1, group="Risk Management", tooltip="From AI analysis")
 risk_reward_ratio = input.float(2.0, "Risk:Reward Ratio", minval=1.0, step=0.5, group="Risk Management")
 max_risk_percent = input.float(2.0, "Max Risk per Trade (%)", minval=0.5, maxval=10.0, step=0.5, group="Risk Management")
+
+// === TRAILING STOP (Profit Protection) ===
+use_trailing_stop = input.bool(${useTrailingStop}, "Enable Trailing Stop", group="Trailing Stop", tooltip="Lock in profits as price moves in your favor")
+trailing_stop_pips = input.float(${trailingStopDistance}, "Trailing Distance (pips)", minval=10, step=5, group="Trailing Stop")
+min_profit_activate = input.float(20, "Min Profit to Activate (pips)", minval=5, step=5, group="Trailing Stop")
 
 // === TECHNICAL INDICATORS ===
 rsi_period = input.int(14, "RSI Period", minval=1, group="Technical Indicators")
@@ -587,19 +880,27 @@ sell_condition = allow_sell and sell_signal and volume_confirmed and rsi > rsi_o
 atr_stop_distance = atr * atr_multiplier
 atr_tp_distance = atr * atr_multiplier * risk_reward_ratio
 
-// Execute Trades
+// Execute Trades with Trailing Stop
 if buy_condition and strategy.position_size == 0
     stop_loss = use_atr_sl ? close - atr_stop_distance : na
     take_profit = use_atr_sl ? close + atr_tp_distance : na
     strategy.entry("Long", strategy.long, comment="${strategyLabel} BUY")
-    if use_atr_sl
+    if use_atr_sl and use_trailing_stop
+        // Trailing stop that activates after minimum profit
+        trail_offset = trailing_stop_pips * syminfo.mintick * 10
+        strategy.exit("Exit Long", "Long", stop=stop_loss, limit=take_profit, trail_offset=trail_offset, comment="Trailing TP/SL")
+    else if use_atr_sl
         strategy.exit("Exit Long", "Long", stop=stop_loss, limit=take_profit, comment="TP/SL")
 
 if sell_condition and strategy.position_size == 0
     stop_loss = use_atr_sl ? close + atr_stop_distance : na
     take_profit = use_atr_sl ? close - atr_tp_distance : na
     strategy.entry("Short", strategy.short, comment="${strategyLabel} SELL")
-    if use_atr_sl
+    if use_atr_sl and use_trailing_stop
+        // Trailing stop that activates after minimum profit
+        trail_offset = trailing_stop_pips * syminfo.mintick * 10
+        strategy.exit("Exit Short", "Short", stop=stop_loss, limit=take_profit, trail_offset=trail_offset, comment="Trailing TP/SL")
+    else if use_atr_sl
         strategy.exit("Exit Short", "Short", stop=stop_loss, limit=take_profit, comment="TP/SL")
 
 // Plot Indicators

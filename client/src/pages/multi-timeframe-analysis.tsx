@@ -122,6 +122,14 @@ export default function MultiTimeframeAnalysis() {
   const [strategyType, setStrategyType] = useState<string>('day_trading');
   const [eaName, setEaName] = useState('Multi-Timeframe Strategy');
   const [tradeDuration, setTradeDuration] = useState('');
+  const [validityDays, setValidityDays] = useState(30);
+  const [chartDate, setChartDate] = useState(new Date().toISOString().split('T')[0]);
+  const [useTrailingStop, setUseTrailingStop] = useState(true);
+  const [trailingStopDistance, setTrailingStopDistance] = useState(50);
+  const [trailingStopStep, setTrailingStopStep] = useState(10);
+  const [multiTradeStrategy, setMultiTradeStrategy] = useState<'single' | 'pyramiding' | 'grid' | 'hedging'>('single');
+  const [maxSimultaneousTrades, setMaxSimultaneousTrades] = useState(1);
+  const [pyramidingRatio, setPyramidingRatio] = useState(0.5);
   const [timeframeUploads, setTimeframeUploads] = useState<Record<string, TimeframeUpload>>(
     TIMEFRAMES.reduce((acc, tf) => ({
       ...acc,
@@ -230,7 +238,15 @@ export default function MultiTimeframeAnalysis() {
         timeframes: uploadedTimeframes,
         strategyType,
         eaName,
-        tradeDuration
+        tradeDuration,
+        validityDays,
+        chartDate,
+        useTrailingStop,
+        trailingStopDistance,
+        trailingStopStep,
+        multiTradeStrategy,
+        maxSimultaneousTrades,
+        pyramidingRatio
       }).then(res => res.json());
 
       return response;
@@ -321,6 +337,129 @@ export default function MultiTimeframeAnalysis() {
                 </div>
               </div>
             )}
+
+            <div className="border-t pt-4 mt-4">
+              <h3 className="font-semibold mb-3">EA Validity Settings</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="chart-date">Chart Analysis Date</Label>
+                  <Input
+                    id="chart-date"
+                    type="date"
+                    value={chartDate}
+                    onChange={(e) => setChartDate(e.target.value)}
+                    data-testid="input-chart-date"
+                  />
+                  <p className="text-xs text-muted-foreground">Date when the chart was analyzed</p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="validity-days">EA Valid For (Days)</Label>
+                  <Input
+                    id="validity-days"
+                    type="number"
+                    value={validityDays}
+                    onChange={(e) => setValidityDays(parseInt(e.target.value) || 30)}
+                    min={1}
+                    max={365}
+                    data-testid="input-validity-days"
+                  />
+                  <p className="text-xs text-muted-foreground">Re-analyze after this period</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="border-t pt-4 mt-4">
+              <h3 className="font-semibold mb-3">Trailing Stop Configuration</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={useTrailingStop}
+                      onChange={(e) => setUseTrailingStop(e.target.checked)}
+                      className="rounded"
+                      data-testid="checkbox-trailing-stop"
+                    />
+                    Enable Trailing Stop
+                  </Label>
+                  <p className="text-xs text-muted-foreground">Lock in profits while in profit</p>
+                </div>
+                {useTrailingStop && (
+                  <>
+                    <div className="space-y-2">
+                      <Label htmlFor="trailing-distance">Distance (pips)</Label>
+                      <Input
+                        id="trailing-distance"
+                        type="number"
+                        value={trailingStopDistance}
+                        onChange={(e) => setTrailingStopDistance(parseInt(e.target.value) || 50)}
+                        min={10}
+                        data-testid="input-trailing-distance"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="trailing-step">Step (pips)</Label>
+                      <Input
+                        id="trailing-step"
+                        type="number"
+                        value={trailingStopStep}
+                        onChange={(e) => setTrailingStopStep(parseInt(e.target.value) || 10)}
+                        min={1}
+                        data-testid="input-trailing-step"
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+
+            <div className="border-t pt-4 mt-4">
+              <h3 className="font-semibold mb-3">Multi-Trade Strategy</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="multi-trade-strategy">Strategy Mode</Label>
+                  <Select value={multiTradeStrategy} onValueChange={(value: any) => setMultiTradeStrategy(value)}>
+                    <SelectTrigger id="multi-trade-strategy" data-testid="select-multi-trade">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="single">Single Trade Only</SelectItem>
+                      <SelectItem value="pyramiding">Pyramiding (Add to Winners)</SelectItem>
+                      <SelectItem value="grid">Grid Trading</SelectItem>
+                      <SelectItem value="hedging">Hedging</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="max-trades">Max Simultaneous Trades</Label>
+                  <Input
+                    id="max-trades"
+                    type="number"
+                    value={maxSimultaneousTrades}
+                    onChange={(e) => setMaxSimultaneousTrades(parseInt(e.target.value) || 1)}
+                    min={1}
+                    max={10}
+                    data-testid="input-max-trades"
+                  />
+                </div>
+                {multiTradeStrategy === 'pyramiding' && (
+                  <div className="space-y-2">
+                    <Label htmlFor="pyramiding-ratio">Pyramiding Ratio</Label>
+                    <Input
+                      id="pyramiding-ratio"
+                      type="number"
+                      step="0.1"
+                      value={pyramidingRatio}
+                      onChange={(e) => setPyramidingRatio(parseFloat(e.target.value) || 0.5)}
+                      min={0.1}
+                      max={2}
+                      data-testid="input-pyramiding-ratio"
+                    />
+                    <p className="text-xs text-muted-foreground">Lot multiplier for additional positions</p>
+                  </div>
+                )}
+              </div>
+            </div>
           </CardContent>
         </Card>
 

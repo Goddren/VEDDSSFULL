@@ -265,7 +265,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      const { groupId, symbol, platformType, timeframes, strategyType, eaName, tradeDuration } = req.body;
+      const { 
+        groupId, 
+        symbol, 
+        platformType, 
+        timeframes, 
+        strategyType, 
+        eaName, 
+        tradeDuration,
+        validityDays,
+        chartDate,
+        useTrailingStop,
+        trailingStopDistance,
+        trailingStopStep,
+        multiTradeStrategy,
+        maxSimultaneousTrades,
+        pyramidingRatio
+      } = req.body;
       
       if (!groupId || !symbol || !platformType || !Array.isArray(timeframes)) {
         return res.status(400).json({ 
@@ -293,7 +309,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const eaConfig = {
         strategyType: strategyType || 'day_trading',
         eaName: eaName || 'Multi-Timeframe Strategy',
-        tradeDuration: tradeDuration || 'Variable'
+        tradeDuration: tradeDuration || 'Variable',
+        validityDays: validityDays || 30,
+        chartDate: chartDate || new Date().toISOString().split('T')[0],
+        useTrailingStop: useTrailingStop !== false,
+        trailingStopDistance: trailingStopDistance || 50,
+        trailingStopStep: trailingStopStep || 10,
+        multiTradeStrategy: multiTradeStrategy || 'single',
+        maxSimultaneousTrades: maxSimultaneousTrades || 1,
+        pyramidingRatio: pyramidingRatio || 0.5
       };
 
       if (platformType === 'MT5') {
