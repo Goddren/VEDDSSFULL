@@ -436,26 +436,65 @@ export default function MultiTimeframeAnalysis() {
               </div>
 
               {generateCodeMutation.data && (
-                <Card className="bg-muted">
-                  <CardHeader>
-                    <CardTitle className="text-lg">Generated Code</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <pre className="text-xs overflow-x-auto p-4 bg-background rounded border max-h-96">
-                      <code>{(generateCodeMutation.data as any)?.code}</code>
-                    </pre>
-                    <Button
-                      className="mt-4"
-                      onClick={() => {
-                        navigator.clipboard.writeText((generateCodeMutation.data as any)?.code || '');
-                        toast({ title: 'Copied to clipboard' });
-                      }}
-                      data-testid="button-copy-code"
-                    >
-                      Copy Code
-                    </Button>
-                  </CardContent>
-                </Card>
+                <>
+                  <Card className="bg-primary/10 border-primary/20">
+                    <CardHeader>
+                      <CardTitle className="text-lg flex items-center gap-2">
+                        <TrendingUp className="w-5 h-5" />
+                        Strategy Summary
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div>
+                          <p className="text-xs text-muted-foreground">Strategy Type</p>
+                          <p className="font-semibold">{selectedStrategy?.label.split('(')[0].trim()}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">EA Name</p>
+                          <p className="font-semibold">{eaName}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Timeframes</p>
+                          <p className="font-semibold">{(generateCodeMutation.data as any)?.timeframesCount} analyzed</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Platform</p>
+                          <p className="font-semibold">{(generateCodeMutation.data as any)?.platform}</p>
+                        </div>
+                      </div>
+                      <div className="pt-2 border-t">
+                        <p className="text-sm text-muted-foreground">
+                          <strong>Features:</strong> ATR-based stops, multi-timeframe confirmation, volume filter, customizable risk management
+                        </p>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="bg-muted">
+                    <CardHeader>
+                      <CardTitle className="text-lg">Generated EA Code</CardTitle>
+                      <CardDescription>
+                        Copy this code and paste it into {(generateCodeMutation.data as any)?.platform === 'MT5' ? 'MetaEditor (MT5)' : 'TradingView Pine Editor'}
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <pre className="text-xs overflow-x-auto p-4 bg-background rounded border max-h-96">
+                        <code>{(generateCodeMutation.data as any)?.code}</code>
+                      </pre>
+                      <Button
+                        className="mt-4"
+                        onClick={() => {
+                          navigator.clipboard.writeText((generateCodeMutation.data as any)?.code || '');
+                          toast({ title: 'Copied to clipboard' });
+                        }}
+                        data-testid="button-copy-code"
+                      >
+                        Copy Code
+                      </Button>
+                    </CardContent>
+                  </Card>
+                </>
               )}
             </CardContent>
           </Card>

@@ -496,10 +496,6 @@ export function generateTradingViewCode(
   const takeProfitRaw = primaryTF.analysis.takeProfit;
   const takeProfit = typeof takeProfitRaw === 'string' ? takeProfitRaw : String(takeProfitRaw || 'Not specified');
   const riskReward = primaryTF.analysis.riskRewardRatio || '2:1';
-  
-  // Parse ATR multiplier as number
-  const atrMultiplierValue = primaryTF.analysis.atrStopLoss?.multiplier || 1.5;
-  const atrMultiplierNum = typeof atrMultiplierValue === 'number' ? atrMultiplierValue : parseFloat(String(atrMultiplierValue)) || 1.5;
 
   const code = `//@version=5
 strategy("${eaName} - ${symbol}", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=10, process_orders_on_close=true)

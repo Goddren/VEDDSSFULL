@@ -60,6 +60,7 @@ export interface ATRStopLossOptions {
   atr15x: string;
   atr2x: string;
   recommended: string;
+  multiplier?: number | string; // ATR multiplier for stop loss calculation
 }
 
 export interface MomentumIndicators {
