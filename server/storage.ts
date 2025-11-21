@@ -1,10 +1,10 @@
 import { 
   users, chartAnalyses, achievements, userAchievements,
-  userProfiles, follows, analysisFeedback, analysisViews,
+  userProfiles, follows, analysisFeedback, analysisViews, priceAlerts,
   type User, type InsertUser, type ChartAnalysis, type InsertChartAnalysis,
   type Achievement, type InsertAchievement, type UserAchievement, type InsertUserAchievement,
   type UserProfile, type InsertUserProfile, type Follow, type InsertFollow,
-  type AnalysisFeedback, type InsertAnalysisFeedback, type AnalysisView
+  type AnalysisFeedback, type InsertAnalysisFeedback, type AnalysisView, type PriceAlert, type InsertPriceAlert
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, sql } from "drizzle-orm";
@@ -77,6 +77,15 @@ export interface IStorage {
   completeReferral(referralId: number): Promise<Referral | undefined>;
   getReferralLeaderboard(limit?: number): Promise<{ username: string; referrals: number }[]>;
   addReferralCredits(userId: number, credits: number): Promise<User | undefined>;
+  
+  // Price Alert methods
+  createPriceAlert(alert: InsertPriceAlert): Promise<PriceAlert>;
+  getPriceAlert(id: number): Promise<PriceAlert | undefined>;
+  getUserPriceAlerts(userId: number): Promise<PriceAlert[]>;
+  updatePriceAlert(id: number, data: Partial<PriceAlert>): Promise<PriceAlert | undefined>;
+  deletePriceAlert(id: number): Promise<boolean>;
+  getActivePriceAlerts(): Promise<PriceAlert[]>;
+  triggerPriceAlert(id: number): Promise<PriceAlert | undefined>;
   
   // Session store for authentication
   sessionStore: session.Store;
@@ -605,6 +614,68 @@ export class DatabaseStorage implements IStorage {
       timeframes: strategy.timeframes?.length
     });
     return Date.now(); // Return timestamp as mock ID
+  }
+
+  async createPriceAlert(alert: InsertPriceAlert): Promise<PriceAlert> {
+    const [createdAlert] = await db
+      .insert(priceAlerts)
+      .values(alert)
+      .returning();
+    return createdAlert;
+  }
+
+  async getPriceAlert(id: number): Promise<PriceAlert | undefined> {
+    const [alert] = await db
+      .select()
+      .from(priceAlerts)
+      .where(eq(priceAlerts.id, id));
+    return alert;
+  }
+
+  async getUserPriceAlerts(userId: number): Promise<PriceAlert[]> {
+    return await db
+      .select()
+      .from(priceAlerts)
+      .where(eq(priceAlerts.userId, userId))
+      .orderBy(sql`${priceAlerts.createdAt} DESC`);
+  }
+
+  async updatePriceAlert(id: number, data: Partial<PriceAlert>): Promise<PriceAlert | undefined> {
+    const [updatedAlert] = await db
+      .update(priceAlerts)
+      .set(data)
+      .where(eq(priceAlerts.id, id))
+      .returning();
+    return updatedAlert;
+  }
+
+  async deletePriceAlert(id: number): Promise<boolean> {
+    const result = await db
+      .delete(priceAlerts)
+      .where(eq(priceAlerts.id, id));
+    return true;
+  }
+
+  async getActivePriceAlerts(): Promise<PriceAlert[]> {
+    return await db
+      .select()
+      .from(priceAlerts)
+      .where(and(
+        eq(priceAlerts.isActive, true),
+        eq(priceAlerts.isTriggered, false)
+      ));
+  }
+
+  async triggerPriceAlert(id: number): Promise<PriceAlert | undefined> {
+    const [triggeredAlert] = await db
+      .update(priceAlerts)
+      .set({
+        isTriggered: true,
+        triggeredAt: new Date()
+      })
+      .where(eq(priceAlerts.id, id))
+      .returning();
+    return triggeredAlert;
   }
 }
 

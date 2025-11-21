@@ -1741,6 +1741,93 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Price Alerts API endpoints
+  app.get('/api/alerts', async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ message: "Not authenticated" });
+    }
+
+    try {
+      const userId = (req.user as Express.User).id;
+      const alerts = await storage.getUserPriceAlerts(userId);
+      res.json(alerts);
+    } catch (error) {
+      console.error("Error fetching alerts:", error);
+      res.status(500).json({ message: "Error fetching alerts" });
+    }
+  });
+
+  app.post('/api/alerts', async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ message: "Not authenticated" });
+    }
+
+    try {
+      const userId = (req.user as Express.User).id;
+      const alertData = {
+        ...req.body,
+        userId,
+        isActive: true,
+        isTriggered: false,
+        notificationSent: false
+      };
+
+      const alert = await storage.createPriceAlert(alertData);
+      res.json(alert);
+    } catch (error) {
+      console.error("Error creating alert:", error);
+      res.status(500).json({ message: "Error creating alert" });
+    }
+  });
+
+  app.patch('/api/alerts/:id/toggle', async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ message: "Not authenticated" });
+    }
+
+    try {
+      const alertId = parseInt(req.params.id);
+      const { isActive } = req.body;
+      
+      const updatedAlert = await storage.updatePriceAlert(alertId, { isActive });
+      res.json(updatedAlert);
+    } catch (error) {
+      console.error("Error updating alert:", error);
+      res.status(500).json({ message: "Error updating alert" });
+    }
+  });
+
+  app.delete('/api/alerts/:id', async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ message: "Not authenticated" });
+    }
+
+    try {
+      const alertId = parseInt(req.params.id);
+      await storage.deletePriceAlert(alertId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting alert:", error);
+      res.status(500).json({ message: "Error deleting alert" });
+    }
+  });
+
+  app.get('/api/analyses/recent', async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ message: "Not authenticated" });
+    }
+
+    try {
+      const userId = (req.user as Express.User).id;
+      const analyses = await storage.getChartAnalysesByUserId(userId);
+      // Return only the 5 most recent analyses
+      res.json(analyses.slice(0, 5));
+    } catch (error) {
+      console.error("Error fetching recent analyses:", error);
+      res.status(500).json({ message: "Error fetching recent analyses" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
