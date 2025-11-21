@@ -272,3 +272,30 @@ export const insertTradingStrategySchema = createInsertSchema(tradingStrategies)
 
 export type TradingStrategy = typeof tradingStrategies.$inferSelect;
 export type InsertTradingStrategy = z.infer<typeof insertTradingStrategySchema>;
+
+// Price Alerts schema for mobile companion app
+export const priceAlerts = pgTable("price_alerts", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  symbol: text("symbol").notNull(),
+  alertType: text("alert_type").notNull(), // 'price_above', 'price_below', 'pattern_detected', 'trend_change'
+  targetPrice: text("target_price"), // Target price for price alerts
+  currentPrice: text("current_price"),
+  message: text("message").notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  isTriggered: boolean("is_triggered").notNull().default(false),
+  triggeredAt: timestamp("triggered_at"),
+  notificationSent: boolean("notification_sent").notNull().default(false),
+  metadata: jsonb("metadata"), // Additional data like pattern type, confidence, etc.
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  expiresAt: timestamp("expires_at"), // Optional expiration date
+});
+
+export const insertPriceAlertSchema = createInsertSchema(priceAlerts).omit({
+  id: true,
+  createdAt: true,
+  triggeredAt: true,
+});
+
+export type PriceAlert = typeof priceAlerts.$inferSelect;
+export type InsertPriceAlert = z.infer<typeof insertPriceAlertSchema>;
