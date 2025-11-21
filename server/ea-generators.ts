@@ -822,7 +822,12 @@ max_risk_percent = input.float(2.0, "Max Risk per Trade (%)", minval=0.5, maxval
 // === TRAILING STOP (Profit Protection) ===
 use_trailing_stop = input.bool(${useTrailingStop}, "Enable Trailing Stop", group="Trailing Stop", tooltip="Lock in profits as price moves in your favor")
 trailing_stop_pips = input.float(${trailingStopDistance}, "Trailing Distance (pips)", minval=10, step=5, group="Trailing Stop")
-min_profit_activate = input.float(20, "Min Profit to Activate (pips)", minval=5, step=5, group="Trailing Stop")
+min_profit_activate = input.float(${trailingStopStep}, "Min Profit to Activate (pips)", minval=5, step=5, group="Trailing Stop")
+
+// === MULTI-TRADE STRATEGY ===
+multi_trade_mode = input.string("${multiTradeStrategy}", "Strategy Mode", options=["single", "pyramiding", "grid", "hedging"], group="Multi-Trade Strategy", tooltip="Note: Pine Script handles pyramiding via built-in strategy settings")
+max_open_trades = input.int(${maxSimultaneousTrades}, "Max Simultaneous Trades", minval=1, maxval=10, group="Multi-Trade Strategy")
+pyramiding_ratio = input.float(${pyramidingRatio}, "Pyramiding Lot Multiplier", minval=0.1, maxval=2.0, step=0.1, group="Multi-Trade Strategy", tooltip="For pyramiding mode: lot size multiplier for additional positions")
 
 // === TECHNICAL INDICATORS ===
 rsi_period = input.int(14, "RSI Period", minval=1, group="Technical Indicators")
