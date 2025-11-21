@@ -228,10 +228,10 @@ export default function MobileAlerts() {
               Create New Alert
             </Button>
           </DialogTrigger>
-          <DialogContent data-testid="dialog-create-alert">
+          <DialogContent data-testid="dialog-create-alert" aria-describedby="dialog-description">
             <DialogHeader>
               <DialogTitle>Create Price Alert</DialogTitle>
-              <DialogDescription>
+              <DialogDescription id="dialog-description">
                 Set up a custom alert for price movements or pattern detection.
               </DialogDescription>
             </DialogHeader>

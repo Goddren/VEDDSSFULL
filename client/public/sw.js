@@ -1,83 +1,90 @@
-const CACHE_NAME = 'vedd-ai-v1';
-const STATIC_CACHE = 'vedd-static-v1';
-const DYNAMIC_CACHE = 'vedd-dynamic-v1';
+const CACHE_VERSION = 'vedd-v2';
+const STATIC_CACHE = `${CACHE_VERSION}-static`;
+const DYNAMIC_CACHE = `${CACHE_VERSION}-dynamic`;
+const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 
-const STATIC_ASSETS = [
-  '/',
-  '/index.html',
-  '/src/main.tsx',
-  '/src/index.css'
-];
-
-// Install event - cache static assets
+// Install event - skip waiting to activate immediately
 self.addEventListener('install', (event) => {
-  console.log('Service Worker: Installing...');
-  event.waitUntil(
-    caches.open(STATIC_CACHE)
-      .then((cache) => {
-        console.log('Service Worker: Caching static assets');
-        return cache.addAll(STATIC_ASSETS);
-      })
-      .catch((err) => console.log('Service Worker: Cache failed', err))
-  );
+  console.log('Service Worker: Installing version', CACHE_VERSION);
   self.skipWaiting();
 });
 
 // Activate event - clean up old caches
 self.addEventListener('activate', (event) => {
-  console.log('Service Worker: Activating...');
+  console.log('Service Worker: Activating version', CACHE_VERSION);
   event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames.map((cache) => {
-          if (cache !== STATIC_CACHE && cache !== DYNAMIC_CACHE) {
-            console.log('Service Worker: Clearing old cache', cache);
-            return caches.delete(cache);
-          }
-        })
-      );
-    })
+    Promise.all([
+      caches.keys().then((cacheNames) => {
+        return Promise.all(
+          cacheNames.map((cache) => {
+            if (!cache.startsWith(CACHE_VERSION)) {
+              console.log('Service Worker: Clearing old cache', cache);
+              return caches.delete(cache);
+            }
+          })
+        );
+      }),
+      self.clients.claim()
+    ])
   );
-  return self.clients.claim();
 });
 
-// Fetch event - serve from cache, fallback to network
+// Fetch event - stale-while-revalidate strategy
 self.addEventListener('fetch', (event) => {
+  const { request } = event;
+  const url = new URL(request.url);
+
   // Skip non-GET requests
-  if (event.request.method !== 'GET') {
+  if (request.method !== 'GET') {
     return;
   }
 
   // Skip chrome-extension and non-http(s) requests
-  if (!event.request.url.startsWith('http')) {
+  if (!url.protocol.startsWith('http')) {
     return;
   }
 
-  event.respondWith(
-    caches.match(event.request)
-      .then((response) => {
-        // Return cached version or fetch from network
-        return response || fetch(event.request)
-          .then((fetchResponse) => {
-            // Don't cache API responses
-            if (event.request.url.includes('/api/')) {
-              return fetchResponse;
-            }
-
-            // Clone and cache dynamic content
-            return caches.open(DYNAMIC_CACHE)
-              .then((cache) => {
-                cache.put(event.request, fetchResponse.clone());
-                return fetchResponse;
-              });
+  // API requests - network first, fallback to cache
+  if (url.pathname.startsWith('/api/')) {
+    event.respondWith(
+      fetch(request)
+        .then(response => {
+          const responseClone = response.clone();
+          caches.open(RUNTIME_CACHE).then(cache => {
+            cache.put(request, responseClone);
           });
-      })
-      .catch((err) => {
-        console.log('Service Worker: Fetch failed', err);
-        // Return offline page or fallback
-        if (event.request.destination === 'document') {
-          return caches.match('/');
-        }
+          return response;
+        })
+        .catch(() => {
+          return caches.match(request).then(cached => {
+            return cached || new Response(
+              JSON.stringify({ error: 'Offline', offline: true }),
+              { headers: { 'Content-Type': 'application/json' } }
+            );
+          });
+        })
+    );
+    return;
+  }
+
+  // Static assets - cache first, update in background (stale-while-revalidate)
+  event.respondWith(
+    caches.match(request)
+      .then(cached => {
+        const fetchPromise = fetch(request).then(response => {
+          if (response && response.status === 200) {
+            const responseClone = response.clone();
+            caches.open(STATIC_CACHE).then(cache => {
+              cache.put(request, responseClone);
+            });
+          }
+          return response;
+        }).catch(err => {
+          console.log('Fetch failed, using cache:', err);
+          return cached;
+        });
+
+        return cached || fetchPromise;
       })
   );
 });
@@ -145,14 +152,14 @@ self.addEventListener('sync', (event) => {
   
   if (event.tag === 'sync-alerts') {
     event.waitUntil(
-      // Sync pending alerts when back online
-      fetch('/api/alerts/sync', {
-        method: 'POST',
-        credentials: 'include'
+      self.clients.matchAll().then(clients => {
+        clients.forEach(client => {
+          client.postMessage({
+            type: 'SYNC_ALERTS',
+            timestamp: Date.now()
+          });
+        });
       })
-      .then(response => response.json())
-      .then(data => console.log('Alerts synced:', data))
-      .catch(err => console.error('Sync failed:', err))
     );
   }
 });
