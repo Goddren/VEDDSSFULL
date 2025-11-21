@@ -161,13 +161,31 @@ enum ENUM_MULTI_TRADE_MODE
 //========================================================================
 // Detected Patterns: ${detectedPatterns || 'None specified'}
 // Key Indicators: ${detectedIndicators || 'RSI, MACD, Volume'}
-// Consensus Direction: ${consensusDirection} (${consensusConfidence.toFixed(0)}% agreement)
+// AI Recommendation: ${consensusDirection} (${consensusConfidence.toFixed(0)}% confidence)
 // Entry Point: ${primaryTF.analysis.entryPoint || 'Market'}
 // Support Level: ${nearestSupport}
 // Resistance Level: ${nearestResistance}
 // Stop Loss (AI): ${atrStopLoss}
 // Take Profit (AI): ${takeProfit}
 // Risk/Reward Ratio: ${primaryTF.analysis.riskRewardRatio || '1:2'}
+//
+// TRADING STRATEGY - HYBRID APPROACH
+//========================================================================
+// This EA combines AI pattern analysis with technical indicator confirmation:
+//
+// ✓ When AI suggests ${consensusDirection}:
+//   - Easier entry requirements (MACD confirmation + reasonable RSI)
+//   - Trusts the AI's pattern detection from your chart
+//   - Waits for technical indicators to align with AI direction
+//
+// ✓ When AI is neutral/opposite:
+//   - Stricter entry requirements (fresh MACD crossover + strong RSI)
+//   - Requires clear technical signals to override AI analysis
+//
+// This hybrid approach gives you the best of both worlds:
+// - AI identifies patterns humans might miss
+// - Technical indicators confirm entries in real-time
+// - Reduces false signals and improves win rate
 //========================================================================
 
 //--- CUSTOMIZABLE INPUT PARAMETERS
@@ -329,16 +347,25 @@ ${higherTFs.map(tf => `   bool tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_
    bar_count++;
    if(bar_count % 10 == 0)  // Print every 10 bars to avoid spam
    {
-      Print("========== EA STATUS (Bar ", bar_count, ") ==========");
-      Print("Signals - BUY: ", buy_signal, " | SELL: ", sell_signal);
-      Print("Volume Filter: ", UseVolumeFilter, " | Volume OK: ", volume_confirmed);
-      Print("Multi-TF Check: ", UseMultiTimeframeConfirmation);
-      Print("Positions - BUY: ", buy_positions, " | SELL: ", sell_positions, " | Total: ", total_positions);
-      Print("Indicators - RSI: ", DoubleToString(rsi_buffer[0], 2), 
-            " | MACD Main: ", DoubleToString(macd_main[0], 5),
-            " | MACD Signal: ", DoubleToString(macd_signal[0], 5));
-      Print("Trade Mode: ", MultiTradeMode, " | Max Trades: ", MaxOpenTrades);
-      Print("==================================================");
+      Print("========== HYBRID EA STATUS (Bar ", bar_count, ") ==========");
+      Print("AI ANALYSIS:");
+      Print("  - Direction: ${consensusDirection} (${consensusConfidence.toFixed(0)}% confidence)");
+      Print("  - Patterns: ${detectedPatterns || 'None'}");
+      Print("");
+      Print("TECHNICAL INDICATORS:");
+      Print("  - RSI: ", DoubleToString(rsi_buffer[0], 2), 
+            " | MACD: ", DoubleToString(macd_main[0], 5),
+            " vs Signal: ", DoubleToString(macd_signal[0], 5));
+      Print("  - MACD Position: ", (macd_main[0] > macd_signal[0] ? "BULLISH ↑" : "BEARISH ↓"));
+      Print("");
+      Print("TRADE SIGNALS:");
+      Print("  - BUY Signal: ", buy_signal, " | SELL Signal: ", sell_signal);
+      Print("  - Volume OK: ", volume_confirmed, " | Multi-TF: ", UseMultiTimeframeConfirmation);
+      Print("");
+      Print("POSITIONS:");
+      Print("  - BUY: ", buy_positions, " | SELL: ", sell_positions, " | Total: ", total_positions);
+      Print("  - Mode: ", MultiTradeMode, " | Max: ", MaxOpenTrades);
+      Print("====================================================");
    }
    
    //--- Execute trades based on multi-trade strategy
@@ -436,42 +463,64 @@ ${higherTFs.map(tf => `   bool tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_
 
 //+------------------------------------------------------------------+
 //| Check bullish condition on current timeframe                     |
+//| HYBRID APPROACH: AI Analysis Direction + Technical Confirmation  |
 //+------------------------------------------------------------------+
 bool CheckBullishCondition()
 {
-   //--- RSI not oversold (but not too extreme)
-   if(rsi_buffer[0] < 20)
-      return false;
+   //--- AI RECOMMENDATION: ${consensusDirection === 'BUY' ? 'BULLISH ✓' : consensusDirection === 'SELL' ? 'BEARISH ✗' : 'NEUTRAL'}
+   //--- Detected Patterns: ${detectedPatterns || 'None'}
+   //--- Confidence: ${consensusConfidence.toFixed(0)}%
    
-   //--- MACD bullish (crossover OR above signal line)
-   bool macd_bullish = macd_main[0] > macd_signal[0];
+   bool ai_suggests_buy = ${consensusDirection === 'BUY' ? 'true' : 'false'};  // Based on chart pattern analysis
    
-   //--- Additional confirmation: MACD in positive territory or recent crossover
-   bool macd_positive = macd_main[0] > 0;
-   bool recent_crossover = (macd_main[0] > macd_signal[0] && macd_main[1] <= macd_signal[1]);
+   //--- Technical indicator confirmation
+   bool macd_bullish = macd_main[0] > macd_signal[0];  // MACD above signal line
+   bool rsi_not_extreme = (rsi_buffer[0] > 20 && rsi_buffer[0] < 80);  // RSI in reasonable range
+   bool macd_crossover = (macd_main[0] > macd_signal[0] && macd_main[1] <= macd_signal[1]);  // Fresh crossover
    
-   //--- Return true if MACD is bullish (either above signal or recent crossover)
-   return macd_bullish || recent_crossover;
+   //--- HYBRID LOGIC: 
+   //--- If AI says BUY, require indicator confirmation
+   //--- If AI is neutral/bearish, require strong indicator signals
+   if(ai_suggests_buy)
+   {
+      // AI says BUY - just need indicator confirmation (not oversold)
+      return (macd_bullish || macd_crossover) && rsi_not_extreme;
+   }
+   else
+   {
+      // AI didn't suggest BUY - require stronger technical confirmation
+      return macd_crossover && rsi_buffer[0] < 40;  // Fresh crossover + RSI below 40
+   }
 }
 
 //+------------------------------------------------------------------+
 //| Check bearish condition on current timeframe                     |
+//| HYBRID APPROACH: AI Analysis Direction + Technical Confirmation  |
 //+------------------------------------------------------------------+
 bool CheckBearishCondition()
 {
-   //--- RSI not extremely overbought
-   if(rsi_buffer[0] > 80)
-      return true;
+   //--- AI RECOMMENDATION: ${consensusDirection === 'SELL' ? 'BEARISH ✓' : consensusDirection === 'BUY' ? 'BULLISH ✗' : 'NEUTRAL'}
    
-   //--- MACD bearish (crossover OR below signal line)
-   bool macd_bearish = macd_main[0] < macd_signal[0];
+   bool ai_suggests_sell = ${consensusDirection === 'SELL' ? 'true' : 'false'};  // Based on chart pattern analysis
    
-   //--- Additional confirmation: MACD in negative territory or recent crossover
-   bool macd_negative = macd_main[0] < 0;
-   bool recent_crossover = (macd_main[0] < macd_signal[0] && macd_main[1] >= macd_signal[1]);
+   //--- Technical indicator confirmation
+   bool macd_bearish = macd_main[0] < macd_signal[0];  // MACD below signal line
+   bool rsi_not_extreme = (rsi_buffer[0] > 20 && rsi_buffer[0] < 80);  // RSI in reasonable range
+   bool macd_crossover = (macd_main[0] < macd_signal[0] && macd_main[1] >= macd_signal[1]);  // Fresh crossover
    
-   //--- Return true if MACD is bearish (either below signal or recent crossover)
-   return macd_bearish || recent_crossover;
+   //--- HYBRID LOGIC:
+   //--- If AI says SELL, require indicator confirmation
+   //--- If AI is neutral/bullish, require strong indicator signals
+   if(ai_suggests_sell)
+   {
+      // AI says SELL - just need indicator confirmation (not overbought)
+      return (macd_bearish || macd_crossover) && rsi_not_extreme;
+   }
+   else
+   {
+      // AI didn't suggest SELL - require stronger technical confirmation
+      return macd_crossover && rsi_buffer[0] > 60;  // Fresh crossover + RSI above 60
+   }
 }
 
 //+------------------------------------------------------------------+
