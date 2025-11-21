@@ -142,13 +142,13 @@ export default function MultiTimeframeAnalysis() {
         ...prev,
         [timeframe]: {
           ...prev[timeframe],
-          analysis: response.analysisResult,
+          analysis: response,
           uploading: false
         }
       }));
 
-      if (!symbol && response.analysisResult.symbol) {
-        setSymbol(response.analysisResult.symbol);
+      if (!symbol && response.symbol) {
+        setSymbol(response.symbol);
       }
 
       toast({
