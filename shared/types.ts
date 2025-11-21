@@ -54,6 +54,21 @@ export interface MarketTrendData {
   source: string;             // Source of prediction (AI model, etc.)
 }
 
+export interface ATRStopLossOptions {
+  atrValue: string;
+  atr1x: string;
+  atr15x: string;
+  atr2x: string;
+  recommended: string;
+}
+
+export interface MomentumIndicators {
+  rsi?: { value: string; signal: string; interpretation: string };
+  macd?: { value: string; signal: string; interpretation: string };
+  stochastic?: { value: string; signal: string; interpretation: string };
+  volumeTrend?: { direction: string; strength: string; interpretation: string };
+}
+
 export interface ChartAnalysisResponse {
   symbol: string;
   timeframe: string;
@@ -69,6 +84,8 @@ export interface ChartAnalysisResponse {
   potentialPips: string;
   volatilityScore: number;
   volatilityData: VolatilityData;
+  atrStopLoss?: ATRStopLossOptions;
+  momentumIndicators?: MomentumIndicators;
   marketTrends?: TrendCell[];  // Optional market trend data for related pairs
   patterns: Pattern[];
   indicators: Indicator[];

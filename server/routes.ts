@@ -5,6 +5,7 @@ import { User } from "@shared/schema";
 import { analyzeChartImage, testOpenAIApiKey, generateTradingTip, generateMarketTrendPredictions } from "./openai";
 import { setupTwilio, sendTradingSignal } from "./twilio";
 import { checkUserAchievements } from "./achievement-tracker";
+import { generateMT5EACode, generateTradingViewCode } from './ea-generators';
 import { tradingCoachHandler, tradingTipsHandler } from "./trading-coach";
 import { marketInsightsHandler, contextualInsightHandler } from "./market-insights";
 import { 
@@ -132,7 +133,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      const { base64Image, filename } = req.body;
+      const { base64Image, filename, multiTimeframeGroupId } = req.body;
       
       if (!base64Image) {
         return res.status(400).json({ message: "No base64 image data provided" });
@@ -207,7 +208,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           patterns: Array.isArray(analysis.patterns) ? analysis.patterns : [],
           indicators: Array.isArray(analysis.indicators) ? analysis.indicators : [],
           supportResistance: Array.isArray(analysis.supportResistance) ? analysis.supportResistance : [],
-          recommendation: analysis.recommendation || "No recommendation available"
+          recommendation: analysis.recommendation || "No recommendation available",
+          multiTimeframeGroupId: multiTimeframeGroupId || null
         });
       } catch (dbError) {
         console.error('Error storing analysis in database:', dbError);
@@ -248,6 +250,96 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.status(500).json({ 
         message: "Error analyzing chart", 
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
+  // Generate EA code based on multi-timeframe analysis
+  app.post("/api/generate-ea-code", async (req: Request, res: Response) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ 
+          success: false,
+          message: "Authentication required" 
+        });
+      }
+
+      const { groupId, symbol, platformType, timeframes } = req.body;
+      
+      if (!groupId || !symbol || !platformType || !Array.isArray(timeframes)) {
+        return res.status(400).json({ 
+          message: "Missing required parameters",
+          error: "groupId, symbol, platformType, and timeframes are required" 
+        });
+      }
+
+      if (!['MT5', 'TradingView'].includes(platformType)) {
+        return res.status(400).json({ 
+          message: "Invalid platform type",
+          error: "platformType must be 'MT5' or 'TradingView'" 
+        });
+      }
+
+      if (timeframes.length < 2) {
+        return res.status(400).json({ 
+          message: "Insufficient timeframes",
+          error: "At least 2 timeframes are required for multi-timeframe analysis" 
+        });
+      }
+
+      // Generate the EA code based on platform type
+      let generatedCode: string;
+      if (platformType === 'MT5') {
+        generatedCode = generateMT5EACode(symbol, timeframes);
+      } else {
+        generatedCode = generateTradingViewCode(symbol, timeframes);
+      }
+
+      // Store the generated strategy in the database
+      try {
+        const userId = (req.user as Express.User).id;
+        const strategyId = await storage.createTradingStrategy({
+          userId,
+          groupId,
+          symbol,
+          platformType,
+          generatedCode,
+          timeframes: timeframes.map((tf: any) => ({
+            timeframe: tf.timeframe,
+            direction: tf.analysis?.direction,
+            confidence: tf.analysis?.confidence
+          })),
+          entryConditions: `Multi-timeframe ${platformType} strategy for ${symbol}`,
+          exitConditions: "ATR-based take profit",
+          riskManagement: {
+            stopLoss: "ATR-based",
+            takeProfit: "2:1 risk-reward",
+            atrMultiplier: 1.5
+          }
+        });
+
+        res.json({
+          code: generatedCode,
+          strategyId,
+          platform: platformType,
+          symbol,
+          timeframesCount: timeframes.length
+        });
+      } catch (dbError) {
+        console.error('Error storing trading strategy:', dbError);
+        // Return the code even if database storage fails
+        res.json({
+          code: generatedCode,
+          platform: platformType,
+          symbol,
+          timeframesCount: timeframes.length
+        });
+      }
+    } catch (error: any) {
+      console.error("EA code generation error:", error);
+      res.status(500).json({ 
+        message: "Error generating EA code", 
         error: error instanceof Error ? error.message : "Unknown error"
       });
     }

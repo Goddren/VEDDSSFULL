@@ -65,6 +65,22 @@ export const chartAnalyses = pgTable("chart_analyses", {
   shareId: text("share_id"),
   sharedImageUrl: text("shared_image_url"),
   isPublic: boolean("is_public").default(false),
+  multiTimeframeGroupId: text("multi_timeframe_group_id"), // Groups related timeframe analyses
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// Multi-timeframe trading strategy code table
+export const tradingStrategies = pgTable("trading_strategies", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  groupId: text("group_id").notNull().unique(), // Links to multiTimeframeGroupId
+  symbol: text("symbol").notNull(),
+  platformType: text("platform_type").notNull(), // 'MT5' or 'TradingView'
+  generatedCode: text("generated_code").notNull(),
+  timeframes: jsonb("timeframes").notNull(), // Array of timeframes used
+  entryConditions: text("entry_conditions"),
+  exitConditions: text("exit_conditions"),
+  riskManagement: jsonb("risk_management"), // Stop loss, take profit rules
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -247,3 +263,12 @@ export type InsertAnalysisFeedback = z.infer<typeof insertAnalysisFeedbackSchema
 export type AnalysisView = typeof analysisViews.$inferSelect;
 export type Referral = typeof referrals.$inferSelect;
 export type InsertReferral = z.infer<typeof insertReferralSchema>;
+
+// Trading Strategy schemas
+export const insertTradingStrategySchema = createInsertSchema(tradingStrategies).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type TradingStrategy = typeof tradingStrategies.$inferSelect;
+export type InsertTradingStrategy = z.infer<typeof insertTradingStrategySchema>;

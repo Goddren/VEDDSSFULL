@@ -10,6 +10,7 @@ import Footer from "@/components/layout/footer";
 import Home from "@/pages/home";
 import Dashboard from "@/pages/dashboard";
 import Analysis from "@/pages/analysis";
+import MultiTimeframeAnalysis from "@/pages/multi-timeframe-analysis";
 import Historical from "@/pages/historical";
 import AuthPage from "@/pages/auth-page";
 import ProfilePage from "@/pages/profile";
@@ -77,6 +78,7 @@ function AppLayout() {
             {/* Protected routes */}
             <ProtectedRoute path="/dashboard" component={Dashboard} />
             <ProtectedRoute path="/analysis" component={Analysis} />
+            <ProtectedRoute path="/multi-timeframe" component={MultiTimeframeAnalysis} />
             <ProtectedRoute path="/analysis/:id" component={AnalysisDetail} />
             <ProtectedRoute path="/historical" component={Historical} />
             <ProtectedRoute path="/profile" component={ProfilePage} />

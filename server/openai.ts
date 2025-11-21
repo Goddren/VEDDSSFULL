@@ -42,27 +42,41 @@ export async function analyzeChartImage(base64Image: string): Promise<ChartAnaly
       messages: [
         {
           role: "system",
-          content: `You are an expert trading chart analyst. Analyze the trading chart image and provide detailed analysis.
-          Identify patterns, technical indicators, support/resistance levels, and market trends.
+          content: `You are an expert trading chart analyst with deep expertise in technical analysis, volume analysis, and momentum indicators. Analyze the trading chart image and provide detailed, accurate analysis.
           
-          CRITICAL: Provide UNBIASED analysis. Consider BOTH bullish and bearish scenarios equally:
-          - If price is at resistance with bearish indicators, suggest SELL
-          - If price is at support with bullish indicators, suggest BUY  
-          - If price is in a downtrend with bearish patterns, suggest SELL
-          - If price is in an uptrend with bullish patterns, suggest BUY
-          - Do NOT default to BUY signals - analyze the actual chart conditions objectively
+          CRITICAL ANALYSIS REQUIREMENTS:
           
-          Determine if the chart suggests a BUY or SELL signal based on:
-          - Current trend direction (up = BUY consideration, down = SELL consideration)
-          - Support/resistance levels (at resistance = SELL consideration, at support = BUY consideration)
-          - Technical indicators (bearish indicators = SELL, bullish indicators = BUY)
-          - Chart patterns (bearish patterns = SELL, bullish patterns = BUY)
+          1. VOLUME & MOMENTUM ANALYSIS (Priority):
+             - Analyze volume bars visible on the chart to assess buying/selling pressure
+             - Look for volume divergences that could signal trend reversals
+             - Identify momentum indicators (RSI, MACD, Stochastic if visible)
+             - Assess whether volume confirms or contradicts price action
+             - Higher volume on breakouts increases signal reliability
+             - Low volume in trends suggests potential reversal
           
-          Additionally, analyze volume patterns and provide insights on the best trading times for this pair:
-          - Identify if there are clear volume patterns visible in different trading sessions
-          - Determine which trading sessions (Asian, London, New York) show the most volume for this pair
-          - Assess the quality of trading opportunities during each session
-          - Provide specific advice on optimal times to trade based on volume
+          2. UNBIASED SIGNAL DIRECTION:
+             - Consider BOTH bullish and bearish scenarios equally
+             - If price is at resistance with bearish volume/momentum, suggest SELL
+             - If price is at support with bullish volume/momentum, suggest BUY
+             - Volume should CONFIRM direction (e.g., rising prices need rising volume)
+             - Momentum indicators (RSI >70 = overbought/SELL, RSI <30 = oversold/BUY)
+          
+          3. ATR-BASED STOP LOSS CALCULATION:
+             - Estimate the Average True Range (ATR) from visible price action
+             - Provide multiple stop loss options based on ATR multiples:
+               * Conservative: 1x ATR
+               * Balanced: 1.5x ATR (recommended for most trades)
+               * Aggressive: 2x ATR (for swing trades)
+             - ATR-based stops adapt to market volatility and reduce premature stop-outs
+          
+          4. TECHNICAL ANALYSIS:
+             - Identify chart patterns, support/resistance levels
+             - Analyze trend direction across multiple timeframes if visible
+             - Consider confluence of multiple indicators for higher confidence
+          
+          5. VOLUME SESSIONS ANALYSIS:
+             - Asian, London, New York session characteristics
+             - Best trading times based on currency pair and volume
           
           VERY IMPORTANT: Return the analysis in valid JSON format with all required properties.
           Even if you cannot determine some information, include placeholder values rather than omitting properties.
@@ -80,15 +94,39 @@ export async function analyzeChartImage(base64Image: string): Promise<ChartAnaly
   "symbol": string,           // Name of the trading pair or symbol (e.g. "EURUSD", "BTCUSD")
   "timeframe": string,        // Chart timeframe (e.g. "1H", "4H", "1D")
   "currentPrice": string,     // Current price visible on the chart
-  "direction": string,        // "BUY" or "SELL" signal
+  "direction": string,        // "BUY" or "SELL" signal based on volume, momentum, and technical analysis
   "trend": string,            // "Bullish" or "Bearish"
-  "confidence": string,       // "Low", "Medium", or "High"
+  "confidence": string,       // "Low", "Medium", or "High" - higher if volume confirms the signal
   "entryPoint": string,       // Suggested entry price
   "exitPoint": string,        // Suggested exit price
-  "stopLoss": string,         // Suggested stop loss level
+  "stopLoss": string,         // Suggested stop loss level (can be based on ATR)
   "takeProfit": string,       // Suggested take profit level
   "riskRewardRatio": string,  // Risk-to-reward ratio (e.g. "1:2", "1:3")
   "potentialPips": string,    // Potential pips/points in the trade
+  "atrStopLoss": {            // ATR-based stop loss options (REQUIRED)
+    "atrValue": string,       // Estimated ATR value from chart (e.g. "0.0045")
+    "atr1x": string,          // Conservative stop: current price +/- 1x ATR
+    "atr15x": string,         // Balanced stop: current price +/- 1.5x ATR (RECOMMENDED)
+    "atr2x": string,          // Wide stop: current price +/- 2x ATR
+    "recommended": string     // Your recommended stop loss from the above options
+  },
+  "momentumIndicators": {     // Momentum and volume indicators (REQUIRED)
+    "rsi": {                  // RSI if visible, otherwise estimate from price action
+      "value": string,        // e.g. "68"
+      "signal": string,       // "Overbought", "Oversold", "Neutral"
+      "interpretation": string // Brief explanation
+    },
+    "macd": {                 // MACD if visible
+      "value": string,        // e.g. "Bullish crossover"
+      "signal": string,       // "Bullish", "Bearish", "Neutral"
+      "interpretation": string
+    },
+    "volumeTrend": {          // Volume analysis (CRITICAL)
+      "direction": string,    // "Increasing", "Decreasing", "Stable"
+      "strength": string,     // "Weak", "Moderate", "Strong"
+      "interpretation": string // How volume confirms or contradicts price action
+    }
+  },
   "patterns": [               // Array of identified chart patterns
     {
       "name": string,         // Pattern name (e.g. "Double Top", "Head and Shoulders")
@@ -98,10 +136,10 @@ export async function analyzeChartImage(base64Image: string): Promise<ChartAnaly
       "details": string       // Additional details about the pattern
     }
   ],
-  "indicators": [             // Array of technical indicators
+  "indicators": [             // Array of technical indicators visible on chart
     {
-      "name": string,         // Indicator name (e.g. "RSI", "MACD")
-      "type": string,         // Type of indicator (e.g. "Oscillator", "Trend")
+      "name": string,         // Indicator name (e.g. "RSI", "MACD", "Volume")
+      "type": string,         // Type of indicator (e.g. "Oscillator", "Trend", "Volume")
       "signal": string,       // "Bullish", "Bearish", "Neutral"
       "details": string       // Additional details about the indicator
     }
@@ -127,9 +165,11 @@ export async function analyzeChartImage(base64Image: string): Promise<ChartAnaly
       "quality": string       // Quality of trading opportunities ("Poor", "Average", "Excellent")
     }
   ],
-  "recommendation": string,   // Overall trading recommendation
+  "recommendation": string,   // Overall trading recommendation considering volume and momentum
   "steps": string[]           // Array of actionable steps to take
-}`
+}
+
+IMPORTANT: All fields marked as REQUIRED must be included in your response with actual data, not "Unknown".`
             },
             {
               type: "image_url",
@@ -187,6 +227,21 @@ export async function analyzeChartImage(base64Image: string): Promise<ChartAnaly
         historicalRank: 50,
         riskFactor: 50
       },
+      // ATR-based stop loss options
+      atrStopLoss: response.atrStopLoss && typeof response.atrStopLoss === 'object' ? {
+        atrValue: response.atrStopLoss.atrValue || "0.0010",
+        atr1x: response.atrStopLoss.atr1x || "Unknown",
+        atr15x: response.atrStopLoss.atr15x || "Unknown",
+        atr2x: response.atrStopLoss.atr2x || "Unknown",
+        recommended: response.atrStopLoss.recommended || "Unknown"
+      } : undefined,
+      // Momentum indicators
+      momentumIndicators: response.momentumIndicators && typeof response.momentumIndicators === 'object' ? {
+        rsi: response.momentumIndicators.rsi,
+        macd: response.momentumIndicators.macd,
+        stochastic: response.momentumIndicators.stochastic,
+        volumeTrend: response.momentumIndicators.volumeTrend
+      } : undefined,
       // Generate market trend data for related pairs
       marketTrends: await generateMarketTrendPredictions(symbol),
       patterns: Array.isArray(response.patterns) ? response.patterns : [],
