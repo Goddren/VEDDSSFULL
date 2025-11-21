@@ -203,8 +203,8 @@ input int Volume_MA_Period = 20;                // Volume moving average period
 input group "=== Trading Rules ==="
 input bool AllowBuyTrades = true;               // Allow BUY trades
 input bool AllowSellTrades = true;              // Allow SELL trades
-input bool UseVolumeFilter = true;              // Require volume confirmation
-input bool UseMultiTimeframeConfirmation = ${sortedTimeframes.length > 1 ? 'true' : 'false'};  // Require multi-timeframe agreement
+input bool UseVolumeFilter = false;             // Require volume confirmation (disabled by default for more trades)
+input bool UseMultiTimeframeConfirmation = false;  // Require multi-timeframe agreement (disabled by default)
 input int MinTimeframesAgree = ${Math.max(1, Math.floor(sortedTimeframes.length / 2))};                     // Minimum timeframes that must agree
 input int MaxOpenTrades = ${maxSimultaneousTrades};                    // Maximum concurrent trades
 input int MagicNumber = ${Math.floor(Math.random() * 90000) + 10000};                     // Unique identifier for this EA
@@ -296,8 +296,25 @@ ${higherTFs.map(tf => `   bool tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_
    bool tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_trend_bearish = CheckHigherTimeframeTrend("${tf.timeframe}", false);`).join('\n')}
    
    //--- Entry conditions based on multi-timeframe analysis
-   bool buy_signal = ${buyConditions.length > 0 ? '(' + buyConditions.join(' && ') + ')' : 'false'};  // ${buyCount} timeframe(s) suggest BUY
-   bool sell_signal = ${sellConditions.length > 0 ? '(' + sellConditions.join(' && ') + ')' : 'false'};  // ${sellCount} timeframe(s) suggest SELL
+   // Note: If multi-timeframe confirmation is disabled, use current timeframe signals only
+   bool buy_signal, sell_signal;
+   
+   if(UseMultiTimeframeConfirmation)
+   {
+      // Require multiple timeframes to agree
+      ${buyConditions.length > 0 ? 
+        `buy_signal = (${buyConditions.join(' && ')});  // ${buyCount} timeframe(s) suggest BUY` : 
+        `buy_signal = tf_${sortedTimeframes[0].timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_trend_bullish;  // Using primary timeframe only`}
+      ${sellConditions.length > 0 ? 
+        `sell_signal = (${sellConditions.join(' && ')});  // ${sellCount} timeframe(s) suggest SELL` : 
+        `sell_signal = tf_${sortedTimeframes[0].timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_trend_bearish;  // Using primary timeframe only`}
+   }
+   else
+   {
+      // Use primary timeframe signals only (more trades)
+      buy_signal = tf_${sortedTimeframes[0].timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_trend_bullish;
+      sell_signal = tf_${sortedTimeframes[0].timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_trend_bearish;
+   }
    
    //--- Volume confirmation
    bool volume_confirmed = CheckVolumeConfirmation();
@@ -312,11 +329,16 @@ ${higherTFs.map(tf => `   bool tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_
    bar_count++;
    if(bar_count % 10 == 0)  // Print every 10 bars to avoid spam
    {
-      Print("=== EA Status ===");
-      Print("BUY Signal: ", buy_signal, " | SELL Signal: ", sell_signal);
-      Print("Volume OK: ", volume_confirmed);
-      Print("Positions - BUY: ", buy_positions, " | SELL: ", sell_positions);
-      Print("RSI: ", DoubleToString(rsi_buffer[0], 2), " | MACD: ", DoubleToString(macd_main[0], 5));
+      Print("========== EA STATUS (Bar ", bar_count, ") ==========");
+      Print("Signals - BUY: ", buy_signal, " | SELL: ", sell_signal);
+      Print("Volume Filter: ", UseVolumeFilter, " | Volume OK: ", volume_confirmed);
+      Print("Multi-TF Check: ", UseMultiTimeframeConfirmation);
+      Print("Positions - BUY: ", buy_positions, " | SELL: ", sell_positions, " | Total: ", total_positions);
+      Print("Indicators - RSI: ", DoubleToString(rsi_buffer[0], 2), 
+            " | MACD Main: ", DoubleToString(macd_main[0], 5),
+            " | MACD Signal: ", DoubleToString(macd_signal[0], 5));
+      Print("Trade Mode: ", MultiTradeMode, " | Max Trades: ", MaxOpenTrades);
+      Print("==================================================");
    }
    
    //--- Execute trades based on multi-trade strategy
