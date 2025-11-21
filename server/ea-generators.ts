@@ -26,21 +26,48 @@ export function generateMT5EACode(
   const sellConditions: string[] = [];
 
   sortedTimeframes.forEach((tf, index) => {
-    const tfVar = tf.timeframe.replace(/\D/g, '');
+    const tfSafe = tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_'); // Safe variable name
     const isBuy = tf.analysis.direction?.toUpperCase() === 'BUY';
     const isSell = tf.analysis.direction?.toUpperCase() === 'SELL';
 
     if (isBuy) {
-      buyConditions.push(`tf${tfVar}_trend_bullish`);
+      buyConditions.push(`tf_${tfSafe}_trend_bullish`);
     }
     if (isSell) {
-      sellConditions.push(`tf${tfVar}_trend_bearish`);
+      sellConditions.push(`tf_${tfSafe}_trend_bearish`);
     }
   });
 
-  // Get ATR-based stop loss if available
-  const atrStopLoss = primaryTF.analysis.atrStopLoss?.recommended || primaryTF.analysis.stopLoss;
-  const takeProfit = primaryTF.analysis.takeProfit || "Unknown";
+  // Get ATR-based stop loss if available - ensure they're valid strings
+  const atrStopLossRaw = primaryTF.analysis.atrStopLoss?.recommended || primaryTF.analysis.stopLoss;
+  const atrStopLoss = typeof atrStopLossRaw === 'string' ? atrStopLossRaw : String(atrStopLossRaw || 'Unknown');
+  const takeProfitRaw = primaryTF.analysis.takeProfit;
+  const takeProfit = typeof takeProfitRaw === 'string' ? takeProfitRaw : String(takeProfitRaw || 'Unknown');
+  
+  // Extract patterns and indicators from analysis - ensure they're valid strings
+  const detectedPatterns = sortedTimeframes
+    .flatMap(tf => tf.analysis.patterns || [])
+    .map(p => typeof p === 'string' ? p : (p && typeof p.name === 'string' ? p.name : null))
+    .filter((p): p is string => typeof p === 'string' && p.length > 0) // only valid strings
+    .filter((v, i, a) => a.indexOf(v) === i) // unique patterns
+    .join(', ');
+  
+  const detectedIndicators = sortedTimeframes
+    .flatMap(tf => tf.analysis.indicators || [])
+    .map(ind => typeof ind === 'string' ? ind : (ind && typeof ind.name === 'string' ? ind.name : null))
+    .filter((ind): ind is string => typeof ind === 'string' && ind.length > 0) // only valid strings
+    .filter((v, i, a) => a.indexOf(v) === i) // unique indicators
+    .join(', ');
+  
+  // Get consensus direction
+  const buyCount = sortedTimeframes.filter(tf => tf.analysis.direction?.toUpperCase() === 'BUY').length;
+  const sellCount = sortedTimeframes.filter(tf => tf.analysis.direction?.toUpperCase() === 'SELL').length;
+  const consensusDirection = buyCount > sellCount ? 'BUY' : sellCount > buyCount ? 'SELL' : 'NEUTRAL';
+  const consensusConfidence = Math.max(buyCount, sellCount) / sortedTimeframes.length * 100;
+  
+  // Parse ATR multiplier as number
+  const atrMultiplierValue = primaryTF.analysis.atrStopLoss?.multiplier || 1.5;
+  const atrMultiplierNum = typeof atrMultiplierValue === 'number' ? atrMultiplierValue : parseFloat(String(atrMultiplierValue)) || 1.5;
 
   const code = `//+------------------------------------------------------------------+
 //|                                         Multi-Timeframe EA.mq5 |
@@ -51,10 +78,20 @@ export function generateMT5EACode(
 #property link      "https://vedd.io"
 #property version   "1.00"
 
-//--- Input parameters
+//--- AI Analysis Summary
+// Symbol: ${symbol}
+// Timeframes analyzed: ${sortedTimeframes.map(tf => tf.timeframe).join(', ')}
+// Detected Patterns: ${detectedPatterns || 'None specified'}
+// Key Indicators: ${detectedIndicators || 'RSI, MACD, Volume'}
+// Consensus Direction: ${consensusDirection} (${consensusConfidence.toFixed(0)}% agreement)
+// Entry Point: ${primaryTF.analysis.entryPoint || 'Market'}
+// Stop Loss (AI): ${atrStopLoss}
+// Take Profit (AI): ${takeProfit}
+
+//--- Input parameters (NOTE: AI recommends using ATR-based stops instead of fixed pips)
 input double LotSize = 0.01;                    // Lot size
-input double StopLossPips = 50;                 // Stop loss in pips (ATR-based recommended: ${atrStopLoss})
-input double TakeProfitPips = 100;              // Take profit in pips (Recommended: ${takeProfit})
+input double StopLossPips = 50;                 // Stop loss in pips (DEPRECATED - use ATR instead)
+input double TakeProfitPips = 100;              // Take profit in pips (DEPRECATED - use ATR instead)
 input int RSI_Period = 14;                      // RSI period
 input int RSI_Overbought = 70;                  // RSI overbought level
 input int RSI_Oversold = 30;                    // RSI oversold level
@@ -62,7 +99,7 @@ input int MACD_FastEMA = 12;                    // MACD Fast EMA
 input int MACD_SlowEMA = 26;                    // MACD Slow EMA
 input int MACD_SignalSMA = 9;                   // MACD Signal SMA
 input bool UseATR_StopLoss = true;              // Use ATR-based stop loss
-input double ATR_Multiplier = 1.5;              // ATR multiplier for stop loss
+input double ATR_Multiplier = ${atrMultiplierNum.toFixed(2)};              // ATR multiplier for stop loss (from analysis)
 
 //--- Global variables
 int rsi_handle, macd_handle, atr_handle;
@@ -89,8 +126,14 @@ int OnInit()
    ArraySetAsSeries(macd_signal, true);
    ArraySetAsSeries(atr_buffer, true);
    
+   Print("======================================");
    Print("Multi-Timeframe EA initialized for ${symbol}");
    Print("Analyzing timeframes: ${sortedTimeframes.map(tf => tf.timeframe).join(', ')}");
+   Print("AI Detected Patterns: ${detectedPatterns || 'None'}");
+   Print("Consensus Direction: ${consensusDirection} (${consensusConfidence.toFixed(0)}%)");
+   Print("ATR Stop Loss: ${atrStopLoss}");
+   Print("Take Profit Target: ${takeProfit}");
+   Print("======================================");
    return(INIT_SUCCEEDED);
 }
 
@@ -125,15 +168,15 @@ void OnTick()
    if(CopyBuffer(atr_handle, 0, 0, 3, atr_buffer) <= 0) return;
    
    //--- Check multi-timeframe conditions
-   bool tf${sortedTimeframes[0].timeframe.replace(/\D/g, '')}_trend_bullish = CheckBullishCondition();
-   bool tf${sortedTimeframes[0].timeframe.replace(/\D/g, '')}_trend_bearish = CheckBearishCondition();
+   bool tf_${sortedTimeframes[0].timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_trend_bullish = CheckBullishCondition();
+   bool tf_${sortedTimeframes[0].timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_trend_bearish = CheckBearishCondition();
    
-${higherTFs.map(tf => `   bool tf${tf.timeframe.replace(/\D/g, '')}_trend_bullish = CheckHigherTimeframeTrend("${tf.timeframe}", true);
-   bool tf${tf.timeframe.replace(/\D/g, '')}_trend_bearish = CheckHigherTimeframeTrend("${tf.timeframe}", false);`).join('\n')}
+${higherTFs.map(tf => `   bool tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_trend_bullish = CheckHigherTimeframeTrend("${tf.timeframe}", true);
+   bool tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_trend_bearish = CheckHigherTimeframeTrend("${tf.timeframe}", false);`).join('\n')}
    
    //--- Entry conditions based on multi-timeframe analysis
-   bool buy_signal = ${buyConditions.length > 0 ? buyConditions.join(' && ') : 'false'};
-   bool sell_signal = ${sellConditions.length > 0 ? sellConditions.join(' && ') : 'false'};
+   bool buy_signal = ${buyConditions.length > 0 ? '(' + buyConditions.join(' && ') + ')' : 'false'};  // ${buyCount} timeframe(s) suggest BUY
+   bool sell_signal = ${sellConditions.length > 0 ? '(' + sellConditions.join(' && ') + ')' : 'false'};  // ${sellCount} timeframe(s) suggest SELL
    
    //--- Volume confirmation
    bool volume_confirmed = CheckVolumeConfirmation();
@@ -343,6 +386,38 @@ export function generateTradingViewCode(
 
   const primaryTF = sortedTimeframes[0];
   const atrStopLoss = primaryTF.analysis.atrStopLoss?.atrValue || "0.0010";
+  
+  // Extract patterns and indicators from analysis - ensure they're valid strings
+  const detectedPatterns = sortedTimeframes
+    .flatMap(tf => tf.analysis.patterns || [])
+    .map(p => typeof p === 'string' ? p : (p && typeof p.name === 'string' ? p.name : null))
+    .filter((p): p is string => typeof p === 'string' && p.length > 0) // only valid strings
+    .filter((v, i, a) => a.indexOf(v) === i)
+    .join(', ');
+  
+  const detectedIndicators = sortedTimeframes
+    .flatMap(tf => tf.analysis.indicators || [])
+    .map(ind => typeof ind === 'string' ? ind : (ind && typeof ind.name === 'string' ? ind.name : null))
+    .filter((ind): ind is string => typeof ind === 'string' && ind.length > 0) // only valid strings
+    .filter((v, i, a) => a.indexOf(v) === i)
+    .join(', ');
+  
+  // Get consensus
+  const buyCount = sortedTimeframes.filter(tf => tf.analysis.direction?.toUpperCase() === 'BUY').length;
+  const sellCount = sortedTimeframes.filter(tf => tf.analysis.direction?.toUpperCase() === 'SELL').length;
+  const consensusDirection = buyCount > sellCount ? 'BUY' : sellCount > buyCount ? 'SELL' : 'NEUTRAL';
+  const consensusConfidence = Math.max(buyCount, sellCount) / sortedTimeframes.length * 100;
+  
+  const entryPoint = primaryTF.analysis.entryPoint || 'Market';
+  const stopLossRaw = primaryTF.analysis.atrStopLoss?.recommended || primaryTF.analysis.stopLoss;
+  const stopLoss = typeof stopLossRaw === 'string' ? stopLossRaw : String(stopLossRaw || 'Not specified');
+  const takeProfitRaw = primaryTF.analysis.takeProfit;
+  const takeProfit = typeof takeProfitRaw === 'string' ? takeProfitRaw : String(takeProfitRaw || 'Not specified');
+  const riskReward = primaryTF.analysis.riskRewardRatio || '2:1';
+  
+  // Parse ATR multiplier as number
+  const atrMultiplierValue = primaryTF.analysis.atrStopLoss?.multiplier || 1.5;
+  const atrMultiplierNum = typeof atrMultiplierValue === 'number' ? atrMultiplierValue : parseFloat(String(atrMultiplierValue)) || 1.5;
 
   const code = `//@version=5
 strategy("Multi-Timeframe Strategy - ${symbol}", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=10)
@@ -350,12 +425,23 @@ strategy("Multi-Timeframe Strategy - ${symbol}", overlay=true, default_qty_type=
 // ============================================================================
 // GENERATED BY VEDD CHART ANALYSIS TOOL
 // https://vedd.io
+// 
+// AI ANALYSIS SUMMARY:
+// Symbol: ${symbol}
+// Timeframes: ${sortedTimeframes.map(tf => tf.timeframe).join(', ')}
+// Detected Patterns: ${detectedPatterns || 'None specified'}
+// Key Indicators: ${detectedIndicators || 'RSI, MACD, Volume, ATR'}
+// Consensus: ${consensusDirection} (${consensusConfidence.toFixed(0)}% agreement)
+// Entry: ${entryPoint}
+// Stop Loss: ${stopLoss}
+// Take Profit: ${takeProfit}
+// Risk:Reward: ${riskReward}
 // ============================================================================
 
 // Input Parameters
 lot_size = input.float(0.01, "Lot Size", minval=0.01, step=0.01)
-use_atr_sl = input.bool(true, "Use ATR-based Stop Loss")
-atr_multiplier = input.float(1.5, "ATR Multiplier", minval=0.5, step=0.1)
+use_atr_sl = input.bool(true, "Use ATR-based Stop Loss (Recommended by AI)")
+atr_multiplier = input.float(${atrMultiplierNum.toFixed(2)}, "ATR Multiplier (from AI analysis)", minval=0.5, step=0.1)
 rsi_period = input.int(14, "RSI Period", minval=1)
 rsi_overbought = input.int(70, "RSI Overbought", minval=50, maxval=100)
 rsi_oversold = input.int(30, "RSI Oversold", minval=0, maxval=50)
@@ -367,23 +453,30 @@ atr = ta.atr(14)
 
 // Multi-Timeframe Analysis
 ${sortedTimeframes.map((tf, index) => {
-  const tfPine = tf.timeframe.replace('M', '').replace('H', '60').replace('D', '1D').replace('W', '1W');
+  // Proper Pine Script timeframe mapping
+  const tfPineMap: Record<string, string> = {
+    'M1': '1', 'M5': '5', 'M15': '15', 'M30': '30',
+    'H1': '60', 'H4': '240',
+    'D1': 'D', 'W1': 'W'
+  };
+  const tfPine = tfPineMap[tf.timeframe] || tf.timeframe;
+  const tfSafe = tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_');
   const isBuy = tf.analysis.direction?.toUpperCase() === 'BUY';
   const isSell = tf.analysis.direction?.toUpperCase() === 'SELL';
   
-  return `// ${tf.timeframe} Timeframe
-tf_${tf.timeframe}_macd = request.security(syminfo.tickerid, "${tfPine === tf.timeframe ? tf.timeframe.toLowerCase() : tfPine}", macd_line)
-tf_${tf.timeframe}_signal = request.security(syminfo.tickerid, "${tfPine === tf.timeframe ? tf.timeframe.toLowerCase() : tfPine}", signal_line)
-tf_${tf.timeframe}_bullish = tf_${tf.timeframe}_macd > tf_${tf.timeframe}_signal ${isBuy ? '// Buy signal detected' : ''}
-tf_${tf.timeframe}_bearish = tf_${tf.timeframe}_macd < tf_${tf.timeframe}_signal ${isSell ? '// Sell signal detected' : ''}`;
+  return `// ${tf.timeframe} Timeframe${isBuy ? ' - BUY signal' : isSell ? ' - SELL signal' : ''}
+tf_${tfSafe}_macd = request.security(syminfo.tickerid, "${tfPine}", macd_line)
+tf_${tfSafe}_signal = request.security(syminfo.tickerid, "${tfPine}", signal_line)
+tf_${tfSafe}_bullish = tf_${tfSafe}_macd > tf_${tfSafe}_signal
+tf_${tfSafe}_bearish = tf_${tfSafe}_macd < tf_${tfSafe}_signal`;
 }).join('\n\n')}
 
 // Volume Confirmation
 volume_confirmed = volume > ta.sma(volume, 20)
 
-// Entry Conditions
-buy_condition = ${sortedTimeframes.filter(tf => tf.analysis.direction?.toUpperCase() === 'BUY').map(tf => `tf_${tf.timeframe}_bullish`).join(' and ')} and volume_confirmed and rsi < 70
-sell_condition = ${sortedTimeframes.filter(tf => tf.analysis.direction?.toUpperCase() === 'SELL').map(tf => `tf_${tf.timeframe}_bearish`).join(' and ')} and volume_confirmed and rsi > 30
+// Entry Conditions (${buyCount} timeframe(s) suggest BUY, ${sellCount} suggest SELL)
+buy_condition = (${sortedTimeframes.filter(tf => tf.analysis.direction?.toUpperCase() === 'BUY').map(tf => `tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_bullish`).join(' and ') || 'false'}) and volume_confirmed and rsi < 70
+sell_condition = (${sortedTimeframes.filter(tf => tf.analysis.direction?.toUpperCase() === 'SELL').map(tf => `tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_bearish`).join(' and ') || 'false'}) and volume_confirmed and rsi > 30
 
 // ATR-based Stop Loss and Take Profit
 atr_stop_distance = atr * atr_multiplier
@@ -416,9 +509,17 @@ plotshape(sell_condition, "Sell Signal", shape.triangledown, location.abovebar, 
 // ============================================================================
 // STRATEGY NOTES:
 // - This strategy combines ${sortedTimeframes.length} timeframes: ${sortedTimeframes.map(tf => tf.timeframe).join(', ')}
+// - AI detected patterns: ${detectedPatterns || 'Standard technical patterns'}
+// - Consensus direction: ${consensusDirection} with ${consensusConfidence.toFixed(0)}% agreement
 // - Uses ATR-based stops with ${atrStopLoss} average range
-// - Includes volume and momentum confirmation
-// - Risk-Reward Ratio: 1:2 (configurable)
+// - Entry point: ${entryPoint}
+// - Stop loss: ${stopLoss}
+// - Take profit: ${takeProfit}
+// - Risk-Reward Ratio: ${riskReward}
+// - Includes volume and momentum confirmation (RSI, MACD)
+// 
+// TIMEFRAME BREAKDOWN:
+${sortedTimeframes.map(tf => `//   ${tf.timeframe}: ${tf.analysis.direction || 'N/A'} - Confidence: ${tf.analysis.confidence || 'N/A'} - Trend: ${tf.analysis.trend || 'N/A'}`).join('\n')}
 // ============================================================================
 `;
 
