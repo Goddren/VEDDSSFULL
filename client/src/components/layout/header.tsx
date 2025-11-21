@@ -19,6 +19,7 @@ import { ThemeToggle } from '@/components/ui/theme-toggle';
 const Header: React.FC = () => {
   const [location] = useLocation();
   const { user, logoutMutation } = useAuth();
+  const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
 
   const navItems = [
     { name: 'Dashboard', path: '/dashboard', active: location === '/dashboard', icon: <Settings className="h-4 w-4 mr-2" /> },
@@ -38,7 +39,7 @@ const Header: React.FC = () => {
     if (user.fullName) {
       return user.fullName
         .split(" ")
-        .map((n) => n[0])
+        .map((n: string) => n[0])
         .join("")
         .toUpperCase()
         .substring(0, 2);
@@ -48,6 +49,11 @@ const Header: React.FC = () => {
 
   const handleLogout = () => {
     logoutMutation.mutate();
+    setMobileMenuOpen(false);
+  };
+
+  const handleMobileNavClick = () => {
+    setMobileMenuOpen(false);
   };
 
   return (
@@ -120,9 +126,14 @@ const Header: React.FC = () => {
             </DropdownMenuContent>
           </DropdownMenu>
           
-          <Sheet>
+          <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
             <SheetTrigger asChild>
-              <Button variant="outline" size="icon" className="md:hidden rounded">
+              <Button 
+                variant="outline" 
+                size="icon" 
+                className="md:hidden rounded"
+                data-testid="mobile-menu-button"
+              >
                 <Menu className="h-5 w-5" />
               </Button>
             </SheetTrigger>
@@ -132,7 +143,9 @@ const Header: React.FC = () => {
                   <Link 
                     key={item.path} 
                     href={item.path}
+                    onClick={handleMobileNavClick}
                     className={`text-lg font-medium transition-colors flex items-center ${item.active ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+                    data-testid={`mobile-nav-${item.path.substring(1)}`}
                   >
                     {item.icon}
                     {item.name}
@@ -140,7 +153,9 @@ const Header: React.FC = () => {
                 ))}
                 <Link 
                   href="/profile"
+                  onClick={handleMobileNavClick}
                   className={`text-lg font-medium transition-colors flex items-center ${location === '/profile' ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+                  data-testid="mobile-nav-profile"
                 >
                   <User className="h-4 w-4 mr-2" />
                   Profile
@@ -148,6 +163,7 @@ const Header: React.FC = () => {
                 <button 
                   onClick={handleLogout}
                   className="text-lg font-medium transition-colors flex items-center text-muted-foreground hover:text-foreground text-left"
+                  data-testid="mobile-nav-logout"
                 >
                   <LogOut className="h-4 w-4 mr-2" />
                   Log out
