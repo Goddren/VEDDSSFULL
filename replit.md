@@ -88,10 +88,31 @@ Full-stack monorepo with clear separation between client and server, sharing com
 - SendGrid API key for email notifications
 - Twilio credentials for SMS functionality
 
+## Mobile Companion App Features
+
+### Progressive Web App (PWA)
+- **Service Worker**: Offline caching with stale-while-revalidate strategy
+- **Installable**: Add to home screen on iOS and Android
+- **Push Notifications**: Real-time alerts for price movements and pattern detection
+- **Offline Support**: Cached analysis results accessible without internet
+
+### Price Alerts System
+- **Alert Types**: Price above/below, pattern detected, trend change
+- **Real-time Monitoring**: Track active, triggered, and historical alerts
+- **Custom Notifications**: Set target prices with personalized messages
+- **Mobile Dashboard**: Touch-friendly UI with tabs and quick stats
+
+### Mobile-Optimized Features
+- **Chart Viewer**: Pinch-zoom and swipe gestures for chart analysis
+- **Floating Action Button**: Quick access to camera and upload
+- **Network Status**: Visual indicator when offline with auto-sync
+- **Responsive Design**: Bottom navigation and mobile-first layout
+
 ## Changelog
 
 - July 06, 2025. Initial setup
 - July 06, 2025. Fixed canvas module deployment error by installing required system dependencies (pkg-config, cairo, pango, libpng, libjpeg, giflib, librsvg, pixman, python3, libuuid)
+- November 21, 2025. Implemented mobile companion app with PWA infrastructure, price alerts system, offline support, and mobile-optimized UI components
 
 ## User Preferences
 
