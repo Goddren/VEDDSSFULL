@@ -250,7 +250,7 @@ export default function SubscriptionPage() {
             {plan.interval === 'lifetime' && (
               <div className="absolute top-0 left-0 right-0">
                 <div className="bg-gradient-to-r from-primary to-primary/80 text-primary-foreground text-center py-2 font-bold text-sm">
-                  🔥 BEST VALUE - LIMITED TIME
+                  🔥 70% OFF SALE - LIMITED TIME ONLY
                 </div>
               </div>
             )}
@@ -263,9 +263,12 @@ export default function SubscriptionPage() {
               <CardTitle className="flex justify-between items-start">
                 <span>{plan.name}</span>
                 <div className="text-right">
+                  {plan.interval === 'lifetime' && (
+                    <div className="text-sm text-muted-foreground line-through mb-1">$499</div>
+                  )}
                   <span className="text-2xl font-bold">{formatPrice(plan.price)}</span>
                   {plan.interval === 'lifetime' && (
-                    <div className="text-xs text-muted-foreground mt-1">Save $599/year</div>
+                    <div className="text-xs text-green-600 dark:text-green-400 font-semibold mt-1">Save 70% - Limited Time!</div>
                   )}
                 </div>
               </CardTitle>
@@ -316,14 +319,18 @@ export default function SubscriptionPage() {
               ) : (
                 <Button 
                   variant="default" 
-                  className="w-full" 
+                  className={`w-full ${plan.interval === 'lifetime' ? 'bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70' : ''}`}
                   onClick={() => handleSubscribe(plan.id)}
                   disabled={isLoading || selectedPlanId === plan.id}
                 >
                   {isLoading && selectedPlanId === plan.id ? (
                     <Loader2 className="h-4 w-4 animate-spin mr-2" />
                   ) : null}
-                  {plan.price === 0 ? 'Select Free Plan' : 'Subscribe'}
+                  {plan.price === 0 
+                    ? 'Select Free Plan' 
+                    : plan.interval === 'lifetime' 
+                      ? 'Get Lifetime Access - Save 70%' 
+                      : 'Subscribe'}
                 </Button>
               )}
             </CardFooter>
@@ -352,9 +359,12 @@ export default function SubscriptionPage() {
                         : ''
                   }`}>
                     {plan.interval === 'lifetime' && (
-                      <Badge className="mb-2 bg-primary hover:bg-primary">🔥 BEST VALUE</Badge>
+                      <Badge className="mb-2 bg-primary hover:bg-primary">🔥 70% OFF</Badge>
                     )}
                     <span className="text-lg font-bold">{plan.name}</span>
+                    {plan.interval === 'lifetime' && (
+                      <div className="text-sm text-muted-foreground line-through mt-1">$499</div>
+                    )}
                     <div className="text-base font-medium mt-1">
                       {formatPrice(plan.price)}
                       <span className="text-xs text-muted-foreground">

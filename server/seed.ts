@@ -83,8 +83,8 @@ export async function seedSubscriptionPlans() {
     },
     {
       name: "Lifetime",
-      description: "Pay once, trade forever - Best value for long-term traders",
-      price: 49900, // $499 one-time
+      description: "🔥 LIMITED TIME SALE: Pay once, trade forever - Best value for long-term traders",
+      price: 14900, // $149 one-time (SALE PRICE - normally $499)
       interval: "lifetime",
       features: [
         "Everything in Premium",
