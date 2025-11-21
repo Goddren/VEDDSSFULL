@@ -133,8 +133,9 @@ export default function MultiTimeframeAnalysis() {
       const base64Image = await base64Promise;
 
       const response: any = await apiRequest('POST', '/api/analyze-base64', {
-        image: base64Image,
-        multiTimeframeGroupId: groupId
+        base64Image: base64Image,
+        multiTimeframeGroupId: groupId,
+        timeframe: timeframe
       }).then(res => res.json());
 
       setTimeframeUploads(prev => ({
