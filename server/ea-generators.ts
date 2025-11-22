@@ -795,6 +795,39 @@ bool CheckVolumeConfirmation()
 }
 
 //+------------------------------------------------------------------+
+//| Get pip value for the current pair (handles different decimal formats)
+//| GBPUSD = 0.0001, XAU/USD = 0.01, BTC = varies, etc.
+//+------------------------------------------------------------------+
+double GetPipValue()
+{
+   string symbol = _Symbol;
+   
+   // Metal pairs (XAU, XAG, XPD, XPT) have 2 decimal places
+   if(StringFind(symbol, "XAU") == 0 || StringFind(symbol, "XAG") == 0 ||
+      StringFind(symbol, "XPD") == 0 || StringFind(symbol, "XPT") == 0)
+   {
+      return 0.01;  // Metals: 1 pip = 0.01
+   }
+   
+   // Cryptocurrency pairs (BTC, ETH, etc.) typically have 2 decimals
+   if(StringFind(symbol, "BTC") != -1 || StringFind(symbol, "ETH") != -1 ||
+      StringFind(symbol, "LTC") != -1 || StringFind(symbol, "XRP") != -1)
+   {
+      return 0.01;  // Crypto: 1 pip = 0.01
+   }
+   
+   // Standard forex pairs (EURUSD, GBPUSD, USDJPY, etc.) have 4 decimals
+   // JPY pairs are exception (2 decimals) but USDJPY is 2 decimals
+   if(StringFind(symbol, "JPY") != -1)
+   {
+      return 0.01;  // JPY pairs: 1 pip = 0.01
+   }
+   
+   // Default for all other pairs: standard 4 decimal forex
+   return 0.0001;  // Standard forex: 1 pip = 0.0001
+}
+
+//+------------------------------------------------------------------+
 //| Calculate ATR-based stop loss                                    |
 //+------------------------------------------------------------------+
 double CalculateATR_StopLoss(bool is_buy)
