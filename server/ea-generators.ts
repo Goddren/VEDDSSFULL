@@ -515,11 +515,10 @@ void OnTick()
    
    last_bar_time = current_bar_time;
    
-   //--- Copy indicator values
-   if(CopyBuffer(rsi_handle, 0, 0, 3, rsi_buffer) <= 0) return;
-   if(CopyBuffer(macd_handle, 0, 0, 3, macd_main) <= 0) return;
-   if(CopyBuffer(macd_handle, 1, 0, 3, macd_signal) <= 0) return;
-   if(CopyBuffer(atr_handle, 0, 0, 3, atr_buffer) <= 0) return;
+   //--- Copy indicator values (handle potential failures gracefully)
+   bool rsi_ok = CopyBuffer(rsi_handle, 0, 0, 3, rsi_buffer) > 0;
+   bool macd_ok = CopyBuffer(macd_handle, 0, 0, 3, macd_main) > 0 && CopyBuffer(macd_handle, 1, 0, 3, macd_signal) > 0;
+   bool atr_ok = CopyBuffer(atr_handle, 0, 0, 3, atr_buffer) > 0;
    
    //--- Check multi-timeframe conditions
    bool tf_${sortedTimeframes[0].timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_trend_bullish = CheckBullishCondition();
@@ -708,23 +707,28 @@ bool CheckBullishCondition()
    
    bool ai_suggests_buy = ${consensusDirection === 'BUY' ? 'true' : 'false'};  // Based on chart pattern analysis
    
-   //--- Technical indicator confirmation
-   bool macd_bullish = macd_main[0] > macd_signal[0];  // MACD above signal line
-   bool rsi_not_extreme = (rsi_buffer[0] > 20 && rsi_buffer[0] < 80);  // RSI in reasonable range
-   bool macd_crossover = (macd_main[0] > macd_signal[0] && macd_main[1] <= macd_signal[1]);  // Fresh crossover
-   
-   //--- SIMPLIFIED HYBRID LOGIC: 
-   //--- Prioritize MACD over RSI since MACD is more reliable for entries
+   // If AI says BUY, trust it (patterns are strong indicators)
+   // If indicators aren't available, use AI direction alone
    if(ai_suggests_buy)
    {
-      // AI says BUY - just need MACD to be bullish
-      return macd_bullish || macd_crossover;
+      // Check technical indicators if available
+      if(macd_ok)
+      {
+         bool macd_bullish = macd_main[0] > macd_signal[0];
+         if(macd_bullish) return true;  // MACD confirms
+      }
+      // If MACD not available or not bullish, still allow trade based on AI
+      return true;  
    }
-   else
-   {
-      // AI didn't suggest BUY - require fresh MACD crossover (strongest signal)
-      return macd_crossover;
-   }
+   
+   // When AI is neutral/bearish, be stricter - require technical confirmation
+   if(!macd_ok) return false;  // Need indicators if AI doesn't suggest BUY
+   
+   bool macd_bullish = macd_main[0] > macd_signal[0];
+   bool macd_crossover = (macd_main[0] > macd_signal[0] && macd_main[1] <= macd_signal[1]);
+   
+   // Require fresh MACD crossover when AI is neutral
+   return macd_crossover;
 }
 
 //+------------------------------------------------------------------+
@@ -737,23 +741,28 @@ bool CheckBearishCondition()
    
    bool ai_suggests_sell = ${consensusDirection === 'SELL' ? 'true' : 'false'};  // Based on chart pattern analysis
    
-   //--- Technical indicator confirmation
-   bool macd_bearish = macd_main[0] < macd_signal[0];  // MACD below signal line
-   bool rsi_not_extreme = (rsi_buffer[0] > 20 && rsi_buffer[0] < 80);  // RSI in reasonable range
-   bool macd_crossover = (macd_main[0] < macd_signal[0] && macd_main[1] >= macd_signal[1]);  // Fresh crossover
-   
-   //--- SIMPLIFIED HYBRID LOGIC:
-   //--- Prioritize MACD over RSI since MACD is more reliable for entries
+   // If AI says SELL, trust it (patterns are strong indicators)
+   // If indicators aren't available, use AI direction alone
    if(ai_suggests_sell)
    {
-      // AI says SELL - just need MACD to be bearish
-      return macd_bearish || macd_crossover;
+      // Check technical indicators if available
+      if(macd_ok)
+      {
+         bool macd_bearish = macd_main[0] < macd_signal[0];
+         if(macd_bearish) return true;  // MACD confirms
+      }
+      // If MACD not available or not bearish, still allow trade based on AI
+      return true;
    }
-   else
-   {
-      // AI didn't suggest SELL - require fresh MACD crossover (strongest signal)
-      return macd_crossover;
-   }
+   
+   // When AI is neutral/bullish, be stricter - require technical confirmation
+   if(!macd_ok) return false;  // Need indicators if AI doesn't suggest SELL
+   
+   bool macd_bearish = macd_main[0] < macd_signal[0];
+   bool macd_crossover = (macd_main[0] < macd_signal[0] && macd_main[1] >= macd_signal[1]);
+   
+   // Require fresh MACD crossover when AI is neutral
+   return macd_crossover;
 }
 
 //+------------------------------------------------------------------+
