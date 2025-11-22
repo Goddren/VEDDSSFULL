@@ -713,19 +713,17 @@ bool CheckBullishCondition()
    bool rsi_not_extreme = (rsi_buffer[0] > 20 && rsi_buffer[0] < 80);  // RSI in reasonable range
    bool macd_crossover = (macd_main[0] > macd_signal[0] && macd_main[1] <= macd_signal[1]);  // Fresh crossover
    
-   //--- HYBRID LOGIC: 
-   //--- If AI says BUY, require lighter indicator confirmation
-   //--- If AI is neutral/bearish, require stronger indicator signals
+   //--- SIMPLIFIED HYBRID LOGIC: 
+   //--- Prioritize MACD over RSI since MACD is more reliable for entries
    if(ai_suggests_buy)
    {
-      // AI says BUY - lighter confirmation needed
-      return (macd_bullish || macd_crossover) && rsi_not_extreme;
+      // AI says BUY - just need MACD to be bullish
+      return macd_bullish || macd_crossover;
    }
    else
    {
-      // AI didn't suggest BUY - require MACD bullish with reasonable RSI
-      // Note: Bullish MACD often coincides with RSI > 50, so we allow up to 55
-      return macd_bullish && rsi_buffer[0] < 55 && rsi_not_extreme;
+      // AI didn't suggest BUY - require fresh MACD crossover (strongest signal)
+      return macd_crossover;
    }
 }
 
@@ -744,19 +742,17 @@ bool CheckBearishCondition()
    bool rsi_not_extreme = (rsi_buffer[0] > 20 && rsi_buffer[0] < 80);  // RSI in reasonable range
    bool macd_crossover = (macd_main[0] < macd_signal[0] && macd_main[1] >= macd_signal[1]);  // Fresh crossover
    
-   //--- HYBRID LOGIC:
-   //--- If AI says SELL, require lighter indicator confirmation
-   //--- If AI is neutral/bullish, require stronger indicator signals
+   //--- SIMPLIFIED HYBRID LOGIC:
+   //--- Prioritize MACD over RSI since MACD is more reliable for entries
    if(ai_suggests_sell)
    {
-      // AI says SELL - lighter confirmation needed
-      return (macd_bearish || macd_crossover) && rsi_not_extreme;
+      // AI says SELL - just need MACD to be bearish
+      return macd_bearish || macd_crossover;
    }
    else
    {
-      // AI didn't suggest SELL - require MACD bearish with reasonable RSI
-      // Note: Bearish MACD often coincides with RSI < 50, so we allow down to 45
-      return macd_bearish && rsi_buffer[0] > 45 && rsi_not_extreme;
+      // AI didn't suggest SELL - require fresh MACD crossover (strongest signal)
+      return macd_crossover;
    }
 }
 
