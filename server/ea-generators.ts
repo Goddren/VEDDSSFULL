@@ -283,6 +283,7 @@ datetime last_refresh_time = 0;  // Track last API refresh
 string current_ai_direction = "${consensusDirection}";  // Current AI recommendation
 int current_ai_confidence = ${Math.round(consensusConfidence)};  // Current confidence level
 bool trading_paused = false;  // Trading pause status
+bool rsi_ok = false, macd_ok = false, atr_ok = false;  // Indicator status flags
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
