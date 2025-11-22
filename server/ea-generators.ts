@@ -549,8 +549,8 @@ ${higherTFs.map(tf => `   bool tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_
       sell_signal = tf_${sortedTimeframes[0].timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_trend_bearish;
    }
    
-   //--- Volume confirmation
-   bool volume_confirmed = CheckVolumeConfirmation();
+   //--- Volume confirmation (only when enabled)
+   bool volume_confirmed = !UseVolumeFilter || CheckVolumeConfirmation();
    
    //--- Count existing positions
    int buy_positions = CountPositions(POSITION_TYPE_BUY);
@@ -723,8 +723,9 @@ bool CheckBullishCondition()
    }
    else
    {
-      // AI didn't suggest BUY - require both MACD bullish AND RSI favorable
-      return macd_bullish && rsi_buffer[0] < 50 && rsi_not_extreme;
+      // AI didn't suggest BUY - require MACD bullish with reasonable RSI
+      // Note: Bullish MACD often coincides with RSI > 50, so we allow up to 55
+      return macd_bullish && rsi_buffer[0] < 55 && rsi_not_extreme;
    }
 }
 
@@ -753,8 +754,9 @@ bool CheckBearishCondition()
    }
    else
    {
-      // AI didn't suggest SELL - require both MACD bearish AND RSI favorable
-      return macd_bearish && rsi_buffer[0] > 50 && rsi_not_extreme;
+      // AI didn't suggest SELL - require MACD bearish with reasonable RSI
+      // Note: Bearish MACD often coincides with RSI < 50, so we allow down to 45
+      return macd_bearish && rsi_buffer[0] > 45 && rsi_not_extreme;
    }
 }
 
