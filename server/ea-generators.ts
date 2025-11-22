@@ -714,17 +714,17 @@ bool CheckBullishCondition()
    bool macd_crossover = (macd_main[0] > macd_signal[0] && macd_main[1] <= macd_signal[1]);  // Fresh crossover
    
    //--- HYBRID LOGIC: 
-   //--- If AI says BUY, require indicator confirmation
-   //--- If AI is neutral/bearish, require strong indicator signals
+   //--- If AI says BUY, require lighter indicator confirmation
+   //--- If AI is neutral/bearish, require stronger indicator signals
    if(ai_suggests_buy)
    {
-      // AI says BUY - just need indicator confirmation (not oversold)
+      // AI says BUY - lighter confirmation needed
       return (macd_bullish || macd_crossover) && rsi_not_extreme;
    }
    else
    {
-      // AI didn't suggest BUY - require stronger technical confirmation
-      return macd_crossover && rsi_buffer[0] < 40;  // Fresh crossover + RSI below 40
+      // AI didn't suggest BUY - require both MACD bullish AND RSI favorable
+      return macd_bullish && rsi_buffer[0] < 50 && rsi_not_extreme;
    }
 }
 
@@ -744,17 +744,17 @@ bool CheckBearishCondition()
    bool macd_crossover = (macd_main[0] < macd_signal[0] && macd_main[1] >= macd_signal[1]);  // Fresh crossover
    
    //--- HYBRID LOGIC:
-   //--- If AI says SELL, require indicator confirmation
-   //--- If AI is neutral/bullish, require strong indicator signals
+   //--- If AI says SELL, require lighter indicator confirmation
+   //--- If AI is neutral/bullish, require stronger indicator signals
    if(ai_suggests_sell)
    {
-      // AI says SELL - just need indicator confirmation (not overbought)
+      // AI says SELL - lighter confirmation needed
       return (macd_bearish || macd_crossover) && rsi_not_extreme;
    }
    else
    {
-      // AI didn't suggest SELL - require stronger technical confirmation
-      return macd_crossover && rsi_buffer[0] > 60;  // Fresh crossover + RSI above 60
+      // AI didn't suggest SELL - require both MACD bearish AND RSI favorable
+      return macd_bearish && rsi_buffer[0] > 50 && rsi_not_extreme;
    }
 }
 
