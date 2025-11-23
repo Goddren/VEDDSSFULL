@@ -526,9 +526,9 @@ void OnTick()
    last_bar_time = current_bar_time;
    
    //--- Copy indicator values (handle potential failures gracefully)
-   bool rsi_ok = CopyBuffer(rsi_handle, 0, 0, 3, rsi_buffer) > 0;
-   bool macd_ok = CopyBuffer(macd_handle, 0, 0, 3, macd_main) > 0 && CopyBuffer(macd_handle, 1, 0, 3, macd_signal) > 0;
-   bool atr_ok = CopyBuffer(atr_handle, 0, 0, 3, atr_buffer) > 0;
+   rsi_ok = CopyBuffer(rsi_handle, 0, 0, 3, rsi_buffer) > 0;
+   macd_ok = CopyBuffer(macd_handle, 0, 0, 3, macd_main) > 0 && CopyBuffer(macd_handle, 1, 0, 3, macd_signal) > 0;
+   atr_ok = CopyBuffer(atr_handle, 0, 0, 3, atr_buffer) > 0;
    
    //--- Check multi-timeframe conditions
    bool tf_${sortedTimeframes[0].timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_trend_bullish = CheckBullishCondition();
