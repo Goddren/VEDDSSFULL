@@ -714,16 +714,24 @@ bool CheckBullishCondition()
    bool macd_bullish = macd_main[0] > macd_signal[0];
    bool macd_crossover = (macd_main[0] > macd_signal[0] && macd_main[1] <= macd_signal[1]);
    
-   // HYBRID: AI + Technical must align
+   // RSI confirmation (if available)
+   bool rsi_bullish = true;  // Default: allow if RSI data not available
+   if(rsi_ok)
+   {
+      // RSI should not be overbought (> 70), ideally 40-70 for bullish
+      rsi_bullish = (rsi_buffer[0] < 75);  // Light check - allow even if high
+   }
+   
+   // HYBRID: AI + MACD + RSI must align
    if(ai_suggests_buy)
    {
-      // AI says BUY: need MACD bullish (lighter requirement)
-      return macd_bullish || macd_crossover;
+      // AI says BUY: need MACD bullish AND RSI not overbought
+      return (macd_bullish || macd_crossover) && rsi_bullish;
    }
    else
    {
-      // AI doesn't say BUY: need strong MACD signal (fresh crossover)
-      return macd_crossover;
+      // AI doesn't say BUY: need fresh MACD crossover AND good RSI
+      return macd_crossover && rsi_bullish;
    }
 }
 
@@ -743,16 +751,24 @@ bool CheckBearishCondition()
    bool macd_bearish = macd_main[0] < macd_signal[0];
    bool macd_crossover = (macd_main[0] < macd_signal[0] && macd_main[1] >= macd_signal[1]);
    
-   // HYBRID: AI + Technical must align
+   // RSI confirmation (if available)
+   bool rsi_bearish = true;  // Default: allow if RSI data not available
+   if(rsi_ok)
+   {
+      // RSI should not be oversold (< 30), ideally 30-60 for bearish
+      rsi_bearish = (rsi_buffer[0] > 25);  // Light check - allow even if low
+   }
+   
+   // HYBRID: AI + MACD + RSI must align
    if(ai_suggests_sell)
    {
-      // AI says SELL: need MACD bearish (lighter requirement)
-      return macd_bearish || macd_crossover;
+      // AI says SELL: need MACD bearish AND RSI not oversold
+      return (macd_bearish || macd_crossover) && rsi_bearish;
    }
    else
    {
-      // AI doesn't say SELL: need strong MACD signal (fresh crossover)
-      return macd_crossover;
+      // AI doesn't say SELL: need fresh MACD crossover AND good RSI
+      return macd_crossover && rsi_bearish;
    }
 }
 
