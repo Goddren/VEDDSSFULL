@@ -253,8 +253,8 @@ input int Volume_MA_Period = 20;                // Volume moving average period
 input group "=== Trading Rules ==="
 input bool AllowBuyTrades = true;               // Allow BUY trades
 input bool AllowSellTrades = true;              // Allow SELL trades
-input bool UseVolumeFilter = false;             // Require volume confirmation (disabled by default for more trades)
-input bool UseMultiTimeframeConfirmation = false;  // Require multi-timeframe agreement (disabled by default)
+input bool UseVolumeFilter = true;              // Require volume confirmation (enabled for quality trades)
+input bool UseMultiTimeframeConfirmation = true;  // Require multi-timeframe agreement (enabled for confluence)
 input int MinTimeframesAgree = ${Math.max(1, Math.floor(sortedTimeframes.length / 2))};                     // Minimum timeframes that must agree
 input int MaxOpenTrades = ${maxSimultaneousTrades};                    // Maximum concurrent trades
 input int MagicNumber = ${Math.floor(Math.random() * 90000) + 10000};                     // Unique identifier for this EA
