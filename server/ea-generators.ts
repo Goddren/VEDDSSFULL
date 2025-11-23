@@ -259,14 +259,14 @@ input int MinTimeframesAgree = ${Math.max(1, Math.floor(sortedTimeframes.length 
 input int MaxOpenTrades = ${maxSimultaneousTrades};                    // Maximum concurrent trades
 input int MagicNumber = ${Math.floor(Math.random() * 90000) + 10000};                     // Unique identifier for this EA
 
-//--- Trading Hours (Peak Volume Times)
-input group "=== Trading Hours (Peak Volume) ==="
-input bool UseTradeHours = true;                // Only trade during peak volume hours
+//--- Trading Hours (Peak Volume Times) - OPTIONAL
+input group "=== Trading Hours (Peak Volume) - OPTIONAL ==="
+input bool UseTradeHours = false;               // Enable to only trade during peak hours (disabled by default)
 input int StartHour_1 = 8;                      // London Open (08:00 GMT)
 input int EndHour_1 = 12;                       // Until Noon GMT
 input int StartHour_2 = 13;                     // US/London Overlap (13:00 GMT)
 input int EndHour_2 = 17;                       // Until 17:00 GMT (best liquidity)
-input bool AllowAsianSession = false;           // Also trade Asian session (00:00-07:00 GMT)
+input bool AllowAsianSession = false;           // Also trade Asian session (00:00-07:00 GMT) when trading hours enabled
 
 //--- Multiple Trade Strategy
 input group "=== Multi-Trade Strategy ==="
