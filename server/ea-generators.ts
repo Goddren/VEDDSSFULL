@@ -254,10 +254,19 @@ input group "=== Trading Rules ==="
 input bool AllowBuyTrades = true;               // Allow BUY trades
 input bool AllowSellTrades = true;              // Allow SELL trades
 input bool UseVolumeFilter = true;              // Require volume confirmation (enabled for quality trades)
-input bool UseMultiTimeframeConfirmation = true;  // Require multi-timeframe agreement (enabled for confluence)
+input bool UseMultiTimeframeConfirmation = false;  // Use primary timeframe only for faster entries
 input int MinTimeframesAgree = ${Math.max(1, Math.floor(sortedTimeframes.length / 2))};                     // Minimum timeframes that must agree
 input int MaxOpenTrades = ${maxSimultaneousTrades};                    // Maximum concurrent trades
 input int MagicNumber = ${Math.floor(Math.random() * 90000) + 10000};                     // Unique identifier for this EA
+
+//--- Trading Hours (Peak Volume Times)
+input group "=== Trading Hours (Peak Volume) ==="
+input bool UseTradeHours = true;                // Only trade during peak volume hours
+input int StartHour_1 = 8;                      // London Open (08:00 GMT)
+input int EndHour_1 = 12;                       // Until Noon GMT
+input int StartHour_2 = 13;                     // US/London Overlap (13:00 GMT)
+input int EndHour_2 = 17;                       // Until 17:00 GMT (best liquidity)
+input bool AllowAsianSession = false;           // Also trade Asian session (00:00-07:00 GMT)
 
 //--- Multiple Trade Strategy
 input group "=== Multi-Trade Strategy ==="
@@ -552,6 +561,9 @@ ${higherTFs.map(tf => `   bool tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_
    //--- Volume confirmation (only when enabled)
    bool volume_confirmed = !UseVolumeFilter || CheckVolumeConfirmation();
    
+   //--- Check if within trading hours (peak volume times)
+   bool in_trading_hours = !UseTradeHours || IsInTradingHours();
+   
    //--- Count existing positions
    int buy_positions = CountPositions(POSITION_TYPE_BUY);
    int sell_positions = CountPositions(POSITION_TYPE_SELL);
@@ -604,7 +616,7 @@ ${higherTFs.map(tf => `   bool tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_
    }
    
    //--- Execute trades based on multi-trade strategy
-   if(buy_signal && volume_confirmed && AllowBuyTrades)
+   if(buy_signal && volume_confirmed && in_trading_hours && AllowBuyTrades)
    {
       bool can_open = false;
       double lot_size = LotSize;
@@ -649,7 +661,7 @@ ${higherTFs.map(tf => `   bool tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_
          OpenBuyPosition(sl, tp, lot_size);
       }
    }
-   else if(sell_signal && volume_confirmed && AllowSellTrades)
+   else if(sell_signal && volume_confirmed && in_trading_hours && AllowSellTrades)
    {
       bool can_open = false;
       double lot_size = LotSize;
@@ -808,6 +820,32 @@ bool CheckVolumeConfirmation()
    
    //--- Current volume should be higher than average of last 2 bars
    return volume[0] > (volume[1] + volume[2]) / 2;
+}
+
+//+------------------------------------------------------------------+
+//| Check if current time is within trading hours (peak volume)      |
+//+------------------------------------------------------------------+
+bool IsInTradingHours()
+{
+   if(!UseTradeHours) return true;  // Trading allowed all hours if disabled
+   
+   MqlDateTime now;
+   TimeToStruct(TimeCurrent(), now);
+   int current_hour = now.hour;
+   
+   // London session (08:00-12:00 GMT)
+   if(current_hour >= StartHour_1 && current_hour < EndHour_1)
+      return true;
+   
+   // US/London overlap (13:00-17:00 GMT) - BEST LIQUIDITY
+   if(current_hour >= StartHour_2 && current_hour < EndHour_2)
+      return true;
+   
+   // Asian session (00:00-07:00 GMT) - only if enabled
+   if(AllowAsianSession && current_hour >= 0 && current_hour < 8)
+      return true;
+   
+   return false;  // Outside trading hours
 }
 
 //+------------------------------------------------------------------+
