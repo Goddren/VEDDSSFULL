@@ -1071,7 +1071,7 @@ void OpenBuyPosition(double sl, double tp, double lot_size = 0)
    request.sl = sl;
    request.tp = tp;
    request.deviation = 10;
-   request.magic = 123456;
+   request.magic = MagicNumber;
    request.comment = "Multi-TF EA Buy";
    
    if(OrderSend(request, result))
@@ -1104,7 +1104,7 @@ void OpenSellPosition(double sl, double tp, double lot_size = 0)
    request.sl = sl;
    request.tp = tp;
    request.deviation = 10;
-   request.magic = 123456;
+   request.magic = MagicNumber;
    request.comment = "Multi-TF EA Sell";
    
    if(OrderSend(request, result))
