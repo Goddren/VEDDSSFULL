@@ -708,28 +708,23 @@ bool CheckBullishCondition()
    
    bool ai_suggests_buy = ${consensusDirection === 'BUY' ? 'true' : 'false'};  // Based on chart pattern analysis
    
-   // If AI says BUY, trust it (patterns are strong indicators)
-   // If indicators aren't available, use AI direction alone
-   if(ai_suggests_buy)
-   {
-      // Check technical indicators if available
-      if(macd_ok)
-      {
-         bool macd_bullish = macd_main[0] > macd_signal[0];
-         if(macd_bullish) return true;  // MACD confirms
-      }
-      // If MACD not available or not bullish, still allow trade based on AI
-      return true;  
-   }
-   
-   // When AI is neutral/bearish, be stricter - require technical confirmation
-   if(!macd_ok) return false;  // Need indicators if AI doesn't suggest BUY
+   // Need MACD data to make any decision
+   if(!macd_ok) return false;
    
    bool macd_bullish = macd_main[0] > macd_signal[0];
    bool macd_crossover = (macd_main[0] > macd_signal[0] && macd_main[1] <= macd_signal[1]);
    
-   // Require fresh MACD crossover when AI is neutral
-   return macd_crossover;
+   // HYBRID: AI + Technical must align
+   if(ai_suggests_buy)
+   {
+      // AI says BUY: need MACD bullish (lighter requirement)
+      return macd_bullish || macd_crossover;
+   }
+   else
+   {
+      // AI doesn't say BUY: need strong MACD signal (fresh crossover)
+      return macd_crossover;
+   }
 }
 
 //+------------------------------------------------------------------+
@@ -742,28 +737,23 @@ bool CheckBearishCondition()
    
    bool ai_suggests_sell = ${consensusDirection === 'SELL' ? 'true' : 'false'};  // Based on chart pattern analysis
    
-   // If AI says SELL, trust it (patterns are strong indicators)
-   // If indicators aren't available, use AI direction alone
-   if(ai_suggests_sell)
-   {
-      // Check technical indicators if available
-      if(macd_ok)
-      {
-         bool macd_bearish = macd_main[0] < macd_signal[0];
-         if(macd_bearish) return true;  // MACD confirms
-      }
-      // If MACD not available or not bearish, still allow trade based on AI
-      return true;
-   }
-   
-   // When AI is neutral/bullish, be stricter - require technical confirmation
-   if(!macd_ok) return false;  // Need indicators if AI doesn't suggest SELL
+   // Need MACD data to make any decision
+   if(!macd_ok) return false;
    
    bool macd_bearish = macd_main[0] < macd_signal[0];
    bool macd_crossover = (macd_main[0] < macd_signal[0] && macd_main[1] >= macd_signal[1]);
    
-   // Require fresh MACD crossover when AI is neutral
-   return macd_crossover;
+   // HYBRID: AI + Technical must align
+   if(ai_suggests_sell)
+   {
+      // AI says SELL: need MACD bearish (lighter requirement)
+      return macd_bearish || macd_crossover;
+   }
+   else
+   {
+      // AI doesn't say SELL: need strong MACD signal (fresh crossover)
+      return macd_crossover;
+   }
 }
 
 //+------------------------------------------------------------------+
