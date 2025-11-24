@@ -710,7 +710,7 @@ ${higherTFs.map(tf => `   bool tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_
 
 //+------------------------------------------------------------------+
 //| Check bullish condition on current timeframe                     |
-//| HYBRID APPROACH: AI Analysis Direction + Technical Confirmation  |
+//| TRUST AI ANALYSIS: Use AI direction with light technical check   |
 //+------------------------------------------------------------------+
 bool CheckBullishCondition()
 {
@@ -720,36 +720,23 @@ bool CheckBullishCondition()
    
    bool ai_suggests_buy = ${consensusDirection === 'BUY' ? 'true' : 'false'};  // Based on chart pattern analysis
    
-   // Need MACD data to make any decision
-   if(!macd_ok) return false;
+   if(!ai_suggests_buy) return false;  // Only trade if AI says BUY
    
-   bool macd_bullish = macd_main[0] > macd_signal[0];
-   bool macd_crossover = (macd_main[0] > macd_signal[0] && macd_main[1] <= macd_signal[1]);
-   
-   // RSI confirmation (if available)
-   bool rsi_bullish = true;  // Default: allow if RSI data not available
+   // Light technical confirmation - not strict requirements
+   bool rsi_ok_to_buy = true;  // Always allow
    if(rsi_ok)
    {
-      // RSI should not be overbought (> 70), ideally 40-70 for bullish
-      rsi_bullish = (rsi_buffer[0] < 75);  // Light check - allow even if high
+      // RSI check: allow if not extremely overbought (< 80)
+      rsi_ok_to_buy = (rsi_buffer[0] < 80);
    }
    
-   // HYBRID: AI + MACD + RSI must align
-   if(ai_suggests_buy)
-   {
-      // AI says BUY: need MACD bullish AND RSI not overbought
-      return (macd_bullish || macd_crossover) && rsi_bullish;
-   }
-   else
-   {
-      // AI doesn't say BUY: need fresh MACD crossover AND good RSI
-      return macd_crossover && rsi_bullish;
-   }
+   // TRUST AI: If AI says BUY and RSI is reasonable, open trade
+   return rsi_ok_to_buy;
 }
 
 //+------------------------------------------------------------------+
 //| Check bearish condition on current timeframe                     |
-//| HYBRID APPROACH: AI Analysis Direction + Technical Confirmation  |
+//| TRUST AI ANALYSIS: Use AI direction with light technical check   |
 //+------------------------------------------------------------------+
 bool CheckBearishCondition()
 {
@@ -757,31 +744,18 @@ bool CheckBearishCondition()
    
    bool ai_suggests_sell = ${consensusDirection === 'SELL' ? 'true' : 'false'};  // Based on chart pattern analysis
    
-   // Need MACD data to make any decision
-   if(!macd_ok) return false;
+   if(!ai_suggests_sell) return false;  // Only trade if AI says SELL
    
-   bool macd_bearish = macd_main[0] < macd_signal[0];
-   bool macd_crossover = (macd_main[0] < macd_signal[0] && macd_main[1] >= macd_signal[1]);
-   
-   // RSI confirmation (if available)
-   bool rsi_bearish = true;  // Default: allow if RSI data not available
+   // Light technical confirmation - not strict requirements
+   bool rsi_ok_to_sell = true;  // Always allow
    if(rsi_ok)
    {
-      // RSI should not be oversold (< 30), ideally 30-60 for bearish
-      rsi_bearish = (rsi_buffer[0] > 25);  // Light check - allow even if low
+      // RSI check: allow if not extremely oversold (> 20)
+      rsi_ok_to_sell = (rsi_buffer[0] > 20);
    }
    
-   // HYBRID: AI + MACD + RSI must align
-   if(ai_suggests_sell)
-   {
-      // AI says SELL: need MACD bearish AND RSI not oversold
-      return (macd_bearish || macd_crossover) && rsi_bearish;
-   }
-   else
-   {
-      // AI doesn't say SELL: need fresh MACD crossover AND good RSI
-      return macd_crossover && rsi_bearish;
-   }
+   // TRUST AI: If AI says SELL and RSI is reasonable, open trade
+   return rsi_ok_to_sell;
 }
 
 //+------------------------------------------------------------------+
