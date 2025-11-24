@@ -97,10 +97,22 @@ export function generateMT5EACode(
     .filter((v, i, a) => a.indexOf(v) === i) // unique indicators
     .join(', ');
   
-  // Get consensus direction
+  // Get consensus direction - trust primary timeframe when there's a tie
   const buyCount = sortedTimeframes.filter(tf => tf.analysis.direction?.toUpperCase() === 'BUY').length;
   const sellCount = sortedTimeframes.filter(tf => tf.analysis.direction?.toUpperCase() === 'SELL').length;
-  const consensusDirection = buyCount > sellCount ? 'BUY' : sellCount > buyCount ? 'SELL' : 'NEUTRAL';
+  const primaryDirection = primaryTF.analysis.direction?.toUpperCase() || 'NEUTRAL';
+  
+  // Use consensus if clear majority, otherwise use primary timeframe
+  let consensusDirection = 'NEUTRAL';
+  if (buyCount > sellCount) {
+    consensusDirection = 'BUY';
+  } else if (sellCount > buyCount) {
+    consensusDirection = 'SELL';
+  } else {
+    // Tie or no signals: use primary timeframe direction
+    consensusDirection = primaryDirection;
+  }
+  
   const consensusConfidence = Math.max(buyCount, sellCount) / sortedTimeframes.length * 100;
   
   // Parse ATR multiplier as number
@@ -616,7 +628,7 @@ ${higherTFs.map(tf => `   bool tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_
    }
    
    //--- Execute trades based on multi-trade strategy
-   if(buy_signal && volume_confirmed && in_trading_hours && AllowBuyTrades)
+   if(buy_signal && AllowBuyTrades)
    {
       bool can_open = false;
       double lot_size = LotSize;
@@ -661,7 +673,7 @@ ${higherTFs.map(tf => `   bool tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_
          OpenBuyPosition(sl, tp, lot_size);
       }
    }
-   else if(sell_signal && volume_confirmed && in_trading_hours && AllowSellTrades)
+   else if(sell_signal && AllowSellTrades)
    {
       bool can_open = false;
       double lot_size = LotSize;
@@ -1176,10 +1188,22 @@ export function generateTradingViewCode(
     .filter((v, i, a) => a.indexOf(v) === i)
     .join(', ');
   
-  // Get consensus
+  // Get consensus - trust primary timeframe when there's a tie
   const buyCount = sortedTimeframes.filter(tf => tf.analysis.direction?.toUpperCase() === 'BUY').length;
   const sellCount = sortedTimeframes.filter(tf => tf.analysis.direction?.toUpperCase() === 'SELL').length;
-  const consensusDirection = buyCount > sellCount ? 'BUY' : sellCount > buyCount ? 'SELL' : 'NEUTRAL';
+  const primaryDirection = primaryTF.analysis.direction?.toUpperCase() || 'NEUTRAL';
+  
+  // Use consensus if clear majority, otherwise use primary timeframe
+  let consensusDirection = 'NEUTRAL';
+  if (buyCount > sellCount) {
+    consensusDirection = 'BUY';
+  } else if (sellCount > buyCount) {
+    consensusDirection = 'SELL';
+  } else {
+    // Tie or no signals: use primary timeframe direction
+    consensusDirection = primaryDirection;
+  }
+  
   const consensusConfidence = Math.max(buyCount, sellCount) / sortedTimeframes.length * 100;
   
   const entryPoint = primaryTF.analysis.entryPoint || 'Market';
