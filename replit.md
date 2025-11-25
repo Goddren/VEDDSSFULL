@@ -128,7 +128,7 @@ The generated MT5/TradingView EAs now use a sophisticated hybrid trading system 
 **Hybrid Logic**:
 - When AI recommends a direction → Lighter technical confirmation required
 - When AI is neutral → Stricter technical signals needed
-- Reduces false signals while maintaining responsiveness
+- Reduces false signals while maintains responsiveness
 - Adapts to both AI insights and live market conditions
 
 ### Live AI Refresh Feature (In Development)
@@ -162,6 +162,7 @@ A future feature that will enable daily AI analysis refresh:
 - November 25, 2025. Made code generation UI mobile-friendly with dropdown selector instead of 3 buttons
 - November 25, 2025. Added API endpoint explanation for new users (step-by-step process + endpoint documentation)
 - November 25, 2025. Implemented AI-powered chart recommendation system to suggest best chart for EA entry based on signal strength, confidence, and technical indicators
+- November 25, 2025. Fixed trading day filter default - changed from Mon-Fri only to ALL DAYS ENABLED (Mon-Sun) to prevent accidental trade blocking
 
 ## User Preferences
 
