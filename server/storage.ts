@@ -1,10 +1,12 @@
 import { 
   users, chartAnalyses, achievements, userAchievements,
   userProfiles, follows, analysisFeedback, analysisViews, priceAlerts,
+  savedEAs, eaSubscriptions,
   type User, type InsertUser, type ChartAnalysis, type InsertChartAnalysis,
   type Achievement, type InsertAchievement, type UserAchievement, type InsertUserAchievement,
   type UserProfile, type InsertUserProfile, type Follow, type InsertFollow,
-  type AnalysisFeedback, type InsertAnalysisFeedback, type AnalysisView, type PriceAlert, type InsertPriceAlert
+  type AnalysisFeedback, type InsertAnalysisFeedback, type AnalysisView, type PriceAlert, type InsertPriceAlert,
+  type SavedEA, type InsertSavedEA, type EASubscription, type InsertEASubscription
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, sql } from "drizzle-orm";
@@ -86,6 +88,23 @@ export interface IStorage {
   deletePriceAlert(id: number): Promise<boolean>;
   getActivePriceAlerts(): Promise<PriceAlert[]>;
   triggerPriceAlert(id: number): Promise<PriceAlert | undefined>;
+  
+  // Saved EA methods
+  savEA(ea: InsertSavedEA): Promise<SavedEA>;
+  getSavedEA(id: number): Promise<SavedEA | undefined>;
+  getUserSavedEAs(userId: number): Promise<SavedEA[]>;
+  updateSavedEA(id: number, data: Partial<SavedEA>): Promise<SavedEA | undefined>;
+  deleteSavedEA(id: number): Promise<boolean>;
+  shareEA(eaId: number, price: number): Promise<SavedEA | undefined>;
+  getSharedEAs(limit?: number): Promise<SavedEA[]>;
+  
+  // EA Subscription methods
+  subscribeToEA(subscription: InsertEASubscription): Promise<EASubscription>;
+  getEASubscription(id: number): Promise<EASubscription | undefined>;
+  getUserSubscribedEAs(userId: number): Promise<(EASubscription & { ea: SavedEA; creator: User })[]>;
+  getCreatorSubscribers(creatorId: number): Promise<EASubscription[]>;
+  cancelEASubscription(subscriptionId: number): Promise<boolean>;
+  getEASubscriptionByEAAndUser(eaId: number, userId: number): Promise<EASubscription | undefined>;
   
   // Session store for authentication
   sessionStore: session.Store;
@@ -676,6 +695,130 @@ export class DatabaseStorage implements IStorage {
       .where(eq(priceAlerts.id, id))
       .returning();
     return triggeredAlert;
+  }
+
+  async savEA(ea: InsertSavedEA): Promise<SavedEA> {
+    const [savedEA] = await db
+      .insert(savedEAs)
+      .values(ea)
+      .returning();
+    return savedEA;
+  }
+
+  async getSavedEA(id: number): Promise<SavedEA | undefined> {
+    const [ea] = await db
+      .select()
+      .from(savedEAs)
+      .where(eq(savedEAs.id, id));
+    return ea;
+  }
+
+  async getUserSavedEAs(userId: number): Promise<SavedEA[]> {
+    return await db
+      .select()
+      .from(savedEAs)
+      .where(eq(savedEAs.userId, userId))
+      .orderBy(sql`${savedEAs.createdAt} DESC`);
+  }
+
+  async updateSavedEA(id: number, data: Partial<SavedEA>): Promise<SavedEA | undefined> {
+    const [updated] = await db
+      .update(savedEAs)
+      .set(data)
+      .where(eq(savedEAs.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteSavedEA(id: number): Promise<boolean> {
+    await db
+      .delete(savedEAs)
+      .where(eq(savedEAs.id, id));
+    return true;
+  }
+
+  async shareEA(eaId: number, price: number): Promise<SavedEA | undefined> {
+    const [ea] = await db
+      .update(savedEAs)
+      .set({
+        isShared: true,
+        price
+      })
+      .where(eq(savedEAs.id, eaId))
+      .returning();
+    return ea;
+  }
+
+  async getSharedEAs(limit?: number): Promise<SavedEA[]> {
+    const query = db
+      .select()
+      .from(savedEAs)
+      .where(eq(savedEAs.isShared, true))
+      .orderBy(sql`${savedEAs.shareCount} DESC`);
+    
+    if (limit) {
+      return await query.limit(limit);
+    }
+    return await query;
+  }
+
+  async subscribeToEA(subscription: InsertEASubscription): Promise<EASubscription> {
+    const [sub] = await db
+      .insert(eaSubscriptions)
+      .values(subscription)
+      .returning();
+    return sub;
+  }
+
+  async getEASubscription(id: number): Promise<EASubscription | undefined> {
+    const [sub] = await db
+      .select()
+      .from(eaSubscriptions)
+      .where(eq(eaSubscriptions.id, id));
+    return sub;
+  }
+
+  async getUserSubscribedEAs(userId: number): Promise<(EASubscription & { ea: SavedEA; creator: User })[]> {
+    const subscriptions = await db
+      .select()
+      .from(eaSubscriptions)
+      .where(eq(eaSubscriptions.subscriberId, userId));
+    
+    const result = [];
+    for (const sub of subscriptions) {
+      const ea = await this.getSavedEA(sub.eaId);
+      const creator = await this.getUser(sub.creatorId);
+      if (ea && creator) {
+        result.push({ ...sub, ea, creator });
+      }
+    }
+    return result;
+  }
+
+  async getCreatorSubscribers(creatorId: number): Promise<EASubscription[]> {
+    return await db
+      .select()
+      .from(eaSubscriptions)
+      .where(eq(eaSubscriptions.creatorId, creatorId));
+  }
+
+  async cancelEASubscription(subscriptionId: number): Promise<boolean> {
+    await db
+      .update(eaSubscriptions)
+      .set({ status: 'canceled' })
+      .where(eq(eaSubscriptions.id, subscriptionId));
+    return true;
+  }
+
+  async getEASubscriptionByEAAndUser(eaId: number, userId: number): Promise<EASubscription | undefined> {
+    const [sub] = await db
+      .select()
+      .from(eaSubscriptions)
+      .where(and(
+        eq(eaSubscriptions.eaId, eaId),
+        eq(eaSubscriptions.subscriberId, userId)
+      ));
+    return sub;
   }
 }
 

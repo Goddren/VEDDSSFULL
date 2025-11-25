@@ -152,6 +152,42 @@ A future feature that will enable daily AI analysis refresh:
 - Cost tracking per user
 - Subscription-tier gating
 
+## EA Marketplace & Passive Income Feature
+
+### Overview
+Users can now save, manage, and monetize their Expert Advisors through a creator marketplace system:
+
+**For Users:**
+- Save generated EAs for future use and management
+- Browse and subscribe to EAs created by other traders
+- Access all subscribed EAs in one place
+
+**For Creators:**
+- Publish EAs to the marketplace with custom pricing
+- Track subscriber count and passive income
+- Creator dashboard shows total earnings and subscriptions
+- Build passive income streams from quality trading strategies
+
+### Database Tables
+- `savedEAs`: Stores user-created EAs with pricing and sharing settings
+- `eaSubscriptions`: Manages creator-subscriber relationships
+
+### API Endpoints
+- POST `/api/save-ea` - Save a generated EA
+- GET `/api/my-eas` - List user's saved EAs
+- GET `/api/my-eas/:id` - Get specific EA
+- PATCH `/api/my-eas/:id` - Update EA details
+- DELETE `/api/my-eas/:id` - Delete EA
+- POST `/api/share-ea/:id` - Publish EA to marketplace with pricing
+- GET `/api/ea-marketplace` - Browse shared EAs
+- POST `/api/subscribe-to-ea/:eaId` - Subscribe to an EA
+- GET `/api/my-subscriptions` - Get subscribed EAs
+- GET `/api/creator-dashboard` - Creator stats and earnings
+
+### UI Pages
+- `/my-eas` - Personal EA library with management tools
+- `/ea-marketplace` - Browse and subscribe to EAs from other creators
+
 ## Changelog
 
 - July 06, 2025. Initial setup
@@ -171,6 +207,14 @@ A future feature that will enable daily AI analysis refresh:
   1. Updated canGenerateCode check to verify NO charts are still uploading (isAnyUploading flag)
   2. Added user-friendly status message "Analyzing in progress... Please wait for all charts to complete before generating EA"
   3. EA code generation now only enables after all selected charts finish analyzing
+- November 25, 2025. Implemented EA Marketplace and Passive Income System:
+  1. Created savedEAs table to persist user-created Expert Advisors with metadata
+  2. Created eaSubscriptions table to manage creator-subscriber relationships
+  3. Added 11 API endpoints for saving, managing, sharing, and subscribing to EAs
+  4. Built "My EAs" page (/my-eas) with save, share, download, copy, and delete functionality
+  5. Built "EA Marketplace" (/ea-marketplace) with discovery, search, and subscription features
+  6. Implemented creator dashboard to track subscribers and passive income earnings
+  7. Added unique constraint on eaSubscriptions to prevent duplicate subscriptions
 
 ## User Preferences
 

@@ -35,6 +35,8 @@ import InteractiveTooltipShowcase from "@/pages/interactive-tooltip-showcase";
 import BlogPage from "@/pages/blog";
 import StrategyWizard from "@/pages/strategy-wizard";
 import MobileAlerts from "@/pages/mobile-alerts";
+import MyEAsPage from "@/pages/my-eas";
+import EAMarketplacePage from "@/pages/ea-marketplace";
 import { MobileFAB } from "@/components/mobile-fab";
 import { NetworkStatus } from "@/components/network-status";
 import { NewsNotificationScheduler } from "@/components/news-notification-scheduler";
@@ -96,6 +98,8 @@ function AppLayout() {
             <ProtectedRoute path="/strategy-wizard" component={StrategyWizard} />
             <ProtectedRoute path="/interactive-tooltips" component={InteractiveTooltipShowcase} />
             <ProtectedRoute path="/mobile-alerts" component={MobileAlerts} />
+            <ProtectedRoute path="/my-eas" component={MyEAsPage} />
+            <ProtectedRoute path="/ea-marketplace" component={EAMarketplacePage} />
             
             <Route component={NotFound} />
           </Switch>

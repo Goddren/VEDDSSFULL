@@ -299,3 +299,60 @@ export const insertPriceAlertSchema = createInsertSchema(priceAlerts).omit({
 
 export type PriceAlert = typeof priceAlerts.$inferSelect;
 export type InsertPriceAlert = z.infer<typeof insertPriceAlertSchema>;
+
+// Saved EAs table
+export const savedEAs = pgTable("saved_eas", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  name: text("name").notNull(),
+  description: text("description"),
+  platformType: text("platform_type").notNull(), // 'MT5', 'TradingView', 'TradeLocker'
+  eaCode: text("ea_code").notNull(),
+  symbol: text("symbol").notNull(),
+  strategyType: text("strategy_type"),
+  isShared: boolean("is_shared").default(false),
+  price: integer("price"), // Price in cents, null if not shared
+  shareCount: integer("share_count").default(0),
+  stripeProductId: text("stripe_product_id"),
+  stripePriceId: text("stripe_price_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// EA Subscriptions table
+export const eaSubscriptions = pgTable("ea_subscriptions", {
+  id: serial("id").primaryKey(),
+  eaId: integer("ea_id").references(() => savedEAs.id).notNull(),
+  creatorId: integer("creator_id").references(() => users.id).notNull(),
+  subscriberId: integer("subscriber_id").references(() => users.id).notNull(),
+  status: text("status").notNull().default('active'), // active, canceled, expired
+  stripeSubscriptionId: text("stripe_subscription_id"),
+  startDate: timestamp("start_date").defaultNow().notNull(),
+  endDate: timestamp("end_date"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => {
+  return {
+    uniqueSubscription: unique().on(table.eaId, table.subscriberId),
+  };
+});
+
+export const insertSavedEASchema = createInsertSchema(savedEAs).omit({
+  id: true,
+  shareCount: true,
+  createdAt: true,
+  updatedAt: true,
+  stripeProductId: true,
+  stripePriceId: true,
+});
+
+export const insertEASubscriptionSchema = createInsertSchema(eaSubscriptions).omit({
+  id: true,
+  createdAt: true,
+  startDate: true,
+  endDate: true,
+});
+
+export type SavedEA = typeof savedEAs.$inferSelect;
+export type InsertSavedEA = z.infer<typeof insertSavedEASchema>;
+export type EASubscription = typeof eaSubscriptions.$inferSelect;
+export type InsertEASubscription = z.infer<typeof insertEASubscriptionSchema>;

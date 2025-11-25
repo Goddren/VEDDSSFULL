@@ -2002,6 +2002,190 @@ Return ONLY a JSON object with this structure:
     }
   });
 
+  // EA Marketplace API Routes
+  app.post("/api/save-ea", async (req: Request, res: Response) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+      
+      const { name, description, platformType, eaCode, symbol, strategyType, isShared, price } = req.body;
+      
+      const ea = await storage.savEA({
+        userId: (req.user as User).id,
+        name,
+        description,
+        platformType,
+        eaCode,
+        symbol,
+        strategyType,
+        isShared: isShared || false,
+        price: price ? Math.round(price * 100) : null
+      });
+      
+      res.json({ success: true, ea });
+    } catch (error) {
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to save EA" });
+    }
+  });
+
+  app.get("/api/my-eas", async (req: Request, res: Response) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+      
+      const eas = await storage.getUserSavedEAs((req.user as User).id);
+      res.json(eas);
+    } catch (error) {
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to fetch EAs" });
+    }
+  });
+
+  app.get("/api/my-eas/:id", async (req: Request, res: Response) => {
+    try {
+      const ea = await storage.getSavedEA(parseInt(req.params.id));
+      if (!ea) return res.status(404).json({ error: "EA not found" });
+      if (req.user && ea.userId !== (req.user as User).id) return res.status(403).json({ error: "Forbidden" });
+      
+      res.json(ea);
+    } catch (error) {
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to fetch EA" });
+    }
+  });
+
+  app.patch("/api/my-eas/:id", async (req: Request, res: Response) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+      
+      const ea = await storage.getSavedEA(parseInt(req.params.id));
+      if (!ea) return res.status(404).json({ error: "EA not found" });
+      if (ea.userId !== (req.user as User).id) return res.status(403).json({ error: "Forbidden" });
+      
+      const updated = await storage.updateSavedEA(parseInt(req.params.id), req.body);
+      res.json({ success: true, ea: updated });
+    } catch (error) {
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to update EA" });
+    }
+  });
+
+  app.delete("/api/my-eas/:id", async (req: Request, res: Response) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+      
+      const ea = await storage.getSavedEA(parseInt(req.params.id));
+      if (!ea) return res.status(404).json({ error: "EA not found" });
+      if (ea.userId !== (req.user as User).id) return res.status(403).json({ error: "Forbidden" });
+      
+      await storage.deleteSavedEA(parseInt(req.params.id));
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to delete EA" });
+    }
+  });
+
+  app.post("/api/share-ea/:id", async (req: Request, res: Response) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+      
+      const ea = await storage.getSavedEA(parseInt(req.params.id));
+      if (!ea) return res.status(404).json({ error: "EA not found" });
+      if (ea.userId !== (req.user as User).id) return res.status(403).json({ error: "Forbidden" });
+      
+      const { price } = req.body;
+      const shared = await storage.shareEA(parseInt(req.params.id), price);
+      res.json({ success: true, ea: shared });
+    } catch (error) {
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to share EA" });
+    }
+  });
+
+  app.get("/api/ea-marketplace", async (req: Request, res: Response) => {
+    try {
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 20;
+      const eas = await storage.getSharedEAs(limit);
+      
+      const enriched = await Promise.all(
+        eas.map(async (ea) => {
+          const creator = await storage.getUser(ea.userId);
+          const subscribers = await storage.getCreatorSubscribers(ea.userId);
+          return {
+            ...ea,
+            creator: creator ? { id: creator.id, username: creator.username, fullName: creator.fullName } : null,
+            subscriberCount: subscribers.length
+          };
+        })
+      );
+      
+      res.json(enriched);
+    } catch (error) {
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to fetch marketplace" });
+    }
+  });
+
+  app.post("/api/subscribe-to-ea/:eaId", async (req: Request, res: Response) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+      
+      const ea = await storage.getSavedEA(parseInt(req.params.eaId));
+      if (!ea) return res.status(404).json({ error: "EA not found" });
+      if (!ea.isShared) return res.status(400).json({ error: "EA not available for subscription" });
+      
+      const existing = await storage.getEASubscriptionByEAAndUser(parseInt(req.params.eaId), (req.user as User).id);
+      if (existing) return res.status(400).json({ error: "Already subscribed to this EA" });
+      
+      const subscription = await storage.subscribeToEA({
+        eaId: parseInt(req.params.eaId),
+        creatorId: ea.userId,
+        subscriberId: (req.user as User).id,
+        status: 'active'
+      });
+      
+      await storage.updateSavedEA(parseInt(req.params.eaId), {
+        shareCount: (ea.shareCount || 0) + 1
+      });
+      
+      res.json({ success: true, subscription });
+    } catch (error) {
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to subscribe" });
+    }
+  });
+
+  app.get("/api/my-subscriptions", async (req: Request, res: Response) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+      
+      const subscriptions = await storage.getUserSubscribedEAs((req.user as User).id);
+      res.json(subscriptions);
+    } catch (error) {
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to fetch subscriptions" });
+    }
+  });
+
+  app.get("/api/creator-dashboard", async (req: Request, res: Response) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+      
+      const userId = (req.user as User).id;
+      const eas = await storage.getUserSavedEAs(userId);
+      const sharedEAs = eas.filter(ea => ea.isShared);
+      
+      let totalSubscribers = 0;
+      let totalEarnings = 0;
+      
+      for (const ea of sharedEAs) {
+        const subscribers = await storage.getCreatorSubscribers(userId);
+        totalSubscribers += subscribers.length;
+        if (ea.price) totalEarnings += (ea.price * subscribers.length) / 100;
+      }
+      
+      res.json({
+        totalEAs: eas.length,
+        sharedEAs: sharedEAs.length,
+        totalSubscribers,
+        totalEarnings
+      });
+    } catch (error) {
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to fetch dashboard" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
