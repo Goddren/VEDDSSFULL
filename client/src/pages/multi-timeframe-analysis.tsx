@@ -280,7 +280,8 @@ export default function MultiTimeframeAnalysis() {
   });
 
   const uploadedCount = Object.values(timeframeUploads).filter(tf => tf.analysis !== null).length;
-  const canGenerateCode = uploadedCount >= 2;
+  const isAnyUploading = Object.values(timeframeUploads).some(tf => tf.uploading);
+  const canGenerateCode = uploadedCount >= 2 && !isAnyUploading;
 
   const selectedStrategy = STRATEGY_TYPES.find(st => st.value === strategyType);
 
@@ -587,6 +588,11 @@ export default function MultiTimeframeAnalysis() {
               <CardTitle>Analyzing: {symbol}</CardTitle>
               <CardDescription>
                 {uploadedCount} of {TIMEFRAMES.length} timeframes uploaded
+                {isAnyUploading && (
+                  <div className="mt-2 text-sm font-medium text-amber-600 dark:text-amber-400">
+                    Analyzing in progress... Please wait for all charts to complete before generating EA.
+                  </div>
+                )}
               </CardDescription>
             </CardHeader>
           </Card>

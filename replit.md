@@ -167,6 +167,10 @@ A future feature that will enable daily AI analysis refresh:
   1. Removed all emoji characters from generated EA code (⏸️, ✅, ❌, ⚠️, ↑, ↓, 📈, 📉, 🔄, 📊, etc.) - MQL5 doesn't support Unicode emojis
   2. Added explicit numeric values to enum (MODE_SINGLE = 0, MODE_PYRAMIDING = 1, MODE_GRID = 2, MODE_HEDGING = 3) for switch statement compilation
   3. Replaced all emoji references with ASCII text (e.g., "PAUSED" instead of "PAUSED ⏸️")
+- November 25, 2025. Fixed EA generation workflow to wait for all charts to complete analysis:
+  1. Updated canGenerateCode check to verify NO charts are still uploading (isAnyUploading flag)
+  2. Added user-friendly status message "Analyzing in progress... Please wait for all charts to complete before generating EA"
+  3. EA code generation now only enables after all selected charts finish analyzing
 
 ## User Preferences
 
