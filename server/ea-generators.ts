@@ -265,7 +265,7 @@ input int Volume_MA_Period = 20;                // Volume moving average period
 input group "=== Trading Rules ==="
 input bool AllowBuyTrades = true;               // Allow BUY trades
 input bool AllowSellTrades = true;              // Allow SELL trades
-input bool UseVolumeFilter = true;              // Require volume confirmation (enabled for quality trades)
+input bool UseVolumeFilter = false;             // Require volume confirmation (DISABLED by default - enables more trades)
 input bool UseMultiTimeframeConfirmation = false;  // Use primary timeframe only for faster entries
 input int MinTimeframesAgree = ${Math.max(1, Math.floor(sortedTimeframes.length / 2))};                     // Minimum timeframes that must agree
 input int MaxOpenTrades = ${maxSimultaneousTrades};                    // Maximum concurrent trades
@@ -290,7 +290,7 @@ input bool AllowHedging = ${multiTradeStrategy === 'hedging' ? 'true' : 'false'}
 //--- Live AI Refresh (Daily Real-Time Analysis)
 input group "=== AI Live Refresh (Costs ~$1-3/month) ==="
 input bool EnableLiveRefresh = false;           // ⚠️  DISABLED - Contact support to enable
-input string RefreshAPIURL = "${process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}/api/ea/refresh-analysis` : 'FEATURE_DISABLED'}";  // API endpoint URL
+input string RefreshAPIURL = "https://YOUR_REPLIT_DOMAIN/api/ea/refresh-analysis";  // API endpoint URL (get from support)
 input string RefreshAPIKey = "FEATURE_DISABLED_CONTACT_SUPPORT";  // Contact support for secure token
 input int RefreshIntervalHours = 24;            // Hours between refreshes (24 = once per day)
 input bool PauseOnDirectionChange = true;       // Pause trading if AI changes direction
