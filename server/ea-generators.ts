@@ -172,7 +172,7 @@ enum ENUM_MULTI_TRADE_MODE
 //========================================================================
 // Chart Analysis Date: ${chartDate}
 // EA Valid Until: ${validityDateStr} (${validityDays} days from analysis)
-// ⚠️  IMPORTANT: After this date, re-analyze the chart and generate a new EA
+// IMPORTANT: After this date, re-analyze the chart and generate a new EA
 //    Market conditions change, and old analysis may become invalid.
 //
 // AI ANALYSIS SUMMARY
@@ -191,12 +191,12 @@ enum ENUM_MULTI_TRADE_MODE
 //========================================================================
 // This EA combines AI pattern analysis with technical indicator confirmation:
 //
-// ✓ When AI suggests ${consensusDirection}:
+// When AI suggests ${consensusDirection}:
 //   - Easier entry requirements (MACD confirmation + reasonable RSI)
 //   - Trusts the AI's pattern detection from your chart
 //   - Waits for technical indicators to align with AI direction
 //
-// ✓ When AI is neutral/opposite:
+// When AI is neutral/opposite:
 //   - Stricter entry requirements (fresh MACD crossover + strong RSI)
 //   - Requires clear technical signals to override AI analysis
 //
@@ -206,9 +206,9 @@ enum ENUM_MULTI_TRADE_MODE
 // - Reduces false signals and improves win rate
 //========================================================================
 //
-// 🔄 LIVE AI REFRESH FEATURE (COMING SOON!)
+// LIVE AI REFRESH FEATURE (COMING SOON!)
 //========================================================================
-// ⚠️  THIS FEATURE IS CURRENTLY DISABLED FOR SECURITY REVIEW
+// THIS FEATURE IS CURRENTLY DISABLED FOR SECURITY REVIEW
 //
 // We're working on a DAILY AI REFRESH feature that will:
 // - Re-analyze your chart daily with current market prices
@@ -306,7 +306,7 @@ input bool AllowHedging = ${multiTradeStrategy === 'hedging' ? 'true' : 'false'}
 
 //--- Live AI Refresh (Daily Real-Time Analysis)
 input group "=== AI Live Refresh (Costs ~$1-3/month) ==="
-input bool EnableLiveRefresh = false;           // ⚠️  DISABLED - Contact support to enable
+input bool EnableLiveRefresh = false;           // DISABLED - Contact support to enable
 input string RefreshAPIURL = "https://YOUR_REPLIT_DOMAIN/api/ea/refresh-analysis";  // API endpoint URL (get from support)
 input string RefreshAPIKey = "FEATURE_DISABLED_CONTACT_SUPPORT";  // Contact support for secure token
 input int RefreshIntervalHours = 24;            // Hours between refreshes (24 = once per day)
@@ -357,8 +357,8 @@ int OnInit()
    {
       if(RefreshAPIKey == "YOUR_API_KEY_HERE")
       {
-         Print("⚠️  WARNING: Replace 'YOUR_API_KEY_HERE' with your actual API key!");
-         Print("⚠️  Trading will be PAUSED until you set a valid API key.");
+         Print("WARNING: Replace 'YOUR_API_KEY_HERE' with your actual API key!");
+         Print("Trading will be PAUSED until you set a valid API key.");
          trading_paused = true;
       }
       else
@@ -391,7 +391,7 @@ void OnTimer()
    if(RefreshAPIKey == "YOUR_API_KEY_HERE") return;  // Skip if API key not set
    
    Print("======================================");
-   Print("🔄 REFRESHING AI ANALYSIS...");
+   Print("REFRESHING AI ANALYSIS...");
    Print("Time since last refresh: ", (int)((TimeCurrent() - last_refresh_time) / 3600), " hours");
    
    // Call the refresh function
@@ -407,7 +407,7 @@ void RefreshAIAnalysis()
    MqlRates rates[];
    if(CopyRates(_Symbol, PERIOD_CURRENT, 0, 1, rates) <= 0)
    {
-      Print("❌ Error: Could not get current price data");
+      Print("Error: Could not get current price data");
       return;
    }
    
@@ -451,8 +451,8 @@ void RefreshAIAnalysis()
    if(res == -1)
    {
       int error_code = GetLastError();
-      Print("❌ WebRequest Error: ", error_code);
-      Print("⚠️  Make sure the URL is whitelisted in MT5 settings:");
+      Print("WebRequest Error: ", error_code);
+      Print("Make sure the URL is whitelisted in MT5 settings:");
       Print("   Tools → Options → Expert Advisors → Allow WebRequest for listed URL");
       Print("   Add: ", RefreshAPIURL);
       return;
@@ -460,13 +460,13 @@ void RefreshAIAnalysis()
    
    if(res != 200)
    {
-      Print("❌ API returned error code: ", res);
+      Print("API returned error code: ", res);
       return;
    }
    
    // Parse JSON response
    string response = CharArrayToString(result, 0, WHOLE_ARRAY, CP_UTF8);
-   Print("✅ Received AI refresh response");
+   Print("Received AI refresh response - OK");
    
    // Extract direction and confidence (simple string parsing)
    string new_direction = ExtractJSONValue(response, "direction");
@@ -477,11 +477,11 @@ void RefreshAIAnalysis()
    int new_confidence = (int)StringToInteger(confidence_str);
    
    Print("--------------------------------------");
-   Print("📊 FRESH AI ANALYSIS:");
+   Print("FRESH AI ANALYSIS:");
    Print("   Original: ", current_ai_direction, " (", current_ai_confidence, "%)");
    Print("   Updated:  ", new_direction, " (", new_confidence, "%)");
    Print("   Changed:  ", direction_changed);
-   if(warning != "") Print("   ⚠️  ", warning);
+   if(warning != "") Print("   WARNING: ", warning);
    Print("======================================");
    
    // Check if direction changed
@@ -493,20 +493,20 @@ void RefreshAIAnalysis()
       if(PauseOnDirectionChange)
       {
          trading_paused = true;
-         Print("⏸️  TRADING PAUSED - AI changed its mind!");
+         Print("TRADING PAUSED - AI changed its mind!");
          Print("   Review the new analysis and resume manually if needed");
          Print("   Set PauseOnDirectionChange=false to auto-adapt");
       }
       else
       {
-         Print("🔄 Auto-adapting to new AI direction...");
+         Print("Auto-adapting to new AI direction...");
          current_ai_direction = new_direction;
          current_ai_confidence = new_confidence;
       }
    }
    else
    {
-      Print("✅ AI confirms original direction - continuing");
+      Print("AI confirms original direction - continuing - OK");
       current_ai_confidence = new_confidence;  // Update confidence
    }
    
@@ -608,7 +608,7 @@ ${higherTFs.map(tf => `   bool tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_
       {
          Print("LIVE AI STATUS:");
          Print("  - Current Direction: ", current_ai_direction, " (", current_ai_confidence, "%)");
-         Print("  - Trading Status: ", trading_paused ? "PAUSED ⏸️" : "ACTIVE ✅");
+         Print("  - Trading Status: ", trading_paused ? "PAUSED" : "ACTIVE");
          Print("");
       }
       Print("AI ANALYSIS (Original):");
@@ -619,7 +619,7 @@ ${higherTFs.map(tf => `   bool tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_
       Print("  - RSI: ", DoubleToString(rsi_buffer[0], 2), 
             " | MACD: ", DoubleToString(macd_main[0], 5),
             " vs Signal: ", DoubleToString(macd_signal[0], 5));
-      Print("  - MACD Position: ", (macd_main[0] > macd_signal[0] ? "BULLISH ↑" : "BEARISH ↓"));
+      Print("  - MACD Position: ", (macd_main[0] > macd_signal[0] ? "BULLISH UP" : "BEARISH DOWN"));
       Print("");
       Print("TRADE SIGNALS:");
       Print("  - BUY Signal: ", buy_signal, " | SELL Signal: ", sell_signal);
@@ -638,7 +638,7 @@ ${higherTFs.map(tf => `   bool tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_
       pause_warning_count++;
       if(pause_warning_count % 100 == 0)  // Print occasionally
       {
-         Print("⏸️  TRADING PAUSED - AI direction changed");
+         Print("TRADING PAUSED - AI direction changed");
          Print("   Set trading_paused = false manually to resume");
       }
       return;  // Skip all trading logic
@@ -743,7 +743,7 @@ ${higherTFs.map(tf => `   bool tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_
 //+------------------------------------------------------------------+
 bool CheckBullishCondition()
 {
-   //--- AI RECOMMENDATION: ${consensusDirection === 'BUY' ? 'BULLISH ✓' : consensusDirection === 'SELL' ? 'BEARISH ✗' : 'NEUTRAL'}
+   //--- AI RECOMMENDATION: ${consensusDirection === 'BUY' ? 'BULLISH OK' : consensusDirection === 'SELL' ? 'BEARISH' : 'NEUTRAL'}
    //--- Detected Patterns: ${detectedPatterns || 'None'}
    //--- Confidence: ${consensusConfidence.toFixed(0)}%
    
@@ -769,7 +769,7 @@ bool CheckBullishCondition()
 //+------------------------------------------------------------------+
 bool CheckBearishCondition()
 {
-   //--- AI RECOMMENDATION: ${consensusDirection === 'SELL' ? 'BEARISH ✓' : consensusDirection === 'BUY' ? 'BULLISH ✗' : 'NEUTRAL'}
+   //--- AI RECOMMENDATION: ${consensusDirection === 'SELL' ? 'BEARISH OK' : consensusDirection === 'BUY' ? 'BULLISH' : 'NEUTRAL'}
    
    bool ai_suggests_sell = ${consensusDirection === 'SELL' ? 'true' : 'false'};  // Based on chart pattern analysis
    
@@ -1297,7 +1297,7 @@ strategy("${eaName} - ${symbol}", overlay=true, default_qty_type=strategy.percen
 // ========================================================================
 // Chart Analysis Date: ${chartDate}
 // EA Valid Until: ${validityDateStr} (${validityDays} days from analysis)
-// ⚠️  IMPORTANT: After this date, re-analyze the chart and generate a new strategy
+// IMPORTANT: After this date, re-analyze the chart and generate a new strategy
 //    Market conditions change, and old analysis may become invalid.
 //
 // AI ANALYSIS SUMMARY
@@ -1587,7 +1587,7 @@ async function getCurrentPrice() {
 
 async function openTrade(direction, stopLoss, takeProfit) {
   if (!config.tradingEnabled) {
-    console.log('⚠️ Trading is DISABLED. Set tradingEnabled = true to execute trades.');
+    console.log('Trading is DISABLED. Set tradingEnabled = true to execute trades.');
     return null;
   }
   
@@ -1603,10 +1603,10 @@ async function openTrade(direction, stopLoss, takeProfit) {
     };
 
     const response = await axios.post(getApiUrl('/trading/orders'), orderData, { headers: getHeaders() });
-    console.log('✅ Trade opened:', response.data);
+    console.log('Trade opened - OK:', response.data);
     return response.data;
   } catch (error) {
-    console.error('❌ Error opening trade:', error.message);
+    console.error('Error opening trade:', error.message);
     return null;
   }
 }
@@ -1625,10 +1625,10 @@ async function getOpenTrades() {
 async function closeTrade(tradeId) {
   try {
     const response = await axios.post(getApiUrl('/trading/orders/' + tradeId + '/close'), {}, { headers: getHeaders() });
-    console.log('✅ Trade closed:', response.data);
+    console.log('Trade closed - OK:', response.data);
     return response.data;
   } catch (error) {
-    console.error('❌ Error closing trade:', error.message);
+    console.error('Error closing trade:', error.message);
     return null;
   }
 }
@@ -1658,21 +1658,21 @@ async function executeStrategy() {
   console.log('Open Positions: ' + openTrades.length);
   
   if (analysis.consensusDirection === 'BUY' && !hasOpenPosition) {
-    console.log('📈 BUY signal detected! Opening trade...');
+    console.log('BUY signal detected - opening trade...');
     await openTrade('BUY', config.stopLoss, config.takeProfit);
   } else if (analysis.consensusDirection === 'BUY' && hasOpenPosition) {
-    console.log('📈 BUY signal but position already open');
+    console.log('BUY signal but position already open');
   }
   
   if (analysis.consensusDirection === 'SELL' && !hasOpenPosition) {
-    console.log('📉 SELL signal detected! Opening trade...');
+    console.log('SELL signal detected - opening trade...');
     await openTrade('SELL', config.stopLoss, config.takeProfit);
   } else if (analysis.consensusDirection === 'SELL' && hasOpenPosition) {
-    console.log('📉 SELL signal but position already open');
+    console.log('SELL signal but position already open');
   }
   
   if (analysis.consensusDirection === 'NEUTRAL') {
-    console.log('⏸️ NEUTRAL - No clear direction. No action taken.');
+    console.log('NEUTRAL - No clear direction. No action taken.');
   }
   
   console.log('\\nStrategy execution completed.');
