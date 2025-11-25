@@ -130,6 +130,7 @@ export default function MultiTimeframeAnalysis() {
   const [multiTradeStrategy, setMultiTradeStrategy] = useState<'single' | 'pyramiding' | 'grid' | 'hedging'>('single');
   const [maxSimultaneousTrades, setMaxSimultaneousTrades] = useState(1);
   const [pyramidingRatio, setPyramidingRatio] = useState(0.5);
+  const [selectedPlatform, setSelectedPlatform] = useState<'MT5' | 'TradingView' | 'TradeLocker'>('MT5');
   const [volumeThreshold, setVolumeThreshold] = useState(0);
   const [tradingDays, setTradingDays] = useState<Record<string, boolean>>({
     Monday: true,
@@ -606,39 +607,55 @@ export default function MultiTimeframeAnalysis() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="space-y-3">
+                <div className="space-y-2">
+                  <Label htmlFor="platform-select">Select Platform</Label>
+                  <Select value={selectedPlatform} onValueChange={(value: any) => setSelectedPlatform(value)}>
+                    <SelectTrigger id="platform-select" data-testid="select-platform">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="MT5">MT5 EA Code</SelectItem>
+                      <SelectItem value="TradingView">TradingView Pine Script</SelectItem>
+                      <SelectItem value="TradeLocker">TradeLocker Bot</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                
                 <Button
-                  onClick={() => generateCodeMutation.mutate('MT5')}
+                  onClick={() => generateCodeMutation.mutate(selectedPlatform)}
                   disabled={generateCodeMutation.isPending}
-                  className="flex-1"
-                  data-testid="button-generate-mt5"
+                  className="w-full"
+                  data-testid="button-generate-code"
                 >
                   <Download className="w-4 h-4 mr-2" />
-                  MT5 EA Code
-                </Button>
-                <Button
-                  onClick={() => generateCodeMutation.mutate('TradingView')}
-                  disabled={generateCodeMutation.isPending}
-                  className="flex-1"
-                  data-testid="button-generate-tradingview"
-                >
-                  <Download className="w-4 h-4 mr-2" />
-                  TradingView Script
-                </Button>
-                <Button
-                  onClick={() => generateCodeMutation.mutate('TradeLocker')}
-                  disabled={generateCodeMutation.isPending}
-                  className="flex-1"
-                  data-testid="button-generate-tradelocker"
-                >
-                  <Download className="w-4 h-4 mr-2" />
-                  TradeLocker Bot
+                  Generate Code
                 </Button>
               </div>
 
               <div className="p-3 bg-blue-50 dark:bg-blue-950 rounded border border-blue-200 dark:border-blue-800 text-sm">
-                <p className="font-semibold text-blue-900 dark:text-blue-100 mb-2">📌 Platform Instructions:</p>
-                <ul className="space-y-1 text-blue-800 dark:text-blue-200 text-xs list-disc pl-5">
+                <p className="font-semibold text-blue-900 dark:text-blue-100 mb-2">📌 How It Works (For New Users):</p>
+                <div className="space-y-2 text-blue-800 dark:text-blue-200 text-xs">
+                  <p><strong>The Process:</strong></p>
+                  <ol className="list-decimal pl-5 space-y-1">
+                    <li>You upload 2+ trading charts from different timeframes</li>
+                    <li>Our AI (OpenAI Vision) analyzes each chart for patterns, support/resistance, and signals</li>
+                    <li>Results are combined into a multi-timeframe analysis</li>
+                    <li>You customize EA settings (strategy type, trading hours, volume filters, etc.)</li>
+                    <li>Click "Generate Code" - our API creates ready-to-use trading bot code</li>
+                    <li>Copy the code and deploy it on your chosen platform</li>
+                  </ol>
+                  <p className="pt-2"><strong>API Endpoints Used:</strong></p>
+                  <ul className="list-disc pl-5 space-y-1">
+                    <li><code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">/api/analyze-base64</code> - Sends chart image to OpenAI for AI analysis</li>
+                    <li><code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">/api/generate-ea-code</code> - Creates platform-specific trading code</li>
+                  </ul>
+                </div>
+              </div>
+
+              <div className="p-3 bg-green-50 dark:bg-green-950 rounded border border-green-200 dark:border-green-800 text-sm">
+                <p className="font-semibold text-green-900 dark:text-green-100 mb-2">✅ Platform Instructions:</p>
+                <ul className="space-y-1 text-green-800 dark:text-green-200 text-xs list-disc pl-5">
                   <li><strong>MT5:</strong> Paste in MetaEditor, compile, attach to your {symbol} chart in MT5</li>
                   <li><strong>TradingView:</strong> Paste in Pine Script Editor, add to any {symbol} chart (any timeframe)</li>
                   <li><strong>TradeLocker:</strong> Run as Node.js bot (npm install, replace API key, node bot.js)</li>
