@@ -6,12 +6,14 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Textarea } from '@/components/ui/textarea';
 import ImageUpload from '@/components/ui/image-upload';
 import { useToast } from '@/hooks/use-toast';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { ChartAnalysisResponse } from '@shared/types';
-import { Clock, TrendingUp, Code, Download, Check, X, Settings, Target, Sparkles } from 'lucide-react';
+import { Clock, TrendingUp, Code, Download, Check, X, Settings, Target, Sparkles, Save } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 
 interface TimeframeUpload {
@@ -123,6 +125,8 @@ export default function MultiTimeframeAnalysis() {
   const [eaName, setEaName] = useState('Multi-Timeframe Strategy');
   const [tradeDuration, setTradeDuration] = useState('');
   const [validityDays, setValidityDays] = useState(30);
+  const [eaDescription, setEaDescription] = useState('');
+  const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false);
   const [chartDate, setChartDate] = useState(new Date().toISOString().split('T')[0]);
   const [useTrailingStop, setUseTrailingStop] = useState(true);
   const [trailingStopDistance, setTrailingStopDistance] = useState(50);
@@ -274,6 +278,40 @@ export default function MultiTimeframeAnalysis() {
       toast({
         title: 'Generation Failed',
         description: error instanceof Error ? error.message : 'Failed to generate code',
+        variant: 'destructive'
+      });
+    }
+  });
+
+  const saveEAMutation = useMutation({
+    mutationFn: async () => {
+      if (!generateCodeMutation.data) {
+        throw new Error('No generated code to save');
+      }
+
+      const response: any = await apiRequest('POST', '/api/save-ea', {
+        name: eaName,
+        description: eaDescription,
+        platformType: selectedPlatform,
+        eaCode: (generateCodeMutation.data as any).code,
+        symbol: symbol || 'UNKNOWN',
+        strategyType
+      }).then(res => res.json());
+
+      return response;
+    },
+    onSuccess: () => {
+      toast({
+        title: 'EA Saved!',
+        description: 'Your EA has been saved. Visit "My EAs" to manage it or share to marketplace'
+      });
+      setIsSaveDialogOpen(false);
+      setEaDescription('');
+    },
+    onError: (error) => {
+      toast({
+        title: 'Save Failed',
+        description: error instanceof Error ? error.message : 'Failed to save EA',
         variant: 'destructive'
       });
     }
@@ -831,16 +869,59 @@ export default function MultiTimeframeAnalysis() {
                       <pre className="text-xs overflow-x-auto p-4 bg-background rounded border max-h-96">
                         <code>{(generateCodeMutation.data as any)?.code}</code>
                       </pre>
-                      <Button
-                        className="mt-4"
-                        onClick={() => {
-                          navigator.clipboard.writeText((generateCodeMutation.data as any)?.code || '');
-                          toast({ title: 'Copied to clipboard' });
-                        }}
-                        data-testid="button-copy-code"
-                      >
-                        Copy Code
-                      </Button>
+                      <div className="flex gap-2 mt-4 flex-wrap">
+                        <Button
+                          onClick={() => {
+                            navigator.clipboard.writeText((generateCodeMutation.data as any)?.code || '');
+                            toast({ title: 'Copied to clipboard' });
+                          }}
+                          data-testid="button-copy-code"
+                        >
+                          Copy Code
+                        </Button>
+
+                        <Dialog open={isSaveDialogOpen} onOpenChange={setIsSaveDialogOpen}>
+                          <DialogTrigger asChild>
+                            <Button variant="outline">
+                              <Save className="w-4 h-4 mr-2" />
+                              Save EA
+                            </Button>
+                          </DialogTrigger>
+                          <DialogContent>
+                            <DialogHeader>
+                              <DialogTitle>Save Your EA</DialogTitle>
+                            </DialogHeader>
+                            <div className="space-y-4">
+                              <div className="space-y-2">
+                                <Label htmlFor="save-name">EA Name</Label>
+                                <Input
+                                  id="save-name"
+                                  value={eaName}
+                                  onChange={(e) => setEaName(e.target.value)}
+                                  placeholder="e.g., Multi-Timeframe EURUSD Strategy"
+                                />
+                              </div>
+                              <div className="space-y-2">
+                                <Label htmlFor="save-desc">Description (Optional)</Label>
+                                <Textarea
+                                  id="save-desc"
+                                  value={eaDescription}
+                                  onChange={(e) => setEaDescription(e.target.value)}
+                                  placeholder="Describe your EA, settings, and performance expectations..."
+                                  rows={3}
+                                />
+                              </div>
+                              <Button
+                                onClick={() => saveEAMutation.mutate()}
+                                disabled={saveEAMutation.isPending || !eaName}
+                                className="w-full"
+                              >
+                                {saveEAMutation.isPending ? 'Saving...' : 'Save EA'}
+                              </Button>
+                            </div>
+                          </DialogContent>
+                        </Dialog>
+                      </div>
                     </CardContent>
                   </Card>
                 </>
