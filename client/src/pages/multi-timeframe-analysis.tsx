@@ -335,7 +335,7 @@ export default function MultiTimeframeAnalysis() {
           timeframe,
           score,
           analysis,
-          rsi: analysis.momentumIndicators?.rsi?.value,
+          rsi: analysis.momentumIndicators?.rsi?.value ? parseFloat(analysis.momentumIndicators.rsi.value) : null,
           pattern: analysis.patterns?.[0]?.name || 'None'
         };
       });
@@ -694,7 +694,7 @@ export default function MultiTimeframeAnalysis() {
                   <ul className="text-sm space-y-1 text-muted-foreground list-disc pl-5">
                     <li><strong>Confidence:</strong> {bestChart.analysis.confidence} - Strong signal reliability</li>
                     <li><strong>Pattern:</strong> {bestChart.pattern} - Clear technical pattern identified</li>
-                    {bestChart.rsi && <li><strong>RSI:</strong> {bestChart.rsi.toFixed(2)} - {bestChart.rsi > 70 ? 'Overbought (sell pressure)' : bestChart.rsi < 30 ? 'Oversold (buy pressure)' : 'Neutral momentum'}</li>}
+                    {bestChart.rsi !== null && bestChart.rsi !== undefined && <li><strong>RSI:</strong> {typeof bestChart.rsi === 'number' ? bestChart.rsi.toFixed(2) : bestChart.rsi} - {typeof bestChart.rsi === 'number' ? (bestChart.rsi > 70 ? 'Overbought (sell pressure)' : bestChart.rsi < 30 ? 'Oversold (buy pressure)' : 'Neutral momentum') : ''}</li>}
                     <li><strong>Best For:</strong> Attach your EA to the <strong>{bestChart.timeframe}</strong> chart for optimal entry signals</li>
                   </ul>
                 </div>
