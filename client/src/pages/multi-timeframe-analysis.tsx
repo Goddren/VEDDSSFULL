@@ -553,7 +553,7 @@ export default function MultiTimeframeAnalysis() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <Button
                   onClick={() => generateCodeMutation.mutate('MT5')}
                   disabled={generateCodeMutation.isPending}
@@ -561,7 +561,7 @@ export default function MultiTimeframeAnalysis() {
                   data-testid="button-generate-mt5"
                 >
                   <Download className="w-4 h-4 mr-2" />
-                  Generate MT5 EA Code
+                  MT5 EA Code
                 </Button>
                 <Button
                   onClick={() => generateCodeMutation.mutate('TradingView')}
@@ -570,8 +570,26 @@ export default function MultiTimeframeAnalysis() {
                   data-testid="button-generate-tradingview"
                 >
                   <Download className="w-4 h-4 mr-2" />
-                  Generate TradingView Pine Script
+                  TradingView Script
                 </Button>
+                <Button
+                  onClick={() => generateCodeMutation.mutate('TradeLocker')}
+                  disabled={generateCodeMutation.isPending}
+                  className="flex-1"
+                  data-testid="button-generate-tradelocker"
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  TradeLocker Bot
+                </Button>
+              </div>
+
+              <div className="p-3 bg-blue-50 dark:bg-blue-950 rounded border border-blue-200 dark:border-blue-800 text-sm">
+                <p className="font-semibold text-blue-900 dark:text-blue-100 mb-2">📌 Platform Instructions:</p>
+                <ul className="space-y-1 text-blue-800 dark:text-blue-200 text-xs list-disc pl-5">
+                  <li><strong>MT5:</strong> Paste in MetaEditor, compile, attach to your {symbol} chart in MT5</li>
+                  <li><strong>TradingView:</strong> Paste in Pine Script Editor, add to any {symbol} chart (any timeframe)</li>
+                  <li><strong>TradeLocker:</strong> Run as Node.js bot (npm install, replace API key, node bot.js)</li>
+                </ul>
               </div>
 
               {generateCodeMutation.data && (
@@ -612,9 +630,17 @@ export default function MultiTimeframeAnalysis() {
 
                   <Card className="bg-muted">
                     <CardHeader>
-                      <CardTitle className="text-lg">Generated EA Code</CardTitle>
+                      <CardTitle className="text-lg">Generated Code</CardTitle>
                       <CardDescription>
-                        Copy this code and paste it into {(generateCodeMutation.data as any)?.platform === 'MT5' ? 'MetaEditor (MT5)' : 'TradingView Pine Editor'}
+                        {(generateCodeMutation.data as any)?.platform === 'MT5' && (
+                          <>1. Copy code below 2. Open MetaEditor (in MT5) 3. Create new Expert Advisor 4. Paste code 5. Compile 6. Attach to {symbol} chart</>
+                        )}
+                        {(generateCodeMutation.data as any)?.platform === 'TradingView' && (
+                          <>1. Copy code 2. Open any {symbol} chart on TradingView 3. Open Pine Editor 4. Create new script 5. Paste code 6. Add to chart</>
+                        )}
+                        {(generateCodeMutation.data as any)?.platform === 'TradeLocker' && (
+                          <>1. Copy code to file (e.g., strategy.js) 2. Install: npm install axios 3. Replace YOUR_API_KEY and YOUR_ACCOUNT_ID 4. Run: node strategy.js</>
+                        )}
                       </CardDescription>
                     </CardHeader>
                     <CardContent>

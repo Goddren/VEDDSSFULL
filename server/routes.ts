@@ -5,7 +5,7 @@ import { User } from "@shared/schema";
 import { analyzeChartImage, testOpenAIApiKey, generateTradingTip, generateMarketTrendPredictions } from "./openai";
 import { setupTwilio, sendTradingSignal } from "./twilio";
 import { checkUserAchievements } from "./achievement-tracker";
-import { generateMT5EACode, generateTradingViewCode } from './ea-generators';
+import { generateMT5EACode, generateTradingViewCode, generateTradeLockerCode } from './ea-generators';
 import { tradingCoachHandler, tradingTipsHandler } from "./trading-coach";
 import { marketInsightsHandler, contextualInsightHandler } from "./market-insights";
 import { 
@@ -290,10 +290,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      if (!['MT5', 'TradingView'].includes(platformType)) {
+      if (!['MT5', 'TradingView', 'TradeLocker'].includes(platformType)) {
         return res.status(400).json({ 
           message: "Invalid platform type",
-          error: "platformType must be 'MT5' or 'TradingView'" 
+          error: "platformType must be 'MT5', 'TradingView', or 'TradeLocker'" 
         });
       }
 
@@ -322,8 +322,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (platformType === 'MT5') {
         generatedCode = generateMT5EACode(symbol, timeframes, eaConfig);
-      } else {
+      } else if (platformType === 'TradingView') {
         generatedCode = generateTradingViewCode(symbol, timeframes, eaConfig);
+      } else if (platformType === 'TradeLocker') {
+        generatedCode = generateTradeLockerCode(symbol, timeframes, eaConfig);
       }
 
       // Store the generated strategy in the database
