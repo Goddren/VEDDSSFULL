@@ -42,7 +42,7 @@ export function generateMT5EACode(
   const pyramidingRatio = config?.pyramidingRatio || 0.5;
   const volumeThreshold = config?.volumeThreshold || 0;
   const tradingDays = config?.tradingDays || {
-    Monday: true, Tuesday: true, Wednesday: true, Thursday: true, Friday: true, Saturday: false, Sunday: false
+    Monday: true, Tuesday: true, Wednesday: true, Thursday: true, Friday: true, Saturday: true, Sunday: true
   };
   
   // Calculate validity date
@@ -1206,7 +1206,7 @@ export function generateTradingViewCode(
   const pyramidingRatio = config?.pyramidingRatio || 0.5;
   const volumeThreshold = config?.volumeThreshold || 0;
   const tradingDays = config?.tradingDays || {
-    Monday: true, Tuesday: true, Wednesday: true, Thursday: true, Friday: true, Saturday: false, Sunday: false
+    Monday: true, Tuesday: true, Wednesday: true, Thursday: true, Friday: true, Saturday: true, Sunday: true
   };
   
   // Calculate validity date
@@ -1452,7 +1452,7 @@ export function generateTradeLockerCode(
   const chartDate = config?.chartDate || new Date().toISOString().split('T')[0];
   const volumeThreshold = config?.volumeThreshold || 0;
   const tradingDays = config?.tradingDays || {
-    Monday: true, Tuesday: true, Wednesday: true, Thursday: true, Friday: true, Saturday: false, Sunday: false
+    Monday: true, Tuesday: true, Wednesday: true, Thursday: true, Friday: true, Saturday: true, Sunday: true
   };
 
   const chartDateObj = new Date(chartDate);

@@ -138,8 +138,8 @@ export default function MultiTimeframeAnalysis() {
     Wednesday: true,
     Thursday: true,
     Friday: true,
-    Saturday: false,
-    Sunday: false
+    Saturday: true,
+    Sunday: true
   });
   const [timeframeUploads, setTimeframeUploads] = useState<Record<string, TimeframeUpload>>(
     TIMEFRAMES.reduce((acc, tf) => ({
