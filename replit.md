@@ -163,6 +163,10 @@ A future feature that will enable daily AI analysis refresh:
 - November 25, 2025. Added API endpoint explanation for new users (step-by-step process + endpoint documentation)
 - November 25, 2025. Implemented AI-powered chart recommendation system to suggest best chart for EA entry based on signal strength, confidence, and technical indicators
 - November 25, 2025. Fixed trading day filter default - changed from Mon-Fri only to ALL DAYS ENABLED (Mon-Sun) to prevent accidental trade blocking
+- November 25, 2025. Fixed 28 MQL5 compilation errors by:
+  1. Removed all emoji characters from generated EA code (⏸️, ✅, ❌, ⚠️, ↑, ↓, 📈, 📉, 🔄, 📊, etc.) - MQL5 doesn't support Unicode emojis
+  2. Added explicit numeric values to enum (MODE_SINGLE = 0, MODE_PYRAMIDING = 1, MODE_GRID = 2, MODE_HEDGING = 3) for switch statement compilation
+  3. Replaced all emoji references with ASCII text (e.g., "PAUSED" instead of "PAUSED ⏸️")
 
 ## User Preferences
 
