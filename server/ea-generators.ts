@@ -17,6 +17,8 @@ interface EAConfig {
   multiTradeStrategy?: 'single' | 'pyramiding' | 'grid' | 'hedging';
   maxSimultaneousTrades?: number;
   pyramidingRatio?: number;
+  volumeThreshold?: number;
+  tradingDays?: Record<string, boolean>;
 }
 
 /**
@@ -38,6 +40,10 @@ export function generateMT5EACode(
   const multiTradeStrategy = config?.multiTradeStrategy || 'single';
   const maxSimultaneousTrades = config?.maxSimultaneousTrades || 1;
   const pyramidingRatio = config?.pyramidingRatio || 0.5;
+  const volumeThreshold = config?.volumeThreshold || 0;
+  const tradingDays = config?.tradingDays || {
+    Monday: true, Tuesday: true, Wednesday: true, Thursday: true, Friday: true, Saturday: false, Sunday: false
+  };
   
   // Calculate validity date
   const chartDateObj = new Date(chartDate);
@@ -279,6 +285,17 @@ input int EndHour_1 = 12;                       // Until Noon GMT
 input int StartHour_2 = 13;                     // US/London Overlap (13:00 GMT)
 input int EndHour_2 = 17;                       // Until 17:00 GMT (best liquidity)
 input bool AllowAsianSession = false;           // Also trade Asian session (00:00-07:00 GMT) when trading hours enabled
+
+//--- Volume and Day Filters
+input group "=== Volume & Day Filters - OPTIONAL ==="
+input double VolumeThreshold = ${volumeThreshold};    // Volume threshold (% of average). 0 = disabled, 100 = match average
+input bool AllowMonday = ${tradingDays.Monday};
+input bool AllowTuesday = ${tradingDays.Tuesday};
+input bool AllowWednesday = ${tradingDays.Wednesday};
+input bool AllowThursday = ${tradingDays.Thursday};
+input bool AllowFriday = ${tradingDays.Friday};
+input bool AllowSaturday = ${tradingDays.Saturday};
+input bool AllowSunday = ${tradingDays.Sunday};
 
 //--- Multiple Trade Strategy
 input group "=== Multi-Trade Strategy ==="
@@ -628,7 +645,7 @@ ${higherTFs.map(tf => `   bool tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_
    }
    
    //--- Execute trades based on multi-trade strategy
-   if(buy_signal && AllowBuyTrades)
+   if(buy_signal && AllowBuyTrades && IsTradingDayAllowed() && CheckVolumeThreshold())
    {
       bool can_open = false;
       double lot_size = LotSize;
@@ -673,7 +690,7 @@ ${higherTFs.map(tf => `   bool tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_
          OpenBuyPosition(sl, tp, lot_size);
       }
    }
-   else if(sell_signal && AllowSellTrades)
+   else if(sell_signal && AllowSellTrades && IsTradingDayAllowed() && CheckVolumeThreshold())
    {
       bool can_open = false;
       double lot_size = LotSize;
@@ -832,6 +849,51 @@ bool IsInTradingHours()
       return true;
    
    return false;  // Outside trading hours
+}
+
+//+------------------------------------------------------------------+
+//| Check if current day is allowed for trading                      |
+//+------------------------------------------------------------------+
+bool IsTradingDayAllowed()
+{
+   MqlDateTime now;
+   TimeToStruct(TimeCurrent(), now);
+   int day_of_week = now.day_of_week;  // 0=Sunday, 1=Monday, ..., 6=Saturday
+   
+   if(day_of_week == 0) return AllowSunday;
+   if(day_of_week == 1) return AllowMonday;
+   if(day_of_week == 2) return AllowTuesday;
+   if(day_of_week == 3) return AllowWednesday;
+   if(day_of_week == 4) return AllowThursday;
+   if(day_of_week == 5) return AllowFriday;
+   if(day_of_week == 6) return AllowSaturday;
+   
+   return false;
+}
+
+//+------------------------------------------------------------------+
+//| Check volume threshold - requires current volume above threshold |
+//+------------------------------------------------------------------+
+bool CheckVolumeThreshold()
+{
+   if(VolumeThreshold <= 0) return true;  // Disabled - allow trading
+   
+   long volume[];
+   ArraySetAsSeries(volume, true);
+   
+   if(CopyTickVolume(_Symbol, PERIOD_CURRENT, 0, 21, volume) < 21)
+      return true;  // Not enough data - allow trading
+   
+   // Calculate average volume (last 20 bars)
+   long volume_sum = 0;
+   for(int i = 1; i <= 20; i++)
+      volume_sum += volume[i];
+   
+   long avg_volume = volume_sum / 20;
+   long required_volume = (long)(avg_volume * VolumeThreshold / 100);
+   
+   // Current volume must be >= required volume
+   return volume[0] >= required_volume;
 }
 
 //+------------------------------------------------------------------+
@@ -1142,6 +1204,10 @@ export function generateTradingViewCode(
   const multiTradeStrategy = config?.multiTradeStrategy || 'single';
   const maxSimultaneousTrades = config?.maxSimultaneousTrades || 1;
   const pyramidingRatio = config?.pyramidingRatio || 0.5;
+  const volumeThreshold = config?.volumeThreshold || 0;
+  const tradingDays = config?.tradingDays || {
+    Monday: true, Tuesday: true, Wednesday: true, Thursday: true, Friday: true, Saturday: false, Sunday: false
+  };
   
   // Calculate validity date
   const chartDateObj = new Date(chartDate);
@@ -1384,6 +1450,10 @@ export function generateTradeLockerCode(
   const strategyType = config?.strategyType || 'day_trading';
   const validityDays = config?.validityDays || 30;
   const chartDate = config?.chartDate || new Date().toISOString().split('T')[0];
+  const volumeThreshold = config?.volumeThreshold || 0;
+  const tradingDays = config?.tradingDays || {
+    Monday: true, Tuesday: true, Wednesday: true, Thursday: true, Friday: true, Saturday: false, Sunday: false
+  };
 
   const chartDateObj = new Date(chartDate);
   const validityDate = new Date(chartDateObj);

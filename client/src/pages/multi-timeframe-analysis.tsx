@@ -130,6 +130,16 @@ export default function MultiTimeframeAnalysis() {
   const [multiTradeStrategy, setMultiTradeStrategy] = useState<'single' | 'pyramiding' | 'grid' | 'hedging'>('single');
   const [maxSimultaneousTrades, setMaxSimultaneousTrades] = useState(1);
   const [pyramidingRatio, setPyramidingRatio] = useState(0.5);
+  const [volumeThreshold, setVolumeThreshold] = useState(0);
+  const [tradingDays, setTradingDays] = useState<Record<string, boolean>>({
+    Monday: true,
+    Tuesday: true,
+    Wednesday: true,
+    Thursday: true,
+    Friday: true,
+    Saturday: false,
+    Sunday: false
+  });
   const [timeframeUploads, setTimeframeUploads] = useState<Record<string, TimeframeUpload>>(
     TIMEFRAMES.reduce((acc, tf) => ({
       ...acc,
@@ -219,7 +229,7 @@ export default function MultiTimeframeAnalysis() {
   };
 
   const generateCodeMutation = useMutation({
-    mutationFn: async (platformType: 'MT5' | 'TradingView') => {
+    mutationFn: async (platformType: 'MT5' | 'TradingView' | 'TradeLocker') => {
       const uploadedTimeframes = Object.values(timeframeUploads)
         .filter(tf => tf.analysis !== null)
         .map(tf => ({
@@ -246,7 +256,9 @@ export default function MultiTimeframeAnalysis() {
         trailingStopStep,
         multiTradeStrategy,
         maxSimultaneousTrades,
-        pyramidingRatio
+        pyramidingRatio,
+        volumeThreshold,
+        tradingDays
       }).then(res => res.json());
 
       return response;
@@ -410,6 +422,47 @@ export default function MultiTimeframeAnalysis() {
                     </div>
                   </>
                 )}
+              </div>
+            </div>
+
+            <div className="border-t pt-4 mt-4">
+              <h3 className="font-semibold mb-3">Trading Filters</h3>
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="volume-threshold">Volume Threshold (% of average)</Label>
+                  <Input
+                    id="volume-threshold"
+                    type="number"
+                    value={volumeThreshold}
+                    onChange={(e) => setVolumeThreshold(parseFloat(e.target.value) || 0)}
+                    min={0}
+                    max={500}
+                    step={10}
+                    placeholder="0 = No filter, 100 = Match average, 150 = 50% above average"
+                    data-testid="input-volume-threshold"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    0 (disabled) - trades triggered regardless of volume. Higher values require minimum volume before trade triggers
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label className="block">Trading Days</Label>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    {Object.entries(tradingDays).map(([day, enabled]) => (
+                      <label key={day} className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={enabled}
+                          onChange={(e) => setTradingDays(prev => ({ ...prev, [day]: e.target.checked }))}
+                          className="rounded"
+                          data-testid={`checkbox-trading-day-${day}`}
+                        />
+                        <span className="text-sm">{day}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground">Select which days of the week trades can be triggered</p>
+                </div>
               </div>
             </div>
 

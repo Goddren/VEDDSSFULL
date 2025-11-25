@@ -280,7 +280,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         trailingStopStep,
         multiTradeStrategy,
         maxSimultaneousTrades,
-        pyramidingRatio
+        pyramidingRatio,
+        volumeThreshold,
+        tradingDays
       } = req.body;
       
       if (!groupId || !symbol || !platformType || !Array.isArray(timeframes)) {
@@ -317,7 +319,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         trailingStopStep: trailingStopStep || 10,
         multiTradeStrategy: multiTradeStrategy || 'single',
         maxSimultaneousTrades: maxSimultaneousTrades || 1,
-        pyramidingRatio: pyramidingRatio || 0.5
+        pyramidingRatio: pyramidingRatio || 0.5,
+        volumeThreshold: volumeThreshold || 0,
+        tradingDays: tradingDays || {
+          Monday: true, Tuesday: true, Wednesday: true, Thursday: true, Friday: true, Saturday: false, Sunday: false
+        }
       };
 
       if (platformType === 'MT5') {
