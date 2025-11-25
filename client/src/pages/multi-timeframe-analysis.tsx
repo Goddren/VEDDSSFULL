@@ -11,7 +11,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { ChartAnalysisResponse } from '@shared/types';
-import { Clock, TrendingUp, Code, Download, Check, X, Settings, Target } from 'lucide-react';
+import { Clock, TrendingUp, Code, Download, Check, X, Settings, Target, Sparkles } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 
 interface TimeframeUpload {
@@ -283,6 +283,70 @@ export default function MultiTimeframeAnalysis() {
   const canGenerateCode = uploadedCount >= 2;
 
   const selectedStrategy = STRATEGY_TYPES.find(st => st.value === strategyType);
+
+  // AI-powered chart recommendation for best entry
+  const getChartRecommendation = () => {
+    const uploadedCharts = Object.entries(timeframeUploads)
+      .filter(([_, tf]) => tf.analysis !== null)
+      .map(([timeframe, tf]) => {
+        const analysis = tf.analysis as any;
+        
+        // Score based on signal strength and confidence
+        let score = 0;
+        
+        // Direction confidence (high confidence = higher score)
+        const confidenceMap: Record<string, number> = {
+          'Very High': 100,
+          'High': 80,
+          'Medium': 60,
+          'Low': 40
+        };
+        score += confidenceMap[analysis.confidence] || 50;
+        
+        // Signal type bonus
+        if (analysis.direction === 'BUY' || analysis.direction === 'SELL') {
+          score += 30;
+        }
+        
+        // Technical indicator strength
+        if (analysis.momentumIndicators?.rsi) {
+          const rsiValue = analysis.momentumIndicators.rsi.value;
+          // Strong RSI signals (overbought/oversold) are better
+          if ((rsiValue > 70 && analysis.direction === 'SELL') || 
+              (rsiValue < 30 && analysis.direction === 'BUY')) {
+            score += 25;
+          } else if ((rsiValue > 60 && analysis.direction === 'SELL') || 
+                     (rsiValue < 40 && analysis.direction === 'BUY')) {
+            score += 15;
+          }
+        }
+        
+        // MACD confirmation bonus
+        if (analysis.trendIndicators?.macd) {
+          score += 20;
+        }
+        
+        // Pattern recognition bonus
+        if (analysis.patterns && analysis.patterns.length > 0) {
+          score += 15 * Math.min(analysis.patterns.length, 2);
+        }
+        
+        return {
+          timeframe,
+          score,
+          analysis,
+          rsi: analysis.momentumIndicators?.rsi?.value,
+          pattern: analysis.patterns?.[0]?.name || 'None'
+        };
+      });
+    
+    if (uploadedCharts.length === 0) return null;
+    
+    const best = uploadedCharts.sort((a, b) => b.score - a.score)[0];
+    return best;
+  };
+
+  const bestChart = canGenerateCode ? getChartRecommendation() : null;
 
   return (
     <div className="container mx-auto py-8 px-4">
@@ -594,6 +658,50 @@ export default function MultiTimeframeAnalysis() {
             </div>
           </CardContent>
         </Card>
+
+        {bestChart && (
+          <Card className="border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-amber-900 dark:text-amber-100">
+                <Sparkles className="w-5 h-5" />
+                AI Recommendation: Best Chart for EA Entry
+              </CardTitle>
+              <CardDescription className="text-amber-800 dark:text-amber-200">
+                Based on signal strength, confidence, and technical indicators
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="bg-white dark:bg-slate-900 p-3 rounded border border-amber-200 dark:border-amber-800">
+                    <p className="text-sm text-muted-foreground">Recommended Timeframe</p>
+                    <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">{bestChart.timeframe}</p>
+                  </div>
+                  <div className="bg-white dark:bg-slate-900 p-3 rounded border border-amber-200 dark:border-amber-800">
+                    <p className="text-sm text-muted-foreground">Signal Quality Score</p>
+                    <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">{Math.round(bestChart.score)}/250</p>
+                  </div>
+                  <div className="bg-white dark:bg-slate-900 p-3 rounded border border-amber-200 dark:border-amber-800">
+                    <p className="text-sm text-muted-foreground">Signal Direction</p>
+                    <Badge className={bestChart.analysis.direction === 'BUY' ? 'bg-green-500' : bestChart.analysis.direction === 'SELL' ? 'bg-red-500' : 'bg-gray-500'}>
+                      {bestChart.analysis.direction}
+                    </Badge>
+                  </div>
+                </div>
+                
+                <div className="bg-white dark:bg-slate-900 p-3 rounded border border-amber-200 dark:border-amber-800 space-y-2">
+                  <p className="text-sm font-medium">Why this chart?</p>
+                  <ul className="text-sm space-y-1 text-muted-foreground list-disc pl-5">
+                    <li><strong>Confidence:</strong> {bestChart.analysis.confidence} - Strong signal reliability</li>
+                    <li><strong>Pattern:</strong> {bestChart.pattern} - Clear technical pattern identified</li>
+                    {bestChart.rsi && <li><strong>RSI:</strong> {bestChart.rsi.toFixed(2)} - {bestChart.rsi > 70 ? 'Overbought (sell pressure)' : bestChart.rsi < 30 ? 'Oversold (buy pressure)' : 'Neutral momentum'}</li>}
+                    <li><strong>Best For:</strong> Attach your EA to the <strong>{bestChart.timeframe}</strong> chart for optimal entry signals</li>
+                  </ul>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {canGenerateCode && (
           <Card>

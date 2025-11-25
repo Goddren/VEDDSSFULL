@@ -159,6 +159,9 @@ A future feature that will enable daily AI analysis refresh:
 - November 21, 2025. Implemented mobile companion app with PWA infrastructure, price alerts system, offline support, and mobile-optimized UI components
 - November 21, 2025. Implemented hybrid AI + technical indicator trading strategy for MT5 EAs combining pattern analysis with real-time technical confirmation
 - November 21, 2025. Developed live AI refresh feature prototype (disabled pending security audit) with backend API endpoint, WebRequest integration, and safety mechanisms
+- November 25, 2025. Made code generation UI mobile-friendly with dropdown selector instead of 3 buttons
+- November 25, 2025. Added API endpoint explanation for new users (step-by-step process + endpoint documentation)
+- November 25, 2025. Implemented AI-powered chart recommendation system to suggest best chart for EA entry based on signal strength, confidence, and technical indicators
 
 ## User Preferences
 
