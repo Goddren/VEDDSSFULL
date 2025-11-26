@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Switch, Route } from "wouter";
 import { Toaster } from "@/components/ui/toaster";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -51,7 +52,7 @@ function AppLayout() {
   const { user } = useAuth();
   
   // Scroll to top on page change
-  React.useEffect(() => {
+  useEffect(() => {
     window.scrollTo(0, 0);
   }, [location]);
   
