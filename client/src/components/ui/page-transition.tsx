@@ -10,12 +10,21 @@ export function PageTransition({ children }: PageTransitionProps) {
   const [location] = useLocation();
   const [key, setKey] = useState(location);
   
+  // Always scroll to top on location change
   useEffect(() => {
-    // Scroll to top on page change
-    window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
-    document.documentElement.scrollTop = 0;
-    document.body.scrollTop = 0;
+    const scrollToTop = () => {
+      // Try multiple methods to ensure scroll works
+      setTimeout(() => {
+        window.scrollTo(0, 0);
+        document.documentElement.scrollTop = 0;
+        document.body.scrollTop = 0;
+      }, 0);
+    };
     
+    scrollToTop();
+  }, [location]);
+  
+  useEffect(() => {
     // Update the key only when navigating to a dashboard route or from it
     const isDashboard = location.includes('/dashboard') || 
                         location.includes('/analysis') || 
