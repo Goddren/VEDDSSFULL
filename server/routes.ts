@@ -309,14 +309,15 @@ Respond ONLY in valid JSON format with these exact keys:
   "convergence": "string explaining timeframe alignment"
 }`;
 
-      const { OpenAI } = await import("openai");
+      const OpenAI = (await import("openai")).default;
       const client = new OpenAI({
         apiKey: process.env.OPENAI_API_KEY,
       });
 
-      const response = await client.messages.create({
-        model: "claude-3-5-sonnet-20241022",
+      const response = await client.chat.completions.create({
+        model: "gpt-4o-mini",
         max_tokens: 1024,
+        response_format: { type: "json_object" },
         messages: [
           {
             role: "user",
@@ -326,10 +327,7 @@ Respond ONLY in valid JSON format with these exact keys:
       });
 
       // Extract text content
-      const responseText = response.content
-        .filter((block: any) => block.type === "text")
-        .map((block: any) => block.text)
-        .join("");
+      const responseText = response.choices[0].message.content || "";
 
       // Parse JSON response
       const jsonMatch = responseText.match(/\{[\s\S]*\}/);
