@@ -11,6 +11,11 @@ export function PageTransition({ children }: PageTransitionProps) {
   const [key, setKey] = useState(location);
   
   useEffect(() => {
+    // Scroll to top on page change
+    window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+    
     // Update the key only when navigating to a dashboard route or from it
     const isDashboard = location.includes('/dashboard') || 
                         location.includes('/analysis') || 

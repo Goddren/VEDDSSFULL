@@ -51,11 +51,6 @@ function AppLayout() {
   const [location] = useLocation();
   const { user } = useAuth();
   
-  // Scroll to top on page change
-  useEffect(() => {
-    window.scrollTo(0, 0);
-  }, [location]);
-  
   // Determine if we should show the header/footer
   const isLandingPage = location === "/";
   const isAuthPage = location === "/auth";
