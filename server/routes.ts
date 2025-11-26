@@ -255,6 +255,98 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Synthesize unified trade signal from multiple chart analyses
+  app.post("/api/synthesize-trade-signal", async (req: Request, res: Response) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      const { analyses } = req.body;
+      if (!Array.isArray(analyses) || analyses.length < 2) {
+        return res.status(400).json({ error: "At least 2 chart analyses required" });
+      }
+
+      // Create synthesis prompt for OpenAI
+      const analysesText = analyses.map((a: any, i: number) => `
+Timeframe ${i + 1} (${a.timeframe}):
+- Direction: ${a.direction}
+- Confidence: ${a.confidence}
+- Trend: ${a.trend}
+- Entry: ${a.entryPoint}
+- Exit: ${a.exitPoint}
+- Stop Loss: ${a.stopLoss}
+- Take Profit: ${a.takeProfit}
+- Patterns: ${a.patterns?.map((p: any) => p.name).join(', ') || 'None'}
+- RSI: ${a.momentumIndicators?.rsi?.value || 'N/A'}
+- MACD: ${a.momentumIndicators?.macd?.signal || 'N/A'}
+`).join('\n');
+
+      const prompt = `You are a professional forex trader synthesizing multiple timeframe analyses into ONE unified trading signal.
+
+MULTI-TIMEFRAME ANALYSES:
+${analysesText}
+
+SYNTHESIZE these into a single unified recommendation with:
+1. Consensus Direction (BUY/SELL/NEUTRAL)
+2. Overall Confidence (Low/Medium/High)
+3. Best Entry Point (synthesis of all)
+4. Unified Stop Loss
+5. Unified Take Profit
+6. Reasoning (why these timeframes align or conflict)
+7. Risk/Reward assessment
+
+Respond ONLY in valid JSON format with these exact keys:
+{
+  "direction": "BUY|SELL|NEUTRAL",
+  "confidence": "Low|Medium|High",
+  "entryPoint": "string",
+  "stopLoss": "string",
+  "takeProfit": "string",
+  "reasoning": "string explaining the synthesis",
+  "riskRewardRatio": "string like 1:2",
+  "strength": "number 1-10",
+  "convergence": "string explaining timeframe alignment"
+}`;
+
+      const { OpenAI } = await import("openai");
+      const client = new OpenAI({
+        apiKey: process.env.OPENAI_API_KEY,
+      });
+
+      const response = await client.messages.create({
+        model: "claude-3-5-sonnet-20241022",
+        max_tokens: 1024,
+        messages: [
+          {
+            role: "user",
+            content: prompt
+          }
+        ]
+      });
+
+      // Extract text content
+      const responseText = response.content
+        .filter((block: any) => block.type === "text")
+        .map((block: any) => block.text)
+        .join("");
+
+      // Parse JSON response
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        throw new Error("Failed to parse AI response as JSON");
+      }
+
+      const synthesis = JSON.parse(jsonMatch[0]);
+      res.json(synthesis);
+    } catch (error: any) {
+      console.error("Synthesis error:", error);
+      res.status(500).json({ 
+        error: error instanceof Error ? error.message : "Failed to synthesize signal"
+      });
+    }
+  });
+
   // Generate EA code based on multi-timeframe analysis
   app.post("/api/generate-ea-code", async (req: Request, res: Response) => {
     try {

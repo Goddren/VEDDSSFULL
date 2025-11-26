@@ -13,7 +13,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { ChartAnalysisResponse } from '@shared/types';
-import { Clock, TrendingUp, Code, Download, Check, X, Settings, Target, Sparkles, Save } from 'lucide-react';
+import { Clock, TrendingUp, Code, Download, Check, X, Settings, Target, Sparkles, Save, Zap } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 
 interface TimeframeUpload {
@@ -136,6 +136,7 @@ export default function MultiTimeframeAnalysis() {
   const [pyramidingRatio, setPyramidingRatio] = useState(0.5);
   const [selectedPlatform, setSelectedPlatform] = useState<'MT5' | 'TradingView' | 'TradeLocker'>('MT5');
   const [volumeThreshold, setVolumeThreshold] = useState(0);
+  const [unifiedSignal, setUnifiedSignal] = useState<any | null>(null);
   const [tradingDays, setTradingDays] = useState<Record<string, boolean>>({
     Monday: true,
     Tuesday: true,
@@ -159,6 +160,33 @@ export default function MultiTimeframeAnalysis() {
     }), {})
   );
   const { toast } = useToast();
+
+  const synthesizeSignalMutation = useMutation({
+    mutationFn: async () => {
+      const completedAnalyses = Object.values(timeframeUploads)
+        .filter(tu => tu.analysis)
+        .map(tu => tu.analysis);
+      
+      if (completedAnalyses.length < 2) {
+        throw new Error('Need at least 2 chart analyses');
+      }
+      
+      return apiRequest('POST', '/api/synthesize-trade-signal', { 
+        analyses: completedAnalyses 
+      }).then(r => r.json());
+    },
+    onSuccess: (data) => {
+      setUnifiedSignal(data);
+      toast({ title: 'Unified signal synthesized!' });
+    },
+    onError: (error: Error) => {
+      toast({ 
+        title: 'Signal synthesis failed', 
+        description: error.message, 
+        variant: 'destructive' 
+      });
+    },
+  });
 
   const handleImageUpload = async (timeframe: string, file: File) => {
     setTimeframeUploads(prev => ({
@@ -702,6 +730,85 @@ export default function MultiTimeframeAnalysis() {
             </div>
           </CardContent>
         </Card>
+
+        {uploadedCount >= 2 && !unifiedSignal && (
+          <Card className="border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-blue-900 dark:text-blue-100">
+                <Zap className="w-5 h-5" />
+                Unified Trade Signal
+              </CardTitle>
+              <CardDescription className="text-blue-800 dark:text-blue-200">
+                Synthesize all chart analyses into one trading recommendation
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button 
+                onClick={() => synthesizeSignalMutation.mutate()}
+                disabled={synthesizeSignalMutation.isPending}
+                className="w-full"
+              >
+                {synthesizeSignalMutation.isPending ? 'Analyzing...' : 'Generate Unified Signal'}
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        {unifiedSignal && (
+          <Card className="border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-green-900 dark:text-green-100">
+                <Check className="w-5 h-5" />
+                Unified Trading Signal
+              </CardTitle>
+              <CardDescription className="text-green-800 dark:text-green-200">
+                Synthesized from all uploaded chart timeframes
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="bg-white dark:bg-slate-900 p-3 rounded border border-green-200 dark:border-green-800">
+                  <p className="text-sm text-muted-foreground">Direction</p>
+                  <p className={`text-2xl font-bold ${unifiedSignal.direction === 'BUY' ? 'text-green-600' : unifiedSignal.direction === 'SELL' ? 'text-red-600' : 'text-yellow-600'}`}>
+                    {unifiedSignal.direction}
+                  </p>
+                </div>
+                <div className="bg-white dark:bg-slate-900 p-3 rounded border border-green-200 dark:border-green-800">
+                  <p className="text-sm text-muted-foreground">Confidence</p>
+                  <p className="text-2xl font-bold text-green-600 dark:text-green-400">{unifiedSignal.confidence}</p>
+                </div>
+                <div className="bg-white dark:bg-slate-900 p-3 rounded border border-green-200 dark:border-green-800">
+                  <p className="text-sm text-muted-foreground">Strength</p>
+                  <p className="text-2xl font-bold text-green-600 dark:text-green-400">{unifiedSignal.strength}/10</p>
+                </div>
+                <div className="bg-white dark:bg-slate-900 p-3 rounded border border-green-200 dark:border-green-800">
+                  <p className="text-sm text-muted-foreground">Risk/Reward</p>
+                  <p className="text-2xl font-bold text-green-600 dark:text-green-400">{unifiedSignal.riskRewardRatio}</p>
+                </div>
+              </div>
+              <div className="bg-white dark:bg-slate-900 p-3 rounded border border-green-200 dark:border-green-800 space-y-2">
+                <p><strong className="text-green-900 dark:text-green-100">Entry Point:</strong> {unifiedSignal.entryPoint}</p>
+                <p><strong className="text-green-900 dark:text-green-100">Stop Loss:</strong> {unifiedSignal.stopLoss}</p>
+                <p><strong className="text-green-900 dark:text-green-100">Take Profit:</strong> {unifiedSignal.takeProfit}</p>
+              </div>
+              <div className="bg-white dark:bg-slate-900 p-3 rounded border border-green-200 dark:border-green-800">
+                <p><strong className="text-green-900 dark:text-green-100">Timeframe Convergence:</strong></p>
+                <p className="text-sm text-muted-foreground mt-1">{unifiedSignal.convergence}</p>
+              </div>
+              <div className="bg-white dark:bg-slate-900 p-3 rounded border border-green-200 dark:border-green-800">
+                <p><strong className="text-green-900 dark:text-green-100">Reasoning:</strong></p>
+                <p className="text-sm text-muted-foreground mt-1">{unifiedSignal.reasoning}</p>
+              </div>
+              <Button 
+                onClick={() => setUnifiedSignal(null)}
+                variant="outline"
+                className="w-full"
+              >
+                Generate New Analysis
+              </Button>
+            </CardContent>
+          </Card>
+        )}
 
         {bestChart && (
           <Card className="border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950">
