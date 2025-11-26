@@ -37,6 +37,7 @@ import BlogPage from "@/pages/blog";
 import StrategyWizard from "@/pages/strategy-wizard";
 import MobileAlerts from "@/pages/mobile-alerts";
 import MyEAsPage from "@/pages/my-eas";
+import MySubscriptionsPage from "@/pages/my-subscriptions";
 import EAMarketplacePage from "@/pages/ea-marketplace";
 import { MobileFAB } from "@/components/mobile-fab";
 import { NetworkStatus } from "@/components/network-status";
@@ -100,6 +101,7 @@ function AppLayout() {
             <ProtectedRoute path="/interactive-tooltips" component={InteractiveTooltipShowcase} />
             <ProtectedRoute path="/mobile-alerts" component={MobileAlerts} />
             <ProtectedRoute path="/my-eas" component={MyEAsPage} />
+            <ProtectedRoute path="/my-subscriptions" component={MySubscriptionsPage} />
             <ProtectedRoute path="/ea-marketplace" component={EAMarketplacePage} />
             
             <Route component={NotFound} />
