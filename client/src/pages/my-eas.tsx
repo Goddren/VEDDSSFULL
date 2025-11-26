@@ -19,6 +19,7 @@ export default function MyEAsPage() {
   const { toast } = useToast();
   const [sharePrice, setSharePrice] = useState(9.99);
   const [selectedEAId, setSelectedEAId] = useState<number | null>(null);
+  const [previewEA, setPreviewEA] = useState<any | null>(null);
 
   const { data: eas = [], isLoading, refetch } = useQuery({
     queryKey: ['/api/my-eas'],
@@ -138,6 +139,27 @@ export default function MyEAsPage() {
                   </div>
 
                   <div className="flex gap-2 flex-wrap">
+                    <Dialog>
+                      <DialogTrigger asChild>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setPreviewEA(ea)}
+                        >
+                          <Eye className="w-4 h-4 mr-1" />
+                          Preview
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="max-w-2xl max-h-96">
+                        <DialogHeader>
+                          <DialogTitle>Preview EA Code - {ea.name}</DialogTitle>
+                        </DialogHeader>
+                        <div className="bg-slate-900 p-4 rounded text-sm text-slate-100 font-mono overflow-auto max-h-64 whitespace-pre-wrap break-words">
+                          {ea.eaCode}
+                        </div>
+                      </DialogContent>
+                    </Dialog>
+
                     <Button
                       size="sm"
                       variant="outline"
