@@ -185,6 +185,47 @@ export default function SubscriptionPage() {
         </p>
       </div>
 
+      {/* Supported Platforms Section */}
+      <div className="mb-12 p-6 bg-gradient-to-r from-primary/10 to-primary/5 rounded-lg border border-primary/20">
+        <h2 className="text-2xl font-bold mb-4 text-center">Expert Advisor Code Generation Platforms</h2>
+        <p className="text-center text-muted-foreground mb-6">Generate trading bot code for your preferred platform</p>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Card className="border-2 border-blue-500 bg-blue-50 dark:bg-blue-950">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <span className="text-2xl">📈</span>
+                MetaTrader 5
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm">Generate MQL5 Expert Advisors for MetaTrader 5 with full backtesting support.</p>
+            </CardContent>
+          </Card>
+          <Card className="border-2 border-orange-500 bg-orange-50 dark:bg-orange-950">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <span className="text-2xl">📊</span>
+                TradingView
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm">Create Pine Script strategies for TradingView charts with real-time alerts.</p>
+            </CardContent>
+          </Card>
+          <Card className="border-2 border-green-500 bg-green-50 dark:bg-green-950">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <span className="text-2xl">🤖</span>
+                TradeLocker
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm">Generate Node.js trading bots for TradeLocker API automation.</p>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+
       {subscription && (
         <div className="mb-8">
           <Alert className="bg-card border-primary/20">
@@ -546,6 +587,73 @@ export default function SubscriptionPage() {
                 {plans?.map((plan) => (
                   <td key={plan.id} className={`px-6 py-4 text-center ${subscription?.planId === plan.id ? 'bg-primary/5' : ''}`}>
                     {plan.id >= 3 ? 
+                      <div className="flex items-center justify-center">
+                        <div className="p-1 rounded-full bg-primary/10">
+                          <Check className="h-4 w-4 text-primary" />
+                        </div>
+                      </div> : 
+                      <span className="text-muted-foreground">-</span>
+                    }
+                  </td>
+                ))}
+              </tr>
+
+              {/* Group 4: EA Code Generation */}
+              <tr className="bg-muted/30">
+                <td colSpan={plans?.length ? plans.length + 1 : 4} className="px-6 py-3 text-sm font-bold">
+                  Expert Advisor Code Generation
+                </td>
+              </tr>
+              <tr className="hover:bg-muted/20 transition-colors">
+                <td className="px-6 py-4 text-sm font-medium">MetaTrader 5 (MQL5)</td>
+                {plans?.map((plan) => (
+                  <td key={plan.id} className={`px-6 py-4 text-center ${subscription?.planId === plan.id ? 'bg-primary/5' : ''}`}>
+                    {plan.id >= 2 ? 
+                      <div className="flex items-center justify-center">
+                        <div className="p-1 rounded-full bg-primary/10">
+                          <Check className="h-4 w-4 text-primary" />
+                        </div>
+                      </div> : 
+                      <span className="text-muted-foreground">-</span>
+                    }
+                  </td>
+                ))}
+              </tr>
+              <tr className="hover:bg-muted/20 transition-colors">
+                <td className="px-6 py-4 text-sm font-medium">TradingView (Pine Script)</td>
+                {plans?.map((plan) => (
+                  <td key={plan.id} className={`px-6 py-4 text-center ${subscription?.planId === plan.id ? 'bg-primary/5' : ''}`}>
+                    {plan.id >= 2 ? 
+                      <div className="flex items-center justify-center">
+                        <div className="p-1 rounded-full bg-primary/10">
+                          <Check className="h-4 w-4 text-primary" />
+                        </div>
+                      </div> : 
+                      <span className="text-muted-foreground">-</span>
+                    }
+                  </td>
+                ))}
+              </tr>
+              <tr className="hover:bg-muted/20 transition-colors">
+                <td className="px-6 py-4 text-sm font-medium">TradeLocker (Node.js)</td>
+                {plans?.map((plan) => (
+                  <td key={plan.id} className={`px-6 py-4 text-center ${subscription?.planId === plan.id ? 'bg-primary/5' : ''}`}>
+                    {plan.id >= 2 ? 
+                      <div className="flex items-center justify-center">
+                        <div className="p-1 rounded-full bg-primary/10">
+                          <Check className="h-4 w-4 text-primary" />
+                        </div>
+                      </div> : 
+                      <span className="text-muted-foreground">-</span>
+                    }
+                  </td>
+                ))}
+              </tr>
+              <tr className="hover:bg-muted/20 transition-colors">
+                <td className="px-6 py-4 text-sm font-medium">Unified Trade Signal (Multi-Timeframe Synthesis)</td>
+                {plans?.map((plan) => (
+                  <td key={plan.id} className={`px-6 py-4 text-center ${subscription?.planId === plan.id ? 'bg-primary/5' : ''}`}>
+                    {plan.id >= 2 ? 
                       <div className="flex items-center justify-center">
                         <div className="p-1 rounded-full bg-primary/10">
                           <Check className="h-4 w-4 text-primary" />
