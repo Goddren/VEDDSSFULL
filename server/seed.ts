@@ -39,12 +39,13 @@ export async function seedSubscriptionPlans() {
     },
     {
       name: "Standard",
-      description: "Advanced features for serious traders",
-      price: 2999, // $29.99
+      description: "Advanced features for serious traders with unified signal synthesis",
+      price: 3999, // $39.99 (increased from $29.99 for unified signal)
       interval: "month",
       features: [
         "Everything in Free",
         "Multi-timeframe EA generator (MT5 & TradingView)",
+        "Unified Trade Signal (synthesizes all chart analyses into one recommendation)",
         "EA validity tracking & updates",
         "Trailing stop-loss automation",
         "Advanced pattern analysis",
@@ -61,12 +62,14 @@ export async function seedSubscriptionPlans() {
     },
     {
       name: "Premium",
-      description: "Unlimited power for professional traders",
-      price: 9999, // $99.99
+      description: "Unlimited power for professional traders with advanced AI synthesis",
+      price: 14999, // $149.99 (increased from $99.99 for enhanced unified signal)
       interval: "month",
       features: [
         "Everything in Standard",
-        "Multiple trade strategies (Pyramiding, Grid, Hedging)",
+        "Advanced Unified Trade Signal with confidence scoring",
+        "Timeframe convergence analysis & alignment strength",
+        "Multiple trade strategies (Pyramising, Grid, Hedging)",
         "Custom EA parameters & optimization",
         "Advanced multi-timeframe analysis",
         "Unlimited chart analyses",
@@ -76,6 +79,8 @@ export async function seedSubscriptionPlans() {
         "Priority customer support (24/7)",
         "Custom indicator requests",
         "1-on-1 strategy consultations",
+        "EA Marketplace creation & monetization",
+        "Advanced pattern backtesting",
       ],
       analysisLimit: 99999,
       socialShareLimit: 99999,
@@ -83,24 +88,27 @@ export async function seedSubscriptionPlans() {
     },
     {
       name: "Lifetime",
-      description: "🔥 LIMITED TIME SALE: Pay once, trade forever - Best value for long-term traders",
-      price: 14900, // $149 one-time (SALE PRICE - normally $499)
+      description: "LIMITED TIME: Pay once, trade forever - Includes all AI features & unified signal",
+      price: 24900, // $249 one-time (increased from $149 for comprehensive feature set)
       interval: "lifetime",
       features: [
         "Everything in Premium",
         "Lifetime access - Pay once, no recurring fees",
         "All future updates & features included",
+        "Unified Trade Signal (unlimited synthesis)",
+        "Advanced multi-timeframe analysis",
         "Multiple trade strategies (Pyramiding, Grid, Hedging)",
         "Custom EA parameters & optimization",
-        "Advanced multi-timeframe analysis",
         "Unlimited chart analyses",
         "Unlimited social shares",
         "Historical strategy backtesting",
         "API access for automation",
         "Priority customer support (24/7)",
         "Custom indicator requests",
-        "Quarterly 1-on-1 strategy consultations",
+        "Monthly 1-on-1 strategy consultations",
         "Early access to beta features",
+        "EA Marketplace premium creator tools",
+        "Passive income dashboard for EA sales",
       ],
       analysisLimit: 99999,
       socialShareLimit: 99999,
