@@ -2089,7 +2089,8 @@ Return ONLY a JSON object with this structure:
       if (ea.userId !== (req.user as User).id) return res.status(403).json({ error: "Forbidden" });
       
       const { price } = req.body;
-      const shared = await storage.shareEA(parseInt(req.params.id), price);
+      const priceInCents = Math.round(price * 100);
+      const shared = await storage.shareEA(parseInt(req.params.id), priceInCents);
       res.json({ success: true, ea: shared });
     } catch (error) {
       res.status(500).json({ error: error instanceof Error ? error.message : "Failed to share EA" });
