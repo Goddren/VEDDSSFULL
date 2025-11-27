@@ -295,6 +295,7 @@ SYNTHESIZE these into a single unified recommendation with:
 5. Unified Take Profit
 6. Reasoning (why these timeframes align or conflict)
 7. Risk/Reward assessment
+8. BEST TIMEFRAME FOR EA ENTRY: Which single timeframe should the EA be attached to for the best entry signal? Return just the timeframe (e.g., "H1", "D1", "M5")
 
 Respond ONLY in valid JSON format with these exact keys:
 {
@@ -306,7 +307,8 @@ Respond ONLY in valid JSON format with these exact keys:
   "reasoning": "string explaining the synthesis",
   "riskRewardRatio": "string like 1:2",
   "strength": "number 1-10",
-  "convergence": "string explaining timeframe alignment"
+  "convergence": "string explaining timeframe alignment",
+  "bestChartTimeframe": "string - the recommended timeframe for EA entry"
 }`;
 
       const OpenAI = (await import("openai")).default;
@@ -336,6 +338,20 @@ Respond ONLY in valid JSON format with these exact keys:
       }
 
       const synthesis = JSON.parse(jsonMatch[0]);
+      
+      // Add chart details for the recommended timeframe
+      const recommendedAnalysis = analyses.find((a: any) => a.timeframe === synthesis.bestChartTimeframe);
+      if (recommendedAnalysis) {
+        synthesis.recommendedChart = {
+          timeframe: synthesis.bestChartTimeframe,
+          direction: recommendedAnalysis.direction,
+          confidence: recommendedAnalysis.confidence,
+          patterns: recommendedAnalysis.patterns || [],
+          rsi: recommendedAnalysis.momentumIndicators?.rsi?.value,
+          reasoning: `This ${synthesis.bestChartTimeframe} timeframe provides the strongest entry signal aligned with the unified analysis`
+        };
+      }
+      
       res.json(synthesis);
     } catch (error: any) {
       console.error("Synthesis error:", error);

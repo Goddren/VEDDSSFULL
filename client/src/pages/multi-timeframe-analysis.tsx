@@ -351,69 +351,8 @@ export default function MultiTimeframeAnalysis() {
 
   const selectedStrategy = STRATEGY_TYPES.find(st => st.value === strategyType);
 
-  // AI-powered chart recommendation for best entry
-  const getChartRecommendation = () => {
-    const uploadedCharts = Object.entries(timeframeUploads)
-      .filter(([_, tf]) => tf.analysis !== null)
-      .map(([timeframe, tf]) => {
-        const analysis = tf.analysis as any;
-        
-        // Score based on signal strength and confidence
-        let score = 0;
-        
-        // Direction confidence (high confidence = higher score)
-        const confidenceMap: Record<string, number> = {
-          'Very High': 100,
-          'High': 80,
-          'Medium': 60,
-          'Low': 40
-        };
-        score += confidenceMap[analysis.confidence] || 50;
-        
-        // Signal type bonus
-        if (analysis.direction === 'BUY' || analysis.direction === 'SELL') {
-          score += 30;
-        }
-        
-        // Technical indicator strength
-        if (analysis.momentumIndicators?.rsi) {
-          const rsiValue = analysis.momentumIndicators.rsi.value;
-          // Strong RSI signals (overbought/oversold) are better
-          if ((rsiValue > 70 && analysis.direction === 'SELL') || 
-              (rsiValue < 30 && analysis.direction === 'BUY')) {
-            score += 25;
-          } else if ((rsiValue > 60 && analysis.direction === 'SELL') || 
-                     (rsiValue < 40 && analysis.direction === 'BUY')) {
-            score += 15;
-          }
-        }
-        
-        // MACD confirmation bonus
-        if (analysis.trendIndicators?.macd) {
-          score += 20;
-        }
-        
-        // Pattern recognition bonus
-        if (analysis.patterns && analysis.patterns.length > 0) {
-          score += 15 * Math.min(analysis.patterns.length, 2);
-        }
-        
-        return {
-          timeframe,
-          score,
-          analysis,
-          rsi: analysis.momentumIndicators?.rsi?.value ? parseFloat(analysis.momentumIndicators.rsi.value) : null,
-          pattern: analysis.patterns?.[0]?.name || 'None'
-        };
-      });
-    
-    if (uploadedCharts.length === 0) return null;
-    
-    const best = uploadedCharts.sort((a, b) => b.score - a.score)[0];
-    return best;
-  };
-
-  const bestChart = canGenerateCode ? getChartRecommendation() : null;
+  // Get recommended chart from unified signal (only available after synthesis)
+  const bestChart = unifiedSignal?.recommendedChart || null;
 
   return (
     <div className="container mx-auto py-8 px-4">
