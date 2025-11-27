@@ -503,11 +503,6 @@ const Dashboard: React.FC = () => {
                       Profile
                     </Button>
                   </Link>
-                  <Link href="/support">
-                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-amber-600 hover:border-amber-600 transition-colors">
-                      Support
-                    </Button>
-                  </Link>
                   <Link href="/volatility-meter">
                     <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-amber-600 hover:border-amber-600 transition-colors">
                       Volatility Meter
