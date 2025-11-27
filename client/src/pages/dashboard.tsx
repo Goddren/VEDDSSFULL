@@ -26,8 +26,6 @@ import {
   Moon
 } from 'lucide-react';
 import { MarketCalendar } from '@/components/market/market-calendar';
-import { RecentAchievements } from '@/components/achievements/recent-achievements';
-import { UserLevel } from '@/components/achievements/user-level';
 import { VolatilityMeter } from '@/components/ui/volatility-meter';
 import { getUserLevel } from '@/lib/achievement-system';
 import TradingCoach from '@/components/trading-coach/trading-coach';
@@ -513,19 +511,6 @@ const Dashboard: React.FC = () => {
               </CardContent>
             </Card>
             
-            {/* User Level & Achievements */}
-            {/* User Level Progress */}
-            <UserLevel 
-              totalPoints={totalAchievementPoints}
-              className="mb-6"
-            />
-            
-            {/* Recent Achievements */}
-            <RecentAchievements
-              limit={3}
-              showProgress={true}
-              className="mb-6"
-            />
             
             {/* Show Scripture Wisdom button when hidden */}
             {!showFaithContent && (
