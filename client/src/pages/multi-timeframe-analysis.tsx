@@ -694,100 +694,155 @@ export default function MultiTimeframeAnalysis() {
         )}
 
         {unifiedSignal && (
-          <Card className="border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-green-900 dark:text-green-100">
-                <Check className="w-5 h-5" />
-                Unified Trading Signal
+          <Card className="border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950 overflow-hidden">
+            <CardHeader className="bg-green-100 dark:bg-green-900 pb-3">
+              <CardTitle className="flex items-center gap-2 text-green-900 dark:text-green-100 text-2xl">
+                <Check className="w-6 h-6" />
+                Unified Multi-Timeframe Analysis
               </CardTitle>
-              <CardDescription className="text-green-800 dark:text-green-200">
-                Synthesized from all uploaded chart timeframes
+              <CardDescription className="text-green-700 dark:text-green-300 mt-1">
+                Ready to trade decision
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <div className="bg-white dark:bg-slate-900 p-3 rounded border border-green-200 dark:border-green-800">
-                  <p className="text-sm text-muted-foreground">Direction</p>
-                  <p className={`text-2xl font-bold ${unifiedSignal.direction === 'BUY' ? 'text-green-600' : unifiedSignal.direction === 'SELL' ? 'text-red-600' : 'text-yellow-600'}`}>
+            <CardContent className="space-y-4 pt-6">
+              {/* Signal Strength Row */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="bg-white dark:bg-slate-900 p-4 rounded-lg border-2 border-green-200 dark:border-green-800 text-center">
+                  <p className="text-xs text-muted-foreground font-semibold uppercase">Signal</p>
+                  <p className={`text-3xl font-black mt-2 ${unifiedSignal.direction === 'BUY' ? 'text-green-600' : unifiedSignal.direction === 'SELL' ? 'text-red-600' : 'text-yellow-600'}`}>
                     {unifiedSignal.direction}
                   </p>
                 </div>
-                <div className="bg-white dark:bg-slate-900 p-3 rounded border border-green-200 dark:border-green-800">
-                  <p className="text-sm text-muted-foreground">Confidence</p>
-                  <p className="text-2xl font-bold text-green-600 dark:text-green-400">{unifiedSignal.confidence}</p>
+                <div className="bg-white dark:bg-slate-900 p-4 rounded-lg border-2 border-green-200 dark:border-green-800 text-center">
+                  <p className="text-xs text-muted-foreground font-semibold uppercase">Confidence</p>
+                  <p className="text-3xl font-black mt-2 text-green-600 dark:text-green-400">{unifiedSignal.confidence}</p>
+                  <p className="text-xs text-muted-foreground mt-1">Signal Reliability</p>
                 </div>
-                <div className="bg-white dark:bg-slate-900 p-3 rounded border border-green-200 dark:border-green-800">
-                  <p className="text-sm text-muted-foreground">Strength</p>
-                  <p className="text-2xl font-bold text-green-600 dark:text-green-400">{unifiedSignal.strength}/10</p>
+                <div className="bg-white dark:bg-slate-900 p-4 rounded-lg border-2 border-green-200 dark:border-green-800 text-center">
+                  <p className="text-xs text-muted-foreground font-semibold uppercase">Strength</p>
+                  <p className="text-3xl font-black mt-2 text-green-600 dark:text-green-400">{unifiedSignal.strength}/10</p>
+                  <div className="w-full bg-gray-200 dark:bg-gray-700 h-2 rounded mt-2">
+                    <div className="bg-green-500 h-2 rounded" style={{width: `${(unifiedSignal.strength/10)*100}%`}}></div>
+                  </div>
                 </div>
-                <div className="bg-white dark:bg-slate-900 p-3 rounded border border-green-200 dark:border-green-800">
-                  <p className="text-sm text-muted-foreground">Risk/Reward</p>
-                  <p className="text-2xl font-bold text-green-600 dark:text-green-400">{unifiedSignal.riskRewardRatio}</p>
+                <div className="bg-white dark:bg-slate-900 p-4 rounded-lg border-2 border-green-200 dark:border-green-800 text-center">
+                  <p className="text-xs text-muted-foreground font-semibold uppercase">Risk/Reward</p>
+                  <p className="text-3xl font-black mt-2 text-green-600 dark:text-green-400">{unifiedSignal.riskRewardRatio}</p>
+                  <p className="text-xs text-muted-foreground mt-1">Ratio</p>
                 </div>
               </div>
-              <div className="bg-white dark:bg-slate-900 p-3 rounded border border-green-200 dark:border-green-800 space-y-2">
-                <p><strong className="text-green-900 dark:text-green-100">Entry Point:</strong> {unifiedSignal.entryPoint}</p>
-                <p><strong className="text-green-900 dark:text-green-100">Stop Loss:</strong> {unifiedSignal.stopLoss}</p>
-                <p><strong className="text-green-900 dark:text-green-100">Take Profit:</strong> {unifiedSignal.takeProfit}</p>
+
+              {/* Trade Setup Section */}
+              <div className="border-t-2 border-green-200 dark:border-green-800 pt-4 mt-2">
+                <h3 className="font-bold text-green-900 dark:text-green-100 mb-3 text-sm uppercase tracking-wider">Trade Setup</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900 dark:to-blue-800 p-4 rounded-lg border-2 border-blue-300 dark:border-blue-700">
+                    <p className="text-xs font-semibold text-blue-900 dark:text-blue-100 uppercase">📍 Entry Point</p>
+                    <p className="text-2xl font-black text-blue-700 dark:text-blue-300 mt-2">{unifiedSignal.entryPoint}</p>
+                    <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">Market entry price</p>
+                  </div>
+                  <div className="bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-900 dark:to-orange-800 p-4 rounded-lg border-2 border-orange-300 dark:border-orange-700">
+                    <p className="text-xs font-semibold text-orange-900 dark:text-orange-100 uppercase">🛑 Stop Loss</p>
+                    <p className="text-2xl font-black text-orange-700 dark:text-orange-300 mt-2">{unifiedSignal.stopLoss}</p>
+                    <p className="text-xs text-orange-600 dark:text-orange-400 mt-1">Risk protection</p>
+                  </div>
+                  <div className="bg-gradient-to-br from-emerald-50 to-emerald-100 dark:from-emerald-900 dark:to-emerald-800 p-4 rounded-lg border-2 border-emerald-300 dark:border-emerald-700">
+                    <p className="text-xs font-semibold text-emerald-900 dark:text-emerald-100 uppercase">🎯 Take Profit</p>
+                    <p className="text-2xl font-black text-emerald-700 dark:text-emerald-300 mt-2">{unifiedSignal.takeProfit}</p>
+                    <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-1">Profit target</p>
+                  </div>
+                </div>
               </div>
-              <div className="bg-white dark:bg-slate-900 p-3 rounded border border-green-200 dark:border-green-800">
-                <p><strong className="text-green-900 dark:text-green-100">Timeframe Convergence:</strong></p>
-                <p className="text-sm text-muted-foreground mt-1">{unifiedSignal.convergence}</p>
+
+              {/* Analysis Insights */}
+              <div className="bg-white dark:bg-slate-900 p-4 rounded-lg border-l-4 border-green-500">
+                <p className="text-xs font-semibold text-green-900 dark:text-green-100 uppercase mb-2">🔄 Timeframe Convergence</p>
+                <p className="text-sm text-muted-foreground leading-relaxed">{unifiedSignal.convergence}</p>
               </div>
-              <div className="bg-white dark:bg-slate-900 p-3 rounded border border-green-200 dark:border-green-800">
-                <p><strong className="text-green-900 dark:text-green-100">Reasoning:</strong></p>
-                <p className="text-sm text-muted-foreground mt-1">{unifiedSignal.reasoning}</p>
+
+              {/* Trading Reasoning */}
+              <div className="bg-white dark:bg-slate-900 p-4 rounded-lg border-l-4 border-blue-500">
+                <p className="text-xs font-semibold text-blue-900 dark:text-blue-100 uppercase mb-2">💡 Why This Signal?</p>
+                <p className="text-sm text-muted-foreground leading-relaxed">{unifiedSignal.reasoning}</p>
               </div>
+
               <Button 
                 onClick={() => setUnifiedSignal(null)}
                 variant="outline"
-                className="w-full"
+                className="w-full mt-2"
               >
-                Generate New Analysis
+                Analyze Different Charts
               </Button>
             </CardContent>
           </Card>
         )}
 
         {bestChart && (
-          <Card className="border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-amber-900 dark:text-amber-100">
-                <Sparkles className="w-5 h-5" />
-                AI Recommendation: Best Chart for EA Entry
+          <Card className="border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950 overflow-hidden">
+            <CardHeader className="bg-amber-100 dark:bg-amber-900 pb-3">
+              <CardTitle className="flex items-center gap-2 text-amber-900 dark:text-amber-100 text-2xl">
+                <Sparkles className="w-6 h-6" />
+                Perfect Entry Point Found
               </CardTitle>
-              <CardDescription className="text-amber-800 dark:text-amber-200">
-                Based on unified multi-timeframe analysis
+              <CardDescription className="text-amber-700 dark:text-amber-300 mt-1">
+                AI recommends this timeframe for the best EA entry
               </CardDescription>
             </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="bg-white dark:bg-slate-900 p-3 rounded border border-amber-200 dark:border-amber-800">
-                    <p className="text-sm text-muted-foreground">Recommended Timeframe</p>
-                    <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">{bestChart.timeframe}</p>
-                  </div>
-                  <div className="bg-white dark:bg-slate-900 p-3 rounded border border-amber-200 dark:border-amber-800">
-                    <p className="text-sm text-muted-foreground">Confidence Level</p>
-                    <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">{bestChart.confidence}</p>
-                  </div>
-                  <div className="bg-white dark:bg-slate-900 p-3 rounded border border-amber-200 dark:border-amber-800">
-                    <p className="text-sm text-muted-foreground">Signal Direction</p>
-                    <Badge className={bestChart.direction === 'BUY' ? 'bg-green-500' : bestChart.direction === 'SELL' ? 'bg-red-500' : 'bg-gray-500'}>
-                      {bestChart.direction}
-                    </Badge>
-                  </div>
+            <CardContent className="space-y-4 pt-6">
+              {/* Recommendation Highlight */}
+              <div className="bg-gradient-to-r from-amber-100 to-orange-100 dark:from-amber-800 dark:to-orange-800 p-5 rounded-lg border-2 border-amber-300 dark:border-amber-700 text-center">
+                <p className="text-xs font-bold text-amber-900 dark:text-amber-100 uppercase tracking-wider mb-2">Chart To Use</p>
+                <p className="text-4xl font-black text-amber-700 dark:text-amber-300">{bestChart.timeframe}</p>
+                <p className="text-sm text-amber-700 dark:text-amber-300 mt-2">
+                  <Badge className={bestChart.direction === 'BUY' ? 'bg-green-500 text-white' : bestChart.direction === 'SELL' ? 'bg-red-500 text-white' : 'bg-gray-500 text-white'} style={{fontSize: '12px', padding: '4px 8px'}}>
+                    {bestChart.direction} Signal
+                  </Badge>
+                </p>
+              </div>
+
+              {/* Key Metrics */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-white dark:bg-slate-900 p-4 rounded-lg border-l-4 border-green-500">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase">Confidence</p>
+                  <p className="text-2xl font-black text-green-600 dark:text-green-400 mt-1">{bestChart.confidence}</p>
                 </div>
+                <div className="bg-white dark:bg-slate-900 p-4 rounded-lg border-l-4 border-blue-500">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase">Signal Type</p>
+                  <p className={`text-2xl font-black mt-1 ${bestChart.direction === 'BUY' ? 'text-green-600' : 'text-red-600'}`}>{bestChart.direction}</p>
+                </div>
+              </div>
+
+              {/* Why This Chart Section */}
+              <div className="bg-white dark:bg-slate-900 p-4 rounded-lg border-l-4 border-amber-500">
+                <p className="text-xs font-bold text-amber-900 dark:text-amber-100 uppercase mb-3">Why This Chart?</p>
+                <p className="text-sm text-muted-foreground leading-relaxed mb-3">{bestChart.reasoning}</p>
                 
-                <div className="bg-white dark:bg-slate-900 p-3 rounded border border-amber-200 dark:border-amber-800 space-y-2">
-                  <p className="text-sm font-medium">Why this timeframe?</p>
-                  <ul className="text-sm space-y-1 text-muted-foreground list-disc pl-5">
-                    <li><strong>AI Analysis:</strong> {bestChart.reasoning}</li>
-                    {bestChart.patterns && bestChart.patterns.length > 0 && <li><strong>Patterns Detected:</strong> {bestChart.patterns.map((p: any) => p.name || p).join(', ')}</li>}
-                    {bestChart.rsi !== null && bestChart.rsi !== undefined && <li><strong>RSI:</strong> {typeof bestChart.rsi === 'number' ? bestChart.rsi.toFixed(2) : bestChart.rsi} - {typeof bestChart.rsi === 'number' ? (bestChart.rsi > 70 ? 'Overbought' : bestChart.rsi < 30 ? 'Oversold' : 'Neutral') : ''}</li>}
-                    <li><strong>Best For:</strong> Attach your EA to the <strong>{bestChart.timeframe}</strong> chart for optimal entry signals</li>
-                  </ul>
+                {/* Technical Details */}
+                <div className="space-y-2 text-sm">
+                  {bestChart.patterns && bestChart.patterns.length > 0 && (
+                    <div className="bg-blue-50 dark:bg-blue-900 p-2 rounded">
+                      <p className="text-xs font-semibold text-blue-900 dark:text-blue-100">📊 Patterns Detected:</p>
+                      <p className="text-blue-700 dark:text-blue-300">{bestChart.patterns.map((p: any) => p.name || p).join(', ')}</p>
+                    </div>
+                  )}
+                  {bestChart.rsi !== null && bestChart.rsi !== undefined && (
+                    <div className="bg-orange-50 dark:bg-orange-900 p-2 rounded">
+                      <p className="text-xs font-semibold text-orange-900 dark:text-orange-100">📈 RSI Momentum:</p>
+                      <p className="text-orange-700 dark:text-orange-300">
+                        {typeof bestChart.rsi === 'number' ? bestChart.rsi.toFixed(2) : bestChart.rsi} - 
+                        {typeof bestChart.rsi === 'number' ? (bestChart.rsi > 70 ? ' Overbought (sell pressure)' : bestChart.rsi < 30 ? ' Oversold (buy pressure)' : ' Neutral momentum') : ''}
+                      </p>
+                    </div>
+                  )}
                 </div>
+              </div>
+
+              {/* Action Item */}
+              <div className="bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900 dark:to-emerald-900 p-4 rounded-lg border-2 border-green-300 dark:border-green-700">
+                <p className="text-sm font-bold text-green-900 dark:text-green-100 mb-2">✅ Next Step</p>
+                <p className="text-sm text-green-800 dark:text-green-200">
+                  Attach your Expert Advisor to the <strong>{bestChart.timeframe}</strong> chart to get the best entry signals from all timeframes combined.
+                </p>
               </div>
             </CardContent>
           </Card>
