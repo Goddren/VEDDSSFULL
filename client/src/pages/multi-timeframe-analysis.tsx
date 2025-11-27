@@ -137,6 +137,9 @@ export default function MultiTimeframeAnalysis() {
   const [selectedPlatform, setSelectedPlatform] = useState<'MT5' | 'TradingView' | 'TradeLocker'>('MT5');
   const [volumeThreshold, setVolumeThreshold] = useState(0);
   const [unifiedSignal, setUnifiedSignal] = useState<any | null>(null);
+  const [useBulkUpload, setUseBulkUpload] = useState(false);
+  const [detectingCharts, setDetectingCharts] = useState(false);
+  const [detectedCharts, setDetectedCharts] = useState<any[]>([]);
   const [tradingDays, setTradingDays] = useState<Record<string, boolean>>({
     Monday: true,
     Tuesday: true,

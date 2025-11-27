@@ -255,6 +255,92 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Auto-detect timeframe from multiple uploaded images
+  app.post("/api/auto-detect-charts", async (req: Request, res: Response) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      const { images } = req.body;
+      if (!Array.isArray(images) || images.length === 0) {
+        return res.status(400).json({ error: "At least 1 image required" });
+      }
+
+      // Analyze each image to detect its timeframe
+      const results = await Promise.all(
+        images.map(async (base64Image: string, index: number) => {
+          try {
+            // Use vision API to detect timeframe
+            const prompt = `Analyze this trading chart image and detect ONLY the timeframe. 
+Look for timeframe indicators (M1, M5, M15, M30, H1, H4, D1, W1) in the chart UI.
+Return ONLY a JSON object with:
+{
+  "detectedTimeframe": "M5" or similar,
+  "confidence": "high|medium|low",
+  "reasoning": "brief explanation of how you detected it"
+}`;
+
+            const OpenAI = (await import("openai")).default;
+            const client = new OpenAI({
+              apiKey: process.env.OPENAI_API_KEY,
+            });
+
+            const response = await client.chat.completions.create({
+              model: "gpt-4o-mini",
+              max_tokens: 256,
+              messages: [
+                {
+                  role: "user",
+                  content: [
+                    {
+                      type: "image_url",
+                      image_url: {
+                        url: `data:image/png;base64,${base64Image}`,
+                      },
+                    },
+                    {
+                      type: "text",
+                      text: prompt,
+                    },
+                  ],
+                },
+              ],
+            });
+
+            const responseText = response.choices[0].message.content || "";
+            const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+            if (!jsonMatch) {
+              throw new Error("Failed to parse timeframe detection");
+            }
+
+            const detection = JSON.parse(jsonMatch[0]);
+            return {
+              index,
+              base64Image,
+              ...detection,
+            };
+          } catch (error) {
+            return {
+              index,
+              base64Image,
+              detectedTimeframe: null,
+              confidence: "low",
+              error: error instanceof Error ? error.message : "Detection failed",
+            };
+          }
+        })
+      );
+
+      res.json({ results });
+    } catch (error: any) {
+      console.error("Auto-detect error:", error);
+      res.status(500).json({
+        error: error instanceof Error ? error.message : "Failed to auto-detect charts",
+      });
+    }
+  });
+
   // Synthesize unified trade signal from multiple chart analyses
   app.post("/api/synthesize-trade-signal", async (req: Request, res: Response) => {
     try {
