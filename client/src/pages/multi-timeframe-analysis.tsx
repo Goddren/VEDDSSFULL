@@ -757,7 +757,7 @@ export default function MultiTimeframeAnalysis() {
                 AI Recommendation: Best Chart for EA Entry
               </CardTitle>
               <CardDescription className="text-amber-800 dark:text-amber-200">
-                Based on signal strength, confidence, and technical indicators
+                Based on unified multi-timeframe analysis
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -768,23 +768,23 @@ export default function MultiTimeframeAnalysis() {
                     <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">{bestChart.timeframe}</p>
                   </div>
                   <div className="bg-white dark:bg-slate-900 p-3 rounded border border-amber-200 dark:border-amber-800">
-                    <p className="text-sm text-muted-foreground">Signal Quality Score</p>
-                    <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">{Math.round(bestChart.score)}/250</p>
+                    <p className="text-sm text-muted-foreground">Confidence Level</p>
+                    <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">{bestChart.confidence}</p>
                   </div>
                   <div className="bg-white dark:bg-slate-900 p-3 rounded border border-amber-200 dark:border-amber-800">
                     <p className="text-sm text-muted-foreground">Signal Direction</p>
-                    <Badge className={bestChart.analysis.direction === 'BUY' ? 'bg-green-500' : bestChart.analysis.direction === 'SELL' ? 'bg-red-500' : 'bg-gray-500'}>
-                      {bestChart.analysis.direction}
+                    <Badge className={bestChart.direction === 'BUY' ? 'bg-green-500' : bestChart.direction === 'SELL' ? 'bg-red-500' : 'bg-gray-500'}>
+                      {bestChart.direction}
                     </Badge>
                   </div>
                 </div>
                 
                 <div className="bg-white dark:bg-slate-900 p-3 rounded border border-amber-200 dark:border-amber-800 space-y-2">
-                  <p className="text-sm font-medium">Why this chart?</p>
+                  <p className="text-sm font-medium">Why this timeframe?</p>
                   <ul className="text-sm space-y-1 text-muted-foreground list-disc pl-5">
-                    <li><strong>Confidence:</strong> {bestChart.analysis.confidence} - Strong signal reliability</li>
-                    <li><strong>Pattern:</strong> {bestChart.pattern} - Clear technical pattern identified</li>
-                    {bestChart.rsi !== null && bestChart.rsi !== undefined && <li><strong>RSI:</strong> {typeof bestChart.rsi === 'number' ? bestChart.rsi.toFixed(2) : bestChart.rsi} - {typeof bestChart.rsi === 'number' ? (bestChart.rsi > 70 ? 'Overbought (sell pressure)' : bestChart.rsi < 30 ? 'Oversold (buy pressure)' : 'Neutral momentum') : ''}</li>}
+                    <li><strong>AI Analysis:</strong> {bestChart.reasoning}</li>
+                    {bestChart.patterns && bestChart.patterns.length > 0 && <li><strong>Patterns Detected:</strong> {bestChart.patterns.map((p: any) => p.name || p).join(', ')}</li>}
+                    {bestChart.rsi !== null && bestChart.rsi !== undefined && <li><strong>RSI:</strong> {typeof bestChart.rsi === 'number' ? bestChart.rsi.toFixed(2) : bestChart.rsi} - {typeof bestChart.rsi === 'number' ? (bestChart.rsi > 70 ? 'Overbought' : bestChart.rsi < 30 ? 'Oversold' : 'Neutral') : ''}</li>}
                     <li><strong>Best For:</strong> Attach your EA to the <strong>{bestChart.timeframe}</strong> chart for optimal entry signals</li>
                   </ul>
                 </div>
