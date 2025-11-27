@@ -13,7 +13,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { ChartAnalysisResponse } from '@shared/types';
-import { Clock, TrendingUp, Code, Download, Check, X, Settings, Target, Sparkles, Save, Zap } from 'lucide-react';
+import { Clock, TrendingUp, Code, Download, Check, X, Settings, Target, Sparkles, Save, Zap, Upload, AlertCircle } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 
 interface TimeframeUpload {
@@ -610,66 +610,247 @@ export default function MultiTimeframeAnalysis() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Clock className="w-5 h-5" />
-              Upload Timeframe Charts
+              Upload Charts
             </CardTitle>
             <CardDescription>
-              Upload at least 2 different timeframes of the same trading pair
+              Choose how to upload your charts
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {TIMEFRAMES.map((tf) => {
-                const upload = timeframeUploads[tf.value];
-                return (
-                  <Card key={tf.value} className="relative">
-                    <CardHeader className="pb-3">
-                      <div className="flex items-center justify-between">
-                        <CardTitle className="text-sm">{tf.label}</CardTitle>
-                        {upload.analysis && (
-                          <Badge variant="default" className="bg-green-500">
-                            <Check className="w-3 h-3 mr-1" />
-                            Done
-                          </Badge>
-                        )}
-                        {upload.uploading && (
-                          <Badge variant="secondary">Analyzing...</Badge>
-                        )}
-                        {upload.error && (
-                          <Badge variant="destructive">
-                            <X className="w-3 h-3 mr-1" />
-                            Error
-                          </Badge>
-                        )}
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      {upload.previewUrl ? (
-                        <div className="space-y-2">
-                          <img 
-                            src={upload.previewUrl} 
-                            alt={`${tf.value} chart`}
-                            className="w-full h-32 object-cover rounded border"
-                          />
+          <CardContent className="space-y-4">
+            {/* Upload Mode Toggle */}
+            <div className="flex gap-2">
+              <Button
+                variant={!useBulkUpload ? "default" : "outline"}
+                onClick={() => {
+                  setUseBulkUpload(false);
+                  setDetectedCharts([]);
+                }}
+                className="flex-1"
+                data-testid="button-manual-upload"
+              >
+                Manual Selection
+              </Button>
+              <Button
+                variant={useBulkUpload ? "default" : "outline"}
+                onClick={() => setUseBulkUpload(true)}
+                className="flex-1"
+                data-testid="button-bulk-upload"
+              >
+                Bulk Upload All
+              </Button>
+            </div>
+
+            {/* Manual Timeframe Selection Mode */}
+            {!useBulkUpload && (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                {TIMEFRAMES.map((tf) => {
+                  const upload = timeframeUploads[tf.value];
+                  return (
+                    <Card key={tf.value} className="relative">
+                      <CardHeader className="pb-3">
+                        <div className="flex items-center justify-between">
+                          <CardTitle className="text-sm">{tf.label}</CardTitle>
                           {upload.analysis && (
-                            <div className="text-xs space-y-1">
-                              <p><strong>Signal:</strong> {upload.analysis.direction}</p>
-                              <p><strong>Confidence:</strong> {upload.analysis.confidence}</p>
-                              {upload.analysis.momentumIndicators?.rsi && (
-                                <p><strong>RSI:</strong> {upload.analysis.momentumIndicators.rsi.value}</p>
-                              )}
-                            </div>
+                            <Badge variant="default" className="bg-green-500">
+                              <Check className="w-3 h-3 mr-1" />
+                              Done
+                            </Badge>
+                          )}
+                          {upload.uploading && (
+                            <Badge variant="secondary">Analyzing...</Badge>
+                          )}
+                          {upload.error && (
+                            <Badge variant="destructive">
+                              <X className="w-3 h-3 mr-1" />
+                              Error
+                            </Badge>
                           )}
                         </div>
-                      ) : (
-                        <ImageUpload
-                          onImageUpload={(file) => handleImageUpload(tf.value, file)}
-                        />
-                      )}
-                    </CardContent>
-                  </Card>
-                );
-              })}
-            </div>
+                      </CardHeader>
+                      <CardContent>
+                        {upload.previewUrl ? (
+                          <div className="space-y-2">
+                            <img 
+                              src={upload.previewUrl} 
+                              alt={`${tf.value} chart`}
+                              className="w-full h-32 object-cover rounded border"
+                            />
+                            {upload.analysis && (
+                              <div className="text-xs space-y-1">
+                                <p><strong>Signal:</strong> {upload.analysis.direction}</p>
+                                <p><strong>Confidence:</strong> {upload.analysis.confidence}</p>
+                                {upload.analysis.momentumIndicators?.rsi && (
+                                  <p><strong>RSI:</strong> {upload.analysis.momentumIndicators.rsi.value}</p>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <ImageUpload
+                            onImageUpload={(file) => handleImageUpload(tf.value, file)}
+                          />
+                        )}
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Bulk Upload Mode */}
+            {useBulkUpload && (
+              <div className="space-y-4">
+                {detectedCharts.length === 0 ? (
+                  <div className="border-2 border-dashed rounded-lg p-8 text-center">
+                    <Upload className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
+                    <p className="font-medium mb-2">Upload all charts at once</p>
+                    <p className="text-sm text-muted-foreground mb-4">
+                      Select 2+ chart images and AI will detect which timeframe each one is
+                    </p>
+                    <input
+                      type="file"
+                      multiple
+                      accept="image/*"
+                      onChange={async (e) => {
+                        const files = Array.from(e.currentTarget.files || []);
+                        if (files.length < 2) {
+                          toast({
+                            title: "Need at least 2 charts",
+                            description: "Please select 2 or more chart images",
+                            variant: "destructive"
+                          });
+                          return;
+                        }
+
+                        setDetectingCharts(true);
+                        try {
+                          const base64Images = await Promise.all(
+                            files.map(f => new Promise<string>((resolve) => {
+                              const reader = new FileReader();
+                              reader.onload = () => {
+                                const base64 = (reader.result as string).split(',')[1];
+                                resolve(base64);
+                              };
+                              reader.readAsDataURL(f);
+                            }))
+                          );
+
+                          const response = await apiRequest('POST', '/api/auto-detect-charts', {
+                            images: base64Images
+                          });
+                          const data = await response.json();
+                          
+                          if (data.results) {
+                            setDetectedCharts(data.results);
+                          }
+                        } catch (error) {
+                          toast({
+                            title: "Detection failed",
+                            description: error instanceof Error ? error.message : "Could not detect charts",
+                            variant: "destructive"
+                          });
+                        } finally {
+                          setDetectingCharts(false);
+                        }
+                      }}
+                      disabled={detectingCharts}
+                      className="hidden"
+                      id="bulk-file-input"
+                      data-testid="input-bulk-charts"
+                    />
+                    <Button
+                      onClick={() => document.getElementById('bulk-file-input')?.click()}
+                      disabled={detectingCharts}
+                      data-testid="button-select-charts"
+                    >
+                      {detectingCharts ? 'Detecting...' : 'Select Charts'}
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <p className="font-medium">Detected Timeframes ({detectedCharts.length} charts)</p>
+                    <div className="space-y-2">
+                      {detectedCharts.map((chart, idx) => (
+                        <div key={idx} className="border rounded-lg p-4 flex items-start gap-4">
+                          <img
+                            src={`data:image/png;base64,${chart.base64Image}`}
+                            alt={`chart-${idx}`}
+                            className="w-24 h-24 object-cover rounded border"
+                          />
+                          <div className="flex-1 space-y-2">
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-lg text-blue-600">{chart.detectedTimeframe || '?'}</span>
+                              <Badge variant={
+                                chart.confidence === 'high' ? 'default' :
+                                chart.confidence === 'medium' ? 'secondary' :
+                                'destructive'
+                              }>
+                                {chart.confidence} confidence
+                              </Badge>
+                            </div>
+                            <p className="text-sm text-muted-foreground">{chart.reasoning}</p>
+                            {chart.error && (
+                              <div className="flex items-center gap-2 text-sm text-red-600">
+                                <AlertCircle className="w-4 h-4" />
+                                {chart.error}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        onClick={() => setDetectedCharts([])}
+                        className="flex-1"
+                        data-testid="button-reselect-charts"
+                      >
+                        Re-select Charts
+                      </Button>
+                      <Button
+                        onClick={async () => {
+                          // Map detected charts to timeframe uploads
+                          const newUploads = { ...timeframeUploads };
+                          for (const chart of detectedCharts) {
+                            if (chart.detectedTimeframe) {
+                              const timeframe = chart.detectedTimeframe;
+                              if (timeframe in newUploads) {
+                                newUploads[timeframe].previewUrl = `data:image/png;base64,${chart.base64Image}`;
+                              }
+                            }
+                          }
+                          setTimeframeUploads(newUploads);
+                          setUseBulkUpload(false);
+                          setDetectedCharts([]);
+                          toast({ title: "Charts loaded! Now analyzing..." });
+
+                          // Trigger analysis for each detected timeframe
+                          for (const chart of detectedCharts) {
+                            if (chart.detectedTimeframe && chart.detectedTimeframe in timeframeUploads) {
+                              const timeframe = chart.detectedTimeframe;
+                              const binaryString = atob(chart.base64Image);
+                              const bytes = new Uint8Array(binaryString.length);
+                              for (let i = 0; i < binaryString.length; i++) {
+                                bytes[i] = binaryString.charCodeAt(i);
+                              }
+                              const file = new File([bytes], `chart-${timeframe}.png`, { type: 'image/png' });
+                              await handleImageUpload(timeframe, file);
+                            }
+                          }
+                        }}
+                        disabled={!detectedCharts.some(c => c.detectedTimeframe)}
+                        className="flex-1"
+                        data-testid="button-confirm-charts"
+                      >
+                        Confirm & Analyze
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </CardContent>
         </Card>
 
