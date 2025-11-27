@@ -264,6 +264,20 @@ export default function MultiTimeframeAnalysis() {
     }
   };
 
+  const clearTimeframeUpload = (timeframe: string) => {
+    setTimeframeUploads(prev => ({
+      ...prev,
+      [timeframe]: {
+        timeframe,
+        file: null,
+        previewUrl: null,
+        analysis: null,
+        uploading: false,
+        error: null
+      }
+    }));
+  };
+
   const generateCodeMutation = useMutation({
     mutationFn: async (platformType: 'MT5' | 'TradingView' | 'TradeLocker') => {
       const uploadedTimeframes = Object.values(timeframeUploads)
@@ -667,9 +681,9 @@ export default function MultiTimeframeAnalysis() {
                           )}
                         </div>
                       </CardHeader>
-                      <CardContent>
+                      <CardContent className="space-y-2">
                         {upload.previewUrl ? (
-                          <div className="space-y-2">
+                          <>
                             <img 
                               src={upload.previewUrl} 
                               alt={`${tf.value} chart`}
@@ -684,7 +698,18 @@ export default function MultiTimeframeAnalysis() {
                                 )}
                               </div>
                             )}
-                          </div>
+                            {upload.error && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => clearTimeframeUpload(tf.value)}
+                                className="w-full text-destructive hover:bg-destructive/10"
+                                data-testid={`button-reupload-${tf.value}`}
+                              >
+                                Re-upload Chart
+                              </Button>
+                            )}
+                          </>
                         ) : (
                           <ImageUpload
                             onImageUpload={(file) => handleImageUpload(tf.value, file)}
