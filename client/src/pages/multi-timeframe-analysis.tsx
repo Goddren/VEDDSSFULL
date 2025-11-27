@@ -790,7 +790,7 @@ export default function MultiTimeframeAnalysis() {
                             </div>
                             <p className="text-sm text-muted-foreground">{chart.reasoning}</p>
                             {chart.error && (
-                              <div className="flex items-center gap-2 text-sm text-red-600">
+                              <div className="flex items-center gap-2 text-sm text-destructive">
                                 <AlertCircle className="w-4 h-4" />
                                 {chart.error}
                               </div>
@@ -878,47 +878,47 @@ export default function MultiTimeframeAnalysis() {
         )}
 
         {unifiedSignal && (
-          <Card className="border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950 overflow-hidden">
-            <CardHeader className="bg-green-100 dark:bg-green-900 pb-3">
-              <CardTitle className="flex items-center gap-2 text-green-900 dark:text-green-100 text-2xl">
+          <Card className="border-primary/30 dark:border-primary/40 bg-primary/5 dark:bg-primary/10 overflow-hidden">
+            <CardHeader className="bg-primary/20 dark:bg-primary/30 pb-3">
+              <CardTitle className="flex items-center gap-2 text-primary text-2xl">
                 <Check className="w-6 h-6" />
                 Unified Multi-Timeframe Analysis
               </CardTitle>
-              <CardDescription className="text-green-700 dark:text-green-300 mt-1">
+              <CardDescription className="text-primary/80 dark:text-primary/70 mt-1">
                 Ready to trade decision
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4 pt-6">
               {/* Signal Strength Row */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <div className="bg-white dark:bg-slate-900 p-4 rounded-lg border-2 border-green-200 dark:border-green-800 text-center">
+                <div className="bg-white dark:bg-slate-900 p-4 rounded-lg border-2 border-primary/30 dark:border-primary/40 text-center">
                   <p className="text-xs text-muted-foreground font-semibold uppercase">Signal</p>
-                  <p className={`text-3xl font-black mt-2 ${unifiedSignal.direction === 'BUY' ? 'text-green-600' : unifiedSignal.direction === 'SELL' ? 'text-red-600' : 'text-yellow-600'}`}>
+                  <p className={`text-3xl font-black mt-2 ${unifiedSignal.direction === 'BUY' ? 'text-green-500' : unifiedSignal.direction === 'SELL' ? 'text-primary' : 'text-amber-500'}`}>
                     {unifiedSignal.direction}
                   </p>
                 </div>
-                <div className="bg-white dark:bg-slate-900 p-4 rounded-lg border-2 border-green-200 dark:border-green-800 text-center">
+                <div className="bg-white dark:bg-slate-900 p-4 rounded-lg border-2 border-primary/30 dark:border-primary/40 text-center">
                   <p className="text-xs text-muted-foreground font-semibold uppercase">Confidence</p>
-                  <p className="text-3xl font-black mt-2 text-green-600 dark:text-green-400">{unifiedSignal.confidence}</p>
+                  <p className="text-3xl font-black mt-2 text-primary">{unifiedSignal.confidence}</p>
                   <p className="text-xs text-muted-foreground mt-1">Signal Reliability</p>
                 </div>
-                <div className="bg-white dark:bg-slate-900 p-4 rounded-lg border-2 border-green-200 dark:border-green-800 text-center">
+                <div className="bg-white dark:bg-slate-900 p-4 rounded-lg border-2 border-primary/30 dark:border-primary/40 text-center">
                   <p className="text-xs text-muted-foreground font-semibold uppercase">Strength</p>
-                  <p className="text-3xl font-black mt-2 text-green-600 dark:text-green-400">{unifiedSignal.strength}/10</p>
+                  <p className="text-3xl font-black mt-2 text-primary">{unifiedSignal.strength}/10</p>
                   <div className="w-full bg-gray-200 dark:bg-gray-700 h-2 rounded mt-2">
-                    <div className="bg-green-500 h-2 rounded" style={{width: `${(unifiedSignal.strength/10)*100}%`}}></div>
+                    <div className="bg-primary h-2 rounded" style={{width: `${(unifiedSignal.strength/10)*100}%`}}></div>
                   </div>
                 </div>
-                <div className="bg-white dark:bg-slate-900 p-4 rounded-lg border-2 border-green-200 dark:border-green-800 text-center">
+                <div className="bg-white dark:bg-slate-900 p-4 rounded-lg border-2 border-primary/30 dark:border-primary/40 text-center">
                   <p className="text-xs text-muted-foreground font-semibold uppercase">Risk/Reward</p>
-                  <p className="text-3xl font-black mt-2 text-green-600 dark:text-green-400">{unifiedSignal.riskRewardRatio}</p>
+                  <p className="text-3xl font-black mt-2 text-primary">{unifiedSignal.riskRewardRatio}</p>
                   <p className="text-xs text-muted-foreground mt-1">Ratio</p>
                 </div>
               </div>
 
               {/* Trade Setup Section */}
-              <div className="border-t-2 border-green-200 dark:border-green-800 pt-4 mt-2">
-                <h3 className="font-bold text-green-900 dark:text-green-100 mb-3 text-sm uppercase tracking-wider">Trade Setup</h3>
+              <div className="border-t-2 border-primary/30 dark:border-primary/40 pt-4 mt-2">
+                <h3 className="font-bold text-primary mb-3 text-sm uppercase tracking-wider">Trade Setup</h3>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   <div className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900 dark:to-blue-800 p-4 rounded-lg border-2 border-blue-300 dark:border-blue-700">
                     <p className="text-xs font-semibold text-blue-900 dark:text-blue-100 uppercase">📍 Entry Point</p>
@@ -939,8 +939,8 @@ export default function MultiTimeframeAnalysis() {
               </div>
 
               {/* Analysis Insights */}
-              <div className="bg-white dark:bg-slate-900 p-4 rounded-lg border-l-4 border-green-500">
-                <p className="text-xs font-semibold text-green-900 dark:text-green-100 uppercase mb-2">🔄 Timeframe Convergence</p>
+              <div className="bg-white dark:bg-slate-900 p-4 rounded-lg border-l-4 border-primary">
+                <p className="text-xs font-semibold text-primary uppercase mb-2">🔄 Timeframe Convergence</p>
                 <p className="text-sm text-muted-foreground leading-relaxed">{unifiedSignal.convergence}</p>
               </div>
 
@@ -978,7 +978,7 @@ export default function MultiTimeframeAnalysis() {
                 <p className="text-xs font-bold text-amber-900 dark:text-amber-100 uppercase tracking-wider mb-2">Chart To Use</p>
                 <p className="text-4xl font-black text-amber-700 dark:text-amber-300">{bestChart.timeframe}</p>
                 <p className="text-sm text-amber-700 dark:text-amber-300 mt-2">
-                  <Badge className={bestChart.direction === 'BUY' ? 'bg-green-500 text-white' : bestChart.direction === 'SELL' ? 'bg-red-500 text-white' : 'bg-gray-500 text-white'} style={{fontSize: '12px', padding: '4px 8px'}}>
+                  <Badge className={bestChart.direction === 'BUY' ? 'bg-green-500 text-white' : bestChart.direction === 'SELL' ? 'bg-primary text-white' : 'bg-gray-500 text-white'} style={{fontSize: '12px', padding: '4px 8px'}}>
                     {bestChart.direction} Signal
                   </Badge>
                 </p>
@@ -986,13 +986,13 @@ export default function MultiTimeframeAnalysis() {
 
               {/* Key Metrics */}
               <div className="grid grid-cols-2 gap-3">
-                <div className="bg-white dark:bg-slate-900 p-4 rounded-lg border-l-4 border-green-500">
+                <div className="bg-white dark:bg-slate-900 p-4 rounded-lg border-l-4 border-primary">
                   <p className="text-xs font-semibold text-muted-foreground uppercase">Confidence</p>
-                  <p className="text-2xl font-black text-green-600 dark:text-green-400 mt-1">{bestChart.confidence}</p>
+                  <p className="text-2xl font-black text-primary mt-1">{bestChart.confidence}</p>
                 </div>
                 <div className="bg-white dark:bg-slate-900 p-4 rounded-lg border-l-4 border-blue-500">
                   <p className="text-xs font-semibold text-muted-foreground uppercase">Signal Type</p>
-                  <p className={`text-2xl font-black mt-1 ${bestChart.direction === 'BUY' ? 'text-green-600' : 'text-red-600'}`}>{bestChart.direction}</p>
+                  <p className={`text-2xl font-black mt-1 ${bestChart.direction === 'BUY' ? 'text-green-500' : 'text-primary'}`}>{bestChart.direction}</p>
                 </div>
               </div>
 
