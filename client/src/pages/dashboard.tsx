@@ -26,7 +26,6 @@ import {
   Moon
 } from 'lucide-react';
 import { MarketCalendar } from '@/components/market/market-calendar';
-import { VolatilityMeter } from '@/components/ui/volatility-meter';
 import { getUserLevel } from '@/lib/achievement-system';
 import TradingCoach from '@/components/trading-coach/trading-coach';
 import { DailyWisdom } from '@/components/scripture/daily-wisdom';
@@ -463,54 +462,6 @@ const Dashboard: React.FC = () => {
               </CardContent>
             </Card>
 
-            {/* Market Volatility Risk Meter */}
-            <Card className="bg-gray-900 border-gray-800 shadow-xl overflow-hidden mb-6">
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle className="text-xl text-white flex items-center gap-2">
-                      Market Volatility
-                      <div className="h-6 w-6 rounded-full bg-amber-600/20 flex items-center justify-center">
-                        <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
-                      </div>
-                    </CardTitle>
-                    <CardDescription>Current market risk assessment</CardDescription>
-                  </div>
-                  <Link href="/volatility-meter">
-                    <Button variant="ghost" className="text-gray-400 hover:text-white rounded-full px-4 border border-gray-800 hover:border-amber-500/30 hover:bg-amber-500/10">
-                      <span>Details</span>
-                      <ChevronRight className="h-4 w-4 ml-1" />
-                    </Button>
-                  </Link>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="p-2 bg-gray-950 rounded-lg border border-gray-800">
-                  <VolatilityMeter 
-                    value={72} 
-                    symbol="EURUSD" 
-                    direction="Buy"
-                    size="md"
-                    animated={true}
-                  />
-                </div>
-                <div className="grid grid-cols-3 gap-4 mt-4">
-                  <div className="bg-gray-950 border border-gray-800 p-3 rounded-lg">
-                    <div className="text-xs text-gray-500 mb-1">BTC/USD</div>
-                    <VolatilityMeter value={88} size="sm" showLabel={false} />
-                  </div>
-                  <div className="bg-gray-950 border border-gray-800 p-3 rounded-lg">
-                    <div className="text-xs text-gray-500 mb-1">EUR/USD</div>
-                    <VolatilityMeter value={45} size="sm" showLabel={false} />
-                  </div>
-                  <div className="bg-gray-950 border border-gray-800 p-3 rounded-lg">
-                    <div className="text-xs text-gray-500 mb-1">GBP/JPY</div>
-                    <VolatilityMeter value={68} size="sm" showLabel={false} />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            
             
             {/* Show Scripture Wisdom button when hidden */}
             {!showFaithContent && (
@@ -536,11 +487,6 @@ const Dashboard: React.FC = () => {
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-2 gap-3">
-                  <Link href="/analysis">
-                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-rose-600 hover:border-rose-600 transition-colors">
-                      New Analysis
-                    </Button>
-                  </Link>
                   <Link href="/historical">
                     <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-rose-600 hover:border-rose-600 transition-colors">
                       History
