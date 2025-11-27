@@ -492,12 +492,6 @@ const Dashboard: React.FC = () => {
                       History
                     </Button>
                   </Link>
-                  <Link href="/market-insights">
-                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-indigo-600 hover:border-indigo-600 transition-colors">
-                      <Sparkles className="h-4 w-4 mr-2 text-indigo-400" />
-                      Market Insights
-                    </Button>
-                  </Link>
                   <Link href="/profile">
                     <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-amber-600 hover:border-amber-600 transition-colors">
                       Profile
@@ -518,12 +512,6 @@ const Dashboard: React.FC = () => {
                     <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-purple-600 hover:border-purple-600 transition-colors">
                       <BarChart2 className="h-4 w-4 mr-2 text-purple-400" />
                       Sentiment Cloud
-                    </Button>
-                  </Link>
-                  <Link href="/interactive-tooltips">
-                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-blue-600 hover:border-blue-600 transition-colors">
-                      <Lightbulb className="h-4 w-4 mr-2 text-blue-400" />
-                      Market Insights
                     </Button>
                   </Link>
                   <Link href="/subscription" className="col-span-2">
