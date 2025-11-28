@@ -545,25 +545,65 @@ string ExtractJSONValue(string json, string key)
 }
 
 //+------------------------------------------------------------------+
-//| Place first trade with AI-generated setup                        |
+//| Place first trade with AI-generated setup (PENDING ORDER)        |
 //+------------------------------------------------------------------+
 void PlaceFirstTradeWithAISetup()
 {
    Print("======================================");
-   Print("PLACING FIRST TRADE WITH AI SETUP");
-   Print("Entry: ", FirstTradeEntry, " | SL: ", FirstTradeStopLoss, " | TP: ", FirstTradeTakeProfit);
+   Print("PLACING FIRST TRADE AS PENDING ORDER");
+   Print("Entry (Trigger): ", FirstTradeEntry, " | SL: ", FirstTradeStopLoss, " | TP: ", FirstTradeTakeProfit);
+   Print("Direction: ", current_ai_direction);
    Print("======================================");
    
-   // Determine direction based on consensus
+   if(FirstTradeEntry <= 0)
+   {
+      Print("ERROR: FirstTradeEntry must be greater than 0 for pending order");
+      return;
+   }
+   
+   MqlTradeRequest request = {};
+   MqlTradeResult result = {};
+   
    bool is_buy = (current_ai_direction == "BUY");
+   
+   request.action = TRADE_ACTION_PENDING;
+   request.symbol = _Symbol;
+   request.volume = LotSize;
+   request.price = FirstTradeEntry;
+   request.sl = FirstTradeStopLoss;
+   request.tp = FirstTradeTakeProfit;
+   request.deviation = 10;
+   request.magic = MagicNumber;
    
    if(is_buy && AllowBuyTrades)
    {
-      OpenBuyPosition(FirstTradeStopLoss, FirstTradeTakeProfit, LotSize);
+      request.type = ORDER_TYPE_BUY_STOP;
+      request.comment = "First Trade - AI BUY STOP";
+      
+      if(OrderSend(request, result))
+      {
+         Print("Pending BUY STOP order placed at ", FirstTradeEntry, " with SL: ", FirstTradeStopLoss, " TP: ", FirstTradeTakeProfit);
+         Print("Order Ticket: ", result.order);
+      }
+      else
+      {
+         Print("ERROR placing pending BUY STOP: ", GetLastError());
+      }
    }
    else if(!is_buy && AllowSellTrades)
    {
-      OpenSellPosition(FirstTradeStopLoss, FirstTradeTakeProfit, LotSize);
+      request.type = ORDER_TYPE_SELL_STOP;
+      request.comment = "First Trade - AI SELL STOP";
+      
+      if(OrderSend(request, result))
+      {
+         Print("Pending SELL STOP order placed at ", FirstTradeEntry, " with SL: ", FirstTradeStopLoss, " TP: ", FirstTradeTakeProfit);
+         Print("Order Ticket: ", result.order);
+      }
+      else
+      {
+         Print("ERROR placing pending SELL STOP: ", GetLastError());
+      }
    }
    else
    {
