@@ -383,6 +383,7 @@ SYNTHESIZE these into a single unified recommendation with:
 7. Risk/Reward assessment
 8. BEST TIMEFRAME FOR EA ENTRY: Which single timeframe should the EA be attached to for the best entry signal? Return just the timeframe (e.g., "H1", "D1", "M5")
 9. Preferred Volume Threshold: Recommend the ideal volume level as a percentage (e.g., "150% above average" or "2x volume")
+10. BIDIRECTIONAL TRADING: If BUY and SELL signals are equally strong/valid (within 1 confidence level), set allowBidirectionalTrading to true and list both directions. Otherwise false.
 
 Respond ONLY in valid JSON format with these exact keys:
 {
@@ -396,7 +397,9 @@ Respond ONLY in valid JSON format with these exact keys:
   "strength": "number 1-10",
   "convergence": "string explaining timeframe alignment",
   "bestChartTimeframe": "string - the recommended timeframe for EA entry",
-  "preferredVolumeThreshold": "string describing ideal volume level for this trade"
+  "preferredVolumeThreshold": "string describing ideal volume level for this trade",
+  "allowBidirectionalTrading": "boolean - true if both BUY and SELL are equally valid",
+  "alternateDirection": "BUY|SELL|null - the opposite valid direction if bidirectional trading is allowed"
 }`;
 
       const OpenAI = (await import("openai")).default;
@@ -427,6 +430,12 @@ Respond ONLY in valid JSON format with these exact keys:
 
       const synthesis = JSON.parse(jsonMatch[0]);
       
+      // Set defaults for bidirectional trading
+      if (!synthesis.allowBidirectionalTrading) {
+        synthesis.allowBidirectionalTrading = false;
+        synthesis.alternateDirection = null;
+      }
+      
       // Add chart details for the recommended timeframe
       const recommendedAnalysis = analyses.find((a: any) => a.timeframe === synthesis.bestChartTimeframe);
       if (recommendedAnalysis) {
@@ -437,6 +446,8 @@ Respond ONLY in valid JSON format with these exact keys:
           patterns: recommendedAnalysis.patterns || [],
           rsi: recommendedAnalysis.momentumIndicators?.rsi?.value,
           preferredVolumeThreshold: synthesis.preferredVolumeThreshold || "150% above average",
+          allowBidirectionalTrading: synthesis.allowBidirectionalTrading,
+          alternateDirection: synthesis.alternateDirection,
           reasoning: `This ${synthesis.bestChartTimeframe} timeframe provides the strongest entry signal aligned with the unified analysis`
         };
       }
