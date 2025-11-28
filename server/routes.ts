@@ -384,6 +384,10 @@ SYNTHESIZE these into a single unified recommendation with:
 8. BEST TIMEFRAME FOR EA ENTRY: Which single timeframe should the EA be attached to for the best entry signal? Return just the timeframe (e.g., "H1", "D1", "M5")
 9. Preferred Volume Threshold: Recommend the ideal volume level as a percentage (e.g., "150% above average" or "2x volume")
 10. BIDIRECTIONAL TRADING: If BUY and SELL signals are equally strong/valid (within 1 confidence level), set allowBidirectionalTrading to true and list both directions. Otherwise false.
+11. PENDING BREAKOUT ORDERS:
+    - For BUY breakout: Calculate a resistance level that price must break above to trigger entry (typically highest resistance + 0.1-0.5% margin)
+    - For SELL breakout: Calculate a support level that price must break below to trigger entry (typically lowest support - 0.1-0.5% margin)
+    - These are conditional pending orders that activate when price breaks through
 
 Respond ONLY in valid JSON format with these exact keys:
 {
@@ -399,7 +403,14 @@ Respond ONLY in valid JSON format with these exact keys:
   "bestChartTimeframe": "string - the recommended timeframe for EA entry",
   "preferredVolumeThreshold": "string describing ideal volume level for this trade",
   "allowBidirectionalTrading": "boolean - true if both BUY and SELL are equally valid",
-  "alternateDirection": "BUY|SELL|null - the opposite valid direction if bidirectional trading is allowed"
+  "alternateDirection": "BUY|SELL|null - the opposite valid direction if bidirectional trading is allowed",
+  "pendingBuyBreakout": "string - price level where a pending BUY order triggers on breakout above this level",
+  "pendingBuyStopLoss": "string - stop loss for pending buy breakout order",
+  "pendingBuyTakeProfit": "string - take profit for pending buy breakout order",
+  "pendingSellBreakout": "string - price level where a pending SELL order triggers on breakout below this level",
+  "pendingSellStopLoss": "string - stop loss for pending sell breakout order",
+  "pendingSellTakeProfit": "string - take profit for pending sell breakout order",
+  "breakoutReasoning": "string explaining the breakout levels and why they're good entry points"
 }`;
 
       const OpenAI = (await import("openai")).default;
@@ -409,7 +420,7 @@ Respond ONLY in valid JSON format with these exact keys:
 
       const response = await client.chat.completions.create({
         model: "gpt-4o-mini",
-        max_tokens: 1024,
+        max_tokens: 1500,
         response_format: { type: "json_object" },
         messages: [
           {
@@ -435,6 +446,21 @@ Respond ONLY in valid JSON format with these exact keys:
         synthesis.allowBidirectionalTrading = false;
         synthesis.alternateDirection = null;
       }
+
+      // Set defaults for pending breakout orders
+      if (!synthesis.pendingBuyBreakout) {
+        synthesis.pendingBuyBreakout = null;
+        synthesis.pendingBuyStopLoss = null;
+        synthesis.pendingBuyTakeProfit = null;
+      }
+      if (!synthesis.pendingSellBreakout) {
+        synthesis.pendingSellBreakout = null;
+        synthesis.pendingSellStopLoss = null;
+        synthesis.pendingSellTakeProfit = null;
+      }
+      if (!synthesis.breakoutReasoning) {
+        synthesis.breakoutReasoning = "Breakout levels calculated from support/resistance analysis";
+      }
       
       // Add chart details for the recommended timeframe
       const recommendedAnalysis = analyses.find((a: any) => a.timeframe === synthesis.bestChartTimeframe);
@@ -448,6 +474,13 @@ Respond ONLY in valid JSON format with these exact keys:
           preferredVolumeThreshold: synthesis.preferredVolumeThreshold || "150% above average",
           allowBidirectionalTrading: synthesis.allowBidirectionalTrading,
           alternateDirection: synthesis.alternateDirection,
+          pendingBuyBreakout: synthesis.pendingBuyBreakout,
+          pendingBuyStopLoss: synthesis.pendingBuyStopLoss,
+          pendingBuyTakeProfit: synthesis.pendingBuyTakeProfit,
+          pendingSellBreakout: synthesis.pendingSellBreakout,
+          pendingSellStopLoss: synthesis.pendingSellStopLoss,
+          pendingSellTakeProfit: synthesis.pendingSellTakeProfit,
+          breakoutReasoning: synthesis.breakoutReasoning,
           reasoning: `This ${synthesis.bestChartTimeframe} timeframe provides the strongest entry signal aligned with the unified analysis`
         };
       }
