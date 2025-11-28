@@ -181,7 +181,7 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({ analysis, imageUrl, ann
             {/* Risk Analysis Card */}
             <div className="bg-[#0A0A0A] p-5 rounded-xl">
               <h3 className="font-semibold mb-3">Risk Analysis</h3>
-              <div className="grid grid-cols-3 gap-4 mb-3">
+              <div className="grid grid-cols-4 gap-4 mb-3">
                 <div>
                   <p className="text-sm text-gray-400">Risk/Reward Ratio</p>
                   <MarketInsight
@@ -198,6 +198,10 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({ analysis, imageUrl, ann
                 <div>
                   <p className="text-sm text-gray-400">Preferred Volume</p>
                   <p className="font-medium text-[#4CAF50]">{analysis.preferredVolumeThreshold || "Standard"}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-400">Preferred Time</p>
+                  <p className="font-medium text-[#3498db]">{analysis.preferredTradingTime || "Any Time"}</p>
                 </div>
               </div>
               <div className="w-full bg-[#333333] rounded-full h-2.5 mb-1">
