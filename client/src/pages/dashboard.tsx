@@ -488,34 +488,34 @@ const Dashboard: React.FC = () => {
               <CardContent>
                 <div className="grid grid-cols-2 gap-3">
                   <Link href="/historical">
-                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-rose-600 hover:border-rose-600 transition-colors">
+                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-rose-600 hover:border-rose-600 transition-all duration-500 ease-out hover:scale-105">
                       History
                     </Button>
                   </Link>
                   <Link href="/profile">
-                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-amber-600 hover:border-amber-600 transition-colors">
+                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-amber-600 hover:border-amber-600 transition-all duration-500 ease-out hover:scale-105">
                       Profile
                     </Button>
                   </Link>
                   <Link href="/volatility-meter">
-                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-amber-600 hover:border-amber-600 transition-colors">
+                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-amber-600 hover:border-amber-600 transition-all duration-500 ease-out hover:scale-105">
                       Volatility Meter
                     </Button>
                   </Link>
                   <Link href="/market-trend-game">
-                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-purple-600 hover:border-purple-600 transition-colors">
+                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-purple-600 hover:border-purple-600 transition-all duration-500 ease-out hover:scale-105">
                       <GamepadIcon className="h-4 w-4 mr-2 text-purple-400" />
                       Prediction Game
                     </Button>
                   </Link>
                   <Link href="/market-sentiment">
-                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-purple-600 hover:border-purple-600 transition-colors">
+                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-purple-600 hover:border-purple-600 transition-all duration-500 ease-out hover:scale-105">
                       <BarChart2 className="h-4 w-4 mr-2 text-purple-400" />
                       Sentiment Cloud
                     </Button>
                   </Link>
                   <Link href="/subscription" className="col-span-2">
-                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-rose-600 hover:border-rose-600 transition-colors">
+                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-rose-600 hover:border-rose-600 transition-all duration-500 ease-out hover:scale-105">
                       Upgrade Account
                     </Button>
                   </Link>
