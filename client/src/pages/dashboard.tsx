@@ -480,7 +480,7 @@ const Dashboard: React.FC = () => {
             )}
             
             {/* Quick Links */}
-            <Card className="bg-gray-900 border-gray-800 shadow-xl">
+            <Card className="bg-gray-900 border-gray-800 shadow-xl animate-in fade-in-0 slide-in-from-bottom-4 duration-700">
               <CardHeader>
                 <CardTitle className="text-xl text-white">Quick Actions</CardTitle>
                 <CardDescription>Common tasks for trading analysis</CardDescription>
@@ -488,34 +488,34 @@ const Dashboard: React.FC = () => {
               <CardContent>
                 <div className="grid grid-cols-2 gap-3">
                   <Link href="/historical">
-                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-rose-600 hover:border-rose-600 transition-all duration-500 ease-out hover:scale-105">
+                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-rose-600 hover:border-rose-600 transition-all duration-500 ease-out hover:scale-105 animate-in fade-in-0 slide-in-from-bottom-2 duration-500" style={{ animationDelay: "0ms" }}>
                       History
                     </Button>
                   </Link>
                   <Link href="/profile">
-                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-amber-600 hover:border-amber-600 transition-all duration-500 ease-out hover:scale-105">
+                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-amber-600 hover:border-amber-600 transition-all duration-500 ease-out hover:scale-105 animate-in fade-in-0 slide-in-from-bottom-2 duration-500" style={{ animationDelay: "50ms" }}>
                       Profile
                     </Button>
                   </Link>
                   <Link href="/volatility-meter">
-                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-amber-600 hover:border-amber-600 transition-all duration-500 ease-out hover:scale-105">
+                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-amber-600 hover:border-amber-600 transition-all duration-500 ease-out hover:scale-105 animate-in fade-in-0 slide-in-from-bottom-2 duration-500" style={{ animationDelay: "100ms" }}>
                       Volatility Meter
                     </Button>
                   </Link>
                   <Link href="/market-trend-game">
-                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-purple-600 hover:border-purple-600 transition-all duration-500 ease-out hover:scale-105">
+                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-purple-600 hover:border-purple-600 transition-all duration-500 ease-out hover:scale-105 animate-in fade-in-0 slide-in-from-bottom-2 duration-500" style={{ animationDelay: "150ms" }}>
                       <GamepadIcon className="h-4 w-4 mr-2 text-purple-400" />
                       Prediction Game
                     </Button>
                   </Link>
                   <Link href="/market-sentiment">
-                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-purple-600 hover:border-purple-600 transition-all duration-500 ease-out hover:scale-105">
+                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-purple-600 hover:border-purple-600 transition-all duration-500 ease-out hover:scale-105 animate-in fade-in-0 slide-in-from-bottom-2 duration-500" style={{ animationDelay: "200ms" }}>
                       <BarChart2 className="h-4 w-4 mr-2 text-purple-400" />
                       Sentiment Cloud
                     </Button>
                   </Link>
                   <Link href="/subscription" className="col-span-2">
-                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-rose-600 hover:border-rose-600 transition-all duration-500 ease-out hover:scale-105">
+                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-rose-600 hover:border-rose-600 transition-all duration-500 ease-out hover:scale-105 animate-in fade-in-0 slide-in-from-bottom-2 duration-500" style={{ animationDelay: "250ms" }}>
                       Upgrade Account
                     </Button>
                   </Link>
