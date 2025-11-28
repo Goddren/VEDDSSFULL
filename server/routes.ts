@@ -382,6 +382,7 @@ SYNTHESIZE these into a single unified recommendation with:
 6. Reasoning (why these timeframes align or conflict)
 7. Risk/Reward assessment
 8. BEST TIMEFRAME FOR EA ENTRY: Which single timeframe should the EA be attached to for the best entry signal? Return just the timeframe (e.g., "H1", "D1", "M5")
+9. Preferred Volume Threshold: Recommend the ideal volume level as a percentage (e.g., "150% above average" or "2x volume")
 
 Respond ONLY in valid JSON format with these exact keys:
 {
@@ -394,7 +395,8 @@ Respond ONLY in valid JSON format with these exact keys:
   "riskRewardRatio": "string like 1:2",
   "strength": "number 1-10",
   "convergence": "string explaining timeframe alignment",
-  "bestChartTimeframe": "string - the recommended timeframe for EA entry"
+  "bestChartTimeframe": "string - the recommended timeframe for EA entry",
+  "preferredVolumeThreshold": "string describing ideal volume level for this trade"
 }`;
 
       const OpenAI = (await import("openai")).default;
@@ -434,6 +436,7 @@ Respond ONLY in valid JSON format with these exact keys:
           confidence: recommendedAnalysis.confidence,
           patterns: recommendedAnalysis.patterns || [],
           rsi: recommendedAnalysis.momentumIndicators?.rsi?.value,
+          preferredVolumeThreshold: synthesis.preferredVolumeThreshold || "150% above average",
           reasoning: `This ${synthesis.bestChartTimeframe} timeframe provides the strongest entry signal aligned with the unified analysis`
         };
       }
