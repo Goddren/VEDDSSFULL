@@ -84,6 +84,25 @@ export const tradingStrategies = pgTable("trading_strategies", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// Spread trading strategies (pair trading)
+export const spreadStrategies = pgTable("spread_strategies", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  groupId: text("group_id").notNull(), // Links to analysis group
+  baseSymbol: text("base_symbol").notNull(), // Primary instrument (e.g., EUR/USD)
+  hedgeSymbol: text("hedge_symbol").notNull(), // Secondary instrument (e.g., GBP/USD)
+  spreadName: text("spread_name").notNull(), // Strategy name (e.g., EUR/GBP Pair Trade)
+  spreadType: text("spread_type").notNull(), // 'convergence' | 'divergence' | 'momentum' | 'correlation'
+  hedgeRatio: real("hedge_ratio").notNull(), // Ratio of hedge to base (e.g., 1.0 = 1:1, 0.5 = 1:2)
+  correlation: real("correlation"), // Expected correlation between symbols
+  platformType: text("platform_type").notNull(), // 'MT5' or 'TradingView'
+  generatedCode: text("generated_code").notNull(),
+  entryStrategy: jsonb("entry_strategy"), // Entry logic for both legs
+  exitStrategy: jsonb("exit_strategy"), // Exit logic for both legs
+  riskManagement: jsonb("risk_management"), // SL/TP for spread
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const insertUserSchema = createInsertSchema(users, {
   email: z.string().email("Invalid email address").optional(),
   fullName: z.string().optional(),
