@@ -97,6 +97,8 @@ export interface ChartAnalysisResponse {
   steps: string[];
   imageUrl?: string;  // URL to the saved chart image
   annotatedImageUrl?: string;  // URL to the trade setup annotated chart image
+  preferredVolumeThreshold?: string;  // Preferred volume level (e.g., "150% above average")
+  preferredTradingTime?: string;  // Optimal time to trade (e.g., "London Session")
 }
 
 export interface ImageUploadResponse {
