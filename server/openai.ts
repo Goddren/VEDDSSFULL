@@ -165,6 +165,8 @@ export async function analyzeChartImage(base64Image: string): Promise<ChartAnaly
       "quality": string       // Quality of trading opportunities ("Poor", "Average", "Excellent")
     }
   ],
+  "preferredVolumeThreshold": string, // Preferred volume level (e.g. "150% above average", "2x average volume")
+  "preferredTradingTime": string,     // Best time to trade (e.g. "London Session", "US Market Open")
   "recommendation": string,   // Overall trading recommendation considering volume and momentum
   "steps": string[]           // Array of actionable steps to take
 }
