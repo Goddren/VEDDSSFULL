@@ -312,6 +312,13 @@ input string RefreshAPIKey = "FEATURE_DISABLED_CONTACT_SUPPORT";  // Contact sup
 input int RefreshIntervalHours = 24;            // Hours between refreshes (24 = once per day)
 input bool PauseOnDirectionChange = true;       // Pause trading if AI changes direction
 
+//--- First Trade Setup (Use AI-Generated Entry/SL/TP)
+input group "=== First Trade - AI Setup ==="
+input bool UseFirstTradeSetup = true;           // Place first trade immediately with AI setup
+input double FirstTradeEntry = 0;               // AI entry point (0 = use market entry)
+input double FirstTradeStopLoss = 0;            // AI stop loss level
+input double FirstTradeTakeProfit = 0;          // AI take profit level
+
 //--- Global variables
 int rsi_handle, macd_handle, atr_handle;
 double rsi_buffer[], macd_main[], macd_signal[], atr_buffer[];
@@ -322,6 +329,7 @@ string current_ai_direction = "${consensusDirection}";  // Current AI recommenda
 int current_ai_confidence = ${Math.round(consensusConfidence)};  // Current confidence level
 bool trading_paused = false;  // Trading pause status
 bool rsi_ok = false, macd_ok = false, atr_ok = false;  // Indicator status flags
+bool first_trade_placed = false;  // Track if first trade has been placed
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
@@ -537,6 +545,33 @@ string ExtractJSONValue(string json, string key)
 }
 
 //+------------------------------------------------------------------+
+//| Place first trade with AI-generated setup                        |
+//+------------------------------------------------------------------+
+void PlaceFirstTradeWithAISetup()
+{
+   Print("======================================");
+   Print("PLACING FIRST TRADE WITH AI SETUP");
+   Print("Entry: ", FirstTradeEntry, " | SL: ", FirstTradeStopLoss, " | TP: ", FirstTradeTakeProfit);
+   Print("======================================");
+   
+   // Determine direction based on consensus
+   bool is_buy = (current_ai_direction == "BUY");
+   
+   if(is_buy && AllowBuyTrades)
+   {
+      OpenBuyPosition(FirstTradeStopLoss, FirstTradeTakeProfit, LotSize);
+   }
+   else if(!is_buy && AllowSellTrades)
+   {
+      OpenSellPosition(FirstTradeStopLoss, FirstTradeTakeProfit, LotSize);
+   }
+   else
+   {
+      Print("First trade blocked - check trading permissions");
+   }
+}
+
+//+------------------------------------------------------------------+
 //| Expert tick function                                             |
 //+------------------------------------------------------------------+
 void OnTick()
@@ -544,6 +579,14 @@ void OnTick()
    //--- Manage trailing stop for existing positions (every tick)
    if(UseTrailingStop)
       ManageTrailingStop();
+   
+   //--- Place first trade with AI setup if enabled and not yet placed
+   if(UseFirstTradeSetup && !first_trade_placed && (FirstTradeEntry > 0 || FirstTradeStopLoss > 0))
+   {
+      PlaceFirstTradeWithAISetup();
+      first_trade_placed = true;
+      return;  // Skip normal trading logic on first trade
+   }
    
    //--- Check if a new bar has formed
    static datetime last_bar_time = 0;
