@@ -123,7 +123,42 @@ export function generateMT5EACode(
   
   // Parse ATR multiplier as number
   const atrMultiplierValue = primaryTF.analysis.atrStopLoss?.multiplier || 1.5;
-  const atrMultiplierNum = typeof atrMultiplierValue === 'number' ? atrMultiplierValue : parseFloat(String(atrMultiplierValue)) || 1.5;
+  const atrMultiplierBase = typeof atrMultiplierValue === 'number' ? atrMultiplierValue : parseFloat(String(atrMultiplierValue)) || 1.5;
+
+  // Adjust ATR multiplier and risk/reward based on strategy type
+  let atrMultiplierNum = atrMultiplierBase;
+  let riskRewardRatio = 2.0;
+  let minConfirmationBars = 2;
+  
+  switch(strategyType) {
+    case 'scalping':
+      // Tight SL, small targets, quick exits
+      atrMultiplierNum = atrMultiplierBase * 0.5;  // 0.5-0.75 ATR SL
+      riskRewardRatio = 1.0;  // 1:1 RR for quick scalps
+      minConfirmationBars = 3;  // Stricter entry
+      break;
+    case 'day_trading':
+      // Medium SL, medium targets
+      atrMultiplierNum = atrMultiplierBase;  // 1-1.5 ATR SL (default)
+      riskRewardRatio = 2.0;  // 2:1 RR for day trades
+      minConfirmationBars = 2;
+      break;
+    case 'swing_trading':
+      // Wider SL, larger targets, hold longer
+      atrMultiplierNum = atrMultiplierBase * 1.75;  // 1.75-2.5 ATR SL
+      riskRewardRatio = 3.0;  // 3:1 RR for swing trades
+      minConfirmationBars = 1;  // Looser entry
+      break;
+    case 'position_trading':
+      // Very wide SL, very large targets, hold days/weeks
+      atrMultiplierNum = atrMultiplierBase * 2.5;  // 2.5-3.5 ATR SL
+      riskRewardRatio = 4.0;  // 4:1 RR for position trades
+      minConfirmationBars = 1;  // Just trend confirmation
+      break;
+    default:
+      atrMultiplierNum = atrMultiplierBase;
+      riskRewardRatio = 2.0;
+  }
 
   // Extract support/resistance levels
   const supportLevels = primaryTF.analysis.supportResistance?.filter((sr: any) => sr.type === 'Support') || [];
@@ -244,7 +279,7 @@ input group "=== Risk Management ==="
 input double LotSize = 0.01;                    // Position size (lots)
 input bool UseATR_StopLoss = true;              // Use ATR-based stop loss
 input double ATR_Multiplier = ${atrMultiplierNum.toFixed(2)};              // ATR multiplier for SL (from AI analysis)
-input double RiskRewardRatio = 2.0;             // Risk-reward ratio for TP
+input double RiskRewardRatio = ${riskRewardRatio.toFixed(1)};             // Risk-reward ratio for TP (auto-set: ${strategyType})
 input double MaxRiskPercent = 2.0;              // Max risk per trade (% of account)
 input double StopLossPips = 50;                 // Fixed SL in pips (if not using ATR)
 input double TakeProfitPips = 100;              // Fixed TP in pips (if not using ATR)
@@ -254,25 +289,25 @@ input group "=== Trailing Stop - Lock in Profits ==="
 input bool UseTrailingStop = ${useTrailingStop ? 'true' : 'false'};              // Enable trailing stop when in profit
 input double TrailingStopDistance = ${trailingStopDistance};       // Distance from current price (pips)
 input double TrailingStopStep = ${trailingStopStep};               // Minimum price movement to trail (pips)
-input double MinProfitToActivate = 20;          // Min profit (pips) before trailing activates
+input double MinProfitToActivate = ${strategyType === 'scalping' ? '5' : strategyType === 'swing_trading' ? '50' : '20'};          // Min profit (pips) before trailing activates
 
 //--- Technical Indicators
 input group "=== Technical Indicators ==="
-input int RSI_Period = 14;                      // RSI period
-input int RSI_Overbought = 70;                  // RSI overbought threshold
-input int RSI_Oversold = 30;                    // RSI oversold threshold
+input int RSI_Period = ${strategyType === 'scalping' ? '7' : '14'};                      // RSI period (shorter for scalping)
+input int RSI_Overbought = ${strategyType === 'scalping' ? '75' : '70'};                  // RSI overbought (higher for scalping=less trades)
+input int RSI_Oversold = ${strategyType === 'scalping' ? '25' : '30'};                    // RSI oversold (lower for scalping)
 input int MACD_FastEMA = 12;                    // MACD fast EMA period
 input int MACD_SlowEMA = 26;                    // MACD slow EMA period
 input int MACD_SignalSMA = 9;                   // MACD signal SMA period
-input int ATR_Period = 14;                      // ATR period
-input int Volume_MA_Period = 20;                // Volume moving average period
+input int ATR_Period = ${strategyType === 'scalping' ? '7' : '14'};                      // ATR period (shorter for scalping)
+input int Volume_MA_Period = ${strategyType === 'position_trading' ? '50' : '20'};                // Volume moving average period
 
 //--- Trading Rules
 input group "=== Trading Rules ==="
 input bool AllowBuyTrades = true;               // Allow BUY trades
 input bool AllowSellTrades = true;              // Allow SELL trades
-input bool UseVolumeFilter = false;             // Require volume confirmation (DISABLED by default - enables more trades)
-input bool UseMultiTimeframeConfirmation = false;  // Use primary timeframe only for faster entries
+input bool UseVolumeFilter = ${strategyType === 'scalping' ? 'true' : 'false'};             // Require volume confirmation (stricter for scalping)
+input bool UseMultiTimeframeConfirmation = ${strategyType === 'position_trading' ? 'true' : 'false'};  // Use multiple timeframes for confirmation
 input int MinTimeframesAgree = ${Math.max(1, Math.floor(sortedTimeframes.length / 2))};                     // Minimum timeframes that must agree
 input int MaxOpenTrades = ${maxSimultaneousTrades};                    // Maximum concurrent trades
 input int MagicNumber = ${Math.floor(Math.random() * 90000) + 10000};                     // Unique identifier for this EA
