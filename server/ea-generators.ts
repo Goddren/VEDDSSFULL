@@ -5,6 +5,43 @@ interface TimeframeAnalysisData {
   analysis: ChartAnalysisResponse;
 }
 
+/**
+ * Detect decimal places for a trading symbol
+ * BTC/USD = 2, GBPUSD = 5, EURUSD = 5, USDJPY = 2, XAU/USD = 2, etc.
+ */
+function getDecimalPlacesForSymbol(symbol: string): number {
+  const cleanSymbol = symbol.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  
+  // Precious metals (2 decimals)
+  if (cleanSymbol.includes('XAU') || cleanSymbol.includes('XAG') || 
+      cleanSymbol.includes('XPD') || cleanSymbol.includes('XPT')) {
+    return 2;
+  }
+  
+  // Cryptocurrencies (typically 2 decimals)
+  if (cleanSymbol.includes('BTC') || cleanSymbol.includes('ETH') || 
+      cleanSymbol.includes('LTC') || cleanSymbol.includes('XRP')) {
+    return 2;
+  }
+  
+  // JPY pairs (2 decimals)
+  if (cleanSymbol.includes('JPY')) {
+    return 2;
+  }
+  
+  // GBP, CHF, EUR, AUD, NZD, CAD pairs (typically 5 decimals when paired with USD/EUR/GBP)
+  if (cleanSymbol.includes('GBPUSD') || cleanSymbol.includes('GBPJPY') ||
+      cleanSymbol.includes('EURUSD') || cleanSymbol.includes('EURGBP') ||
+      cleanSymbol.includes('EURCHF') || cleanSymbol.includes('AUDUSD') ||
+      cleanSymbol.includes('NZDUSD') || cleanSymbol.includes('USDCAD') ||
+      cleanSymbol.includes('USDCHF') || cleanSymbol.includes('CADJPY')) {
+    return 5;
+  }
+  
+  // Default for most forex pairs (5 decimals)
+  return 5;
+}
+
 interface EAConfig {
   strategyType?: string;
   eaName?: string;
@@ -377,6 +414,10 @@ bool first_trade_placed = false;  // Track if first trade has been placed
 //+------------------------------------------------------------------+
 int OnInit()
 {
+   // Auto-detect decimal places for this symbol
+   int detected_digits = GetDecimalPlaces();
+   Print("Auto-detected decimal places for ${symbol}: ", detected_digits);
+   
    //--- Initialize indicators
    rsi_handle = iRSI(_Symbol, PERIOD_CURRENT, RSI_Period, PRICE_CLOSE);
    macd_handle = iMACD(_Symbol, PERIOD_CURRENT, MACD_FastEMA, MACD_SlowEMA, MACD_SignalSMA, PRICE_CLOSE);
@@ -400,6 +441,7 @@ int OnInit()
    Print("Consensus Direction: ${consensusDirection} (${consensusConfidence.toFixed(0)}%)");
    Print("ATR Stop Loss: ${atrStopLoss}");
    Print("Take Profit Target: ${takeProfit}");
+   Print("Decimal Places: ", detected_digits, " (Auto-detected for ${symbol})");
    Print("--------------------------------------");
    Print("Live AI Refresh: ", EnableLiveRefresh ? "ENABLED" : "DISABLED");
    if(EnableLiveRefresh)
@@ -996,6 +1038,48 @@ bool IsTradingDayAllowed()
 }
 
 //+------------------------------------------------------------------+
+//| Auto-detect decimal places for the trading symbol                |
+//| BTC/USD=2, GBPUSD=5, EURUSD=5, USDJPY=2, XAU/USD=2, etc.         |
+//+------------------------------------------------------------------+
+int GetDecimalPlaces()
+{
+   string symbol = _Symbol;
+   
+   // Precious metals (2 decimals)
+   if(StringFind(symbol, "XAU") == 0 || StringFind(symbol, "XAG") == 0 ||
+      StringFind(symbol, "XPD") == 0 || StringFind(symbol, "XPT") == 0)
+   {
+      return 2;
+   }
+   
+   // Cryptocurrencies (2 decimals)
+   if(StringFind(symbol, "BTC") != -1 || StringFind(symbol, "ETH") != -1 ||
+      StringFind(symbol, "LTC") != -1 || StringFind(symbol, "XRP") != -1)
+   {
+      return 2;
+   }
+   
+   // JPY pairs (2 decimals)
+   if(StringFind(symbol, "JPY") != -1)
+   {
+      return 2;
+   }
+   
+   // GBP, CHF, EUR, AUD, NZD, CAD (5 decimals)
+   if(StringFind(symbol, "GBPUSD") != -1 || StringFind(symbol, "GBPJPY") != -1 ||
+      StringFind(symbol, "EURUSD") != -1 || StringFind(symbol, "EURGBP") != -1 ||
+      StringFind(symbol, "EURCHF") != -1 || StringFind(symbol, "AUDUSD") != -1 ||
+      StringFind(symbol, "NZDUSD") != -1 || StringFind(symbol, "USDCAD") != -1 ||
+      StringFind(symbol, "USDCHF") != -1 || StringFind(symbol, "CADJPY") != -1)
+   {
+      return 5;
+   }
+   
+   // Default for most forex (5 decimals)
+   return 5;
+}
+
+//+------------------------------------------------------------------+
 //| Check volume threshold - requires current volume above threshold |
 //+------------------------------------------------------------------+
 bool CheckVolumeThreshold()
@@ -1403,6 +1487,9 @@ export function generateTradingViewCode(
   const takeProfit = typeof takeProfitRaw === 'string' ? takeProfitRaw : String(takeProfitRaw || 'Not specified');
   const riskReward = primaryTF.analysis.riskRewardRatio || '2:1';
 
+  // Detect decimal places for this symbol
+  const decimalPlaces = getDecimalPlacesForSymbol(symbol);
+
   const code = `//@version=5
 strategy("${eaName} - ${symbol}", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=10, process_orders_on_close=true, pyramiding=${maxSimultaneousTrades})
 
@@ -1415,6 +1502,7 @@ strategy("${eaName} - ${symbol}", overlay=true, default_qty_type=strategy.percen
 // Strategy Type: ${strategyLabel}
 // Expected Trade Duration: ${tradeDuration}
 // Symbol: ${symbol}
+// Decimal Places: ${decimalPlaces} (Auto-detected)
 // Timeframes Analyzed: ${sortedTimeframes.map(tf => tf.timeframe).join(', ')}
 //
 // EA VALIDITY INFORMATION
@@ -1621,12 +1709,15 @@ export function generateTradeLockerCode(
     `  ${i+1}. ${tf.timeframe}: ${tf.analysis.direction} (${tf.analysis.confidence || 'N/A'}% confidence)`
   ).join('\n');
 
+  const decimalPlaces = getDecimalPlacesForSymbol(symbol);
+
   const code = `/**
  * TradeLocker Automated Trading Strategy
  * Generated by VEDD Chart Analysis Tool - https://vedd.io
  * 
  * Strategy: ${eaName}
  * Symbol: ${symbol}
+ * Decimal Places: ${decimalPlaces} (Auto-detected)
  * Direction: ${consensusDirection} (${consensusConfidence.toFixed(0)}% confidence)
  * Valid Until: ${validityDateStr}
  * 
@@ -1645,10 +1736,18 @@ const ACCOUNT_ID = 'YOUR_ACCOUNT_ID';
 const API_URL = 'https://api.tradelocker.com/v1';
 const SYMBOL = '${symbol}';
 const STRATEGY_NAME = '${eaName}';
+const DECIMAL_PLACES = ${decimalPlaces};  // Auto-detected decimal precision
+
+// Helper function to round prices to correct decimal places
+function roundPrice(price, decimals = DECIMAL_PLACES) {
+  const multiplier = Math.pow(10, decimals);
+  return Math.round(price * multiplier) / multiplier;
+}
 
 // ===== CONFIGURATION =====
 const config = {
   symbol: SYMBOL,
+  decimalPlaces: DECIMAL_PLACES,
   direction: '${consensusDirection}',
   confidence: ${consensusConfidence.toFixed(0)},
   lotSize: 0.01,
