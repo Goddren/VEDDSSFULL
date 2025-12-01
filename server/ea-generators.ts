@@ -56,6 +56,11 @@ interface EAConfig {
   pyramidingRatio?: number;
   volumeThreshold?: number;
   tradingDays?: Record<string, boolean>;
+  useBreakoutEntry?: boolean;
+  breakoutTimeframe?: string;
+  breakoutStartHour?: number;
+  breakoutStartMinute?: number;
+  oneTradePerDay?: boolean;
   // Spread strategy options
   spreadType?: 'convergence' | 'divergence' | 'momentum' | 'correlation';
   baseSymbol?: string;
