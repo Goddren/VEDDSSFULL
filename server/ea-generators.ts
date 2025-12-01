@@ -912,7 +912,8 @@ ${higherTFs.map(tf => `   bool tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_
 
 //+------------------------------------------------------------------+
 //| Check bullish condition on current timeframe                     |
-//| TRUST AI ANALYSIS: Use AI direction with light technical check   |
+//| STRENGTH-BASED ENTRY: Adjusts requirements based on timeframe    |
+//| confidence level (high=light check, low=strict check)            |
 //+------------------------------------------------------------------+
 bool CheckBullishCondition()
 {
@@ -924,40 +925,104 @@ bool CheckBullishCondition()
    
    if(!ai_suggests_buy) return false;  // Only trade if AI says BUY
    
-   // Light technical confirmation - not strict requirements
-   bool rsi_ok_to_buy = true;  // Always allow
-   if(rsi_ok)
-   {
-      // RSI check: allow if not extremely overbought (< 80)
-      rsi_ok_to_buy = (rsi_buffer[0] < 80);
-   }
+   // STRENGTH-BASED ENTRY REQUIREMENTS
+   int confidence = current_ai_confidence;
    
-   // TRUST AI: If AI says BUY and RSI is reasonable, open trade
-   return rsi_ok_to_buy;
+   if(confidence >= 80)
+   {
+      // HIGH CONFIDENCE (80%+): Light confirmation needed
+      // RSI just needs to not be extremely overbought
+      if(rsi_ok)
+         return (rsi_buffer[0] < 80);
+      return true;
+   }
+   else if(confidence >= 50)
+   {
+      // MEDIUM CONFIDENCE (50-79%): Standard confirmation required
+      // RSI should be neutral-to-bullish AND MACD should be bullish
+      bool rsi_check = true;
+      if(rsi_ok)
+         rsi_check = (rsi_buffer[0] < 75);  // Stricter RSI: < 75
+      
+      bool macd_check = true;
+      if(macd_ok)
+         macd_check = (macd_main[0] > macd_signal[0]);  // MACD must be bullish
+      
+      return rsi_check && macd_check;
+   }
+   else
+   {
+      // LOW CONFIDENCE (<50%): Strict confirmation ALL required
+      // RSI oversold (opportunity), MACD bullish crossover, volume confirmation
+      bool rsi_check = true;
+      if(rsi_ok)
+         rsi_check = (rsi_buffer[0] < 50);  // Very strict RSI: < 50
+      
+      bool macd_check = true;
+      if(macd_ok)
+         macd_check = (macd_main[0] > macd_signal[0]);  // MACD must be bullish
+      
+      bool volume_check = CheckVolumeConfirmation();  // Volume must confirm
+      
+      return rsi_check && macd_check && volume_check;
+   }
 }
 
 //+------------------------------------------------------------------+
 //| Check bearish condition on current timeframe                     |
-//| TRUST AI ANALYSIS: Use AI direction with light technical check   |
+//| STRENGTH-BASED ENTRY: Adjusts requirements based on timeframe    |
+//| confidence level (high=light check, low=strict check)            |
 //+------------------------------------------------------------------+
 bool CheckBearishCondition()
 {
    //--- AI RECOMMENDATION: ${consensusDirection === 'SELL' ? 'BEARISH OK' : consensusDirection === 'BUY' ? 'BULLISH' : 'NEUTRAL'}
+   //--- Confidence Level: Uses strength-based entry requirements
    
    bool ai_suggests_sell = ${consensusDirection === 'SELL' ? 'true' : 'false'};  // Based on chart pattern analysis
    
    if(!ai_suggests_sell) return false;  // Only trade if AI says SELL
    
-   // Light technical confirmation - not strict requirements
-   bool rsi_ok_to_sell = true;  // Always allow
-   if(rsi_ok)
-   {
-      // RSI check: allow if not extremely oversold (> 20)
-      rsi_ok_to_sell = (rsi_buffer[0] > 20);
-   }
+   // STRENGTH-BASED ENTRY REQUIREMENTS
+   int confidence = current_ai_confidence;
    
-   // TRUST AI: If AI says SELL and RSI is reasonable, open trade
-   return rsi_ok_to_sell;
+   if(confidence >= 80)
+   {
+      // HIGH CONFIDENCE (80%+): Light confirmation needed
+      // RSI just needs to not be extremely oversold
+      if(rsi_ok)
+         return (rsi_buffer[0] > 20);
+      return true;
+   }
+   else if(confidence >= 50)
+   {
+      // MEDIUM CONFIDENCE (50-79%): Standard confirmation required
+      // RSI should be neutral-to-bearish AND MACD should be bearish
+      bool rsi_check = true;
+      if(rsi_ok)
+         rsi_check = (rsi_buffer[0] > 25);  // Stricter RSI: > 25
+      
+      bool macd_check = true;
+      if(macd_ok)
+         macd_check = (macd_main[0] < macd_signal[0]);  // MACD must be bearish
+      
+      return rsi_check && macd_check;
+   }
+   else
+   {
+      // LOW CONFIDENCE (<50%): Strict confirmation ALL required
+      // RSI overbought (opportunity), MACD bearish crossover, volume confirmation
+      bool rsi_check = true;
+      if(rsi_ok)
+         rsi_check = (rsi_buffer[0] > 50);  // Very strict RSI: > 50
+      
+      bool macd_check = true;
+      if(macd_ok)
+         macd_check = (macd_main[0] < macd_signal[0]);  // MACD must be bearish
+      
+      bool volume_check = CheckVolumeConfirmation();  // Volume must confirm
+      
+      return rsi_check && macd_check && volume_check;
+   }
 }
 
 //+------------------------------------------------------------------+
