@@ -92,6 +92,11 @@ export function generateMT5EACode(
   const tradingDays = config?.tradingDays || {
     Monday: true, Tuesday: true, Wednesday: true, Thursday: true, Friday: true, Saturday: true, Sunday: true
   };
+  const useBreakoutEntry = config?.useBreakoutEntry || false;
+  const breakoutTimeframe = config?.breakoutTimeframe || 'M5';
+  const breakoutStartHour = config?.breakoutStartHour || 0;
+  const breakoutStartMinute = config?.breakoutStartMinute || 0;
+  const oneTradePerDay = config?.oneTradePerDay || false;
   
   // Calculate validity date
   const chartDateObj = new Date(chartDate);
@@ -1557,6 +1562,11 @@ export function generateTradingViewCode(
   const tradingDays = config?.tradingDays || {
     Monday: true, Tuesday: true, Wednesday: true, Thursday: true, Friday: true, Saturday: true, Sunday: true
   };
+  const useBreakoutEntry = config?.useBreakoutEntry || false;
+  const breakoutTimeframe = config?.breakoutTimeframe || 'M5';
+  const breakoutStartHour = config?.breakoutStartHour || 0;
+  const breakoutStartMinute = config?.breakoutStartMinute || 0;
+  const oneTradePerDay = config?.oneTradePerDay || false;
   
   // Calculate validity date
   const chartDateObj = new Date(chartDate);
