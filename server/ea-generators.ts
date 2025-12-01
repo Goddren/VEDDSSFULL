@@ -355,6 +355,13 @@ input int MinTimeframesAgree = ${Math.max(1, Math.floor(sortedTimeframes.length 
 input int MaxOpenTrades = ${maxSimultaneousTrades};                    // Maximum concurrent trades
 input int MagicNumber = ${Math.floor(Math.random() * 90000) + 10000};                     // Unique identifier for this EA
 
+//--- Breakout Entry Strategy
+input group "=== Breakout Entry Strategy (5-Minute Candle) ==="
+input bool UseBreakoutEntry = false;            // Enable breakout entry on 5-min candle high/low
+input double BreakoutBuffer = 0;                // Buffer pips above high/below low (0 = at exact level, positive = above/below)
+input int BreakoutConfirmationBars = 2;         // Number of confirmed bars to validate breakout
+input bool RequireBreakoutVolume = true;        // Require volume confirmation on breakout
+
 //--- Trading Hours (Peak Volume Times) - OPTIONAL
 input group "=== Trading Hours (Peak Volume) - OPTIONAL ==="
 input bool UseTradeHours = false;               // Enable to only trade during peak hours (disabled by default)
