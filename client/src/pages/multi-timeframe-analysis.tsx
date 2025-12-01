@@ -313,7 +313,12 @@ export default function MultiTimeframeAnalysis() {
         maxSimultaneousTrades,
         pyramidingRatio,
         volumeThreshold,
-        tradingDays
+        tradingDays,
+        useBreakoutEntry,
+        breakoutTimeframe,
+        breakoutStartHour,
+        breakoutStartMinute,
+        oneTradePerDay
       }).then(res => res.json());
 
       return response;
@@ -602,6 +607,94 @@ export default function MultiTimeframeAnalysis() {
                       data-testid="input-pyramiding-ratio"
                     />
                     <p className="text-xs text-muted-foreground">Lot multiplier for additional positions</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="border-t pt-4 mt-4">
+              <h3 className="font-semibold mb-3">Breakout Entry Strategy</h3>
+              <div className="space-y-4">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={useBreakoutEntry}
+                    onChange={(e) => setUseBreakoutEntry(e.target.checked)}
+                    className="rounded"
+                    data-testid="checkbox-use-breakout"
+                  />
+                  <span className="text-sm font-medium">Enable Breakout Entry Strategy</span>
+                </label>
+                
+                {useBreakoutEntry && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pl-6 border-l-2 border-blue-300 dark:border-blue-600">
+                    <div className="space-y-2">
+                      <Label htmlFor="breakout-timeframe">Breakout Timeframe</Label>
+                      <Select value={breakoutTimeframe} onValueChange={setBreakoutTimeframe}>
+                        <SelectTrigger id="breakout-timeframe" data-testid="select-breakout-timeframe">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="M1">1 Minute</SelectItem>
+                          <SelectItem value="M5">5 Minutes</SelectItem>
+                          <SelectItem value="M15">15 Minutes</SelectItem>
+                          <SelectItem value="M30">30 Minutes</SelectItem>
+                          <SelectItem value="H1">1 Hour</SelectItem>
+                          <SelectItem value="H4">4 Hours</SelectItem>
+                          <SelectItem value="D1">Daily</SelectItem>
+                          <SelectItem value="W1">Weekly</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">Timeframe for detecting breakout levels</p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label className="block">Start Time (HH:MM)</Label>
+                      <div className="flex gap-2">
+                        <div className="flex-1">
+                          <Input
+                            id="breakout-hour"
+                            type="number"
+                            value={breakoutStartHour}
+                            onChange={(e) => setBreakoutStartHour(Math.min(23, Math.max(0, parseInt(e.target.value) || 0)))}
+                            min={0}
+                            max={23}
+                            placeholder="Hour"
+                            data-testid="input-breakout-hour"
+                            className="text-center"
+                          />
+                        </div>
+                        <span className="flex items-center">:</span>
+                        <div className="flex-1">
+                          <Input
+                            id="breakout-minute"
+                            type="number"
+                            value={String(breakoutStartMinute).padStart(2, '0')}
+                            onChange={(e) => setBreakoutStartMinute(Math.min(59, Math.max(0, parseInt(e.target.value) || 0)))}
+                            min={0}
+                            max={59}
+                            placeholder="Min"
+                            data-testid="input-breakout-minute"
+                            className="text-center"
+                          />
+                        </div>
+                      </div>
+                      <p className="text-xs text-muted-foreground">Only place breakout trades after this time (24-hour format)</p>
+                    </div>
+
+                    <div className="space-y-2 md:col-span-2">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={oneTradePerDay}
+                          onChange={(e) => setOneTradePerDay(e.target.checked)}
+                          className="rounded"
+                          data-testid="checkbox-one-trade-per-day"
+                        />
+                        <span className="text-sm font-medium">Limit to 1 Trade Per Day</span>
+                      </label>
+                      <p className="text-xs text-muted-foreground">EA will only open 1 trade per calendar day (resets at 00:00)</p>
+                    </div>
                   </div>
                 )}
               </div>

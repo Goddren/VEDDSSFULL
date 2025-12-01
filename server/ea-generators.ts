@@ -361,8 +361,12 @@ input int MaxOpenTrades = ${maxSimultaneousTrades};                    // Maximu
 input int MagicNumber = ${Math.floor(Math.random() * 90000) + 10000};                     // Unique identifier for this EA
 
 //--- Breakout Entry Strategy
-input group "=== Breakout Entry Strategy (5-Minute Candle) ==="
-input bool UseBreakoutEntry = false;            // Enable breakout entry on 5-min candle high/low
+input group "=== Breakout Entry Strategy ==="
+input bool UseBreakoutEntry = ${useBreakoutEntry ? 'true' : 'false'};            // Enable breakout entry on custom timeframe
+input string BreakoutTimeframe = "${breakoutTimeframe}";  // Timeframe for breakout detection (M1, M5, M15, M30, H1, H4, D1)
+input int BreakoutStartHour = ${breakoutStartHour};       // Hour to start placing breakout trades (24-hour format)
+input int BreakoutStartMinute = ${breakoutStartMinute};   // Minute to start placing breakout trades
+input bool OneTradePerDay = ${oneTradePerDay ? 'true' : 'false'};  // Only allow 1 trade per day
 input double BreakoutBuffer = 0;                // Buffer pips above high/below low (0 = at exact level, positive = above/below)
 input int BreakoutConfirmationBars = 2;         // Number of confirmed bars to validate breakout
 input bool RequireBreakoutVolume = true;        // Require volume confirmation on breakout
@@ -420,6 +424,8 @@ int current_ai_confidence = ${Math.round(consensusConfidence)};  // Current conf
 bool trading_paused = false;  // Trading pause status
 bool rsi_ok = false, macd_ok = false, atr_ok = false;  // Indicator status flags
 bool first_trade_placed = false;  // Track if first trade has been placed
+datetime last_trade_day = 0;  // Track last trade day for one-trade-per-day limit
+int daily_trade_count = 0;  // Count trades opened today
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
@@ -823,7 +829,7 @@ ${higherTFs.map(tf => `   bool tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_
    }
    
    //--- Execute trades based on multi-trade strategy
-   if(buy_signal && AllowBuyTrades && IsTradingDayAllowed() && CheckVolumeThreshold())
+   if(buy_signal && AllowBuyTrades && IsTradingDayAllowed() && CheckVolumeThreshold() && CheckStartTimeAllowed() && CheckDailyTradeLimit())
    {
       bool can_open = false;
       double lot_size = LotSize;
@@ -868,7 +874,7 @@ ${higherTFs.map(tf => `   bool tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_
          OpenBuyPosition(sl, tp, lot_size);
       }
    }
-   else if(sell_signal && AllowSellTrades && IsTradingDayAllowed() && CheckVolumeThreshold())
+   else if(sell_signal && AllowSellTrades && IsTradingDayAllowed() && CheckVolumeThreshold() && CheckStartTimeAllowed() && CheckDailyTradeLimit())
    {
       bool can_open = false;
       double lot_size = LotSize;
@@ -1411,6 +1417,15 @@ void OpenBuyPosition(double sl, double tp, double lot_size = 0)
    {
       Print("Buy order opened successfully at ", price, " with lot size: ", lot_size);
       last_buy_price = price;  // Track for grid/pyramiding
+      
+      // Track for one-trade-per-day limit
+      datetime current_time = TimeCurrent();
+      if(last_trade_day != current_time / 86400)
+      {
+         daily_trade_count = 0;
+         last_trade_day = current_time / 86400;
+      }
+      daily_trade_count++;
    }
    else
       Print("Error opening buy order: ", GetLastError());
@@ -1442,11 +1457,60 @@ void OpenSellPosition(double sl, double tp, double lot_size = 0)
    
    if(OrderSend(request, result))
    {
+      // Track for one-trade-per-day limit
+      datetime current_time = TimeCurrent();
+      if(last_trade_day != current_time / 86400)
+      {
+         daily_trade_count = 0;
+         last_trade_day = current_time / 86400;
+      }
+      daily_trade_count++;
       Print("Sell order opened successfully at ", price, " with lot size: ", lot_size);
       last_sell_price = price;  // Track for grid/pyramiding
    }
    else
       Print("Error opening sell order: ", GetLastError());
+}
+
+//+------------------------------------------------------------------+
+//| Check if start time allowed for breakout trades                  |
+//+------------------------------------------------------------------+
+bool CheckStartTimeAllowed()
+{
+   if(!UseBreakoutEntry)
+      return true;  // No time restriction if breakout disabled
+      
+   datetime current_time = TimeCurrent();
+   MqlDateTime time_struct;
+   TimeToStruct(current_time, time_struct);
+   
+   int current_hour = time_struct.hour;
+   int current_minute = time_struct.min;
+   int start_minutes = BreakoutStartHour * 60 + BreakoutStartMinute;
+   int current_minutes = current_hour * 60 + current_minute;
+   
+   return current_minutes >= start_minutes;
+}
+
+//+------------------------------------------------------------------+
+//| Check daily trade limit                                          |
+//+------------------------------------------------------------------+
+bool CheckDailyTradeLimit()
+{
+   if(!OneTradePerDay)
+      return true;  // No limit if disabled
+      
+   // Reset counter if new day
+   datetime current_time = TimeCurrent();
+   int current_day = current_time / 86400;
+   
+   if(last_trade_day != current_day)
+   {
+      daily_trade_count = 0;
+      last_trade_day = current_day;
+   }
+   
+   return daily_trade_count < 1;
 }
 
 //+------------------------------------------------------------------+
