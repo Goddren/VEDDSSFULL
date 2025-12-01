@@ -140,6 +140,11 @@ export default function MultiTimeframeAnalysis() {
   const [useBulkUpload, setUseBulkUpload] = useState(false);
   const [detectingCharts, setDetectingCharts] = useState(false);
   const [detectedCharts, setDetectedCharts] = useState<any[]>([]);
+  const [useBreakoutEntry, setUseBreakoutEntry] = useState(false);
+  const [breakoutTimeframe, setBreakoutTimeframe] = useState('M5');
+  const [breakoutStartHour, setBreakoutStartHour] = useState(0);
+  const [breakoutStartMinute, setBreakoutStartMinute] = useState(0);
+  const [oneTradePerDay, setOneTradePerDay] = useState(false);
   const [tradingDays, setTradingDays] = useState<Record<string, boolean>>({
     Monday: true,
     Tuesday: true,
