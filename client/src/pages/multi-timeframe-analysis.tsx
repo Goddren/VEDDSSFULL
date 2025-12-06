@@ -777,10 +777,16 @@ export default function MultiTimeframeAnalysis() {
             {/* Manual Timeframe Selection Mode */}
             {!useBulkUpload && (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                {TIMEFRAMES.map((tf) => {
+                {TIMEFRAMES.map((tf, index) => {
                   const upload = timeframeUploads[tf.value];
                   return (
-                    <Card key={tf.value} className="relative">
+                    <motion.div
+                      key={tf.value}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.3, delay: index * 0.05 }}
+                    >
+                      <Card className="relative">
                       <CardHeader className="pb-3">
                         <div className="flex items-center justify-between">
                           <CardTitle className="text-sm">{tf.label}</CardTitle>
@@ -837,6 +843,7 @@ export default function MultiTimeframeAnalysis() {
                         )}
                       </CardContent>
                     </Card>
+                    </motion.div>
                   );
                 })}
               </div>
@@ -1001,12 +1008,17 @@ export default function MultiTimeframeAnalysis() {
         </motion.div>
 
         {uploadedCount >= 2 && !unifiedSignal && (
-          <Card className="border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-blue-900 dark:text-blue-100">
-                <Zap className="w-5 h-5" />
-                Unified Trade Signal
-              </CardTitle>
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.4 }}
+          >
+            <Card className="border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-blue-900 dark:text-blue-100">
+                  <Zap className="w-5 h-5" />
+                  Unified Trade Signal
+                </CardTitle>
               <CardDescription className="text-blue-800 dark:text-blue-200">
                 Synthesize all chart analyses into one trading recommendation
               </CardDescription>
@@ -1021,10 +1033,16 @@ export default function MultiTimeframeAnalysis() {
               </Button>
             </CardContent>
           </Card>
+          </motion.div>
         )}
 
         {unifiedSignal && (
-          <Card className="border-primary/30 dark:border-primary/40 bg-primary/5 dark:bg-primary/10 overflow-hidden">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.5, type: "spring", stiffness: 100 }}
+          >
+            <Card className="border-primary/30 dark:border-primary/40 bg-primary/5 dark:bg-primary/10 overflow-hidden">
             <CardHeader className="bg-primary/20 dark:bg-primary/30 pb-3">
               <CardTitle className="flex items-center gap-2 text-primary text-2xl">
                 <Check className="w-6 h-6" />
@@ -1105,15 +1123,21 @@ export default function MultiTimeframeAnalysis() {
               </Button>
             </CardContent>
           </Card>
+          </motion.div>
         )}
 
         {bestChart && (
-          <Card className="border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950 overflow-hidden">
-            <CardHeader className="bg-amber-100 dark:bg-amber-900 pb-3">
-              <CardTitle className="flex items-center gap-2 text-amber-900 dark:text-amber-100 text-2xl">
-                <Sparkles className="w-6 h-6" />
-                Perfect Entry Point Found
-              </CardTitle>
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.2 }}
+          >
+            <Card className="border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950 overflow-hidden">
+              <CardHeader className="bg-amber-100 dark:bg-amber-900 pb-3">
+                <CardTitle className="flex items-center gap-2 text-amber-900 dark:text-amber-100 text-2xl">
+                  <Sparkles className="w-6 h-6" />
+                  Perfect Entry Point Found
+                </CardTitle>
               <CardDescription className="text-amber-700 dark:text-amber-300 mt-1">
                 AI recommends this timeframe for the best EA entry
               </CardDescription>
@@ -1176,10 +1200,16 @@ export default function MultiTimeframeAnalysis() {
               </div>
             </CardContent>
           </Card>
+          </motion.div>
         )}
 
         {canGenerateCode && (
-          <Card>
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.3 }}
+          >
+            <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Code className="w-5 h-5" />
@@ -1359,6 +1389,7 @@ export default function MultiTimeframeAnalysis() {
               )}
             </CardContent>
           </Card>
+          </motion.div>
         )}
       </div>
     </div>
