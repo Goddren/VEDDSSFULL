@@ -375,3 +375,46 @@ export type SavedEA = typeof savedEAs.$inferSelect;
 export type InsertSavedEA = z.infer<typeof insertSavedEASchema>;
 export type EASubscription = typeof eaSubscriptions.$inferSelect;
 export type InsertEASubscription = z.infer<typeof insertEASubscriptionSchema>;
+
+// Market Data Snapshots for Live AI Refresh
+export const marketDataSnapshots = pgTable("market_data_snapshots", {
+  id: serial("id").primaryKey(),
+  symbol: text("symbol").notNull(),
+  assetType: text("asset_type").notNull(), // 'forex', 'stock', 'crypto', 'index'
+  timeframe: text("timeframe").notNull(), // '1m', '5m', '15m', '1h', '4h', '1d'
+  provider: text("provider").notNull(),
+  data: jsonb("data").notNull(), // OHLCV bars array
+  hash: text("hash").notNull(), // Hash for change detection
+  capturedAt: timestamp("captured_at").defaultNow().notNull(),
+});
+
+export const insertMarketDataSnapshotSchema = createInsertSchema(marketDataSnapshots).omit({
+  id: true,
+  capturedAt: true,
+});
+
+export type MarketDataSnapshot = typeof marketDataSnapshots.$inferSelect;
+export type InsertMarketDataSnapshot = z.infer<typeof insertMarketDataSnapshotSchema>;
+
+// Market Data Refresh Jobs for tracking EA refresh history
+export const marketDataRefreshJobs = pgTable("market_data_refresh_jobs", {
+  id: serial("id").primaryKey(),
+  eaId: integer("ea_id").references(() => savedEAs.id).notNull(),
+  status: text("status").notNull().default('pending'), // 'pending', 'processing', 'completed', 'failed'
+  triggeredBy: text("triggered_by").notNull(), // 'manual', 'scheduled', 'pattern_change'
+  changeSummary: jsonb("change_summary"), // Pattern change details
+  newDirection: text("new_direction"),
+  newConfidence: text("new_confidence"),
+  error: text("error"),
+  triggeredAt: timestamp("triggered_at").defaultNow().notNull(),
+  completedAt: timestamp("completed_at"),
+});
+
+export const insertMarketDataRefreshJobSchema = createInsertSchema(marketDataRefreshJobs).omit({
+  id: true,
+  triggeredAt: true,
+  completedAt: true,
+});
+
+export type MarketDataRefreshJob = typeof marketDataRefreshJobs.$inferSelect;
+export type InsertMarketDataRefreshJob = z.infer<typeof insertMarketDataRefreshJobSchema>;
