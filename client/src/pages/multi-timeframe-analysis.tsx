@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { motion } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -384,23 +385,32 @@ export default function MultiTimeframeAnalysis() {
   return (
     <div className="container mx-auto py-8 px-4">
       <div className="max-w-6xl mx-auto space-y-6">
-        <div>
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5 }}
+        >
           <h1 className="text-3xl font-bold mb-2" data-testid="title-multi-timeframe">Multi-Timeframe Analysis</h1>
           <p className="text-muted-foreground" data-testid="text-description">
             Upload charts from multiple timeframes to generate MT5 or TradingView EA code for automated trading
           </p>
-        </div>
+        </motion.div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Settings className="w-5 h-5" />
-              EA Configuration
-            </CardTitle>
-            <CardDescription>
-              Customize your Expert Advisor based on your trading style
-            </CardDescription>
-          </CardHeader>
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.1 }}
+        >
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Settings className="w-5 h-5" />
+                EA Configuration
+              </CardTitle>
+              <CardDescription>
+                Customize your Expert Advisor based on your trading style
+              </CardDescription>
+            </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
@@ -701,11 +711,17 @@ export default function MultiTimeframeAnalysis() {
             </div>
           </CardContent>
         </Card>
+        </motion.div>
 
         {symbol && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Analyzing: {symbol}</CardTitle>
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.2 }}
+          >
+            <Card>
+              <CardHeader>
+                <CardTitle>Analyzing: {symbol}</CardTitle>
               <CardDescription>
                 {uploadedCount} of {TIMEFRAMES.length} timeframes uploaded
                 {isAnyUploading && (
@@ -714,16 +730,22 @@ export default function MultiTimeframeAnalysis() {
                   </div>
                 )}
               </CardDescription>
-            </CardHeader>
-          </Card>
+              </CardHeader>
+            </Card>
+          </motion.div>
         )}
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Clock className="w-5 h-5" />
-              Upload Charts
-            </CardTitle>
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.3 }}
+        >
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Clock className="w-5 h-5" />
+                Upload Charts
+              </CardTitle>
             <CardDescription>
               Choose how to upload your charts
             </CardDescription>
@@ -976,6 +998,7 @@ export default function MultiTimeframeAnalysis() {
             )}
           </CardContent>
         </Card>
+        </motion.div>
 
         {uploadedCount >= 2 && !unifiedSignal && (
           <Card className="border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950">
