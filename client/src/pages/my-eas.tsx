@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
-import { Copy, Share2, Trash2, Download, Eye, Settings, EyeOff } from 'lucide-react';
+import { Copy, Share2, Trash2, Download, Eye, Settings, EyeOff, RefreshCw } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -61,6 +61,32 @@ export default function MyEAsPage() {
     },
     onError: (error: Error) => {
       toast({ title: 'Failed to unshare EA', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const refreshEAMutation = useMutation({
+    mutationFn: async (eaId: number) =>
+      apiRequest('POST', `/api/eas/${eaId}/refresh`).then(r => r.json()),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/my-eas'] });
+      if (data.patternChange?.hasSignificantChange) {
+        toast({ 
+          title: 'Market change detected!',
+          description: data.message
+        });
+      } else {
+        toast({ 
+          title: 'Refresh complete',
+          description: 'No significant pattern changes detected'
+        });
+      }
+    },
+    onError: (error: Error) => {
+      toast({ 
+        title: 'Refresh failed', 
+        description: error.message,
+        variant: 'destructive' 
+      });
     },
   });
 
@@ -191,6 +217,18 @@ export default function MyEAsPage() {
                     >
                       <Download className="w-4 h-4 mr-1" />
                       Download
+                    </Button>
+
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => refreshEAMutation.mutate(ea.id)}
+                      disabled={refreshEAMutation.isPending}
+                      data-testid={`button-refresh-ea-${ea.id}`}
+                      title="Check for market pattern changes"
+                    >
+                      <RefreshCw className={`w-4 h-4 mr-1 ${refreshEAMutation.isPending ? 'animate-spin' : ''}`} />
+                      {refreshEAMutation.isPending ? 'Checking...' : 'Refresh'}
                     </Button>
 
                     {!ea.isShared ? (

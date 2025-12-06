@@ -4,6 +4,7 @@ import { setupVite, serveStatic, log } from "./vite";
 import path from "path";
 import { setupAuth } from "./auth";
 import { seedAchievements, seedSubscriptionPlans } from "./seed";
+import { initializeMarketDataService } from "./market-data";
 
 const app = express();
 // Increase the JSON payload limit to handle larger images (10MB)
@@ -50,6 +51,9 @@ app.use((req, res, next) => {
   // Seed initial data
   await seedSubscriptionPlans();
   await seedAchievements();
+  
+  // Initialize market data service for Live AI Refresh
+  initializeMarketDataService();
   
   const server = await registerRoutes(app);
 

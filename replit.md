@@ -215,6 +215,43 @@ Users can now save, manage, and monetize their Expert Advisors through a creator
   5. Built "EA Marketplace" (/ea-marketplace) with discovery, search, and subscription features
   6. Implemented creator dashboard to track subscribers and passive income earnings
   7. Added unique constraint on eaSubscriptions to prevent duplicate subscriptions
+- December 06, 2025. Added EA unshare functionality - users can now remove their EAs from the marketplace
+- December 06, 2025. Implemented Market Data Service for Live AI Refresh:
+  1. Created provider-agnostic market data architecture (server/market-data/)
+  2. Implemented Twelve Data provider adapter supporting forex, stocks, crypto, and indices
+  3. Added caching with timeframe-based TTL and rate limiting for API requests
+  4. Built pattern change detector (volatility delta, ATR changes, trend reversals)
+  5. Created database tables for market_data_snapshots and market_data_refresh_jobs
+  6. Added API endpoints: GET /api/market-data/status, POST /api/market-data/fetch, POST /api/eas/:id/refresh, GET /api/eas/:id/refresh-history
+  7. Added "Refresh" button to My EAs page for checking market pattern changes
+  8. Requires TWELVE_DATA_API_KEY secret for live data (free tier: 8 requests/minute, supports forex/stocks/crypto)
+
+## Market Data Service
+
+### Overview
+The Market Data Service enables Live AI Refresh by fetching real-time market data and detecting pattern changes to trigger EA re-analysis.
+
+### Supported Data Providers
+- **Twelve Data** (Primary): Forex, stocks, crypto, indices
+  - Free tier: 8 requests/minute, 800 requests/day
+  - Paid tiers available for higher limits
+
+### Configuration
+Add the following secret to enable the service:
+- `TWELVE_DATA_API_KEY`: Your Twelve Data API key (get free at twelvedata.com)
+
+### Features
+- **Multi-asset support**: Forex pairs, US stocks, cryptocurrencies, indices
+- **Intelligent caching**: TTL based on timeframe (1m = 30s, 1h = 15min, 1d = 1hr)
+- **Rate limiting**: Automatic request throttling per provider
+- **Pattern change detection**: Monitors volatility, ATR, price movement, and trend reversals
+- **Refresh history**: Tracks all refresh attempts with results
+
+### API Endpoints
+- `GET /api/market-data/status` - Check if service is initialized
+- `POST /api/market-data/fetch` - Fetch OHLCV data for a symbol
+- `POST /api/eas/:id/refresh` - Trigger market data refresh for an EA
+- `GET /api/eas/:id/refresh-history` - Get refresh history for an EA
 
 ## User Preferences
 
