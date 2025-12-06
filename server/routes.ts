@@ -2336,6 +2336,21 @@ Return ONLY a JSON object with this structure:
     }
   });
 
+  app.post("/api/unshare-ea/:id", async (req: Request, res: Response) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+      
+      const ea = await storage.getSavedEA(parseInt(req.params.id));
+      if (!ea) return res.status(404).json({ error: "EA not found" });
+      if (ea.userId !== (req.user as User).id) return res.status(403).json({ error: "Forbidden" });
+      
+      const unshared = await storage.unshareEA(parseInt(req.params.id));
+      res.json({ success: true, ea: unshared });
+    } catch (error) {
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to unshare EA" });
+    }
+  });
+
   app.get("/api/ea-marketplace", async (req: Request, res: Response) => {
     try {
       const limit = req.query.limit ? parseInt(req.query.limit as string) : 20;

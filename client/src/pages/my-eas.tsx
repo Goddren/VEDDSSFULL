@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
-import { Copy, Share2, Trash2, Download, Eye, Settings } from 'lucide-react';
+import { Copy, Share2, Trash2, Download, Eye, Settings, EyeOff } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -48,6 +48,19 @@ export default function MyEAsPage() {
     },
     onError: (error: Error) => {
       toast({ title: 'Failed to share EA', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const unshareEAMutation = useMutation({
+    mutationFn: async (eaId: number) =>
+      apiRequest('POST', `/api/unshare-ea/${eaId}`).then(r => r.json()),
+    onSuccess: () => {
+      toast({ title: 'EA removed from marketplace' });
+      queryClient.invalidateQueries({ queryKey: ['/api/my-eas'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/ea-marketplace'] });
+    },
+    onError: (error: Error) => {
+      toast({ title: 'Failed to unshare EA', description: error.message, variant: 'destructive' });
     },
   });
 
@@ -180,13 +193,14 @@ export default function MyEAsPage() {
                       Download
                     </Button>
 
-                    {!ea.isShared && (
+                    {!ea.isShared ? (
                       <Dialog>
                         <DialogTrigger asChild>
                           <Button
                             size="sm"
                             variant="outline"
                             onClick={() => setSelectedEAId(ea.id)}
+                            data-testid={`button-share-ea-${ea.id}`}
                           >
                             <Share2 className="w-4 h-4 mr-1" />
                             Share
@@ -223,6 +237,21 @@ export default function MyEAsPage() {
                           </div>
                         </DialogContent>
                       </Dialog>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          if (confirm('Remove this EA from the marketplace? Existing subscribers will lose access.')) {
+                            unshareEAMutation.mutate(ea.id);
+                          }
+                        }}
+                        disabled={unshareEAMutation.isPending}
+                        data-testid={`button-unshare-ea-${ea.id}`}
+                      >
+                        <EyeOff className="w-4 h-4 mr-1" />
+                        {unshareEAMutation.isPending ? 'Removing...' : 'Unshare'}
+                      </Button>
                     )}
 
                     <Button

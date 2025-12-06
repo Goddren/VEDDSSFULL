@@ -96,6 +96,7 @@ export interface IStorage {
   updateSavedEA(id: number, data: Partial<SavedEA>): Promise<SavedEA | undefined>;
   deleteSavedEA(id: number): Promise<boolean>;
   shareEA(eaId: number, price: number): Promise<SavedEA | undefined>;
+  unshareEA(eaId: number): Promise<SavedEA | undefined>;
   getSharedEAs(limit?: number): Promise<SavedEA[]>;
   
   // EA Subscription methods
@@ -743,6 +744,17 @@ export class DatabaseStorage implements IStorage {
       .set({
         isShared: true,
         price
+      })
+      .where(eq(savedEAs.id, eaId))
+      .returning();
+    return ea;
+  }
+
+  async unshareEA(eaId: number): Promise<SavedEA | undefined> {
+    const [ea] = await db
+      .update(savedEAs)
+      .set({
+        isShared: false
       })
       .where(eq(savedEAs.id, eaId))
       .returning();
