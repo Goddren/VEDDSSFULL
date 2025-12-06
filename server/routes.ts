@@ -2441,6 +2441,169 @@ Return ONLY a JSON object with this structure:
     }
   });
 
+  // Market Data API endpoints
+  app.get("/api/market-data/status", async (req: Request, res: Response) => {
+    try {
+      const { marketDataService } = await import('./market-data');
+      res.json({
+        initialized: marketDataService.isInitialized(),
+        message: marketDataService.isInitialized() 
+          ? 'Market data service is ready' 
+          : 'No market data API key configured. Add TWELVE_DATA_API_KEY to use live market data.'
+      });
+    } catch (error) {
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to get status" });
+    }
+  });
+
+  app.post("/api/market-data/fetch", async (req: Request, res: Response) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+      
+      const { symbol, timeframe, assetType } = req.body;
+      if (!symbol || !timeframe) {
+        return res.status(400).json({ error: "Symbol and timeframe are required" });
+      }
+      
+      const { marketDataService } = await import('./market-data');
+      if (!marketDataService.isInitialized()) {
+        return res.status(503).json({ 
+          error: "Market data service not initialized. Please add TWELVE_DATA_API_KEY to secrets." 
+        });
+      }
+      
+      const detectedAssetType = assetType || marketDataService.detectAssetType(symbol);
+      
+      const result = await marketDataService.fetchMarketData({
+        symbol,
+        timeframe,
+        assetType: detectedAssetType,
+        limit: 50
+      });
+      
+      await storage.createMarketDataSnapshot({
+        symbol,
+        assetType: detectedAssetType,
+        timeframe,
+        provider: result.provider,
+        data: result.bars,
+        hash: result.hash
+      });
+      
+      res.json({
+        success: true,
+        symbol,
+        timeframe,
+        assetType: detectedAssetType,
+        provider: result.provider,
+        barsCount: result.bars.length,
+        fromCache: result.fromCache,
+        hash: result.hash
+      });
+    } catch (error) {
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to fetch market data" });
+    }
+  });
+
+  app.post("/api/eas/:id/refresh", async (req: Request, res: Response) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+      
+      const eaId = parseInt(req.params.id);
+      const ea = await storage.getSavedEA(eaId);
+      if (!ea) return res.status(404).json({ error: "EA not found" });
+      if (ea.userId !== (req.user as User).id) return res.status(403).json({ error: "Forbidden" });
+      
+      const { marketDataService, patternChangeDetector } = await import('./market-data');
+      if (!marketDataService.isInitialized()) {
+        return res.status(503).json({ 
+          error: "Market data service not initialized. Please add TWELVE_DATA_API_KEY to secrets." 
+        });
+      }
+      
+      const job = await storage.createRefreshJob({
+        eaId,
+        status: 'processing',
+        triggeredBy: 'manual'
+      });
+      
+      try {
+        const symbol = ea.symbol;
+        const assetType = marketDataService.detectAssetType(symbol);
+        const timeframe = '1h';
+        
+        const previousSnapshot = await storage.getLatestSnapshot(symbol, timeframe);
+        const previousBars = previousSnapshot?.data as any[] || [];
+        
+        const result = await marketDataService.fetchMarketData({
+          symbol,
+          timeframe,
+          assetType,
+          limit: 50
+        });
+        
+        let patternChange = null;
+        let aiReanalysisTriggered = false;
+        
+        if (previousBars.length > 0) {
+          patternChange = patternChangeDetector.compareSnapshots(previousBars, result.bars);
+          aiReanalysisTriggered = patternChange.hasSignificantChange;
+        }
+        
+        await storage.createMarketDataSnapshot({
+          symbol,
+          assetType,
+          timeframe,
+          provider: result.provider,
+          data: result.bars,
+          hash: result.hash
+        });
+        
+        await storage.updateRefreshJob(job.id, {
+          status: 'completed',
+          changeSummary: patternChange,
+          completedAt: new Date()
+        });
+        
+        res.json({
+          success: true,
+          eaId,
+          symbol,
+          patternChange,
+          aiReanalysisTriggered,
+          message: patternChange?.hasSignificantChange 
+            ? `Significant market change detected: ${patternChange.details}` 
+            : 'No significant pattern changes detected'
+        });
+      } catch (error) {
+        await storage.updateRefreshJob(job.id, {
+          status: 'failed',
+          error: error instanceof Error ? error.message : 'Unknown error',
+          completedAt: new Date()
+        });
+        throw error;
+      }
+    } catch (error) {
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to refresh EA" });
+    }
+  });
+
+  app.get("/api/eas/:id/refresh-history", async (req: Request, res: Response) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+      
+      const eaId = parseInt(req.params.id);
+      const ea = await storage.getSavedEA(eaId);
+      if (!ea) return res.status(404).json({ error: "EA not found" });
+      if (ea.userId !== (req.user as User).id) return res.status(403).json({ error: "Forbidden" });
+      
+      const jobs = await storage.getRefreshJobsByEA(eaId);
+      res.json(jobs);
+    } catch (error) {
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to get refresh history" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

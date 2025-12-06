@@ -1,12 +1,13 @@
 import { 
   users, chartAnalyses, achievements, userAchievements,
   userProfiles, follows, analysisFeedback, analysisViews, priceAlerts,
-  savedEAs, eaSubscriptions,
+  savedEAs, eaSubscriptions, marketDataSnapshots, marketDataRefreshJobs,
   type User, type InsertUser, type ChartAnalysis, type InsertChartAnalysis,
   type Achievement, type InsertAchievement, type UserAchievement, type InsertUserAchievement,
   type UserProfile, type InsertUserProfile, type Follow, type InsertFollow,
   type AnalysisFeedback, type InsertAnalysisFeedback, type AnalysisView, type PriceAlert, type InsertPriceAlert,
-  type SavedEA, type InsertSavedEA, type EASubscription, type InsertEASubscription
+  type SavedEA, type InsertSavedEA, type EASubscription, type InsertEASubscription,
+  type MarketDataSnapshot, type InsertMarketDataSnapshot, type MarketDataRefreshJob, type InsertMarketDataRefreshJob
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, sql } from "drizzle-orm";
@@ -106,6 +107,16 @@ export interface IStorage {
   getCreatorSubscribers(creatorId: number): Promise<EASubscription[]>;
   cancelEASubscription(subscriptionId: number): Promise<boolean>;
   getEASubscriptionByEAAndUser(eaId: number, userId: number): Promise<EASubscription | undefined>;
+  
+  // Market Data Snapshot methods
+  createMarketDataSnapshot(snapshot: InsertMarketDataSnapshot): Promise<MarketDataSnapshot>;
+  getMarketDataSnapshot(symbol: string, timeframe: string): Promise<MarketDataSnapshot | undefined>;
+  getLatestSnapshot(symbol: string, timeframe: string): Promise<MarketDataSnapshot | undefined>;
+  
+  // Market Data Refresh Job methods
+  createRefreshJob(job: InsertMarketDataRefreshJob): Promise<MarketDataRefreshJob>;
+  updateRefreshJob(id: number, data: Partial<MarketDataRefreshJob>): Promise<MarketDataRefreshJob | undefined>;
+  getRefreshJobsByEA(eaId: number): Promise<MarketDataRefreshJob[]>;
   
   // Session store for authentication
   sessionStore: session.Store;
@@ -831,6 +842,56 @@ export class DatabaseStorage implements IStorage {
         eq(eaSubscriptions.subscriberId, userId)
       ));
     return sub;
+  }
+
+  async createMarketDataSnapshot(snapshot: InsertMarketDataSnapshot): Promise<MarketDataSnapshot> {
+    const [created] = await db
+      .insert(marketDataSnapshots)
+      .values(snapshot)
+      .returning();
+    return created;
+  }
+
+  async getMarketDataSnapshot(symbol: string, timeframe: string): Promise<MarketDataSnapshot | undefined> {
+    const [snapshot] = await db
+      .select()
+      .from(marketDataSnapshots)
+      .where(and(
+        eq(marketDataSnapshots.symbol, symbol),
+        eq(marketDataSnapshots.timeframe, timeframe)
+      ))
+      .orderBy(sql`${marketDataSnapshots.capturedAt} DESC`)
+      .limit(1);
+    return snapshot;
+  }
+
+  async getLatestSnapshot(symbol: string, timeframe: string): Promise<MarketDataSnapshot | undefined> {
+    return this.getMarketDataSnapshot(symbol, timeframe);
+  }
+
+  async createRefreshJob(job: InsertMarketDataRefreshJob): Promise<MarketDataRefreshJob> {
+    const [created] = await db
+      .insert(marketDataRefreshJobs)
+      .values(job)
+      .returning();
+    return created;
+  }
+
+  async updateRefreshJob(id: number, data: Partial<MarketDataRefreshJob>): Promise<MarketDataRefreshJob | undefined> {
+    const [updated] = await db
+      .update(marketDataRefreshJobs)
+      .set(data)
+      .where(eq(marketDataRefreshJobs.id, id))
+      .returning();
+    return updated;
+  }
+
+  async getRefreshJobsByEA(eaId: number): Promise<MarketDataRefreshJob[]> {
+    return await db
+      .select()
+      .from(marketDataRefreshJobs)
+      .where(eq(marketDataRefreshJobs.eaId, eaId))
+      .orderBy(sql`${marketDataRefreshJobs.triggeredAt} DESC`);
   }
 }
 
