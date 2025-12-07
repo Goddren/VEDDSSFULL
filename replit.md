@@ -1,258 +1,51 @@
 # VEDD AI - Trading Chart Analysis Platform
 
 ## Overview
+VEDD AI is a comprehensive trading chart analysis platform that leverages artificial intelligence and traditional technical analysis to provide traders with actionable insights. It enables users to upload trading charts from various platforms (MT4, MT5, TradingView) for AI-powered analysis, including pattern recognition, trend analysis, and trading recommendations. The platform also features a mobile companion app, advanced EA trading strategies, an EA marketplace for monetization, and social sharing capabilities. VEDD AI aims to empower traders with intelligent tools and foster a community around shared strategies.
 
-VEDD AI is a comprehensive trading chart analysis platform that combines artificial intelligence with traditional technical analysis to provide traders with actionable insights. The platform allows users to upload trading charts from popular platforms (MT4, MT5, TradingView) and receive AI-powered analysis including pattern recognition, trend analysis, and trading recommendations.
+## User Preferences
+Preferred communication style: Simple, everyday language.
 
 ## System Architecture
 
-### Technology Stack
-- **Frontend**: React 18 with TypeScript, Tailwind CSS, Vite
-- **Backend**: Node.js with Express, TypeScript
-- **Database**: PostgreSQL with Drizzle ORM
-- **Authentication**: Passport.js with local strategy
-- **AI Integration**: OpenAI GPT-4o for chart analysis
-- **Payment Processing**: Stripe for subscription management
-- **Email Service**: SendGrid for notifications
-- **SMS Service**: Twilio for trading alerts
-- **Cloud Storage**: Neon Database for PostgreSQL hosting
+### UI/UX Decisions
+- **Frontend**: React 18 with TypeScript, Tailwind CSS, Vite.
+- **Component Library**: Custom UI components built on Radix UI primitives.
+- **Mobile Companion App**: Progressive Web App (PWA) with offline support, push notifications, and a mobile-first responsive design. Features include a touch-friendly chart viewer, quick access actions, and network status indicators.
+- **Social Share Card System**: Generates branded share cards with VEDD AI branding, EA details, multi-timeframe analysis, and daily devotional scriptures for social media promotion.
 
-### Architecture Pattern
-Full-stack monorepo with clear separation between client and server, sharing common types and schemas through a shared directory.
+### Technical Implementations
+- **Backend**: Node.js with Express, TypeScript.
+- **Database**: PostgreSQL with Drizzle ORM.
+- **Authentication**: Passport.js with local strategy (session-based).
+- **State Management**: React Query for server state, Context API for authentication.
+- **Routing**: Wouter for client-side routing.
+- **Styling**: Tailwind CSS with a custom design system.
+- **Build Tools**: Vite for frontend, ESBuild for backend.
+- **File Processing**: Multer for uploads, Canvas for server-side image processing.
+- **AI Integration**: OpenAI GPT-4o for chart analysis.
+- **EA Trading Strategy**: Hybrid AI + Technical Indicator approach, combining AI pattern analysis (baked-in) with real-time technical indicator confirmation (MACD, RSI, Volume, ATR).
+- **EA Marketplace**: Allows users to save, manage, publish, and subscribe to Expert Advisors, enabling passive income for creators.
+- **Market Data Service**: Fetches real-time market data (Forex, stocks, crypto, indices) to enable a "Live AI Refresh" feature, detecting pattern changes for EA re-analysis.
 
-## Key Components
-
-### Frontend Architecture
-- **Component Library**: Custom UI components built on Radix UI primitives
-- **State Management**: React Query for server state, Context API for authentication
-- **Routing**: Wouter for lightweight client-side routing
-- **Styling**: Tailwind CSS with custom design system
-- **Build Tool**: Vite for fast development and optimized builds
-
-### Backend Architecture
-- **API Layer**: RESTful API with Express.js
-- **Authentication**: Session-based authentication with Passport.js
-- **Database Layer**: Drizzle ORM with PostgreSQL
-- **File Processing**: Multer for file uploads, Canvas for image processing
-- **AI Integration**: OpenAI API for chart analysis and insights
-
-### Database Schema
-- **Users**: Authentication, profiles, subscription management
-- **Chart Analyses**: AI analysis results, patterns, indicators
-- **Achievements**: Gamification system with user progress tracking
-- **Subscriptions**: Stripe integration for payment processing
-- **Social Features**: Analysis sharing, community interaction
-
-## Data Flow
-
-1. **User Authentication**: Session-based login with password hashing
-2. **Chart Upload**: Image compression and processing on frontend
-3. **AI Analysis**: OpenAI Vision API processes chart images
-4. **Result Storage**: Analysis results stored in PostgreSQL
-5. **Achievement Tracking**: Gamification system tracks user progress
-6. **Social Sharing**: Watermarked images for public sharing
+### System Design Choices
+- **Architecture Pattern**: Full-stack monorepo with clear separation between client and server, sharing common types and schemas.
+- **Data Flow**: Secure user authentication, image compression and processing, AI analysis via OpenAI Vision API, results stored in PostgreSQL, gamification tracking, and watermarked social sharing.
+- **Deployment Strategy**: Vite dev server for local development, Vite/ESBuild for production builds, Neon Database for PostgreSQL hosting, local storage for static files, memory-based sessions.
 
 ## External Dependencies
 
 ### Third-Party Services
-- **OpenAI**: GPT-4o for AI-powered chart analysis
-- **Stripe**: Subscription billing and payment processing
-- **SendGrid**: Email notifications and marketing
-- **Twilio**: SMS trading alerts
-- **Neon Database**: Managed PostgreSQL hosting
+- **OpenAI**: GPT-4o for AI-powered chart analysis.
+- **Stripe**: Subscription billing and payment processing.
+- **SendGrid**: Email notifications and marketing.
+- **Twilio**: SMS trading alerts.
+- **Neon Database**: Managed PostgreSQL hosting.
+- **Twelve Data**: Market data provider for live AI refresh (Forex, stocks, crypto, indices).
 
 ### Key Libraries
-- **Drizzle ORM**: Type-safe database queries
-- **Radix UI**: Accessible component primitives
-- **React Query**: Server state management
-- **Framer Motion**: Animation library
-- **Canvas**: Server-side image processing
-
-## Deployment Strategy
-
-### Development
-- **Local Development**: Vite dev server with hot module replacement
-- **Database**: Local PostgreSQL or Neon Database connection
-- **Environment**: Environment variables for API keys and secrets
-
-### Production
-- **Build Process**: Vite build for frontend, ESBuild for backend
-- **Database**: Neon Database with connection pooling
-- **File Storage**: Local storage with static file serving
-- **Session Storage**: Memory-based sessions (suitable for single-instance deployment)
-
-### Configuration
-- Database URL required for PostgreSQL connection
-- OpenAI API key for chart analysis functionality
-- Stripe keys for subscription processing
-- SendGrid API key for email notifications
-- Twilio credentials for SMS functionality
-
-## Mobile Companion App Features
-
-### Progressive Web App (PWA)
-- **Service Worker**: Offline caching with stale-while-revalidate strategy
-- **Installable**: Add to home screen on iOS and Android
-- **Push Notifications**: Real-time alerts for price movements and pattern detection
-- **Offline Support**: Cached analysis results accessible without internet
-
-### Price Alerts System
-- **Alert Types**: Price above/below, pattern detected, trend change
-- **Real-time Monitoring**: Track active, triggered, and historical alerts
-- **Custom Notifications**: Set target prices with personalized messages
-- **Mobile Dashboard**: Touch-friendly UI with tabs and quick stats
-
-### Mobile-Optimized Features
-- **Chart Viewer**: Pinch-zoom and swipe gestures for chart analysis
-- **Floating Action Button**: Quick access to camera and upload
-- **Network Status**: Visual indicator when offline with auto-sync
-- **Responsive Design**: Bottom navigation and mobile-first layout
-
-## EA Trading Strategy Features
-
-### Hybrid AI + Technical Indicator Approach
-The generated MT5/TradingView EAs now use a sophisticated hybrid trading system that combines:
-
-**AI Pattern Analysis** (Baked-In):
-- Specific patterns detected from uploaded charts (Head & Shoulders, Double Top, etc.)
-- Direction recommendations (BUY/SELL/NEUTRAL) with confidence levels
-- Support/Resistance levels from AI analysis
-- Entry/exit points calculated by AI
-
-**Technical Indicator Confirmation** (Real-Time):
-- MACD crossover detection and trend analysis
-- RSI overbought/oversold conditions
-- Volume confirmation filters
-- ATR-based stop loss and take profit levels
-
-**Hybrid Logic**:
-- When AI recommends a direction → Lighter technical confirmation required
-- When AI is neutral → Stricter technical signals needed
-- Reduces false signals while maintains responsiveness
-- Adapts to both AI insights and live market conditions
-
-### Live AI Refresh Feature (In Development)
-A future feature that will enable daily AI analysis refresh:
-
-**Planned Capabilities**:
-- Daily API calls to refresh AI analysis with current market data
-- Automatic detection of changed market conditions
-- Safety pause mechanism when AI changes direction
-- Cost: ~$1-3 per month per EA
-
-**Current Status**: DISABLED pending security implementation
-- Requires proper authentication and API token management
-- Rate limiting and cost protection needed
-- Available for early access by contacting support
-
-**Security Measures Needed**:
-- Unique API tokens per EA stored in database
-- User authentication for API endpoints
-- Rate limiting (1-hour minimum between refreshes)
-- Cost tracking per user
-- Subscription-tier gating
-
-## EA Marketplace & Passive Income Feature
-
-### Overview
-Users can now save, manage, and monetize their Expert Advisors through a creator marketplace system:
-
-**For Users:**
-- Save generated EAs for future use and management
-- Browse and subscribe to EAs created by other traders
-- Access all subscribed EAs in one place
-
-**For Creators:**
-- Publish EAs to the marketplace with custom pricing
-- Track subscriber count and passive income
-- Creator dashboard shows total earnings and subscriptions
-- Build passive income streams from quality trading strategies
-
-### Database Tables
-- `savedEAs`: Stores user-created EAs with pricing and sharing settings
-- `eaSubscriptions`: Manages creator-subscriber relationships
-
-### API Endpoints
-- POST `/api/save-ea` - Save a generated EA
-- GET `/api/my-eas` - List user's saved EAs
-- GET `/api/my-eas/:id` - Get specific EA
-- PATCH `/api/my-eas/:id` - Update EA details
-- DELETE `/api/my-eas/:id` - Delete EA
-- POST `/api/share-ea/:id` - Publish EA to marketplace with pricing
-- GET `/api/ea-marketplace` - Browse shared EAs
-- POST `/api/subscribe-to-ea/:eaId` - Subscribe to an EA
-- GET `/api/my-subscriptions` - Get subscribed EAs
-- GET `/api/creator-dashboard` - Creator stats and earnings
-
-### UI Pages
-- `/my-eas` - Personal EA library with management tools
-- `/ea-marketplace` - Browse and subscribe to EAs from other creators
-
-## Changelog
-
-- July 06, 2025. Initial setup
-- July 06, 2025. Fixed canvas module deployment error by installing required system dependencies (pkg-config, cairo, pango, libpng, libjpeg, giflib, librsvg, pixman, python3, libuuid)
-- November 21, 2025. Implemented mobile companion app with PWA infrastructure, price alerts system, offline support, and mobile-optimized UI components
-- November 21, 2025. Implemented hybrid AI + technical indicator trading strategy for MT5 EAs combining pattern analysis with real-time technical confirmation
-- November 21, 2025. Developed live AI refresh feature prototype (disabled pending security audit) with backend API endpoint, WebRequest integration, and safety mechanisms
-- November 25, 2025. Made code generation UI mobile-friendly with dropdown selector instead of 3 buttons
-- November 25, 2025. Added API endpoint explanation for new users (step-by-step process + endpoint documentation)
-- November 25, 2025. Implemented AI-powered chart recommendation system to suggest best chart for EA entry based on signal strength, confidence, and technical indicators
-- November 25, 2025. Fixed trading day filter default - changed from Mon-Fri only to ALL DAYS ENABLED (Mon-Sun) to prevent accidental trade blocking
-- November 25, 2025. Fixed 28 MQL5 compilation errors by:
-  1. Removed all emoji characters from generated EA code (⏸️, ✅, ❌, ⚠️, ↑, ↓, 📈, 📉, 🔄, 📊, etc.) - MQL5 doesn't support Unicode emojis
-  2. Added explicit numeric values to enum (MODE_SINGLE = 0, MODE_PYRAMIDING = 1, MODE_GRID = 2, MODE_HEDGING = 3) for switch statement compilation
-  3. Replaced all emoji references with ASCII text (e.g., "PAUSED" instead of "PAUSED ⏸️")
-- November 25, 2025. Fixed EA generation workflow to wait for all charts to complete analysis:
-  1. Updated canGenerateCode check to verify NO charts are still uploading (isAnyUploading flag)
-  2. Added user-friendly status message "Analyzing in progress... Please wait for all charts to complete before generating EA"
-  3. EA code generation now only enables after all selected charts finish analyzing
-- November 25, 2025. Implemented EA Marketplace and Passive Income System:
-  1. Created savedEAs table to persist user-created Expert Advisors with metadata
-  2. Created eaSubscriptions table to manage creator-subscriber relationships
-  3. Added 11 API endpoints for saving, managing, sharing, and subscribing to EAs
-  4. Built "My EAs" page (/my-eas) with save, share, download, copy, and delete functionality
-  5. Built "EA Marketplace" (/ea-marketplace) with discovery, search, and subscription features
-  6. Implemented creator dashboard to track subscribers and passive income earnings
-  7. Added unique constraint on eaSubscriptions to prevent duplicate subscriptions
-- December 06, 2025. Added EA unshare functionality - users can now remove their EAs from the marketplace
-- December 06, 2025. Implemented Market Data Service for Live AI Refresh:
-  1. Created provider-agnostic market data architecture (server/market-data/)
-  2. Implemented Twelve Data provider adapter supporting forex, stocks, crypto, and indices
-  3. Added caching with timeframe-based TTL and rate limiting for API requests
-  4. Built pattern change detector (volatility delta, ATR changes, trend reversals)
-  5. Created database tables for market_data_snapshots and market_data_refresh_jobs
-  6. Added API endpoints: GET /api/market-data/status, POST /api/market-data/fetch, POST /api/eas/:id/refresh, GET /api/eas/:id/refresh-history
-  7. Added "Refresh" button to My EAs page for checking market pattern changes
-  8. Requires TWELVE_DATA_API_KEY secret for live data (free tier: 8 requests/minute, supports forex/stocks/crypto)
-
-## Market Data Service
-
-### Overview
-The Market Data Service enables Live AI Refresh by fetching real-time market data and detecting pattern changes to trigger EA re-analysis.
-
-### Supported Data Providers
-- **Twelve Data** (Primary): Forex, stocks, crypto, indices
-  - Free tier: 8 requests/minute, 800 requests/day
-  - Paid tiers available for higher limits
-
-### Configuration
-Add the following secret to enable the service:
-- `TWELVE_DATA_API_KEY`: Your Twelve Data API key (get free at twelvedata.com)
-
-### Features
-- **Multi-asset support**: Forex pairs, US stocks, cryptocurrencies, indices
-- **Intelligent caching**: TTL based on timeframe (1m = 30s, 1h = 15min, 1d = 1hr)
-- **Rate limiting**: Automatic request throttling per provider
-- **Pattern change detection**: Monitors volatility, ATR, price movement, and trend reversals
-- **Refresh history**: Tracks all refresh attempts with results
-
-### API Endpoints
-- `GET /api/market-data/status` - Check if service is initialized
-- `POST /api/market-data/fetch` - Fetch OHLCV data for a symbol
-- `POST /api/eas/:id/refresh` - Trigger market data refresh for an EA
-- `GET /api/eas/:id/refresh-history` - Get refresh history for an EA
-
-## User Preferences
-
-Preferred communication style: Simple, everyday language.
+- **Drizzle ORM**: Type-safe database queries.
+- **Radix UI**: Accessible component primitives.
+- **React Query**: Server state management.
+- **Framer Motion**: Animation library.
+- **Canvas**: Server-side image processing.
