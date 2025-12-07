@@ -418,3 +418,33 @@ export const insertMarketDataRefreshJobSchema = createInsertSchema(marketDataRef
 
 export type MarketDataRefreshJob = typeof marketDataRefreshJobs.$inferSelect;
 export type InsertMarketDataRefreshJob = z.infer<typeof insertMarketDataRefreshJobSchema>;
+
+// EA Share Assets for social sharing with branded images
+export const eaShareAssets = pgTable("ea_share_assets", {
+  id: serial("id").primaryKey(),
+  eaId: integer("ea_id").references(() => savedEAs.id).notNull(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  shareCardUrl: text("share_card_url"), // URL to generated share card image
+  chartAnalyses: jsonb("chart_analyses").notNull(), // Array of chart analysis summaries
+  unifiedSignal: jsonb("unified_signal"), // Combined trade signal data
+  devotionId: integer("devotion_id"), // Index of the scripture used
+  devotionVerse: text("devotion_verse"),
+  devotionReference: text("devotion_reference"),
+  devotionWisdom: text("devotion_wisdom"),
+  shareUrl: text("share_url"), // Public share URL
+  viewCount: integer("view_count").default(0),
+  shareCount: integer("share_count").default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertEAShareAssetSchema = createInsertSchema(eaShareAssets).omit({
+  id: true,
+  viewCount: true,
+  shareCount: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type EAShareAsset = typeof eaShareAssets.$inferSelect;
+export type InsertEAShareAsset = z.infer<typeof insertEAShareAssetSchema>;
