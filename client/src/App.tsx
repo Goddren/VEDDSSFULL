@@ -39,6 +39,7 @@ import MobileAlerts from "@/pages/mobile-alerts";
 import MyEAsPage from "@/pages/my-eas";
 import MySubscriptionsPage from "@/pages/my-subscriptions";
 import EAMarketplacePage from "@/pages/ea-marketplace";
+import SocialHub from "@/pages/social-hub";
 import { MobileFAB } from "@/components/mobile-fab";
 import { NetworkStatus } from "@/components/network-status";
 import { NewsNotificationScheduler } from "@/components/news-notification-scheduler";
@@ -108,6 +109,7 @@ function AppLayout() {
             <ProtectedRoute path="/my-eas" component={MyEAsPage} />
             <ProtectedRoute path="/my-subscriptions" component={MySubscriptionsPage} />
             <ProtectedRoute path="/ea-marketplace" component={EAMarketplacePage} />
+            <ProtectedRoute path="/social-hub" component={SocialHub} />
             
             <Route component={NotFound} />
           </Switch>

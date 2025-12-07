@@ -75,7 +75,7 @@ interface TraderProfile {
   isFollowing: boolean;
 }
 
-interface AnalysisWithDetails extends ChartAnalysis {
+type AnalysisWithDetails = ChartAnalysis & {
   user: {
     id: number;
     username: string;
@@ -93,7 +93,7 @@ interface AnalysisWithDetails extends ChartAnalysis {
     hasDisliked: boolean;
     hasSaved: boolean;
   };
-}
+};
 
 const TinderCard: React.FC<{
   analysis: AnalysisWithDetails;
