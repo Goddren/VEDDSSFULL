@@ -118,8 +118,14 @@ const Header: React.FC = () => {
                   </div>
                 </Link>
               </DropdownMenuItem>
-              {/* Social Hub removed as requested */}
-
+              <DropdownMenuItem className="cursor-pointer" asChild>
+                <Link href="/social-hub">
+                  <div className="flex items-center w-full">
+                    <Users className="mr-2 h-4 w-4" />
+                    <span>Social Hub</span>
+                  </div>
+                </Link>
+              </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={handleLogout} className="cursor-pointer">
                 <LogOut className="mr-2 h-4 w-4" />

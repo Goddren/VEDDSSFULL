@@ -78,7 +78,8 @@ export function ShareCardDialog({
 
   const handleOpen = (isOpen: boolean) => {
     setOpen(isOpen);
-    if (isOpen && !shareData) {
+    if (isOpen) {
+      setShareData(null);
       generateShareCardMutation.mutate();
     }
   };
