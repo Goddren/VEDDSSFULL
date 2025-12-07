@@ -2604,6 +2604,136 @@ Return ONLY a JSON object with this structure:
     }
   });
 
+  app.post("/api/eas/:id/share-card", async (req: Request, res: Response) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+      
+      const eaId = parseInt(req.params.id);
+      const ea = await storage.getSavedEA(eaId);
+      if (!ea) return res.status(404).json({ error: "EA not found" });
+      if (ea.userId !== (req.user as User).id) return res.status(403).json({ error: "Forbidden" });
+      
+      const user = req.user as User;
+      const { chartAnalyses, unifiedSignal } = req.body;
+      
+      const { generateShareCard } = await import('./share-card-service');
+      const { getDailyScripture } = await import('./scripture-helper');
+      
+      const shareCardBuffer = await generateShareCard({
+        eaName: ea.name,
+        symbol: ea.symbol,
+        platformType: ea.platformType,
+        chartAnalyses: chartAnalyses || [],
+        unifiedSignal: unifiedSignal || null,
+        creatorName: user.username
+      });
+      
+      const shareId = Date.now().toString(36) + Math.random().toString(36).substring(2, 7);
+      const shareCardFileName = `share-card-${shareId}.png`;
+      const shareCardPath = path.join(process.cwd(), 'uploads', 'share-cards');
+      
+      if (!fs.existsSync(shareCardPath)) {
+        fs.mkdirSync(shareCardPath, { recursive: true });
+      }
+      
+      const fullPath = path.join(shareCardPath, shareCardFileName);
+      fs.writeFileSync(fullPath, shareCardBuffer);
+      
+      const shareCardUrl = `/uploads/share-cards/${shareCardFileName}`;
+      const shareUrl = `share-${shareId}`;
+      
+      const devotion = getDailyScripture();
+      const dayOfYear = Math.floor((new Date().getTime() - new Date(new Date().getFullYear(), 0, 0).getTime()) / (1000 * 60 * 60 * 24));
+      
+      const shareAsset = await storage.createEAShareAsset({
+        eaId,
+        userId: user.id,
+        shareCardUrl,
+        chartAnalyses: chartAnalyses || [],
+        unifiedSignal: unifiedSignal || null,
+        devotionId: dayOfYear % 15,
+        devotionVerse: devotion.verse,
+        devotionReference: devotion.reference,
+        devotionWisdom: devotion.tradingWisdom,
+        shareUrl
+      });
+      
+      res.json({
+        success: true,
+        shareAsset,
+        shareCardUrl,
+        shareUrl: `/share/${shareUrl}`,
+        socialShareUrls: {
+          twitter: `https://twitter.com/intent/tweet?text=${encodeURIComponent(`Check out my ${ea.symbol} trading analysis from VEDD AI!`)}&url=${encodeURIComponent(`${req.protocol}://${req.get('host')}/share/${shareUrl}`)}`,
+          facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(`${req.protocol}://${req.get('host')}/share/${shareUrl}`)}`,
+          linkedin: `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(`${req.protocol}://${req.get('host')}/share/${shareUrl}`)}`,
+          whatsapp: `https://wa.me/?text=${encodeURIComponent(`Check out my ${ea.symbol} trading analysis from VEDD AI! ${req.protocol}://${req.get('host')}/share/${shareUrl}`)}`
+        }
+      });
+    } catch (error) {
+      console.error('Share card generation error:', error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to generate share card" });
+    }
+  });
+
+  app.get("/api/eas/:id/share-card", async (req: Request, res: Response) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+      
+      const eaId = parseInt(req.params.id);
+      const shareAsset = await storage.getEAShareAsset(eaId);
+      
+      if (!shareAsset) {
+        return res.status(404).json({ error: "Share card not found" });
+      }
+      
+      res.json(shareAsset);
+    } catch (error) {
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to get share card" });
+    }
+  });
+
+  app.get("/api/share/:shareUrl", async (req: Request, res: Response) => {
+    try {
+      const { shareUrl } = req.params;
+      const shareAsset = await storage.getEAShareAssetByShareUrl(shareUrl);
+      
+      if (!shareAsset) {
+        return res.status(404).json({ error: "Share not found" });
+      }
+      
+      await storage.incrementShareAssetViewCount(shareAsset.id);
+      
+      const ea = await storage.getSavedEA(shareAsset.eaId);
+      const user = ea ? await storage.getUser(ea.userId) : null;
+      
+      res.json({
+        shareAsset,
+        ea: ea ? { name: ea.name, symbol: ea.symbol, platformType: ea.platformType } : null,
+        creatorName: user?.username || 'Anonymous'
+      });
+    } catch (error) {
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to get shared analysis" });
+    }
+  });
+
+  app.post("/api/share/:shareUrl/track", async (req: Request, res: Response) => {
+    try {
+      const { shareUrl } = req.params;
+      const { platform } = req.body;
+      
+      const shareAsset = await storage.getEAShareAssetByShareUrl(shareUrl);
+      if (!shareAsset) {
+        return res.status(404).json({ error: "Share not found" });
+      }
+      
+      await storage.incrementShareAssetShareCount(shareAsset.id);
+      res.json({ success: true, platform });
+    } catch (error) {
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to track share" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
