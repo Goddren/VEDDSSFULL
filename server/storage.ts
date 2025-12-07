@@ -1,13 +1,14 @@
 import { 
   users, chartAnalyses, achievements, userAchievements,
   userProfiles, follows, analysisFeedback, analysisViews, priceAlerts,
-  savedEAs, eaSubscriptions, marketDataSnapshots, marketDataRefreshJobs,
+  savedEAs, eaSubscriptions, marketDataSnapshots, marketDataRefreshJobs, eaShareAssets,
   type User, type InsertUser, type ChartAnalysis, type InsertChartAnalysis,
   type Achievement, type InsertAchievement, type UserAchievement, type InsertUserAchievement,
   type UserProfile, type InsertUserProfile, type Follow, type InsertFollow,
   type AnalysisFeedback, type InsertAnalysisFeedback, type AnalysisView, type PriceAlert, type InsertPriceAlert,
   type SavedEA, type InsertSavedEA, type EASubscription, type InsertEASubscription,
-  type MarketDataSnapshot, type InsertMarketDataSnapshot, type MarketDataRefreshJob, type InsertMarketDataRefreshJob
+  type MarketDataSnapshot, type InsertMarketDataSnapshot, type MarketDataRefreshJob, type InsertMarketDataRefreshJob,
+  type EAShareAsset, type InsertEAShareAsset
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, sql } from "drizzle-orm";
@@ -117,6 +118,14 @@ export interface IStorage {
   createRefreshJob(job: InsertMarketDataRefreshJob): Promise<MarketDataRefreshJob>;
   updateRefreshJob(id: number, data: Partial<MarketDataRefreshJob>): Promise<MarketDataRefreshJob | undefined>;
   getRefreshJobsByEA(eaId: number): Promise<MarketDataRefreshJob[]>;
+  
+  // EA Share Asset methods
+  createEAShareAsset(asset: InsertEAShareAsset): Promise<EAShareAsset>;
+  getEAShareAsset(eaId: number): Promise<EAShareAsset | undefined>;
+  getEAShareAssetByShareUrl(shareUrl: string): Promise<EAShareAsset | undefined>;
+  updateEAShareAsset(id: number, data: Partial<EAShareAsset>): Promise<EAShareAsset | undefined>;
+  incrementShareAssetViewCount(id: number): Promise<void>;
+  incrementShareAssetShareCount(id: number): Promise<void>;
   
   // Session store for authentication
   sessionStore: session.Store;
@@ -892,6 +901,55 @@ export class DatabaseStorage implements IStorage {
       .from(marketDataRefreshJobs)
       .where(eq(marketDataRefreshJobs.eaId, eaId))
       .orderBy(sql`${marketDataRefreshJobs.triggeredAt} DESC`);
+  }
+
+  async createEAShareAsset(asset: InsertEAShareAsset): Promise<EAShareAsset> {
+    const [created] = await db
+      .insert(eaShareAssets)
+      .values(asset)
+      .returning();
+    return created;
+  }
+
+  async getEAShareAsset(eaId: number): Promise<EAShareAsset | undefined> {
+    const [asset] = await db
+      .select()
+      .from(eaShareAssets)
+      .where(eq(eaShareAssets.eaId, eaId))
+      .orderBy(sql`${eaShareAssets.createdAt} DESC`)
+      .limit(1);
+    return asset;
+  }
+
+  async getEAShareAssetByShareUrl(shareUrl: string): Promise<EAShareAsset | undefined> {
+    const [asset] = await db
+      .select()
+      .from(eaShareAssets)
+      .where(eq(eaShareAssets.shareUrl, shareUrl));
+    return asset;
+  }
+
+  async updateEAShareAsset(id: number, data: Partial<EAShareAsset>): Promise<EAShareAsset | undefined> {
+    const [updated] = await db
+      .update(eaShareAssets)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(eaShareAssets.id, id))
+      .returning();
+    return updated;
+  }
+
+  async incrementShareAssetViewCount(id: number): Promise<void> {
+    await db
+      .update(eaShareAssets)
+      .set({ viewCount: sql`${eaShareAssets.viewCount} + 1` })
+      .where(eq(eaShareAssets.id, id));
+  }
+
+  async incrementShareAssetShareCount(id: number): Promise<void> {
+    await db
+      .update(eaShareAssets)
+      .set({ shareCount: sql`${eaShareAssets.shareCount} + 1` })
+      .where(eq(eaShareAssets.id, id));
   }
 }
 
