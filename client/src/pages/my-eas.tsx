@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
-import { Copy, Share2, Trash2, Download, Eye, Settings, EyeOff, RefreshCw } from 'lucide-react';
+import { Copy, Share2, Trash2, Download, Eye, Settings, EyeOff, RefreshCw, Share } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -14,6 +14,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
+import { ShareCardDialog } from '@/components/share-card-dialog';
 
 export default function MyEAsPage() {
   const { toast } = useToast();
@@ -230,6 +231,23 @@ export default function MyEAsPage() {
                       <RefreshCw className={`w-4 h-4 mr-1 ${refreshEAMutation.isPending ? 'animate-spin' : ''}`} />
                       {refreshEAMutation.isPending ? 'Checking...' : 'Refresh'}
                     </Button>
+
+                    <ShareCardDialog
+                      eaId={ea.id}
+                      eaName={ea.name}
+                      symbol={ea.symbol}
+                      trigger={
+                        <Button 
+                          size="sm" 
+                          variant="default" 
+                          className="bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700"
+                          data-testid={`button-social-share-${ea.id}`}
+                        >
+                          <Share className="w-4 h-4 mr-1" />
+                          Social Share
+                        </Button>
+                      }
+                    />
 
                     {!ea.isShared ? (
                       <Dialog>
