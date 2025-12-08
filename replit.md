@@ -27,6 +27,7 @@ Preferred communication style: Simple, everyday language.
 - **EA Trading Strategy**: Hybrid AI + Technical Indicator approach, combining AI pattern analysis (baked-in) with real-time technical indicator confirmation (MACD, RSI, Volume, ATR).
 - **EA Marketplace**: Allows users to save, manage, publish, and subscribe to Expert Advisors, enabling passive income for creators.
 - **Market Data Service**: Fetches real-time market data (Forex, stocks, crypto, indices) to enable a "Live AI Refresh" feature, detecting pattern changes for EA re-analysis.
+- **Financial News Integration**: Finnhub API provides real-time financial news, with OpenAI GPT-4o analyzing sentiment to generate trading signals (BUY/SELL/NEUTRAL) based on news flow. Includes defensive fallbacks when APIs are unavailable.
 
 ### System Design Choices
 - **Architecture Pattern**: Full-stack monorepo with clear separation between client and server, sharing common types and schemas.
@@ -42,6 +43,7 @@ Preferred communication style: Simple, everyday language.
 - **Twilio**: SMS trading alerts.
 - **Neon Database**: Managed PostgreSQL hosting.
 - **Twelve Data**: Market data provider for live AI refresh (Forex, stocks, crypto, indices).
+- **Finnhub**: Financial news provider for real-time market news and company-specific news with sentiment analysis.
 
 ### Key Libraries
 - **Drizzle ORM**: Type-safe database queries.
