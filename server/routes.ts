@@ -2646,7 +2646,8 @@ Return ONLY a JSON object with this structure:
           potentialPips: a.potentialPips,
           volatilityScore: 50,
           recommendation: a.recommendation,
-          supportResistance: Array.isArray(a.supportResistance) ? a.supportResistance.slice(0, 4) : []
+          supportResistance: Array.isArray(a.supportResistance) ? a.supportResistance.slice(0, 4) : [],
+          chartImagePath: a.imageUrl
         }));
 
         if (chartAnalyses.length > 0) {

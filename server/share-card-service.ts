@@ -18,6 +18,7 @@ interface ChartAnalysisSummary {
   volatilityScore?: number;
   recommendation?: string;
   supportResistance?: { type: string; price: string; strength: string }[];
+  chartImagePath?: string;
 }
 
 interface NewsSentimentData {
@@ -51,7 +52,7 @@ interface ShareCardData {
 }
 
 const CARD_WIDTH = 1200;
-const CARD_HEIGHT = 2000;
+const CARD_HEIGHT = 3500;
 const PADDING = 40;
 const BRAND_COLOR = '#6366f1';
 const BRAND_GRADIENT_START = '#4f46e5';
@@ -257,48 +258,104 @@ export async function generateShareCard(data: ShareCardData): Promise<Buffer> {
   ctx.fillText('Multi-Timeframe Analysis', PADDING, yPos);
   yPos += 40;
 
-  const analysisCardWidth = (CARD_WIDTH - PADDING * 2 - 20) / 2;
-  const analysisCardHeight = 180;
-  
-  for (let i = 0; i < data.chartAnalyses.length && i < 6; i++) {
+  for (let i = 0; i < data.chartAnalyses.length && i < 4; i++) {
     const analysis = data.chartAnalyses[i];
-    const col = i % 2;
-    const row = Math.floor(i / 2);
-    const x = PADDING + col * (analysisCardWidth + 20);
-    const y = yPos + row * (analysisCardHeight + 15);
-
+    
+    let chartHeight = 0;
+    let chartImage = null;
+    
+    if (analysis.chartImagePath) {
+      try {
+        let imgPath = analysis.chartImagePath;
+        if (imgPath.startsWith('/')) {
+          imgPath = imgPath.substring(1);
+        }
+        const fullPath = path.join(process.cwd(), imgPath);
+        
+        if (fs.existsSync(fullPath)) {
+          chartImage = await loadImage(fullPath);
+          const maxChartWidth = CARD_WIDTH - PADDING * 2 - 40;
+          const maxChartHeight = 200;
+          
+          let drawWidth = chartImage.width;
+          let drawHeight = chartImage.height;
+          
+          if (drawWidth > maxChartWidth) {
+            const ratio = maxChartWidth / drawWidth;
+            drawWidth = maxChartWidth;
+            drawHeight = drawHeight * ratio;
+          }
+          
+          if (drawHeight > maxChartHeight) {
+            const ratio = maxChartHeight / drawHeight;
+            drawHeight = maxChartHeight;
+            drawWidth = drawWidth * ratio;
+          }
+          
+          chartHeight = drawHeight + 20;
+        }
+      } catch (err) {
+        console.log('Could not load chart for timeframe:', analysis.timeframe, err);
+      }
+    }
+    
+    const cardHeight = 120 + chartHeight;
+    
     ctx.fillStyle = CARD_BG;
-    roundRect(ctx, x, y, analysisCardWidth, analysisCardHeight, 12);
+    roundRect(ctx, PADDING, yPos, CARD_WIDTH - PADDING * 2, cardHeight, 12);
     ctx.fill();
+    
+    ctx.strokeStyle = BRAND_COLOR;
+    ctx.lineWidth = 1;
+    roundRect(ctx, PADDING, yPos, CARD_WIDTH - PADDING * 2, cardHeight, 12);
+    ctx.stroke();
 
     ctx.fillStyle = BRAND_COLOR;
-    ctx.font = 'bold 22px Arial, sans-serif';
-    ctx.fillText(analysis.timeframe, x + 15, y + 35);
+    ctx.font = 'bold 24px Arial, sans-serif';
+    ctx.fillText(analysis.timeframe, PADDING + 20, yPos + 35);
 
     const dirColor = analysis.direction.toUpperCase() === 'BUY' ? '#22c55e' : 
                     analysis.direction.toUpperCase() === 'SELL' ? '#ef4444' : '#f59e0b';
     ctx.fillStyle = dirColor;
-    ctx.font = 'bold 20px Arial, sans-serif';
-    ctx.fillText(analysis.direction.toUpperCase(), x + analysisCardWidth - 80, y + 35);
+    ctx.font = 'bold 24px Arial, sans-serif';
+    ctx.fillText(analysis.direction.toUpperCase(), CARD_WIDTH - PADDING - 100, yPos + 35);
 
     ctx.fillStyle = '#94a3b8';
     ctx.font = '16px Arial, sans-serif';
-    ctx.fillText(`Confidence: ${analysis.confidence}`, x + 15, y + 65);
+    ctx.fillText(`Confidence: ${analysis.confidence}  |  Entry: ${analysis.entryPoint}  |  SL: ${analysis.stopLoss}  |  TP: ${analysis.takeProfit}`, PADDING + 20, yPos + 65);
 
     ctx.fillStyle = TEXT_COLOR;
     ctx.font = '14px Arial, sans-serif';
-    const patterns = analysis.patterns.slice(0, 2).join(', ');
-    ctx.fillText(`Patterns: ${patterns || 'N/A'}`, x + 15, y + 95);
+    const patterns = analysis.patterns.slice(0, 3).join(', ');
+    ctx.fillText(`Patterns: ${patterns || 'N/A'}`, PADDING + 20, yPos + 90);
 
-    ctx.fillStyle = '#64748b';
-    ctx.font = '13px Arial, sans-serif';
-    ctx.fillText(`Entry: ${analysis.entryPoint}`, x + 15, y + 125);
-    ctx.fillText(`SL: ${analysis.stopLoss}`, x + 15, y + 145);
-    ctx.fillText(`TP: ${analysis.takeProfit}`, x + 15, y + 165);
+    if (chartImage && chartHeight > 0) {
+      const maxChartWidth = CARD_WIDTH - PADDING * 2 - 40;
+      const maxChartHeight = 200;
+      
+      let drawWidth = chartImage.width;
+      let drawHeight = chartImage.height;
+      
+      if (drawWidth > maxChartWidth) {
+        const ratio = maxChartWidth / drawWidth;
+        drawWidth = maxChartWidth;
+        drawHeight = drawHeight * ratio;
+      }
+      
+      if (drawHeight > maxChartHeight) {
+        const ratio = maxChartHeight / drawHeight;
+        drawHeight = maxChartHeight;
+        drawWidth = drawWidth * ratio;
+      }
+      
+      const chartX = PADDING + (CARD_WIDTH - PADDING * 2 - drawWidth) / 2;
+      ctx.drawImage(chartImage, chartX, yPos + 105, drawWidth, drawHeight);
+    }
+
+    yPos += cardHeight + 15;
   }
 
-  const numRows = Math.ceil(Math.min(data.chartAnalyses.length, 6) / 2);
-  yPos += numRows * (analysisCardHeight + 15) + 30;
+  yPos += 15;
 
   if (data.newsSentiment && data.newsSentiment.totalArticles > 0) {
     ctx.fillStyle = TEXT_COLOR;
