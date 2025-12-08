@@ -2827,6 +2827,38 @@ Return ONLY a JSON object with this structure:
     }
   });
 
+  // Pair-specific news for Forex - analyzes BOTH currencies
+  app.get("/api/news/pair/:symbol", async (req: Request, res: Response) => {
+    try {
+      const { symbol } = req.params;
+      const daysBack = parseInt(req.query.days as string) || 7;
+      
+      const { baseNews, quoteNews, combined } = await newsService.fetchPairSpecificNews(symbol, daysBack);
+      const sentiment = await newsService.analyzePairSentiment(symbol, daysBack);
+      
+      const cleanSymbol = symbol.toUpperCase().replace(/[^A-Z]/g, '');
+      const baseCurrency = cleanSymbol.slice(0, 3);
+      const quoteCurrency = cleanSymbol.slice(3, 6);
+      
+      res.json({ 
+        news: combined,
+        baseNews,
+        quoteNews,
+        baseCurrency,
+        quoteCurrency,
+        sentiment,
+        pairAnalysis: {
+          baseImpact: sentiment.baseImpact,
+          quoteImpact: sentiment.quoteImpact,
+          pairDirection: sentiment.pairDirection
+        }
+      });
+    } catch (error) {
+      console.error('Error fetching pair news:', error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to fetch pair news" });
+    }
+  });
+
   app.get("/api/news/market", async (req: Request, res: Response) => {
     try {
       const category = (req.query.category as string) || 'general';
@@ -2849,19 +2881,47 @@ Return ONLY a JSON object with this structure:
         return res.status(400).json({ error: "Symbol is required" });
       }
       
-      const news = await newsService.fetchCompanyNews(symbol, 3);
-      const sentiment = await newsService.analyzeNewsSentiment(news, symbol);
+      // Use pair-specific analysis for Forex pairs
+      const cleanSymbol = symbol.toUpperCase().replace(/[^A-Z]/g, '');
+      const isForexPair = cleanSymbol.length === 6;
       
-      res.json({
-        symbol,
-        sentiment,
-        tradingSignal: {
-          direction: sentiment.overallLabel === 'bullish' ? 'BUY' : 
-                     sentiment.overallLabel === 'bearish' ? 'SELL' : 'NEUTRAL',
-          confidence: Math.abs(sentiment.overallScore),
-          reason: sentiment.tradingImplication
-        }
-      });
+      if (isForexPair) {
+        const sentiment = await newsService.analyzePairSentiment(symbol, 3);
+        const baseCurrency = cleanSymbol.slice(0, 3);
+        const quoteCurrency = cleanSymbol.slice(3, 6);
+        
+        res.json({
+          symbol,
+          baseCurrency,
+          quoteCurrency,
+          sentiment,
+          pairAnalysis: {
+            baseImpact: sentiment.baseImpact,
+            quoteImpact: sentiment.quoteImpact,
+            pairDirection: sentiment.pairDirection
+          },
+          tradingSignal: {
+            direction: sentiment.overallLabel === 'bullish' ? 'BUY' : 
+                       sentiment.overallLabel === 'bearish' ? 'SELL' : 'NEUTRAL',
+            confidence: Math.abs(sentiment.overallScore),
+            reason: sentiment.pairDirection
+          }
+        });
+      } else {
+        const news = await newsService.fetchCompanyNews(symbol, 3);
+        const sentiment = await newsService.analyzeNewsSentiment(news, symbol);
+        
+        res.json({
+          symbol,
+          sentiment,
+          tradingSignal: {
+            direction: sentiment.overallLabel === 'bullish' ? 'BUY' : 
+                       sentiment.overallLabel === 'bearish' ? 'SELL' : 'NEUTRAL',
+            confidence: Math.abs(sentiment.overallScore),
+            reason: sentiment.tradingImplication
+          }
+        });
+      }
     } catch (error) {
       console.error('Error analyzing news sentiment:', error);
       res.status(500).json({ error: error instanceof Error ? error.message : "Failed to analyze sentiment" });
