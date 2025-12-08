@@ -3,7 +3,7 @@ import { apiRequest } from '@/lib/queryClient';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { TrendingUp, TrendingDown, Minus, Newspaper, ExternalLink, Clock, AlertCircle } from 'lucide-react';
+import { TrendingUp, TrendingDown, Minus, Newspaper, ExternalLink, Clock, AlertCircle, Calendar, Zap } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
 interface NewsItem {
@@ -304,6 +304,21 @@ interface AnalyzedNewsItem {
   tradingRelevance: 'high' | 'medium' | 'low';
 }
 
+interface UpcomingEvent {
+  id: string;
+  event: string;
+  country: string;
+  currency: string;
+  datetime: number;
+  dateFormatted: string;
+  timeFormatted: string;
+  daysUntil: number;
+  impact: 'high' | 'medium' | 'low';
+  forecast?: string;
+  previous?: string;
+  potentialImpact: string;
+}
+
 interface TradingTimingData {
   symbol: string;
   chartDirection: string;
@@ -316,6 +331,7 @@ interface TradingTimingData {
   recentBearishNews: AnalyzedNewsItem[];
   recentNeutralNews: AnalyzedNewsItem[];
   warningMessage?: string;
+  upcomingEvents?: UpcomingEvent[];
 }
 
 interface TradingTimingProps {
@@ -457,8 +473,77 @@ export function TradingTimingWidget({ symbol, chartDirection, chartConfidence }:
             </div>
           </div>
         )}
+
+        {data.upcomingEvents && data.upcomingEvents.length > 0 && (
+          <div className="border-t pt-4 mt-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Calendar className="w-4 h-4 text-blue-500" />
+              <span className="text-sm font-medium">Upcoming High-Impact Events (Next 5 Days)</span>
+            </div>
+            <div className="space-y-2">
+              {data.upcomingEvents.map((event) => (
+                <UpcomingEventCard key={event.id} event={event} />
+              ))}
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
+  );
+}
+
+function UpcomingEventCard({ event }: { event: UpcomingEvent }) {
+  const impactColors = {
+    high: 'bg-red-500/10 border-l-red-500 text-red-600',
+    medium: 'bg-yellow-500/10 border-l-yellow-500 text-yellow-600',
+    low: 'bg-gray-500/10 border-l-gray-400 text-gray-600'
+  };
+
+  const impactBadgeColors = {
+    high: 'bg-red-500 text-white',
+    medium: 'bg-yellow-500 text-black',
+    low: 'bg-gray-400 text-white'
+  };
+
+  const daysLabel = event.daysUntil === 0 ? 'Today' : 
+                    event.daysUntil === 1 ? 'Tomorrow' : 
+                    `In ${event.daysUntil} days`;
+
+  return (
+    <div className={`border-l-4 ${impactColors[event.impact]} rounded-r-lg p-3`}>
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex-1">
+          <div className="flex items-center gap-2 mb-1">
+            <Zap className="w-3 h-3" />
+            <span className="text-sm font-medium">{event.event}</span>
+          </div>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span className="font-medium">{event.currency}</span>
+            <span>•</span>
+            <span>{event.dateFormatted}</span>
+            <span>•</span>
+            <span>{event.timeFormatted}</span>
+          </div>
+          <p className="text-xs text-muted-foreground mt-1">{event.potentialImpact}</p>
+        </div>
+        <div className="flex flex-col items-end gap-1 shrink-0">
+          <Badge variant="secondary" className={`${impactBadgeColors[event.impact]} text-xs`}>
+            {event.impact}
+          </Badge>
+          <span className="text-xs font-medium">{daysLabel}</span>
+        </div>
+      </div>
+      {(event.forecast || event.previous) && (
+        <div className="flex gap-4 mt-2 text-xs">
+          {event.forecast && (
+            <span>Forecast: <span className="font-medium">{event.forecast}</span></span>
+          )}
+          {event.previous && (
+            <span>Previous: <span className="font-medium">{event.previous}</span></span>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

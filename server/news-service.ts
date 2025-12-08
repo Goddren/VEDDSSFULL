@@ -47,6 +47,34 @@ export interface TradingTimingAnalysis {
   recentBearishNews: AnalyzedNewsItem[];
   recentNeutralNews: AnalyzedNewsItem[];
   warningMessage?: string;
+  upcomingEvents?: UpcomingEconomicEvent[];
+}
+
+export interface EconomicCalendarEvent {
+  country: string;
+  currency?: string;
+  event: string;
+  time: string;
+  impact: 'low' | 'medium' | 'high';
+  forecast?: string;
+  previous?: string;
+  actual?: string;
+  unit?: string;
+}
+
+export interface UpcomingEconomicEvent {
+  id: string;
+  event: string;
+  country: string;
+  currency: string;
+  datetime: number;
+  dateFormatted: string;
+  timeFormatted: string;
+  daysUntil: number;
+  impact: 'high' | 'medium' | 'low';
+  forecast?: string;
+  previous?: string;
+  potentialImpact: string;
 }
 
 class NewsService {
@@ -816,12 +844,205 @@ ${headlines}`
     };
   }
 
+  async fetchEconomicCalendar(daysAhead: number = 5): Promise<EconomicCalendarEvent[]> {
+    if (!this.apiKey) {
+      return [];
+    }
+
+    const fromDate = new Date();
+    const toDate = new Date();
+    toDate.setDate(toDate.getDate() + daysAhead);
+
+    const from = fromDate.toISOString().split('T')[0];
+    const to = toDate.toISOString().split('T')[0];
+
+    try {
+      const url = `${FINNHUB_BASE_URL}/calendar/economic?from=${from}&to=${to}&token=${this.apiKey}`;
+      const response = await fetch(url);
+      
+      if (!response.ok) {
+        console.log('Finnhub economic calendar error');
+        return [];
+      }
+
+      const data = await response.json();
+      
+      if (!data.economicCalendar || !Array.isArray(data.economicCalendar)) {
+        return [];
+      }
+
+      return data.economicCalendar.map((event: any) => ({
+        country: event.country || '',
+        currency: event.currency || '',
+        event: event.event || '',
+        time: event.time || '',
+        impact: this.mapEventImpact(event.impact),
+        forecast: event.estimate?.toString(),
+        previous: event.prev?.toString(),
+        actual: event.actual?.toString(),
+        unit: event.unit
+      }));
+    } catch (error) {
+      console.error('Error fetching economic calendar:', error);
+      return [];
+    }
+  }
+
+  private mapEventImpact(impact: string | number): 'high' | 'medium' | 'low' {
+    if (typeof impact === 'number') {
+      if (impact >= 3) return 'high';
+      if (impact >= 2) return 'medium';
+      return 'low';
+    }
+    const impactStr = String(impact).toLowerCase();
+    if (impactStr.includes('high') || impactStr === '3') return 'high';
+    if (impactStr.includes('medium') || impactStr === '2') return 'medium';
+    return 'low';
+  }
+
+  private getFallbackEconomicEventsForPair(baseCurrency: string, quoteCurrency: string): EconomicCalendarEvent[] {
+    const now = new Date();
+    const events: EconomicCalendarEvent[] = [];
+    
+    const currencyToCountry: Record<string, string> = {
+      'USD': 'US', 'EUR': 'EU', 'GBP': 'GB', 'JPY': 'JP',
+      'CHF': 'CH', 'AUD': 'AU', 'CAD': 'CA', 'NZD': 'NZ'
+    };
+
+    const allMajorEvents = [
+      { currency: 'USD', event: 'Fed Interest Rate Decision', impact: 'high' as const },
+      { currency: 'USD', event: 'Non-Farm Payrolls', impact: 'high' as const },
+      { currency: 'USD', event: 'CPI Inflation Rate', impact: 'high' as const },
+      { currency: 'USD', event: 'Retail Sales', impact: 'medium' as const },
+      { currency: 'EUR', event: 'ECB Interest Rate Decision', impact: 'high' as const },
+      { currency: 'EUR', event: 'GDP Growth Rate', impact: 'medium' as const },
+      { currency: 'EUR', event: 'CPI Flash Estimate', impact: 'high' as const },
+      { currency: 'GBP', event: 'BoE Interest Rate Decision', impact: 'high' as const },
+      { currency: 'GBP', event: 'GDP Growth Rate', impact: 'medium' as const },
+      { currency: 'JPY', event: 'BoJ Interest Rate Decision', impact: 'high' as const },
+      { currency: 'CHF', event: 'SNB Interest Rate Decision', impact: 'high' as const },
+      { currency: 'AUD', event: 'RBA Interest Rate Decision', impact: 'high' as const },
+      { currency: 'CAD', event: 'BoC Interest Rate Decision', impact: 'high' as const },
+      { currency: 'NZD', event: 'RBNZ Interest Rate Decision', impact: 'high' as const }
+    ];
+
+    const relevantEvents = allMajorEvents.filter(e => 
+      e.currency === baseCurrency || e.currency === quoteCurrency
+    );
+
+    relevantEvents.slice(0, 6).forEach((evt, idx) => {
+      const eventDate = new Date(now);
+      eventDate.setDate(eventDate.getDate() + 1 + idx);
+      eventDate.setHours(8 + (idx % 4) * 2, 30, 0, 0);
+
+      events.push({
+        country: currencyToCountry[evt.currency] || evt.currency,
+        currency: evt.currency,
+        event: evt.event,
+        time: eventDate.toISOString(),
+        impact: evt.impact,
+        forecast: undefined,
+        previous: undefined
+      });
+    });
+
+    return events;
+  }
+
+  async getUpcomingEventsForPair(symbol: string, daysAhead: number = 5): Promise<UpcomingEconomicEvent[]> {
+    const currencies = this.getForexCurrencies(symbol);
+    const baseCurrency = currencies?.base || symbol.slice(0, 3).toUpperCase();
+    const quoteCurrency = currencies?.quote || symbol.slice(3, 6).toUpperCase();
+    
+    let allEvents: EconomicCalendarEvent[];
+    
+    if (this.apiKey) {
+      allEvents = await this.fetchEconomicCalendar(daysAhead);
+      if (allEvents.length === 0) {
+        allEvents = this.getFallbackEconomicEventsForPair(baseCurrency, quoteCurrency);
+      }
+    } else {
+      allEvents = this.getFallbackEconomicEventsForPair(baseCurrency, quoteCurrency);
+    }
+    
+    const countryToCurrency: Record<string, string> = {
+      'US': 'USD', 'EU': 'EUR', 'GB': 'GBP', 'JP': 'JPY',
+      'CH': 'CHF', 'AU': 'AUD', 'CA': 'CAD', 'NZ': 'NZD',
+      'United States': 'USD', 'Euro Area': 'EUR', 'Eurozone': 'EUR',
+      'United Kingdom': 'GBP', 'Japan': 'JPY', 'Switzerland': 'CHF',
+      'Australia': 'AUD', 'Canada': 'CAD', 'New Zealand': 'NZD'
+    };
+
+    const relevantCurrencies = [baseCurrency, quoteCurrency];
+
+    const now = Date.now();
+    const relevantEvents = allEvents
+      .filter(event => {
+        const eventCurrency = event.currency?.toUpperCase() || countryToCurrency[event.country] || '';
+        return relevantCurrencies.includes(eventCurrency) && 
+               (event.impact === 'high' || event.impact === 'medium');
+      })
+      .map((event, idx) => {
+        const eventDate = new Date(event.time);
+        const daysUntil = Math.ceil((eventDate.getTime() - now) / (1000 * 60 * 60 * 24));
+        const currency = event.currency?.toUpperCase() || countryToCurrency[event.country] || event.country;
+        
+        return {
+          id: `event-${idx}-${eventDate.getTime()}`,
+          event: event.event,
+          country: event.country,
+          currency,
+          datetime: eventDate.getTime(),
+          dateFormatted: eventDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
+          timeFormatted: eventDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+          daysUntil: Math.max(0, daysUntil),
+          impact: event.impact,
+          forecast: event.forecast,
+          previous: event.previous,
+          potentialImpact: this.getEventPotentialImpact(event.event, currency, relevantCurrencies)
+        };
+      })
+      .filter(event => event.daysUntil >= 0 && event.daysUntil <= daysAhead)
+      .sort((a, b) => a.datetime - b.datetime)
+      .slice(0, 8);
+
+    return relevantEvents;
+  }
+
+  private getEventPotentialImpact(eventName: string, currency: string, pairCurrencies: string[]): string {
+    const eventLower = eventName.toLowerCase();
+    const isBase = pairCurrencies[0] === currency;
+    const direction = isBase ? 'pair' : 'inverse';
+    
+    if (eventLower.includes('interest rate') || eventLower.includes('rate decision')) {
+      return `Major market mover. ${isBase ? 'Higher rates bullish' : 'Higher rates bearish'} for ${direction}.`;
+    }
+    if (eventLower.includes('non-farm') || eventLower.includes('nfp') || eventLower.includes('payroll')) {
+      return `High volatility expected. Strong data ${isBase ? 'bullish' : 'bearish'} for the pair.`;
+    }
+    if (eventLower.includes('cpi') || eventLower.includes('inflation')) {
+      return `Inflation data impacts rate expectations. Watch for breakout moves.`;
+    }
+    if (eventLower.includes('gdp')) {
+      return `Growth data affects ${currency} strength. May cause trend continuation or reversal.`;
+    }
+    if (eventLower.includes('retail')) {
+      return `Consumer spending indicator. Can trigger intraday volatility.`;
+    }
+    return `Monitor for potential ${currency} volatility around release time.`;
+  }
+
   async analyzeTradingTiming(
     symbol: string, 
     chartDirection: 'BUY' | 'SELL' | 'NEUTRAL',
     chartConfidence: number
   ): Promise<TradingTimingAnalysis> {
-    const { combined } = await this.fetchPairSpecificNews(symbol, 3);
+    const [newsResult, upcomingEvents] = await Promise.all([
+      this.fetchPairSpecificNews(symbol, 3),
+      this.getUpcomingEventsForPair(symbol, 5)
+    ]);
+    
+    const { combined } = newsResult;
     const analyzedNews = await this.analyzeIndividualArticles(combined, symbol);
     
     const recentBullishNews = analyzedNews.filter(n => n.sentiment.label === 'bullish');
@@ -844,6 +1065,9 @@ ${headlines}`
     let recommendation: string;
     let optimalEntryWindow: string;
 
+    const imminentHighImpact = upcomingEvents.filter(e => e.impact === 'high' && e.daysUntil <= 1);
+    const hasImminentEvents = imminentHighImpact.length > 0;
+
     if (chartDirection === 'NEUTRAL' || newsDirection === 'NEUTRAL') {
       alignment = 'neutral';
       confidenceLevel = 40;
@@ -853,7 +1077,11 @@ ${headlines}`
       alignment = 'aligned';
       confidenceLevel = Math.min(90, chartConfidence + 20);
       
-      if (highRelevanceBullish > 0 || highRelevanceBearish > 0) {
+      if (hasImminentEvents) {
+        confidenceLevel = Math.max(50, confidenceLevel - 20);
+        optimalEntryWindow = `Consider waiting until after ${imminentHighImpact[0].event}`;
+        recommendation = `${chartDirection} signal aligned with news, but high-impact event coming soon. Consider waiting or using tighter stops.`;
+      } else if (highRelevanceBullish > 0 || highRelevanceBearish > 0) {
         optimalEntryWindow = 'Now - within next 4 hours (recent news supports pattern)';
         recommendation = `Strong ${chartDirection} signal! News sentiment aligns with chart patterns. Consider entering soon while news momentum is fresh.`;
       } else {
@@ -868,6 +1096,11 @@ ${headlines}`
       recommendation = `Conflicting signals detected. Recent news suggests ${newsDirection} while charts show ${chartDirection}. Wait for news and patterns to align before entering.`;
     }
 
+    if (hasImminentEvents && !warningMessage) {
+      const eventNames = imminentHighImpact.map(e => e.event).join(', ');
+      warningMessage = `⚠️ High-impact event(s) coming soon: ${eventNames}. Expect increased volatility.`;
+    }
+
     return {
       optimalEntryWindow,
       newsPatternAlignment: alignment,
@@ -876,7 +1109,8 @@ ${headlines}`
       recentBullishNews: recentBullishNews.slice(0, 5),
       recentBearishNews: recentBearishNews.slice(0, 5),
       recentNeutralNews: recentNeutralNews.slice(0, 3),
-      warningMessage
+      warningMessage,
+      upcomingEvents
     };
   }
 }
