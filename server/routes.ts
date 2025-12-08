@@ -2620,11 +2620,17 @@ Return ONLY a JSON object with this structure:
       const user = req.user as User;
       let { chartAnalyses, unifiedSignal } = req.body;
       
+      let chartImagePath: string | undefined;
+      
       if (!chartAnalyses || chartAnalyses.length === 0) {
         const userAnalyses = await storage.getChartAnalysesByUserId(user.id);
         const symbolAnalyses = userAnalyses
           .filter((a: any) => a.symbol?.toLowerCase() === ea.symbol.toLowerCase())
           .slice(0, 6);
+        
+        if (symbolAnalyses.length > 0 && symbolAnalyses[0].imageUrl) {
+          chartImagePath = symbolAnalyses[0].imageUrl;
+        }
         
         chartAnalyses = symbolAnalyses.map((a: any) => ({
           timeframe: a.timeframe || '1H',
@@ -2694,7 +2700,8 @@ Return ONLY a JSON object with this structure:
         chartAnalyses: chartAnalyses || [],
         unifiedSignal: unifiedSignal || null,
         creatorName: user.username,
-        newsSentiment
+        newsSentiment,
+        chartImagePath
       });
       
       const shareId = Date.now().toString(36) + Math.random().toString(36).substring(2, 7);

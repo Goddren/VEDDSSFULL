@@ -47,6 +47,7 @@ interface ShareCardData {
   unifiedSignal?: UnifiedSignal;
   creatorName: string;
   newsSentiment?: NewsSentimentData;
+  chartImagePath?: string;
 }
 
 const CARD_WIDTH = 1200;
@@ -113,7 +114,56 @@ export async function generateShareCard(data: ShareCardData): Promise<Buffer> {
   ctx.fillStyle = '#94a3b8';
   ctx.font = '24px Arial, sans-serif';
   ctx.fillText(`${data.symbol} | ${data.platformType} | by ${data.creatorName}`, PADDING, yPos);
-  yPos += 60;
+  yPos += 40;
+
+  if (data.chartImagePath) {
+    try {
+      let imagePath = data.chartImagePath;
+      if (imagePath.startsWith('/')) {
+        imagePath = imagePath.substring(1);
+      }
+      const fullImagePath = path.join(process.cwd(), imagePath);
+      
+      if (fs.existsSync(fullImagePath)) {
+        const chartImage = await loadImage(fullImagePath);
+        
+        const maxWidth = CARD_WIDTH - PADDING * 2;
+        const maxHeight = 350;
+        
+        let drawWidth = chartImage.width;
+        let drawHeight = chartImage.height;
+        
+        if (drawWidth > maxWidth) {
+          const ratio = maxWidth / drawWidth;
+          drawWidth = maxWidth;
+          drawHeight = drawHeight * ratio;
+        }
+        
+        if (drawHeight > maxHeight) {
+          const ratio = maxHeight / drawHeight;
+          drawHeight = maxHeight;
+          drawWidth = drawWidth * ratio;
+        }
+        
+        const xOffset = (CARD_WIDTH - drawWidth) / 2;
+        
+        ctx.fillStyle = CARD_BG;
+        roundRect(ctx, PADDING, yPos, CARD_WIDTH - PADDING * 2, drawHeight + 20, 12);
+        ctx.fill();
+        
+        ctx.strokeStyle = BRAND_COLOR;
+        ctx.lineWidth = 2;
+        roundRect(ctx, PADDING, yPos, CARD_WIDTH - PADDING * 2, drawHeight + 20, 12);
+        ctx.stroke();
+        
+        ctx.drawImage(chartImage, xOffset, yPos + 10, drawWidth, drawHeight);
+        
+        yPos += drawHeight + 50;
+      }
+    } catch (error) {
+      console.log('Could not load chart image for share card:', error);
+    }
+  }
 
   if (data.unifiedSignal) {
     ctx.fillStyle = CARD_BG;
