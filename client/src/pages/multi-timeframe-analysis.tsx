@@ -345,13 +345,34 @@ export default function MultiTimeframeAnalysis() {
         throw new Error('No generated code to save');
       }
 
+      const chartAnalysisData = Object.values(timeframeUploads)
+        .filter(tf => tf.analysis !== null)
+        .map(tf => ({
+          timeframe: tf.timeframe,
+          direction: tf.analysis?.direction || 'NEUTRAL',
+          confidence: tf.analysis?.confidence || '50',
+          patterns: (tf.analysis?.patterns || []).map((p: any) => typeof p === 'string' ? p : p.name),
+          entryPoint: tf.analysis?.entryPoint || 'N/A',
+          stopLoss: tf.analysis?.stopLoss || 'N/A',
+          takeProfit: tf.analysis?.takeProfit || 'N/A',
+          trend: tf.analysis?.trend || 'Unknown',
+          riskRewardRatio: tf.analysis?.riskRewardRatio || '1:2'
+        }));
+
       const response: any = await apiRequest('POST', '/api/save-ea', {
         name: eaName,
         description: eaDescription,
         platformType: selectedPlatform,
         eaCode: (generateCodeMutation.data as any).code,
         symbol: symbol || 'UNKNOWN',
-        strategyType
+        strategyType,
+        direction: unifiedSignal?.direction || 'NEUTRAL',
+        confidence: unifiedSignal?.confidence || '50',
+        entryPoint: unifiedSignal?.entryPoint || 'N/A',
+        stopLoss: unifiedSignal?.stopLoss || 'N/A',
+        takeProfit: unifiedSignal?.takeProfit || 'N/A',
+        chartAnalysisData,
+        multiTimeframeGroupId: groupId
       }).then(res => res.json());
 
       return response;

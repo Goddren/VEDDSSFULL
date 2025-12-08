@@ -329,6 +329,13 @@ export const savedEAs = pgTable("saved_eas", {
   eaCode: text("ea_code").notNull(),
   symbol: text("symbol").notNull(),
   strategyType: text("strategy_type"),
+  direction: text("direction"), // BUY, SELL, or NEUTRAL - the trade direction from analysis
+  confidence: text("confidence"), // Confidence percentage from analysis
+  entryPoint: text("entry_point"), // Entry price from analysis
+  stopLoss: text("stop_loss"), // Stop loss from analysis
+  takeProfit: text("take_profit"), // Take profit from analysis
+  chartAnalysisData: jsonb("chart_analysis_data"), // Full analysis summary for share card
+  multiTimeframeGroupId: text("multi_timeframe_group_id"), // Links to multi-timeframe analyses
   isShared: boolean("is_shared").default(false),
   price: integer("price"), // Price in cents, null if not shared
   shareCount: integer("share_count").default(0),
