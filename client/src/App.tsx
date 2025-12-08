@@ -26,6 +26,7 @@ import TermsPage from "@/pages/terms";
 import SecurityPage from "@/pages/security";
 import AnalysisDetail from "@/pages/analysis-detail";
 import SharedAnalysisPage from "@/pages/shared-analysis";
+import EASharePage from "@/pages/ea-share";
 import VolatilityMeterShowcase from "@/pages/volatility-meter-showcase";
 import MarketInsightsPage from "@/pages/market-insights";
 import MarketTrendGamePage from "@/pages/market-trend-game";
@@ -78,6 +79,7 @@ function AppLayout() {
             <Route path="/subscription" component={SubscriptionPage} />
             <Route path="/blog" component={BlogPage} />
             <Route path="/shared/:shareId" component={SharedAnalysisPage} />
+            <Route path="/share/:slug" component={EASharePage} />
             <Route path="/volatility-meter" component={VolatilityMeterShowcase} />
             
             {/* Footer pages */}

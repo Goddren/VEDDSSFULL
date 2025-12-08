@@ -213,7 +213,7 @@ export function ShareCardDialog({
                 <Button
                   variant="outline"
                   className="flex-1"
-                  onClick={() => window.open(shareData.shareUrl, '_blank')}
+                  onClick={() => window.open(`${window.location.origin}${shareData.shareUrl}`, '_blank', 'noopener,noreferrer')}
                   data-testid="button-view-share-page"
                 >
                   <ExternalLink className="w-4 h-4 mr-2" />
