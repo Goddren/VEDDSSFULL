@@ -2614,7 +2614,52 @@ Return ONLY a JSON object with this structure:
       if (ea.userId !== (req.user as User).id) return res.status(403).json({ error: "Forbidden" });
       
       const user = req.user as User;
-      const { chartAnalyses, unifiedSignal } = req.body;
+      let { chartAnalyses, unifiedSignal } = req.body;
+      
+      if (!chartAnalyses || chartAnalyses.length === 0) {
+        const userAnalyses = await storage.getAnalyses(user.id);
+        const symbolAnalyses = userAnalyses
+          .filter((a: any) => a.symbol?.toLowerCase() === ea.symbol.toLowerCase())
+          .slice(0, 6);
+        
+        chartAnalyses = symbolAnalyses.map((a: any) => ({
+          timeframe: a.timeframe || '1H',
+          direction: a.direction,
+          confidence: a.confidence,
+          patterns: Array.isArray(a.patterns) ? a.patterns.map((p: any) => p.name || p) : [],
+          entryPoint: a.entryPoint,
+          stopLoss: a.stopLoss,
+          takeProfit: a.takeProfit,
+          trend: a.trend,
+          currentPrice: a.price,
+          riskRewardRatio: a.riskRewardRatio,
+          potentialPips: a.potentialPips,
+          volatilityScore: 50,
+          recommendation: a.recommendation,
+          supportResistance: Array.isArray(a.supportResistance) ? a.supportResistance.slice(0, 4) : []
+        }));
+
+        if (chartAnalyses.length > 0) {
+          const buyCount = chartAnalyses.filter((a: any) => 
+            a.direction.toUpperCase() === 'BUY' || a.direction.toUpperCase() === 'BULLISH'
+          ).length;
+          const sellCount = chartAnalyses.filter((a: any) => 
+            a.direction.toUpperCase() === 'SELL' || a.direction.toUpperCase() === 'BEARISH'
+          ).length;
+          const avgConfidence = Math.round(
+            chartAnalyses.reduce((sum: number, a: any) => sum + parseInt(a.confidence) || 0, 0) / chartAnalyses.length
+          );
+          
+          unifiedSignal = {
+            direction: buyCount > sellCount ? 'BUY' : sellCount > buyCount ? 'SELL' : 'NEUTRAL',
+            confidence: avgConfidence,
+            entryPrice: chartAnalyses[0]?.entryPoint || 'N/A',
+            stopLoss: chartAnalyses[0]?.stopLoss || 'N/A',
+            takeProfit: chartAnalyses[0]?.takeProfit || 'N/A',
+            riskReward: chartAnalyses[0]?.riskRewardRatio || '1:2'
+          };
+        }
+      }
       
       const { generateShareCard } = await import('./share-card-service');
       const { getDailyScripture } = await import('./scripture-helper');
