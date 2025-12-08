@@ -2928,6 +2928,62 @@ Return ONLY a JSON object with this structure:
     }
   });
 
+  // Trading timing analysis - compares news with chart patterns
+  app.post("/api/news/trading-timing", async (req: Request, res: Response) => {
+    try {
+      const { symbol, chartDirection, chartConfidence } = req.body;
+      
+      if (!symbol) {
+        return res.status(400).json({ error: "Symbol is required" });
+      }
+      
+      const direction = (chartDirection || 'NEUTRAL').toUpperCase() as 'BUY' | 'SELL' | 'NEUTRAL';
+      const confidence = typeof chartConfidence === 'number' ? chartConfidence : 50;
+      
+      const timingAnalysis = await newsService.analyzeTradingTiming(symbol, direction, confidence);
+      
+      res.json({
+        symbol,
+        chartDirection: direction,
+        chartConfidence: confidence,
+        ...timingAnalysis
+      });
+    } catch (error) {
+      console.error('Error analyzing trading timing:', error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to analyze trading timing" });
+    }
+  });
+
+  // Get news with individual article sentiments
+  app.get("/api/news/analyzed/:symbol", async (req: Request, res: Response) => {
+    try {
+      const { symbol } = req.params;
+      const daysBack = parseInt(req.query.days as string) || 7;
+      
+      const { combined } = await newsService.fetchPairSpecificNews(symbol, daysBack);
+      const analyzedNews = await newsService.analyzeIndividualArticles(combined, symbol);
+      
+      const bullishNews = analyzedNews.filter(n => n.sentiment.label === 'bullish');
+      const bearishNews = analyzedNews.filter(n => n.sentiment.label === 'bearish');
+      const neutralNews = analyzedNews.filter(n => n.sentiment.label === 'neutral');
+      
+      res.json({
+        symbol,
+        totalArticles: analyzedNews.length,
+        bullishCount: bullishNews.length,
+        bearishCount: bearishNews.length,
+        neutralCount: neutralNews.length,
+        articles: analyzedNews,
+        bullishNews,
+        bearishNews,
+        neutralNews
+      });
+    } catch (error) {
+      console.error('Error fetching analyzed news:', error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to fetch analyzed news" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

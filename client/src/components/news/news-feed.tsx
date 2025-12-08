@@ -288,3 +288,313 @@ export function NewsSentimentWidget({ symbol }: { symbol: string }) {
     </div>
   );
 }
+
+interface AnalyzedNewsItem {
+  id: string;
+  headline: string;
+  summary: string;
+  source: string;
+  url: string;
+  datetime: number;
+  sentiment: {
+    score: number;
+    label: 'bullish' | 'bearish' | 'neutral';
+  };
+  relativeTime: string;
+  tradingRelevance: 'high' | 'medium' | 'low';
+}
+
+interface TradingTimingData {
+  symbol: string;
+  chartDirection: string;
+  chartConfidence: number;
+  optimalEntryWindow: string;
+  newsPatternAlignment: 'aligned' | 'conflicting' | 'neutral';
+  confidenceLevel: number;
+  recommendation: string;
+  recentBullishNews: AnalyzedNewsItem[];
+  recentBearishNews: AnalyzedNewsItem[];
+  recentNeutralNews: AnalyzedNewsItem[];
+  warningMessage?: string;
+}
+
+interface TradingTimingProps {
+  symbol: string;
+  chartDirection: 'BUY' | 'SELL' | 'NEUTRAL';
+  chartConfidence: number;
+}
+
+export function TradingTimingWidget({ symbol, chartDirection, chartConfidence }: TradingTimingProps) {
+  const { data, isLoading, error } = useQuery<TradingTimingData>({
+    queryKey: ['/api/news/trading-timing', symbol, chartDirection, chartConfidence],
+    queryFn: async () => {
+      const res = await apiRequest('POST', '/api/news/trading-timing', { 
+        symbol, 
+        chartDirection, 
+        chartConfidence 
+      });
+      if (!res.ok) throw new Error('Failed to analyze trading timing');
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardContent className="p-4">
+          <Skeleton className="h-6 w-48 mb-2" />
+          <Skeleton className="h-4 w-full mb-2" />
+          <Skeleton className="h-4 w-3/4" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <Card>
+        <CardContent className="p-4">
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <AlertCircle className="w-4 h-4" />
+            <span className="text-sm">Unable to analyze trading timing</span>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const alignmentColors = {
+    aligned: 'bg-green-500/10 border-green-500/30 text-green-600',
+    conflicting: 'bg-red-500/10 border-red-500/30 text-red-600',
+    neutral: 'bg-yellow-500/10 border-yellow-500/30 text-yellow-600'
+  };
+
+  const alignmentIcons = {
+    aligned: <TrendingUp className="w-5 h-5" />,
+    conflicting: <AlertCircle className="w-5 h-5" />,
+    neutral: <Minus className="w-5 h-5" />
+  };
+
+  return (
+    <Card className={`border-2 ${alignmentColors[data.newsPatternAlignment]}`}>
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Clock className="w-5 h-5" />
+            Trading Timing Analysis
+          </CardTitle>
+          <Badge 
+            variant="outline" 
+            className={alignmentColors[data.newsPatternAlignment]}
+          >
+            {alignmentIcons[data.newsPatternAlignment]}
+            <span className="ml-1 capitalize">{data.newsPatternAlignment}</span>
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {data.warningMessage && (
+          <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-red-600 text-sm font-medium">
+            {data.warningMessage}
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 gap-4">
+          <div className="bg-background/50 rounded-lg p-3">
+            <div className="text-xs text-muted-foreground mb-1">Entry Window</div>
+            <div className="text-sm font-medium">{data.optimalEntryWindow}</div>
+          </div>
+          <div className="bg-background/50 rounded-lg p-3">
+            <div className="text-xs text-muted-foreground mb-1">Confidence</div>
+            <div className="text-sm font-medium">{data.confidenceLevel}%</div>
+          </div>
+        </div>
+
+        <div className="bg-background/50 rounded-lg p-3">
+          <div className="text-xs text-muted-foreground mb-1">Recommendation</div>
+          <p className="text-sm">{data.recommendation}</p>
+        </div>
+
+        {data.recentBullishNews.length > 0 && (
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <TrendingUp className="w-4 h-4 text-green-500" />
+              <span className="text-sm font-medium text-green-500">Bullish News ({data.recentBullishNews.length})</span>
+            </div>
+            <div className="space-y-2">
+              {data.recentBullishNews.slice(0, 3).map((article) => (
+                <AnalyzedNewsCard key={article.id} article={article} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {data.recentBearishNews.length > 0 && (
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <TrendingDown className="w-4 h-4 text-red-500" />
+              <span className="text-sm font-medium text-red-500">Bearish News ({data.recentBearishNews.length})</span>
+            </div>
+            <div className="space-y-2">
+              {data.recentBearishNews.slice(0, 3).map((article) => (
+                <AnalyzedNewsCard key={article.id} article={article} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {data.recentNeutralNews.length > 0 && data.recentBullishNews.length === 0 && data.recentBearishNews.length === 0 && (
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <Minus className="w-4 h-4 text-yellow-500" />
+              <span className="text-sm font-medium text-yellow-500">Neutral News ({data.recentNeutralNews.length})</span>
+            </div>
+            <div className="space-y-2">
+              {data.recentNeutralNews.slice(0, 2).map((article) => (
+                <AnalyzedNewsCard key={article.id} article={article} />
+              ))}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function AnalyzedNewsCard({ article }: { article: AnalyzedNewsItem }) {
+  const sentimentColors = {
+    bullish: 'border-l-green-500 bg-green-500/5',
+    bearish: 'border-l-red-500 bg-red-500/5',
+    neutral: 'border-l-yellow-500 bg-yellow-500/5'
+  };
+
+  const relevanceColors = {
+    high: 'bg-green-500 text-white',
+    medium: 'bg-yellow-500 text-black',
+    low: 'bg-gray-400 text-white'
+  };
+
+  return (
+    <div className={`border-l-4 ${sentimentColors[article.sentiment.label]} rounded-r-lg p-2`}>
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-sm font-medium line-clamp-2 flex-1">{article.headline}</p>
+        <Badge variant="secondary" className={`${relevanceColors[article.tradingRelevance]} text-xs shrink-0`}>
+          {article.tradingRelevance}
+        </Badge>
+      </div>
+      <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
+        <Clock className="w-3 h-3" />
+        <span>{article.relativeTime}</span>
+        <span>•</span>
+        <span>{article.source}</span>
+        <span>•</span>
+        <span className={article.sentiment.label === 'bullish' ? 'text-green-500' : article.sentiment.label === 'bearish' ? 'text-red-500' : 'text-yellow-500'}>
+          Score: {article.sentiment.score > 0 ? '+' : ''}{article.sentiment.score}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+interface AnalyzedNewsFeedProps {
+  symbol: string;
+  maxItems?: number;
+}
+
+export function AnalyzedNewsFeed({ symbol, maxItems = 10 }: AnalyzedNewsFeedProps) {
+  const { data, isLoading, error } = useQuery<{
+    symbol: string;
+    articles: AnalyzedNewsItem[];
+    bullishCount: number;
+    bearishCount: number;
+    neutralCount: number;
+  }>({
+    queryKey: ['/api/news/analyzed', symbol],
+    queryFn: async () => {
+      const res = await apiRequest('GET', `/api/news/analyzed/${symbol}`);
+      if (!res.ok) throw new Error('Failed to fetch analyzed news');
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Newspaper className="w-5 h-5" />
+            {symbol} News Analysis
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {[...Array(3)].map((_, i) => (
+            <div key={i} className="space-y-2">
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-3 w-2/3" />
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Newspaper className="w-5 h-5" />
+            {symbol} News Analysis
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <AlertCircle className="w-4 h-4" />
+            <span className="text-sm">Unable to load analyzed news</span>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const articles = data.articles?.slice(0, maxItems) || [];
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Newspaper className="w-5 h-5" />
+            {symbol} News Analysis
+          </CardTitle>
+          <div className="flex gap-2">
+            <Badge variant="outline" className="bg-green-500/10 text-green-500 border-green-500/30">
+              <TrendingUp className="w-3 h-3 mr-1" />
+              {data.bullishCount}
+            </Badge>
+            <Badge variant="outline" className="bg-red-500/10 text-red-500 border-red-500/30">
+              <TrendingDown className="w-3 h-3 mr-1" />
+              {data.bearishCount}
+            </Badge>
+            <Badge variant="outline" className="bg-yellow-500/10 text-yellow-500 border-yellow-500/30">
+              <Minus className="w-3 h-3 mr-1" />
+              {data.neutralCount}
+            </Badge>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {articles.map((article) => (
+          <AnalyzedNewsCard key={article.id} article={article} />
+        ))}
+        {articles.length === 0 && (
+          <p className="text-sm text-muted-foreground text-center py-4">
+            No analyzed news available
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}

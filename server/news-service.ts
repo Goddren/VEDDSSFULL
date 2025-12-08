@@ -29,6 +29,26 @@ export interface NewsSentiment {
   tradingImplication: string;
 }
 
+export interface AnalyzedNewsItem extends NewsItem {
+  sentiment: {
+    score: number;
+    label: 'bullish' | 'bearish' | 'neutral';
+  };
+  relativeTime: string;
+  tradingRelevance: 'high' | 'medium' | 'low';
+}
+
+export interface TradingTimingAnalysis {
+  optimalEntryWindow: string;
+  newsPatternAlignment: 'aligned' | 'conflicting' | 'neutral';
+  confidenceLevel: number;
+  recommendation: string;
+  recentBullishNews: AnalyzedNewsItem[];
+  recentBearishNews: AnalyzedNewsItem[];
+  recentNeutralNews: AnalyzedNewsItem[];
+  warningMessage?: string;
+}
+
 class NewsService {
   private apiKey: string | null = null;
   private openai: OpenAI | null = null;
@@ -541,6 +561,178 @@ Return JSON:
       totalArticles: 0,
       topHeadlines: [],
       tradingImplication: 'No news data available. Focus on technical analysis.'
+    };
+  }
+
+  private getRelativeTime(timestamp: number): string {
+    const now = Date.now();
+    const diff = now - timestamp;
+    const minutes = Math.floor(diff / 60000);
+    const hours = Math.floor(diff / 3600000);
+    const days = Math.floor(diff / 86400000);
+
+    if (minutes < 60) return `${minutes}m ago`;
+    if (hours < 24) return `${hours}h ago`;
+    if (days === 1) return 'Yesterday';
+    if (days < 7) return `${days}d ago`;
+    return new Date(timestamp).toLocaleDateString();
+  }
+
+  private getTradingRelevance(timestamp: number): 'high' | 'medium' | 'low' {
+    const now = Date.now();
+    const diff = now - timestamp;
+    const hours = diff / 3600000;
+
+    if (hours < 4) return 'high';
+    if (hours < 24) return 'medium';
+    return 'low';
+  }
+
+  async analyzeIndividualArticles(news: NewsItem[], symbol: string): Promise<AnalyzedNewsItem[]> {
+    if (!this.openai || news.length === 0) {
+      return news.map(item => this.basicArticleSentiment(item));
+    }
+
+    try {
+      const headlines = news.slice(0, 15).map((n, i) => `${i + 1}. ${n.headline}`).join('\n');
+      
+      const response = await this.openai.chat.completions.create({
+        model: 'gpt-4o',
+        messages: [
+          {
+            role: 'system',
+            content: `You are a financial news sentiment analyzer for ${symbol}. Analyze each headline individually and rate its sentiment for trading.`
+          },
+          {
+            role: 'user',
+            content: `Analyze each headline's sentiment for ${symbol} trading. Return JSON array:
+[
+  { "index": 1, "sentiment": "bullish" | "bearish" | "neutral", "score": -100 to 100 },
+  ...
+]
+
+Headlines:
+${headlines}`
+          }
+        ],
+        response_format: { type: 'json_object' },
+        max_tokens: 800
+      });
+
+      const result = JSON.parse(response.choices[0].message.content || '{"sentiments":[]}');
+      const sentiments = Array.isArray(result) ? result : (result.sentiments || []);
+
+      return news.slice(0, 15).map((item, index) => {
+        const analysis = sentiments.find((s: any) => s.index === index + 1);
+        const validLabels: ('bullish' | 'bearish' | 'neutral')[] = ['bullish', 'bearish', 'neutral'];
+        const label = analysis && validLabels.includes(analysis.sentiment) 
+          ? analysis.sentiment as 'bullish' | 'bearish' | 'neutral'
+          : 'neutral';
+        
+        return {
+          ...item,
+          sentiment: {
+            score: analysis?.score || 0,
+            label
+          },
+          relativeTime: this.getRelativeTime(item.datetime),
+          tradingRelevance: this.getTradingRelevance(item.datetime)
+        };
+      });
+    } catch (error) {
+      console.error('Error analyzing individual articles:', error);
+      return news.map(item => this.basicArticleSentiment(item));
+    }
+  }
+
+  private basicArticleSentiment(item: NewsItem): AnalyzedNewsItem {
+    const bullishWords = ['surge', 'rally', 'gain', 'jump', 'rise', 'soar', 'bullish', 'growth', 'profit', 'beat', 'outperform', 'upgrade', 'buy', 'positive', 'strong', 'record', 'high'];
+    const bearishWords = ['fall', 'drop', 'decline', 'crash', 'plunge', 'bearish', 'loss', 'miss', 'underperform', 'downgrade', 'sell', 'negative', 'weak', 'low', 'concern', 'fear', 'risk'];
+
+    const text = (item.headline + ' ' + item.summary).toLowerCase();
+    const bullishMatches = bullishWords.filter(w => text.includes(w)).length;
+    const bearishMatches = bearishWords.filter(w => text.includes(w)).length;
+
+    let label: 'bullish' | 'bearish' | 'neutral' = 'neutral';
+    let score = 0;
+
+    if (bullishMatches > bearishMatches) {
+      label = 'bullish';
+      score = Math.min(bullishMatches * 20, 80);
+    } else if (bearishMatches > bullishMatches) {
+      label = 'bearish';
+      score = -Math.min(bearishMatches * 20, 80);
+    }
+
+    return {
+      ...item,
+      sentiment: { score, label },
+      relativeTime: this.getRelativeTime(item.datetime),
+      tradingRelevance: this.getTradingRelevance(item.datetime)
+    };
+  }
+
+  async analyzeTradingTiming(
+    symbol: string, 
+    chartDirection: 'BUY' | 'SELL' | 'NEUTRAL',
+    chartConfidence: number
+  ): Promise<TradingTimingAnalysis> {
+    const { combined } = await this.fetchPairSpecificNews(symbol, 3);
+    const analyzedNews = await this.analyzeIndividualArticles(combined, symbol);
+    
+    const recentBullishNews = analyzedNews.filter(n => n.sentiment.label === 'bullish');
+    const recentBearishNews = analyzedNews.filter(n => n.sentiment.label === 'bearish');
+    const recentNeutralNews = analyzedNews.filter(n => n.sentiment.label === 'neutral');
+
+    const highRelevanceBullish = recentBullishNews.filter(n => n.tradingRelevance === 'high').length;
+    const highRelevanceBearish = recentBearishNews.filter(n => n.tradingRelevance === 'high').length;
+
+    let newsDirection: 'BUY' | 'SELL' | 'NEUTRAL' = 'NEUTRAL';
+    if (highRelevanceBullish > highRelevanceBearish + 1) {
+      newsDirection = 'BUY';
+    } else if (highRelevanceBearish > highRelevanceBullish + 1) {
+      newsDirection = 'SELL';
+    }
+
+    let alignment: 'aligned' | 'conflicting' | 'neutral' = 'neutral';
+    let confidenceLevel = 50;
+    let warningMessage: string | undefined;
+    let recommendation: string;
+    let optimalEntryWindow: string;
+
+    if (chartDirection === 'NEUTRAL' || newsDirection === 'NEUTRAL') {
+      alignment = 'neutral';
+      confidenceLevel = 40;
+      recommendation = 'Market signals are mixed. Wait for clearer direction from both news and technical patterns.';
+      optimalEntryWindow = 'Wait for confirmation';
+    } else if (chartDirection === newsDirection) {
+      alignment = 'aligned';
+      confidenceLevel = Math.min(90, chartConfidence + 20);
+      
+      if (highRelevanceBullish > 0 || highRelevanceBearish > 0) {
+        optimalEntryWindow = 'Now - within next 4 hours (recent news supports pattern)';
+        recommendation = `Strong ${chartDirection} signal! News sentiment aligns with chart patterns. Consider entering soon while news momentum is fresh.`;
+      } else {
+        optimalEntryWindow = 'Monitor for fresh news confirmation';
+        recommendation = `${chartDirection} signal with pattern alignment. Watch for new supporting news to time your entry.`;
+      }
+    } else {
+      alignment = 'conflicting';
+      confidenceLevel = Math.max(20, chartConfidence - 30);
+      warningMessage = `⚠️ CAUTION: News sentiment (${newsDirection}) conflicts with chart pattern (${chartDirection}). This is NOT an ideal time to trade.`;
+      optimalEntryWindow = 'Not recommended - wait for alignment';
+      recommendation = `Conflicting signals detected. Recent news suggests ${newsDirection} while charts show ${chartDirection}. Wait for news and patterns to align before entering.`;
+    }
+
+    return {
+      optimalEntryWindow,
+      newsPatternAlignment: alignment,
+      confidenceLevel,
+      recommendation,
+      recentBullishNews: recentBullishNews.slice(0, 5),
+      recentBearishNews: recentBearishNews.slice(0, 5),
+      recentNeutralNews: recentNeutralNews.slice(0, 3),
+      warningMessage
     };
   }
 }
