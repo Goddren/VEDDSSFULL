@@ -27,9 +27,17 @@ export class TwelveDataProvider implements MarketDataProvider {
   private normalizeSymbol(symbol: string, assetType: AssetType): string {
     let normalized = symbol.toUpperCase().replace('_', '/');
     
-    if (assetType === 'forex' && !normalized.includes('/')) {
-      if (normalized.length === 6) {
+    if (!normalized.includes('/')) {
+      if (assetType === 'forex' && normalized.length === 6) {
         normalized = `${normalized.slice(0, 3)}/${normalized.slice(3)}`;
+      } else if (assetType === 'crypto') {
+        const cryptoBases = ['BTC', 'ETH', 'XRP', 'LTC', 'ADA', 'DOT', 'DOGE', 'SOL', 'AVAX', 'MATIC', 'BNB', 'LINK'];
+        for (const base of cryptoBases) {
+          if (normalized.startsWith(base)) {
+            normalized = `${base}/${normalized.slice(base.length)}`;
+            break;
+          }
+        }
       }
     }
     
