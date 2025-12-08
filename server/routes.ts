@@ -2617,7 +2617,7 @@ Return ONLY a JSON object with this structure:
       let { chartAnalyses, unifiedSignal } = req.body;
       
       if (!chartAnalyses || chartAnalyses.length === 0) {
-        const userAnalyses = await storage.getAnalyses(user.id);
+        const userAnalyses = await storage.getChartAnalysesByUserId(user.id);
         const symbolAnalyses = userAnalyses
           .filter((a: any) => a.symbol?.toLowerCase() === ea.symbol.toLowerCase())
           .slice(0, 6);
