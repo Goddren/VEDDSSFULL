@@ -31,6 +31,7 @@ import TradingCoach from '@/components/trading-coach/trading-coach';
 import { DailyWisdom } from '@/components/scripture/daily-wisdom';
 import { DayNightScene } from '@/components/ui/day-night-scene';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
+import { NewsFeed } from '@/components/news/news-feed';
 
 interface Analysis {
   id: number;
@@ -414,6 +415,11 @@ const Dashboard: React.FC = () => {
                 <DailyWisdom />
               </div>
             )}
+            
+            {/* Market News Feed */}
+            <div className="mb-6">
+              <NewsFeed showSentiment={true} maxItems={5} compact={false} />
+            </div>
             
             {/* Trading Coach */}
             <Card className="bg-gray-900 border-gray-800 shadow-xl overflow-hidden mb-6">

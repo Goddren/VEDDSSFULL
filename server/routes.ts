@@ -28,6 +28,7 @@ import {
   insertAnalysisFeedbackSchema
 } from "@shared/schema";
 import { addTradeSetupAnnotations, createAnnotatedImageUrl } from "./image-processor";
+import { newsService, type NewsItem, type NewsSentiment } from "./news-service";
 
 // Configure multer for file uploads
 const upload = multer({
@@ -53,6 +54,9 @@ if (!fs.existsSync(uploadsDir)) {
 export async function registerRoutes(app: Express): Promise<Server> {
   // Initialize Twilio if credentials are available
   setupTwilio();
+  
+  // Initialize news service
+  newsService.initialize(process.env.FINNHUB_API_KEY, process.env.OPENAI_API_KEY);
   // Sample charts endpoint
   app.get("/api/sample-charts", (_req: Request, res: Response) => {
     // Return sample chart IDs - in production these would be real files
@@ -2664,13 +2668,33 @@ Return ONLY a JSON object with this structure:
       const { generateShareCard } = await import('./share-card-service');
       const { getDailyScripture } = await import('./scripture-helper');
       
+      let newsSentiment = undefined;
+      try {
+        const news = await newsService.fetchCompanyNews(ea.symbol, 3);
+        if (news.length > 0) {
+          const sentiment = await newsService.analyzeNewsSentiment(news, ea.symbol);
+          newsSentiment = {
+            overallScore: sentiment.overallScore,
+            overallLabel: sentiment.overallLabel,
+            bullishCount: sentiment.bullishCount,
+            bearishCount: sentiment.bearishCount,
+            neutralCount: sentiment.neutralCount,
+            totalArticles: sentiment.totalArticles,
+            tradingImplication: sentiment.tradingImplication
+          };
+        }
+      } catch (newsError) {
+        console.log('Could not fetch news sentiment for share card:', newsError);
+      }
+      
       const shareCardBuffer = await generateShareCard({
         eaName: ea.name,
         symbol: ea.symbol,
         platformType: ea.platformType,
         chartAnalyses: chartAnalyses || [],
         unifiedSignal: unifiedSignal || null,
-        creatorName: user.username
+        creatorName: user.username,
+        newsSentiment
       });
       
       const shareId = Date.now().toString(36) + Math.random().toString(36).substring(2, 7);
@@ -2776,6 +2800,63 @@ Return ONLY a JSON object with this structure:
       res.json({ success: true, platform });
     } catch (error) {
       res.status(500).json({ error: error instanceof Error ? error.message : "Failed to track share" });
+    }
+  });
+
+  // News API endpoints
+  app.get("/api/news/symbol/:symbol", async (req: Request, res: Response) => {
+    try {
+      const { symbol } = req.params;
+      const daysBack = parseInt(req.query.days as string) || 7;
+      
+      const news = await newsService.fetchCompanyNews(symbol, daysBack);
+      const sentiment = await newsService.analyzeNewsSentiment(news, symbol);
+      
+      res.json({ news, sentiment });
+    } catch (error) {
+      console.error('Error fetching news:', error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to fetch news" });
+    }
+  });
+
+  app.get("/api/news/market", async (req: Request, res: Response) => {
+    try {
+      const category = (req.query.category as string) || 'general';
+      
+      const news = await newsService.fetchMarketNews(category);
+      const sentiment = await newsService.analyzeNewsSentiment(news, 'market');
+      
+      res.json({ news, sentiment });
+    } catch (error) {
+      console.error('Error fetching market news:', error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to fetch market news" });
+    }
+  });
+
+  app.post("/api/news/analyze-sentiment", async (req: Request, res: Response) => {
+    try {
+      const { symbol } = req.body;
+      
+      if (!symbol) {
+        return res.status(400).json({ error: "Symbol is required" });
+      }
+      
+      const news = await newsService.fetchCompanyNews(symbol, 3);
+      const sentiment = await newsService.analyzeNewsSentiment(news, symbol);
+      
+      res.json({
+        symbol,
+        sentiment,
+        tradingSignal: {
+          direction: sentiment.overallLabel === 'bullish' ? 'BUY' : 
+                     sentiment.overallLabel === 'bearish' ? 'SELL' : 'NEUTRAL',
+          confidence: Math.abs(sentiment.overallScore),
+          reason: sentiment.tradingImplication
+        }
+      });
+    } catch (error) {
+      console.error('Error analyzing news sentiment:', error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to analyze sentiment" });
     }
   });
 

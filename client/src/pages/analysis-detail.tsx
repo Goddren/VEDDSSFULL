@@ -18,6 +18,7 @@ import { apiRequest } from '@/lib/queryClient';
 import { InteractiveInsightTooltip } from '@/components/ui/interactive-insight-tooltip';
 import { ChartInsightsPanel } from '@/components/market-insights/chart-insights-panel';
 import { MarketMoodDisplay } from '@/components/market/market-mood-display';
+import { NewsSentimentWidget, NewsFeed } from '@/components/news/news-feed';
 
 const AnalysisDetail: React.FC = () => {
   const { id } = useParams();
@@ -254,6 +255,12 @@ const AnalysisDetail: React.FC = () => {
               timeframe={analysis.timeframe || ''}
               volatility={0.5} // Default to medium volatility
             />
+            
+            {/* News Sentiment Widget */}
+            {analysis.symbol && (
+              <NewsSentimentWidget symbol={analysis.symbol} />
+            )}
+            
             <Card>
               <CardContent className="p-6">
                 <div className="flex items-center gap-2 mb-4">
@@ -395,6 +402,18 @@ const AnalysisDetail: React.FC = () => {
             news={newsEvents}
             className="mb-6"
           />
+        )}
+        
+        {/* Real-time News Feed for this symbol */}
+        {analysis.symbol && (
+          <div className="mb-6">
+            <NewsFeed 
+              symbol={analysis.symbol} 
+              showSentiment={true} 
+              maxItems={5} 
+              compact={true} 
+            />
+          </div>
         )}
 
         <div className="text-center mt-8">

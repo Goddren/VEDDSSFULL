@@ -20,6 +20,16 @@ interface ChartAnalysisSummary {
   supportResistance?: { type: string; price: string; strength: string }[];
 }
 
+interface NewsSentimentData {
+  overallScore: number;
+  overallLabel: 'bullish' | 'bearish' | 'neutral';
+  bullishCount: number;
+  bearishCount: number;
+  neutralCount: number;
+  totalArticles: number;
+  tradingImplication: string;
+}
+
 interface UnifiedSignal {
   direction: string;
   confidence: number;
@@ -36,6 +46,7 @@ interface ShareCardData {
   chartAnalyses: ChartAnalysisSummary[];
   unifiedSignal?: UnifiedSignal;
   creatorName: string;
+  newsSentiment?: NewsSentimentData;
 }
 
 const CARD_WIDTH = 1200;
@@ -238,6 +249,53 @@ export async function generateShareCard(data: ShareCardData): Promise<Buffer> {
 
   const numRows = Math.ceil(Math.min(data.chartAnalyses.length, 6) / 2);
   yPos += numRows * (analysisCardHeight + 15) + 30;
+
+  if (data.newsSentiment && data.newsSentiment.totalArticles > 0) {
+    ctx.fillStyle = TEXT_COLOR;
+    ctx.font = 'bold 24px Arial, sans-serif';
+    ctx.fillText('News Sentiment Analysis', PADDING, yPos);
+    yPos += 35;
+
+    const validLabels = ['bullish', 'bearish', 'neutral'];
+    const safeLabel = validLabels.includes(data.newsSentiment.overallLabel) 
+      ? data.newsSentiment.overallLabel 
+      : 'neutral';
+    
+    const sentimentColor = safeLabel === 'bullish' ? SUCCESS_COLOR :
+                           safeLabel === 'bearish' ? DANGER_COLOR : WARNING_COLOR;
+    
+    ctx.fillStyle = CARD_BG;
+    roundRect(ctx, PADDING, yPos, CARD_WIDTH - PADDING * 2, 100, 12);
+    ctx.fill();
+
+    const score = typeof data.newsSentiment.overallScore === 'number' ? data.newsSentiment.overallScore : 0;
+    ctx.fillStyle = sentimentColor;
+    ctx.font = 'bold 28px Arial, sans-serif';
+    const scoreText = score > 0 ? `+${score}` : `${score}`;
+    ctx.fillText(scoreText, PADDING + 20, yPos + 40);
+    
+    ctx.fillStyle = sentimentColor;
+    ctx.font = 'bold 18px Arial, sans-serif';
+    ctx.fillText(safeLabel.toUpperCase(), PADDING + 80, yPos + 40);
+
+    const bullishCount = data.newsSentiment.bullishCount || 0;
+    const bearishCount = data.newsSentiment.bearishCount || 0;
+    const neutralCount = data.newsSentiment.neutralCount || 0;
+    const totalArticles = data.newsSentiment.totalArticles || 0;
+
+    ctx.fillStyle = '#64748b';
+    ctx.font = '14px Arial, sans-serif';
+    ctx.fillText(`${bullishCount} Bullish  |  ${bearishCount} Bearish  |  ${neutralCount} Neutral`, PADDING + 20, yPos + 65);
+    ctx.fillText(`Based on ${totalArticles} recent news articles`, PADDING + 20, yPos + 85);
+
+    const signalIcon = safeLabel === 'bullish' ? '↑' : 
+                       safeLabel === 'bearish' ? '↓' : '→';
+    ctx.fillStyle = sentimentColor;
+    ctx.font = 'bold 40px Arial, sans-serif';
+    ctx.fillText(signalIcon, CARD_WIDTH - PADDING - 60, yPos + 55);
+
+    yPos += 130;
+  }
 
   if (firstAnalysis?.recommendation) {
     ctx.fillStyle = TEXT_COLOR;
