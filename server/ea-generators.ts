@@ -156,6 +156,25 @@ export function generateMT5EACode(
     .filter((v, i, a) => a.indexOf(v) === i) // unique indicators
     .join(', ');
   
+  // Extract candlestick significance from analysis
+  const candlestickSignificance = primaryTF.analysis.candlestickSignificance;
+  const candlestickSignal = candlestickSignificance?.overallSignal || 'Neutral';
+  const candlestickReliability = candlestickSignificance?.reliability || 'Medium';
+  const candlestickPatterns = candlestickSignificance?.patterns || [];
+  const candlestickPatternsStr = candlestickPatterns
+    .map((p: any) => `${p.name} (${p.type}, ${p.significance})`)
+    .join(', ') || 'None detected';
+  const candlestickKeyObservation = candlestickSignificance?.keyObservation || 'No significant patterns';
+  const candlestickTradingImplication = candlestickSignificance?.tradingImplication || 'Continue monitoring';
+  
+  // Determine if candlestick patterns support trade direction
+  const bullishCandlePatterns = candlestickPatterns.filter((p: any) => p.type === 'Bullish');
+  const bearishCandlePatterns = candlestickPatterns.filter((p: any) => p.type === 'Bearish');
+  const hasBullishCandles = bullishCandlePatterns.length > 0;
+  const hasBearishCandles = bearishCandlePatterns.length > 0;
+  const candleSignalBullish = candlestickSignal.toLowerCase().includes('buy') || candlestickSignal.toLowerCase().includes('bullish');
+  const candleSignalBearish = candlestickSignal.toLowerCase().includes('sell') || candlestickSignal.toLowerCase().includes('bearish');
+  
   // Get consensus direction - trust primary timeframe when there's a tie
   const buyCount = sortedTimeframes.filter(tf => tf.analysis.direction?.toUpperCase() === 'BUY').length;
   const sellCount = sortedTimeframes.filter(tf => tf.analysis.direction?.toUpperCase() === 'SELL').length;
@@ -275,6 +294,15 @@ enum ENUM_MULTI_TRADE_MODE
 // Take Profit (AI): ${takeProfit}
 // Risk/Reward Ratio: ${primaryTF.analysis.riskRewardRatio || '1:2'}
 //
+// CANDLESTICK SIGNIFICANCE ANALYSIS
+//========================================================================
+// Overall Signal: ${candlestickSignal} (${candlestickReliability} Reliability)
+// Detected Candlestick Patterns: ${candlestickPatternsStr}
+// Key Observation: ${candlestickKeyObservation}
+// Trading Implication: ${candlestickTradingImplication}
+// Bullish Patterns Found: ${hasBullishCandles ? bullishCandlePatterns.map((p: any) => p.name).join(', ') : 'None'}
+// Bearish Patterns Found: ${hasBearishCandles ? bearishCandlePatterns.map((p: any) => p.name).join(', ') : 'None'}
+//
 // TRADING STRATEGY - HYBRID APPROACH
 //========================================================================
 // This EA combines AI pattern analysis with technical indicator confirmation:
@@ -352,6 +380,17 @@ input int RSI_Oversold = ${strategyType === 'scalping' ? '25' : '30'};          
 input int MACD_FastEMA = 12;                    // MACD fast EMA period
 input int MACD_SlowEMA = 26;                    // MACD slow EMA period
 input int MACD_SignalSMA = 9;                   // MACD signal SMA period
+
+//--- Candlestick Pattern Recognition
+input group "=== Candlestick Pattern Recognition ==="
+input bool UseCandlestickPatterns = true;       // Enable candlestick pattern confirmation
+input bool RequireCandleConfirmation = false;   // Require candlestick pattern to match direction
+input double DojiThreshold = 0.1;               // Doji body/range ratio threshold (0.0-1.0)
+input double EngulfingMinRatio = 1.5;           // Min ratio for engulfing pattern
+input bool DetectDoji = true;                   // Detect Doji patterns
+input bool DetectHammer = true;                 // Detect Hammer/Hanging Man
+input bool DetectEngulfing = true;              // Detect Engulfing patterns
+input bool DetectMorningStar = true;            // Detect Morning/Evening Star
 input int ATR_Period = ${strategyType === 'scalping' ? '7' : '14'};                      // ATR period (shorter for scalping)
 input int Volume_MA_Period = ${strategyType === 'position_trading' ? '50' : '20'};                // Volume moving average period
 
@@ -431,6 +470,29 @@ bool rsi_ok = false, macd_ok = false, atr_ok = false;  // Indicator status flags
 bool first_trade_placed = false;  // Track if first trade has been placed
 datetime last_trade_day = 0;  // Track last trade day for one-trade-per-day limit
 int daily_trade_count = 0;  // Count trades opened today
+
+//--- Candlestick Pattern Variables (from AI Analysis)
+bool ai_bullish_candles = ${hasBullishCandles ? 'true' : 'false'};  // AI detected bullish patterns
+bool ai_bearish_candles = ${hasBearishCandles ? 'true' : 'false'};  // AI detected bearish patterns
+string ai_candle_signal = "${candlestickSignal}";  // Overall candlestick signal
+string ai_candle_reliability = "${candlestickReliability}";  // Pattern reliability
+
+//--- Candlestick Pattern Enumeration
+enum CANDLE_PATTERN
+{
+   PATTERN_NONE = 0,
+   PATTERN_DOJI = 1,
+   PATTERN_HAMMER = 2,
+   PATTERN_INVERTED_HAMMER = 3,
+   PATTERN_HANGING_MAN = 4,
+   PATTERN_SHOOTING_STAR = 5,
+   PATTERN_BULLISH_ENGULFING = 6,
+   PATTERN_BEARISH_ENGULFING = 7,
+   PATTERN_MORNING_STAR = 8,
+   PATTERN_EVENING_STAR = 9,
+   PATTERN_BULLISH_HARAMI = 10,
+   PATTERN_BEARISH_HARAMI = 11
+};
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
@@ -944,13 +1006,16 @@ bool CheckBullishCondition()
    // STRENGTH-BASED ENTRY REQUIREMENTS
    int confidence = current_ai_confidence;
    
+   // Candlestick pattern check (optional confirmation)
+   bool candle_ok = !RequireCandleConfirmation || HasBullishCandlePattern();
+   
    if(confidence >= 80)
    {
       // HIGH CONFIDENCE (80%+): Light confirmation needed
       // RSI just needs to not be extremely overbought
       if(rsi_ok)
-         return (rsi_buffer[0] < 80);
-      return true;
+         return (rsi_buffer[0] < 80) && candle_ok;
+      return candle_ok;
    }
    else if(confidence >= 50)
    {
@@ -964,7 +1029,7 @@ bool CheckBullishCondition()
       if(macd_ok)
          macd_check = (macd_main[0] > macd_signal[0]);  // MACD must be bullish
       
-      return rsi_check && macd_check;
+      return rsi_check && macd_check && candle_ok;
    }
    else
    {
@@ -980,7 +1045,10 @@ bool CheckBullishCondition()
       
       bool volume_check = CheckVolumeConfirmation();  // Volume must confirm
       
-      return rsi_check && macd_check && volume_check;
+      // For low confidence, candlestick patterns provide extra confirmation
+      bool candle_boost = HasBullishCandlePattern();
+      
+      return rsi_check && macd_check && volume_check && candle_boost;
    }
 }
 
@@ -1001,13 +1069,16 @@ bool CheckBearishCondition()
    // STRENGTH-BASED ENTRY REQUIREMENTS
    int confidence = current_ai_confidence;
    
+   // Candlestick pattern check (optional confirmation)
+   bool candle_ok = !RequireCandleConfirmation || HasBearishCandlePattern();
+   
    if(confidence >= 80)
    {
       // HIGH CONFIDENCE (80%+): Light confirmation needed
       // RSI just needs to not be extremely oversold
       if(rsi_ok)
-         return (rsi_buffer[0] > 20);
-      return true;
+         return (rsi_buffer[0] > 20) && candle_ok;
+      return candle_ok;
    }
    else if(confidence >= 50)
    {
@@ -1021,7 +1092,7 @@ bool CheckBearishCondition()
       if(macd_ok)
          macd_check = (macd_main[0] < macd_signal[0]);  // MACD must be bearish
       
-      return rsi_check && macd_check;
+      return rsi_check && macd_check && candle_ok;
    }
    else
    {
@@ -1037,7 +1108,10 @@ bool CheckBearishCondition()
       
       bool volume_check = CheckVolumeConfirmation();  // Volume must confirm
       
-      return rsi_check && macd_check && volume_check;
+      // For low confidence, candlestick patterns provide extra confirmation
+      bool candle_boost = HasBearishCandlePattern();
+      
+      return rsi_check && macd_check && volume_check && candle_boost;
    }
 }
 
@@ -1077,6 +1151,207 @@ bool CheckVolumeConfirmation()
    
    //--- Current volume should be higher than average of last 2 bars
    return volume[0] > (volume[1] + volume[2]) / 2;
+}
+
+//+------------------------------------------------------------------+
+//| CANDLESTICK PATTERN DETECTION FUNCTIONS                          |
+//+------------------------------------------------------------------+
+
+//+------------------------------------------------------------------+
+//| Detect Doji Pattern (small body, long wicks)                     |
+//+------------------------------------------------------------------+
+bool IsDoji(int shift = 0)
+{
+   if(!DetectDoji) return false;
+   
+   double open = iOpen(_Symbol, PERIOD_CURRENT, shift);
+   double close = iClose(_Symbol, PERIOD_CURRENT, shift);
+   double high = iHigh(_Symbol, PERIOD_CURRENT, shift);
+   double low = iLow(_Symbol, PERIOD_CURRENT, shift);
+   
+   double body = MathAbs(close - open);
+   double range = high - low;
+   
+   if(range == 0) return false;
+   return (body / range) < DojiThreshold;
+}
+
+//+------------------------------------------------------------------+
+//| Detect Hammer Pattern (bullish reversal)                         |
+//+------------------------------------------------------------------+
+bool IsHammer(int shift = 0)
+{
+   if(!DetectHammer) return false;
+   
+   double open = iOpen(_Symbol, PERIOD_CURRENT, shift);
+   double close = iClose(_Symbol, PERIOD_CURRENT, shift);
+   double high = iHigh(_Symbol, PERIOD_CURRENT, shift);
+   double low = iLow(_Symbol, PERIOD_CURRENT, shift);
+   
+   double body = MathAbs(close - open);
+   double range = high - low;
+   double upper_wick = high - MathMax(open, close);
+   double lower_wick = MathMin(open, close) - low;
+   
+   if(range == 0 || body == 0) return false;
+   
+   // Hammer: small body at top, long lower wick (2x body min)
+   return (lower_wick >= body * 2) && (upper_wick <= body * 0.5) && (close >= open);
+}
+
+//+------------------------------------------------------------------+
+//| Detect Inverted Hammer (bullish reversal)                        |
+//+------------------------------------------------------------------+
+bool IsInvertedHammer(int shift = 0)
+{
+   if(!DetectHammer) return false;
+   
+   double open = iOpen(_Symbol, PERIOD_CURRENT, shift);
+   double close = iClose(_Symbol, PERIOD_CURRENT, shift);
+   double high = iHigh(_Symbol, PERIOD_CURRENT, shift);
+   double low = iLow(_Symbol, PERIOD_CURRENT, shift);
+   
+   double body = MathAbs(close - open);
+   double upper_wick = high - MathMax(open, close);
+   double lower_wick = MathMin(open, close) - low;
+   
+   if(body == 0) return false;
+   
+   // Inverted Hammer: small body at bottom, long upper wick
+   return (upper_wick >= body * 2) && (lower_wick <= body * 0.5);
+}
+
+//+------------------------------------------------------------------+
+//| Detect Shooting Star (bearish reversal)                          |
+//+------------------------------------------------------------------+
+bool IsShootingStar(int shift = 0)
+{
+   if(!DetectHammer) return false;
+   
+   double open = iOpen(_Symbol, PERIOD_CURRENT, shift);
+   double close = iClose(_Symbol, PERIOD_CURRENT, shift);
+   double high = iHigh(_Symbol, PERIOD_CURRENT, shift);
+   double low = iLow(_Symbol, PERIOD_CURRENT, shift);
+   
+   double body = MathAbs(close - open);
+   double upper_wick = high - MathMax(open, close);
+   double lower_wick = MathMin(open, close) - low;
+   
+   if(body == 0) return false;
+   
+   // Shooting Star: small body at bottom, long upper wick, close < open (bearish)
+   return (upper_wick >= body * 2) && (lower_wick <= body * 0.5) && (close < open);
+}
+
+//+------------------------------------------------------------------+
+//| Detect Bullish Engulfing Pattern                                 |
+//+------------------------------------------------------------------+
+bool IsBullishEngulfing(int shift = 0)
+{
+   if(!DetectEngulfing) return false;
+   
+   double curr_open = iOpen(_Symbol, PERIOD_CURRENT, shift);
+   double curr_close = iClose(_Symbol, PERIOD_CURRENT, shift);
+   double prev_open = iOpen(_Symbol, PERIOD_CURRENT, shift + 1);
+   double prev_close = iClose(_Symbol, PERIOD_CURRENT, shift + 1);
+   
+   double curr_body = MathAbs(curr_close - curr_open);
+   double prev_body = MathAbs(prev_close - prev_open);
+   
+   if(prev_body == 0) return false;
+   
+   // Current bar is bullish, previous bar is bearish
+   bool curr_bullish = (curr_close > curr_open);
+   bool prev_bearish = (prev_close < prev_open);
+   
+   // Current body engulfs previous body
+   bool engulfs = (curr_body >= prev_body * EngulfingMinRatio) && 
+                  (curr_open <= prev_close) && (curr_close >= prev_open);
+   
+   return curr_bullish && prev_bearish && engulfs;
+}
+
+//+------------------------------------------------------------------+
+//| Detect Bearish Engulfing Pattern                                 |
+//+------------------------------------------------------------------+
+bool IsBearishEngulfing(int shift = 0)
+{
+   if(!DetectEngulfing) return false;
+   
+   double curr_open = iOpen(_Symbol, PERIOD_CURRENT, shift);
+   double curr_close = iClose(_Symbol, PERIOD_CURRENT, shift);
+   double prev_open = iOpen(_Symbol, PERIOD_CURRENT, shift + 1);
+   double prev_close = iClose(_Symbol, PERIOD_CURRENT, shift + 1);
+   
+   double curr_body = MathAbs(curr_close - curr_open);
+   double prev_body = MathAbs(prev_close - prev_open);
+   
+   if(prev_body == 0) return false;
+   
+   // Current bar is bearish, previous bar is bullish
+   bool curr_bearish = (curr_close < curr_open);
+   bool prev_bullish = (prev_close > prev_open);
+   
+   // Current body engulfs previous body
+   bool engulfs = (curr_body >= prev_body * EngulfingMinRatio) && 
+                  (curr_open >= prev_close) && (curr_close <= prev_open);
+   
+   return curr_bearish && prev_bullish && engulfs;
+}
+
+//+------------------------------------------------------------------+
+//| Check for bullish candlestick patterns                           |
+//+------------------------------------------------------------------+
+bool HasBullishCandlePattern()
+{
+   if(!UseCandlestickPatterns) return true;  // If disabled, always pass
+   
+   // Check AI-detected patterns first
+   if(ai_bullish_candles) return true;
+   
+   // Then check real-time patterns
+   if(IsHammer(1)) return true;           // Hammer on previous bar
+   if(IsInvertedHammer(1)) return true;   // Inverted hammer on previous bar
+   if(IsBullishEngulfing(1)) return true; // Bullish engulfing pattern
+   
+   // Doji at support could signal reversal (neutral but usable)
+   if(IsDoji(1)) return true;
+   
+   return false;
+}
+
+//+------------------------------------------------------------------+
+//| Check for bearish candlestick patterns                           |
+//+------------------------------------------------------------------+
+bool HasBearishCandlePattern()
+{
+   if(!UseCandlestickPatterns) return true;  // If disabled, always pass
+   
+   // Check AI-detected patterns first
+   if(ai_bearish_candles) return true;
+   
+   // Then check real-time patterns
+   if(IsShootingStar(1)) return true;     // Shooting star on previous bar
+   if(IsBearishEngulfing(1)) return true; // Bearish engulfing pattern
+   
+   // Doji at resistance could signal reversal (neutral but usable)
+   if(IsDoji(1)) return true;
+   
+   return false;
+}
+
+//+------------------------------------------------------------------+
+//| Get current candlestick pattern name (for logging)               |
+//+------------------------------------------------------------------+
+string GetCandlePatternName()
+{
+   if(IsHammer(1)) return "Hammer";
+   if(IsInvertedHammer(1)) return "Inverted Hammer";
+   if(IsShootingStar(1)) return "Shooting Star";
+   if(IsBullishEngulfing(1)) return "Bullish Engulfing";
+   if(IsBearishEngulfing(1)) return "Bearish Engulfing";
+   if(IsDoji(1)) return "Doji";
+   return "None";
 }
 
 //+------------------------------------------------------------------+
