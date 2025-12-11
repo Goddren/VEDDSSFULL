@@ -24,6 +24,8 @@ export const users = pgTable("users", {
   email: text("email").notNull(),
   fullName: text("full_name"),
   profileImage: text("profile_image"),
+  avatarUrl: text("avatar_url"),
+  bio: text("bio"),
   subscriptionPlanId: integer("subscription_plan_id").references(() => subscriptionPlans.id),
   stripeCustomerId: text("stripe_customer_id"),
   stripeSubscriptionId: text("stripe_subscription_id"),
@@ -125,6 +127,8 @@ export const updateUserProfileSchema = z.object({
   email: z.string().email("Invalid email address").optional(),
   fullName: z.string().optional(),
   profileImage: z.string().optional(),
+  avatarUrl: z.string().optional(),
+  bio: z.string().max(500, "Biography must be 500 characters or less").optional(),
   faithBasedContent: z.boolean().optional(),
 });
 

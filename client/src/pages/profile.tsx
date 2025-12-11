@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -6,8 +6,9 @@ import { useAuth } from "@/hooks/use-auth";
 import { ApiKeySettings } from "@/components/ui/api-key-settings";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
@@ -20,7 +21,9 @@ import {
   CreditCard, 
   Plus, 
   Trash2,
-  AlertCircle
+  AlertCircle,
+  Camera,
+  ImagePlus
 } from "lucide-react";
 import { updateUserProfileSchema } from "@shared/schema";
 import { useLocation, useParams } from "wouter";
@@ -231,12 +234,17 @@ export default function ProfilePage() {
   // Determine which user data to display
   const displayUser = viewingUserId && profileUser ? profileUser : user;
   
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  
   // Profile form setup
   const profileForm = useForm<ProfileFormValues>({
     resolver: zodResolver(profileFormSchema),
     defaultValues: {
       email: user?.email || "",
       fullName: user?.fullName || "",
+      bio: (user as any)?.bio || "",
     },
   });
 
@@ -249,6 +257,65 @@ export default function ProfilePage() {
       confirmPassword: "",
     },
   });
+
+  // Avatar upload handler
+  const handleAvatarUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      toast({
+        title: "Invalid file type",
+        description: "Please upload an image file (JPG, PNG, GIF)",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast({
+        title: "File too large",
+        description: "Please upload an image smaller than 5MB",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsUploadingAvatar(true);
+    
+    try {
+      const formData = new FormData();
+      formData.append('avatar', file);
+
+      const response = await fetch('/api/upload-avatar', {
+        method: 'POST',
+        body: formData,
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to upload avatar');
+      }
+
+      const result = await response.json();
+      setAvatarPreview(result.avatarUrl);
+      
+      updateProfileMutation.mutate({ avatarUrl: result.avatarUrl });
+      
+      toast({
+        title: "Avatar updated",
+        description: "Your profile picture has been updated successfully.",
+      });
+    } catch (error) {
+      toast({
+        title: "Upload failed",
+        description: "Failed to upload avatar. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUploadingAvatar(false);
+    }
+  };
 
   // Form submission handlers
   const onProfileSubmit = (data: ProfileFormValues) => {
@@ -283,12 +350,48 @@ export default function ProfilePage() {
         {/* Profile Header */}
         <div className="md:w-1/3">
           <div className="flex flex-col items-center text-center mb-6">
-            <Avatar className="h-24 w-24 mb-4">
-              <AvatarImage src={user?.profileImage || ""} alt={user?.username} />
-              <AvatarFallback className="text-xl">{getUserInitials()}</AvatarFallback>
-            </Avatar>
+            <div className="relative group">
+              <Avatar className="h-28 w-28 mb-4 ring-4 ring-primary/20">
+                <AvatarImage 
+                  src={avatarPreview || (user as any)?.avatarUrl || user?.profileImage || ""} 
+                  alt={user?.username} 
+                />
+                <AvatarFallback className="text-2xl bg-primary/10">{getUserInitials()}</AvatarFallback>
+              </Avatar>
+              {isViewingOwnProfile && (
+                <>
+                  <input 
+                    type="file" 
+                    ref={fileInputRef}
+                    onChange={handleAvatarUpload}
+                    accept="image/*"
+                    className="hidden"
+                    data-testid="input-avatar-upload"
+                  />
+                  <Button
+                    size="icon"
+                    variant="secondary"
+                    className="absolute bottom-3 right-0 h-8 w-8 rounded-full shadow-lg opacity-0 group-hover:opacity-100 transition-opacity"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isUploadingAvatar}
+                    data-testid="button-change-avatar"
+                  >
+                    {isUploadingAvatar ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Camera className="h-4 w-4" />
+                    )}
+                  </Button>
+                </>
+              )}
+            </div>
             <h1 className="text-2xl font-bold">{user?.fullName || user?.username}</h1>
             <p className="text-muted-foreground">{user?.email}</p>
+            {(user as any)?.bio && (
+              <p className="text-sm text-muted-foreground mt-2 max-w-xs" data-testid="text-user-bio">
+                {(user as any).bio}
+              </p>
+            )}
           </div>
         </div>
 
@@ -347,6 +450,27 @@ export default function ProfilePage() {
                             <FormControl>
                               <Input placeholder="Enter your email" {...field} />
                             </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={profileForm.control}
+                        name="bio"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Biography</FormLabel>
+                            <FormControl>
+                              <Textarea 
+                                placeholder="Tell us about yourself and your trading experience..."
+                                className="resize-none min-h-[120px]"
+                                {...field}
+                                data-testid="input-bio"
+                              />
+                            </FormControl>
+                            <FormDescription>
+                              Share your trading background, strategies, or interests. Max 500 characters.
+                            </FormDescription>
                             <FormMessage />
                           </FormItem>
                         )}

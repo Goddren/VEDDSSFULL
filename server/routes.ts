@@ -124,6 +124,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Avatar upload endpoint
+  app.post("/api/upload-avatar", upload.single('avatar'), async (req: Request, res: Response) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ message: "Authentication required" });
+      }
+
+      if (!req.file) {
+        return res.status(400).json({ message: "No file uploaded" });
+      }
+
+      // Validate file type
+      const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+      if (!allowedTypes.includes(req.file.mimetype)) {
+        return res.status(400).json({ message: "Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed." });
+      }
+
+      // Create avatars directory if it doesn't exist
+      const avatarsDir = path.join(process.cwd(), 'uploads', 'avatars');
+      if (!fs.existsSync(avatarsDir)) {
+        fs.mkdirSync(avatarsDir, { recursive: true });
+      }
+
+      // Generate unique filename
+      const ext = req.file.mimetype.split('/')[1];
+      const fileName = `avatar-${(req.user as any).id}-${Date.now()}.${ext}`;
+      const filePath = path.join(avatarsDir, fileName);
+
+      // Save file to disk
+      await fs.promises.writeFile(filePath, req.file.buffer);
+
+      // Return the avatar URL
+      const avatarUrl = `/uploads/avatars/${fileName}`;
+      res.json({ avatarUrl });
+    } catch (error) {
+      console.error("Avatar upload error:", error);
+      res.status(500).json({ message: "Error uploading avatar" });
+    }
+  });
+
   // Direct base64 image analysis endpoint (skips file upload)
   app.post("/api/analyze-base64", async (req: Request, res: Response) => {
     try {
