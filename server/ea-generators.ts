@@ -2195,6 +2195,17 @@ export function generateTradeLockerCode(
     .filter((v, i, a) => a.indexOf(v) === i)
     .join(', ');
 
+  // Extract candlestick significance from analysis (TradeLocker)
+  const tlCandlestickSignificance = primaryTF.analysis.candlestickSignificance;
+  const tlCandlestickSignal = tlCandlestickSignificance?.overallSignal || 'Neutral';
+  const tlCandlestickReliability = tlCandlestickSignificance?.reliability || 'Medium';
+  const tlCandlestickPatterns = tlCandlestickSignificance?.patterns || [];
+  const tlCandlestickPatternsStr = tlCandlestickPatterns
+    .map((p: any) => `${p.name} (${p.type})`)
+    .join(', ') || 'None detected';
+  const tlHasBullishCandles = tlCandlestickPatterns.filter((p: any) => p.type === 'Bullish').length > 0;
+  const tlHasBearishCandles = tlCandlestickPatterns.filter((p: any) => p.type === 'Bearish').length > 0;
+
   const stopLoss = primaryTF.analysis.stopLoss || 'ATR-based';
   const takeProfit = primaryTF.analysis.takeProfit || 'AI Target';
 
@@ -2214,6 +2225,13 @@ export function generateTradeLockerCode(
  * Decimal Places: ${decimalPlaces} (Auto-detected)
  * Direction: ${consensusDirection} (${consensusConfidence.toFixed(0)}% confidence)
  * Valid Until: ${validityDateStr}
+ * 
+ * CANDLESTICK SIGNIFICANCE ANALYSIS
+ * ==================================
+ * Overall Signal: ${tlCandlestickSignal} (${tlCandlestickReliability} Reliability)
+ * Detected Patterns: ${tlCandlestickPatternsStr}
+ * Bullish Patterns Present: ${tlHasBullishCandles ? 'Yes' : 'No'}
+ * Bearish Patterns Present: ${tlHasBearishCandles ? 'Yes' : 'No'}
  * 
  * SETUP INSTRUCTIONS:
  * 1. Save this file as: strategy.js
@@ -2249,7 +2267,9 @@ const config = {
   takeProfit: '${takeProfit}',
   trailingStop: 50,
   maxOpenTrades: 1,
-  tradingEnabled: false  // Set to true to enable live trading
+  tradingEnabled: false,  // Set to true to enable live trading
+  requireCandleConfirmation: false,  // Set to true to require candlestick pattern alignment
+  useCandleBoost: true  // Log when candles confirm signal (informational)
 };
 
 // ===== MULTI-TIMEFRAME ANALYSIS RESULTS =====
@@ -2262,8 +2282,64 @@ const analysis = {
   confidence: ${consensusConfidence.toFixed(0)},
   patterns: '${detectedPatterns || 'None detected'}',
   entryPoint: '${primaryTF.analysis.entryPoint || 'Market entry'}',
-  timeframeCount: ${sortedTimeframes.length}
+  timeframeCount: ${sortedTimeframes.length},
+  candlestickAnalysis: {
+    overallSignal: '${tlCandlestickSignal}',
+    reliability: '${tlCandlestickReliability}',
+    patterns: '${tlCandlestickPatternsStr}',
+    hasBullishPatterns: ${tlHasBullishCandles},
+    hasBearishPatterns: ${tlHasBearishCandles}
+  }
 };
+
+// ===== CANDLESTICK PATTERN DETECTION =====
+// AI-detected patterns are baked in, plus real-time detection functions
+
+function detectCandlestickPatterns(candles) {
+  if (!candles || candles.length < 3) return { bullish: false, bearish: false, patterns: [] };
+  
+  const patterns = [];
+  const current = candles[candles.length - 1];
+  const prev = candles[candles.length - 2];
+  
+  const body = Math.abs(current.close - current.open);
+  const range = current.high - current.low;
+  const upperWick = current.high - Math.max(current.open, current.close);
+  const lowerWick = Math.min(current.open, current.close) - current.low;
+  const prevBody = Math.abs(prev.close - prev.open);
+  
+  // Doji detection (small body relative to range)
+  if (range > 0 && (body / range) < 0.1) {
+    patterns.push({ name: 'Doji', type: 'Neutral' });
+  }
+  
+  // Hammer (bullish reversal)
+  if (body > 0 && lowerWick >= body * 2 && upperWick <= body * 0.5 && current.close >= current.open) {
+    patterns.push({ name: 'Hammer', type: 'Bullish' });
+  }
+  
+  // Shooting Star (bearish reversal)
+  if (body > 0 && upperWick >= body * 2 && lowerWick <= body * 0.5 && current.close < current.open) {
+    patterns.push({ name: 'Shooting Star', type: 'Bearish' });
+  }
+  
+  // Bullish Engulfing
+  if (current.close > current.open && prev.close < prev.open && 
+      body >= prevBody * 1.5 && current.open <= prev.close && current.close >= prev.open) {
+    patterns.push({ name: 'Bullish Engulfing', type: 'Bullish' });
+  }
+  
+  // Bearish Engulfing
+  if (current.close < current.open && prev.close > prev.open && 
+      body >= prevBody * 1.5 && current.open >= prev.close && current.close <= prev.open) {
+    patterns.push({ name: 'Bearish Engulfing', type: 'Bearish' });
+  }
+  
+  const bullish = patterns.some(p => p.type === 'Bullish') || ${tlHasBullishCandles};
+  const bearish = patterns.some(p => p.type === 'Bearish') || ${tlHasBearishCandles};
+  
+  return { bullish, bearish, patterns };
+}
 
 // ===== API HELPER FUNCTIONS =====
 function getApiUrl(endpoint) {
@@ -2361,6 +2437,11 @@ async function executeStrategy() {
   console.log('Direction: ' + analysis.consensusDirection + ' (' + analysis.confidence + '% confidence)');
   console.log('Patterns: ' + analysis.patterns);
   console.log('Timeframes Analyzed: ' + analysis.timeframeCount);
+  console.log('\\n--- CANDLESTICK ANALYSIS ---');
+  console.log('Overall Signal: ' + analysis.candlestickAnalysis.overallSignal + ' (' + analysis.candlestickAnalysis.reliability + ')');
+  console.log('Detected Candle Patterns: ' + analysis.candlestickAnalysis.patterns);
+  console.log('Bullish Patterns: ' + (analysis.candlestickAnalysis.hasBullishPatterns ? 'Yes' : 'No'));
+  console.log('Bearish Patterns: ' + (analysis.candlestickAnalysis.hasBearishPatterns ? 'Yes' : 'No'));
   console.log('='.repeat(60) + '\\n');
   
   const currentPrice = await getCurrentPrice();
@@ -2374,16 +2455,42 @@ async function executeStrategy() {
   
   console.log('Open Positions: ' + openTrades.length);
   
+  // Check candlestick confirmation
+  const candleConfirmsBuy = analysis.candlestickAnalysis.hasBullishPatterns || 
+                            analysis.candlestickAnalysis.overallSignal.toLowerCase().includes('bullish');
+  const candleConfirmsSell = analysis.candlestickAnalysis.hasBearishPatterns || 
+                             analysis.candlestickAnalysis.overallSignal.toLowerCase().includes('bearish');
+  
   if (analysis.consensusDirection === 'BUY' && !hasOpenPosition) {
-    console.log('BUY signal detected - opening trade...');
-    await openTrade('BUY', config.stopLoss, config.takeProfit);
+    // Check if candlestick confirmation is required and available
+    if (config.requireCandleConfirmation && !candleConfirmsBuy) {
+      console.log('BUY signal detected but CANDLESTICK CONFIRMATION REQUIRED and not present - trade BLOCKED');
+      console.log('Set requireCandleConfirmation = false to trade without candle confirmation');
+    } else {
+      if (candleConfirmsBuy) {
+        console.log('BUY signal + Candlestick confirmation - opening trade...');
+      } else {
+        console.log('BUY signal detected (no candle confirmation) - opening trade...');
+      }
+      await openTrade('BUY', config.stopLoss, config.takeProfit);
+    }
   } else if (analysis.consensusDirection === 'BUY' && hasOpenPosition) {
     console.log('BUY signal but position already open');
   }
   
   if (analysis.consensusDirection === 'SELL' && !hasOpenPosition) {
-    console.log('SELL signal detected - opening trade...');
-    await openTrade('SELL', config.stopLoss, config.takeProfit);
+    // Check if candlestick confirmation is required and available
+    if (config.requireCandleConfirmation && !candleConfirmsSell) {
+      console.log('SELL signal detected but CANDLESTICK CONFIRMATION REQUIRED and not present - trade BLOCKED');
+      console.log('Set requireCandleConfirmation = false to trade without candle confirmation');
+    } else {
+      if (candleConfirmsSell) {
+        console.log('SELL signal + Candlestick confirmation - opening trade...');
+      } else {
+        console.log('SELL signal detected (no candle confirmation) - opening trade...');
+      }
+      await openTrade('SELL', config.stopLoss, config.takeProfit);
+    }
   } else if (analysis.consensusDirection === 'SELL' && hasOpenPosition) {
     console.log('SELL signal but position already open');
   }
