@@ -1888,6 +1888,17 @@ export function generateTradingViewCode(
     .filter((v, i, a) => a.indexOf(v) === i)
     .join(', ');
   
+  // Extract candlestick significance from analysis (TradingView)
+  const tvCandlestickSignificance = primaryTF.analysis.candlestickSignificance;
+  const tvCandlestickSignal = tvCandlestickSignificance?.overallSignal || 'Neutral';
+  const tvCandlestickReliability = tvCandlestickSignificance?.reliability || 'Medium';
+  const tvCandlestickPatterns = tvCandlestickSignificance?.patterns || [];
+  const tvCandlestickPatternsStr = tvCandlestickPatterns
+    .map((p: any) => `${p.name} (${p.type})`)
+    .join(', ') || 'None detected';
+  const tvHasBullishCandles = tvCandlestickPatterns.filter((p: any) => p.type === 'Bullish').length > 0;
+  const tvHasBearishCandles = tvCandlestickPatterns.filter((p: any) => p.type === 'Bearish').length > 0;
+  
   // Get consensus - trust primary timeframe when there's a tie
   const buyCount = sortedTimeframes.filter(tf => tf.analysis.direction?.toUpperCase() === 'BUY').length;
   const sellCount = sortedTimeframes.filter(tf => tf.analysis.direction?.toUpperCase() === 'SELL').length;
@@ -1949,6 +1960,13 @@ strategy("${eaName} - ${symbol}", overlay=true, default_qty_type=strategy.percen
 // Stop Loss (AI): ${stopLoss}
 // Take Profit (AI): ${takeProfit}
 // Risk:Reward Ratio: ${riskReward}
+//
+// CANDLESTICK SIGNIFICANCE ANALYSIS
+// ========================================================================
+// Overall Signal: ${tvCandlestickSignal} (${tvCandlestickReliability} Reliability)
+// Detected Patterns: ${tvCandlestickPatternsStr}
+// Bullish Patterns: ${tvHasBullishCandles ? 'Yes' : 'None'}
+// Bearish Patterns: ${tvHasBearishCandles ? 'Yes' : 'None'}
 // ========================================================================
 
 // === RISK MANAGEMENT ===
@@ -2013,12 +2031,62 @@ tf_${tfSafe}_bearish = tf_${tfSafe}_macd < tf_${tfSafe}_signal`;
 // Volume Confirmation
 volume_confirmed = use_volume_filter ? volume > volume_ma : true
 
+// === CANDLESTICK PATTERN DETECTION ===
+use_candle_patterns = input.bool(true, "Use Candlestick Patterns", group="Candlestick Patterns", tooltip="Enhance entries with candlestick pattern confirmation")
+require_candle_confirm = input.bool(false, "Require Candle Confirmation", group="Candlestick Patterns", tooltip="Only enter if candlestick pattern matches direction")
+doji_threshold = input.float(0.1, "Doji Body/Range Threshold", minval=0.01, maxval=0.5, step=0.01, group="Candlestick Patterns")
+engulfing_ratio = input.float(1.5, "Engulfing Min Ratio", minval=1.1, maxval=3.0, step=0.1, group="Candlestick Patterns")
+
+// AI-detected candlestick patterns from analysis
+ai_bullish_candles = ${tvHasBullishCandles}  // AI detected bullish patterns: ${tvCandlestickPatternsStr}
+ai_bearish_candles = ${tvHasBearishCandles}  // AI detected bearish patterns
+
+// Real-time candlestick pattern detection
+body = math.abs(close - open)
+range_size = high - low
+upper_wick = high - math.max(open, close)
+lower_wick = math.min(open, close) - low
+
+// Previous bar values
+prev_body = math.abs(close[1] - open[1])
+prev_open = open[1]
+prev_close = close[1]
+
+// Doji pattern (small body relative to range)
+is_doji = range_size > 0 ? (body / range_size) < doji_threshold : false
+
+// Hammer pattern (bullish reversal)
+is_hammer = body > 0 and lower_wick >= body * 2 and upper_wick <= body * 0.5 and close >= open
+
+// Shooting Star pattern (bearish reversal)
+is_shooting_star = body > 0 and upper_wick >= body * 2 and lower_wick <= body * 0.5 and close < open
+
+// Bullish Engulfing pattern
+is_bullish_engulfing = close > open and prev_close < prev_open and body >= prev_body * engulfing_ratio and open <= prev_close and close >= prev_open
+
+// Bearish Engulfing pattern
+is_bearish_engulfing = close < open and prev_close > prev_open and body >= prev_body * engulfing_ratio and open >= prev_close and close <= prev_open
+
+// Combined candlestick signals
+bullish_candle = use_candle_patterns ? (ai_bullish_candles or is_hammer[1] or is_bullish_engulfing[1] or is_doji[1]) : true
+bearish_candle = use_candle_patterns ? (ai_bearish_candles or is_shooting_star[1] or is_bearish_engulfing[1] or is_doji[1]) : true
+
+// Apply candlestick confirmation requirement
+candle_ok_buy = require_candle_confirm ? bullish_candle : true
+candle_ok_sell = require_candle_confirm ? bearish_candle : true
+
 // Entry Conditions (${buyCount} timeframe(s) suggest BUY, ${sellCount} suggest SELL)
 buy_signal = (${sortedTimeframes.filter(tf => tf.analysis.direction?.toUpperCase() === 'BUY').map(tf => `tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_bullish`).join(' and ') || 'false'})
 sell_signal = (${sortedTimeframes.filter(tf => tf.analysis.direction?.toUpperCase() === 'SELL').map(tf => `tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_bearish`).join(' and ') || 'false'})
 
-buy_condition = allow_buy and buy_signal and volume_confirmed and rsi < rsi_overbought
-sell_condition = allow_sell and sell_signal and volume_confirmed and rsi > rsi_oversold
+buy_condition = allow_buy and buy_signal and volume_confirmed and rsi < rsi_overbought and candle_ok_buy
+sell_condition = allow_sell and sell_signal and volume_confirmed and rsi > rsi_oversold and candle_ok_sell
+
+// Plot candlestick pattern signals
+plotshape(is_hammer, "Hammer", shape.arrowup, location.belowbar, color.new(color.green, 50), size=size.tiny, display=display.pane)
+plotshape(is_shooting_star, "Shooting Star", shape.arrowdown, location.abovebar, color.new(color.red, 50), size=size.tiny, display=display.pane)
+plotshape(is_bullish_engulfing, "Bullish Engulf", shape.circle, location.belowbar, color.new(color.lime, 30), size=size.tiny, display=display.pane)
+plotshape(is_bearish_engulfing, "Bearish Engulf", shape.circle, location.abovebar, color.new(color.maroon, 30), size=size.tiny, display=display.pane)
 
 // ATR-based Stop Loss and Take Profit
 atr_stop_distance = atr * atr_multiplier
