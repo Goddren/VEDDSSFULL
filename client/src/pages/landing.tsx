@@ -133,7 +133,7 @@ export default function LandingPage() {
           </motion.h1>
           
           <motion.p variants={slideUp} className="mt-6 text-xl text-theme-muted max-w-3xl mx-auto">
-            Transform your trading with advanced AI analysis. Upload charts from MT4, MT5, or TradingView 
+            Transform your trading with advanced AI analysis. Upload charts from MT5, TradingView, or TradeLocker 
             and get precise market insights, patterns, and actionable signals instantly.
           </motion.p>
           

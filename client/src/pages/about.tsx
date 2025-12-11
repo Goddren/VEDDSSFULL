@@ -34,7 +34,7 @@ const AboutPage: React.FC = () => {
     },
     {
       title: 'Multi-Platform Support',
-      description: 'Compatible with screenshots from MT4, MT5, and TradingView platforms, making it accessible for all traders.',
+      description: 'Compatible with screenshots from MT5, TradingView, and TradeLocker platforms, making it accessible for all traders.',
       icon: BarChart3
     },
     {

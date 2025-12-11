@@ -294,7 +294,7 @@ export default function AuthPage() {
               </div>
               <div>
                 <h3 className="font-medium">Smart Chart Analysis</h3>
-                <p className="text-muted-foreground">Upload screenshots from MT4, MT5, or TradingView to get instant analysis</p>
+                <p className="text-muted-foreground">Upload screenshots from MT5, TradingView, or TradeLocker to get instant analysis</p>
               </div>
             </li>
             <li className="flex items-start gap-2">

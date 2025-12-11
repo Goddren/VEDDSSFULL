@@ -275,7 +275,7 @@ const ImageUpload: React.FC<ImageUploadProps> = ({ onImageUpload, isUploading = 
               </div>
               
               <div className="text-sm text-muted-foreground/70">
-                <p>Supports MT4, MT5, and TradingView screenshots</p>
+                <p>Supports MT5, TradingView, and TradeLocker screenshots</p>
                 <p className="text-xs mt-1">Press Ctrl+V to paste from clipboard</p>
               </div>
             </div>

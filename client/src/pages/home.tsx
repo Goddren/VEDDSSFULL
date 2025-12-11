@@ -95,7 +95,7 @@ const Home = () => {
               </h1>
               
               <p className="text-xl text-gray-300 mb-8 leading-relaxed" data-testid="text-hero-description">
-                Upload your charts, get instant AI-powered analysis across multiple timeframes, generate custom EA code, and access real-time news sentiment — all in one powerful platform.
+                Upload your trading charts from MT5, TradingView, or TradeLocker and get instant AI-powered analysis across multiple timeframes, generate custom EA code, and access real-time news sentiment — all in one powerful platform.
               </p>
               
               <div className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start">

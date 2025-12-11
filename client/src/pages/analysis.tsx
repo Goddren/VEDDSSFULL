@@ -456,7 +456,7 @@ const Analysis: React.FC = () => {
                 <span>Chart Upload</span>
               </CardTitle>
               <CardDescription>
-                Supports MT4, MT5, and TradingView screenshots
+                Supports MT5, TradingView, and TradeLocker screenshots
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -514,13 +514,13 @@ const Analysis: React.FC = () => {
             <CardContent>
               <div className="grid grid-cols-3 gap-3">
                 <div className="rounded-lg bg-muted p-3 text-center">
-                  <p className="text-xs font-medium">MT4</p>
-                </div>
-                <div className="rounded-lg bg-muted p-3 text-center">
                   <p className="text-xs font-medium">MT5</p>
                 </div>
                 <div className="rounded-lg bg-muted p-3 text-center">
                   <p className="text-xs font-medium">TradingView</p>
+                </div>
+                <div className="rounded-lg bg-muted p-3 text-center">
+                  <p className="text-xs font-medium">TradeLocker</p>
                 </div>
               </div>
               <p className="text-xs text-muted-foreground mt-3">

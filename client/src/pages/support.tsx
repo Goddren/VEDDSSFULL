@@ -56,7 +56,7 @@ const SupportPage: React.FC = () => {
   const faqs = [
     {
       question: 'What types of chart screenshots are supported?',
-      answer: 'VEDD supports screenshots from MT4, MT5, and TradingView platforms. For best results, ensure the price action, indicators, and timeframe are clearly visible in your screenshot.'
+      answer: 'VEDD supports screenshots from MT5, TradingView, and TradeLocker platforms. For best results, ensure the price action, indicators, and timeframe are clearly visible in your screenshot.'
     },
     {
       question: 'Do I need an OpenAI API key to use the platform?',
