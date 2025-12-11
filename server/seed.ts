@@ -44,7 +44,7 @@ export async function seedSubscriptionPlans() {
       interval: "month",
       features: [
         "Everything in Free",
-        "Multi-timeframe EA generator (MT5 & TradingView)",
+        "Multi-timeframe EA generator (MT5, TradingView & TradeLocker)",
         "Unified Trade Signal (synthesizes all chart analyses into one recommendation)",
         "EA validity tracking & updates",
         "Trailing stop-loss automation",
