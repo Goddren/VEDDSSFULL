@@ -70,6 +70,23 @@ export interface MomentumIndicators {
   volumeTrend?: { direction: string; strength: string; interpretation: string };
 }
 
+export interface CandlestickPattern {
+  name: string;                // Pattern name (e.g., "Doji", "Hammer", "Engulfing")
+  type: string;                // "Bullish", "Bearish", or "Neutral"
+  significance: string;        // "Low", "Medium", "High", "Very High"
+  location: string;            // Where the pattern appears (e.g., "At resistance", "At support")
+  description: string;         // Brief explanation of what this pattern means
+  actionableInsight: string;   // What traders should consider doing
+}
+
+export interface CandlestickSignificance {
+  overallSignal: string;       // "Strong Buy", "Buy", "Neutral", "Sell", "Strong Sell"
+  reliability: string;         // "Low", "Medium", "High" - how reliable the candle signals are
+  patterns: CandlestickPattern[];  // Array of identified candlestick patterns
+  keyObservation: string;      // Most important observation about recent candles
+  tradingImplication: string;  // What this means for trading decisions
+}
+
 export interface ChartAnalysisResponse {
   symbol: string;
   timeframe: string;
@@ -88,6 +105,7 @@ export interface ChartAnalysisResponse {
   atrStopLoss?: ATRStopLossOptions;
   momentumIndicators?: MomentumIndicators;
   marketTrends?: TrendCell[];  // Optional market trend data for related pairs
+  candlestickSignificance?: CandlestickSignificance;  // Candlestick pattern analysis as an indicator
   patterns: Pattern[];
   indicators: Indicator[];
   supportResistance: SupportResistanceLevel[];
