@@ -78,6 +78,13 @@ export async function analyzeChartImage(base64Image: string): Promise<ChartAnaly
              - Asian, London, New York session characteristics
              - Best trading times based on currency pair and volume
           
+          6. CANDLESTICK SIGNIFICANCE ANALYSIS (NEW INDICATOR):
+             - Identify all visible candlestick patterns (Doji, Hammer, Engulfing, Morning/Evening Star, etc.)
+             - Assess significance based on location (at support/resistance, after trend, at breakout)
+             - Rate each pattern's reliability and trading implications
+             - Consider pattern clusters and confluences
+             - Provide actionable insights for each significant pattern
+          
           VERY IMPORTANT: Return the analysis in valid JSON format with all required properties.
           Even if you cannot determine some information, include placeholder values rather than omitting properties.
           For numeric fields where you cannot determine a value, use a string representation (e.g., "Unknown").
@@ -167,6 +174,22 @@ export async function analyzeChartImage(base64Image: string): Promise<ChartAnaly
   ],
   "preferredVolumeThreshold": string, // Preferred volume level (e.g. "150% above average", "2x average volume")
   "preferredTradingTime": string,     // Best time to trade (e.g. "London Session", "US Market Open")
+  "candlestickSignificance": {        // Candlestick pattern analysis as an indicator (REQUIRED)
+    "overallSignal": string,          // "Strong Buy", "Buy", "Neutral", "Sell", "Strong Sell"
+    "reliability": string,            // "Low", "Medium", "High" - how reliable the signals are
+    "patterns": [                     // Array of identified candlestick patterns
+      {
+        "name": string,               // Pattern name (e.g., "Doji", "Hammer", "Bullish Engulfing")
+        "type": string,               // "Bullish", "Bearish", or "Neutral"
+        "significance": string,       // "Low", "Medium", "High", "Very High"
+        "location": string,           // Where it appears (e.g., "At key support", "After downtrend")
+        "description": string,        // Brief explanation of what this pattern means
+        "actionableInsight": string   // What traders should consider doing
+      }
+    ],
+    "keyObservation": string,         // Most important observation about recent candles
+    "tradingImplication": string      // What this means for trading decisions
+  },
   "recommendation": string,   // Overall trading recommendation considering volume and momentum
   "steps": string[]           // Array of actionable steps to take
 }
@@ -243,6 +266,14 @@ IMPORTANT: All fields marked as REQUIRED must be included in your response with 
         macd: response.momentumIndicators.macd,
         stochastic: response.momentumIndicators.stochastic,
         volumeTrend: response.momentumIndicators.volumeTrend
+      } : undefined,
+      // Candlestick significance analysis
+      candlestickSignificance: response.candlestickSignificance && typeof response.candlestickSignificance === 'object' ? {
+        overallSignal: response.candlestickSignificance.overallSignal || "Neutral",
+        reliability: response.candlestickSignificance.reliability || "Medium",
+        patterns: Array.isArray(response.candlestickSignificance.patterns) ? response.candlestickSignificance.patterns : [],
+        keyObservation: response.candlestickSignificance.keyObservation || "No significant patterns detected",
+        tradingImplication: response.candlestickSignificance.tradingImplication || "Continue monitoring for clearer signals"
       } : undefined,
       // Generate market trend data for related pairs
       marketTrends: await generateMarketTrendPredictions(symbol),
