@@ -287,6 +287,105 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({ analysis, imageUrl, ann
         </div>
       </div>
       
+      {/* Candlestick Significance - New Indicator */}
+      {analysis.candlestickSignificance && (
+        <div className="bg-[#1E1E1E] rounded-xl p-6 shadow-lg" data-testid="candlestick-significance-section">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-semibold flex items-center gap-2">
+              <span className="text-2xl">🕯️</span>
+              Candlestick Significance
+            </h2>
+            <div className="flex items-center gap-3">
+              <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                analysis.candlestickSignificance.overallSignal.toLowerCase().includes('buy') 
+                  ? 'bg-green-500/20 text-green-400' 
+                  : analysis.candlestickSignificance.overallSignal.toLowerCase().includes('sell')
+                    ? 'bg-red-500/20 text-red-400'
+                    : 'bg-gray-500/20 text-gray-400'
+              }`} data-testid="candlestick-overall-signal">
+                {analysis.candlestickSignificance.overallSignal}
+              </span>
+              <span className={`px-2 py-0.5 rounded text-xs ${
+                analysis.candlestickSignificance.reliability === 'High' 
+                  ? 'bg-green-500/20 text-green-400' 
+                  : analysis.candlestickSignificance.reliability === 'Medium'
+                    ? 'bg-yellow-500/20 text-yellow-400'
+                    : 'bg-gray-500/20 text-gray-400'
+              }`}>
+                {analysis.candlestickSignificance.reliability} Reliability
+              </span>
+            </div>
+          </div>
+          
+          {/* Key Observation & Trading Implication */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div className="bg-[#0A0A0A] p-4 rounded-lg border-l-4 border-[#E64A4A]">
+              <h4 className="text-sm font-medium text-gray-400 mb-1">Key Observation</h4>
+              <p className="text-sm text-gray-200">{analysis.candlestickSignificance.keyObservation}</p>
+            </div>
+            <div className="bg-[#0A0A0A] p-4 rounded-lg border-l-4 border-[#4CAF50]">
+              <h4 className="text-sm font-medium text-gray-400 mb-1">Trading Implication</h4>
+              <p className="text-sm text-gray-200">{analysis.candlestickSignificance.tradingImplication}</p>
+            </div>
+          </div>
+          
+          {/* Candlestick Patterns */}
+          <div className="space-y-3">
+            {analysis.candlestickSignificance.patterns && analysis.candlestickSignificance.patterns.length > 0 ? (
+              analysis.candlestickSignificance.patterns.map((pattern, index) => (
+                <div 
+                  key={index} 
+                  className="bg-[#0A0A0A] p-4 rounded-lg animate-in fade-in-0 slide-in-from-bottom-3 duration-500" 
+                  style={{ animationDelay: `${index * 100}ms` }}
+                  data-testid={`candlestick-pattern-${index}`}
+                >
+                  <div className="flex justify-between items-start mb-2">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                        pattern.type === 'Bullish' ? 'bg-green-500/20' : 
+                        pattern.type === 'Bearish' ? 'bg-red-500/20' : 'bg-gray-500/20'
+                      }`}>
+                        <span className="text-xl">
+                          {pattern.type === 'Bullish' ? '📈' : pattern.type === 'Bearish' ? '📉' : '➖'}
+                        </span>
+                      </div>
+                      <div>
+                        <h4 className="font-medium">{pattern.name}</h4>
+                        <p className="text-xs text-gray-400">{pattern.location}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs px-2 py-0.5 rounded ${
+                        pattern.type === 'Bullish' ? 'bg-green-500/20 text-green-400' : 
+                        pattern.type === 'Bearish' ? 'bg-red-500/20 text-red-400' : 'bg-gray-500/20 text-gray-400'
+                      }`}>
+                        {pattern.type}
+                      </span>
+                      <span className={`text-xs px-2 py-0.5 rounded ${
+                        pattern.significance === 'Very High' ? 'bg-purple-500/20 text-purple-400' :
+                        pattern.significance === 'High' ? 'bg-blue-500/20 text-blue-400' :
+                        pattern.significance === 'Medium' ? 'bg-yellow-500/20 text-yellow-400' : 'bg-gray-500/20 text-gray-400'
+                      }`}>
+                        {pattern.significance}
+                      </span>
+                    </div>
+                  </div>
+                  <p className="text-sm text-gray-300 mb-2">{pattern.description}</p>
+                  <div className="flex items-start gap-2 bg-[#1a1a1a] p-2 rounded">
+                    <span className="text-yellow-500">💡</span>
+                    <p className="text-sm text-yellow-200/80">{pattern.actionableInsight}</p>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="bg-[#0A0A0A] p-4 rounded-lg text-center text-gray-400">
+                No significant candlestick patterns detected in the current view
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      
       {/* Market Context */}
       <div className="bg-[#1E1E1E] rounded-xl p-6 shadow-lg">
         <h2 className="text-xl font-semibold mb-4">Market Context</h2>

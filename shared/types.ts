@@ -142,6 +142,7 @@ export const analysisPipeline = [
   { id: "identifying", name: "Identifying chart elements", message: "Detecting candlesticks, indicators, and drawing tools" },
   { id: "extracting", name: "Extracting price data", message: "Reading price levels, timeframes, and market context" },
   { id: "analyzing", name: "Analyzing patterns and indicators", message: "Identifying key patterns, trend strength and signals" },
+  { id: "candlestick-analysis", name: "Analyzing candlestick significance", message: "Detecting Doji, Hammer, Engulfing and other patterns" },
   { id: "support-resistance", name: "Detecting support/resistance", message: "Finding key support and resistance levels" },
   { id: "volume-analysis", name: "Analyzing volume patterns", message: "Determining optimal trading sessions based on volume" },
   { id: "volatility-analysis", name: "Measuring volatility", message: "Calculating market volatility score and risk assessment" },
