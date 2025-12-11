@@ -29,7 +29,7 @@ const Home = () => {
     {
       icon: Brain,
       title: "AI-Powered Chart Analysis",
-      description: "Upload charts from MT4, MT5, or TradingView and get instant AI analysis with pattern recognition, trend identification, and actionable trading signals.",
+      description: "Upload charts from MT5, TradingView, or TradeLocker and get instant AI analysis with pattern recognition, trend identification, and actionable trading signals.",
       gradient: "from-purple-500 to-pink-500"
     },
     {
