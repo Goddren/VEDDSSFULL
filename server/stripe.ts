@@ -2,20 +2,27 @@ import Stripe from 'stripe';
 import { db } from './db';
 import { subscriptionPlans, users } from '@shared/schema';
 import { eq } from 'drizzle-orm';
+import { getUncachableStripeClient } from './stripeClient';
 
-// Initialize Stripe client if key is available
+// Legacy stripe client for backwards compatibility - prefer getUncachableStripeClient()
 export const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
 
-// Log warning if Stripe is not configured
-if (!process.env.STRIPE_SECRET_KEY) {
-  console.warn('Warning: STRIPE_SECRET_KEY not found. Stripe features will be disabled.');
+// Get Stripe client (uses Replit connection or falls back to env var)
+async function getStripe(): Promise<Stripe> {
+  try {
+    return await getUncachableStripeClient();
+  } catch (e) {
+    if (stripe) return stripe;
+    throw new Error('Stripe not configured. Please set up Stripe connection.');
+  }
 }
 
 // Create a Stripe customer for user
 export async function createStripeCustomer(userId: number, email: string, name?: string) {
   try {
+    const stripeClient = await getStripe();
     // Create a new Stripe customer
-    const customer = await stripe.customers.create({
+    const customer = await stripeClient.customers.create({
       email,
       name: name || email,
       metadata: {
@@ -49,8 +56,9 @@ export async function getOrCreateStripeCustomer(userId: number, email: string, n
     }
 
     // If user already has a Stripe customer ID, retrieve the customer
+    const stripeClient = await getStripe();
     if (user.stripeCustomerId) {
-      const customer = await stripe.customers.retrieve(user.stripeCustomerId);
+      const customer = await stripeClient.customers.retrieve(user.stripeCustomerId);
       if (customer.deleted) {
         throw new Error('Stripe customer was deleted');
       }
@@ -65,9 +73,11 @@ export async function getOrCreateStripeCustomer(userId: number, email: string, n
   }
 }
 
-// Create a subscription for a user
-export async function createSubscription(userId: number, planId: number) {
+// Create a subscription for a user using Stripe Checkout Session
+export async function createSubscription(userId: number, planId: number, successUrl?: string, cancelUrl?: string) {
   try {
+    const stripeClient = await getStripe();
+    
     // Get user
     const [user] = await db.select().from(users).where(eq(users.id, userId));
     if (!user) {
@@ -91,15 +101,15 @@ export async function createSubscription(userId: number, planId: number) {
 
     // Get or create a Stripe Product and Price if they don't exist
     if (!plan.stripeProductId || !plan.stripePriceId) {
-      const product = await stripe.products.create({
+      const product = await stripeClient.products.create({
         name: plan.name,
-        description: plan.description,
+        description: plan.description || undefined,
         metadata: {
           planId: plan.id.toString(),
         },
       });
 
-      const price = await stripe.prices.create({
+      const price = await stripeClient.prices.create({
         product: product.id,
         unit_amount: plan.price,
         currency: 'usd',
@@ -140,57 +150,44 @@ export async function createSubscription(userId: number, planId: number) {
         status: 'active', 
         currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
         clientSecret: null,
+        checkoutUrl: null,
       };
     }
 
-    // Create a subscription with a trial
-    const subscription = await stripe.subscriptions.create({
+    // Create a Stripe Checkout Session for paid plans
+    const baseUrl = process.env.REPLIT_DOMAINS 
+      ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
+      : 'http://localhost:5000';
+    
+    const session = await stripeClient.checkout.sessions.create({
       customer: user.stripeCustomerId,
-      items: [
+      payment_method_types: ['card'],
+      line_items: [
         {
           price: plan.stripePriceId,
+          quantity: 1,
         },
       ],
-      payment_behavior: 'default_incomplete',
-      payment_settings: { save_default_payment_method: 'on_subscription' },
-      expand: ['latest_invoice'],
+      mode: 'subscription',
+      success_url: successUrl || `${baseUrl}/subscription?success=true&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: cancelUrl || `${baseUrl}/subscription?canceled=true`,
       metadata: {
         userId: user.id.toString(),
         planId: plan.id.toString(),
       },
+      subscription_data: {
+        metadata: {
+          userId: user.id.toString(),
+          planId: plan.id.toString(),
+        },
+      },
     });
 
-    // Get current_period_end from metadata or use default (30 days)
-    const currentPeriodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-
-    // First update the user record
-    await db
-      .update(users)
-      .set({
-        subscriptionPlanId: plan.id,
-        stripeSubscriptionId: subscription.id,
-        subscriptionStatus: subscription.status,
-        subscriptionCurrentPeriodEnd: currentPeriodEnd,
-      })
-      .where(eq(users.id, userId));
-    
-    // Get the payment intent details in a separate call if needed
-    let clientSecret = null;
-    if (subscription.latest_invoice && typeof subscription.latest_invoice !== 'string') {
-      const invoice = subscription.latest_invoice;
-      if (invoice.payment_intent && typeof invoice.payment_intent !== 'string') {
-        clientSecret = invoice.payment_intent.client_secret;
-      } else if (invoice.payment_intent) {
-        // If we only have the ID, fetch the payment intent
-        const paymentIntent = await stripe.paymentIntents.retrieve(invoice.payment_intent as string);
-        clientSecret = paymentIntent.client_secret;
-      }
-    }
-
     return {
-      status: subscription.status,
-      currentPeriodEnd: currentPeriodEnd,
-      clientSecret: clientSecret,
+      status: 'pending',
+      checkoutUrl: session.url,
+      sessionId: session.id,
+      clientSecret: null,
     };
   } catch (error) {
     console.error('Error creating subscription:', error);
@@ -314,6 +311,8 @@ export async function checkUserSubscriptionLimits(userId: number, actionType: 'a
 // Cancel a user's subscription
 export async function cancelSubscription(userId: number) {
   try {
+    const stripeClient = await getStripe();
+    
     // Get user
     const [user] = await db.select().from(users).where(eq(users.id, userId));
     if (!user) {
@@ -325,7 +324,7 @@ export async function cancelSubscription(userId: number) {
     }
 
     // Cancel the subscription in Stripe
-    const subscription = await stripe.subscriptions.cancel(user.stripeSubscriptionId);
+    const subscription = await stripeClient.subscriptions.cancel(user.stripeSubscriptionId);
 
     // Update user with subscription status
     await db

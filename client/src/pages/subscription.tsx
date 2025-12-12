@@ -93,18 +93,16 @@ export default function SubscriptionPage() {
       const response = await apiRequest('POST', '/api/subscription/subscribe', { planId });
       const result = await response.json();
 
-      if (result.clientSecret) {
+      if (result.checkoutUrl) {
         // For paid plans, redirect to Stripe checkout
         toast({
           title: 'Redirecting to Payment',
           description: 'Please complete your payment to activate your subscription.',
           variant: 'default',
         });
-        // In a real application, we would use Stripe Elements here
-        // For now, we'll just show a success message
-        setTimeout(() => {
-          window.location.reload();
-        }, 1500);
+        // Redirect to Stripe Checkout page
+        window.location.href = result.checkoutUrl;
+        return;
       } else {
         // For free plan
         toast({
