@@ -90,7 +90,24 @@ export async function createSubscription(userId: number, planId: number, success
       throw new Error('Subscription plan not found');
     }
 
-    // Ensure we have a Stripe customer
+    // Ensure we have a valid Stripe customer
+    if (user.stripeCustomerId) {
+      // Verify customer exists in current Stripe account
+      try {
+        const existingCustomer = await stripeClient.customers.retrieve(user.stripeCustomerId);
+        if ((existingCustomer as any).deleted) {
+          // Customer was deleted, need to create a new one
+          user.stripeCustomerId = null;
+        }
+      } catch (e: any) {
+        // Customer doesn't exist in this Stripe account (likely switched accounts)
+        console.log('Stripe customer not found, creating new one:', e.message);
+        user.stripeCustomerId = null;
+        // Clear the invalid customer ID from the database
+        await db.update(users).set({ stripeCustomerId: null }).where(eq(users.id, user.id));
+      }
+    }
+    
     if (!user.stripeCustomerId) {
       if (!user.email) {
         throw new Error('User email is required for creating a customer');
