@@ -183,6 +183,50 @@ export default function SubscriptionPage() {
         </p>
       </div>
 
+      {/* Competitive Pricing Comparison */}
+      <div className="mb-12 p-6 bg-gradient-to-r from-green-500/10 to-green-500/5 rounded-lg border border-green-500/20">
+        <h2 className="text-2xl font-bold mb-4 text-center">Why VEDD AI Offers Unbeatable Value</h2>
+        <p className="text-center text-muted-foreground mb-6">Compare our pricing with other trading analysis tools</p>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <Card className="border border-muted">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm text-muted-foreground">TrendSpider</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-xl font-bold text-muted-foreground">$82-197/mo</p>
+              <p className="text-xs text-muted-foreground mt-1">AI Pattern Analysis</p>
+            </CardContent>
+          </Card>
+          <Card className="border border-muted">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm text-muted-foreground">Trade Ideas</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-xl font-bold text-muted-foreground">$118-228/mo</p>
+              <p className="text-xs text-muted-foreground mt-1">AI Stock Scanning</p>
+            </CardContent>
+          </Card>
+          <Card className="border border-muted">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm text-muted-foreground">EA Builder Pro</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-xl font-bold text-muted-foreground">$19.99/mo</p>
+              <p className="text-xs text-muted-foreground mt-1">EA Generator Only</p>
+            </CardContent>
+          </Card>
+          <Card className="border-2 border-green-500 bg-green-50 dark:bg-green-950">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm text-green-600 dark:text-green-400 font-bold">VEDD AI</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-xl font-bold text-green-600 dark:text-green-400">$19.99/mo</p>
+              <p className="text-xs text-green-600 dark:text-green-400 mt-1">AI Analysis + EA Generator</p>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+
       {/* Supported Platforms Section */}
       <div className="mb-12 p-6 bg-gradient-to-r from-primary/10 to-primary/5 rounded-lg border border-primary/20">
         <h2 className="text-2xl font-bold mb-4 text-center">Expert Advisor Code Generation Platforms</h2>
@@ -289,7 +333,7 @@ export default function SubscriptionPage() {
             {plan.interval === 'lifetime' && (
               <div className="absolute top-0 left-0 right-0">
                 <div className="bg-gradient-to-r from-primary to-primary/80 text-primary-foreground text-center py-2 font-bold text-sm">
-                  🔥 70% OFF SALE - LIMITED TIME ONLY
+                  ⭐ BEST VALUE - ONE-TIME PAYMENT
                 </div>
               </div>
             )}
@@ -302,12 +346,9 @@ export default function SubscriptionPage() {
               <CardTitle className="flex justify-between items-start">
                 <span>{plan.name}</span>
                 <div className="text-right">
-                  {plan.interval === 'lifetime' && (
-                    <div className="text-sm text-muted-foreground line-through mb-1">$499</div>
-                  )}
                   <span className="text-2xl font-bold">{formatPrice(plan.price)}</span>
                   {plan.interval === 'lifetime' && (
-                    <div className="text-xs text-green-600 dark:text-green-400 font-semibold mt-1">Save 70% - Limited Time!</div>
+                    <div className="text-xs text-green-600 dark:text-green-400 font-semibold mt-1">Pay once, own forever!</div>
                   )}
                 </div>
               </CardTitle>
@@ -368,7 +409,7 @@ export default function SubscriptionPage() {
                   {plan.price === 0 
                     ? 'Select Free Plan' 
                     : plan.interval === 'lifetime' 
-                      ? 'Get Lifetime Access - Save 70%' 
+                      ? 'Get Lifetime Access' 
                       : 'Subscribe'}
                 </Button>
               )}
@@ -398,12 +439,9 @@ export default function SubscriptionPage() {
                         : ''
                   }`}>
                     {plan.interval === 'lifetime' && (
-                      <Badge className="mb-2 bg-primary hover:bg-primary">🔥 70% OFF</Badge>
+                      <Badge className="mb-2 bg-primary hover:bg-primary">⭐ Best Value</Badge>
                     )}
                     <span className="text-lg font-bold">{plan.name}</span>
-                    {plan.interval === 'lifetime' && (
-                      <div className="text-sm text-muted-foreground line-through mt-1">$499</div>
-                    )}
                     <div className="text-base font-medium mt-1">
                       {formatPrice(plan.price)}
                       <span className="text-xs text-muted-foreground">
