@@ -29,8 +29,9 @@ import {
 } from "@shared/schema";
 import { addTradeSetupAnnotations, createAnnotatedImageUrl } from "./image-processor";
 import { newsService, type NewsItem, type NewsSentiment } from "./news-service";
+import { extractFramesFromVideo, cleanupFrames } from "./video-processor";
 
-// Configure multer for file uploads
+// Configure multer for file uploads (images)
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
@@ -40,6 +41,21 @@ const upload = multer({
     const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png'];
     if (!allowedTypes.includes(file.mimetype)) {
       return cb(new Error('Only JPEG, JPG and PNG image files are allowed'));
+    }
+    cb(null, true);
+  }
+});
+
+// Configure multer for video uploads
+const videoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 50 * 1024 * 1024, // 50MB limit for videos
+  },
+  fileFilter: (_req, file, cb) => {
+    const allowedTypes = ['video/mp4', 'video/quicktime', 'video/webm', 'video/x-msvideo'];
+    if (!allowedTypes.includes(file.mimetype)) {
+      return cb(new Error('Only MP4, MOV, WebM and AVI video files are allowed'));
     }
     cb(null, true);
   }
@@ -294,6 +310,120 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.status(500).json({ 
         message: "Error analyzing chart", 
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
+  // Video upload and analysis endpoint - extracts frames for multi-timeframe analysis
+  app.post("/api/analyze-video", videoUpload.single('video'), async (req: Request, res: Response) => {
+    try {
+      console.log('Video analysis endpoint called');
+      
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ 
+          success: false,
+          message: "Authentication required" 
+        });
+      }
+
+      if (!req.file) {
+        return res.status(400).json({ message: "No video file uploaded" });
+      }
+
+      const userId = (req.user as any).id;
+      const numFrames = parseInt(req.body.numFrames) || 4;
+      const analysisType = req.body.analysisType || 'multi'; // 'single' or 'multi'
+      
+      console.log(`Processing video: ${req.file.originalname}, extracting ${numFrames} frames`);
+
+      // Check subscription limits
+      const limitCheck = await checkUserSubscriptionLimits(userId, 'analysis');
+      if (!limitCheck.allowed) {
+        return res.status(403).json({
+          message: "Analysis limit reached",
+          error: `You have reached your monthly limit of ${limitCheck.limit} analyses. Please upgrade your subscription.`,
+          currentCount: limitCheck.currentCount,
+          limit: limitCheck.limit,
+          planName: limitCheck.planName
+        });
+      }
+
+      // Extract frames from video
+      const frames = await extractFramesFromVideo(req.file.buffer, numFrames, req.file.mimetype);
+      
+      if (frames.length === 0) {
+        return res.status(400).json({ message: "Could not extract frames from video" });
+      }
+
+      console.log(`Extracted ${frames.length} frames, analyzing...`);
+
+      // Analyze each frame
+      const analyses = [];
+      const groupId = uuidv4();
+      
+      for (let i = 0; i < frames.length; i++) {
+        const frame = frames[i];
+        try {
+          const analysis = await analyzeChartImage(frame.base64);
+          
+          // Save frame to uploads
+          const frameFileName = `video_frame_${groupId}_${i + 1}.jpg`;
+          const framePath = path.join(uploadsDir, frameFileName);
+          const frameBuffer = Buffer.from(frame.base64, 'base64');
+          await fs.promises.writeFile(framePath, frameBuffer);
+          
+          const imageUrl = `/uploads/${frameFileName}`;
+          
+          // Store in database
+          await storage.createChartAnalysis({
+            userId,
+            imageUrl,
+            symbol: analysis.symbol || "Unknown",
+            timeframe: analysis.timeframe || `Frame ${i + 1}`,
+            price: analysis.currentPrice || "Unknown",
+            direction: analysis.direction || "Unknown",
+            trend: analysis.trend || "Unknown",
+            confidence: analysis.confidence || "Medium",
+            entryPoint: analysis.entryPoint || "Unknown",
+            exitPoint: analysis.exitPoint || "Unknown",
+            stopLoss: analysis.stopLoss || "Unknown",
+            takeProfit: analysis.takeProfit || "Unknown",
+            riskRewardRatio: analysis.riskRewardRatio || "Unknown",
+            potentialPips: analysis.potentialPips || "Unknown",
+            patterns: analysis.patterns || [],
+            indicators: analysis.indicators || [],
+            supportResistance: analysis.supportResistance || [],
+            recommendation: analysis.recommendation || "",
+            notes: `Extracted from video at ${frame.timestamp.toFixed(1)}s`,
+            multiTimeframeGroupId: analysisType === 'multi' ? groupId : undefined,
+          });
+
+          analyses.push({
+            ...analysis,
+            imageUrl,
+            frameIndex: i + 1,
+            timestamp: frame.timestamp
+          });
+        } catch (frameError) {
+          console.error(`Error analyzing frame ${i + 1}:`, frameError);
+        }
+      }
+
+      // Cleanup extracted frames
+      await cleanupFrames(frames);
+
+      res.json({
+        success: true,
+        groupId: analysisType === 'multi' ? groupId : undefined,
+        framesAnalyzed: analyses.length,
+        analyses
+      });
+
+    } catch (error: any) {
+      console.error("Video analysis error:", error);
+      res.status(500).json({ 
+        message: "Error analyzing video", 
         error: error instanceof Error ? error.message : "Unknown error"
       });
     }

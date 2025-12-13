@@ -1,5 +1,6 @@
 {pkgs}: {
   deps = [
+    pkgs.ffmpeg
     pkgs.libuuid
     pkgs.python3
     pkgs.pixman
