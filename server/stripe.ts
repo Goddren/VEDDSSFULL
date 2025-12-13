@@ -12,8 +12,12 @@ async function getStripe(): Promise<Stripe> {
   try {
     return await getUncachableStripeClient();
   } catch (e) {
-    if (stripe) return stripe;
-    throw new Error('Stripe not configured. Please set up Stripe connection.');
+    console.log('Replit Stripe connector not available, falling back to STRIPE_SECRET_KEY:', e instanceof Error ? e.message : 'Unknown error');
+    if (stripe) {
+      console.log('Using STRIPE_SECRET_KEY environment variable for Stripe');
+      return stripe;
+    }
+    throw new Error('Stripe not configured. Please set STRIPE_SECRET_KEY or configure Stripe connection.');
   }
 }
 
