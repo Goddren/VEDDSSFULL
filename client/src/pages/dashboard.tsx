@@ -9,7 +9,6 @@ import {
   BarChart2, 
   TrendingUp, 
   TrendingDown, 
-  PieChart, 
   Calendar, 
   Clock, 
   Activity,
@@ -21,16 +20,12 @@ import {
   AlertTriangle,
   Lightbulb,
   Gamepad as GamepadIcon,
-  Smile,
-  Sun,
-  Moon
+  Smile
 } from 'lucide-react';
 import { MarketCalendar } from '@/components/market/market-calendar';
 import { getUserLevel } from '@/lib/achievement-system';
 import TradingCoach from '@/components/trading-coach/trading-coach';
 import { DailyWisdom } from '@/components/scripture/daily-wisdom';
-import { DayNightScene } from '@/components/ui/day-night-scene';
-import { ThemeToggle } from '@/components/ui/theme-toggle';
 import { NewsFeed } from '@/components/news/news-feed';
 
 interface Analysis {
@@ -342,59 +337,8 @@ const Dashboard: React.FC = () => {
             </Card>
           </div>
 
-          {/* Pattern Distribution and Trading Tip Generator */}
+          {/* Dashboard Right Column */}
           <div className="space-y-6">
-            {/* Pattern Distribution */}
-            <Card className="bg-gray-900 border-gray-800 shadow-xl">
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle className="text-xl text-white">Pattern Distribution</CardTitle>
-                    <CardDescription>Most common patterns in your analyses</CardDescription>
-                  </div>
-                  <div className="h-8 w-8 rounded-full bg-rose-600/20 flex items-center justify-center">
-                    <PieChart className="h-4 w-4 text-rose-500" />
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {totalAnalyses > 0 ? (
-                  <div className="space-y-4">
-                    {[
-                      { name: 'Double Top/Bottom', percentage: 28 },
-                      { name: 'Head & Shoulders', percentage: 22 },
-                      { name: 'Triangle Patterns', percentage: 18 },
-                      { name: 'Flag & Pennant', percentage: 12 },
-                    ].map((pattern, index) => (
-                      <div key={index}>
-                        <div className="flex justify-between items-center mb-1">
-                          <span className="text-sm text-gray-300">{pattern.name}</span>
-                          <span className="text-sm text-gray-400">{pattern.percentage}%</span>
-                        </div>
-                        <div className="w-full bg-gray-800 rounded-full h-1.5">
-                          <div 
-                            className={`h-1.5 rounded-full ${
-                              index === 0 ? 'bg-rose-500' : 
-                              index === 1 ? 'bg-amber-500' : 
-                              index === 2 ? 'bg-emerald-500' : 'bg-blue-500'
-                            }`}
-                            style={{ width: `${pattern.percentage}%` }}
-                          ></div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="h-48 flex items-center justify-center">
-                    <div className="text-center text-gray-400">
-                      <PieChart className="h-10 w-10 mx-auto mb-4 text-rose-500/40" />
-                      <p>Analyze more charts to see pattern distribution</p>
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-            
             {/* Economic Calendar */}
             <MarketCalendar />
             
@@ -441,34 +385,6 @@ const Dashboard: React.FC = () => {
               </CardContent>
             </Card>
 
-            {/* Day/Night Scene Card */}
-            <Card className="bg-gray-900 border-gray-800 shadow-xl overflow-hidden mb-6">
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle className="text-xl text-white flex items-center gap-2">
-                      <div className="flex items-center gap-1">
-                        <Sun className="h-5 w-5 text-yellow-500" />
-                        <span className="text-gray-500">/</span>
-                        <Moon className="h-5 w-5 text-blue-400" />
-                      </div>
-                      Day & Night Theme
-                    </CardTitle>
-                    <CardDescription>Customize your trading environment</CardDescription>
-                  </div>
-                  <ThemeToggle />
-                </div>
-              </CardHeader>
-              <CardContent className="flex flex-col items-center pb-6">
-                <DayNightScene size="md" className="mb-4" />
-                <p className="text-gray-400 text-sm text-center max-w-md">
-                  Toggle between light and dark mode to suit your trading environment.
-                  Reduce eye strain during night trading sessions with our dark theme.
-                </p>
-              </CardContent>
-            </Card>
-
-            
             {/* Show Scripture Wisdom button when hidden */}
             {!showFaithContent && (
               <Card className="bg-gray-900 border-gray-800 shadow-xl mb-6">
