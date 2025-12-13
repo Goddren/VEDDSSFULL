@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Camera, Upload, Plus, X, TrendingUp } from "lucide-react";
+import { Camera, Briefcase, Plus, X, TrendingUp } from "lucide-react";
 import { useLocation } from "wouter";
 import { isMobileDevice } from "@/lib/pwa";
 
@@ -15,7 +15,7 @@ export function MobileFAB() {
   const actions = [
     {
       icon: <Camera className="w-6 h-6" />,
-      label: "Camera Analysis",
+      label: "Chart Analysis",
       action: () => {
         setLocation("/analysis");
         setIsOpen(false);
@@ -23,13 +23,13 @@ export function MobileFAB() {
       testId: "fab-camera"
     },
     {
-      icon: <Upload className="w-6 h-6" />,
-      label: "Upload Chart",
+      icon: <Briefcase className="w-6 h-6" />,
+      label: "My EAs",
       action: () => {
-        setLocation("/analysis");
+        setLocation("/my-eas");
         setIsOpen(false);
       },
-      testId: "fab-upload"
+      testId: "fab-my-eas"
     },
     {
       icon: <TrendingUp className="w-6 h-6" />,
