@@ -27,6 +27,7 @@ import { getUserLevel } from '@/lib/achievement-system';
 import TradingCoach from '@/components/trading-coach/trading-coach';
 import { DailyWisdom } from '@/components/scripture/daily-wisdom';
 import { NewsFeed } from '@/components/news/news-feed';
+import { GoldSentiment } from '@/components/gold-sentiment/gold-sentiment';
 
 interface Analysis {
   id: number;
@@ -391,6 +392,11 @@ const Dashboard: React.FC = () => {
                 <DailyWisdom />
               </div>
             )}
+            
+            {/* Gold Telegram Sentiment */}
+            <div className="mb-6">
+              <GoldSentiment />
+            </div>
             
             {/* Market News Feed */}
             <div className="mb-6">

@@ -30,6 +30,7 @@ import {
 import { addTradeSetupAnnotations, createAnnotatedImageUrl } from "./image-processor";
 import { newsService, type NewsItem, type NewsSentiment } from "./news-service";
 import { extractFramesFromVideo, cleanupFrames } from "./video-processor";
+import { getGoldSentiment, getMockGoldSentiment, isTelegramConfigured } from "./telegram-sentiment";
 
 // Configure multer for file uploads (images)
 const upload = multer({
@@ -2160,6 +2161,22 @@ Respond ONLY in valid JSON format with these exact keys:
   
   // Trading Tips endpoint
   app.get('/api/trading-tips', tradingTipsHandler);
+
+  // Gold Telegram Sentiment endpoint
+  app.get('/api/gold-sentiment', async (req: Request, res: Response) => {
+    try {
+      if (isTelegramConfigured()) {
+        const sentiment = await getGoldSentiment();
+        res.json(sentiment);
+      } else {
+        const mockSentiment = getMockGoldSentiment();
+        res.json({ ...mockSentiment, isDemo: true });
+      }
+    } catch (error) {
+      console.error('Error fetching gold sentiment:', error);
+      res.status(500).json({ message: 'Error fetching gold sentiment' });
+    }
+  });
 
   // Economic Calendar endpoint
   app.get('/api/economic-calendar', async (req: Request, res: Response) => {
