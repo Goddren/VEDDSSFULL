@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -10,11 +10,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import ImageUpload from '@/components/ui/image-upload';
+import VideoUpload from '@/components/ui/video-upload';
 import { useToast } from '@/hooks/use-toast';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { ChartAnalysisResponse } from '@shared/types';
-import { Clock, TrendingUp, Code, Download, Check, X, Settings, Target, Sparkles, Save, Zap, Upload, AlertCircle } from 'lucide-react';
+import { Clock, TrendingUp, Code, Download, Check, X, Settings, Target, Sparkles, Save, Zap, Upload, AlertCircle, Video } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 
 interface TimeframeUpload {
@@ -138,8 +139,9 @@ export default function MultiTimeframeAnalysis() {
   const [selectedPlatform, setSelectedPlatform] = useState<'MT5' | 'TradingView' | 'TradeLocker'>('MT5');
   const [volumeThreshold, setVolumeThreshold] = useState(0);
   const [unifiedSignal, setUnifiedSignal] = useState<any | null>(null);
-  const [useBulkUpload, setUseBulkUpload] = useState(false);
+  const [uploadMode, setUploadMode] = useState<'manual' | 'bulk' | 'video'>('manual');
   const [detectingCharts, setDetectingCharts] = useState(false);
+  const [videoAnalyzing, setVideoAnalyzing] = useState(false);
   const [detectedCharts, setDetectedCharts] = useState<any[]>([]);
   const [useBreakoutEntry, setUseBreakoutEntry] = useState(false);
   const [breakoutTimeframe, setBreakoutTimeframe] = useState('M5');
@@ -196,6 +198,81 @@ export default function MultiTimeframeAnalysis() {
       });
     },
   });
+
+  const videoUploadMutation = useMutation({
+    mutationFn: async (file: File) => {
+      const formData = new FormData();
+      formData.append('video', file);
+      formData.append('numFrames', '4');
+      formData.append('analysisType', 'multi');
+      
+      const response = await apiRequest('POST', '/api/analyze-video', formData);
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to analyze video');
+      }
+      
+      return await response.json();
+    },
+    onSuccess: (data) => {
+      if (data.analyses && data.analyses.length > 0) {
+        const selectedStrategy = STRATEGY_TYPES.find(st => st.value === strategyType);
+        const suggestedTimeframes = selectedStrategy?.suggestedTimeframes || ['M15', 'M30', 'H1', 'H4'];
+        
+        // First, reset all uploading states to false to clear any stuck states
+        const newUploads: Record<string, TimeframeUpload> = {};
+        Object.keys(timeframeUploads).forEach((key) => {
+          newUploads[key] = {
+            ...timeframeUploads[key],
+            uploading: false
+          };
+        });
+        
+        // Then apply video analysis results to the appropriate timeframes
+        data.analyses.forEach((analysis: any, index: number) => {
+          const tf = suggestedTimeframes[index] || TIMEFRAMES[index]?.value;
+          if (tf && newUploads[tf]) {
+            newUploads[tf] = {
+              timeframe: tf,
+              file: null,
+              analysis,
+              previewUrl: analysis.imageUrl || null,
+              uploading: false,
+              error: null
+            };
+          }
+        });
+        
+        setTimeframeUploads(newUploads);
+        
+        if (!symbol && data.analyses[0]?.symbol) {
+          setSymbol(data.analyses[0].symbol);
+        }
+        
+        toast({
+          title: 'Video Analysis Complete',
+          description: `Successfully analyzed ${data.framesAnalyzed} frames from your video`,
+        });
+      } else {
+        throw new Error('No frames could be analyzed');
+      }
+      setVideoAnalyzing(false);
+    },
+    onError: (error: Error) => {
+      toast({
+        title: 'Video Analysis Failed',
+        description: error.message,
+        variant: 'destructive',
+      });
+      setVideoAnalyzing(false);
+    }
+  });
+
+  const handleVideoUpload = async (file: File) => {
+    setVideoAnalyzing(true);
+    videoUploadMutation.mutate(file);
+  };
 
   const handleImageUpload = async (timeframe: string, file: File) => {
     setTimeframeUploads(prev => ({
@@ -775,9 +852,9 @@ export default function MultiTimeframeAnalysis() {
             {/* Upload Mode Toggle */}
             <div className="flex gap-2">
               <Button
-                variant={!useBulkUpload ? "default" : "outline"}
+                variant={uploadMode === 'manual' ? "default" : "outline"}
                 onClick={() => {
-                  setUseBulkUpload(false);
+                  setUploadMode('manual');
                   setDetectedCharts([]);
                 }}
                 className="flex-1"
@@ -786,17 +863,26 @@ export default function MultiTimeframeAnalysis() {
                 Manual Selection
               </Button>
               <Button
-                variant={useBulkUpload ? "default" : "outline"}
-                onClick={() => setUseBulkUpload(true)}
+                variant={uploadMode === 'bulk' ? "default" : "outline"}
+                onClick={() => setUploadMode('bulk')}
                 className="flex-1"
                 data-testid="button-bulk-upload"
               >
                 Bulk Upload All
               </Button>
+              <Button
+                variant={uploadMode === 'video' ? "default" : "outline"}
+                onClick={() => setUploadMode('video')}
+                className="flex-1"
+                data-testid="button-video-upload"
+              >
+                <Video className="w-4 h-4 mr-2" />
+                Video Upload
+              </Button>
             </div>
 
             {/* Manual Timeframe Selection Mode */}
-            {!useBulkUpload && (
+            {uploadMode === 'manual' && (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 {TIMEFRAMES.map((tf, index) => {
                   const upload = timeframeUploads[tf.value];
@@ -871,7 +957,7 @@ export default function MultiTimeframeAnalysis() {
             )}
 
             {/* Bulk Upload Mode */}
-            {useBulkUpload && (
+            {uploadMode === 'bulk' && (
               <div className="space-y-4">
                 {detectedCharts.length === 0 ? (
                   <div className="border-2 border-dashed rounded-lg p-8 text-center">
@@ -995,7 +1081,7 @@ export default function MultiTimeframeAnalysis() {
                             }
                           }
                           setTimeframeUploads(newUploads);
-                          setUseBulkUpload(false);
+                          setUploadMode('manual');
                           setDetectedCharts([]);
                           toast({ title: "Charts loaded! Now analyzing..." });
 
@@ -1020,6 +1106,33 @@ export default function MultiTimeframeAnalysis() {
                         Confirm & Analyze
                       </Button>
                     </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Video Upload Mode */}
+            {uploadMode === 'video' && (
+              <div className="space-y-4">
+                <div className="p-4 bg-muted/50 rounded-lg">
+                  <h4 className="font-medium mb-2 flex items-center gap-2">
+                    <Video className="w-4 h-4" />
+                    Video Analysis
+                  </h4>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Upload a video of your trading chart. AI will extract 4 key frames and analyze each one,
+                    automatically mapping them to your selected strategy timeframes.
+                  </p>
+                  <VideoUpload 
+                    onVideoUpload={handleVideoUpload}
+                    isUploading={videoAnalyzing || videoUploadMutation.isPending}
+                  />
+                </div>
+                
+                {videoAnalyzing && (
+                  <div className="text-center py-4">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-2"></div>
+                    <p className="text-sm text-muted-foreground">Extracting and analyzing video frames...</p>
                   </div>
                 )}
               </div>
