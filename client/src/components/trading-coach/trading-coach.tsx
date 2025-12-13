@@ -263,42 +263,38 @@ const TradingCoach = ({ personality = 'professional', className }: TradingCoachP
 
   return (
     <div className={`flex flex-col h-full ${className}`}>
-      <div className="mb-4 p-4 rounded-xl bg-gradient-to-r from-gray-800/50 via-gray-800/30 to-gray-800/50 border border-gray-700/50 backdrop-blur-sm">
+      <div className="mb-3 p-3 rounded-xl bg-gradient-to-r from-gray-800/50 via-gray-800/30 to-gray-800/50 border border-gray-700/50 backdrop-blur-sm flex-shrink-0">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             <div className="relative">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-rose-500 via-purple-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-rose-500/30">
-                <Bot className="w-6 h-6 text-white" />
+              <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-rose-500 via-purple-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-rose-500/30">
+                <Bot className="w-5 h-5 text-white" />
               </div>
-              <motion.div 
-                className="absolute -bottom-1 -right-1 w-4 h-4 bg-emerald-500 rounded-full border-2 border-gray-900"
-                animate={{ scale: [1, 1.2, 1] }}
-                transition={{ duration: 2, repeat: Infinity }}
-              />
+              <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-500 rounded-full border-2 border-gray-900" />
             </div>
             <div>
-              <h3 className="font-bold text-lg bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">
+              <h3 className="font-bold text-sm bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">
                 VEDDAI Trading Coach
               </h3>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-emerald-400 flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] text-emerald-400 flex items-center gap-1">
+                  <span className="w-1 h-1 bg-emerald-400 rounded-full animate-pulse" />
                   Online
                 </span>
-                <span className="text-gray-600">•</span>
-                <span className="text-xs text-gray-400">Powered by GPT-4</span>
+                <span className="text-gray-600 text-[10px]">•</span>
+                <span className="text-[10px] text-gray-400">GPT-4</span>
               </div>
             </div>
           </div>
-          <Badge className="bg-gradient-to-r from-rose-500/20 to-purple-500/20 border-rose-500/30 text-rose-300">
-            <Sparkles className="w-3 h-3 mr-1" />
+          <Badge className="bg-gradient-to-r from-rose-500/20 to-purple-500/20 border-rose-500/30 text-rose-300 text-[10px] px-2 py-0.5">
+            <Sparkles className="w-2.5 h-2.5 mr-1" />
             Pro AI
           </Badge>
         </div>
       </div>
 
       <Tabs defaultValue="chat" className="w-full flex-1 flex flex-col">
-        <TabsList className="mb-4 grid grid-cols-2 bg-gray-800/50 border border-gray-700/50 rounded-xl p-1">
+        <TabsList className="mb-2 grid grid-cols-2 bg-gray-800/50 border border-gray-700/50 rounded-lg p-1 flex-shrink-0">
           <TabsTrigger 
             value="chat" 
             className="flex items-center gap-1.5 data-[state=active]:bg-gradient-to-r data-[state=active]:from-rose-500/20 data-[state=active]:to-purple-500/20 data-[state=active]:text-white rounded-lg transition-all"
@@ -317,8 +313,8 @@ const TradingCoach = ({ personality = 'professional', className }: TradingCoachP
           </TabsTrigger>
         </TabsList>
         
-        <TabsContent value="chat" className="flex-1 flex flex-col min-h-[400px]">
-          <ScrollArea className="flex-1 pr-4 mb-4">
+        <TabsContent value="chat" className="flex-1 flex flex-col overflow-hidden">
+          <ScrollArea className="flex-1 pr-4 mb-2 h-0">
             <div className="space-y-4 pb-4">
               <AnimatePresence mode="popLayout">
                 {messages.map((message) => (
@@ -390,8 +386,8 @@ const TradingCoach = ({ personality = 'professional', className }: TradingCoachP
           </form>
         </TabsContent>
         
-        <TabsContent value="tips" className="min-h-[400px]">
-          <ScrollArea className="h-[400px] pr-4">
+        <TabsContent value="tips" className="flex-1 overflow-hidden">
+          <ScrollArea className="h-full pr-4">
             <div className="space-y-6">
               {Object.entries(tipsByCategory).length > 0 ? (
                 Object.entries(tipsByCategory).map(([category, tips]) => (

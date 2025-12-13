@@ -411,7 +411,7 @@ const Dashboard: React.FC = () => {
                 </div>
               </CardHeader>
               <CardContent className="pb-4">
-                <div className="h-[400px]">
+                <div className="h-[500px]">
                   <TradingCoach personality="friendly" />
                 </div>
               </CardContent>
