@@ -40,12 +40,7 @@ export default function SubscriptionPage() {
   const [selectedPlanId, setSelectedPlanId] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Redirect if not logged in
-  useEffect(() => {
-    if (!user) {
-      setLocation('/auth');
-    }
-  }, [user, setLocation]);
+  // No redirect - pricing page is public
 
   // Fetch subscription plans
   const { data: plans, isLoading: plansLoading } = useQuery<Plan[]>({
@@ -74,6 +69,17 @@ export default function SubscriptionPage() {
 
   // Handle subscription
   const handleSubscribe = async (planId: number) => {
+    // Redirect to login if not logged in
+    if (!user) {
+      toast({
+        title: 'Login Required',
+        description: 'Please log in or create an account to subscribe.',
+        variant: 'default',
+      });
+      setLocation('/auth');
+      return;
+    }
+
     try {
       setIsLoading(true);
       setSelectedPlanId(planId);
