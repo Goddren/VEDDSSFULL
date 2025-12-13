@@ -76,6 +76,12 @@ const Dashboard: React.FC = () => {
     enabled: !!user
   });
   
+  // Get user profile for accuracy/winRate data
+  const { data: userProfile } = useQuery<{ winRate?: number; tradeGrade?: number }>({
+    queryKey: ['/api/profile', user?.id],
+    enabled: !!user?.id
+  });
+  
   // Calculate total achievement points (for UserLevel component)
   const totalAchievementPoints = React.useMemo(() => {
     if (!userAchievements || !Array.isArray(userAchievements) || !achievements || !Array.isArray(achievements)) {
@@ -97,6 +103,24 @@ const Dashboard: React.FC = () => {
   const totalAnalyses = analyses.length;
   const buySignals = analyses.filter((a) => a.direction?.toLowerCase() === 'buy').length;
   const sellSignals = analyses.filter((a) => a.direction?.toLowerCase() === 'sell').length;
+  
+  // Calculate accuracy rate from user profile or analyses
+  const accuracyRate = React.useMemo(() => {
+    // First try to use winRate from user profile
+    if (userProfile?.winRate && userProfile.winRate > 0) {
+      return Math.round(userProfile.winRate);
+    }
+    // If no profile data, calculate from analyses with high confidence
+    if (analyses.length === 0) return 0;
+    const highConfidenceAnalyses = analyses.filter((a) => {
+      const conf = a.confidence?.toLowerCase();
+      return conf === 'high' || conf === 'very high' || conf === 'strong';
+    });
+    if (analyses.length > 0) {
+      return Math.round((highConfidenceAnalyses.length / analyses.length) * 100);
+    }
+    return 0;
+  }, [analyses, userProfile]);
   
   // Get the most recent analyses
   const recentAnalyses = analyses.slice(0, 5);
@@ -230,12 +254,20 @@ const Dashboard: React.FC = () => {
                   <Activity className="h-4 w-4 text-amber-500" />
                 </div>
               </div>
-              <CardTitle className="text-3xl font-bold text-white">92%</CardTitle>
+              <CardTitle className="text-3xl font-bold text-white" data-testid="text-accuracy-rate">
+                {isLoading ? '--' : `${accuracyRate}%`}
+              </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="w-full bg-gray-700/40 rounded-full h-1.5 mt-1">
-                <div className="bg-gradient-to-r from-emerald-500 to-amber-500 h-1.5 rounded-full" style={{ width: '92%' }}></div>
+                <div 
+                  className="bg-gradient-to-r from-emerald-500 to-amber-500 h-1.5 rounded-full transition-all duration-500" 
+                  style={{ width: `${accuracyRate}%` }}
+                ></div>
               </div>
+              <p className="text-xs text-gray-500 mt-2">
+                {totalAnalyses > 0 ? 'Based on your analysis confidence' : 'Start analyzing to track accuracy'}
+              </p>
             </CardContent>
           </Card>
         </div>
