@@ -1,11 +1,12 @@
-import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Calendar, Clock, TrendingUp, TrendingDown, AlertTriangle, Info } from 'lucide-react';
+import { Calendar, Clock, TrendingUp, TrendingDown, AlertTriangle, Info, RefreshCw } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { Skeleton } from '@/components/ui/skeleton';
 
 interface EconomicEvent {
-  id: number;
+  id: string;
   title: string;
   date: string;
   time: string;
@@ -14,63 +15,17 @@ interface EconomicEvent {
   forecast?: string;
   previous?: string;
   description?: string;
+  country?: string;
+  currency?: string;
 }
 
 export const MarketCalendar: React.FC = () => {
-  // The economic events would normally be fetched from an API
-  // This is mock data for demonstration purposes
-  const upcomingEvents: EconomicEvent[] = [
-    {
-      id: 1,
-      title: 'US Non-Farm Payrolls',
-      date: '2025-04-12',
-      time: '12:30 GMT',
-      impact: 'high',
-      affectedPairs: ['USD/EUR', 'USD/JPY', 'USD/GBP'],
-      forecast: '+180K',
-      previous: '+275K',
-      description: 'Monthly change in employment excluding the farming sector'
-    },
-    {
-      id: 2,
-      title: 'ECB Interest Rate Decision',
-      date: '2025-04-15',
-      time: '11:45 GMT',
-      impact: 'high',
-      affectedPairs: ['EUR/USD', 'EUR/GBP', 'EUR/JPY'],
-      forecast: '3.50%',
-      previous: '3.50%',
-      description: 'European Central Bank decision on interest rates'
-    },
-    {
-      id: 3,
-      title: 'UK CPI',
-      date: '2025-04-13',
-      time: '06:00 GMT',
-      impact: 'medium',
-      affectedPairs: ['GBP/USD', 'GBP/JPY', 'GBP/EUR'],
-      forecast: '3.2%',
-      previous: '3.4%',
-      description: 'Year-over-year change in Consumer Price Index'
-    },
-    {
-      id: 4,
-      title: 'Japan GDP',
-      date: '2025-04-16',
-      time: '23:50 GMT',
-      impact: 'medium',
-      affectedPairs: ['USD/JPY', 'EUR/JPY'],
-      forecast: '0.1%',
-      previous: '-0.1%',
-      description: 'Quarter-over-quarter change in Gross Domestic Product'
-    },
-  ];
+  const { data, isLoading, error, refetch, isFetching } = useQuery<{ events: EconomicEvent[] }>({
+    queryKey: ['/api/economic-calendar'],
+    refetchInterval: 5 * 60 * 1000, // Refetch every 5 minutes
+  });
 
-  // Get today's date in the format YYYY-MM-DD
-  const today = new Date().toISOString().split('T')[0];
-  
-  // Filter events to show only upcoming ones
-  const filteredEvents = upcomingEvents.filter(event => event.date >= today).slice(0, 3);
+  const events = data?.events || [];
 
   return (
     <Card className="bg-gray-900 border-gray-800 shadow-xl">
@@ -80,16 +35,57 @@ export const MarketCalendar: React.FC = () => {
             <CardTitle className="text-xl text-white">Economic Calendar</CardTitle>
             <CardDescription>Upcoming market-moving events</CardDescription>
           </div>
-          <div className="h-8 w-8 rounded-full bg-blue-600/20 flex items-center justify-center">
-            <Calendar className="h-4 w-4 text-blue-500" />
+          <div className="flex items-center gap-2">
+            <Button 
+              variant="ghost" 
+              size="icon"
+              onClick={() => refetch()}
+              disabled={isFetching}
+              className="h-8 w-8"
+              data-testid="button-refresh-calendar"
+            >
+              <RefreshCw className={`h-4 w-4 text-gray-400 hover:text-white ${isFetching ? 'animate-spin' : ''}`} />
+            </Button>
+            <div className="h-8 w-8 rounded-full bg-blue-600/20 flex items-center justify-center">
+              <Calendar className="h-4 w-4 text-blue-500" />
+            </div>
           </div>
         </div>
       </CardHeader>
       <CardContent>
-        {filteredEvents.length > 0 ? (
+        {isLoading ? (
           <div className="space-y-4">
-            {filteredEvents.map((event) => (
-              <div key={event.id} className="p-3 bg-gray-950 rounded-lg border border-gray-800 hover:border-blue-500/50 transition-colors">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="p-3 bg-gray-950 rounded-lg border border-gray-800">
+                <Skeleton className="h-5 w-3/4 mb-2 bg-gray-800" />
+                <Skeleton className="h-4 w-1/2 mb-3 bg-gray-800" />
+                <div className="grid grid-cols-2 gap-2">
+                  <Skeleton className="h-3 w-full bg-gray-800" />
+                  <Skeleton className="h-3 w-full bg-gray-800" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : error ? (
+          <div className="h-48 flex items-center justify-center">
+            <div className="text-center text-gray-400">
+              <AlertTriangle className="h-10 w-10 mx-auto mb-4 text-amber-500/40" />
+              <p>Unable to load economic events</p>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => refetch()} 
+                className="mt-3"
+                data-testid="button-retry-calendar"
+              >
+                Try Again
+              </Button>
+            </div>
+          </div>
+        ) : events.length > 0 ? (
+          <div className="space-y-4">
+            {events.slice(0, 4).map((event) => (
+              <div key={event.id} className="p-3 bg-gray-950 rounded-lg border border-gray-800 hover:border-blue-500/50 transition-colors" data-testid={`calendar-event-${event.id}`}>
                 <div className="flex justify-between items-start mb-2">
                   <div>
                     <h3 className="font-medium text-white flex items-center gap-2">
@@ -111,6 +107,12 @@ export const MarketCalendar: React.FC = () => {
                       <span className="mx-2">•</span>
                       <Clock className="h-3 w-3 mr-1 inline" />
                       {event.time}
+                      {event.currency && (
+                        <>
+                          <span className="mx-2">•</span>
+                          <span className="text-blue-400">{event.currency}</span>
+                        </>
+                      )}
                     </div>
                   </div>
                   <div className="flex space-x-1">
@@ -146,7 +148,7 @@ export const MarketCalendar: React.FC = () => {
                 <div className="mt-3">
                   <div className="text-xs flex flex-wrap gap-1">
                     <span className="text-gray-500">Affected pairs:</span>
-                    {event.affectedPairs.map((pair, index) => (
+                    {event.affectedPairs.slice(0, 3).map((pair, index) => (
                       <Badge key={index} variant="outline" className="bg-gray-800 text-xs border-gray-700">
                         {pair}
                       </Badge>
@@ -154,10 +156,12 @@ export const MarketCalendar: React.FC = () => {
                   </div>
                 </div>
                 
-                <Button variant="ghost" size="sm" className="w-full mt-3 text-xs text-gray-400 hover:text-white justify-start p-0">
-                  <Info className="h-3 w-3 mr-1" />
-                  {event.description}
-                </Button>
+                {event.description && (
+                  <Button variant="ghost" size="sm" className="w-full mt-3 text-xs text-gray-400 hover:text-white justify-start p-0">
+                    <Info className="h-3 w-3 mr-1" />
+                    {event.description}
+                  </Button>
+                )}
               </div>
             ))}
           </div>
@@ -174,7 +178,6 @@ export const MarketCalendar: React.FC = () => {
   );
 };
 
-// Helper function to format dates nicely
 function formatDate(dateString: string): string {
   const options: Intl.DateTimeFormatOptions = { 
     weekday: 'short', 
@@ -184,7 +187,6 @@ function formatDate(dateString: string): string {
   return new Date(dateString).toLocaleDateString('en-US', options);
 }
 
-// Helper function to determine if an event has potential bullish/bearish impact
 function hasPotentialImpact(eventTitle: string, direction: 'bullish' | 'bearish'): boolean {
   const bullishIndicators = [
     'GDP', 'Employment', 'Non-Farm Payrolls', 'Consumer Confidence', 

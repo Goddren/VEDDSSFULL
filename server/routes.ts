@@ -67,6 +67,21 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
+// Helper function to get affected currency pairs for a given currency
+function getAffectedPairs(currency: string): string[] {
+  const pairMap: Record<string, string[]> = {
+    'USD': ['EUR/USD', 'GBP/USD', 'USD/JPY', 'USD/CHF', 'AUD/USD', 'USD/CAD'],
+    'EUR': ['EUR/USD', 'EUR/GBP', 'EUR/JPY', 'EUR/CHF', 'EUR/AUD'],
+    'GBP': ['GBP/USD', 'EUR/GBP', 'GBP/JPY', 'GBP/CHF'],
+    'JPY': ['USD/JPY', 'EUR/JPY', 'GBP/JPY', 'AUD/JPY'],
+    'CHF': ['USD/CHF', 'EUR/CHF', 'GBP/CHF'],
+    'AUD': ['AUD/USD', 'EUR/AUD', 'AUD/JPY', 'AUD/NZD'],
+    'CAD': ['USD/CAD', 'CAD/JPY', 'EUR/CAD'],
+    'NZD': ['NZD/USD', 'AUD/NZD', 'NZD/JPY']
+  };
+  return pairMap[currency.toUpperCase()] || [`${currency}/USD`];
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Initialize Twilio if credentials are available
   setupTwilio();
@@ -2145,6 +2160,37 @@ Respond ONLY in valid JSON format with these exact keys:
   
   // Trading Tips endpoint
   app.get('/api/trading-tips', tradingTipsHandler);
+
+  // Economic Calendar endpoint
+  app.get('/api/economic-calendar', async (req: Request, res: Response) => {
+    try {
+      const daysAhead = parseInt(req.query.days as string) || 7;
+      const symbol = req.query.symbol as string || 'EURUSD';
+      
+      // Use the news service to get upcoming events
+      const events = await newsService.getUpcomingEventsForPair(symbol, daysAhead);
+      
+      // Transform events into the format expected by the frontend
+      const calendarEvents = events.map(event => ({
+        id: event.id,
+        title: event.event,
+        date: new Date(event.datetime).toISOString().split('T')[0],
+        time: event.timeFormatted + ' GMT',
+        impact: event.impact,
+        affectedPairs: getAffectedPairs(event.currency),
+        forecast: event.forecast || undefined,
+        previous: event.previous || undefined,
+        description: event.potentialImpact,
+        country: event.country,
+        currency: event.currency
+      }));
+      
+      res.json({ events: calendarEvents });
+    } catch (error) {
+      console.error('Error fetching economic calendar:', error);
+      res.status(500).json({ message: 'Error fetching economic calendar' });
+    }
+  });
 
   // Market insights endpoints
   app.get('/api/market-insights', marketInsightsHandler);
