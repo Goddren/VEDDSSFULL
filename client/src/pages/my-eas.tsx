@@ -138,7 +138,7 @@ export default function MyEAsPage() {
           <Card>
             <CardContent className="pt-12 text-center">
               <p className="text-muted-foreground mb-4">No saved EAs yet</p>
-              <Link href="/multi-timeframe-analysis">
+              <Link href="/multi-timeframe">
                 <Button>Generate Your First EA</Button>
               </Link>
             </CardContent>
