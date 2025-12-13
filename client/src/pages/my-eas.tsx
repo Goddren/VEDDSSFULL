@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'wouter';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -137,7 +138,9 @@ export default function MyEAsPage() {
           <Card>
             <CardContent className="pt-12 text-center">
               <p className="text-muted-foreground mb-4">No saved EAs yet</p>
-              <Button href="/multi-timeframe">Generate Your First EA</Button>
+              <Link href="/multi-timeframe-analysis">
+                <Button>Generate Your First EA</Button>
+              </Link>
             </CardContent>
           </Card>
         ) : (
