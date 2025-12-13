@@ -1,19 +1,21 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import ImageUpload from '@/components/ui/image-upload';
+import VideoUpload from '@/components/ui/video-upload';
 import LoadingIndicator from '@/components/ui/loading-indicator';
 import { FullscreenLoading } from '@/components/ui/fullscreen-loading';
 import ProgressSteps from '@/components/ui/progress-steps';
 import AnalysisResult from '@/components/charts/analysis-result';
 import { ApiKeySettings } from '@/components/ui/api-key-settings';
 import { Button } from '@/components/ui/button';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { useMutation } from '@tanstack/react-query';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { AnalysisState, analysisPipeline, ChartAnalysisResponse } from '@shared/types';
 import { delay } from '@/lib/utils';
-import { BarChart3, CameraIcon, LayoutDashboard, Upload, Calendar, Sparkles, Lightbulb } from 'lucide-react';
+import { BarChart3, CameraIcon, LayoutDashboard, Upload, Calendar, Sparkles, Lightbulb, Image, Video } from 'lucide-react';
 import { MarketCalendar } from '@/components/market/market-calendar';
 import { ChartInsightsPanel } from '@/components/market-insights/chart-insights-panel';
 import AnalysisStatusNotification from '@/components/ui/analysis-status-notification';
@@ -96,7 +98,20 @@ const Analysis: React.FC = () => {
   const [analysisProgress, setAnalysisProgress] = useState<number>(0);
   const [analysisResult, setAnalysisResult] = useState<ChartAnalysisResponse | null>(null);
   const [apiKeyValid, setApiKeyValid] = useState<boolean | null>(null);
+  const [uploadMode, setUploadMode] = useState<'image' | 'video'>('image');
+  const [videoAnalyses, setVideoAnalyses] = useState<ChartAnalysisResponse[]>([]);
   const { toast } = useToast();
+
+  // Reset state when switching upload modes
+  const handleModeChange = useCallback((mode: 'image' | 'video') => {
+    setUploadMode(mode);
+    setAnalysisState(AnalysisState.INITIAL);
+    setAnalysisResult(null);
+    setVideoAnalyses([]);
+    setUploadedImageUrl('');
+    setAnnotatedImageUrl('');
+    setAnalysisProgress(0);
+  }, []);
 
   // Upload image mutation
   const uploadMutation = useMutation({
@@ -161,6 +176,7 @@ const Analysis: React.FC = () => {
       console.log('Upload/analysis successful', data);
       setUploadedImageUrl(data.url);
       setAnnotatedImageUrl(data.annotatedImageUrl || '');
+      setVideoAnalyses([]); // Clear video analyses when doing image analysis
       
       // Skip the separate analysis step and use the result directly
       if (data.analysisResult) {
@@ -186,6 +202,57 @@ const Analysis: React.FC = () => {
       console.error('Upload mutation error:', error);
       toast({
         title: 'Upload Failed',
+        description: error.message,
+        variant: 'destructive',
+      });
+      setAnalysisState(AnalysisState.ERROR);
+    }
+  });
+
+  // Video upload mutation - extracts frames and analyzes them
+  const videoUploadMutation = useMutation({
+    mutationFn: async (file: File) => {
+      console.log('Video upload mutation started with file:', file.name, file.type, file.size);
+      
+      const formData = new FormData();
+      formData.append('video', file);
+      formData.append('numFrames', '4');
+      formData.append('analysisType', 'multi');
+      
+      const response = await apiRequest('POST', '/api/analyze-video', formData);
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to analyze video');
+      }
+      
+      return await response.json();
+    },
+    onSuccess: (data) => {
+      console.log('Video analysis successful', data);
+      
+      if (data.analyses && data.analyses.length > 0) {
+        setVideoAnalyses(data.analyses);
+        setAnalysisResult(data.analyses[0]);
+        setUploadedImageUrl(data.analyses[0].imageUrl || '');
+        setAnalysisProgress(100);
+        setAnalysisState(AnalysisState.COMPLETE);
+        
+        toast({
+          title: 'Video Analysis Complete',
+          description: `Successfully analyzed ${data.framesAnalyzed} frames from your video`,
+        });
+        
+        queryClient.invalidateQueries({ queryKey: ['/api/subscription'] });
+        queryClient.invalidateQueries({ queryKey: ['/api/analyses'] });
+      } else {
+        throw new Error('No frames could be analyzed');
+      }
+    },
+    onError: (error: Error) => {
+      console.error('Video upload mutation error:', error);
+      toast({
+        title: 'Video Analysis Failed',
         description: error.message,
         variant: 'destructive',
       });
@@ -343,6 +410,45 @@ const Analysis: React.FC = () => {
     }
   }, [uploadMutation, apiKeyValid, toast]);
 
+  const handleVideoUpload = useCallback(async (file: File) => {
+    if (apiKeyValid === false) {
+      toast({
+        title: 'API Key Required',
+        description: 'Please configure your OpenAI API key before analyzing videos.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    
+    try {
+      const response = await apiRequest('POST', '/api/subscription/check-limits', {
+        actionType: 'analysis'
+      });
+      
+      const result = await response.json();
+      
+      if (!result.allowed) {
+        toast({
+          title: 'Subscription Limit Reached',
+          description: `You've reached your monthly limit of ${result.limit} analyses. Please upgrade to continue.`,
+          variant: 'destructive',
+        });
+        return;
+      }
+      
+      setAnalysisState(AnalysisState.UPLOADING);
+      setVideoAnalyses([]);
+      videoUploadMutation.mutate(file);
+    } catch (error) {
+      console.error('Error checking subscription limits:', error);
+      toast({
+        title: 'Error Checking Subscription',
+        description: error instanceof Error ? error.message : 'Failed to check subscription limits.',
+        variant: 'destructive',
+      });
+    }
+  }, [videoUploadMutation, apiKeyValid, toast]);
+
   const startAnalysis = useCallback((imageUrl: string) => {
     setAnalysisState(AnalysisState.ANALYZING);
     analysisMutation.mutate(imageUrl);
@@ -456,14 +562,34 @@ const Analysis: React.FC = () => {
                 <span>Chart Upload</span>
               </CardTitle>
               <CardDescription>
-                Supports MT5, TradingView, and TradeLocker screenshots
+                Upload images or videos for AI-powered analysis
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <ImageUpload 
-                onImageUpload={handleImageUpload} 
-                isUploading={analysisState === AnalysisState.UPLOADING}
-              />
+              <Tabs value={uploadMode} onValueChange={(v) => handleModeChange(v as 'image' | 'video')} className="w-full">
+                <TabsList className="grid w-full grid-cols-2 mb-4">
+                  <TabsTrigger value="image" className="flex items-center gap-2" data-testid="tab-image-upload">
+                    <Image className="h-4 w-4" />
+                    Image
+                  </TabsTrigger>
+                  <TabsTrigger value="video" className="flex items-center gap-2" data-testid="tab-video-upload">
+                    <Video className="h-4 w-4" />
+                    Video
+                  </TabsTrigger>
+                </TabsList>
+                <TabsContent value="image">
+                  <ImageUpload 
+                    onImageUpload={handleImageUpload} 
+                    isUploading={analysisState === AnalysisState.UPLOADING}
+                  />
+                </TabsContent>
+                <TabsContent value="video">
+                  <VideoUpload 
+                    onVideoUpload={handleVideoUpload} 
+                    isUploading={analysisState === AnalysisState.UPLOADING || videoUploadMutation.isPending}
+                  />
+                </TabsContent>
+              </Tabs>
             </CardContent>
           </Card>
           
@@ -640,6 +766,54 @@ const Analysis: React.FC = () => {
           {/* Complete State - Show Results */}
           {analysisState === AnalysisState.COMPLETE && analysisResult && (
             <>
+              {/* Video Frames Navigation - only show if we have multiple video analyses */}
+              {videoAnalyses.length > 1 && (
+                <Card className="mb-6">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="flex items-center gap-2">
+                      <Video className="h-5 w-5 text-primary" />
+                      <span>Video Frame Analysis ({videoAnalyses.length} frames)</span>
+                    </CardTitle>
+                    <CardDescription>
+                      Click on a frame to view its analysis
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      {videoAnalyses.map((analysis, index) => (
+                        <button
+                          key={index}
+                          onClick={() => {
+                            setAnalysisResult(analysis);
+                            setUploadedImageUrl(analysis.imageUrl || '');
+                          }}
+                          className={`relative rounded-lg overflow-hidden border-2 transition-all hover:scale-105 ${
+                            analysisResult === analysis 
+                              ? 'border-primary ring-2 ring-primary/20' 
+                              : 'border-muted hover:border-primary/50'
+                          }`}
+                          data-testid={`button-video-frame-${index}`}
+                        >
+                          <img 
+                            src={analysis.imageUrl} 
+                            alt={`Frame ${index + 1}`}
+                            className="w-full aspect-video object-cover"
+                          />
+                          <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-2">
+                            <p className="text-xs text-white font-medium">
+                              Frame {index + 1}
+                            </p>
+                            <p className="text-xs text-white/70">
+                              {analysis.direction || 'Analyzing...'}
+                            </p>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+              
               <AnalysisResult 
                 analysis={analysisResult} 
                 imageUrl={analysisResult.imageUrl || uploadedImageUrl}
