@@ -3,20 +3,7 @@ import Stripe from 'stripe';
 let connectionSettings: any;
 
 async function getCredentials() {
-  // PRIORITY 1: Always use STRIPE_SECRET_KEY if provided (most reliable)
-  if (process.env.STRIPE_SECRET_KEY) {
-    const key = process.env.STRIPE_SECRET_KEY.trim();
-    console.log('Using STRIPE_SECRET_KEY environment variable');
-    console.log('Key length:', key.length);
-    console.log('Key starts with:', key.substring(0, 12));
-    console.log('Key ends with:', key.substring(key.length - 4));
-    return {
-      publishableKey: process.env.VITE_STRIPE_PUBLISHABLE_KEY || '',
-      secretKey: key,
-    };
-  }
-
-  // PRIORITY 2: Try Replit connector as fallback
+  // PRIORITY 1: Try Replit connector first (more reliable)
   const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
   
   if (!hostname) {
