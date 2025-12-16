@@ -3,56 +3,25 @@ import Stripe from 'stripe';
 let connectionSettings: any;
 
 async function getCredentials() {
-  // PRIORITY 1: Try Replit connector first (more reliable)
-  const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
+  // Use manual STRIPE_SECRET_KEY from environment
+  const secretKey = process.env.STRIPE_SECRET_KEY;
+  const publishableKey = process.env.VITE_STRIPE_PUBLISHABLE_KEY;
   
-  if (!hostname) {
-    throw new Error('No Stripe configuration available. Please set STRIPE_SECRET_KEY.');
+  if (!secretKey) {
+    throw new Error('STRIPE_SECRET_KEY not found. Please add your Stripe secret key to secrets.');
   }
   
-  const xReplitToken = process.env.REPL_IDENTITY
-    ? 'repl ' + process.env.REPL_IDENTITY
-    : process.env.WEB_REPL_RENEWAL
-      ? 'depl ' + process.env.WEB_REPL_RENEWAL
-      : null;
-
-  if (!xReplitToken) {
-    throw new Error('X_REPLIT_TOKEN not found. Please set STRIPE_SECRET_KEY.');
+  if (!publishableKey) {
+    throw new Error('VITE_STRIPE_PUBLISHABLE_KEY not found. Please add your Stripe publishable key to secrets.');
   }
-
-  const connectorName = 'stripe';
-  const isProduction = process.env.REPLIT_DEPLOYMENT === '1';
-  const targetEnvironment = isProduction ? 'production' : 'development';
-
-  try {
-    const url = new URL(`https://${hostname}/api/v2/connection`);
-    url.searchParams.set('include_secrets', 'true');
-    url.searchParams.set('connector_names', connectorName);
-    url.searchParams.set('environment', targetEnvironment);
-
-    const response = await fetch(url.toString(), {
-      headers: {
-        'Accept': 'application/json',
-        'X_REPLIT_TOKEN': xReplitToken
-      }
-    });
-
-    const data = await response.json();
-    
-    connectionSettings = data.items?.[0];
-
-    if (!connectionSettings || (!connectionSettings.settings?.publishable || !connectionSettings.settings?.secret)) {
-      throw new Error(`Stripe ${targetEnvironment} connection not found`);
-    }
-
-    return {
-      publishableKey: connectionSettings.settings.publishable,
-      secretKey: connectionSettings.settings.secret,
-    };
-  } catch (error) {
-    console.error('Stripe connector error:', error instanceof Error ? error.message : 'Unknown error');
-    throw new Error('Stripe not configured. Please set STRIPE_SECRET_KEY.');
-  }
+  
+  console.log('Using manual Stripe keys from environment');
+  console.log('Key type:', secretKey.startsWith('sk_live_') ? 'LIVE' : 'TEST');
+  
+  return {
+    publishableKey: publishableKey,
+    secretKey: secretKey,
+  };
 }
 
 export async function getUncachableStripeClient() {
