@@ -127,6 +127,15 @@ export interface IStorage {
   incrementShareAssetViewCount(id: number): Promise<void>;
   incrementShareAssetShareCount(id: number): Promise<void>;
   
+  // User Subscription methods (for VEDD token payments)
+  updateUserSubscription(userId: number, subscriptionData: {
+    planId: number;
+    status: string;
+    stripeSubscriptionId?: string;
+    currentPeriodStart?: Date;
+    currentPeriodEnd?: Date;
+  }): Promise<void>;
+  
   // Session store for authentication
   sessionStore: session.Store;
 }
@@ -950,6 +959,25 @@ export class DatabaseStorage implements IStorage {
       .update(eaShareAssets)
       .set({ shareCount: sql`${eaShareAssets.shareCount} + 1` })
       .where(eq(eaShareAssets.id, id));
+  }
+
+  async updateUserSubscription(userId: number, subscriptionData: {
+    planId: number;
+    status: string;
+    stripeSubscriptionId?: string;
+    currentPeriodStart?: Date;
+    currentPeriodEnd?: Date;
+  }): Promise<void> {
+    await db
+      .update(users)
+      .set({
+        subscriptionPlanId: subscriptionData.planId,
+        subscriptionStatus: subscriptionData.status,
+        stripeSubscriptionId: subscriptionData.stripeSubscriptionId || null,
+        subscriptionCurrentPeriodEnd: subscriptionData.currentPeriodEnd || null,
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, userId));
   }
 }
 

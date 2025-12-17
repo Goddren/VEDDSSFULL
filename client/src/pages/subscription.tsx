@@ -3,12 +3,13 @@ import { apiRequest } from '@/lib/queryClient';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/use-auth';
 import { useLocation } from 'wouter';
-import { Loader2, Check, AlertCircle } from 'lucide-react';
+import { Loader2, Check, AlertCircle, Coins } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
+import VeddPaymentButton from '@/components/VeddPaymentButton';
 
 type Plan = {
   id: number;
@@ -385,7 +386,7 @@ export default function SubscriptionPage() {
                 </li>
               </ul>
             </CardContent>
-            <CardFooter>
+            <CardFooter className="flex flex-col gap-2">
               {subscription?.planId === plan.id ? (
                 subscription.planId !== 1 ? (
                   <Button 
@@ -393,31 +394,42 @@ export default function SubscriptionPage() {
                     className="w-full" 
                     onClick={handleCancelSubscription}
                     disabled={isLoading}
+                    data-testid={`button-cancel-${plan.id}`}
                   >
                     {isLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                     Cancel Subscription
                   </Button>
                 ) : (
-                  <Button variant="outline" className="w-full" disabled>
+                  <Button variant="outline" className="w-full" disabled data-testid={`button-current-${plan.id}`}>
                     Current Plan
                   </Button>
                 )
               ) : (
-                <Button 
-                  variant="default" 
-                  className={`w-full ${plan.interval === 'lifetime' ? 'bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70' : ''}`}
-                  onClick={() => handleSubscribe(plan.id)}
-                  disabled={isLoading || selectedPlanId === plan.id}
-                >
-                  {isLoading && selectedPlanId === plan.id ? (
-                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                  ) : null}
-                  {plan.price === 0 
-                    ? 'Select Free Plan' 
-                    : plan.interval === 'lifetime' 
-                      ? 'Get Lifetime Access' 
-                      : 'Subscribe'}
-                </Button>
+                <>
+                  <Button 
+                    variant="default" 
+                    className={`w-full ${plan.interval === 'lifetime' ? 'bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70' : ''}`}
+                    onClick={() => handleSubscribe(plan.id)}
+                    disabled={isLoading || selectedPlanId === plan.id}
+                    data-testid={`button-subscribe-${plan.id}`}
+                  >
+                    {isLoading && selectedPlanId === plan.id ? (
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    ) : null}
+                    {plan.price === 0 
+                      ? 'Select Free Plan' 
+                      : plan.interval === 'lifetime' 
+                        ? 'Get Lifetime Access' 
+                        : 'Subscribe'}
+                  </Button>
+                  {plan.price > 0 && (
+                    <VeddPaymentButton 
+                      planId={plan.id} 
+                      planName={plan.name}
+                      priceUsd={plan.price / 100}
+                    />
+                  )}
+                </>
               )}
             </CardFooter>
           </Card>

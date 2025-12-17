@@ -2156,6 +2156,107 @@ Respond ONLY in valid JSON format with these exact keys:
     }
   });
 
+  // ===== VEDD Token Payment Endpoints =====
+  
+  // Create VEDD payment session
+  app.post('/api/vedd/create-session', async (req: Request, res: Response) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ message: 'Authentication required' });
+      }
+
+      const { planName } = req.body;
+      if (!planName) {
+        return res.status(400).json({ message: 'Plan name is required' });
+      }
+
+      const userId = (req.user as Express.User).id;
+      const { createPaymentSession } = await import('./veddPayment');
+      const session = createPaymentSession(planName, userId);
+
+      res.json({ session });
+    } catch (error) {
+      console.error('Error creating VEDD payment session:', error);
+      res.status(500).json({ 
+        message: 'Error creating payment session',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+
+  // Verify VEDD payment
+  app.post('/api/vedd/verify-payment', async (req: Request, res: Response) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ message: 'Authentication required' });
+      }
+
+      const { sessionId, transactionSignature } = req.body;
+      if (!sessionId || !transactionSignature) {
+        return res.status(400).json({ message: 'Session ID and transaction signature are required' });
+      }
+
+      const userId = (req.user as Express.User).id;
+      const { verifyVeddPayment, getPaymentSession } = await import('./veddPayment');
+      
+      const session = getPaymentSession(sessionId);
+      if (!session) {
+        return res.status(404).json({ verified: false, error: 'Payment session not found' });
+      }
+
+      if (session.userId !== userId) {
+        return res.status(403).json({ verified: false, error: 'Unauthorized access to payment session' });
+      }
+
+      const result = await verifyVeddPayment(sessionId, transactionSignature);
+
+      if (result.verified) {
+        // Upgrade user's subscription based on plan
+        const planMap: Record<string, number> = {
+          'starter': 2,
+          'pro': 3,
+          'lifetime': 4,
+        };
+        const planId = planMap[session.planName];
+        
+        if (planId) {
+          await storage.updateUserSubscription(userId, {
+            planId,
+            status: 'active',
+            stripeSubscriptionId: `vedd_${sessionId}`,
+            currentPeriodStart: new Date(),
+            currentPeriodEnd: session.planName === 'lifetime' 
+              ? new Date(Date.now() + 100 * 365 * 24 * 60 * 60 * 1000) // 100 years for lifetime
+              : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days for monthly
+          });
+        }
+      }
+
+      res.json(result);
+    } catch (error) {
+      console.error('Error verifying VEDD payment:', error);
+      res.status(500).json({ 
+        verified: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+
+  // Get VEDD token prices for plans
+  app.get('/api/vedd/prices', async (_req: Request, res: Response) => {
+    try {
+      const { getVeddPrices, getReceiverWallet, getTokenMint } = await import('./veddPayment');
+      res.json({
+        prices: getVeddPrices(),
+        receiverWallet: getReceiverWallet(),
+        tokenMint: getTokenMint(),
+      });
+    } catch (error) {
+      console.error('Error getting VEDD prices:', error);
+      res.status(500).json({ message: 'Error getting VEDD prices' });
+    }
+  });
+
   // Trading Coach endpoints
   app.post('/api/trading-coach', tradingCoachHandler);
   
