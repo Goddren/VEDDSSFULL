@@ -6,7 +6,7 @@ const SOLANA_RPC = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solan
 
 const PLAN_PRICES_VEDD: Record<string, number> = {
   'starter': 1000,
-  'pro': 5000,
+  'premium': 5000,
   'lifetime': 25000,
 };
 
@@ -36,7 +36,7 @@ export function createPaymentSession(
   const veddAmount = PLAN_PRICES_VEDD[normalizedPlan];
   
   if (!veddAmount) {
-    throw new Error(`Invalid plan: ${planName}. Valid plans: starter, pro, lifetime`);
+    throw new Error(`Invalid plan: ${planName}. Valid plans: starter, premium, lifetime`);
   }
 
   const session: PaymentSession = {

@@ -2214,7 +2214,7 @@ Respond ONLY in valid JSON format with these exact keys:
         // Upgrade user's subscription based on plan
         const planMap: Record<string, number> = {
           'starter': 2,
-          'pro': 3,
+          'premium': 3,
           'lifetime': 4,
         };
         const planId = planMap[session.planName];
