@@ -4,10 +4,18 @@ const VEDD_TOKEN_MINT = 'Ch7WbPBy5XjL1UULwWYwh75DsVdXhFUVXtiNvNGopump';
 const RECEIVER_WALLET = 'Ch7WbPBy5XjL1UULwWYwh75DsVdXhFUVXtiNvNGopump';
 const SOLANA_RPC = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
 
+// VEDD Token Pricing (as of Dec 2024)
+// Rate: 1000 VEDD = $0.0036 USD (0.000027664 SOL)
+// 1 USD = ~277,778 VEDD
+const VEDD_PER_USD = 277778;
+
+// Plan prices in USD (cents converted to dollars for calculation)
+// Starter: $19.99, Premium: $49.99, Lifetime: $149.00
+// Rounded to nearest 100 VEDD for cleaner amounts
 const PLAN_PRICES_VEDD: Record<string, number> = {
-  'starter': 1000,
-  'premium': 5000,
-  'lifetime': 25000,
+  'starter': Math.round((19.99 * VEDD_PER_USD) / 100) * 100,   // ~5,552,800 VEDD
+  'premium': Math.round((49.99 * VEDD_PER_USD) / 100) * 100,   // ~13,886,200 VEDD
+  'lifetime': Math.round((149.00 * VEDD_PER_USD) / 100) * 100, // ~41,389,000 VEDD
 };
 
 interface PaymentSession {
