@@ -13,7 +13,7 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
-import { Menu, Bell, User, LogOut, Settings, History, LineChart, CreditCard, Award, Users, Newspaper, Wand2, Clock, Briefcase, Zap, HelpCircle, BookOpen, GraduationCap } from 'lucide-react';
+import { Menu, Bell, User, LogOut, Settings, History, LineChart, CreditCard, Award, Users, Newspaper, Wand2, Clock, Briefcase, Zap, HelpCircle, BookOpen, GraduationCap, FileText } from 'lucide-react';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 
 const Header: React.FC = () => {
@@ -80,7 +80,32 @@ const Header: React.FC = () => {
           ))}
         </div>
         
-        <div className="flex items-center space-x-4">
+        <div className="flex items-center space-x-2 md:space-x-4">
+          <div className="hidden md:flex items-center gap-2">
+            <Link href="/user-guide">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="border-blue-500/50 text-blue-500 hover:bg-blue-500/10"
+                data-testid="button-user-guide"
+              >
+                <BookOpen className="h-4 w-4 mr-1" />
+                Guide
+              </Button>
+            </Link>
+            <Link href="/ambassador-training">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="border-amber-500/50 text-amber-500 hover:bg-amber-500/10"
+                data-testid="button-ambassador"
+              >
+                <GraduationCap className="h-4 w-4 mr-1" />
+                Ambassador
+              </Button>
+            </Link>
+          </div>
+          
           <ThemeToggle />
           
           <Button variant="ghost" size="icon" className="rounded-full">
@@ -184,6 +209,26 @@ const Header: React.FC = () => {
                 >
                   <User className="h-4 w-4 mr-2" />
                   Profile
+                </Link>
+                <div className="border-t border-gray-700 my-2 pt-2">
+                  <Link 
+                    href="/user-guide"
+                    onClick={handleMobileNavClick}
+                    className={`text-lg font-medium transition-colors flex items-center ${location === '/user-guide' ? 'text-blue-500' : 'text-blue-400 hover:text-blue-300'}`}
+                    data-testid="mobile-nav-user-guide"
+                  >
+                    <BookOpen className="h-4 w-4 mr-2" />
+                    User Guide
+                  </Link>
+                </div>
+                <Link 
+                  href="/ambassador-training"
+                  onClick={handleMobileNavClick}
+                  className={`text-lg font-medium transition-colors flex items-center ${location === '/ambassador-training' ? 'text-amber-500' : 'text-amber-400 hover:text-amber-300'}`}
+                  data-testid="mobile-nav-ambassador"
+                >
+                  <GraduationCap className="h-4 w-4 mr-2" />
+                  Ambassador Program
                 </Link>
                 <button 
                   onClick={handleLogout}

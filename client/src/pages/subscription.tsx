@@ -723,6 +723,100 @@ export default function SubscriptionPage() {
         </div>
       </div>
 
+      {/* VEDD Token Purchase Section */}
+      <div className="mt-12 p-8 bg-gradient-to-r from-purple-500/10 via-pink-500/10 to-purple-500/10 rounded-xl border border-purple-500/30">
+        <div className="text-center mb-6">
+          <div className="inline-flex items-center gap-2 mb-4">
+            <Coins className="w-8 h-8 text-purple-500" />
+            <h2 className="text-3xl font-bold bg-gradient-to-r from-purple-500 to-pink-500 bg-clip-text text-transparent">
+              Buy VEDD Token
+            </h2>
+          </div>
+          <p className="text-muted-foreground max-w-2xl mx-auto">
+            VEDD is our native cryptocurrency token. Use it to pay for subscriptions, unlock premium features, and participate in our ecosystem.
+          </p>
+        </div>
+        
+        <div className="grid md:grid-cols-3 gap-6 mb-8">
+          <Card className="border-purple-500/30 bg-purple-500/5">
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <span className="text-2xl">💰</span>
+                Save on Subscriptions
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
+                Pay with VEDD tokens and get discounted rates on all subscription plans.
+              </p>
+            </CardContent>
+          </Card>
+          <Card className="border-purple-500/30 bg-purple-500/5">
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <span className="text-2xl">🚀</span>
+                Future Utility
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
+                VEDD tokens will unlock exclusive features, governance rights, and staking rewards.
+              </p>
+            </CardContent>
+          </Card>
+          <Card className="border-purple-500/30 bg-purple-500/5">
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <span className="text-2xl">🔥</span>
+                Growing Ecosystem
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
+                Join our growing community and be part of the decentralized trading analysis revolution.
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="flex flex-col items-center gap-4">
+          <div className="flex flex-wrap gap-4 justify-center">
+            <a 
+              href="https://pump.fun/coin/Ch7WbPBy5XjL1UULwWYwh75DsVdXhFUVXtiNvNGopump" 
+              target="_blank" 
+              rel="noopener noreferrer"
+            >
+              <Button 
+                size="lg" 
+                className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
+                data-testid="button-buy-vedd-pumpfun"
+              >
+                <Coins className="w-5 h-5 mr-2" />
+                Buy VEDD on Pump.fun
+              </Button>
+            </a>
+            <a 
+              href="https://raydium.io/swap/?inputCurrency=sol&outputCurrency=Ch7WbPBy5XjL1UULwWYwh75DsVdXhFUVXtiNvNGopump" 
+              target="_blank" 
+              rel="noopener noreferrer"
+            >
+              <Button 
+                size="lg" 
+                variant="outline"
+                className="border-purple-500 text-purple-500 hover:bg-purple-500/10"
+                data-testid="button-buy-vedd-raydium"
+              >
+                <Coins className="w-5 h-5 mr-2" />
+                Buy VEDD on Raydium
+              </Button>
+            </a>
+          </div>
+          <p className="text-xs text-muted-foreground text-center max-w-md">
+            Token Contract: Ch7WbPBy5XjL1UULwWYwh75DsVdXhFUVXtiNvNGopump
+          </p>
+        </div>
+      </div>
+
       <div className="mt-12 text-center text-sm text-muted-foreground">
         <p>All subscriptions are automatically renewed monthly. You can cancel at any time.</p>
         <p className="mt-2">
