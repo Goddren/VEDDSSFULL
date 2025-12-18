@@ -489,6 +489,33 @@ export const insertUserStreakSchema = createInsertSchema(userStreaks).omit({
 export type UserStreak = typeof userStreaks.$inferSelect;
 export type InsertUserStreak = z.infer<typeof insertUserStreakSchema>;
 
+// What If Scenario Analysis
+export const scenarioAnalyses = pgTable("scenario_analyses", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  chartAnalysisId: integer("chart_analysis_id").references(() => chartAnalyses.id),
+  symbol: text("symbol").notNull(),
+  currentPrice: text("current_price").notNull(),
+  scenarioType: text("scenario_type").notNull(), // 'price_target', 'stop_loss', 'news_impact', 'timeframe', 'market_condition'
+  scenarioParams: jsonb("scenario_params").notNull(), // Input parameters for the scenario
+  outcomes: jsonb("outcomes").notNull(), // Array of possible outcomes with probabilities
+  recommendation: text("recommendation"),
+  riskAssessment: text("risk_assessment"),
+  profitPotential: text("profit_potential"),
+  bestCase: jsonb("best_case"), // Best case scenario details
+  worstCase: jsonb("worst_case"), // Worst case scenario details
+  mostLikely: jsonb("most_likely"), // Most likely scenario details
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertScenarioAnalysisSchema = createInsertSchema(scenarioAnalyses).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type ScenarioAnalysis = typeof scenarioAnalyses.$inferSelect;
+export type InsertScenarioAnalysis = z.infer<typeof insertScenarioAnalysisSchema>;
+
 // Tier thresholds configuration
 export const TIER_CONFIG = {
   YG: { name: 'Young Gun', minXP: 0, icon: '🔫', color: 'green', nextTier: 'Rising', xpNeeded: 500 },

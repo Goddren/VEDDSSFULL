@@ -1,14 +1,15 @@
 import { 
   users, chartAnalyses, achievements, userAchievements,
   userProfiles, follows, analysisFeedback, analysisViews, priceAlerts,
-  savedEAs, eaSubscriptions, marketDataSnapshots, marketDataRefreshJobs, eaShareAssets, userStreaks,
+  savedEAs, eaSubscriptions, marketDataSnapshots, marketDataRefreshJobs, eaShareAssets, userStreaks, scenarioAnalyses,
   type User, type InsertUser, type ChartAnalysis, type InsertChartAnalysis,
   type Achievement, type InsertAchievement, type UserAchievement, type InsertUserAchievement,
   type UserProfile, type InsertUserProfile, type Follow, type InsertFollow,
   type AnalysisFeedback, type InsertAnalysisFeedback, type AnalysisView, type PriceAlert, type InsertPriceAlert,
   type SavedEA, type InsertSavedEA, type EASubscription, type InsertEASubscription,
   type MarketDataSnapshot, type InsertMarketDataSnapshot, type MarketDataRefreshJob, type InsertMarketDataRefreshJob,
-  type EAShareAsset, type InsertEAShareAsset, type UserStreak, type InsertUserStreak, TIER_CONFIG
+  type EAShareAsset, type InsertEAShareAsset, type UserStreak, type InsertUserStreak, TIER_CONFIG,
+  type ScenarioAnalysis, type InsertScenarioAnalysis
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, sql } from "drizzle-orm";
@@ -148,6 +149,12 @@ export interface IStorage {
     tierUp: boolean; 
     newTier?: string; 
   }>;
+  
+  // Scenario Analysis methods
+  createScenarioAnalysis(analysis: InsertScenarioAnalysis): Promise<ScenarioAnalysis>;
+  getScenarioAnalysis(id: number): Promise<ScenarioAnalysis | undefined>;
+  getUserScenarioAnalyses(userId: number): Promise<ScenarioAnalysis[]>;
+  getScenariosByChartAnalysis(chartAnalysisId: number): Promise<ScenarioAnalysis[]>;
 }
 
 // Create PostgreSQL session store
@@ -1105,6 +1112,25 @@ export class DatabaseStorage implements IStorage {
     }
     
     return { streak, streakIncreased, tierUp, newTier };
+  }
+
+  // Scenario Analysis methods
+  async createScenarioAnalysis(analysis: InsertScenarioAnalysis): Promise<ScenarioAnalysis> {
+    const [result] = await db.insert(scenarioAnalyses).values(analysis).returning();
+    return result;
+  }
+
+  async getScenarioAnalysis(id: number): Promise<ScenarioAnalysis | undefined> {
+    const [result] = await db.select().from(scenarioAnalyses).where(eq(scenarioAnalyses.id, id));
+    return result;
+  }
+
+  async getUserScenarioAnalyses(userId: number): Promise<ScenarioAnalysis[]> {
+    return await db.select().from(scenarioAnalyses).where(eq(scenarioAnalyses.userId, userId));
+  }
+
+  async getScenariosByChartAnalysis(chartAnalysisId: number): Promise<ScenarioAnalysis[]> {
+    return await db.select().from(scenarioAnalyses).where(eq(scenarioAnalyses.chartAnalysisId, chartAnalysisId));
   }
 }
 

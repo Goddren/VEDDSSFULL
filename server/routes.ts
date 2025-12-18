@@ -3429,6 +3429,214 @@ Return ONLY a JSON object with this structure:
     }
   });
 
+  // ========== What If Scenario Analysis API ==========
+  
+  // Analyze a "What If" scenario using AI
+  app.post("/api/scenario-analysis", async (req: Request, res: Response) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+      
+      const userId = (req.user as User).id;
+      const { 
+        symbol, 
+        currentPrice, 
+        scenarioType, 
+        scenarioParams,
+        chartAnalysisId 
+      } = req.body;
+      
+      if (!symbol || !currentPrice || !scenarioType || !scenarioParams) {
+        return res.status(400).json({ error: "Missing required fields: symbol, currentPrice, scenarioType, scenarioParams" });
+      }
+      
+      const validScenarioTypes = ['price_target', 'stop_loss', 'news_impact', 'timeframe', 'market_condition', 'custom'];
+      if (!validScenarioTypes.includes(scenarioType)) {
+        return res.status(400).json({ error: `Invalid scenarioType. Must be one of: ${validScenarioTypes.join(', ')}` });
+      }
+      
+      // Import OpenAI
+      const OpenAI = (await import("openai")).default;
+      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+      // Build the AI prompt based on scenario type
+      let scenarioPrompt = '';
+      
+      switch (scenarioType) {
+        case 'price_target':
+          scenarioPrompt = `Analyze a "What If" scenario for ${symbol} trading at ${currentPrice}.
+            The trader is considering: Entry at ${scenarioParams.entryPrice || currentPrice}, 
+            Stop Loss at ${scenarioParams.stopLoss || 'not specified'}, 
+            Take Profit at ${scenarioParams.takeProfit || 'not specified'}.
+            Position size: ${scenarioParams.positionSize || 'standard lot'}.
+            Analyze the probability of each outcome and provide risk assessment.`;
+          break;
+          
+        case 'stop_loss':
+          scenarioPrompt = `Analyze stop loss placement for ${symbol} at ${currentPrice}.
+            Proposed stop loss levels to compare: ${JSON.stringify(scenarioParams.stopLossLevels || [])}.
+            Current trend: ${scenarioParams.trend || 'unknown'}.
+            Volatility context: ${scenarioParams.volatility || 'normal'}.
+            Evaluate each stop loss level for probability of being hit vs optimal protection.`;
+          break;
+          
+        case 'news_impact':
+          scenarioPrompt = `Analyze potential news impact scenarios for ${symbol} at ${currentPrice}.
+            News type: ${scenarioParams.newsType || 'economic data'}.
+            Expected outcome scenarios: bullish surprise, as expected, bearish surprise.
+            Historical volatility context: ${scenarioParams.historicalVolatility || 'normal'}.
+            Analyze each outcome probability and expected price movement.`;
+          break;
+          
+        case 'timeframe':
+          scenarioPrompt = `Analyze different timeframe outcomes for ${symbol} at ${currentPrice}.
+            Short-term (1-4 hours): ${scenarioParams.shortTermBias || 'analyze'}.
+            Medium-term (1-5 days): ${scenarioParams.mediumTermBias || 'analyze'}.
+            Long-term (1-4 weeks): ${scenarioParams.longTermBias || 'analyze'}.
+            Current position type: ${scenarioParams.positionType || 'swing trade'}.
+            Analyze probability of success in each timeframe.`;
+          break;
+          
+        case 'market_condition':
+          scenarioPrompt = `Analyze market condition scenarios for ${symbol} at ${currentPrice}.
+            Current identified patterns: ${JSON.stringify(scenarioParams.patterns || [])}.
+            If market becomes: Trending strongly ${scenarioParams.trendDirection || 'bullish'}.
+            If market becomes: Ranging/Consolidating.
+            If market becomes: Highly volatile.
+            If market reverses: ${scenarioParams.reversalScenario || 'sudden reversal'}.
+            Analyze each condition's impact on the trade.`;
+          break;
+          
+        case 'custom':
+          scenarioPrompt = `Analyze a custom "What If" scenario for ${symbol} at ${currentPrice}.
+            Scenario description: ${scenarioParams.description || 'Custom analysis requested'}.
+            Key variables: ${JSON.stringify(scenarioParams.variables || {})}.
+            Trader's hypothesis: ${scenarioParams.hypothesis || 'not specified'}.
+            Provide comprehensive analysis of outcomes and probabilities.`;
+          break;
+      }
+      
+      // Call OpenAI for analysis
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "system",
+            content: `You are an expert trading analyst specializing in scenario analysis. 
+            Analyze trading scenarios and provide probability assessments for different outcomes.
+            Always respond with valid JSON containing:
+            {
+              "outcomes": [
+                { "scenario": "description", "probability": 0-100, "priceTarget": "price", "reasoning": "explanation" }
+              ],
+              "recommendation": "overall recommendation",
+              "riskAssessment": "low/medium/high with explanation",
+              "profitPotential": "description of profit potential",
+              "bestCase": { "scenario": "description", "probability": number, "potentialGain": "amount/percentage" },
+              "worstCase": { "scenario": "description", "probability": number, "potentialLoss": "amount/percentage" },
+              "mostLikely": { "scenario": "description", "probability": number, "expectedOutcome": "description" }
+            }
+            Be realistic and data-driven. Never guarantee outcomes.`
+          },
+          {
+            role: "user",
+            content: scenarioPrompt
+          }
+        ],
+        response_format: { type: "json_object" },
+        temperature: 0.7,
+        max_tokens: 1500
+      });
+      
+      const analysisResult = JSON.parse(completion.choices[0].message.content || '{}');
+      
+      // Store the scenario analysis
+      const scenarioAnalysis = await storage.createScenarioAnalysis({
+        userId,
+        chartAnalysisId: chartAnalysisId || null,
+        symbol,
+        currentPrice,
+        scenarioType,
+        scenarioParams,
+        outcomes: analysisResult.outcomes || [],
+        recommendation: analysisResult.recommendation,
+        riskAssessment: analysisResult.riskAssessment,
+        profitPotential: analysisResult.profitPotential,
+        bestCase: analysisResult.bestCase,
+        worstCase: analysisResult.worstCase,
+        mostLikely: analysisResult.mostLikely
+      });
+      
+      res.json({
+        success: true,
+        id: scenarioAnalysis.id,
+        ...analysisResult
+      });
+      
+    } catch (error) {
+      console.error('Scenario analysis error:', error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to analyze scenario" });
+    }
+  });
+  
+  // Get user's scenario analyses
+  app.get("/api/scenario-analysis", async (req: Request, res: Response) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+      
+      const userId = (req.user as User).id;
+      const scenarios = await storage.getUserScenarioAnalyses(userId);
+      
+      res.json(scenarios);
+    } catch (error) {
+      console.error('Error fetching scenarios:', error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to fetch scenarios" });
+    }
+  });
+  
+  // Get specific scenario analysis
+  app.get("/api/scenario-analysis/:id", async (req: Request, res: Response) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+      
+      const scenario = await storage.getScenarioAnalysis(parseInt(req.params.id));
+      
+      if (!scenario) {
+        return res.status(404).json({ error: "Scenario not found" });
+      }
+      
+      if (scenario.userId !== (req.user as User).id) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      res.json(scenario);
+    } catch (error) {
+      console.error('Error fetching scenario:', error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to fetch scenario" });
+    }
+  });
+  
+  // Get scenarios for a specific chart analysis
+  app.get("/api/chart-analysis/:id/scenarios", async (req: Request, res: Response) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+      
+      const scenarios = await storage.getScenariosByChartAnalysis(parseInt(req.params.id));
+      
+      res.json(scenarios);
+    } catch (error) {
+      console.error('Error fetching chart scenarios:', error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to fetch scenarios" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
