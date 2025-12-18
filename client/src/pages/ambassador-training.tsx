@@ -239,6 +239,138 @@ const trainingModules: TrainingModule[] = [
     ]
   },
   {
+    id: 'technical-analysis',
+    title: 'Chart Patterns & Technical Analysis',
+    description: 'Understand common patterns VEDD AI identifies and what they mean',
+    duration: '40 min',
+    icon: TrendingUp,
+    lessons: [
+      {
+        id: 'ta-1',
+        title: 'Candlestick Patterns',
+        content: [
+          'Doji: A candle with nearly equal open/close prices - signals indecision and potential reversal',
+          'Hammer/Hanging Man: Small body with long lower wick - hammer is bullish at bottoms, hanging man is bearish at tops',
+          'Engulfing: Large candle completely covers previous candle - bullish engulfing signals upward reversal, bearish signals downward',
+          'Morning/Evening Star: Three-candle reversal pattern - morning star is bullish, evening star is bearish',
+          'Spinning Top: Small body with wicks on both sides - indicates market indecision'
+        ],
+        tips: [
+          'Always explain these patterns in simple terms for beginners',
+          'Show real examples from VEDD AI analysis in your content'
+        ]
+      },
+      {
+        id: 'ta-2',
+        title: 'Chart Patterns',
+        content: [
+          'Head and Shoulders: Three peaks with middle highest - signals trend reversal from bullish to bearish',
+          'Inverse Head and Shoulders: Three troughs with middle lowest - signals reversal from bearish to bullish',
+          'Double Top/Bottom: Price hits same level twice then reverses - double top is bearish, double bottom is bullish',
+          'Triangle (Ascending/Descending/Symmetrical): Price consolidates before breakout - direction depends on pattern type',
+          'Flag/Pennant: Brief consolidation after strong move - typically signals continuation of the trend',
+          'Cup and Handle: Rounded bottom followed by small pullback - bullish continuation pattern',
+          'Wedge (Rising/Falling): Converging trendlines - rising wedge is bearish, falling wedge is bullish'
+        ],
+        tips: [
+          'Use visual diagrams when explaining these patterns',
+          'Emphasize that VEDD AI automatically identifies these for users'
+        ],
+        quiz: {
+          question: 'What does a Head and Shoulders pattern typically signal?',
+          options: [
+            'Strong bullish continuation',
+            'Market indecision',
+            'Trend reversal from bullish to bearish',
+            'Sideways movement'
+          ],
+          correct: 2
+        }
+      },
+      {
+        id: 'ta-3',
+        title: 'Support & Resistance',
+        content: [
+          'Support: Price level where buying pressure exceeds selling - price tends to bounce up from this level',
+          'Resistance: Price level where selling pressure exceeds buying - price tends to fall from this level',
+          'Breakout: When price moves through support/resistance with strong momentum - often leads to significant moves',
+          'Retest: Price returns to broken level to confirm the breakout - common entry point for traders',
+          'Key Levels: Round numbers, previous highs/lows, and psychological levels often act as S/R'
+        ],
+        tips: [
+          'Show how VEDD AI identifies these levels automatically',
+          'Explain why these levels matter for setting stop-loss and take-profit'
+        ]
+      },
+      {
+        id: 'ta-4',
+        title: 'Technical Indicators',
+        content: [
+          'RSI (Relative Strength Index): Measures momentum 0-100 - above 70 is overbought (potential sell), below 30 is oversold (potential buy)',
+          'MACD (Moving Average Convergence Divergence): Shows trend direction and momentum - crossovers signal potential trades',
+          'Moving Averages (SMA/EMA): Smooths price data to show trend - price above MA is bullish, below is bearish',
+          'Bollinger Bands: Volatility indicator - price touching upper band may be overbought, lower band may be oversold',
+          'Volume: Confirms price moves - high volume validates breakouts, low volume suggests weak moves',
+          'ATR (Average True Range): Measures volatility - helps set appropriate stop-loss distances'
+        ],
+        tips: [
+          'Explain indicators in plain language without jargon',
+          'Show how VEDD AI combines multiple indicators for better signals'
+        ],
+        quiz: {
+          question: 'What does an RSI reading above 70 typically indicate?',
+          options: [
+            'Strong buy signal',
+            'Market is oversold',
+            'Market is overbought (potential sell)',
+            'No trading signal'
+          ],
+          correct: 2
+        }
+      },
+      {
+        id: 'ta-5',
+        title: 'Trend Analysis',
+        content: [
+          'Uptrend: Series of higher highs and higher lows - look for buy opportunities on pullbacks',
+          'Downtrend: Series of lower highs and lower lows - look for sell opportunities on rallies',
+          'Sideways/Range: Price bounces between support and resistance - trade the range or wait for breakout',
+          'Trendlines: Lines connecting swing highs or lows - act as dynamic support/resistance',
+          'Trend Strength: Strong trends have steep angles, weak trends are shallow - VEDD AI confidence reflects this'
+        ],
+        tips: [
+          'Always mention "the trend is your friend" concept',
+          'Show how VEDD AI identifies trend direction automatically'
+        ]
+      },
+      {
+        id: 'ta-6',
+        title: 'Risk Management Basics',
+        content: [
+          'Stop-Loss: Predetermined exit point to limit losses - VEDD AI suggests these based on analysis',
+          'Take-Profit: Target price to lock in gains - based on support/resistance and risk-reward',
+          'Risk-Reward Ratio: Comparison of potential profit to potential loss - 1:2 or higher is ideal',
+          'Position Sizing: Amount to risk per trade - typically 1-2% of account per trade',
+          'Entry Point: Optimal price to enter a trade - VEDD AI provides specific levels'
+        ],
+        tips: [
+          'Emphasize that even the best analysis requires proper risk management',
+          'Show how VEDD AI calculates risk-reward automatically'
+        ],
+        quiz: {
+          question: 'What is considered a good minimum risk-reward ratio?',
+          options: [
+            '1:0.5 (risk more than you gain)',
+            '1:1 (equal risk and reward)',
+            '1:2 or higher (gain more than you risk)',
+            'Risk-reward doesn\'t matter'
+          ],
+          correct: 2
+        }
+      }
+    ]
+  },
+  {
     id: 'social-media',
     title: 'Social Media Promotion',
     description: 'Strategies for promoting VEDD AI on social platforms',
