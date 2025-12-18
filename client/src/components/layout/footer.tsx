@@ -16,9 +16,9 @@ const Footer: React.FC = () => {
     {
       title: 'Resources',
       links: [
-        { name: 'Dashboard', href: '/dashboard' },
-        { name: 'History', href: '/historical' },
-        { name: 'Profile', href: '/profile' }
+        { name: 'User Guide', href: '/user-guide' },
+        { name: 'Ambassador Program', href: '/ambassador-training' },
+        { name: 'Dashboard', href: '/dashboard' }
       ]
     },
     {

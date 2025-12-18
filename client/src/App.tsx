@@ -41,6 +41,8 @@ import MyEAsPage from "@/pages/my-eas";
 import MySubscriptionsPage from "@/pages/my-subscriptions";
 import EAMarketplacePage from "@/pages/ea-marketplace";
 import SocialHub from "@/pages/social-hub";
+import UserGuidePage from "@/pages/user-guide";
+import AmbassadorTrainingPage from "@/pages/ambassador-training";
 import { MobileFAB } from "@/components/mobile-fab";
 import { NetworkStatus } from "@/components/network-status";
 import { NewsNotificationScheduler } from "@/components/news-notification-scheduler";
@@ -89,6 +91,8 @@ function AppLayout() {
             <Route path="/privacy" component={PrivacyPage} />
             <Route path="/terms" component={TermsPage} />
             <Route path="/security" component={SecurityPage} />
+            <Route path="/user-guide" component={UserGuidePage} />
+            <Route path="/ambassador-training" component={AmbassadorTrainingPage} />
             
             {/* Protected routes */}
             <ProtectedRoute path="/dashboard" component={Dashboard} />

@@ -13,7 +13,7 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
-import { Menu, Bell, User, LogOut, Settings, History, LineChart, CreditCard, Award, Users, Newspaper, Wand2, Clock, Briefcase, Zap, HelpCircle } from 'lucide-react';
+import { Menu, Bell, User, LogOut, Settings, History, LineChart, CreditCard, Award, Users, Newspaper, Wand2, Clock, Briefcase, Zap, HelpCircle, BookOpen, GraduationCap } from 'lucide-react';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 
 const Header: React.FC = () => {
@@ -123,6 +123,23 @@ const Header: React.FC = () => {
                   <div className="flex items-center w-full">
                     <Users className="mr-2 h-4 w-4" />
                     <span>Social Hub</span>
+                  </div>
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem className="cursor-pointer" asChild>
+                <Link href="/user-guide">
+                  <div className="flex items-center w-full">
+                    <BookOpen className="mr-2 h-4 w-4" />
+                    <span>User Guide</span>
+                  </div>
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem className="cursor-pointer" asChild>
+                <Link href="/ambassador-training">
+                  <div className="flex items-center w-full">
+                    <GraduationCap className="mr-2 h-4 w-4" />
+                    <span>Ambassador Program</span>
                   </div>
                 </Link>
               </DropdownMenuItem>
