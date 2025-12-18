@@ -94,7 +94,6 @@ class NewsService {
       }
     }
     this.initialized = true;
-    console.log(`News service initialized: Finnhub=${!!this.apiKey}, OpenAI=${!!this.openai}`);
   }
 
   isInitialized(): boolean {
