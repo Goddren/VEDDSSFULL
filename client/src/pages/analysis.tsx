@@ -127,6 +127,9 @@ const Analysis: React.FC = () => {
       
       console.log(`Original file size: ${file.size} bytes, compressed size: ${compressedImage.size} bytes`);
       
+      // Update progress for upload phase
+      setAnalysisProgress(25);
+      
       // Read the compressed file as base64
       const fileReader = new FileReader();
       const base64Promise = new Promise<string>((resolve, reject) => {
@@ -153,6 +156,10 @@ const Analysis: React.FC = () => {
       
       console.log('File read as base64, sending directly to analyze endpoint');
       
+      // Transition to ANALYZING state and update progress
+      setAnalysisState(AnalysisState.ANALYZING);
+      setAnalysisProgress(50);
+      
       try {
         // Send the base64 data directly to the analyze endpoint instead of uploading the file
         const response = await apiRequest('POST', '/api/analyze-base64', {
@@ -160,6 +167,7 @@ const Analysis: React.FC = () => {
           filename: file.name
         });
         console.log('Analysis response received:', response.status);
+        setAnalysisProgress(85);
         const result = await response.json();
         
         return { 
