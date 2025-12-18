@@ -15,6 +15,7 @@ Preferred communication style: Simple, everyday language.
 - **Social Share Card System**: Generates branded share cards with VEDD AI branding, EA details, multi-timeframe analysis, and daily devotional scriptures for social media promotion.
 - **User Guide**: Comprehensive documentation page covering all platform features with searchable sections, step-by-step guides, tips, and FAQs.
 - **Ambassador Training Program**: Complete training system for promoting the application through social media and live explainer videos, featuring modules on platform features, social media strategies, video creation, live demos, and compliance, with quizzes and certification upon completion.
+- **Gamification System**: Streak tracking with five-tier progression (YG → Apprentice → Journeyman → Expert → OG) based on XP earned from chart analyses (10 XP) and EA creations (25 XP). Includes a StreakBanner component showing current streak/tier and StreakTrackerPage for detailed statistics.
 
 ### Technical Implementations
 - **Backend**: Node.js with Express, TypeScript.
