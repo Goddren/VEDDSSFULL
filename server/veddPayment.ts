@@ -1,7 +1,7 @@
 import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
 
-const VEDD_TOKEN_MINT = 'Ch7WbPBy5XjL1UULwWYwh75DsVdXhFUVXtiNvNGopump';
-const RECEIVER_WALLET = 'Ch7WbPBy5XjL1UULwWYwh75DsVdXhFUVXtiNvNGopump';
+const VEDD_TOKEN_MINT = process.env.VEDD_TOKEN_MINT || 'Ch7WbPBy5XjL1UULwWYwh75DsVdXhFUVXtiNvNGopump';
+const RECEIVER_WALLET = process.env.VEDD_RECEIVER_WALLET || 'Ch7WbPBy5XjL1UULwWYwh75DsVdXhFUVXtiNvNGopump';
 const SOLANA_RPC = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
 
 // VEDD Token Pricing (as of Dec 2024)
