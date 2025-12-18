@@ -13,7 +13,7 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
-import { Menu, Bell, User, LogOut, Settings, History, LineChart, CreditCard, Award, Users, Newspaper, Wand2, Clock, Briefcase, Zap, HelpCircle, BookOpen, GraduationCap, FileText } from 'lucide-react';
+import { Menu, Bell, User, LogOut, Settings, History, LineChart, CreditCard, Award, Users, Newspaper, Wand2, Clock, Briefcase, Zap, HelpCircle, BookOpen, GraduationCap, FileText, Lightbulb } from 'lucide-react';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 
 const Header: React.FC = () => {
@@ -24,6 +24,7 @@ const Header: React.FC = () => {
   const navItems = [
     { name: 'Dashboard', path: '/dashboard', active: location === '/dashboard', icon: <Settings className="h-4 w-4 mr-2" /> },
     { name: 'Analysis', path: '/analysis', active: location === '/analysis', icon: <LineChart className="h-4 w-4 mr-2" /> },
+    { name: 'What If', path: '/what-if', active: location === '/what-if', icon: <Lightbulb className="h-4 w-4 mr-2" /> },
     { name: 'Multi-TF EA', path: '/multi-timeframe', active: location === '/multi-timeframe', icon: <Clock className="h-4 w-4 mr-2" /> },
     { name: 'Historical', path: '/historical', active: location === '/historical', icon: <History className="h-4 w-4 mr-2" /> },
     { name: 'My EAs', path: '/my-eas', active: location === '/my-eas', icon: <Briefcase className="h-4 w-4 mr-2" /> },
