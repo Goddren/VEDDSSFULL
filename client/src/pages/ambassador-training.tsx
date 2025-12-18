@@ -58,6 +58,80 @@ interface TrainingModule {
   }[];
 }
 
+// Weekly content schedule for ambassadors
+const weeklySchedule = [
+  { day: 'Monday', action: 'YouTube Tutorial', details: 'Deep dive into one charting feature', icon: Video },
+  { day: 'Tuesday', action: 'Quick Tip Reel', details: '30-60 sec chart hack using VEDD AI', icon: Camera },
+  { day: 'Wednesday', action: 'Live Session', details: 'Real-time chart analysis + Q&A', icon: Mic },
+  { day: 'Thursday', action: 'Community Spotlight', details: 'Share user success stories', icon: Users },
+  { day: 'Friday', action: 'Market Recap', details: 'Weekly chart analysis using the tool', icon: TrendingUp },
+  { day: 'Saturday', action: 'Twitter/X Space', details: 'Open dialogue on trading strategies', icon: MessageSquare },
+  { day: 'Sunday', action: 'Recap & CTA', details: 'Weekly summary + subscription push', icon: Megaphone }
+];
+
+// Success metrics for ambassadors
+const successMetrics = [
+  { metric: 'Subscriber Growth', description: 'Growth on YouTube and social platforms tied to chart analysis content', icon: TrendingUp },
+  { metric: 'Engagement Rate', description: 'Increase in live attendance and tutorial views', icon: Heart },
+  { metric: 'Conversions', description: 'Track sign-ups to VEDD AI linked to ambassador content', icon: Target },
+  { metric: 'Community Building', description: 'Build a following of traders who rely on you for chart insights', icon: Users }
+];
+
+// Ideal candidate traits
+const idealCandidateTraits = [
+  'Strong presence on live platforms; comfortable teaching technical concepts in real time',
+  'Skilled at simplifying chart analysis for beginners while offering depth for advanced users',
+  'Experienced in video production and editing for YouTube tutorials',
+  'Active trader or analyst with credibility in financial communities',
+  'Ability to consistently produce content aligned with market cycles'
+];
+
+// Core responsibilities
+const coreResponsibilities = [
+  {
+    title: 'Content Creation',
+    items: [
+      'Produce weekly YouTube tutorials explaining VEDD AI features (chart layouts, indicators, overlays, analysis workflows)',
+      'Create short-form content (TikTok/Instagram Reels) highlighting quick tips and chart hacks'
+    ]
+  },
+  {
+    title: 'Live Engagement',
+    items: [
+      'Host regular live sessions (YouTube Live, Instagram Live, Twitter/X Spaces) demonstrating real-time chart analysis',
+      'Answer community questions and provide practical trading insights using the platform'
+    ]
+  },
+  {
+    title: 'Community Building',
+    items: [
+      'Spotlight user success stories and encourage participation in discussions',
+      'Actively engage with comments, forums, and social groups to foster loyalty'
+    ]
+  },
+  {
+    title: 'Brand Representation',
+    items: [
+      'Embody VEDD AI\'s professional yet accessible identity',
+      'Align content with product updates, campaigns, and market cycles'
+    ]
+  },
+  {
+    title: 'Growth & Conversion',
+    items: [
+      'Drive sign-ups and subscriptions through clear CTAs in content',
+      'Track and report engagement metrics tied to ambassador activities'
+    ]
+  }
+];
+
+// Compensation structure
+const compensationInfo = {
+  base: 'Monthly stipend (negotiable based on experience and reach)',
+  incentives: 'Bonuses tied to sign-ups, conversions, and engagement metrics',
+  perks: ['Early access to new features', 'Branded gear', 'Opportunities to co-create educational campaigns']
+};
+
 const trainingModules: TrainingModule[] = [
   {
     id: 'intro',
@@ -70,14 +144,14 @@ const trainingModules: TrainingModule[] = [
         id: 'intro-1',
         title: 'What is VEDD AI?',
         content: [
-          'VEDD AI is an AI-powered trading chart analysis platform',
-          'It helps traders make smarter decisions using advanced pattern recognition',
-          'Features include chart analysis, EA generation, marketplace, and social trading',
-          'Available for Forex, Stocks, Crypto, and Indices traders'
+          'VEDD AI is a cutting-edge chart analysis platform designed to empower traders and analysts with intuitive tools for technical market insights',
+          'Our mission is to make professional-grade charting accessible, educational, and community-driven',
+          'Features include AI-powered chart analysis, EA generation, marketplace, and social trading',
+          'Available for Forex, Stocks, Crypto, and Indices traders on MT5, TradingView, and TradeLocker'
         ],
         tips: [
-          'Emphasize the AI-powered nature of the platform',
-          'Highlight that it supports multiple trading platforms (MT5, TradingView, TradeLocker)'
+          'Emphasize that VEDD AI makes professional-grade charting accessible to everyone',
+          'Highlight the educational and community-driven aspects of the platform'
         ]
       },
       {
@@ -87,7 +161,8 @@ const trainingModules: TrainingModule[] = [
           'Save hours of manual chart analysis with AI automation',
           'Generate professional EA code without programming knowledge',
           'Earn passive income by sharing strategies in the marketplace',
-          'Join a community of like-minded traders'
+          'Join a community of like-minded traders',
+          'Access intuitive tools for technical market insights'
         ],
         tips: [
           'Focus on time-saving benefits for busy traders',
@@ -485,9 +560,195 @@ export default function AmbassadorTrainingPage() {
           </h1>
           <p className="text-gray-400 text-lg max-w-2xl mx-auto">
             Complete this training to become a certified VEDD AI Ambassador. 
-            Learn how to promote the platform through social media and live explainer videos.
+            Serve as the public educator and promoter of VEDD AI's chart analysis capabilities through live social presence and clear video tutorials.
           </p>
         </div>
+
+        {/* Position Overview Section */}
+        <Card className="mb-8 bg-gradient-to-r from-amber-900/30 to-gray-900 border-amber-500/30">
+          <CardHeader>
+            <CardTitle className="text-2xl flex items-center gap-3">
+              <Target className="w-7 h-7 text-amber-400" />
+              Position Overview
+            </CardTitle>
+            <CardDescription className="text-base">
+              We are seeking a dynamic Ambassador to represent VEDD AI across social platforms
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="text-gray-300 mb-6">
+              This individual will serve as the face and voice of the platform, educating users through tutorials, live sessions, and community engagement. The Ambassador will simplify complex charting concepts, showcase platform features, and inspire traders to adopt VEDD AI as their go-to analysis tool.
+            </p>
+            <div className="grid md:grid-cols-2 gap-4">
+              <div className="flex items-center gap-3 text-gray-400">
+                <Video className="w-5 h-5 text-amber-400" />
+                <span>YouTube tutorials & educational content</span>
+              </div>
+              <div className="flex items-center gap-3 text-gray-400">
+                <Mic className="w-5 h-5 text-amber-400" />
+                <span>Live sessions on YouTube, Instagram, Twitter/X</span>
+              </div>
+              <div className="flex items-center gap-3 text-gray-400">
+                <Camera className="w-5 h-5 text-amber-400" />
+                <span>Short-form content (TikTok/Instagram Reels)</span>
+              </div>
+              <div className="flex items-center gap-3 text-gray-400">
+                <Users className="w-5 h-5 text-amber-400" />
+                <span>Community building & engagement</span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Core Responsibilities Section */}
+        <Card className="mb-8 bg-gray-900/50 border-gray-800">
+          <CardHeader>
+            <CardTitle className="text-xl flex items-center gap-3">
+              <Megaphone className="w-6 h-6 text-blue-400" />
+              Core Responsibilities
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {coreResponsibilities.map((resp, idx) => (
+                <Card key={idx} className="bg-gray-800/50 border-gray-700">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base text-amber-400">{resp.title}</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <ul className="space-y-2">
+                      {resp.items.map((item, itemIdx) => (
+                        <li key={itemIdx} className="flex items-start gap-2 text-sm text-gray-400">
+                          <ChevronRight className="w-4 h-4 mt-0.5 text-amber-400 flex-shrink-0" />
+                          {item}
+                        </li>
+                      ))}
+                    </ul>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Weekly Schedule Section */}
+        <Card className="mb-8 bg-gray-900/50 border-gray-800">
+          <CardHeader>
+            <CardTitle className="text-xl flex items-center gap-3">
+              <Clock className="w-6 h-6 text-green-400" />
+              Suggested Weekly Content Flow
+            </CardTitle>
+            <CardDescription>
+              Follow this schedule to maintain consistent engagement with your audience
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+              {weeklySchedule.map((day, idx) => (
+                <Card key={idx} className="bg-gray-800/50 border-gray-700 text-center">
+                  <CardContent className="p-4">
+                    <div className="w-10 h-10 mx-auto mb-2 rounded-full bg-green-500/20 flex items-center justify-center">
+                      <day.icon className="w-5 h-5 text-green-400" />
+                    </div>
+                    <h4 className="font-semibold text-sm text-gray-200">{day.day}</h4>
+                    <p className="text-xs text-amber-400 font-medium mt-1">{day.action}</p>
+                    <p className="text-xs text-gray-500 mt-1">{day.details}</p>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Success Metrics & Ideal Candidate */}
+        <div className="grid md:grid-cols-2 gap-6 mb-8">
+          <Card className="bg-gray-900/50 border-gray-800">
+            <CardHeader>
+              <CardTitle className="text-xl flex items-center gap-3">
+                <TrendingUp className="w-6 h-6 text-purple-400" />
+                Success Metrics
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {successMetrics.map((item, idx) => (
+                <div key={idx} className="flex items-start gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-purple-500/20 flex items-center justify-center flex-shrink-0">
+                    <item.icon className="w-4 h-4 text-purple-400" />
+                  </div>
+                  <div>
+                    <h4 className="font-medium text-gray-200">{item.metric}</h4>
+                    <p className="text-sm text-gray-400">{item.description}</p>
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+
+          <Card className="bg-gray-900/50 border-gray-800">
+            <CardHeader>
+              <CardTitle className="text-xl flex items-center gap-3">
+                <Star className="w-6 h-6 text-yellow-400" />
+                Ideal Candidate Profile
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ul className="space-y-3">
+                {idealCandidateTraits.map((trait, idx) => (
+                  <li key={idx} className="flex items-start gap-2 text-gray-400">
+                    <CheckCircle2 className="w-5 h-5 text-green-400 mt-0.5 flex-shrink-0" />
+                    {trait}
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Compensation Section */}
+        <Card className="mb-8 bg-gradient-to-r from-green-900/30 to-gray-900 border-green-500/30">
+          <CardHeader>
+            <CardTitle className="text-xl flex items-center gap-3">
+              <Award className="w-6 h-6 text-green-400" />
+              Compensation & Perks
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid md:grid-cols-3 gap-6">
+              <div className="text-center p-4 bg-gray-800/50 rounded-lg">
+                <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-green-500/20 flex items-center justify-center">
+                  <TrendingUp className="w-6 h-6 text-green-400" />
+                </div>
+                <h4 className="font-semibold text-gray-200 mb-1">Base Compensation</h4>
+                <p className="text-sm text-gray-400">{compensationInfo.base}</p>
+              </div>
+              <div className="text-center p-4 bg-gray-800/50 rounded-lg">
+                <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-amber-500/20 flex items-center justify-center">
+                  <Target className="w-6 h-6 text-amber-400" />
+                </div>
+                <h4 className="font-semibold text-gray-200 mb-1">Performance Incentives</h4>
+                <p className="text-sm text-gray-400">{compensationInfo.incentives}</p>
+              </div>
+              <div className="text-center p-4 bg-gray-800/50 rounded-lg">
+                <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-purple-500/20 flex items-center justify-center">
+                  <Sparkles className="w-6 h-6 text-purple-400" />
+                </div>
+                <h4 className="font-semibold text-gray-200 mb-1">Additional Perks</h4>
+                <ul className="text-sm text-gray-400">
+                  {compensationInfo.perks.map((perk, idx) => (
+                    <li key={idx}>• {perk}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Separator className="my-8" />
+        
+        <h2 className="text-2xl font-bold mb-6 flex items-center gap-3">
+          <GraduationCap className="w-7 h-7 text-amber-400" />
+          Training Modules
+        </h2>
 
         <div className="grid lg:grid-cols-4 gap-6 mb-8">
           <Card className="lg:col-span-1 bg-gray-900/50 border-gray-800">
