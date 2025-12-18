@@ -287,6 +287,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           recommendation: analysis.recommendation || "No recommendation available",
           multiTimeframeGroupId: multiTimeframeGroupId || null
         });
+        // Track activity for streak
+        try {
+          await storage.recordActivity(userId, 'chart');
+        } catch (streakError) {
+          console.error('Error recording streak activity:', streakError);
+        }
       } catch (dbError) {
         console.error('Error storing analysis in database:', dbError);
         // Continue even if database storage fails
@@ -909,6 +915,13 @@ Respond ONLY in valid JSON format with these exact keys:
         } catch (achievementError) {
           console.error("Error checking achievements:", achievementError);
           // Don't fail the request if achievement checking fails
+        }
+
+        // Track activity for streak
+        try {
+          await storage.recordActivity(userId, 'chart');
+        } catch (streakError) {
+          console.error('Error recording streak activity:', streakError);
         }
       } catch (storageError) {
         console.error("Error storing analysis in database:", storageError);
@@ -2257,6 +2270,71 @@ Respond ONLY in valid JSON format with these exact keys:
     }
   });
 
+  // ===== Streak Tracking Endpoints =====
+  
+  // Get user streak data
+  app.get('/api/streak', async (req: Request, res: Response) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ message: 'Authentication required' });
+      }
+
+      const userId = (req.user as Express.User).id;
+      const streak = await storage.getUserStreak(userId);
+      
+      if (!streak) {
+        // Return default streak data for new users
+        return res.json({
+          currentStreak: 0,
+          longestStreak: 0,
+          lastActivityDate: null,
+          totalChartsAnalyzed: 0,
+          totalEAsCreated: 0,
+          totalTrades: 0,
+          tier: 'YG',
+          tierProgress: 0,
+          xpPoints: 0,
+          weeklyChartsAnalyzed: 0,
+          weeklyEAsCreated: 0,
+        });
+      }
+      
+      res.json(streak);
+    } catch (error) {
+      console.error('Error getting streak:', error);
+      res.status(500).json({ message: 'Error getting streak data' });
+    }
+  });
+
+  // Record activity (chart analysis, EA creation, or trade)
+  app.post('/api/streak/activity', async (req: Request, res: Response) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ message: 'Authentication required' });
+      }
+
+      const { activityType } = req.body;
+      if (!activityType || !['chart', 'ea', 'trade'].includes(activityType)) {
+        return res.status(400).json({ message: 'Valid activity type is required (chart, ea, or trade)' });
+      }
+
+      const userId = (req.user as Express.User).id;
+      const result = await storage.recordActivity(userId, activityType);
+      
+      res.json({
+        currentStreak: result.streak.currentStreak,
+        streakIncreased: result.streakIncreased,
+        tierUp: result.tierUp,
+        newTier: result.newTier,
+        xpPoints: result.streak.xpPoints,
+        tier: result.streak.tier,
+      });
+    } catch (error) {
+      console.error('Error recording activity:', error);
+      res.status(500).json({ message: 'Error recording activity' });
+    }
+  });
+
   // Trading Coach endpoints
   app.post('/api/trading-coach', tradingCoachHandler);
   
@@ -2589,8 +2667,9 @@ Return ONLY a JSON object with this structure:
         direction, confidence, entryPoint, stopLoss, takeProfit, chartAnalysisData, multiTimeframeGroupId
       } = req.body;
       
+      const userId = (req.user as User).id;
       const ea = await storage.savEA({
-        userId: (req.user as User).id,
+        userId,
         name,
         description,
         platformType,
@@ -2607,6 +2686,13 @@ Return ONLY a JSON object with this structure:
         chartAnalysisData: chartAnalysisData || null,
         multiTimeframeGroupId: multiTimeframeGroupId || null
       });
+      
+      // Track activity for streak
+      try {
+        await storage.recordActivity(userId, 'ea');
+      } catch (streakError) {
+        console.error('Error recording streak activity:', streakError);
+      }
       
       res.json({ success: true, ea });
     } catch (error) {

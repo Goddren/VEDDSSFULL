@@ -459,3 +459,41 @@ export const insertEAShareAssetSchema = createInsertSchema(eaShareAssets).omit({
 
 export type EAShareAsset = typeof eaShareAssets.$inferSelect;
 export type InsertEAShareAsset = z.infer<typeof insertEAShareAssetSchema>;
+
+// User Streaks and Tier Gamification
+export const userStreaks = pgTable("user_streaks", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull().unique(),
+  currentStreak: integer("current_streak").notNull().default(0),
+  longestStreak: integer("longest_streak").notNull().default(0),
+  lastActivityDate: timestamp("last_activity_date"),
+  totalChartsAnalyzed: integer("total_charts_analyzed").notNull().default(0),
+  totalEAsCreated: integer("total_eas_created").notNull().default(0),
+  totalTrades: integer("total_trades").notNull().default(0),
+  tier: text("tier").notNull().default('YG'), // YG, Rising, Pro, Elite, OG
+  tierProgress: integer("tier_progress").notNull().default(0), // Progress to next tier (0-100)
+  xpPoints: integer("xp_points").notNull().default(0),
+  weeklyChartsAnalyzed: integer("weekly_charts_analyzed").notNull().default(0),
+  weeklyEAsCreated: integer("weekly_eas_created").notNull().default(0),
+  weekStartDate: timestamp("week_start_date"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertUserStreakSchema = createInsertSchema(userStreaks).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type UserStreak = typeof userStreaks.$inferSelect;
+export type InsertUserStreak = z.infer<typeof insertUserStreakSchema>;
+
+// Tier thresholds configuration
+export const TIER_CONFIG = {
+  YG: { name: 'Young Gun', minXP: 0, icon: '🔫', color: 'green', nextTier: 'Rising', xpNeeded: 500 },
+  Rising: { name: 'Rising Star', minXP: 500, icon: '⭐', color: 'blue', nextTier: 'Pro', xpNeeded: 2000 },
+  Pro: { name: 'Pro Trader', minXP: 2000, icon: '💎', color: 'purple', nextTier: 'Elite', xpNeeded: 5000 },
+  Elite: { name: 'Elite', minXP: 5000, icon: '👑', color: 'gold', nextTier: 'OG', xpNeeded: 15000 },
+  OG: { name: 'Original Gangster', minXP: 15000, icon: '🏆', color: 'red', nextTier: null, xpNeeded: null },
+} as const;

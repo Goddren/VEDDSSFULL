@@ -1,14 +1,14 @@
 import { 
   users, chartAnalyses, achievements, userAchievements,
   userProfiles, follows, analysisFeedback, analysisViews, priceAlerts,
-  savedEAs, eaSubscriptions, marketDataSnapshots, marketDataRefreshJobs, eaShareAssets,
+  savedEAs, eaSubscriptions, marketDataSnapshots, marketDataRefreshJobs, eaShareAssets, userStreaks,
   type User, type InsertUser, type ChartAnalysis, type InsertChartAnalysis,
   type Achievement, type InsertAchievement, type UserAchievement, type InsertUserAchievement,
   type UserProfile, type InsertUserProfile, type Follow, type InsertFollow,
   type AnalysisFeedback, type InsertAnalysisFeedback, type AnalysisView, type PriceAlert, type InsertPriceAlert,
   type SavedEA, type InsertSavedEA, type EASubscription, type InsertEASubscription,
   type MarketDataSnapshot, type InsertMarketDataSnapshot, type MarketDataRefreshJob, type InsertMarketDataRefreshJob,
-  type EAShareAsset, type InsertEAShareAsset
+  type EAShareAsset, type InsertEAShareAsset, type UserStreak, type InsertUserStreak, TIER_CONFIG
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, sql } from "drizzle-orm";
@@ -138,6 +138,16 @@ export interface IStorage {
   
   // Session store for authentication
   sessionStore: session.Store;
+  
+  // User Streak methods
+  getUserStreak(userId: number): Promise<UserStreak | undefined>;
+  createOrUpdateStreak(userId: number, data: Partial<UserStreak>): Promise<UserStreak>;
+  recordActivity(userId: number, activityType: 'chart' | 'ea' | 'trade'): Promise<{ 
+    streak: UserStreak; 
+    streakIncreased: boolean; 
+    tierUp: boolean; 
+    newTier?: string; 
+  }>;
 }
 
 // Create PostgreSQL session store
@@ -978,6 +988,123 @@ export class DatabaseStorage implements IStorage {
         updatedAt: new Date(),
       })
       .where(eq(users.id, userId));
+  }
+
+  async getUserStreak(userId: number): Promise<UserStreak | undefined> {
+    const [streak] = await db
+      .select()
+      .from(userStreaks)
+      .where(eq(userStreaks.userId, userId));
+    return streak;
+  }
+
+  async createOrUpdateStreak(userId: number, data: Partial<UserStreak>): Promise<UserStreak> {
+    const existing = await this.getUserStreak(userId);
+    
+    if (existing) {
+      const [updated] = await db
+        .update(userStreaks)
+        .set({ ...data, updatedAt: new Date() })
+        .where(eq(userStreaks.userId, userId))
+        .returning();
+      return updated;
+    } else {
+      const [created] = await db
+        .insert(userStreaks)
+        .values({ userId, ...data })
+        .returning();
+      return created;
+    }
+  }
+
+  async recordActivity(userId: number, activityType: 'chart' | 'ea' | 'trade'): Promise<{ 
+    streak: UserStreak; 
+    streakIncreased: boolean; 
+    tierUp: boolean; 
+    newTier?: string; 
+  }> {
+    let streak = await this.getUserStreak(userId);
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    
+    let streakIncreased = false;
+    let tierUp = false;
+    let newTier: string | undefined;
+    
+    if (!streak) {
+      streak = await this.createOrUpdateStreak(userId, {
+        currentStreak: 1,
+        longestStreak: 1,
+        lastActivityDate: now,
+        totalChartsAnalyzed: activityType === 'chart' ? 1 : 0,
+        totalEAsCreated: activityType === 'ea' ? 1 : 0,
+        totalTrades: activityType === 'trade' ? 1 : 0,
+        weeklyChartsAnalyzed: activityType === 'chart' ? 1 : 0,
+        weeklyEAsCreated: activityType === 'ea' ? 1 : 0,
+        weekStartDate: now,
+        xpPoints: activityType === 'chart' ? 25 : activityType === 'ea' ? 50 : 10,
+        tier: 'YG',
+        tierProgress: 0,
+      });
+      streakIncreased = true;
+    } else {
+      const lastActivity = streak.lastActivityDate ? new Date(streak.lastActivityDate) : null;
+      const lastActivityDate = lastActivity ? new Date(lastActivity.getFullYear(), lastActivity.getMonth(), lastActivity.getDate()) : null;
+      
+      const diffDays = lastActivityDate ? Math.floor((today.getTime() - lastActivityDate.getTime()) / (1000 * 60 * 60 * 24)) : -1;
+      
+      let newCurrentStreak = streak.currentStreak;
+      
+      if (diffDays === 1) {
+        newCurrentStreak = streak.currentStreak + 1;
+        streakIncreased = true;
+      } else if (diffDays > 1) {
+        newCurrentStreak = 1;
+        streakIncreased = true;
+      }
+      
+      const xpGain = activityType === 'chart' ? 25 : activityType === 'ea' ? 50 : 10;
+      let bonusXP = 0;
+      
+      if (newCurrentStreak === 7) bonusXP = 250;
+      else if (newCurrentStreak === 30) bonusXP = 1000;
+      
+      const newXP = streak.xpPoints + xpGain + bonusXP;
+      const oldTier = streak.tier;
+      let newTierValue = oldTier;
+      
+      const tiers = ['YG', 'Rising', 'Pro', 'Elite', 'OG'];
+      for (const tier of tiers) {
+        const config = TIER_CONFIG[tier as keyof typeof TIER_CONFIG];
+        if (newXP >= config.minXP) {
+          newTierValue = tier;
+        }
+      }
+      
+      if (newTierValue !== oldTier) {
+        tierUp = true;
+        newTier = newTierValue;
+      }
+      
+      const weekStart = streak.weekStartDate ? new Date(streak.weekStartDate) : null;
+      const shouldResetWeekly = !weekStart || (now.getTime() - weekStart.getTime() > 7 * 24 * 60 * 60 * 1000);
+      
+      streak = await this.createOrUpdateStreak(userId, {
+        currentStreak: newCurrentStreak,
+        longestStreak: Math.max(streak.longestStreak, newCurrentStreak),
+        lastActivityDate: now,
+        totalChartsAnalyzed: streak.totalChartsAnalyzed + (activityType === 'chart' ? 1 : 0),
+        totalEAsCreated: streak.totalEAsCreated + (activityType === 'ea' ? 1 : 0),
+        totalTrades: streak.totalTrades + (activityType === 'trade' ? 1 : 0),
+        weeklyChartsAnalyzed: shouldResetWeekly ? (activityType === 'chart' ? 1 : 0) : streak.weeklyChartsAnalyzed + (activityType === 'chart' ? 1 : 0),
+        weeklyEAsCreated: shouldResetWeekly ? (activityType === 'ea' ? 1 : 0) : streak.weeklyEAsCreated + (activityType === 'ea' ? 1 : 0),
+        weekStartDate: shouldResetWeekly ? now : streak.weekStartDate,
+        xpPoints: newXP,
+        tier: newTierValue,
+      });
+    }
+    
+    return { streak, streakIncreased, tierUp, newTier };
   }
 }
 

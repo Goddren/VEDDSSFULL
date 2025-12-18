@@ -43,6 +43,8 @@ import EAMarketplacePage from "@/pages/ea-marketplace";
 import SocialHub from "@/pages/social-hub";
 import UserGuidePage from "@/pages/user-guide";
 import AmbassadorTrainingPage from "@/pages/ambassador-training";
+import StreakTrackerPage from "@/pages/streak-tracker";
+import StreakBanner from "@/components/StreakBanner";
 import { MobileFAB } from "@/components/mobile-fab";
 import { NetworkStatus } from "@/components/network-status";
 import { NewsNotificationScheduler } from "@/components/news-notification-scheduler";
@@ -68,9 +70,13 @@ function AppLayout() {
   const showSubscriptionBar = user && !isLandingPage && !isAuthPage && 
     !['/subscription', '/auth', '/'].includes(location);
   
+  const showStreakBanner = user && !isLandingPage && !isAuthPage && 
+    !['/subscription', '/auth', '/', '/streak'].includes(location);
+  
   return (
     <div className="flex flex-col min-h-screen bg-background text-foreground">
       {showHeaderFooter && <Header />}
+      {showStreakBanner && <StreakBanner />}
       {showSubscriptionBar && <SubscriptionUsageHeader />}
       <main className="flex-grow">
         <PageTransition>
@@ -93,6 +99,7 @@ function AppLayout() {
             <Route path="/security" component={SecurityPage} />
             <Route path="/user-guide" component={UserGuidePage} />
             <Route path="/ambassador-training" component={AmbassadorTrainingPage} />
+            <Route path="/streak" component={StreakTrackerPage} />
             
             {/* Protected routes */}
             <ProtectedRoute path="/dashboard" component={Dashboard} />
