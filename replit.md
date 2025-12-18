@@ -13,6 +13,8 @@ Preferred communication style: Simple, everyday language.
 - **Component Library**: Custom UI components built on Radix UI primitives.
 - **Mobile Companion App**: Progressive Web App (PWA) with offline support, push notifications, and a mobile-first responsive design. Features include a touch-friendly chart viewer, quick access actions, and network status indicators.
 - **Social Share Card System**: Generates branded share cards with VEDD AI branding, EA details, multi-timeframe analysis, and daily devotional scriptures for social media promotion.
+- **User Guide**: Comprehensive documentation page covering all platform features with searchable sections, step-by-step guides, tips, and FAQs.
+- **Ambassador Training Program**: Complete training system for promoting the application through social media and live explainer videos, featuring modules on platform features, social media strategies, video creation, live demos, and compliance, with quizzes and certification upon completion.
 
 ### Technical Implementations
 - **Backend**: Node.js with Express, TypeScript.
