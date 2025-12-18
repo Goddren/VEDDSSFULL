@@ -30,7 +30,7 @@ interface CompressOptions {
 
 async function compressImage(file: File, options: CompressOptions): Promise<File> {
   return new Promise((resolve, reject) => {
-    const img = new Image();
+    const img = document.createElement('img');
     img.src = URL.createObjectURL(file);
     
     img.onload = () => {
@@ -477,18 +477,17 @@ const Analysis: React.FC = () => {
         return response.json();
       })
       .then(result => {
-        // Trigger the onSuccess handler manually
-        analysisMutation.onSuccess?.(
-          { 
-            url: uploadedImageUrl || result.url || `/uploads/${Date.now()}-reanalysis.png`,
-            analysisResult: result 
-          }, 
-          originalImageData, 
-          { 
-            onSuccess: () => {}, 
-            variables: originalImageData 
-          }
-        );
+        // Update state directly with the result
+        setUploadedImageUrl(uploadedImageUrl || result.imageUrl || `/uploads/${Date.now()}-reanalysis.png`);
+        setAnnotatedImageUrl(result.annotatedImageUrl || '');
+        setAnalysisResult(result);
+        setAnalysisProgress(100);
+        setAnalysisState(AnalysisState.COMPLETE);
+        
+        // Invalidate caches
+        queryClient.invalidateQueries({ queryKey: ['/api/subscription'] });
+        queryClient.invalidateQueries({ queryKey: ['/api/analyses'] });
+        queryClient.invalidateQueries({ queryKey: ['/api/user-achievements'] });
       })
       .catch(error => {
         console.error("Error reanalyzing image:", error);
