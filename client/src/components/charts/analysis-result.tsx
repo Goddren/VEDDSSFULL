@@ -12,8 +12,9 @@ import VolumeAnalysisChart from './volume-analysis';
 import { InsightTooltip, ConfidenceInsight, PatternInsight, IndicatorInsight, MarketTrendInsight } from '@/components/tooltips';
 import { SocialShare } from '@/components/trading/social-share';
 import { QuickShareDialog } from '@/components/trading/quick-share-dialog';
-import { Share2 } from 'lucide-react';
+import { Share2, Lightbulb } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useLocation } from 'wouter';
 
 interface AnalysisResultProps {
   analysis: ChartAnalysisResponse;
@@ -25,6 +26,20 @@ interface AnalysisResultProps {
 const AnalysisResult: React.FC<AnalysisResultProps> = ({ analysis, imageUrl, annotatedImageUrl, onReanalyze }) => {
   const [newsEvents, setNewsEvents] = useState<NewsEvent[]>([]);
   const { isSubscribed, subscribeToSymbol, unsubscribeFromSymbol } = useNewsNotifications();
+  const [, setLocation] = useLocation();
+  
+  const handleWhatIfClick = () => {
+    const params = new URLSearchParams({
+      symbol: analysis.symbol || '',
+      currentPrice: analysis.currentPrice || '',
+      entryPrice: analysis.entryPoint || '',
+      stopLoss: analysis.stopLoss || '',
+      takeProfit: analysis.takeProfit || '',
+      trend: analysis.trend?.toLowerCase() || 'bullish',
+      patterns: (analysis.patterns || []).map(p => p.name).join(',')
+    });
+    setLocation(`/what-if?${params.toString()}`);
+  };
   
   // Load relevant news events when the component mounts or when the symbol changes
   useEffect(() => {
@@ -77,7 +92,16 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({ analysis, imageUrl, ann
                 <h3 className="font-medium">{analysis.symbol || "Uploaded Chart"}</h3>
                 <p className="text-sm text-gray-400">{analysis.timeframe || "Unknown"} Timeframe</p>
               </div>
-              <div>
+              <div className="flex gap-2">
+                <Button 
+                  variant="outline"
+                  size="sm"
+                  className="text-amber-500 border-amber-500/30 hover:bg-amber-500/10"
+                  onClick={handleWhatIfClick}
+                  data-testid="button-what-if"
+                >
+                  <Lightbulb className="h-4 w-4 mr-1" /> What If
+                </Button>
                 <button 
                   className="text-[#E64A4A] hover:text-white px-3 py-1 rounded-md hover:bg-[#E64A4A]/20 transition-colors"
                   onClick={onReanalyze}

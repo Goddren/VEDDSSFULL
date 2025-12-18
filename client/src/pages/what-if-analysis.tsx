@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/use-auth';
 import { apiRequest, queryClient } from '@/lib/queryClient';
@@ -69,6 +69,7 @@ export default function WhatIfAnalysisPage() {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState('price_target');
   const [result, setResult] = useState<ScenarioResult | null>(null);
+  const [linkedAnalysis, setLinkedAnalysis] = useState(false);
   
   const [formData, setFormData] = useState({
     symbol: '',
@@ -90,6 +91,37 @@ export default function WhatIfAnalysisPage() {
     description: '',
     hypothesis: ''
   });
+
+  // Read URL params on mount to pre-fill form from chart analysis
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const symbol = params.get('symbol');
+    const currentPrice = params.get('currentPrice');
+    
+    if (symbol && currentPrice) {
+      setLinkedAnalysis(true);
+      setFormData({
+        symbol: symbol || '',
+        currentPrice: currentPrice || '',
+        entryPrice: params.get('entryPrice') || '',
+        stopLoss: params.get('stopLoss') || '',
+        takeProfit: params.get('takeProfit') || '',
+        positionSize: '1.0',
+        stopLossLevels: '',
+        trend: params.get('trend') || 'bullish',
+        volatility: 'normal',
+        newsType: 'economic',
+        shortTermBias: '',
+        mediumTermBias: '',
+        longTermBias: '',
+        positionType: 'swing',
+        patterns: params.get('patterns') || '',
+        trendDirection: params.get('trend') || 'bullish',
+        description: '',
+        hypothesis: ''
+      });
+    }
+  }, []);
 
   const { data: pastScenarios, isLoading: loadingHistory } = useQuery<ScenarioAnalysis[]>({
     queryKey: ['/api/scenario-analysis'],
@@ -220,6 +252,17 @@ export default function WhatIfAnalysisPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
+                {linkedAnalysis && (
+                  <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4 flex items-center gap-3">
+                    <CheckCircle2 className="w-5 h-5 text-amber-400 shrink-0" />
+                    <div>
+                      <p className="text-amber-300 font-medium text-sm">Linked from Chart Analysis</p>
+                      <p className="text-amber-400/70 text-xs">
+                        Data pre-filled from your {formData.symbol} analysis. You can modify any values before running the scenario.
+                      </p>
+                    </div>
+                  </div>
+                )}
                 <div className="grid md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="symbol">Symbol / Pair</Label>
