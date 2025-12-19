@@ -5,15 +5,23 @@ import { cn } from '@/lib/utils';
 import { Brain, ArrowUp, Cpu, LineChart, BarChart3 } from 'lucide-react';
 import { DailyWisdom } from '@/components/scripture/daily-wisdom';
 
+interface PipelineStep {
+  name: string;
+  icon: React.ReactNode;
+}
+
 interface FullscreenLoadingProps {
   visible: boolean;
   isUploading?: boolean;
   isAnalyzing?: boolean;
   progress: number;
   message?: string;
+  title?: string;
+  subtitle?: string;
+  customPipeline?: PipelineStep[];
 }
 
-const analysisPipeline = [
+const defaultAnalysisPipeline: PipelineStep[] = [
   { name: 'Preprocessing image', icon: <BarChart3 className="h-5 w-5" /> },
   { name: 'Identifying price patterns', icon: <LineChart className="h-5 w-5" /> },
   { name: 'Running AI analysis', icon: <Brain className="h-5 w-5" /> },
@@ -26,11 +34,15 @@ export function FullscreenLoading({
   isUploading = false,
   isAnalyzing = false,
   progress,
-  message
+  message,
+  title,
+  subtitle,
+  customPipeline
 }: FullscreenLoadingProps) {
+  const pipeline = customPipeline || defaultAnalysisPipeline;
   const currentStep = Math.min(
-    Math.floor((progress / 100) * analysisPipeline.length),
-    analysisPipeline.length - 1
+    Math.floor((progress / 100) * pipeline.length),
+    pipeline.length - 1
   );
 
   return (
@@ -190,7 +202,7 @@ export function FullscreenLoading({
               transition={{ delay: 0.2, duration: 0.3 }}
               className="text-2xl font-bold mb-2"
             >
-              {isUploading ? 'Uploading Chart' : 'Analyzing Chart'}
+              {title || (isUploading ? 'Uploading Chart' : 'Analyzing Chart')}
             </motion.h3>
 
             <motion.p
@@ -199,7 +211,7 @@ export function FullscreenLoading({
               transition={{ delay: 0.3, duration: 0.3 }}
               className="text-muted-foreground mb-8"
             >
-              {message || (isUploading 
+              {subtitle || message || (isUploading 
                 ? 'Please wait while we process your chart image' 
                 : 'Our AI is analyzing your chart for patterns and signals'
               )}
@@ -225,7 +237,7 @@ export function FullscreenLoading({
                 <div className="absolute left-4 top-4 w-0.5 h-[calc(100%-24px)] bg-gradient-to-b from-primary/10 via-primary/30 to-primary/10 rounded-full" />
                 
                 <ul className="space-y-6 relative">
-                  {analysisPipeline.map((step, index) => (
+                  {pipeline.map((step, index) => (
                     <motion.li 
                       key={index}
                       initial={{ x: -10, opacity: 0 }}

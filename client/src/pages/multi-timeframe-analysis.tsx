@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -15,8 +15,18 @@ import { useToast } from '@/hooks/use-toast';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { ChartAnalysisResponse } from '@shared/types';
-import { Clock, TrendingUp, Code, Download, Check, X, Settings, Target, Sparkles, Save, Zap, Upload, AlertCircle, Video } from 'lucide-react';
+import { Clock, TrendingUp, Code, Download, Check, X, Settings, Target, Sparkles, Save, Zap, Upload, AlertCircle, Video, Brain, LineChart, BarChart3, Layers, GitMerge, Cpu } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
+import { FullscreenLoading } from '@/components/ui/fullscreen-loading';
+
+const multiTimeframePipeline = [
+  { name: 'Processing uploaded charts', icon: <BarChart3 className="h-5 w-5" /> },
+  { name: 'Analyzing each timeframe', icon: <Layers className="h-5 w-5" /> },
+  { name: 'Cross-referencing patterns', icon: <LineChart className="h-5 w-5" /> },
+  { name: 'AI synthesis running', icon: <Brain className="h-5 w-5" /> },
+  { name: 'Merging multi-TF signals', icon: <GitMerge className="h-5 w-5" /> },
+  { name: 'Generating unified signal', icon: <Cpu className="h-5 w-5" /> },
+];
 
 interface TimeframeUpload {
   timeframe: string;
@@ -143,6 +153,8 @@ export default function MultiTimeframeAnalysis() {
   const [detectingCharts, setDetectingCharts] = useState(false);
   const [videoAnalyzing, setVideoAnalyzing] = useState(false);
   const [detectedCharts, setDetectedCharts] = useState<any[]>([]);
+  const [fullscreenProgress, setFullscreenProgress] = useState(0);
+  const [showFullscreenLoading, setShowFullscreenLoading] = useState(false);
   const [useBreakoutEntry, setUseBreakoutEntry] = useState(false);
   const [breakoutTimeframe, setBreakoutTimeframe] = useState('M5');
   const [breakoutStartHour, setBreakoutStartHour] = useState(0);
@@ -172,8 +184,29 @@ export default function MultiTimeframeAnalysis() {
   );
   const { toast } = useToast();
 
+  // Progress animation for fullscreen loading
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (showFullscreenLoading) {
+      setFullscreenProgress(5);
+      interval = setInterval(() => {
+        setFullscreenProgress(prev => {
+          if (prev >= 95) return prev;
+          const increment = Math.random() * 8 + 2;
+          return Math.min(prev + increment, 95);
+        });
+      }, 800);
+    } else {
+      setFullscreenProgress(0);
+    }
+    return () => clearInterval(interval);
+  }, [showFullscreenLoading]);
+
   const synthesizeSignalMutation = useMutation({
     mutationFn: async () => {
+      setShowFullscreenLoading(true);
+      setFullscreenProgress(10);
+      
       const completedAnalyses = Object.values(timeframeUploads)
         .filter(tu => tu.analysis)
         .map(tu => tu.analysis);
@@ -187,10 +220,15 @@ export default function MultiTimeframeAnalysis() {
       }).then(r => r.json());
     },
     onSuccess: (data) => {
-      setUnifiedSignal(data);
-      toast({ title: 'Unified signal synthesized!' });
+      setFullscreenProgress(100);
+      setTimeout(() => {
+        setShowFullscreenLoading(false);
+        setUnifiedSignal(data);
+        toast({ title: 'Unified signal synthesized!' });
+      }, 500);
     },
     onError: (error: Error) => {
+      setShowFullscreenLoading(false);
       toast({ 
         title: 'Signal synthesis failed', 
         description: error.message, 
@@ -201,6 +239,9 @@ export default function MultiTimeframeAnalysis() {
 
   const videoUploadMutation = useMutation({
     mutationFn: async (file: File) => {
+      setShowFullscreenLoading(true);
+      setFullscreenProgress(5);
+      
       const formData = new FormData();
       formData.append('video', file);
       formData.append('numFrames', '4');
@@ -217,49 +258,54 @@ export default function MultiTimeframeAnalysis() {
     },
     onSuccess: (data) => {
       if (data.analyses && data.analyses.length > 0) {
-        const selectedStrategy = STRATEGY_TYPES.find(st => st.value === strategyType);
-        const suggestedTimeframes = selectedStrategy?.suggestedTimeframes || ['M15', 'M30', 'H1', 'H4'];
+        setFullscreenProgress(100);
         
-        // First, reset all uploading states to false to clear any stuck states
-        const newUploads: Record<string, TimeframeUpload> = {};
-        Object.keys(timeframeUploads).forEach((key) => {
-          newUploads[key] = {
-            ...timeframeUploads[key],
-            uploading: false
-          };
-        });
-        
-        // Then apply video analysis results to the appropriate timeframes
-        data.analyses.forEach((analysis: any, index: number) => {
-          const tf = suggestedTimeframes[index] || TIMEFRAMES[index]?.value;
-          if (tf && newUploads[tf]) {
-            newUploads[tf] = {
-              timeframe: tf,
-              file: null,
-              analysis,
-              previewUrl: analysis.imageUrl || null,
-              uploading: false,
-              error: null
+        setTimeout(() => {
+          setShowFullscreenLoading(false);
+          
+          const selectedStrategy = STRATEGY_TYPES.find(st => st.value === strategyType);
+          const suggestedTimeframes = selectedStrategy?.suggestedTimeframes || ['M15', 'M30', 'H1', 'H4'];
+          
+          const newUploads: Record<string, TimeframeUpload> = {};
+          Object.keys(timeframeUploads).forEach((key) => {
+            newUploads[key] = {
+              ...timeframeUploads[key],
+              uploading: false
             };
+          });
+          
+          data.analyses.forEach((analysis: any, index: number) => {
+            const tf = suggestedTimeframes[index] || TIMEFRAMES[index]?.value;
+            if (tf && newUploads[tf]) {
+              newUploads[tf] = {
+                timeframe: tf,
+                file: null,
+                analysis,
+                previewUrl: analysis.imageUrl || null,
+                uploading: false,
+                error: null
+              };
+            }
+          });
+          
+          setTimeframeUploads(newUploads);
+          
+          if (!symbol && data.analyses[0]?.symbol) {
+            setSymbol(data.analyses[0].symbol);
           }
-        });
-        
-        setTimeframeUploads(newUploads);
-        
-        if (!symbol && data.analyses[0]?.symbol) {
-          setSymbol(data.analyses[0].symbol);
-        }
-        
-        toast({
-          title: 'Video Analysis Complete',
-          description: `Successfully analyzed ${data.framesAnalyzed} frames from your video`,
-        });
+          
+          toast({
+            title: 'Video Analysis Complete',
+            description: `Successfully analyzed ${data.framesAnalyzed} frames from your video`,
+          });
+        }, 500);
       } else {
         throw new Error('No frames could be analyzed');
       }
       setVideoAnalyzing(false);
     },
     onError: (error: Error) => {
+      setShowFullscreenLoading(false);
       toast({
         title: 'Video Analysis Failed',
         description: error.message,
@@ -481,18 +527,30 @@ export default function MultiTimeframeAnalysis() {
   const bestChart = unifiedSignal?.recommendedChart || null;
 
   return (
-    <div className="container mx-auto py-8 px-4">
-      <div className="max-w-6xl mx-auto space-y-6">
-        <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
-        >
-          <h1 className="text-3xl font-bold mb-2" data-testid="title-multi-timeframe">Multi-Timeframe Analysis</h1>
-          <p className="text-muted-foreground" data-testid="text-description">
-            Upload charts from multiple timeframes to generate MT5 or TradingView EA code for automated trading
-          </p>
-        </motion.div>
+    <>
+      <FullscreenLoading
+        visible={showFullscreenLoading}
+        progress={fullscreenProgress}
+        title={videoAnalyzing ? 'Analyzing Video Frames' : 'Synthesizing Multi-Timeframe Signal'}
+        subtitle={videoAnalyzing 
+          ? 'Extracting and analyzing charts from your video...'
+          : 'AI is combining signals from all timeframes to generate unified trading decision'
+        }
+        customPipeline={multiTimeframePipeline}
+      />
+      
+      <div className="container mx-auto py-8 px-4">
+        <div className="max-w-6xl mx-auto space-y-6">
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5 }}
+          >
+            <h1 className="text-3xl font-bold mb-2" data-testid="title-multi-timeframe">Multi-Timeframe Analysis</h1>
+            <p className="text-muted-foreground" data-testid="text-description">
+              Upload charts from multiple timeframes to generate MT5 or TradingView EA code for automated trading
+            </p>
+          </motion.div>
 
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -1525,7 +1583,8 @@ export default function MultiTimeframeAnalysis() {
           </Card>
           </motion.div>
         )}
+        </div>
       </div>
-    </div>
+    </>
   );
 }
