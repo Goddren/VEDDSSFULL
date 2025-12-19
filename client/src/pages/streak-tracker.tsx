@@ -265,13 +265,13 @@ export default function StreakTrackerPage() {
                   Make a trade today to maintain your streak and earn XP toward your next tier.
                 </p>
                 <div className="flex flex-wrap gap-4 justify-center">
-                  <Link href="/upload">
+                  <Link href="/analysis">
                     <Button size="lg" className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600" data-testid="button-analyze-chart-streak">
                       <BarChart3 className="w-5 h-5 mr-2" />
                       Analyze a Chart (+25 XP)
                     </Button>
                   </Link>
-                  <Link href="/ea-generator">
+                  <Link href="/multi-timeframe">
                     <Button size="lg" variant="outline" className="border-primary" data-testid="button-create-ea-streak">
                       <Bot className="w-5 h-5 mr-2" />
                       Create an EA (+50 XP)
