@@ -45,6 +45,7 @@ export async function seedSubscriptionPlans() {
       features: [
         "Everything in Free",
         "Multi-timeframe EA generator (MT5, TradingView & TradeLocker)",
+        "Immersive full-page processing with Daily Scripture",
         "Unified Trade Signal (synthesizes all chart analyses into one recommendation)",
         "EA validity tracking & updates",
         "Trailing stop-loss automation",
@@ -68,6 +69,7 @@ export async function seedSubscriptionPlans() {
       features: [
         "Everything in Standard",
         "Advanced Unified Trade Signal with confidence scoring",
+        "Immersive processing with animated pipelines",
         "Timeframe convergence analysis & alignment strength",
         "Multiple trade strategies (Pyramising, Grid, Hedging)",
         "Custom EA parameters & optimization",
@@ -95,6 +97,7 @@ export async function seedSubscriptionPlans() {
         "Everything in Premium",
         "Lifetime access - Pay once, no recurring fees",
         "All future updates & features included",
+        "Immersive full-page processing experience",
         "Unified Trade Signal (unlimited synthesis)",
         "Advanced multi-timeframe analysis",
         "Multiple trade strategies (Pyramiding, Grid, Hedging)",

@@ -35,7 +35,7 @@ const Home = () => {
     {
       icon: BarChart3,
       title: "Multi-Timeframe Analysis",
-      description: "Analyze multiple timeframes simultaneously (M15, H1, H4, D1) with unified signal synthesis for stronger, more reliable trading decisions.",
+      description: "Analyze multiple timeframes simultaneously (M15, H1, H4, D1) with immersive full-page processing, unified signal synthesis, and daily devotional wisdom for inspired trading.",
       gradient: "from-blue-500 to-cyan-500"
     },
     {

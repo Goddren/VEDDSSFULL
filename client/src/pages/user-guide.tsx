@@ -101,10 +101,13 @@ const guideSections: GuideSection[] = [
         heading: 'Multi-Timeframe Analysis',
         steps: [
           'Upload charts from multiple timeframes (M15, H1, H4, D1)',
-          'The AI synthesizes signals across all timeframes',
+          'Experience the immersive full-page processing view with animated progress steps',
+          'The AI synthesizes signals across all timeframes in real-time',
+          'Read the Daily Scripture devotion while AI processes your charts',
           'Receive a consolidated trading recommendation',
           'Generate EA code based on the combined analysis'
-        ]
+        ],
+        tips: ['The processing view shows 6 steps: chart processing, timeframe analysis, pattern cross-referencing, AI synthesis, signal merging, and unified signal generation']
       }
     ]
   },
