@@ -406,23 +406,20 @@ export default function SubscriptionPage() {
                 )
               ) : (
                 <>
-                  <Button 
-                    variant="default" 
-                    className={`w-full ${plan.interval === 'lifetime' ? 'bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70' : ''}`}
-                    onClick={() => handleSubscribe(plan.id)}
-                    disabled={isLoading || selectedPlanId === plan.id}
-                    data-testid={`button-subscribe-${plan.id}`}
-                  >
-                    {isLoading && selectedPlanId === plan.id ? (
-                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                    ) : null}
-                    {plan.price === 0 
-                      ? 'Select Free Plan' 
-                      : plan.interval === 'lifetime' 
-                        ? 'Get Lifetime Access' 
-                        : 'Subscribe'}
-                  </Button>
-                  {plan.price > 0 && (
+                  {plan.price === 0 ? (
+                    <Button 
+                      variant="default" 
+                      className="w-full"
+                      onClick={() => handleSubscribe(plan.id)}
+                      disabled={isLoading || selectedPlanId === plan.id}
+                      data-testid={`button-subscribe-${plan.id}`}
+                    >
+                      {isLoading && selectedPlanId === plan.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                      ) : null}
+                      Select Free Plan
+                    </Button>
+                  ) : (
                     <VeddPaymentButton 
                       planId={plan.id} 
                       planName={plan.name}
