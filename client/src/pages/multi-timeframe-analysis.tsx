@@ -184,11 +184,18 @@ export default function MultiTimeframeAnalysis() {
   );
   const { toast } = useToast();
 
-  // Progress animation for fullscreen loading
+  // Compute upload state early for use in effects
+  const isAnyUploadingEarly = Object.values(timeframeUploads).some(tf => tf.uploading);
+
+  // Progress animation for fullscreen loading (synthesis, video, or chart uploads)
   useEffect(() => {
     let interval: NodeJS.Timeout;
-    if (showFullscreenLoading) {
-      setFullscreenProgress(5);
+    const isActive = showFullscreenLoading || isAnyUploadingEarly;
+    
+    if (isActive) {
+      if (fullscreenProgress === 0) {
+        setFullscreenProgress(5);
+      }
       interval = setInterval(() => {
         setFullscreenProgress(prev => {
           if (prev >= 95) return prev;
@@ -200,7 +207,7 @@ export default function MultiTimeframeAnalysis() {
       setFullscreenProgress(0);
     }
     return () => clearInterval(interval);
-  }, [showFullscreenLoading]);
+  }, [showFullscreenLoading, isAnyUploadingEarly]);
 
   const synthesizeSignalMutation = useMutation({
     mutationFn: async () => {
@@ -526,16 +533,26 @@ export default function MultiTimeframeAnalysis() {
   // Get recommended chart from unified signal (only available after synthesis)
   const bestChart = unifiedSignal?.recommendedChart || null;
 
+  // Determine fullscreen loading state and messaging
+  const isFullscreenActive = showFullscreenLoading || isAnyUploading || videoAnalyzing;
+  const getFullscreenTitle = () => {
+    if (videoAnalyzing) return 'Analyzing Video Frames';
+    if (isAnyUploading && !showFullscreenLoading) return 'Analyzing Chart';
+    return 'Synthesizing Multi-Timeframe Signal';
+  };
+  const getFullscreenSubtitle = () => {
+    if (videoAnalyzing) return 'Extracting and analyzing charts from your video...';
+    if (isAnyUploading && !showFullscreenLoading) return 'AI is analyzing your chart for patterns and trading signals';
+    return 'AI is combining signals from all timeframes to generate unified trading decision';
+  };
+
   return (
     <>
       <FullscreenLoading
-        visible={showFullscreenLoading}
+        visible={isFullscreenActive}
         progress={fullscreenProgress}
-        title={videoAnalyzing ? 'Analyzing Video Frames' : 'Synthesizing Multi-Timeframe Signal'}
-        subtitle={videoAnalyzing 
-          ? 'Extracting and analyzing charts from your video...'
-          : 'AI is combining signals from all timeframes to generate unified trading decision'
-        }
+        title={getFullscreenTitle()}
+        subtitle={getFullscreenSubtitle()}
         customPipeline={multiTimeframePipeline}
       />
       
