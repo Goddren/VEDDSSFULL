@@ -20,7 +20,8 @@ import {
   AlertTriangle,
   Lightbulb,
   Gamepad as GamepadIcon,
-  Smile
+  Smile,
+  Zap
 } from 'lucide-react';
 import { MarketCalendar } from '@/components/market/market-calendar';
 import { getUserLevel } from '@/lib/achievement-system';
@@ -160,14 +161,22 @@ const Dashboard: React.FC = () => {
                 </div>
               )}
             </div>
-            <Link href="/analysis">
-              <Button className="bg-gradient-to-r from-rose-600 to-rose-700 hover:from-rose-700 hover:to-rose-800 text-white shadow-lg shadow-rose-900/30 rounded-full px-6 border border-rose-500/20">
-                <div className="mr-2 h-5 w-5 rounded-full bg-white/20 flex items-center justify-center">
-                  <Plus className="h-3 w-3" />
-                </div>
-                New Analysis
-              </Button>
-            </Link>
+            <div className="flex gap-3">
+              <Link href="/webhooks">
+                <Button className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white shadow-lg shadow-blue-900/30 rounded-full px-6 border border-blue-500/20" data-testid="button-mt5-copier">
+                  <Zap className="h-4 w-4 mr-2" />
+                  MT5 Trade Copier
+                </Button>
+              </Link>
+              <Link href="/analysis">
+                <Button className="bg-gradient-to-r from-rose-600 to-rose-700 hover:from-rose-700 hover:to-rose-800 text-white shadow-lg shadow-rose-900/30 rounded-full px-6 border border-rose-500/20">
+                  <div className="mr-2 h-5 w-5 rounded-full bg-white/20 flex items-center justify-center">
+                    <Plus className="h-3 w-3" />
+                  </div>
+                  New Analysis
+                </Button>
+              </Link>
+            </div>
           </div>
         </div>
       </div>
