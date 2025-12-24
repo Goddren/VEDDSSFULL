@@ -45,6 +45,7 @@ import UserGuidePage from "@/pages/user-guide";
 import AmbassadorTrainingPage from "@/pages/ambassador-training";
 import StreakTrackerPage from "@/pages/streak-tracker";
 import WhatIfAnalysisPage from "@/pages/what-if-analysis";
+import WebhooksPage from "@/pages/webhooks";
 import StreakBanner from "@/components/StreakBanner";
 import { MobileFAB } from "@/components/mobile-fab";
 import { NetworkStatus } from "@/components/network-status";
@@ -125,6 +126,7 @@ function AppLayout() {
             <ProtectedRoute path="/ea-marketplace" component={EAMarketplacePage} />
             <ProtectedRoute path="/social-hub" component={SocialHub} />
             <ProtectedRoute path="/what-if" component={WhatIfAnalysisPage} />
+            <ProtectedRoute path="/webhooks" component={WebhooksPage} />
             
             <Route component={NotFound} />
           </Switch>

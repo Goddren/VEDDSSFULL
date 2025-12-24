@@ -157,6 +157,16 @@ export interface IStorage {
   getScenarioAnalysis(id: number): Promise<ScenarioAnalysis | undefined>;
   getUserScenarioAnalyses(userId: number): Promise<ScenarioAnalysis[]>;
   getScenariosByChartAnalysis(chartAnalysisId: number): Promise<ScenarioAnalysis[]>;
+  
+  // Webhook methods
+  createWebhook(webhook: InsertWebhookConfig): Promise<WebhookConfig>;
+  getWebhook(id: number): Promise<WebhookConfig | undefined>;
+  getUserWebhooks(userId: number): Promise<WebhookConfig[]>;
+  getActiveWebhooksByTrigger(userId: number, triggerType: string): Promise<WebhookConfig[]>;
+  updateWebhook(id: number, data: Partial<WebhookConfig>): Promise<WebhookConfig | undefined>;
+  deleteWebhook(id: number): Promise<boolean>;
+  logWebhookCall(log: InsertWebhookLog): Promise<WebhookLog>;
+  getWebhookLogs(webhookId: number, limit?: number): Promise<WebhookLog[]>;
 }
 
 // Create PostgreSQL session store
@@ -1133,6 +1143,57 @@ export class DatabaseStorage implements IStorage {
 
   async getScenariosByChartAnalysis(chartAnalysisId: number): Promise<ScenarioAnalysis[]> {
     return await db.select().from(scenarioAnalyses).where(eq(scenarioAnalyses.chartAnalysisId, chartAnalysisId));
+  }
+
+  // Webhook methods
+  async createWebhook(webhook: InsertWebhookConfig): Promise<WebhookConfig> {
+    const [result] = await db.insert(webhookConfigs).values(webhook).returning();
+    return result;
+  }
+
+  async getWebhook(id: number): Promise<WebhookConfig | undefined> {
+    const [result] = await db.select().from(webhookConfigs).where(eq(webhookConfigs.id, id));
+    return result;
+  }
+
+  async getUserWebhooks(userId: number): Promise<WebhookConfig[]> {
+    return await db.select().from(webhookConfigs).where(eq(webhookConfigs.userId, userId));
+  }
+
+  async getActiveWebhooksByTrigger(userId: number, triggerType: string): Promise<WebhookConfig[]> {
+    const userWebhooks = await db.select().from(webhookConfigs)
+      .where(and(
+        eq(webhookConfigs.userId, userId),
+        eq(webhookConfigs.isActive, true)
+      ));
+    return userWebhooks.filter(w => {
+      const triggers = w.triggerOn as string[];
+      return triggers && triggers.includes(triggerType);
+    });
+  }
+
+  async updateWebhook(id: number, data: Partial<WebhookConfig>): Promise<WebhookConfig | undefined> {
+    const [result] = await db.update(webhookConfigs)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(webhookConfigs.id, id))
+      .returning();
+    return result;
+  }
+
+  async deleteWebhook(id: number): Promise<boolean> {
+    const result = await db.delete(webhookConfigs).where(eq(webhookConfigs.id, id));
+    return true;
+  }
+
+  async logWebhookCall(log: InsertWebhookLog): Promise<WebhookLog> {
+    const [result] = await db.insert(webhookLogs).values(log).returning();
+    return result;
+  }
+
+  async getWebhookLogs(webhookId: number, limit: number = 50): Promise<WebhookLog[]> {
+    return await db.select().from(webhookLogs)
+      .where(eq(webhookLogs.webhookId, webhookId))
+      .limit(limit);
   }
 }
 

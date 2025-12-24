@@ -18,6 +18,7 @@ Preferred communication style: Simple, everyday language.
 - **Gamification System**: Streak tracking with five-tier progression (YG → Apprentice → Journeyman → Expert → OG) based on XP earned from chart analyses (10 XP) and EA creations (25 XP). Includes a StreakBanner component showing current streak/tier and StreakTrackerPage for detailed statistics.
 - **What If Scenario Analysis**: AI-powered scenario analysis tool that allows traders to explore different trading outcomes. Supports multiple scenario types (price targets, stop loss comparison, news impact, timeframe analysis, market conditions, custom scenarios) and provides probability assessments, risk analysis, and recommendations using GPT-4o. Integrated with chart analysis for seamless data transfer.
 - **Immersive Processing Experience**: Full-page interactive processing views for both single chart analysis and multi-timeframe EA synthesis, featuring animated progress pipelines, step-by-step visualization, and Daily Scripture devotional content displayed during AI analysis.
+- **Webhook Signal System**: Trade copy relay system that allows users to configure webhooks to receive trading signals automatically. Supports TradeLocker, TradingView alerts, and custom webhook endpoints. Triggers on chart analysis completion, multi-timeframe EA synthesis, or manual signals. Includes test functionality, delivery logs, and secret key verification for secure webhook calls.
 
 ### Technical Implementations
 - **Backend**: Node.js with Express, TypeScript.

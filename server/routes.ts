@@ -25,7 +25,8 @@ import {
   insertUserAchievementSchema,
   insertUserProfileSchema,
   insertFollowSchema,
-  insertAnalysisFeedbackSchema
+  insertAnalysisFeedbackSchema,
+  insertWebhookConfigSchema
 } from "@shared/schema";
 import { addTradeSetupAnnotations, createAnnotatedImageUrl } from "./image-processor";
 import { newsService, type NewsItem, type NewsSentiment } from "./news-service";
@@ -81,6 +82,84 @@ function getAffectedPairs(currency: string): string[] {
     'NZD': ['NZD/USD', 'AUD/NZD', 'NZD/JPY']
   };
   return pairMap[currency.toUpperCase()] || [`${currency}/USD`];
+}
+
+// Helper function to trigger webhooks for a user
+async function triggerWebhooks(userId: number, triggerType: string, signal: any): Promise<void> {
+  try {
+    const webhooks = await storage.getActiveWebhooksByTrigger(userId, triggerType);
+    
+    if (webhooks.length === 0) {
+      return;
+    }
+    
+    await Promise.all(webhooks.map(async (webhook) => {
+      const payload = {
+        type: triggerType,
+        source: 'VEDD AI',
+        timestamp: new Date().toISOString(),
+        signal
+      };
+      
+      try {
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+        };
+        
+        if (webhook.headers) {
+          Object.assign(headers, webhook.headers);
+        }
+        
+        if (webhook.secretKey) {
+          headers['X-Webhook-Secret'] = webhook.secretKey;
+        }
+        
+        const response = await fetch(webhook.url, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(payload),
+        });
+        
+        const responseText = await response.text();
+        
+        await storage.logWebhookCall({
+          webhookId: webhook.id,
+          userId,
+          triggerType,
+          payload,
+          responseStatus: response.status,
+          responseBody: responseText.substring(0, 1000),
+          status: response.ok ? 'success' : 'failed',
+          errorMessage: response.ok ? null : `HTTP ${response.status}`
+        });
+        
+        await storage.updateWebhook(webhook.id, {
+          lastTriggeredAt: new Date(),
+          lastStatus: response.ok ? 'success' : 'failed',
+          failureCount: response.ok ? 0 : (webhook.failureCount + 1)
+        });
+      } catch (err) {
+        await storage.logWebhookCall({
+          webhookId: webhook.id,
+          userId,
+          triggerType,
+          payload,
+          responseStatus: null,
+          responseBody: null,
+          status: 'failed',
+          errorMessage: err instanceof Error ? err.message : 'Connection failed'
+        });
+        
+        await storage.updateWebhook(webhook.id, {
+          lastTriggeredAt: new Date(),
+          lastStatus: 'failed',
+          failureCount: webhook.failureCount + 1
+        });
+      }
+    }));
+  } catch (error) {
+    console.error('triggerWebhooks error:', error);
+  }
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -293,6 +372,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         } catch (streakError) {
           console.error('Error recording streak activity:', streakError);
         }
+        
+        // Trigger webhooks for analysis signals (non-blocking)
+        triggerWebhooks(userId, 'analysis', {
+          symbol: analysis.symbol || 'Unknown',
+          timeframe: analysis.timeframe,
+          direction: analysis.direction,
+          confidence: analysis.confidence,
+          entryPrice: analysis.entryPoint,
+          stopLoss: analysis.stopLoss,
+          takeProfit: analysis.takeProfit,
+          trend: analysis.trend,
+          patterns: analysis.patterns?.map((p: any) => p.name).join(', ') || 'None'
+        }).catch(err => console.error('Webhook trigger error:', err));
       } catch (dbError) {
         console.error('Error storing analysis in database:', dbError);
         // Continue even if database storage fails
@@ -681,6 +773,20 @@ Respond ONLY in valid JSON format with these exact keys:
         };
       }
       
+      // Trigger webhooks for synthesis signals (non-blocking)
+      const userId = (req.user as User).id;
+      const symbol = analyses[0]?.symbol || 'Unknown';
+      triggerWebhooks(userId, 'synthesis', {
+        symbol,
+        direction: synthesis.direction,
+        confidence: synthesis.confidence,
+        entryPrice: synthesis.entryPoint,
+        stopLoss: synthesis.stopLoss,
+        takeProfit: synthesis.takeProfit,
+        riskRewardRatio: synthesis.riskRewardRatio,
+        reasoning: synthesis.reasoning
+      }).catch(err => console.error('Webhook trigger error:', err));
+      
       res.json(synthesis);
     } catch (error: any) {
       console.error("Synthesis error:", error);
@@ -923,6 +1029,19 @@ Respond ONLY in valid JSON format with these exact keys:
         } catch (streakError) {
           console.error('Error recording streak activity:', streakError);
         }
+        
+        // Trigger webhooks for analysis signals (non-blocking)
+        triggerWebhooks(userId, 'analysis', {
+          symbol: analysis.symbol || 'Unknown',
+          timeframe: analysis.timeframe,
+          direction: analysis.direction,
+          confidence: analysis.confidence,
+          entryPrice: analysis.entryPoint,
+          stopLoss: analysis.stopLoss,
+          takeProfit: analysis.takeProfit,
+          trend: analysis.trend,
+          patterns: analysis.patterns?.map((p: any) => p.name).join(', ') || 'None'
+        }).catch(err => console.error('Webhook trigger error:', err));
       } catch (storageError) {
         console.error("Error storing analysis in database:", storageError);
         // Continue processing even if storage fails
@@ -3634,6 +3753,349 @@ Return ONLY a JSON object with this structure:
     } catch (error) {
       console.error('Error fetching chart scenarios:', error);
       res.status(500).json({ error: error instanceof Error ? error.message : "Failed to fetch scenarios" });
+    }
+  });
+
+  // ============= WEBHOOK SIGNAL SYSTEM =============
+  
+  // Get all user webhooks
+  app.get("/api/webhooks", async (req: Request, res: Response) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+      
+      const userId = (req.user as User).id;
+      const webhooks = await storage.getUserWebhooks(userId);
+      
+      res.json(webhooks);
+    } catch (error) {
+      console.error('Error fetching webhooks:', error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to fetch webhooks" });
+    }
+  });
+  
+  // Create a new webhook
+  app.post("/api/webhooks", async (req: Request, res: Response) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+      
+      const userId = (req.user as User).id;
+      const validatedData = insertWebhookConfigSchema.parse({
+        ...req.body,
+        userId
+      });
+      
+      const webhook = await storage.createWebhook(validatedData);
+      
+      res.status(201).json(webhook);
+    } catch (error) {
+      console.error('Error creating webhook:', error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to create webhook" });
+    }
+  });
+  
+  // Update a webhook
+  app.patch("/api/webhooks/:id", async (req: Request, res: Response) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+      
+      const webhookId = parseInt(req.params.id);
+      const userId = (req.user as User).id;
+      
+      const existing = await storage.getWebhook(webhookId);
+      if (!existing) {
+        return res.status(404).json({ error: "Webhook not found" });
+      }
+      if (existing.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      const updated = await storage.updateWebhook(webhookId, req.body);
+      
+      res.json(updated);
+    } catch (error) {
+      console.error('Error updating webhook:', error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to update webhook" });
+    }
+  });
+  
+  // Delete a webhook
+  app.delete("/api/webhooks/:id", async (req: Request, res: Response) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+      
+      const webhookId = parseInt(req.params.id);
+      const userId = (req.user as User).id;
+      
+      const existing = await storage.getWebhook(webhookId);
+      if (!existing) {
+        return res.status(404).json({ error: "Webhook not found" });
+      }
+      if (existing.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      await storage.deleteWebhook(webhookId);
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error deleting webhook:', error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to delete webhook" });
+    }
+  });
+  
+  // Get webhook logs
+  app.get("/api/webhooks/:id/logs", async (req: Request, res: Response) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+      
+      const webhookId = parseInt(req.params.id);
+      const userId = (req.user as User).id;
+      
+      const existing = await storage.getWebhook(webhookId);
+      if (!existing) {
+        return res.status(404).json({ error: "Webhook not found" });
+      }
+      if (existing.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      const logs = await storage.getWebhookLogs(webhookId);
+      
+      res.json(logs);
+    } catch (error) {
+      console.error('Error fetching webhook logs:', error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to fetch logs" });
+    }
+  });
+  
+  // Test webhook - send a test signal
+  app.post("/api/webhooks/:id/test", async (req: Request, res: Response) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+      
+      const webhookId = parseInt(req.params.id);
+      const userId = (req.user as User).id;
+      
+      const webhook = await storage.getWebhook(webhookId);
+      if (!webhook) {
+        return res.status(404).json({ error: "Webhook not found" });
+      }
+      if (webhook.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      // Send test payload
+      const testPayload = {
+        type: 'test',
+        source: 'VEDD AI',
+        timestamp: new Date().toISOString(),
+        signal: {
+          symbol: 'EUR/USD',
+          direction: 'BUY',
+          confidence: 'HIGH',
+          entryPrice: '1.0850',
+          stopLoss: '1.0820',
+          takeProfit: '1.0900',
+          message: 'This is a test signal from VEDD AI'
+        }
+      };
+      
+      try {
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+        };
+        
+        if (webhook.headers) {
+          Object.assign(headers, webhook.headers);
+        }
+        
+        if (webhook.secretKey) {
+          headers['X-Webhook-Secret'] = webhook.secretKey;
+        }
+        
+        const response = await fetch(webhook.url, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(testPayload),
+        });
+        
+        const responseText = await response.text();
+        
+        // Log the webhook call
+        await storage.logWebhookCall({
+          webhookId,
+          userId,
+          triggerType: 'test',
+          payload: testPayload,
+          responseStatus: response.status,
+          responseBody: responseText.substring(0, 1000),
+          status: response.ok ? 'success' : 'failed',
+          errorMessage: response.ok ? null : `HTTP ${response.status}`
+        });
+        
+        // Update webhook status
+        await storage.updateWebhook(webhookId, {
+          lastTriggeredAt: new Date(),
+          lastStatus: response.ok ? 'success' : 'failed',
+          failureCount: response.ok ? 0 : (webhook.failureCount + 1)
+        });
+        
+        res.json({
+          success: response.ok,
+          status: response.status,
+          message: response.ok ? 'Test signal sent successfully' : 'Webhook returned an error',
+          response: responseText.substring(0, 500)
+        });
+      } catch (fetchError) {
+        // Log the failed call
+        await storage.logWebhookCall({
+          webhookId,
+          userId,
+          triggerType: 'test',
+          payload: testPayload,
+          responseStatus: null,
+          responseBody: null,
+          status: 'failed',
+          errorMessage: fetchError instanceof Error ? fetchError.message : 'Connection failed'
+        });
+        
+        await storage.updateWebhook(webhookId, {
+          lastTriggeredAt: new Date(),
+          lastStatus: 'failed',
+          failureCount: webhook.failureCount + 1
+        });
+        
+        res.json({
+          success: false,
+          status: 0,
+          message: 'Failed to connect to webhook endpoint',
+          error: fetchError instanceof Error ? fetchError.message : 'Unknown error'
+        });
+      }
+    } catch (error) {
+      console.error('Error testing webhook:', error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to test webhook" });
+    }
+  });
+  
+  // Manual trigger - send a trading signal to all active webhooks
+  app.post("/api/webhooks/send-signal", async (req: Request, res: Response) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+      
+      const userId = (req.user as User).id;
+      const { signal, triggerType = 'manual' } = req.body;
+      
+      if (!signal) {
+        return res.status(400).json({ error: "Signal data is required" });
+      }
+      
+      // Get active webhooks for this trigger type
+      const webhooks = await storage.getActiveWebhooksByTrigger(userId, triggerType);
+      
+      if (webhooks.length === 0) {
+        return res.json({ 
+          success: true, 
+          message: 'No active webhooks configured for this trigger type',
+          sent: 0 
+        });
+      }
+      
+      const results = await Promise.all(webhooks.map(async (webhook) => {
+        const payload = {
+          type: triggerType,
+          source: 'VEDD AI',
+          timestamp: new Date().toISOString(),
+          signal
+        };
+        
+        try {
+          const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+          };
+          
+          if (webhook.headers) {
+            Object.assign(headers, webhook.headers);
+          }
+          
+          if (webhook.secretKey) {
+            headers['X-Webhook-Secret'] = webhook.secretKey;
+          }
+          
+          const response = await fetch(webhook.url, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(payload),
+          });
+          
+          const responseText = await response.text();
+          
+          await storage.logWebhookCall({
+            webhookId: webhook.id,
+            userId,
+            triggerType,
+            payload,
+            responseStatus: response.status,
+            responseBody: responseText.substring(0, 1000),
+            status: response.ok ? 'success' : 'failed',
+            errorMessage: response.ok ? null : `HTTP ${response.status}`
+          });
+          
+          await storage.updateWebhook(webhook.id, {
+            lastTriggeredAt: new Date(),
+            lastStatus: response.ok ? 'success' : 'failed',
+            failureCount: response.ok ? 0 : (webhook.failureCount + 1)
+          });
+          
+          return { webhookId: webhook.id, name: webhook.name, success: response.ok };
+        } catch (err) {
+          await storage.logWebhookCall({
+            webhookId: webhook.id,
+            userId,
+            triggerType,
+            payload,
+            responseStatus: null,
+            responseBody: null,
+            status: 'failed',
+            errorMessage: err instanceof Error ? err.message : 'Connection failed'
+          });
+          
+          await storage.updateWebhook(webhook.id, {
+            lastTriggeredAt: new Date(),
+            lastStatus: 'failed',
+            failureCount: webhook.failureCount + 1
+          });
+          
+          return { webhookId: webhook.id, name: webhook.name, success: false };
+        }
+      }));
+      
+      const successCount = results.filter(r => r.success).length;
+      
+      res.json({
+        success: true,
+        message: `Signal sent to ${successCount}/${results.length} webhooks`,
+        sent: successCount,
+        total: results.length,
+        results
+      });
+    } catch (error) {
+      console.error('Error sending signal:', error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to send signal" });
     }
   });
 
