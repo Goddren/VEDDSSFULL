@@ -235,6 +235,23 @@ const trainingModules: TrainingModule[] = [
           options: ['1', '2', '3', '5'],
           correct: 2
         }
+      },
+      {
+        id: 'features-4',
+        title: 'Webhook Signal System & MT5 Trade Copier',
+        content: [
+          'Webhook Signal System: Send trading signals to TradeLocker, TradingView, or custom endpoints',
+          'Triggers include: chart analysis completion, multi-timeframe synthesis, MT5 trade signals, or manual',
+          'MT5 Trade Copier: Download EA that monitors your MT5 trades and relays them to other platforms',
+          'EA AI Live Refresh: EAs can request fresh AI analysis using real-time market data',
+          'API tokens authenticate your EAs securely - same token works for both features',
+          'Test webhooks before going live with services like webhook.site'
+        ],
+        tips: [
+          'Show how easy it is to set up trade copying from MT5 to TradeLocker',
+          'Demonstrate the webhook testing feature in your tutorials',
+          'Explain how automation saves time and reduces missed opportunities'
+        ]
       }
     ]
   },

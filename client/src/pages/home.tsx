@@ -61,6 +61,18 @@ const Home = () => {
       title: "Economic Events Calendar",
       description: "View high-impact economic events 3-5 days ahead that may affect your trading pairs with intelligent timing recommendations.",
       gradient: "from-indigo-500 to-violet-500"
+    },
+    {
+      icon: Globe,
+      title: "Webhook Signal System",
+      description: "Send trading signals to TradeLocker, TradingView, or custom endpoints automatically when analysis completes or trades open.",
+      gradient: "from-teal-500 to-cyan-500"
+    },
+    {
+      icon: Smartphone,
+      title: "MT5 Trade Copier",
+      description: "Copy trades from MetaTrader 5 directly to TradeLocker and other platforms. Download the EA, configure with your API token, and automate your trade relay.",
+      gradient: "from-amber-500 to-orange-500"
     }
   ];
 

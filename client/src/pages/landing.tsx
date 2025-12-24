@@ -290,6 +290,20 @@ export default function LandingPage() {
                   description: "Easily convert trading times between different time zones to coordinate your strategy with global market movements.",
                   color: "bg-orange-50 dark:bg-orange-900/20",
                   bgGradient: "bg-theme-light border border-theme-light"
+                },
+                {
+                  icon: <Share2 className="h-7 w-7 text-teal-500" />,
+                  title: "Webhook Signal System",
+                  description: "Automatically send trading signals to TradeLocker, TradingView, or custom endpoints when analyses complete or trades open.",
+                  color: "bg-teal-50 dark:bg-teal-900/20",
+                  bgGradient: "bg-theme-light border border-theme-light"
+                },
+                {
+                  icon: <Zap className="h-7 w-7 text-amber-500" />,
+                  title: "MT5 Trade Copier EA",
+                  description: "Copy trades from MetaTrader 5 directly to TradeLocker and other platforms with our downloadable EA and API tokens.",
+                  color: "bg-amber-50 dark:bg-amber-900/20",
+                  bgGradient: "bg-theme-light border border-theme-light"
                 }
               ]}
               className="min-h-[250px] md:min-h-[280px]"
