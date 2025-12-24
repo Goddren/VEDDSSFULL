@@ -50,6 +50,10 @@ interface TrainingModule {
     title: string;
     content: string[];
     tips: string[];
+    guideLink?: {
+      text: string;
+      section: string;
+    };
     quiz?: {
       question: string;
       options: string[];
@@ -201,7 +205,11 @@ const trainingModules: TrainingModule[] = [
         tips: [
           'Demo the upload process in your videos',
           'Show real examples of analysis results'
-        ]
+        ],
+        guideLink: {
+          text: 'See User Guide: Chart Analysis',
+          section: 'chart-analysis'
+        }
       },
       {
         id: 'features-2',
@@ -215,7 +223,11 @@ const trainingModules: TrainingModule[] = [
         tips: [
           'Explain that no coding knowledge is required',
           'Show how easy it is to download and use the code'
-        ]
+        ],
+        guideLink: {
+          text: 'See User Guide: EA Code Generation',
+          section: 'ea-generation'
+        }
       },
       {
         id: 'features-3',
@@ -230,6 +242,10 @@ const trainingModules: TrainingModule[] = [
           'Highlight the passive income opportunity',
           'Explain the social proof from community engagement'
         ],
+        guideLink: {
+          text: 'See User Guide: EA Marketplace',
+          section: 'marketplace'
+        },
         quiz: {
           question: 'How many platforms can VEDD AI generate EA code for?',
           options: ['1', '2', '3', '5'],
@@ -655,6 +671,112 @@ const trainingModules: TrainingModule[] = [
         }
       }
     ]
+  },
+  {
+    id: 'platform-essentials',
+    title: 'Platform Essentials',
+    description: 'What you need to know about MT5, TradeLocker, and TradingView',
+    duration: '30 min',
+    icon: Monitor,
+    lessons: [
+      {
+        id: 'platform-1',
+        title: 'MetaTrader 5 (MT5) Essentials',
+        content: [
+          'MT5 is the industry-standard platform for Forex and CFD trading worldwide',
+          'Key features: Advanced charting, Expert Advisors (EAs), multi-asset trading, built-in strategy tester',
+          'Chart timeframes: M1, M5, M15, M30, H1, H4, D1, W1, MN (month)',
+          'To export charts: Right-click chart → Save as Picture, or use Print Screen',
+          'EA installation: File → Open Data Folder → MQL5 → Experts → paste .mq5 file → Compile in MetaEditor',
+          'Enable WebRequest: Tools → Options → Expert Advisors → Allow WebRequest for listed URLs',
+          'Common brokers using MT5: IC Markets, Pepperstone, OANDA, XM, FXCM'
+        ],
+        tips: [
+          'Many traders are familiar with MT5 - focus on how VEDD AI enhances their workflow',
+          'Emphasize the EA download and one-click installation process',
+          'Show how to enable WebRequest for webhooks in your tutorials'
+        ],
+        guideLink: {
+          text: 'See User Guide: EA Code Generation',
+          section: 'ea-generation'
+        }
+      },
+      {
+        id: 'platform-2',
+        title: 'TradeLocker Essentials',
+        content: [
+          'TradeLocker is a modern, web-based trading platform with sleek UI and powerful features',
+          'Key features: Clean interface, one-click trading, advanced order types, webhook integrations',
+          'No download required - runs in any modern web browser',
+          'Chart export: Use the screenshot tool or browser screenshot',
+          'Webhook setup: Settings → API → Create Webhook → Copy URL',
+          'TradeLocker supports receiving signals via webhooks from VEDD AI',
+          'Growing platform popular with prop firms and modern brokers'
+        ],
+        tips: [
+          'Highlight TradeLocker\'s modern design and ease of use',
+          'Show the webhook setup process for trade copying',
+          'Mention that VEDD AI generates TradeLocker-compatible code'
+        ],
+        guideLink: {
+          text: 'See User Guide: Chart Analysis',
+          section: 'chart-analysis'
+        }
+      },
+      {
+        id: 'platform-3',
+        title: 'TradingView Essentials',
+        content: [
+          'TradingView is the most popular charting platform with a massive community',
+          'Key features: Cloud-based, social features, Pine Script, extensive indicators, real-time data',
+          'Over 50 million traders use TradingView worldwide',
+          'Chart export: Click camera icon at top-right of chart, or right-click → Take Snapshot',
+          'Pine Script: TradingView\'s programming language for custom indicators and strategies',
+          'Alerts: TradingView can send webhook alerts when conditions are met',
+          'Free tier available with paid plans for more features'
+        ],
+        tips: [
+          'TradingView users are often active on social media - great audience for content',
+          'Show how to export high-quality chart screenshots',
+          'Explain that VEDD AI generates Pine Script code they can paste directly'
+        ],
+        guideLink: {
+          text: 'See User Guide: EA Code Generation',
+          section: 'ea-generation'
+        }
+      },
+      {
+        id: 'platform-4',
+        title: 'Platform Comparison for Your Content',
+        content: [
+          'MT5: Best for automated trading with Expert Advisors, requires desktop software',
+          'TradeLocker: Best for web-based trading and webhook integrations, modern interface',
+          'TradingView: Best for charting and social features, great for analysis sharing',
+          'VEDD AI supports ALL THREE platforms for chart upload and EA code generation',
+          'Webhook Signal System can relay signals to any platform with webhook support',
+          'MT5 Trade Copier: Unique feature to copy trades from MT5 to other platforms'
+        ],
+        tips: [
+          'Create comparison content to help traders choose the right platform',
+          'Emphasize that VEDD AI is platform-agnostic - works with their preferred tool',
+          'Show cross-platform workflows (analyze on TradingView, trade on MT5, etc.)'
+        ],
+        guideLink: {
+          text: 'See User Guide: Getting Started',
+          section: 'getting-started'
+        },
+        quiz: {
+          question: 'Which platform is best known for its Pine Script programming language?',
+          options: [
+            'MetaTrader 5',
+            'TradeLocker',
+            'TradingView',
+            'All of the above'
+          ],
+          correct: 2
+        }
+      }
+    ]
   }
 ];
 
@@ -1043,6 +1165,16 @@ export default function AmbassadorTrainingPage() {
                                   ))}
                                 </ul>
                               </div>
+
+                              {lesson.guideLink && (
+                                <Link href={`/user-guide#${lesson.guideLink.section}`}>
+                                  <div className="bg-blue-600/20 border border-blue-500/40 rounded-lg p-3 flex items-center gap-3 hover:bg-blue-600/30 transition-colors cursor-pointer">
+                                    <BookOpen className="w-5 h-5 text-blue-400" />
+                                    <span className="text-blue-300 font-medium">{lesson.guideLink.text}</span>
+                                    <ChevronRight className="w-4 h-4 text-blue-400 ml-auto" />
+                                  </div>
+                                </Link>
+                              )}
 
                               {lesson.quiz && (
                                 <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
