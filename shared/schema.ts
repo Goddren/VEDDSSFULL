@@ -570,6 +570,54 @@ export const insertWebhookLogSchema = createInsertSchema(webhookLogs).omit({
 export type WebhookLog = typeof webhookLogs.$inferSelect;
 export type InsertWebhookLog = z.infer<typeof insertWebhookLogSchema>;
 
+// MT5 API Tokens for EA Trade Copier authentication
+export const mt5ApiTokens = pgTable("mt5_api_tokens", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  token: text("token").notNull().unique(), // Secure random token
+  name: text("name").notNull(), // User-friendly name (e.g., "My MT5 Account")
+  isActive: boolean("is_active").notNull().default(true),
+  lastUsedAt: timestamp("last_used_at"),
+  signalCount: integer("signal_count").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertMt5ApiTokenSchema = createInsertSchema(mt5ApiTokens).omit({
+  id: true,
+  token: true,
+  lastUsedAt: true,
+  signalCount: true,
+  createdAt: true,
+});
+
+export type Mt5ApiToken = typeof mt5ApiTokens.$inferSelect;
+export type InsertMt5ApiToken = z.infer<typeof insertMt5ApiTokenSchema>;
+
+// MT5 Signal Logs for tracking incoming signals
+export const mt5SignalLogs = pgTable("mt5_signal_logs", {
+  id: serial("id").primaryKey(),
+  tokenId: integer("token_id").references(() => mt5ApiTokens.id).notNull(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  action: text("action").notNull(), // 'OPEN', 'CLOSE', 'MODIFY'
+  symbol: text("symbol").notNull(),
+  direction: text("direction").notNull(), // 'BUY', 'SELL'
+  volume: real("volume").notNull(),
+  entryPrice: real("entry_price").notNull(),
+  stopLoss: real("stop_loss"),
+  takeProfit: real("take_profit"),
+  ticket: text("ticket"), // MT5 ticket number
+  relayedToWebhooks: boolean("relayed_to_webhooks").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertMt5SignalLogSchema = createInsertSchema(mt5SignalLogs).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type Mt5SignalLog = typeof mt5SignalLogs.$inferSelect;
+export type InsertMt5SignalLog = z.infer<typeof insertMt5SignalLogSchema>;
+
 // Tier thresholds configuration
 export const TIER_CONFIG = {
   YG: { name: 'Young Gun', minXP: 0, icon: '🔫', color: 'green', nextTier: 'Rising', xpNeeded: 500 },

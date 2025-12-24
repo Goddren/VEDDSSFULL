@@ -2,7 +2,7 @@ import {
   users, chartAnalyses, achievements, userAchievements,
   userProfiles, follows, analysisFeedback, analysisViews, priceAlerts,
   savedEAs, eaSubscriptions, marketDataSnapshots, marketDataRefreshJobs, eaShareAssets, userStreaks, scenarioAnalyses,
-  webhookConfigs, webhookLogs,
+  webhookConfigs, webhookLogs, mt5ApiTokens, mt5SignalLogs,
   type User, type InsertUser, type ChartAnalysis, type InsertChartAnalysis,
   type Achievement, type InsertAchievement, type UserAchievement, type InsertUserAchievement,
   type UserProfile, type InsertUserProfile, type Follow, type InsertFollow,
@@ -11,12 +11,14 @@ import {
   type MarketDataSnapshot, type InsertMarketDataSnapshot, type MarketDataRefreshJob, type InsertMarketDataRefreshJob,
   type EAShareAsset, type InsertEAShareAsset, type UserStreak, type InsertUserStreak, TIER_CONFIG,
   type ScenarioAnalysis, type InsertScenarioAnalysis,
-  type WebhookConfig, type InsertWebhookConfig, type WebhookLog, type InsertWebhookLog
+  type WebhookConfig, type InsertWebhookConfig, type WebhookLog, type InsertWebhookLog,
+  type Mt5ApiToken, type InsertMt5ApiToken, type Mt5SignalLog, type InsertMt5SignalLog
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, desc } from "drizzle-orm";
 import session from "express-session";
 import createMemoryStore from "memorystore";
+import crypto from "crypto";
 
 // In-memory storage will be implemented in the class
 
@@ -167,6 +169,19 @@ export interface IStorage {
   deleteWebhook(id: number): Promise<boolean>;
   logWebhookCall(log: InsertWebhookLog): Promise<WebhookLog>;
   getWebhookLogs(webhookId: number, limit?: number): Promise<WebhookLog[]>;
+  
+  // MT5 API Token methods
+  createMt5ApiToken(userId: number, name: string): Promise<Mt5ApiToken>;
+  getMt5ApiToken(id: number): Promise<Mt5ApiToken | undefined>;
+  getMt5ApiTokenByToken(token: string): Promise<Mt5ApiToken | undefined>;
+  getUserMt5ApiTokens(userId: number): Promise<Mt5ApiToken[]>;
+  updateMt5ApiToken(id: number, data: Partial<Mt5ApiToken>): Promise<Mt5ApiToken | undefined>;
+  deleteMt5ApiToken(id: number): Promise<boolean>;
+  incrementMt5TokenSignalCount(tokenId: number): Promise<void>;
+  
+  // MT5 Signal Log methods
+  createMt5SignalLog(log: InsertMt5SignalLog): Promise<Mt5SignalLog>;
+  getMt5SignalLogs(userId: number, limit?: number): Promise<Mt5SignalLog[]>;
 }
 
 // Create PostgreSQL session store
@@ -1193,6 +1208,68 @@ export class DatabaseStorage implements IStorage {
   async getWebhookLogs(webhookId: number, limit: number = 50): Promise<WebhookLog[]> {
     return await db.select().from(webhookLogs)
       .where(eq(webhookLogs.webhookId, webhookId))
+      .limit(limit);
+  }
+
+  // MT5 API Token methods
+  async createMt5ApiToken(userId: number, name: string): Promise<Mt5ApiToken> {
+    const token = crypto.randomBytes(32).toString('hex');
+    const [result] = await db.insert(mt5ApiTokens).values({
+      userId,
+      name,
+      token,
+      isActive: true,
+      signalCount: 0,
+    }).returning();
+    return result;
+  }
+
+  async getMt5ApiToken(id: number): Promise<Mt5ApiToken | undefined> {
+    const [result] = await db.select().from(mt5ApiTokens).where(eq(mt5ApiTokens.id, id));
+    return result;
+  }
+
+  async getMt5ApiTokenByToken(token: string): Promise<Mt5ApiToken | undefined> {
+    const [result] = await db.select().from(mt5ApiTokens).where(eq(mt5ApiTokens.token, token));
+    return result;
+  }
+
+  async getUserMt5ApiTokens(userId: number): Promise<Mt5ApiToken[]> {
+    return await db.select().from(mt5ApiTokens).where(eq(mt5ApiTokens.userId, userId));
+  }
+
+  async updateMt5ApiToken(id: number, data: Partial<Mt5ApiToken>): Promise<Mt5ApiToken | undefined> {
+    const [result] = await db.update(mt5ApiTokens)
+      .set(data)
+      .where(eq(mt5ApiTokens.id, id))
+      .returning();
+    return result;
+  }
+
+  async deleteMt5ApiToken(id: number): Promise<boolean> {
+    await db.delete(mt5ApiTokens).where(eq(mt5ApiTokens.id, id));
+    return true;
+  }
+
+  async incrementMt5TokenSignalCount(tokenId: number): Promise<void> {
+    await db.update(mt5ApiTokens)
+      .set({ 
+        signalCount: sql`${mt5ApiTokens.signalCount} + 1`,
+        lastUsedAt: new Date()
+      })
+      .where(eq(mt5ApiTokens.id, tokenId));
+  }
+
+  // MT5 Signal Log methods
+  async createMt5SignalLog(log: InsertMt5SignalLog): Promise<Mt5SignalLog> {
+    const [result] = await db.insert(mt5SignalLogs).values(log).returning();
+    return result;
+  }
+
+  async getMt5SignalLogs(userId: number, limit: number = 100): Promise<Mt5SignalLog[]> {
+    return await db.select().from(mt5SignalLogs)
+      .where(eq(mt5SignalLogs.userId, userId))
+      .orderBy(desc(mt5SignalLogs.createdAt))
       .limit(limit);
   }
 }

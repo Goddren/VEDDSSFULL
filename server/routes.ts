@@ -4099,6 +4099,158 @@ Return ONLY a JSON object with this structure:
     }
   });
 
+  // MT5 API Token management endpoints
+  app.get("/api/mt5-tokens", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const userId = (req.user as User).id;
+    const tokens = await storage.getUserMt5ApiTokens(userId);
+    // Don't expose the actual token in list view
+    const safeTokens = tokens.map(t => ({
+      ...t,
+      token: t.token.substring(0, 8) + '...' + t.token.substring(t.token.length - 4)
+    }));
+    res.json(safeTokens);
+  });
+
+  app.post("/api/mt5-tokens", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const userId = (req.user as User).id;
+    const { name } = req.body;
+    if (!name) {
+      return res.status(400).json({ error: "Token name is required" });
+    }
+    const token = await storage.createMt5ApiToken(userId, name);
+    // Return full token on creation (only time user sees it)
+    res.json(token);
+  });
+
+  app.delete("/api/mt5-tokens/:id", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const userId = (req.user as User).id;
+    const tokenId = parseInt(req.params.id);
+    const token = await storage.getMt5ApiToken(tokenId);
+    if (!token || token.userId !== userId) {
+      return res.status(404).json({ error: "Token not found" });
+    }
+    await storage.deleteMt5ApiToken(tokenId);
+    res.json({ success: true });
+  });
+
+  app.patch("/api/mt5-tokens/:id", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const userId = (req.user as User).id;
+    const tokenId = parseInt(req.params.id);
+    const token = await storage.getMt5ApiToken(tokenId);
+    if (!token || token.userId !== userId) {
+      return res.status(404).json({ error: "Token not found" });
+    }
+    const { isActive, name } = req.body;
+    const updated = await storage.updateMt5ApiToken(tokenId, { isActive, name });
+    res.json(updated);
+  });
+
+  app.get("/api/mt5-signals", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const userId = (req.user as User).id;
+    const signals = await storage.getMt5SignalLogs(userId, 100);
+    res.json(signals);
+  });
+
+  // MT5 EA Signal Receiver - receives signals from MT5 EA and relays to webhooks
+  app.post("/api/mt5-signal", async (req: Request, res: Response) => {
+    try {
+      const apiKey = req.headers['x-vedd-api-key'] as string;
+      if (!apiKey) {
+        return res.status(401).json({ error: "API key required. Set X-VEDD-API-Key header." });
+      }
+      
+      const token = await storage.getMt5ApiTokenByToken(apiKey);
+      if (!token) {
+        return res.status(401).json({ error: "Invalid API key" });
+      }
+      if (!token.isActive) {
+        return res.status(403).json({ error: "API key is disabled" });
+      }
+      
+      const { action, symbol, direction, volume, entryPrice, stopLoss, takeProfit, ticket, magic, comment, openTime, platform } = req.body;
+      
+      if (!action || !symbol || !direction) {
+        return res.status(400).json({ error: "Missing required fields: action, symbol, direction" });
+      }
+      
+      // Log the incoming signal
+      const signalLog = await storage.createMt5SignalLog({
+        tokenId: token.id,
+        userId: token.userId,
+        action,
+        symbol,
+        direction,
+        volume: volume || 0.01,
+        entryPrice: entryPrice || 0,
+        stopLoss: stopLoss || null,
+        takeProfit: takeProfit || null,
+        ticket: ticket?.toString() || null,
+        relayedToWebhooks: false
+      });
+      
+      // Increment signal count for the token
+      await storage.incrementMt5TokenSignalCount(token.id);
+      
+      // Trigger webhooks for this signal
+      const webhooks = await storage.getActiveWebhooksByTrigger(token.userId, 'mt5_signal');
+      
+      if (webhooks.length > 0) {
+        const payload = {
+          source: 'mt5_ea',
+          type: 'trade_signal',
+          timestamp: new Date().toISOString(),
+          signal: {
+            action,
+            symbol,
+            direction,
+            volume,
+            entryPrice,
+            stopLoss,
+            takeProfit,
+            ticket,
+            magic,
+            comment,
+            openTime,
+            platform: platform || 'MT5'
+          }
+        };
+        
+        // Fire webhooks asynchronously
+        triggerWebhooks(token.userId, 'mt5_signal', payload.signal)
+          .then(() => storage.createMt5SignalLog({ 
+            ...signalLog, 
+            relayedToWebhooks: true 
+          }))
+          .catch(err => console.error('Error relaying MT5 signal to webhooks:', err));
+      }
+      
+      res.json({ 
+        success: true, 
+        message: "Signal received and queued for relay",
+        signalId: signalLog.id,
+        webhooksTriggered: webhooks.length
+      });
+    } catch (error) {
+      console.error('Error processing MT5 signal:', error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to process signal" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

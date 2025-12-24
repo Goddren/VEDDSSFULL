@@ -30,7 +30,11 @@ import {
   ExternalLink,
   Copy,
   Eye,
-  EyeOff
+  EyeOff,
+  Download,
+  Key,
+  Zap,
+  Server
 } from "lucide-react";
 import { motion } from "framer-motion";
 
@@ -66,6 +70,33 @@ type WebhookLog = {
   createdAt: string;
 };
 
+type Mt5ApiToken = {
+  id: number;
+  userId: number;
+  token: string;
+  name: string;
+  isActive: boolean;
+  lastUsedAt: string | null;
+  signalCount: number;
+  createdAt: string;
+};
+
+type Mt5SignalLog = {
+  id: number;
+  tokenId: number;
+  userId: number;
+  action: string;
+  symbol: string;
+  direction: string;
+  volume: number;
+  entryPrice: number;
+  stopLoss: number | null;
+  takeProfit: number | null;
+  ticket: string | null;
+  relayedToWebhooks: boolean;
+  createdAt: string;
+};
+
 const PLATFORM_OPTIONS = [
   { value: 'tradelocker', label: 'TradeLocker' },
   { value: 'tradingview', label: 'TradingView Alerts' },
@@ -75,6 +106,7 @@ const PLATFORM_OPTIONS = [
 const TRIGGER_OPTIONS = [
   { value: 'analysis', label: 'Chart Analysis Complete' },
   { value: 'synthesis', label: 'Multi-Timeframe EA Signal' },
+  { value: 'mt5_signal', label: 'MT5 Trade Copier Signal' },
   { value: 'manual', label: 'Manual Trigger' },
 ];
 
@@ -176,6 +208,53 @@ export default function WebhooksPage() {
   const { data: logs = [] } = useQuery<WebhookLog[]>({
     queryKey: ['/api/webhooks', selectedWebhook?.id, 'logs'],
     enabled: !!selectedWebhook,
+  });
+
+  // MT5 Trade Copier state
+  const [newTokenName, setNewTokenName] = useState('');
+  const [showTokenValue, setShowTokenValue] = useState<string | null>(null);
+  const [newlyCreatedToken, setNewlyCreatedToken] = useState<Mt5ApiToken | null>(null);
+
+  // MT5 queries and mutations
+  const { data: mt5Tokens = [] } = useQuery<Mt5ApiToken[]>({
+    queryKey: ['/api/mt5-tokens'],
+  });
+
+  const { data: mt5Signals = [] } = useQuery<Mt5SignalLog[]>({
+    queryKey: ['/api/mt5-signals'],
+  });
+
+  const createTokenMutation = useMutation({
+    mutationFn: async (name: string) => {
+      return await apiRequest('/api/mt5-tokens', {
+        method: 'POST',
+        body: JSON.stringify({ name }),
+      });
+    },
+    onSuccess: (data: Mt5ApiToken) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/mt5-tokens'] });
+      setNewlyCreatedToken(data);
+      setNewTokenName('');
+      toast({ title: "API Token Created", description: "Copy your token now - it won't be shown again!" });
+    },
+    onError: (error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    }
+  });
+
+  const deleteTokenMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return await apiRequest(`/api/mt5-tokens/${id}`, {
+        method: 'DELETE',
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/mt5-tokens'] });
+      toast({ title: "Token deleted" });
+    },
+    onError: (error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    }
   });
 
   const handleToggleActive = (webhook: WebhookConfig) => {
@@ -566,6 +645,199 @@ export default function WebhooksPage() {
                 <p className="text-sm text-gray-400">Signals are automatically sent to your configured endpoints</p>
               </div>
             </div>
+          </CardContent>
+        </Card>
+
+        {/* MT5 Trade Copier Section */}
+        <Card className="mt-8 bg-gradient-to-br from-blue-900/30 to-purple-900/30 border-blue-700/50">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-white text-xl flex items-center gap-3">
+                  <Zap className="w-6 h-6 text-yellow-400" />
+                  MT5 Trade Copier
+                </CardTitle>
+                <CardDescription className="mt-1">
+                  Copy trades from MetaTrader 5 directly to TradeLocker and other platforms
+                </CardDescription>
+              </div>
+              <a 
+                href="/ea-templates/VEDD_Trade_Copier.mq5" 
+                download
+                className="inline-flex"
+              >
+                <Button className="bg-gradient-to-r from-green-600 to-emerald-600" data-testid="button-download-ea">
+                  <Download className="w-4 h-4 mr-2" />
+                  Download EA
+                </Button>
+              </a>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {/* API Token Management */}
+            <div className="space-y-4">
+              <h4 className="text-white font-semibold flex items-center gap-2">
+                <Key className="w-4 h-4" />
+                API Tokens
+              </h4>
+              
+              {/* Create new token */}
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Token name (e.g., My MT5 Account)"
+                  value={newTokenName}
+                  onChange={(e) => setNewTokenName(e.target.value)}
+                  className="bg-gray-900 border-gray-700 flex-1"
+                  data-testid="input-token-name"
+                />
+                <Button
+                  onClick={() => createTokenMutation.mutate(newTokenName)}
+                  disabled={!newTokenName || createTokenMutation.isPending}
+                  data-testid="button-create-token"
+                >
+                  {createTokenMutation.isPending ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                </Button>
+              </div>
+
+              {/* Newly created token display */}
+              {newlyCreatedToken && (
+                <motion.div 
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="p-4 bg-green-900/30 border border-green-600/50 rounded-lg"
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-green-400 font-semibold">New Token Created</span>
+                    <Button 
+                      variant="ghost" 
+                      size="sm"
+                      onClick={() => setNewlyCreatedToken(null)}
+                    >
+                      <XCircle className="w-4 h-4" />
+                    </Button>
+                  </div>
+                  <p className="text-yellow-400 text-sm mb-2">Copy this token now - it won't be shown again!</p>
+                  <div className="flex items-center gap-2 bg-gray-900 p-2 rounded font-mono text-sm">
+                    <code className="flex-1 text-gray-300 break-all">{newlyCreatedToken.token}</code>
+                    <Button 
+                      variant="ghost" 
+                      size="sm"
+                      onClick={() => copyToClipboard(newlyCreatedToken.token)}
+                      data-testid="button-copy-new-token"
+                    >
+                      <Copy className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* Token list */}
+              {mt5Tokens.length > 0 ? (
+                <div className="space-y-2">
+                  {mt5Tokens.map(token => (
+                    <div key={token.id} className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg border border-gray-700">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-white font-medium">{token.name}</span>
+                          {token.isActive ? (
+                            <Badge className="bg-green-500/20 text-green-400 text-xs">Active</Badge>
+                          ) : (
+                            <Badge className="bg-gray-500/20 text-gray-400 text-xs">Inactive</Badge>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-4 text-sm text-gray-400 mt-1">
+                          <span className="font-mono">{token.token}</span>
+                          <span>{token.signalCount} signals</span>
+                          {token.lastUsedAt && (
+                            <span>Last used: {new Date(token.lastUsedAt).toLocaleDateString()}</span>
+                          )}
+                        </div>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => deleteTokenMutation.mutate(token.id)}
+                        className="text-red-400 hover:text-red-300"
+                        data-testid={`button-delete-token-${token.id}`}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-4 text-gray-500">
+                  No API tokens yet. Create one to get started.
+                </div>
+              )}
+            </div>
+
+            {/* Setup Instructions */}
+            <div className="space-y-4 pt-4 border-t border-gray-700">
+              <h4 className="text-white font-semibold flex items-center gap-2">
+                <Server className="w-4 h-4" />
+                Setup Instructions
+              </h4>
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="p-4 bg-gray-800/50 rounded-lg">
+                  <h5 className="text-primary font-semibold mb-2">1. Download & Install EA</h5>
+                  <ol className="text-sm text-gray-400 space-y-1 list-decimal list-inside">
+                    <li>Download the VEDD Trade Copier EA above</li>
+                    <li>Open MT5 and go to File &gt; Open Data Folder</li>
+                    <li>Navigate to MQL5 &gt; Experts</li>
+                    <li>Copy the .mq5 file there and compile</li>
+                  </ol>
+                </div>
+                <div className="p-4 bg-gray-800/50 rounded-lg">
+                  <h5 className="text-primary font-semibold mb-2">2. Configure EA Settings</h5>
+                  <ol className="text-sm text-gray-400 space-y-1 list-decimal list-inside">
+                    <li>Attach EA to any chart</li>
+                    <li>Set WebhookURL to: <code className="text-xs bg-gray-900 px-1 rounded">{window.location.origin}/api/mt5-signal</code></li>
+                    <li>Paste your API Key from above</li>
+                    <li>Enable "Allow WebRequest" in EA options</li>
+                  </ol>
+                </div>
+                <div className="p-4 bg-gray-800/50 rounded-lg md:col-span-2">
+                  <h5 className="text-primary font-semibold mb-2">3. Configure Webhook Destination</h5>
+                  <p className="text-sm text-gray-400">
+                    Create a webhook above with "MT5 Trade Copier Signal" as a trigger. When you open trades in MT5, 
+                    the EA will send signals to VEDD AI, which then relays them to your configured webhooks 
+                    (TradeLocker, TradingView alerts, etc.).
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Recent Signals */}
+            {mt5Signals.length > 0 && (
+              <div className="space-y-4 pt-4 border-t border-gray-700">
+                <h4 className="text-white font-semibold flex items-center gap-2">
+                  <Activity className="w-4 h-4" />
+                  Recent Signals
+                </h4>
+                <ScrollArea className="h-48">
+                  <div className="space-y-2">
+                    {mt5Signals.slice(0, 10).map(signal => (
+                      <div key={signal.id} className="flex items-center justify-between p-2 bg-gray-900/50 rounded text-sm">
+                        <div className="flex items-center gap-3">
+                          <Badge className={signal.direction === 'BUY' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}>
+                            {signal.direction}
+                          </Badge>
+                          <span className="text-white font-mono">{signal.symbol}</span>
+                          <span className="text-gray-400">@ {signal.entryPrice.toFixed(5)}</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-gray-500">
+                          {signal.relayedToWebhooks && (
+                            <CheckCircle className="w-4 h-4 text-green-500" />
+                          )}
+                          <span>{new Date(signal.createdAt).toLocaleTimeString()}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
