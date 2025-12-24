@@ -131,10 +131,8 @@ export default function WebhooksPage() {
 
   const createMutation = useMutation({
     mutationFn: async (data: typeof newWebhook) => {
-      return await apiRequest('/api/webhooks', {
-        method: 'POST',
-        body: JSON.stringify(data),
-      });
+      const res = await apiRequest('POST', '/api/webhooks', data);
+      return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/webhooks'] });
@@ -156,10 +154,8 @@ export default function WebhooksPage() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: { id: number; data: Partial<WebhookConfig> }) => {
-      return await apiRequest(`/api/webhooks/${id}`, {
-        method: 'PATCH',
-        body: JSON.stringify(data),
-      });
+      const res = await apiRequest('PATCH', `/api/webhooks/${id}`, data);
+      return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/webhooks'] });
@@ -172,9 +168,8 @@ export default function WebhooksPage() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
-      return await apiRequest(`/api/webhooks/${id}`, {
-        method: 'DELETE',
-      });
+      const res = await apiRequest('DELETE', `/api/webhooks/${id}`);
+      return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/webhooks'] });
@@ -188,9 +183,8 @@ export default function WebhooksPage() {
 
   const testMutation = useMutation({
     mutationFn: async (id: number) => {
-      return await apiRequest(`/api/webhooks/${id}/test`, {
-        method: 'POST',
-      });
+      const res = await apiRequest('POST', `/api/webhooks/${id}/test`);
+      return res.json();
     },
     onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ['/api/webhooks'] });
@@ -226,10 +220,8 @@ export default function WebhooksPage() {
 
   const createTokenMutation = useMutation({
     mutationFn: async (name: string) => {
-      return await apiRequest('/api/mt5-tokens', {
-        method: 'POST',
-        body: JSON.stringify({ name }),
-      });
+      const res = await apiRequest('POST', '/api/mt5-tokens', { name });
+      return res.json() as Promise<Mt5ApiToken>;
     },
     onSuccess: (data: Mt5ApiToken) => {
       queryClient.invalidateQueries({ queryKey: ['/api/mt5-tokens'] });
@@ -244,9 +236,8 @@ export default function WebhooksPage() {
 
   const deleteTokenMutation = useMutation({
     mutationFn: async (id: number) => {
-      return await apiRequest(`/api/mt5-tokens/${id}`, {
-        method: 'DELETE',
-      });
+      const res = await apiRequest('DELETE', `/api/mt5-tokens/${id}`);
+      return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/mt5-tokens'] });
