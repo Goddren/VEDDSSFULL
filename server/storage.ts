@@ -2,6 +2,7 @@ import {
   users, chartAnalyses, achievements, userAchievements,
   userProfiles, follows, analysisFeedback, analysisViews, priceAlerts,
   savedEAs, eaSubscriptions, marketDataSnapshots, marketDataRefreshJobs, eaShareAssets, userStreaks, scenarioAnalyses,
+  webhookConfigs, webhookLogs,
   type User, type InsertUser, type ChartAnalysis, type InsertChartAnalysis,
   type Achievement, type InsertAchievement, type UserAchievement, type InsertUserAchievement,
   type UserProfile, type InsertUserProfile, type Follow, type InsertFollow,
@@ -9,7 +10,8 @@ import {
   type SavedEA, type InsertSavedEA, type EASubscription, type InsertEASubscription,
   type MarketDataSnapshot, type InsertMarketDataSnapshot, type MarketDataRefreshJob, type InsertMarketDataRefreshJob,
   type EAShareAsset, type InsertEAShareAsset, type UserStreak, type InsertUserStreak, TIER_CONFIG,
-  type ScenarioAnalysis, type InsertScenarioAnalysis
+  type ScenarioAnalysis, type InsertScenarioAnalysis,
+  type WebhookConfig, type InsertWebhookConfig, type WebhookLog, type InsertWebhookLog
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, sql } from "drizzle-orm";

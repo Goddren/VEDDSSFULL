@@ -516,6 +516,60 @@ export const insertScenarioAnalysisSchema = createInsertSchema(scenarioAnalyses)
 export type ScenarioAnalysis = typeof scenarioAnalyses.$inferSelect;
 export type InsertScenarioAnalysis = z.infer<typeof insertScenarioAnalysisSchema>;
 
+// Webhook Configurations for Trade Signal Relay
+export const webhookConfigs = pgTable("webhook_configs", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  name: text("name").notNull(), // User-friendly name (e.g., "TradeLocker Signals")
+  url: text("url").notNull(), // Webhook endpoint URL
+  platform: text("platform").notNull(), // 'tradelocker', 'tradingview', 'custom'
+  isActive: boolean("is_active").notNull().default(true),
+  triggerOn: jsonb("trigger_on").notNull(), // Array: ['analysis', 'synthesis', 'ea_signal']
+  signalFormat: text("signal_format").notNull().default('json'), // 'json', 'tradingview', 'custom'
+  customPayloadTemplate: text("custom_payload_template"), // Custom JSON template with placeholders
+  secretKey: text("secret_key"), // Optional secret for webhook verification
+  headers: jsonb("headers"), // Custom headers (e.g., { "Authorization": "Bearer xxx" })
+  lastTriggeredAt: timestamp("last_triggered_at"),
+  lastStatus: text("last_status"), // 'success', 'failed', 'pending'
+  failureCount: integer("failure_count").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertWebhookConfigSchema = createInsertSchema(webhookConfigs).omit({
+  id: true,
+  lastTriggeredAt: true,
+  lastStatus: true,
+  failureCount: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type WebhookConfig = typeof webhookConfigs.$inferSelect;
+export type InsertWebhookConfig = z.infer<typeof insertWebhookConfigSchema>;
+
+// Webhook Logs for tracking signal delivery
+export const webhookLogs = pgTable("webhook_logs", {
+  id: serial("id").primaryKey(),
+  webhookId: integer("webhook_id").references(() => webhookConfigs.id).notNull(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  triggerType: text("trigger_type").notNull(), // 'analysis', 'synthesis', 'ea_signal'
+  payload: jsonb("payload").notNull(), // The actual payload sent
+  responseStatus: integer("response_status"), // HTTP status code
+  responseBody: text("response_body"), // Response from the webhook endpoint
+  status: text("status").notNull(), // 'success', 'failed', 'pending'
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertWebhookLogSchema = createInsertSchema(webhookLogs).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type WebhookLog = typeof webhookLogs.$inferSelect;
+export type InsertWebhookLog = z.infer<typeof insertWebhookLogSchema>;
+
 // Tier thresholds configuration
 export const TIER_CONFIG = {
   YG: { name: 'Young Gun', minXP: 0, icon: '🔫', color: 'green', nextTier: 'Rising', xpNeeded: 500 },
