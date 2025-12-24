@@ -34,7 +34,9 @@ import {
   Download,
   Key,
   Zap,
-  Server
+  Server,
+  HelpCircle,
+  BookOpen
 } from "lucide-react";
 import { motion } from "framer-motion";
 
@@ -635,6 +637,111 @@ export default function WebhooksPage() {
                 <h4 className="font-semibold text-white mb-2">Receive Signals</h4>
                 <p className="text-sm text-gray-400">Signals are automatically sent to your configured endpoints</p>
               </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Platform Setup Guides */}
+        <Card className="mt-8 bg-gradient-to-br from-amber-900/20 to-orange-900/20 border-amber-700/30">
+          <CardHeader>
+            <CardTitle className="text-white text-lg flex items-center gap-2">
+              <BookOpen className="w-5 h-5 text-amber-400" />
+              Platform Setup Guides
+            </CardTitle>
+            <CardDescription>
+              Learn how to get your webhook URL from each platform
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid md:grid-cols-3 gap-6">
+              {/* TradeLocker Guide */}
+              <div className="p-4 bg-gray-800/50 rounded-lg border border-gray-700">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center">
+                    <ExternalLink className="w-4 h-4 text-blue-400" />
+                  </div>
+                  <h4 className="font-semibold text-white">TradeLocker</h4>
+                </div>
+                <ol className="text-sm text-gray-400 space-y-2 list-decimal list-inside">
+                  <li>Log into your TradeLocker account</li>
+                  <li>Go to <span className="text-amber-400">Settings → API</span></li>
+                  <li>Click "Create Webhook" or "Add Integration"</li>
+                  <li>Copy the webhook URL provided</li>
+                  <li>Paste it in VEDD AI when creating your webhook</li>
+                </ol>
+                <a 
+                  href="https://tradelocker.com" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-blue-400 text-sm mt-3 hover:underline"
+                >
+                  Visit TradeLocker <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
+
+              {/* TradingView Guide */}
+              <div className="p-4 bg-gray-800/50 rounded-lg border border-gray-700">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-8 h-8 rounded-full bg-green-500/20 flex items-center justify-center">
+                    <Activity className="w-4 h-4 text-green-400" />
+                  </div>
+                  <h4 className="font-semibold text-white">TradingView Alerts</h4>
+                </div>
+                <ol className="text-sm text-gray-400 space-y-2 list-decimal list-inside">
+                  <li>TradingView sends alerts TO a webhook (reverse flow)</li>
+                  <li>Use services like <span className="text-amber-400">3Commas, Alertatron, or PineConnector</span></li>
+                  <li>These services provide a webhook URL</li>
+                  <li>Set up your TradingView alerts to POST to that URL</li>
+                  <li>Configure VEDD AI to relay signals there</li>
+                </ol>
+                <a 
+                  href="https://www.tradingview.com/support/solutions/43000529348-about-webhooks/" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-green-400 text-sm mt-3 hover:underline"
+                >
+                  TradingView Webhook Docs <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
+
+              {/* Custom/Testing Guide */}
+              <div className="p-4 bg-gray-800/50 rounded-lg border border-gray-700">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-8 h-8 rounded-full bg-purple-500/20 flex items-center justify-center">
+                    <HelpCircle className="w-4 h-4 text-purple-400" />
+                  </div>
+                  <h4 className="font-semibold text-white">Custom / Testing</h4>
+                </div>
+                <ol className="text-sm text-gray-400 space-y-2 list-decimal list-inside">
+                  <li><span className="text-amber-400">For testing:</span> Use webhook.site or requestbin.com</li>
+                  <li>These give you a free temporary URL</li>
+                  <li>Great for testing before connecting real platforms</li>
+                  <li><span className="text-amber-400">For custom bots:</span> Use your server's endpoint</li>
+                  <li>Example: https://your-server.com/api/signals</li>
+                </ol>
+                <a 
+                  href="https://webhook.site" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-purple-400 text-sm mt-3 hover:underline"
+                >
+                  Get Free Test URL <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
+            </div>
+
+            {/* Quick Tips */}
+            <div className="mt-6 p-4 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+              <h4 className="text-amber-400 font-semibold flex items-center gap-2 mb-2">
+                <AlertCircle className="w-4 h-4" />
+                Quick Tips
+              </h4>
+              <ul className="text-sm text-gray-300 space-y-1">
+                <li>• Make sure your webhook URL starts with <code className="bg-gray-800 px-1 rounded">https://</code></li>
+                <li>• Test your webhook with the "Test" button before relying on it for live trades</li>
+                <li>• Check the "Logs" tab to troubleshoot any delivery issues</li>
+                <li>• Some platforms require a secret key for verification - add it in the optional field</li>
+              </ul>
             </div>
           </CardContent>
         </Card>
