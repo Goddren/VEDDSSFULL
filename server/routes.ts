@@ -2634,18 +2634,37 @@ Respond ONLY in valid JSON format with these exact keys:
     }
   });
 
-  // EA Live Refresh endpoint - REQUIRES AUTHENTICATION
+  // EA Live Refresh endpoint - Supports both session auth and API token auth
   app.post('/api/ea/refresh-analysis', async (req: Request, res: Response) => {
     try {
-      // SECURITY: Require user authentication
-      if (!req.isAuthenticated()) {
+      let userId: number;
+      
+      // Check for API token in header first (for EA calls)
+      const authHeader = req.headers.authorization;
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        const token = authHeader.substring(7);
+        const apiToken = await storage.getApiTokenByToken(token);
+        
+        if (!apiToken || !apiToken.isActive) {
+          return res.status(401).json({ 
+            success: false,
+            message: "Invalid or inactive API token" 
+          });
+        }
+        
+        userId = apiToken.userId;
+        
+        // Update last used timestamp
+        await storage.updateApiTokenLastUsed(apiToken.id);
+      } else if (req.isAuthenticated()) {
+        // Fall back to session authentication (for web UI)
+        userId = (req.user as Express.User).id;
+      } else {
         return res.status(401).json({ 
           success: false,
-          message: "Authentication required. Please log in to use EA refresh feature." 
+          message: "Authentication required. Use API token or log in." 
         });
       }
-
-      const userId = (req.user as Express.User).id;
       const { symbol, timeframe, priceData, originalDirection } = req.body;
 
       // Validation

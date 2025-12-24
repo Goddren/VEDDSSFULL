@@ -938,6 +938,121 @@ export default function WebhooksPage() {
             )}
           </CardContent>
         </Card>
+
+        {/* EA AI Live Refresh Section */}
+        <Card className="mt-8 bg-gradient-to-br from-green-900/30 to-teal-900/30 border-green-700/50">
+          <CardHeader>
+            <CardTitle className="text-white text-xl flex items-center gap-3">
+              <RefreshCw className="w-6 h-6 text-green-400" />
+              EA AI Live Refresh
+            </CardTitle>
+            <CardDescription className="mt-1">
+              Allow your EAs to request fresh AI analysis using real-time market data
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {/* Endpoint URL */}
+            <div className="space-y-2">
+              <h4 className="text-white font-semibold flex items-center gap-2">
+                <ExternalLink className="w-4 h-4" />
+                API Endpoint
+              </h4>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 bg-gray-900 px-3 py-2 rounded font-mono text-sm text-green-400 border border-gray-700">
+                  {window.location.origin}/api/ea/refresh-analysis
+                </code>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => copyToClipboard(`${window.location.origin}/api/ea/refresh-analysis`)}
+                  className="border-gray-600"
+                  data-testid="button-copy-refresh-endpoint"
+                >
+                  <Copy className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+
+            {/* How to Use */}
+            <div className="grid md:grid-cols-2 gap-4">
+              <div className="p-4 bg-gray-800/50 rounded-lg">
+                <h5 className="text-green-400 font-semibold mb-2">How It Works</h5>
+                <ol className="text-sm text-gray-400 space-y-1 list-decimal list-inside">
+                  <li>Your EA sends current price data to the endpoint</li>
+                  <li>VEDD AI analyzes the data with GPT-4o</li>
+                  <li>Returns updated direction, confidence, and patterns</li>
+                  <li>EA can adjust trading based on fresh analysis</li>
+                </ol>
+              </div>
+              <div className="p-4 bg-gray-800/50 rounded-lg">
+                <h5 className="text-green-400 font-semibold mb-2">Rate Limits</h5>
+                <ul className="text-sm text-gray-400 space-y-1">
+                  <li>• 1 refresh per hour per user</li>
+                  <li>• Uses your API token for authentication</li>
+                  <li>• Same token used for MT5 Trade Copier works here</li>
+                </ul>
+              </div>
+            </div>
+
+            {/* Request Format */}
+            <div className="space-y-2">
+              <h4 className="text-white font-semibold">Request Format (POST)</h4>
+              <div className="bg-gray-900 p-4 rounded-lg overflow-x-auto">
+                <pre className="text-xs text-gray-300 font-mono whitespace-pre-wrap">{`// Headers
+Authorization: Bearer YOUR_API_TOKEN
+Content-Type: application/json
+
+// Body
+{
+  "symbol": "EURUSD",
+  "timeframe": "H1",
+  "priceData": {
+    "open": 1.0850,
+    "high": 1.0875,
+    "low": 1.0840,
+    "currentPrice": 1.0865
+  },
+  "originalDirection": "BUY"
+}`}</pre>
+              </div>
+            </div>
+
+            {/* Response Format */}
+            <div className="space-y-2">
+              <h4 className="text-white font-semibold">Response Format</h4>
+              <div className="bg-gray-900 p-4 rounded-lg overflow-x-auto">
+                <pre className="text-xs text-gray-300 font-mono whitespace-pre-wrap">{`{
+  "success": true,
+  "timestamp": "2025-01-01T12:00:00.000Z",
+  "symbol": "EURUSD",
+  "timeframe": "H1",
+  "analysis": {
+    "direction": "BUY",
+    "confidence": 75,
+    "patterns": ["Higher Highs", "Bullish Engulfing"],
+    "directionChanged": false,
+    "warning": "",
+    "recommendation": "Continue holding long position"
+  }
+}`}</pre>
+              </div>
+            </div>
+
+            {/* Quick Setup */}
+            <div className="p-4 bg-green-500/10 border border-green-500/30 rounded-lg">
+              <h4 className="text-green-400 font-semibold flex items-center gap-2 mb-2">
+                <AlertCircle className="w-4 h-4" />
+                Quick Setup
+              </h4>
+              <ol className="text-sm text-gray-300 space-y-1 list-decimal list-inside">
+                <li>Create an API token in the "MT5 Trade Copier" section above</li>
+                <li>Copy the endpoint URL and token into your EA</li>
+                <li>Make sure to add this URL to MT5's allowed WebRequest list</li>
+                <li>Call the endpoint with current OHLC data when you need fresh analysis</li>
+              </ol>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );
