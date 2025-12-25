@@ -45,7 +45,10 @@ export default function MyEAsPage() {
 
   const { data: refreshHistory = [], isLoading: historyLoading } = useQuery<RefreshJob[]>({
     queryKey: ['/api/eas', historyEAId, 'refresh-history'],
-    queryFn: () => apiRequest('GET', `/api/eas/${historyEAId}/refresh-history`).then(r => r.json()),
+    queryFn: () => {
+      if (historyEAId === null) return Promise.resolve([]);
+      return apiRequest('GET', `/api/eas/${historyEAId}/refresh-history`).then(r => r.json());
+    },
     enabled: historyEAId !== null,
   });
 
