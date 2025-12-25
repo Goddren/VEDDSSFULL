@@ -192,45 +192,147 @@ export default function SubscriptionPage() {
 
       {/* Competitive Pricing Comparison */}
       <div className="mb-12 p-6 bg-gradient-to-r from-green-500/10 to-green-500/5 rounded-lg border border-green-500/20">
-        <h2 className="text-2xl font-bold mb-4 text-center">Why VEDD AI Offers Unbeatable Value</h2>
-        <p className="text-center text-muted-foreground mb-6">Compare our pricing with other trading analysis tools</p>
+        <h2 className="text-2xl font-bold mb-4 text-center">Replace 6+ Separate Tools With One Platform</h2>
+        <p className="text-center text-muted-foreground mb-6">Stop paying for multiple subscriptions — VEDD AI includes everything</p>
+        
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
+          <Card className="border border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-950/50">
+            <CardHeader className="pb-1 pt-3 px-3">
+              <CardTitle className="text-xs text-muted-foreground line-through">TrendSpider</CardTitle>
+            </CardHeader>
+            <CardContent className="px-3 pb-3">
+              <p className="text-lg font-bold text-red-500 line-through">$82-197/mo</p>
+              <p className="text-xs text-muted-foreground">AI Patterns</p>
+            </CardContent>
+          </Card>
+          <Card className="border border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-950/50">
+            <CardHeader className="pb-1 pt-3 px-3">
+              <CardTitle className="text-xs text-muted-foreground line-through">Trade Ideas</CardTitle>
+            </CardHeader>
+            <CardContent className="px-3 pb-3">
+              <p className="text-lg font-bold text-red-500 line-through">$118-228/mo</p>
+              <p className="text-xs text-muted-foreground">AI Scanning</p>
+            </CardContent>
+          </Card>
+          <Card className="border border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-950/50">
+            <CardHeader className="pb-1 pt-3 px-3">
+              <CardTitle className="text-xs text-muted-foreground line-through">EA Builder</CardTitle>
+            </CardHeader>
+            <CardContent className="px-3 pb-3">
+              <p className="text-lg font-bold text-red-500 line-through">$19.99/mo</p>
+              <p className="text-xs text-muted-foreground">EA Generator</p>
+            </CardContent>
+          </Card>
+          <Card className="border border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-950/50">
+            <CardHeader className="pb-1 pt-3 px-3">
+              <CardTitle className="text-xs text-muted-foreground line-through">Trade Copier</CardTitle>
+            </CardHeader>
+            <CardContent className="px-3 pb-3">
+              <p className="text-lg font-bold text-red-500 line-through">$50-150/mo</p>
+              <p className="text-xs text-muted-foreground">MT5→TradeLocker</p>
+            </CardContent>
+          </Card>
+          <Card className="border border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-950/50">
+            <CardHeader className="pb-1 pt-3 px-3">
+              <CardTitle className="text-xs text-muted-foreground line-through">News Tools</CardTitle>
+            </CardHeader>
+            <CardContent className="px-3 pb-3">
+              <p className="text-lg font-bold text-red-500 line-through">$30-80/mo</p>
+              <p className="text-xs text-muted-foreground">Sentiment</p>
+            </CardContent>
+          </Card>
+          <Card className="border border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-950/50">
+            <CardHeader className="pb-1 pt-3 px-3">
+              <CardTitle className="text-xs text-muted-foreground line-through">Webhooks</CardTitle>
+            </CardHeader>
+            <CardContent className="px-3 pb-3">
+              <p className="text-lg font-bold text-red-500 line-through">$15-40/mo</p>
+              <p className="text-xs text-muted-foreground">Alerts</p>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="bg-gradient-to-r from-green-500 to-emerald-600 rounded-xl p-6 text-white text-center">
+          <div className="flex flex-col md:flex-row items-center justify-center gap-4 mb-3">
+            <div className="text-center">
+              <p className="text-sm opacity-80">Total if purchased separately</p>
+              <p className="text-2xl font-bold line-through opacity-70">$315-713/mo</p>
+            </div>
+            <div className="hidden md:block text-3xl">→</div>
+            <div className="text-center">
+              <p className="text-sm opacity-80">VEDD AI Pro (everything included)</p>
+              <p className="text-3xl font-bold">$19.99/mo</p>
+            </div>
+            <div className="hidden md:block text-3xl">or</div>
+            <div className="text-center">
+              <p className="text-sm opacity-80">Lifetime Access</p>
+              <p className="text-3xl font-bold">$199 once</p>
+            </div>
+          </div>
+          <p className="text-sm opacity-90">Save up to <strong>$8,328/year</strong> with VEDD AI Pro</p>
+        </div>
+      </div>
+
+      {/* NEW: All-In-One Features */}
+      <div className="mb-12 p-6 bg-gradient-to-r from-primary/10 to-primary/5 rounded-lg border border-primary/20">
+        <h2 className="text-2xl font-bold mb-4 text-center">Everything Included in VEDD AI</h2>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <Card className="border border-muted">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm text-muted-foreground">TrendSpider</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-xl font-bold text-muted-foreground">$82-197/mo</p>
-              <p className="text-xs text-muted-foreground mt-1">AI Pattern Analysis</p>
-            </CardContent>
-          </Card>
-          <Card className="border border-muted">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm text-muted-foreground">Trade Ideas</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-xl font-bold text-muted-foreground">$118-228/mo</p>
-              <p className="text-xs text-muted-foreground mt-1">AI Stock Scanning</p>
-            </CardContent>
-          </Card>
-          <Card className="border border-muted">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm text-muted-foreground">EA Builder Pro</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-xl font-bold text-muted-foreground">$19.99/mo</p>
-              <p className="text-xs text-muted-foreground mt-1">EA Generator Only</p>
-            </CardContent>
-          </Card>
-          <Card className="border-2 border-green-500 bg-green-50 dark:bg-green-950">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm text-green-600 dark:text-green-400 font-bold">VEDD AI</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-xl font-bold text-green-600 dark:text-green-400">$19.99/mo</p>
-              <p className="text-xs text-green-600 dark:text-green-400 mt-1">AI Analysis + EA Generator</p>
-            </CardContent>
-          </Card>
+          <div className="flex items-start gap-2 p-3 bg-background rounded-lg">
+            <Check className="h-5 w-5 text-green-500 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-medium text-sm">AI Chart Analysis</p>
+              <p className="text-xs text-muted-foreground">Pattern recognition & signals</p>
+            </div>
+          </div>
+          <div className="flex items-start gap-2 p-3 bg-background rounded-lg">
+            <Check className="h-5 w-5 text-green-500 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-medium text-sm">EA Code Generator</p>
+              <p className="text-xs text-muted-foreground">MT5, TradingView, TradeLocker</p>
+            </div>
+          </div>
+          <div className="flex items-start gap-2 p-3 bg-background rounded-lg">
+            <Check className="h-5 w-5 text-green-500 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-medium text-sm">MT5 Trade Copier</p>
+              <p className="text-xs text-muted-foreground">Auto-copy to TradeLocker</p>
+            </div>
+          </div>
+          <div className="flex items-start gap-2 p-3 bg-background rounded-lg">
+            <Check className="h-5 w-5 text-green-500 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-medium text-sm">AI Direction Alerts</p>
+              <p className="text-xs text-muted-foreground">Auto re-analysis on change</p>
+            </div>
+          </div>
+          <div className="flex items-start gap-2 p-3 bg-background rounded-lg">
+            <Check className="h-5 w-5 text-green-500 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-medium text-sm">News Sentiment</p>
+              <p className="text-xs text-muted-foreground">Real-time market news</p>
+            </div>
+          </div>
+          <div className="flex items-start gap-2 p-3 bg-background rounded-lg">
+            <Check className="h-5 w-5 text-green-500 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-medium text-sm">Webhook System</p>
+              <p className="text-xs text-muted-foreground">Automate signal delivery</p>
+            </div>
+          </div>
+          <div className="flex items-start gap-2 p-3 bg-background rounded-lg">
+            <Check className="h-5 w-5 text-green-500 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-medium text-sm">EA Marketplace</p>
+              <p className="text-xs text-muted-foreground">Share & earn from strategies</p>
+            </div>
+          </div>
+          <div className="flex items-start gap-2 p-3 bg-background rounded-lg">
+            <Check className="h-5 w-5 text-green-500 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-medium text-sm">What-If Analysis</p>
+              <p className="text-xs text-muted-foreground">Scenario planning with AI</p>
+            </div>
+          </div>
         </div>
       </div>
 

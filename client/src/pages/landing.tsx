@@ -451,6 +451,121 @@ export default function LandingPage() {
         </div>
       </motion.section>
       
+      {/* Replace Multiple Apps Section */}
+      <motion.section 
+        initial="hidden"
+        whileInView="visible"
+        viewport={{ once: true }}
+        variants={staggerContainer}
+        className="py-20 bg-gradient-to-b from-theme-light to-theme-off border-t border-theme-light"
+      >
+        <div className="max-w-7xl mx-auto px-6 lg:px-8">
+          <motion.div variants={fadeIn} className="text-center mb-12">
+            <div className="inline-flex items-center px-4 py-2 rounded-full bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 text-sm font-medium mb-6">
+              <Zap className="h-4 w-4 mr-2" />
+              All-In-One Platform
+            </div>
+            <h2 className="text-3xl font-bold tracking-tight text-theme-main sm:text-4xl">
+              <span className="text-red-500">Replace Multiple Apps</span> With One
+            </h2>
+            <p className="mt-4 text-lg text-theme-muted max-w-3xl mx-auto">
+              Stop paying for separate tools. VEDD AI bundles everything you need into one powerful platform.
+            </p>
+          </motion.div>
+
+          <motion.div variants={staggerContainer} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
+            {/* Competitor 1 */}
+            <motion.div variants={fadeIn} className="p-6 bg-theme-light rounded-xl border border-red-200 dark:border-red-800 relative overflow-hidden">
+              <div className="absolute top-2 right-2 bg-red-500 text-white text-xs px-2 py-1 rounded-full">REPLACED</div>
+              <h3 className="font-bold text-lg text-theme-main mb-2">TrendSpider</h3>
+              <p className="text-2xl font-bold text-red-500 line-through mb-2">$82-197/mo</p>
+              <p className="text-sm text-theme-muted">AI pattern analysis & automated chart scanning</p>
+              <div className="mt-3 pt-3 border-t border-theme-light">
+                <p className="text-xs text-green-500 font-medium">✓ Included in VEDD AI</p>
+              </div>
+            </motion.div>
+
+            {/* Competitor 2 */}
+            <motion.div variants={fadeIn} className="p-6 bg-theme-light rounded-xl border border-red-200 dark:border-red-800 relative overflow-hidden">
+              <div className="absolute top-2 right-2 bg-red-500 text-white text-xs px-2 py-1 rounded-full">REPLACED</div>
+              <h3 className="font-bold text-lg text-theme-main mb-2">Trade Ideas</h3>
+              <p className="text-2xl font-bold text-red-500 line-through mb-2">$118-228/mo</p>
+              <p className="text-sm text-theme-muted">AI stock scanning & signal generation</p>
+              <div className="mt-3 pt-3 border-t border-theme-light">
+                <p className="text-xs text-green-500 font-medium">✓ Included in VEDD AI</p>
+              </div>
+            </motion.div>
+
+            {/* Competitor 3 */}
+            <motion.div variants={fadeIn} className="p-6 bg-theme-light rounded-xl border border-red-200 dark:border-red-800 relative overflow-hidden">
+              <div className="absolute top-2 right-2 bg-red-500 text-white text-xs px-2 py-1 rounded-full">REPLACED</div>
+              <h3 className="font-bold text-lg text-theme-main mb-2">EA Builder Pro</h3>
+              <p className="text-2xl font-bold text-red-500 line-through mb-2">$19.99/mo</p>
+              <p className="text-sm text-theme-muted">Expert Advisor code generator</p>
+              <div className="mt-3 pt-3 border-t border-theme-light">
+                <p className="text-xs text-green-500 font-medium">✓ Included in VEDD AI</p>
+              </div>
+            </motion.div>
+
+            {/* Competitor 4 */}
+            <motion.div variants={fadeIn} className="p-6 bg-theme-light rounded-xl border border-red-200 dark:border-red-800 relative overflow-hidden">
+              <div className="absolute top-2 right-2 bg-red-500 text-white text-xs px-2 py-1 rounded-full">REPLACED</div>
+              <h3 className="font-bold text-lg text-theme-main mb-2">Trade Copier Services</h3>
+              <p className="text-2xl font-bold text-red-500 line-through mb-2">$50-150/mo</p>
+              <p className="text-sm text-theme-muted">MT5 to TradeLocker signal relay</p>
+              <div className="mt-3 pt-3 border-t border-theme-light">
+                <p className="text-xs text-green-500 font-medium">✓ Included in VEDD AI</p>
+              </div>
+            </motion.div>
+
+            {/* Competitor 5 */}
+            <motion.div variants={fadeIn} className="p-6 bg-theme-light rounded-xl border border-red-200 dark:border-red-800 relative overflow-hidden">
+              <div className="absolute top-2 right-2 bg-red-500 text-white text-xs px-2 py-1 rounded-full">REPLACED</div>
+              <h3 className="font-bold text-lg text-theme-main mb-2">News Sentiment Tools</h3>
+              <p className="text-2xl font-bold text-red-500 line-through mb-2">$30-80/mo</p>
+              <p className="text-sm text-theme-muted">Financial news analysis & sentiment scoring</p>
+              <div className="mt-3 pt-3 border-t border-theme-light">
+                <p className="text-xs text-green-500 font-medium">✓ Included in VEDD AI</p>
+              </div>
+            </motion.div>
+
+            {/* Competitor 6 */}
+            <motion.div variants={fadeIn} className="p-6 bg-theme-light rounded-xl border border-red-200 dark:border-red-800 relative overflow-hidden">
+              <div className="absolute top-2 right-2 bg-red-500 text-white text-xs px-2 py-1 rounded-full">REPLACED</div>
+              <h3 className="font-bold text-lg text-theme-main mb-2">Webhook Alert Services</h3>
+              <p className="text-2xl font-bold text-red-500 line-through mb-2">$15-40/mo</p>
+              <p className="text-sm text-theme-muted">Trading signal webhooks & automation</p>
+              <div className="mt-3 pt-3 border-t border-theme-light">
+                <p className="text-xs text-green-500 font-medium">✓ Included in VEDD AI</p>
+              </div>
+            </motion.div>
+          </motion.div>
+
+          {/* Savings Summary */}
+          <motion.div variants={fadeIn} className="bg-gradient-to-r from-green-500 to-emerald-600 rounded-2xl p-8 text-white text-center">
+            <h3 className="text-2xl font-bold mb-2">Total Potential Savings</h3>
+            <div className="flex items-center justify-center gap-4 mb-4">
+              <span className="text-4xl font-bold line-through opacity-60">$315-713/mo</span>
+              <ArrowRight className="h-8 w-8" />
+              <span className="text-5xl font-bold">$19.99/mo</span>
+            </div>
+            <p className="text-lg opacity-90 mb-6">Save up to $8,328 per year with VEDD AI Pro</p>
+            <div className="flex flex-col sm:flex-row gap-4 justify-center">
+              <Link href="/subscription">
+                <Button size="lg" variant="secondary" className="bg-white text-green-600 hover:bg-gray-100">
+                  View Pricing Plans
+                </Button>
+              </Link>
+              <Link href="/auth">
+                <Button size="lg" variant="outline" className="border-white text-white hover:bg-white/10">
+                  Start Free Trial
+                </Button>
+              </Link>
+            </div>
+          </motion.div>
+        </div>
+      </motion.section>
+
       {/* The VEDDAI Experience Section */}
       <motion.section 
         initial="hidden"

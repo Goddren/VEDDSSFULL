@@ -46,8 +46,8 @@ const Home = () => {
     },
     {
       icon: RefreshCw,
-      title: "Live AI Refresh",
-      description: "Real-time market data integration detects pattern changes and triggers automatic re-analysis across Forex, stocks, crypto, and indices.",
+      title: "Live AI Refresh & Direction Alerts",
+      description: "Real-time market data detects pattern changes and automatically triggers AI re-analysis. Get instant alerts when market direction changes with new entry points and targets.",
       gradient: "from-green-500 to-emerald-500"
     },
     {
