@@ -17,6 +17,9 @@ setupAuth(app);
 // Serve uploaded files statically
 app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
+// Serve EA templates for download
+app.use('/ea-templates', express.static(path.join(process.cwd(), 'public/ea-templates')));
+
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
