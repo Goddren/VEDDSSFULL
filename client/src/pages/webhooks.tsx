@@ -662,21 +662,42 @@ export default function WebhooksPage() {
                   </div>
                   <h4 className="font-semibold text-white">TradeLocker</h4>
                 </div>
-                <ol className="text-sm text-gray-400 space-y-2 list-decimal list-inside">
-                  <li>Log into your TradeLocker account</li>
-                  <li>Go to <span className="text-amber-400">Settings → API</span></li>
-                  <li>Click "Create Webhook" or "Add Integration"</li>
-                  <li>Copy the webhook URL provided</li>
-                  <li>Paste it in VEDD AI when creating your webhook</li>
-                </ol>
-                <a 
-                  href="https://tradelocker.com" 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-blue-400 text-sm mt-3 hover:underline"
-                >
-                  Visit TradeLocker <ExternalLink className="w-3 h-3" />
-                </a>
+                <div className="space-y-3">
+                  <div>
+                    <h5 className="text-xs font-semibold text-blue-400 uppercase mb-1">Getting API Access</h5>
+                    <p className="text-xs text-gray-500 mb-2">No application needed - just use your existing credentials!</p>
+                    <ol className="text-sm text-gray-400 space-y-1 list-decimal list-inside">
+                      <li>Use your <span className="text-amber-400">TradeLocker username & password</span></li>
+                      <li>Get your <span className="text-amber-400">Server ID</span> from your broker</li>
+                      <li>Find your <span className="text-amber-400">Account ID</span> in TradeLocker (click account switcher, number after #)</li>
+                    </ol>
+                  </div>
+                  <div>
+                    <h5 className="text-xs font-semibold text-blue-400 uppercase mb-1">API Endpoints</h5>
+                    <ul className="text-xs text-gray-400 space-y-1">
+                      <li><span className="text-green-400">Demo:</span> <code className="bg-gray-900 px-1 rounded text-xs">demo.tradelocker.com/backend-api/</code></li>
+                      <li><span className="text-red-400">Live:</span> <code className="bg-gray-900 px-1 rounded text-xs">live.tradelocker.com/backend-api/</code></li>
+                    </ul>
+                  </div>
+                </div>
+                <div className="flex gap-2 mt-3">
+                  <a 
+                    href="https://public-api.tradelocker.com/docs/getting-started" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-blue-400 text-xs hover:underline"
+                  >
+                    API Docs <ExternalLink className="w-3 h-3" />
+                  </a>
+                  <a 
+                    href="https://github.com/TradeLocker/tradelocker-python" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-purple-400 text-xs hover:underline"
+                  >
+                    Python Library <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
               </div>
 
               {/* TradingView Guide */}
