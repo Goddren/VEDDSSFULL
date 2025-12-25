@@ -32,6 +32,7 @@ import { addTradeSetupAnnotations, createAnnotatedImageUrl } from "./image-proce
 import { newsService, type NewsItem, type NewsSentiment } from "./news-service";
 import { extractFramesFromVideo, cleanupFrames } from "./video-processor";
 import { getGoldSentiment, getMockGoldSentiment, isTelegramConfigured } from "./telegram-sentiment";
+import { encryptPassword, executeMT5SignalOnTradeLocker, TradeLockerService, decryptPassword } from "./tradelocker";
 
 // Configure multer for file uploads (images)
 const upload = multer({
@@ -4258,16 +4259,211 @@ Return ONLY a JSON object with this structure:
           .catch(err => console.error('Error relaying MT5 signal to webhooks:', err));
       }
       
+      // Execute on TradeLocker if auto-execute is enabled
+      let tradelockerResult = null;
+      const tlConnection = await storage.getUserTradelockerConnection(token.userId);
+      if (tlConnection && tlConnection.isActive && tlConnection.autoExecute) {
+        try {
+          tradelockerResult = await executeMT5SignalOnTradeLocker(tlConnection, {
+            action,
+            symbol,
+            direction,
+            volume: volume || 0.01,
+            entryPrice,
+            stopLoss,
+            takeProfit,
+          });
+          
+          // Log the trade attempt
+          await storage.createTradelockerTradeLog({
+            connectionId: tlConnection.id,
+            userId: token.userId,
+            sourceSignalId: signalLog.id,
+            action,
+            symbol,
+            direction,
+            volume: volume || 0.01,
+            entryPrice,
+            stopLoss,
+            takeProfit,
+            tradelockerOrderId: tradelockerResult.orderId || null,
+            status: tradelockerResult.success ? 'executed' : 'failed',
+            errorMessage: tradelockerResult.error || null,
+          });
+          
+          // Update connection trade count if successful
+          if (tradelockerResult.success) {
+            await storage.updateTradelockerConnection(tlConnection.id, {
+              tradeCount: tlConnection.tradeCount + 1,
+              lastConnectedAt: new Date(),
+              lastError: null,
+            });
+          } else {
+            await storage.updateTradelockerConnection(tlConnection.id, {
+              lastError: tradelockerResult.error,
+            });
+          }
+        } catch (err) {
+          console.error('Error executing on TradeLocker:', err);
+          tradelockerResult = { success: false, error: err instanceof Error ? err.message : 'Unknown error' };
+        }
+      }
+      
       res.json({ 
         success: true, 
         message: "Signal received and queued for relay",
         signalId: signalLog.id,
-        webhooksTriggered: webhooks.length
+        webhooksTriggered: webhooks.length,
+        tradelocker: tradelockerResult ? {
+          executed: tradelockerResult.success,
+          orderId: tradelockerResult.orderId,
+          error: tradelockerResult.error,
+        } : null,
       });
     } catch (error) {
       console.error('Error processing MT5 signal:', error);
       res.status(500).json({ error: error instanceof Error ? error.message : "Failed to process signal" });
     }
+  });
+
+  // TradeLocker Connection Routes
+  app.get("/api/tradelocker/connection", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const userId = (req.user as User).id;
+    const connection = await storage.getUserTradelockerConnection(userId);
+    if (!connection) {
+      return res.json(null);
+    }
+    // Don't return encrypted password
+    const { encryptedPassword, accessToken, refreshToken, ...safeConnection } = connection;
+    res.json(safeConnection);
+  });
+
+  app.post("/api/tradelocker/connection", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const userId = (req.user as User).id;
+    
+    const { email, password, serverId, accountId, accountType, autoExecute } = req.body;
+    
+    if (!email || !password || !serverId || !accountId) {
+      return res.status(400).json({ error: "Missing required fields: email, password, serverId, accountId" });
+    }
+    
+    // Check if user already has a connection
+    const existing = await storage.getUserTradelockerConnection(userId);
+    if (existing) {
+      return res.status(400).json({ error: "Connection already exists. Delete it first or update it." });
+    }
+    
+    // Encrypt password
+    const encryptedPw = encryptPassword(password);
+    
+    // Test connection first
+    try {
+      const service = new TradeLockerService(accountType || 'live', accountId, serverId);
+      await service.authenticate(email, password);
+    } catch (err) {
+      return res.status(400).json({ error: `Failed to connect to TradeLocker: ${err instanceof Error ? err.message : 'Unknown error'}` });
+    }
+    
+    const connection = await storage.createTradelockerConnection({
+      userId,
+      email,
+      encryptedPassword: encryptedPw,
+      serverId,
+      accountId,
+      accountType: accountType || 'live',
+      isActive: true,
+      autoExecute: autoExecute || false,
+    });
+    
+    const { encryptedPassword: _, ...safeConnection } = connection;
+    res.json(safeConnection);
+  });
+
+  app.patch("/api/tradelocker/connection", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const userId = (req.user as User).id;
+    
+    const connection = await storage.getUserTradelockerConnection(userId);
+    if (!connection) {
+      return res.status(404).json({ error: "No connection found" });
+    }
+    
+    const { isActive, autoExecute } = req.body;
+    const updated = await storage.updateTradelockerConnection(connection.id, { isActive, autoExecute });
+    if (!updated) {
+      return res.status(500).json({ error: "Failed to update connection" });
+    }
+    
+    const { encryptedPassword: _, accessToken, refreshToken, ...safeConnection } = updated;
+    res.json(safeConnection);
+  });
+
+  app.delete("/api/tradelocker/connection", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const userId = (req.user as User).id;
+    
+    const connection = await storage.getUserTradelockerConnection(userId);
+    if (!connection) {
+      return res.status(404).json({ error: "No connection found" });
+    }
+    
+    await storage.deleteTradelockerConnection(connection.id);
+    res.json({ success: true });
+  });
+
+  app.post("/api/tradelocker/test", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const userId = (req.user as User).id;
+    
+    const connection = await storage.getUserTradelockerConnection(userId);
+    if (!connection) {
+      return res.status(404).json({ error: "No connection found" });
+    }
+    
+    try {
+      const password = decryptPassword(connection.encryptedPassword);
+      const service = new TradeLockerService(
+        connection.accountType as 'demo' | 'live',
+        connection.accountId,
+        connection.serverId
+      );
+      await service.authenticate(connection.email, password);
+      const accountInfo = await service.getAccountInfo();
+      
+      await storage.updateTradelockerConnection(connection.id, {
+        lastConnectedAt: new Date(),
+        lastError: null,
+      });
+      
+      res.json({ success: true, account: accountInfo });
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+      await storage.updateTradelockerConnection(connection.id, {
+        lastError: errorMsg,
+      });
+      res.status(400).json({ success: false, error: errorMsg });
+    }
+  });
+
+  app.get("/api/tradelocker/trades", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const userId = (req.user as User).id;
+    const trades = await storage.getTradelockerTradeLogs(userId, 100);
+    res.json(trades);
   });
 
   const httpServer = createServer(app);
