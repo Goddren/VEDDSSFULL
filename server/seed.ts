@@ -40,7 +40,7 @@ export async function seedSubscriptionPlans() {
     {
       name: "Standard",
       description: "Advanced features for serious traders with unified signal synthesis",
-      price: 3999, // $39.99 (increased from $29.99 for unified signal)
+      price: 3995, // $39.95
       interval: "month",
       features: [
         "Everything in Free",
@@ -64,7 +64,7 @@ export async function seedSubscriptionPlans() {
     {
       name: "Premium",
       description: "Unlimited power for professional traders with advanced AI synthesis",
-      price: 14999, // $149.99 (increased from $99.99 for enhanced unified signal)
+      price: 6995, // $69.95
       interval: "month",
       features: [
         "Everything in Standard",
@@ -91,7 +91,7 @@ export async function seedSubscriptionPlans() {
     {
       name: "Lifetime",
       description: "LIMITED TIME: Pay once, trade forever - Includes all AI features & unified signal",
-      price: 24900, // $249 one-time (increased from $149 for comprehensive feature set)
+      price: 24995, // $249.95 one-time
       interval: "lifetime",
       features: [
         "Everything in Premium",

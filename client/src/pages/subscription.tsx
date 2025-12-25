@@ -261,15 +261,15 @@ export default function SubscriptionPage() {
             <div className="hidden md:block text-3xl">→</div>
             <div className="text-center">
               <p className="text-sm opacity-80">VEDD AI Pro (everything included)</p>
-              <p className="text-3xl font-bold">$19.99/mo</p>
+              <p className="text-3xl font-bold">$39.95/mo</p>
             </div>
             <div className="hidden md:block text-3xl">or</div>
             <div className="text-center">
               <p className="text-sm opacity-80">Lifetime Access</p>
-              <p className="text-3xl font-bold">$199 once</p>
+              <p className="text-3xl font-bold">$249.95 once</p>
             </div>
           </div>
-          <p className="text-sm opacity-90">Save up to <strong>$8,328/year</strong> with VEDD AI Pro</p>
+          <p className="text-sm opacity-90">Save up to <strong>$8,000/year</strong> with VEDD AI Pro</p>
         </div>
       </div>
 
