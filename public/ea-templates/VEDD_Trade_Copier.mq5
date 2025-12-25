@@ -24,8 +24,21 @@ input string   FilterSymbols = "";             // Filter symbols (comma-separate
 input string   FilterMagicNumbers = "";        // Filter magic numbers (comma-separated, empty=all)
 input bool     FilterBuyOnly = false;          // Only copy BUY trades
 input bool     FilterSellOnly = false;         // Only copy SELL trades
-input double   MinVolume = 0.0;                // Minimum volume to copy (0=no limit)
-input double   MaxVolume = 0.0;                // Maximum volume to copy (0=no limit)
+
+//--- Input parameters - Lot Size Filter (Beginner Friendly)
+enum ENUM_LOT_FILTER
+{
+   LOT_FILTER_ALL = 0,        // Copy ALL trade sizes
+   LOT_FILTER_MICRO = 1,      // Micro lots only (0.01-0.09)
+   LOT_FILTER_MINI = 2,       // Mini lots only (0.10-0.99)
+   LOT_FILTER_STANDARD = 3,   // Standard lots only (1.0+)
+   LOT_FILTER_SMALL = 4,      // Small trades (under 0.5 lots)
+   LOT_FILTER_LARGE = 5,      // Large trades (0.5 lots and above)
+   LOT_FILTER_CUSTOM = 6      // Custom range (use Min/Max below)
+};
+input ENUM_LOT_FILTER LotSizeFilter = LOT_FILTER_ALL;  // Lot Size Filter
+input double   CustomMinLots = 0.0;            // Custom Min Lots (only if Custom selected)
+input double   CustomMaxLots = 0.0;            // Custom Max Lots (only if Custom selected)
 
 //--- Input parameters - Network
 input int      RetryAttempts = 3;              // Number of retry attempts
@@ -94,11 +107,17 @@ int OnInit()
       Print("Direction filter: SELL trades only");
    }
    
-   // Volume filter
-   if(MinVolume > 0)
-      Print("Min volume filter: ", MinVolume);
-   if(MaxVolume > 0)
-      Print("Max volume filter: ", MaxVolume);
+   // Lot size filter
+   switch(LotSizeFilter)
+   {
+      case LOT_FILTER_ALL:      Print("Lot filter: ALL sizes"); break;
+      case LOT_FILTER_MICRO:    Print("Lot filter: Micro lots (0.01-0.09)"); break;
+      case LOT_FILTER_MINI:     Print("Lot filter: Mini lots (0.10-0.99)"); break;
+      case LOT_FILTER_STANDARD: Print("Lot filter: Standard lots (1.0+)"); break;
+      case LOT_FILTER_SMALL:    Print("Lot filter: Small trades (under 0.5)"); break;
+      case LOT_FILTER_LARGE:    Print("Lot filter: Large trades (0.5+)"); break;
+      case LOT_FILTER_CUSTOM:   Print("Lot filter: Custom (", CustomMinLots, " - ", CustomMaxLots, ")"); break;
+   }
    
    lastPositionCount = PositionsTotal();
    lastCheck = TimeCurrent();
@@ -212,16 +231,77 @@ bool PassesFilters(string symbol, long magic, long posType, double volume)
       return false;
    }
    
-   // Volume filter
-   if(MinVolume > 0 && volume < MinVolume)
+   // Lot size filter
+   if(!PassesLotFilter(volume))
    {
-      Print("Filtered out: Volume ", volume, " below minimum ", MinVolume);
       return false;
    }
-   if(MaxVolume > 0 && volume > MaxVolume)
+   
+   return true;
+}
+
+//+------------------------------------------------------------------+
+//| Check if volume passes the lot size filter                        |
+//+------------------------------------------------------------------+
+bool PassesLotFilter(double volume)
+{
+   switch(LotSizeFilter)
    {
-      Print("Filtered out: Volume ", volume, " above maximum ", MaxVolume);
-      return false;
+      case LOT_FILTER_ALL:
+         return true;
+         
+      case LOT_FILTER_MICRO:
+         if(volume < 0.01 || volume >= 0.10)
+         {
+            Print("Filtered out: ", volume, " lots is not a micro lot (0.01-0.09)");
+            return false;
+         }
+         return true;
+         
+      case LOT_FILTER_MINI:
+         if(volume < 0.10 || volume >= 1.0)
+         {
+            Print("Filtered out: ", volume, " lots is not a mini lot (0.10-0.99)");
+            return false;
+         }
+         return true;
+         
+      case LOT_FILTER_STANDARD:
+         if(volume < 1.0)
+         {
+            Print("Filtered out: ", volume, " lots is not a standard lot (1.0+)");
+            return false;
+         }
+         return true;
+         
+      case LOT_FILTER_SMALL:
+         if(volume >= 0.5)
+         {
+            Print("Filtered out: ", volume, " lots is not a small trade (under 0.5)");
+            return false;
+         }
+         return true;
+         
+      case LOT_FILTER_LARGE:
+         if(volume < 0.5)
+         {
+            Print("Filtered out: ", volume, " lots is not a large trade (0.5+)");
+            return false;
+         }
+         return true;
+         
+      case LOT_FILTER_CUSTOM:
+         if(CustomMinLots > 0 && volume < CustomMinLots)
+         {
+            Print("Filtered out: ", volume, " lots below custom minimum ", CustomMinLots);
+            return false;
+         }
+         if(CustomMaxLots > 0 && volume > CustomMaxLots)
+         {
+            Print("Filtered out: ", volume, " lots above custom maximum ", CustomMaxLots);
+            return false;
+         }
+         return true;
    }
    
    return true;
