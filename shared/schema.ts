@@ -618,6 +618,69 @@ export const insertMt5SignalLogSchema = createInsertSchema(mt5SignalLogs).omit({
 export type Mt5SignalLog = typeof mt5SignalLogs.$inferSelect;
 export type InsertMt5SignalLog = z.infer<typeof insertMt5SignalLogSchema>;
 
+// TradeLocker Connections for direct trade execution
+export const tradelockerConnections = pgTable("tradelocker_connections", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull().unique(),
+  email: text("email").notNull(),
+  encryptedPassword: text("encrypted_password").notNull(), // Encrypted password
+  serverId: text("server_id").notNull(), // e.g., "FE2024"
+  accountId: text("account_id").notNull(), // e.g., "1556546"
+  accountType: text("account_type").notNull().default('live'), // 'demo' or 'live'
+  isActive: boolean("is_active").notNull().default(true),
+  autoExecute: boolean("auto_execute").notNull().default(false), // Auto-execute MT5 signals
+  accessToken: text("access_token"), // Cached JWT token
+  refreshToken: text("refresh_token"), // Refresh token
+  tokenExpiresAt: timestamp("token_expires_at"),
+  lastConnectedAt: timestamp("last_connected_at"),
+  lastError: text("last_error"),
+  tradeCount: integer("trade_count").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertTradelockerConnectionSchema = createInsertSchema(tradelockerConnections).omit({
+  id: true,
+  accessToken: true,
+  refreshToken: true,
+  tokenExpiresAt: true,
+  lastConnectedAt: true,
+  lastError: true,
+  tradeCount: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type TradelockerConnection = typeof tradelockerConnections.$inferSelect;
+export type InsertTradelockerConnection = z.infer<typeof insertTradelockerConnectionSchema>;
+
+// TradeLocker Trade Logs for tracking executed trades
+export const tradelockerTradeLogs = pgTable("tradelocker_trade_logs", {
+  id: serial("id").primaryKey(),
+  connectionId: integer("connection_id").references(() => tradelockerConnections.id).notNull(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  sourceSignalId: integer("source_signal_id"), // Reference to MT5 signal if from copier
+  action: text("action").notNull(), // 'OPEN', 'CLOSE', 'MODIFY'
+  symbol: text("symbol").notNull(),
+  direction: text("direction").notNull(), // 'BUY', 'SELL'
+  volume: real("volume").notNull(),
+  entryPrice: real("entry_price"),
+  stopLoss: real("stop_loss"),
+  takeProfit: real("take_profit"),
+  tradelockerOrderId: text("tradelocker_order_id"), // Order ID from TradeLocker
+  status: text("status").notNull(), // 'pending', 'executed', 'failed', 'rejected'
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertTradelockerTradeLogSchema = createInsertSchema(tradelockerTradeLogs).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type TradelockerTradeLog = typeof tradelockerTradeLogs.$inferSelect;
+export type InsertTradelockerTradeLog = z.infer<typeof insertTradelockerTradeLogSchema>;
+
 // Tier thresholds configuration
 export const TIER_CONFIG = {
   YG: { name: 'Young Gun', minXP: 0, icon: '🔫', color: 'green', nextTier: 'Rising', xpNeeded: 500 },

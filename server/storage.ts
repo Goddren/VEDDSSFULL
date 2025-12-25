@@ -2,7 +2,7 @@ import {
   users, chartAnalyses, achievements, userAchievements,
   userProfiles, follows, analysisFeedback, analysisViews, priceAlerts,
   savedEAs, eaSubscriptions, marketDataSnapshots, marketDataRefreshJobs, eaShareAssets, userStreaks, scenarioAnalyses,
-  webhookConfigs, webhookLogs, mt5ApiTokens, mt5SignalLogs,
+  webhookConfigs, webhookLogs, mt5ApiTokens, mt5SignalLogs, tradelockerConnections, tradelockerTradeLogs,
   type User, type InsertUser, type ChartAnalysis, type InsertChartAnalysis,
   type Achievement, type InsertAchievement, type UserAchievement, type InsertUserAchievement,
   type UserProfile, type InsertUserProfile, type Follow, type InsertFollow,
@@ -12,7 +12,8 @@ import {
   type EAShareAsset, type InsertEAShareAsset, type UserStreak, type InsertUserStreak, TIER_CONFIG,
   type ScenarioAnalysis, type InsertScenarioAnalysis,
   type WebhookConfig, type InsertWebhookConfig, type WebhookLog, type InsertWebhookLog,
-  type Mt5ApiToken, type InsertMt5ApiToken, type Mt5SignalLog, type InsertMt5SignalLog
+  type Mt5ApiToken, type InsertMt5ApiToken, type Mt5SignalLog, type InsertMt5SignalLog,
+  type TradelockerConnection, type InsertTradelockerConnection, type TradelockerTradeLog, type InsertTradelockerTradeLog
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, sql, desc } from "drizzle-orm";
@@ -182,6 +183,17 @@ export interface IStorage {
   // MT5 Signal Log methods
   createMt5SignalLog(log: InsertMt5SignalLog): Promise<Mt5SignalLog>;
   getMt5SignalLogs(userId: number, limit?: number): Promise<Mt5SignalLog[]>;
+  
+  // TradeLocker Connection methods
+  createTradelockerConnection(connection: InsertTradelockerConnection): Promise<TradelockerConnection>;
+  getTradelockerConnection(id: number): Promise<TradelockerConnection | undefined>;
+  getUserTradelockerConnection(userId: number): Promise<TradelockerConnection | undefined>;
+  updateTradelockerConnection(id: number, data: Partial<TradelockerConnection>): Promise<TradelockerConnection | undefined>;
+  deleteTradelockerConnection(id: number): Promise<boolean>;
+  
+  // TradeLocker Trade Log methods
+  createTradelockerTradeLog(log: InsertTradelockerTradeLog): Promise<TradelockerTradeLog>;
+  getTradelockerTradeLogs(userId: number, limit?: number): Promise<TradelockerTradeLog[]>;
 }
 
 // Create PostgreSQL session store
@@ -1270,6 +1282,48 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(mt5SignalLogs)
       .where(eq(mt5SignalLogs.userId, userId))
       .orderBy(desc(mt5SignalLogs.createdAt))
+      .limit(limit);
+  }
+
+  // TradeLocker Connection methods
+  async createTradelockerConnection(connection: InsertTradelockerConnection): Promise<TradelockerConnection> {
+    const [result] = await db.insert(tradelockerConnections).values(connection).returning();
+    return result;
+  }
+
+  async getTradelockerConnection(id: number): Promise<TradelockerConnection | undefined> {
+    const [result] = await db.select().from(tradelockerConnections).where(eq(tradelockerConnections.id, id));
+    return result;
+  }
+
+  async getUserTradelockerConnection(userId: number): Promise<TradelockerConnection | undefined> {
+    const [result] = await db.select().from(tradelockerConnections).where(eq(tradelockerConnections.userId, userId));
+    return result;
+  }
+
+  async updateTradelockerConnection(id: number, data: Partial<TradelockerConnection>): Promise<TradelockerConnection | undefined> {
+    const [result] = await db.update(tradelockerConnections)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(tradelockerConnections.id, id))
+      .returning();
+    return result;
+  }
+
+  async deleteTradelockerConnection(id: number): Promise<boolean> {
+    await db.delete(tradelockerConnections).where(eq(tradelockerConnections.id, id));
+    return true;
+  }
+
+  // TradeLocker Trade Log methods
+  async createTradelockerTradeLog(log: InsertTradelockerTradeLog): Promise<TradelockerTradeLog> {
+    const [result] = await db.insert(tradelockerTradeLogs).values(log).returning();
+    return result;
+  }
+
+  async getTradelockerTradeLogs(userId: number, limit: number = 100): Promise<TradelockerTradeLog[]> {
+    return await db.select().from(tradelockerTradeLogs)
+      .where(eq(tradelockerTradeLogs.userId, userId))
+      .orderBy(desc(tradelockerTradeLogs.createdAt))
       .limit(limit);
   }
 }
