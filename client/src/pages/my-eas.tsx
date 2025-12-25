@@ -289,7 +289,49 @@ export default function MyEAsPage() {
                         <DialogHeader>
                           <DialogTitle>Refresh History - {ea.symbol}</DialogTitle>
                         </DialogHeader>
-                        <ScrollArea className="max-h-80">
+                        
+                        {/* Original Analysis Section */}
+                        <div className="bg-gradient-to-r from-slate-50 to-slate-100 dark:from-slate-800 dark:to-slate-900 rounded-lg p-4 mb-4 border">
+                          <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                            <Eye className="w-4 h-4" />
+                            Original Analysis
+                          </h4>
+                          <div className="grid grid-cols-2 gap-3 text-sm">
+                            <div>
+                              <span className="text-muted-foreground">Direction:</span>
+                              <span className={`ml-2 font-semibold ${ea.direction?.toUpperCase().includes('BUY') || ea.direction?.toUpperCase().includes('BULLISH') ? 'text-green-600' : 'text-red-600'}`}>
+                                {ea.direction || 'N/A'}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Confidence:</span>
+                              <span className="ml-2 font-medium">{ea.confidence || 'N/A'}%</span>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Entry:</span>
+                              <span className="ml-2 font-medium">{ea.entryPoint || 'N/A'}</span>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Stop Loss:</span>
+                              <span className="ml-2 font-medium text-red-500">{ea.stopLoss || 'N/A'}</span>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Take Profit:</span>
+                              <span className="ml-2 font-medium text-green-500">{ea.takeProfit || 'N/A'}</span>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Created:</span>
+                              <span className="ml-2 text-xs">{new Date(ea.createdAt).toLocaleDateString()}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <h4 className="text-sm font-semibold mb-2 flex items-center gap-2">
+                          <History className="w-4 h-4" />
+                          Refresh Updates
+                        </h4>
+                        
+                        <ScrollArea className="max-h-60">
                           {historyLoading ? (
                             <div className="text-center py-4 text-muted-foreground">Loading history...</div>
                           ) : refreshHistory.length === 0 ? (
