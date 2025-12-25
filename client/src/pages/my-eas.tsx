@@ -71,9 +71,23 @@ export default function MyEAsPage() {
       apiRequest('POST', `/api/eas/${eaId}/refresh`).then(r => r.json()),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['/api/my-eas'] });
-      if (data.patternChange?.hasSignificantChange) {
+      
+      // Handle AI re-analysis error
+      if (data.reanalysisResult?.error) {
         toast({ 
-          title: 'Market change detected!',
+          title: 'AI re-analysis failed',
+          description: 'Market change detected but AI analysis could not be completed. Please try again.',
+          variant: 'destructive'
+        });
+      } else if (data.reanalysisResult?.directionChanged) {
+        toast({ 
+          title: '🔄 Direction Change Detected!',
+          description: `${data.reanalysisResult.changeReason || 'Market conditions have shifted'}. New direction: ${data.reanalysisResult.newDirection} (${data.reanalysisResult.confidence}% confidence)`,
+          duration: 10000
+        });
+      } else if (data.patternChange?.hasSignificantChange) {
+        toast({ 
+          title: 'Market change detected',
           description: data.message
         });
       } else {

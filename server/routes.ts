@@ -3117,6 +3117,7 @@ Return ONLY a JSON object with this structure:
         
         let patternChange = null;
         let aiReanalysisTriggered = false;
+        let reanalysisResult: any = null;
         
         if (previousBars.length > 0) {
           patternChange = patternChangeDetector.compareSnapshots(previousBars, result.bars);
@@ -3132,11 +3133,145 @@ Return ONLY a JSON object with this structure:
           hash: result.hash
         });
         
+        // If significant change detected, run AI re-analysis
+        if (aiReanalysisTriggered) {
+          console.log(`Significant change detected for ${symbol} - triggering AI re-analysis...`);
+          
+          const previousDirection = ea.direction || 'NEUTRAL';
+          const previousPatterns = ea.patterns || [];
+          
+          // Build market context from new data
+          const latestBars = result.bars.slice(-10);
+          const marketContext = latestBars.map((bar: any) => 
+            `${bar.datetime}: O=${bar.open} H=${bar.high} L=${bar.low} C=${bar.close} V=${bar.volume || 0}`
+          ).join('\n');
+          
+          const reanalysisPrompt = `You are analyzing the ${symbol} market for a trading EA.
+
+PREVIOUS ANALYSIS:
+- Direction: ${previousDirection}
+- Patterns: ${Array.isArray(previousPatterns) ? previousPatterns.join(', ') : previousPatterns}
+- Entry: ${ea.entryPoint || 'N/A'}
+- Stop Loss: ${ea.stopLoss || 'N/A'}
+- Take Profit: ${ea.takeProfit || 'N/A'}
+
+CHANGE DETECTED: ${patternChange?.details || 'Market conditions changed'}
+
+LATEST MARKET DATA (${timeframe}):
+${marketContext}
+
+Analyze if the market direction has changed. Respond with ONLY valid JSON:
+{
+  "newDirection": "BUY|SELL|NEUTRAL",
+  "confidence": 0-100,
+  "directionChanged": true|false,
+  "newPatterns": ["pattern1", "pattern2"],
+  "newEntryPrice": "price or N/A",
+  "newStopLoss": "price or N/A", 
+  "newTakeProfit": "price or N/A",
+  "changeReason": "Brief explanation of what changed",
+  "recommendation": "What the trader should do now"
+}`;
+
+          try {
+            const OpenAI = (await import('openai')).default;
+            const openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+            
+            const aiResponse = await openaiClient.chat.completions.create({
+              model: "gpt-4o",
+              messages: [
+                { role: "system", content: "You are an expert forex trading analyst. Provide analysis in strict JSON format only." },
+                { role: "user", content: reanalysisPrompt }
+              ],
+              max_tokens: 500,
+              temperature: 0.3
+            });
+            
+            const content = aiResponse.choices[0]?.message?.content || "";
+            const jsonMatch = content.match(/\{[\s\S]*\}/);
+            
+            if (jsonMatch) {
+              reanalysisResult = JSON.parse(jsonMatch[0]);
+              
+              // Update EA with new analysis if direction changed
+              if (reanalysisResult.directionChanged) {
+                console.log(`Direction change confirmed: ${previousDirection} → ${reanalysisResult.newDirection}`);
+                
+                await storage.updateSavedEA(eaId, {
+                  direction: reanalysisResult.newDirection,
+                  confidence: String(reanalysisResult.confidence),
+                  entryPoint: reanalysisResult.newEntryPrice,
+                  stopLoss: reanalysisResult.newStopLoss,
+                  takeProfit: reanalysisResult.newTakeProfit,
+                  patterns: reanalysisResult.newPatterns
+                });
+                
+                // Trigger webhooks if user has direction change webhooks enabled
+                const webhooks = await storage.getUserWebhooks((req.user as User).id);
+                const directionChangeWebhooks = webhooks.filter((w) => {
+                  const triggers = w.triggerOn as string[];
+                  return w.enabled && triggers?.includes('direction_change');
+                });
+                
+                for (const webhook of directionChangeWebhooks) {
+                  try {
+                    const payload = {
+                      event: 'direction_change',
+                      symbol,
+                      previousDirection,
+                      newDirection: reanalysisResult.newDirection,
+                      confidence: reanalysisResult.confidence,
+                      changeReason: reanalysisResult.changeReason,
+                      recommendation: reanalysisResult.recommendation,
+                      timestamp: new Date().toISOString()
+                    };
+                    
+                    await fetch(webhook.url, {
+                      method: 'POST',
+                      headers: { 
+                        'Content-Type': 'application/json',
+                        ...(webhook.secretKey ? { 'X-Webhook-Secret': webhook.secretKey } : {})
+                      },
+                      body: JSON.stringify(payload)
+                    });
+                    
+                    await storage.logWebhookCall({
+                      webhookId: webhook.id,
+                      userId: (req.user as User).id,
+                      triggerType: 'direction_change',
+                      status: 'success',
+                      payload,
+                      responseStatus: 200,
+                      responseBody: 'Direction change notification sent'
+                    });
+                  } catch (webhookError) {
+                    console.error(`Webhook ${webhook.id} failed:`, webhookError);
+                    await storage.logWebhookCall({
+                      webhookId: webhook.id,
+                      userId: (req.user as User).id,
+                      triggerType: 'direction_change',
+                      status: 'failed',
+                      payload,
+                      errorMessage: webhookError instanceof Error ? webhookError.message : 'Unknown error'
+                    });
+                  }
+                }
+              }
+            }
+          } catch (aiError) {
+            console.error("AI re-analysis failed:", aiError);
+            reanalysisResult = { error: "AI analysis failed", details: String(aiError) };
+          }
+        }
+        
         await storage.updateRefreshJob(job.id, {
           status: 'completed',
           changeSummary: patternChange,
           completedAt: new Date()
         });
+        
+        // Determine if AI reanalysis succeeded
+        const aiReanalysisSucceeded = aiReanalysisTriggered && reanalysisResult && !reanalysisResult.error;
         
         res.json({
           success: true,
@@ -3144,9 +3279,16 @@ Return ONLY a JSON object with this structure:
           symbol,
           patternChange,
           aiReanalysisTriggered,
-          message: patternChange?.hasSignificantChange 
-            ? `Significant market change detected: ${patternChange.details}` 
-            : 'No significant pattern changes detected'
+          aiReanalysisSucceeded,
+          reanalysisResult: aiReanalysisSucceeded ? reanalysisResult : null,
+          aiError: reanalysisResult?.error ? reanalysisResult : null,
+          message: reanalysisResult?.error 
+            ? 'Market change detected but AI re-analysis failed. Please try again.'
+            : patternChange?.hasSignificantChange 
+              ? reanalysisResult?.directionChanged 
+                ? `Direction change detected: ${ea.direction} → ${reanalysisResult.newDirection}. ${reanalysisResult.changeReason}`
+                : `Market change detected but direction unchanged: ${patternChange.details}` 
+              : 'No significant pattern changes detected'
         });
       } catch (error) {
         await storage.updateRefreshJob(job.id, {

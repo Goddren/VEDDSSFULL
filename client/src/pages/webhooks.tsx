@@ -142,6 +142,7 @@ const TRIGGER_OPTIONS = [
   { value: 'analysis', label: 'Chart Analysis Complete' },
   { value: 'synthesis', label: 'Multi-Timeframe EA Signal' },
   { value: 'mt5_signal', label: 'MT5 Trade Copier Signal' },
+  { value: 'direction_change', label: 'AI Direction Change Alert' },
   { value: 'manual', label: 'Manual Trigger' },
 ];
 
