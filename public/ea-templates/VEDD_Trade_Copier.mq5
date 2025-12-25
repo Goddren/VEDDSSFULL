@@ -5,29 +5,48 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2024, VEDD AI"
 #property link      "https://vedd.ai"
-#property version   "1.00"
+#property version   "1.10"
 #property description "Sends trade signals to VEDD AI for relay to TradeLocker and other platforms"
+#property description "With advanced filtering by magic number, symbol, and direction"
 #property strict
 
-//--- Input parameters
+//--- Input parameters - Connection
 input string   WebhookURL = "https://your-replit-url.repl.co/api/mt5-signal";  // VEDD AI Webhook URL
 input string   APIKey = "";                    // Your VEDD AI API Key (from Settings)
+
+//--- Input parameters - Signal Types
 input bool     SendOnOpen = true;              // Send signal when trade opens
 input bool     SendOnClose = true;             // Send signal when trade closes
 input bool     SendOnModify = true;            // Send signal when trade modified
+
+//--- Input parameters - Filtering
+input string   FilterSymbols = "";             // Filter symbols (comma-separated, empty=all)
+input string   FilterMagicNumbers = "";        // Filter magic numbers (comma-separated, empty=all)
+input bool     FilterBuyOnly = false;          // Only copy BUY trades
+input bool     FilterSellOnly = false;         // Only copy SELL trades
+input double   MinVolume = 0.0;                // Minimum volume to copy (0=no limit)
+input double   MaxVolume = 0.0;                // Maximum volume to copy (0=no limit)
+
+//--- Input parameters - Network
 input int      RetryAttempts = 3;              // Number of retry attempts
 input int      RetryDelayMs = 1000;            // Delay between retries (ms)
 
 //--- Global variables
 int lastPositionCount = 0;
 datetime lastCheck = 0;
+string allowedSymbols[];
+long allowedMagics[];
+int symbolCount = 0;
+int magicCount = 0;
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                     |
 //+------------------------------------------------------------------+
 int OnInit()
 {
-   Print("VEDD Trade Copier initialized");
+   Print("===========================================");
+   Print("VEDD Trade Copier v1.10 initialized");
+   Print("===========================================");
    Print("Webhook URL: ", WebhookURL);
    
    if(StringLen(APIKey) == 0)
@@ -35,12 +54,177 @@ int OnInit()
       Print("WARNING: No API Key configured. Signals will not be authenticated.");
    }
    
+   // Parse symbol filter
+   if(StringLen(FilterSymbols) > 0)
+   {
+      symbolCount = ParseSymbolFilter(FilterSymbols, allowedSymbols);
+      Print("Symbol filter active: ", symbolCount, " symbols allowed");
+      for(int i = 0; i < symbolCount; i++)
+         Print("  - ", allowedSymbols[i]);
+   }
+   else
+   {
+      Print("Symbol filter: ALL symbols allowed");
+   }
+   
+   // Parse magic number filter
+   if(StringLen(FilterMagicNumbers) > 0)
+   {
+      magicCount = ParseMagicFilter(FilterMagicNumbers, allowedMagics);
+      Print("Magic filter active: ", magicCount, " magic numbers allowed");
+      for(int i = 0; i < magicCount; i++)
+         Print("  - ", allowedMagics[i]);
+   }
+   else
+   {
+      Print("Magic filter: ALL magic numbers allowed");
+   }
+   
+   // Direction filter
+   if(FilterBuyOnly && FilterSellOnly)
+   {
+      Print("WARNING: Both BuyOnly and SellOnly enabled - no trades will be copied!");
+   }
+   else if(FilterBuyOnly)
+   {
+      Print("Direction filter: BUY trades only");
+   }
+   else if(FilterSellOnly)
+   {
+      Print("Direction filter: SELL trades only");
+   }
+   
+   // Volume filter
+   if(MinVolume > 0)
+      Print("Min volume filter: ", MinVolume);
+   if(MaxVolume > 0)
+      Print("Max volume filter: ", MaxVolume);
+   
    lastPositionCount = PositionsTotal();
    lastCheck = TimeCurrent();
    
    EventSetTimer(1);
+   Print("===========================================");
    
    return(INIT_SUCCEEDED);
+}
+
+//+------------------------------------------------------------------+
+//| Parse comma-separated symbol filter                                |
+//+------------------------------------------------------------------+
+int ParseSymbolFilter(string filter, string &result[])
+{
+   string temp[];
+   int count = StringSplit(filter, ',', temp);
+   ArrayResize(result, count);
+   
+   for(int i = 0; i < count; i++)
+   {
+      result[i] = StringTrimLeft(StringTrimRight(temp[i]));
+      StringToUpper(result[i]);
+   }
+   
+   return count;
+}
+
+//+------------------------------------------------------------------+
+//| Parse comma-separated magic number filter                          |
+//+------------------------------------------------------------------+
+int ParseMagicFilter(string filter, long &result[])
+{
+   string temp[];
+   int count = StringSplit(filter, ',', temp);
+   ArrayResize(result, count);
+   
+   for(int i = 0; i < count; i++)
+   {
+      result[i] = StringToInteger(StringTrimLeft(StringTrimRight(temp[i])));
+   }
+   
+   return count;
+}
+
+//+------------------------------------------------------------------+
+//| Check if symbol is allowed                                         |
+//+------------------------------------------------------------------+
+bool IsSymbolAllowed(string symbol)
+{
+   if(symbolCount == 0)
+      return true;
+   
+   string upperSymbol = symbol;
+   StringToUpper(upperSymbol);
+   
+   for(int i = 0; i < symbolCount; i++)
+   {
+      if(StringFind(upperSymbol, allowedSymbols[i]) >= 0)
+         return true;
+   }
+   
+   return false;
+}
+
+//+------------------------------------------------------------------+
+//| Check if magic number is allowed                                   |
+//+------------------------------------------------------------------+
+bool IsMagicAllowed(long magic)
+{
+   if(magicCount == 0)
+      return true;
+   
+   for(int i = 0; i < magicCount; i++)
+   {
+      if(allowedMagics[i] == magic)
+         return true;
+   }
+   
+   return false;
+}
+
+//+------------------------------------------------------------------+
+//| Check if position passes all filters                               |
+//+------------------------------------------------------------------+
+bool PassesFilters(string symbol, long magic, long posType, double volume)
+{
+   // Symbol filter
+   if(!IsSymbolAllowed(symbol))
+   {
+      Print("Filtered out: Symbol ", symbol, " not in allowed list");
+      return false;
+   }
+   
+   // Magic filter
+   if(!IsMagicAllowed(magic))
+   {
+      Print("Filtered out: Magic ", magic, " not in allowed list");
+      return false;
+   }
+   
+   // Direction filter
+   if(FilterBuyOnly && posType != POSITION_TYPE_BUY)
+   {
+      Print("Filtered out: Not a BUY trade");
+      return false;
+   }
+   if(FilterSellOnly && posType != POSITION_TYPE_SELL)
+   {
+      Print("Filtered out: Not a SELL trade");
+      return false;
+   }
+   
+   // Volume filter
+   if(MinVolume > 0 && volume < MinVolume)
+   {
+      Print("Filtered out: Volume ", volume, " below minimum ", MinVolume);
+      return false;
+   }
+   if(MaxVolume > 0 && volume > MaxVolume)
+   {
+      Print("Filtered out: Volume ", volume, " above maximum ", MaxVolume);
+      return false;
+   }
+   
+   return true;
 }
 
 //+------------------------------------------------------------------+
@@ -81,7 +265,15 @@ void CheckPositions()
       {
          if(PositionSelectByTicket(PositionGetTicket(i)))
          {
-            SendSignal("OPEN");
+            string symbol = PositionGetString(POSITION_SYMBOL);
+            long magic = PositionGetInteger(POSITION_MAGIC);
+            long posType = PositionGetInteger(POSITION_TYPE);
+            double volume = PositionGetDouble(POSITION_VOLUME);
+            
+            if(PassesFilters(symbol, magic, posType, volume))
+            {
+               SendSignal("OPEN");
+            }
          }
       }
    }
@@ -173,20 +365,20 @@ bool SendHTTPRequest(string jsonPayload)
    char result[];
    string headers;
    string resultHeaders;
-   int timeout = 5000;
    
-   StringToCharArray(jsonPayload, postData, 0, WHOLE_ARRAY, CP_UTF8);
-   ArrayResize(postData, ArraySize(postData) - 1);
+   StringToCharArray(jsonPayload, postData, 0, StringLen(jsonPayload));
+   ArrayResize(postData, StringLen(jsonPayload));
    
    headers = "Content-Type: application/json\r\n";
    if(StringLen(APIKey) > 0)
    {
-      headers += "X-VEDD-API-Key: " + APIKey + "\r\n";
+      headers += "X-API-Key: " + APIKey + "\r\n";
    }
    
    ResetLastError();
    
-   int response = WebRequest(
+   int timeout = 5000;
+   int res = WebRequest(
       "POST",
       WebhookURL,
       headers,
@@ -196,29 +388,23 @@ bool SendHTTPRequest(string jsonPayload)
       resultHeaders
    );
    
-   if(response == -1)
+   if(res == -1)
    {
       int error = GetLastError();
       Print("WebRequest error: ", error);
       
-      if(error == 4014)
+      if(error == 4060)
       {
-         Print("Error 4014: Add '", WebhookURL, "' to Tools -> Options -> Expert Advisors -> Allow WebRequest for listed URL");
+         Print("ERROR: WebRequest not allowed for URL: ", WebhookURL);
+         Print("Please add this URL to Tools -> Options -> Expert Advisors -> Allow WebRequest for listed URL");
       }
       
       return false;
    }
    
-   string resultString = CharArrayToString(result, 0, WHOLE_ARRAY, CP_UTF8);
-   Print("Server response (", response, "): ", resultString);
+   string response = CharArrayToString(result);
+   Print("Response (", res, "): ", response);
    
-   return (response >= 200 && response < 300);
-}
-
-//+------------------------------------------------------------------+
-//| Tick function (optional processing)                                |
-//+------------------------------------------------------------------+
-void OnTick()
-{
+   return (res >= 200 && res < 300);
 }
 //+------------------------------------------------------------------+
