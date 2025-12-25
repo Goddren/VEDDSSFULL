@@ -361,22 +361,40 @@ export default function MyEAsPage() {
                                   </div>
                                   
                                   {job.newDirection && (
-                                    <div className="flex items-center gap-2 text-sm">
-                                      <span className="text-muted-foreground">Direction:</span>
-                                      <span className={job.newDirection.toUpperCase().includes('BUY') ? 'text-green-600 font-medium' : 'text-red-600 font-medium'}>
-                                        {job.newDirection}
-                                      </span>
-                                      {job.newConfidence && (
-                                        <span className="text-muted-foreground">({job.newConfidence}% confidence)</span>
+                                    <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-lg p-3 space-y-2">
+                                      <div className="flex items-center gap-2 text-sm font-medium">
+                                        <span className="text-muted-foreground">Signal Update:</span>
+                                        {job.changeSummary?.previousDirection && (
+                                          <>
+                                            <span className={job.changeSummary.previousDirection.toUpperCase().includes('BUY') ? 'text-green-600' : 'text-red-600'}>
+                                              {job.changeSummary.previousDirection}
+                                            </span>
+                                            <ArrowRight className="w-4 h-4 text-muted-foreground" />
+                                          </>
+                                        )}
+                                        <span className={job.newDirection.toUpperCase().includes('BUY') ? 'text-green-600 font-bold' : 'text-red-600 font-bold'}>
+                                          {job.newDirection}
+                                        </span>
+                                        {job.newConfidence && (
+                                          <Badge variant="outline" className="ml-1">{job.newConfidence}%</Badge>
+                                        )}
+                                      </div>
+                                      {job.changeSummary?.changeReason && (
+                                        <p className="text-xs text-muted-foreground">{job.changeSummary.changeReason}</p>
+                                      )}
+                                      {job.changeSummary?.recommendation && (
+                                        <p className="text-xs font-medium text-indigo-600 dark:text-indigo-400">
+                                          Recommendation: {job.changeSummary.recommendation}
+                                        </p>
                                       )}
                                     </div>
                                   )}
                                   
-                                  {job.changeSummary && (
+                                  {!job.newDirection && job.changeSummary && (
                                     <div className="text-xs text-muted-foreground bg-muted/50 rounded p-2">
                                       {typeof job.changeSummary === 'string' 
                                         ? job.changeSummary 
-                                        : job.changeSummary.details || job.changeSummary.message || 'Pattern analyzed'}
+                                        : job.changeSummary.details || job.changeSummary.message || 'No significant pattern changes detected'}
                                     </div>
                                   )}
                                   

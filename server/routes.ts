@@ -3266,7 +3266,17 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         
         await storage.updateRefreshJob(job.id, {
           status: 'completed',
-          changeSummary: patternChange,
+          changeSummary: reanalysisResult?.directionChanged 
+            ? { 
+                ...patternChange, 
+                previousDirection: ea.direction,
+                newDirection: reanalysisResult.newDirection,
+                changeReason: reanalysisResult.changeReason,
+                recommendation: reanalysisResult.recommendation 
+              } 
+            : patternChange,
+          newDirection: reanalysisResult?.newDirection || null,
+          newConfidence: reanalysisResult?.confidence ? String(reanalysisResult.confidence) : null,
           completedAt: new Date()
         });
         
