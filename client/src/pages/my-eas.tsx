@@ -72,11 +72,11 @@ export default function MyEAsPage() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['/api/my-eas'] });
       
-      // Handle AI re-analysis error
-      if (data.reanalysisResult?.error) {
+      // Handle AI re-analysis states using explicit flags
+      if (data.aiReanalysisTriggered && !data.aiReanalysisSucceeded) {
         toast({ 
           title: 'AI re-analysis failed',
-          description: 'Market change detected but AI analysis could not be completed. Please try again.',
+          description: data.message || 'Market change detected but AI analysis could not be completed. Please try again.',
           variant: 'destructive'
         });
       } else if (data.reanalysisResult?.directionChanged) {
