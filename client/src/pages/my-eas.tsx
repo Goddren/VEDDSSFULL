@@ -7,7 +7,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
-import { Copy, Share2, Trash2, Download, Eye, Settings, EyeOff, RefreshCw, Share } from 'lucide-react';
+import { Copy, Share2, Trash2, Download, Eye, Settings, EyeOff, RefreshCw, Share, History, ArrowRight, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Dialog,
   DialogContent,
@@ -17,15 +18,35 @@ import {
 } from '@/components/ui/dialog';
 import { ShareCardDialog } from '@/components/share-card-dialog';
 
+interface RefreshJob {
+  id: number;
+  eaId: number;
+  status: string;
+  triggeredBy: string;
+  changeSummary: any;
+  newDirection: string | null;
+  newConfidence: string | null;
+  error: string | null;
+  triggeredAt: string;
+  completedAt: string | null;
+}
+
 export default function MyEAsPage() {
   const { toast } = useToast();
   const [sharePrice, setSharePrice] = useState(9.99);
   const [selectedEAId, setSelectedEAId] = useState<number | null>(null);
   const [previewEA, setPreviewEA] = useState<any | null>(null);
+  const [historyEAId, setHistoryEAId] = useState<number | null>(null);
 
   const { data: eas = [], isLoading, refetch } = useQuery({
     queryKey: ['/api/my-eas'],
     queryFn: () => apiRequest('GET', '/api/my-eas').then(r => r.json()),
+  });
+
+  const { data: refreshHistory = [], isLoading: historyLoading } = useQuery<RefreshJob[]>({
+    queryKey: ['/api/eas', historyEAId, 'refresh-history'],
+    queryFn: () => apiRequest('GET', `/api/eas/${historyEAId}/refresh-history`).then(r => r.json()),
+    enabled: historyEAId !== null,
   });
 
   const deleteEAMutation = useMutation({
@@ -248,6 +269,84 @@ export default function MyEAsPage() {
                       <RefreshCw className={`w-4 h-4 mr-1 ${refreshEAMutation.isPending ? 'animate-spin' : ''}`} />
                       {refreshEAMutation.isPending ? 'Checking...' : 'Refresh'}
                     </Button>
+
+                    <Dialog open={historyEAId === ea.id} onOpenChange={(open) => setHistoryEAId(open ? ea.id : null)}>
+                      <DialogTrigger asChild>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          data-testid={`button-history-ea-${ea.id}`}
+                          title="View refresh history"
+                        >
+                          <History className="w-4 h-4 mr-1" />
+                          History
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="max-w-lg">
+                        <DialogHeader>
+                          <DialogTitle>Refresh History - {ea.symbol}</DialogTitle>
+                        </DialogHeader>
+                        <ScrollArea className="max-h-80">
+                          {historyLoading ? (
+                            <div className="text-center py-4 text-muted-foreground">Loading history...</div>
+                          ) : refreshHistory.length === 0 ? (
+                            <div className="text-center py-4 text-muted-foreground">
+                              No refresh history yet. Use the Refresh button to check for market changes.
+                            </div>
+                          ) : (
+                            <div className="space-y-3">
+                              {refreshHistory.map((job) => (
+                                <div key={job.id} className="border rounded-lg p-3 space-y-2">
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                      {job.status === 'completed' ? (
+                                        <CheckCircle2 className="w-4 h-4 text-green-500" />
+                                      ) : job.status === 'failed' ? (
+                                        <AlertCircle className="w-4 h-4 text-red-500" />
+                                      ) : (
+                                        <RefreshCw className="w-4 h-4 text-blue-500 animate-spin" />
+                                      )}
+                                      <Badge variant={job.status === 'completed' ? 'default' : job.status === 'failed' ? 'destructive' : 'secondary'}>
+                                        {job.status}
+                                      </Badge>
+                                    </div>
+                                    <span className="text-xs text-muted-foreground">
+                                      {new Date(job.triggeredAt).toLocaleString()}
+                                    </span>
+                                  </div>
+                                  
+                                  {job.newDirection && (
+                                    <div className="flex items-center gap-2 text-sm">
+                                      <span className="text-muted-foreground">Direction:</span>
+                                      <span className={job.newDirection.toUpperCase().includes('BUY') ? 'text-green-600 font-medium' : 'text-red-600 font-medium'}>
+                                        {job.newDirection}
+                                      </span>
+                                      {job.newConfidence && (
+                                        <span className="text-muted-foreground">({job.newConfidence}% confidence)</span>
+                                      )}
+                                    </div>
+                                  )}
+                                  
+                                  {job.changeSummary && (
+                                    <div className="text-xs text-muted-foreground bg-muted/50 rounded p-2">
+                                      {typeof job.changeSummary === 'string' 
+                                        ? job.changeSummary 
+                                        : job.changeSummary.details || job.changeSummary.message || 'Pattern analyzed'}
+                                    </div>
+                                  )}
+                                  
+                                  {job.error && (
+                                    <div className="text-xs text-red-500 bg-red-50 rounded p-2">
+                                      {job.error}
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </ScrollArea>
+                      </DialogContent>
+                    </Dialog>
 
                     <ShareCardDialog
                       eaId={ea.id}
