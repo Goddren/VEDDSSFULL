@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2024, VEDD AI"
 #property link      "https://vedd.ai"
-#property version   "1.10"
+#property version   "1.11"
 #property description "Sends trade signals to VEDD AI for relay to TradeLocker and other platforms"
 #property description "With advanced filtering by magic number, symbol, and direction"
 #property strict
@@ -139,7 +139,9 @@ int ParseSymbolFilter(string filter, string &result[])
    
    for(int i = 0; i < count; i++)
    {
-      result[i] = StringTrimLeft(StringTrimRight(temp[i]));
+      result[i] = temp[i];
+      StringTrimLeft(result[i]);
+      StringTrimRight(result[i]);
       StringToUpper(result[i]);
    }
    
@@ -157,7 +159,10 @@ int ParseMagicFilter(string filter, long &result[])
    
    for(int i = 0; i < count; i++)
    {
-      result[i] = StringToInteger(StringTrimLeft(StringTrimRight(temp[i])));
+      string trimmed = temp[i];
+      StringTrimLeft(trimmed);
+      StringTrimRight(trimmed);
+      result[i] = StringToInteger(trimmed);
    }
    
    return count;
