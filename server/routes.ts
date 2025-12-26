@@ -4416,9 +4416,10 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
   // MT5 EA Signal Receiver - receives signals from MT5 EA and relays to webhooks
   app.post("/api/mt5-signal", async (req: Request, res: Response) => {
     try {
-      const apiKey = req.headers['x-vedd-api-key'] as string;
+      // Accept API key from multiple header formats for compatibility
+      const apiKey = (req.headers['x-api-key'] || req.headers['x-vedd-api-key'] || req.headers['authorization']?.replace('Bearer ', '')) as string;
       if (!apiKey) {
-        return res.status(401).json({ error: "API key required. Set X-VEDD-API-Key header." });
+        return res.status(401).json({ error: "API key required. Set X-API-Key header in your EA settings." });
       }
       
       const token = await storage.getMt5ApiTokenByToken(apiKey);
