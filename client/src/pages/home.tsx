@@ -1,7 +1,9 @@
+import { useState } from 'react';
 import { Link } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
 import { 
   Brain, 
   TrendingUp, 
@@ -21,10 +23,16 @@ import {
   Check,
   Sparkles,
   RefreshCw,
-  DollarSign
+  DollarSign,
+  Play,
+  PlayCircle,
+  Eye
 } from 'lucide-react';
 
 const Home = () => {
+  const [showVideoModal, setShowVideoModal] = useState(false);
+  const [showDemoModal, setShowDemoModal] = useState(false);
+  
   const features = [
     {
       icon: Brain,
@@ -117,11 +125,16 @@ const Home = () => {
                     <ArrowRight className="ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" />
                   </Button>
                 </Link>
-                <Link href="/ea-marketplace">
-                  <Button variant="outline" size="lg" className="border-gray-600 hover:bg-gray-800 px-8 py-6 text-lg" data-testid="button-marketplace">
-                    Explore Marketplace
-                  </Button>
-                </Link>
+                <Button 
+                  variant="outline" 
+                  size="lg" 
+                  className="border-[#E64A4A]/50 hover:bg-[#E64A4A]/10 text-[#E64A4A] px-8 py-6 text-lg group" 
+                  onClick={() => setShowDemoModal(true)}
+                  data-testid="button-try-demo"
+                >
+                  <Eye className="mr-2 w-5 h-5" />
+                  Try Demo
+                </Button>
               </div>
 
               <div className="flex flex-wrap gap-3 mt-8 justify-center lg:justify-start">
@@ -138,66 +151,88 @@ const Home = () => {
               </div>
             </div>
 
-            {/* Hero Visual */}
+            {/* Hero Visual - Video Player */}
             <div className="relative w-full max-w-lg">
               <div className="absolute inset-0 bg-gradient-to-br from-[#E64A4A]/30 to-purple-500/30 rounded-2xl blur-2xl" />
               <Card className="relative bg-gray-900/90 border-gray-700 backdrop-blur-xl overflow-hidden">
                 <CardContent className="p-0">
-                  <div className="bg-gradient-to-r from-gray-800 to-gray-900 p-4 border-b border-gray-700">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-full bg-red-500" />
-                        <div className="w-3 h-3 rounded-full bg-yellow-500" />
-                        <div className="w-3 h-3 rounded-full bg-green-500" />
+                  {/* Video Thumbnail with Play Button */}
+                  <div 
+                    className="relative aspect-video bg-gradient-to-br from-gray-800 to-gray-900 cursor-pointer group"
+                    onClick={() => setShowVideoModal(true)}
+                    data-testid="video-thumbnail"
+                  >
+                    {/* Placeholder thumbnail - shows a preview of the app */}
+                    <div className="absolute inset-0 flex flex-col items-center justify-center">
+                      <div className="bg-gradient-to-r from-gray-800/80 to-gray-900/80 p-4 rounded-lg mb-4 text-center">
+                        <div className="text-2xl font-bold text-white mb-1">VEDD AI</div>
+                        <div className="text-sm text-gray-400">See how it works</div>
                       </div>
-                      <span className="text-sm text-gray-400">Multi-Timeframe Analysis</span>
+                      
+                      {/* Animated chart lines in background */}
+                      <div className="absolute inset-0 overflow-hidden opacity-20">
+                        <svg className="w-full h-full" viewBox="0 0 400 200">
+                          <path d="M0,150 Q100,100 150,120 T250,80 T350,100 T400,60" fill="none" stroke="#E64A4A" strokeWidth="2" />
+                          <path d="M0,170 Q80,140 130,150 T220,110 T320,130 T400,90" fill="none" stroke="#22c55e" strokeWidth="2" />
+                        </svg>
+                      </div>
+                    </div>
+                    
+                    {/* Play button overlay */}
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div className="w-20 h-20 rounded-full bg-[#E64A4A] flex items-center justify-center group-hover:scale-110 transition-transform shadow-lg shadow-[#E64A4A]/30">
+                        <Play className="w-8 h-8 text-white ml-1" fill="white" />
+                      </div>
+                    </div>
+                    
+                    {/* Duration badge */}
+                    <div className="absolute bottom-3 right-3 bg-black/70 px-2 py-1 rounded text-xs text-white">
+                      2:30
                     </div>
                   </div>
                   
-                  <div className="p-6 space-y-4">
-                    <div className="flex items-center justify-between">
-                      <span className="text-lg font-semibold">EUR/USD</span>
-                      <Badge className="bg-green-500/20 text-green-400 border-green-500/30">
-                        <TrendingUp className="w-3 h-3 mr-1" />
-                        BUY Signal
+                  {/* Quick stats below video */}
+                  <div className="p-4 border-t border-gray-700">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-gray-400">Watch the explainer video</span>
+                      <Badge className="bg-[#E64A4A]/20 text-[#E64A4A] border-[#E64A4A]/30">
+                        <PlayCircle className="w-3 h-3 mr-1" />
+                        Watch Now
                       </Badge>
                     </div>
-                    
-                    <div className="grid grid-cols-4 gap-2">
-                      {['M15', 'H1', 'H4', 'D1'].map((tf, i) => (
-                        <div key={tf} className="bg-gray-800 rounded-lg p-3 text-center">
-                          <div className="text-xs text-gray-400 mb-1">{tf}</div>
-                          <div className={`text-sm font-semibold ${i < 3 ? 'text-green-400' : 'text-yellow-400'}`}>
-                            {i < 3 ? 'BUY' : 'NEUTRAL'}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                    
-                    <div className="bg-gray-800/50 rounded-lg p-4 space-y-3">
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-400">Unified Confidence</span>
-                        <span className="text-green-400 font-semibold">87%</span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-400">Entry Point</span>
-                        <span className="font-medium">1.0892</span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-400">Stop Loss</span>
-                        <span className="text-red-400 font-medium">1.0845</span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-400">Take Profit</span>
-                        <span className="text-green-400 font-medium">1.0985</span>
-                      </div>
-                    </div>
-                    
-                    <div className="flex gap-2">
-                      <Badge variant="outline" className="text-xs border-blue-500/50 text-blue-400">Double Bottom</Badge>
-                      <Badge variant="outline" className="text-xs border-purple-500/50 text-purple-400">Bullish Divergence</Badge>
-                    </div>
                   </div>
+                </CardContent>
+              </Card>
+              
+              {/* Sample Analysis Preview Card - below video */}
+              <Card className="relative mt-4 bg-gray-900/90 border-gray-700 backdrop-blur-xl overflow-hidden">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-sm font-semibold">Sample Analysis: EUR/USD</span>
+                    <Badge className="bg-green-500/20 text-green-400 border-green-500/30 text-xs">
+                      <TrendingUp className="w-3 h-3 mr-1" />
+                      BUY
+                    </Badge>
+                  </div>
+                  <div className="grid grid-cols-4 gap-2 mb-3">
+                    {['M15', 'H1', 'H4', 'D1'].map((tf, i) => (
+                      <div key={tf} className="bg-gray-800 rounded p-2 text-center">
+                        <div className="text-xs text-gray-400">{tf}</div>
+                        <div className={`text-xs font-semibold ${i < 3 ? 'text-green-400' : 'text-yellow-400'}`}>
+                          {i < 3 ? 'BUY' : 'HOLD'}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <Button 
+                    size="sm" 
+                    className="w-full bg-[#E64A4A]/20 hover:bg-[#E64A4A]/30 text-[#E64A4A] border border-[#E64A4A]/30"
+                    onClick={() => setShowDemoModal(true)}
+                    data-testid="button-view-demo-analysis"
+                  >
+                    <Eye className="w-4 h-4 mr-2" />
+                    View Full Demo Analysis
+                  </Button>
                 </CardContent>
               </Card>
             </div>
@@ -396,6 +431,182 @@ const Home = () => {
           </Card>
         </div>
       </section>
+
+      {/* Video Modal */}
+      <Dialog open={showVideoModal} onOpenChange={setShowVideoModal}>
+        <DialogContent className="max-w-4xl bg-gray-900 border-gray-700 p-0">
+          <div className="aspect-video bg-black rounded-lg overflow-hidden">
+            {/* Placeholder for video embed - replace VIDEO_ID with actual YouTube/Vimeo ID */}
+            <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-gray-800 to-gray-900">
+              <div className="text-center p-8">
+                <div className="w-24 h-24 mx-auto mb-6 rounded-full bg-[#E64A4A]/20 flex items-center justify-center">
+                  <Play className="w-12 h-12 text-[#E64A4A]" />
+                </div>
+                <h3 className="text-2xl font-bold mb-3">Explainer Video Coming Soon</h3>
+                <p className="text-gray-400 max-w-md mx-auto mb-6">
+                  We're creating an amazing video to show you exactly how VEDD AI transforms your trading. 
+                  In the meantime, try our live demo!
+                </p>
+                <Button 
+                  className="bg-[#E64A4A] hover:bg-[#E64A4A]/90"
+                  onClick={() => {
+                    setShowVideoModal(false);
+                    setShowDemoModal(true);
+                  }}
+                  data-testid="button-try-demo-from-video"
+                >
+                  <Eye className="w-4 h-4 mr-2" />
+                  Try Live Demo Instead
+                </Button>
+              </div>
+              
+              {/* When video is ready, replace with:
+              <iframe 
+                className="w-full h-full"
+                src="https://www.youtube.com/embed/VIDEO_ID?autoplay=1"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+              />
+              */}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Demo Modal - Sample Analysis */}
+      <Dialog open={showDemoModal} onOpenChange={setShowDemoModal}>
+        <DialogContent className="max-w-4xl bg-gray-900 border-gray-700 max-h-[90vh] overflow-y-auto">
+          <div className="space-y-6">
+            {/* Header */}
+            <div className="text-center border-b border-gray-700 pb-6">
+              <Badge className="mb-3 bg-[#E64A4A]/20 text-[#E64A4A] border-[#E64A4A]/30">
+                <Sparkles className="w-3 h-3 mr-1" />
+                Live Demo
+              </Badge>
+              <h2 className="text-2xl font-bold mb-2">Sample AI Analysis: EUR/USD</h2>
+              <p className="text-gray-400">This is what you'll get when you upload your own charts</p>
+            </div>
+
+            {/* Multi-Timeframe Grid */}
+            <div>
+              <h3 className="font-semibold mb-3 flex items-center gap-2">
+                <BarChart3 className="w-5 h-5 text-[#E64A4A]" />
+                Multi-Timeframe Analysis
+              </h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {[
+                  { tf: 'M15', signal: 'BUY', confidence: 78, color: 'green' },
+                  { tf: 'H1', signal: 'BUY', confidence: 85, color: 'green' },
+                  { tf: 'H4', signal: 'BUY', confidence: 82, color: 'green' },
+                  { tf: 'D1', signal: 'NEUTRAL', confidence: 65, color: 'yellow' }
+                ].map((item) => (
+                  <Card key={item.tf} className="bg-gray-800 border-gray-700">
+                    <CardContent className="p-4 text-center">
+                      <div className="text-sm text-gray-400 mb-1">{item.tf}</div>
+                      <div className={`text-lg font-bold ${item.color === 'green' ? 'text-green-400' : 'text-yellow-400'}`}>
+                        {item.signal}
+                      </div>
+                      <div className="text-xs text-gray-500 mt-1">{item.confidence}% confident</div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+
+            {/* Unified Signal */}
+            <Card className="bg-gradient-to-r from-green-500/10 to-green-500/5 border-green-500/30">
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-sm text-gray-400 mb-1">Unified AI Signal</div>
+                    <div className="text-3xl font-bold text-green-400 flex items-center gap-2">
+                      <TrendingUp className="w-8 h-8" />
+                      STRONG BUY
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-sm text-gray-400 mb-1">Overall Confidence</div>
+                    <div className="text-3xl font-bold text-green-400">87%</div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Trade Recommendation */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Card className="bg-gray-800 border-gray-700">
+                <CardContent className="p-4">
+                  <div className="text-sm text-gray-400 mb-1">Entry Point</div>
+                  <div className="text-xl font-bold">1.0892</div>
+                </CardContent>
+              </Card>
+              <Card className="bg-gray-800 border-red-500/30">
+                <CardContent className="p-4">
+                  <div className="text-sm text-gray-400 mb-1">Stop Loss</div>
+                  <div className="text-xl font-bold text-red-400">1.0845</div>
+                  <div className="text-xs text-gray-500">-47 pips</div>
+                </CardContent>
+              </Card>
+              <Card className="bg-gray-800 border-green-500/30">
+                <CardContent className="p-4">
+                  <div className="text-sm text-gray-400 mb-1">Take Profit</div>
+                  <div className="text-xl font-bold text-green-400">1.0985</div>
+                  <div className="text-xs text-gray-500">+93 pips (2:1 R:R)</div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Patterns Detected */}
+            <div>
+              <h3 className="font-semibold mb-3 flex items-center gap-2">
+                <Brain className="w-5 h-5 text-purple-400" />
+                AI-Detected Patterns
+              </h3>
+              <div className="flex flex-wrap gap-2">
+                <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/30">Double Bottom</Badge>
+                <Badge className="bg-purple-500/20 text-purple-400 border-purple-500/30">Bullish Divergence (RSI)</Badge>
+                <Badge className="bg-cyan-500/20 text-cyan-400 border-cyan-500/30">Break of Structure</Badge>
+                <Badge className="bg-green-500/20 text-green-400 border-green-500/30">Higher Lows Forming</Badge>
+              </div>
+            </div>
+
+            {/* AI Commentary */}
+            <Card className="bg-gray-800/50 border-gray-700">
+              <CardContent className="p-4">
+                <h4 className="font-semibold mb-2 flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-[#E64A4A]" />
+                  AI Analysis Summary
+                </h4>
+                <p className="text-gray-300 text-sm leading-relaxed">
+                  "EUR/USD shows strong bullish momentum across M15, H1, and H4 timeframes with a double bottom pattern 
+                  confirmed at the 1.0845 support level. RSI bullish divergence on H1 suggests weakening selling pressure. 
+                  The daily timeframe remains neutral but is not conflicting. Entry recommended near current levels with 
+                  tight stop below the double bottom. Target the previous swing high at 1.0985 for a favorable 2:1 risk-reward ratio."
+                </p>
+              </CardContent>
+            </Card>
+
+            {/* CTA */}
+            <div className="flex flex-col sm:flex-row gap-4 justify-center pt-4 border-t border-gray-700">
+              <Link href="/multi-timeframe-analysis">
+                <Button size="lg" className="bg-[#E64A4A] hover:bg-[#E64A4A]/90 w-full sm:w-auto" data-testid="button-analyze-own-chart">
+                  <Zap className="w-4 h-4 mr-2" />
+                  Analyze Your Own Chart
+                </Button>
+              </Link>
+              <Button 
+                variant="outline" 
+                size="lg" 
+                className="border-gray-600"
+                onClick={() => setShowDemoModal(false)}
+                data-testid="button-close-demo"
+              >
+                Close Demo
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
