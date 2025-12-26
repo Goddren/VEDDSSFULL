@@ -458,6 +458,28 @@ input double FirstTradeStopLoss = 0;            // AI stop loss level
 input double FirstTradeTakeProfit = 0;          // AI take profit level
 
 //--- Pending Order Settings
+//
+// PENDING ORDERS EXPLAINED:
+// ========================
+// Instead of entering at market price immediately, pending orders wait
+// for price to reach a specific level before executing.
+//
+// LIMIT ORDERS (UseLimitOrders = true):
+// - Buy Limit: Placed BELOW current price - waits for a pullback
+// - Sell Limit: Placed ABOVE current price - waits for a rally
+// - Best for: Range trading, mean reversion, getting better entry prices
+// - Example: Price is 1.1000, Buy Limit at 1.0980 waits for 20 pip pullback
+//
+// STOP ORDERS (UseLimitOrders = false):
+// - Buy Stop: Placed ABOVE current price - triggers on breakout UP
+// - Sell Stop: Placed BELOW current price - triggers on breakdown DOWN
+// - Best for: Breakout trading, trend continuation, momentum strategies
+// - Example: Price is 1.1000, Buy Stop at 1.1020 triggers when price breaks up
+//
+// WHICH TO USE?
+// - Limit Orders: More conservative, better prices, may miss fast moves
+// - Stop Orders: Confirms momentum, catches breakouts, slightly worse fills
+//
 input group "=== Pending Orders ==="
 input bool UsePendingOrders = false;            // Use pending orders instead of market orders
 input bool UseLimitOrders = true;               // true = Limit orders (better price), false = Stop orders (breakout)
