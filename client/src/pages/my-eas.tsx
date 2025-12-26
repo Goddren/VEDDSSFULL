@@ -6,8 +6,10 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Slider } from '@/components/ui/slider';
 import { useToast } from '@/hooks/use-toast';
-import { Copy, Share2, Trash2, Download, Eye, Settings, EyeOff, RefreshCw, Share, History, ArrowRight, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Copy, Share2, Trash2, Download, Eye, Settings, EyeOff, RefreshCw, Share, History, ArrowRight, AlertCircle, CheckCircle2, Sliders } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Dialog,
@@ -15,8 +17,25 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  DialogDescription,
+  DialogFooter,
 } from '@/components/ui/dialog';
 import { ShareCardDialog } from '@/components/share-card-dialog';
+
+function getSensitivityLevel(volatility: number, atr: number, price: number): { label: string; color: string; description: string } {
+  const avgThreshold = (volatility + atr + price) / 3;
+  if (avgThreshold <= 10) {
+    return { label: 'Very Sensitive', color: 'text-red-500', description: 'Triggers on small market moves' };
+  } else if (avgThreshold <= 20) {
+    return { label: 'Sensitive', color: 'text-orange-500', description: 'Triggers on moderate changes' };
+  } else if (avgThreshold <= 35) {
+    return { label: 'Normal', color: 'text-blue-500', description: 'Balanced sensitivity (recommended)' };
+  } else if (avgThreshold <= 50) {
+    return { label: 'Conservative', color: 'text-green-500', description: 'Only major changes trigger' };
+  } else {
+    return { label: 'Very Conservative', color: 'text-gray-500', description: 'Rare triggers on extreme moves' };
+  }
+}
 
 interface RefreshJob {
   id: number;
@@ -37,6 +56,8 @@ export default function MyEAsPage() {
   const [selectedEAId, setSelectedEAId] = useState<number | null>(null);
   const [previewEA, setPreviewEA] = useState<any | null>(null);
   const [historyEAId, setHistoryEAId] = useState<number | null>(null);
+  const [settingsEA, setSettingsEA] = useState<any | null>(null);
+  const [thresholds, setThresholds] = useState({ volatility: 30, atr: 20, price: 2 });
 
   const { data: eas = [], isLoading, refetch } = useQuery({
     queryKey: ['/api/my-eas'],
@@ -155,6 +176,23 @@ export default function MyEAsPage() {
     },
     onSuccess: () => {
       toast({ title: 'EA downloaded successfully!' });
+    },
+  });
+
+  const updateThresholdsMutation = useMutation({
+    mutationFn: async ({ eaId, thresholds }: { eaId: number; thresholds: { volatility: number; atr: number; price: number } }) =>
+      apiRequest('PATCH', `/api/my-eas/${eaId}`, {
+        refreshVolatilityThreshold: thresholds.volatility,
+        refreshAtrThreshold: thresholds.atr,
+        refreshPriceThreshold: thresholds.price,
+      }).then(r => r.json()),
+    onSuccess: () => {
+      toast({ title: 'Refresh settings updated!' });
+      queryClient.invalidateQueries({ queryKey: ['/api/my-eas'] });
+      setSettingsEA(null);
+    },
+    onError: (error: Error) => {
+      toast({ title: 'Failed to update settings', description: error.message, variant: 'destructive' });
     },
   });
 
@@ -435,6 +473,133 @@ export default function MyEAsPage() {
                             </div>
                           )}
                         </ScrollArea>
+                      </DialogContent>
+                    </Dialog>
+
+                    <Dialog 
+                      open={settingsEA?.id === ea.id} 
+                      onOpenChange={(open) => {
+                        if (open) {
+                          setSettingsEA(ea);
+                          setThresholds({
+                            volatility: ea.refreshVolatilityThreshold ?? 30,
+                            atr: ea.refreshAtrThreshold ?? 20,
+                            price: ea.refreshPriceThreshold ?? 2
+                          });
+                        } else {
+                          setSettingsEA(null);
+                        }
+                      }}
+                    >
+                      <DialogTrigger asChild>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          data-testid={`button-settings-ea-${ea.id}`}
+                          title="Configure refresh sensitivity"
+                        >
+                          <Sliders className="w-4 h-4 mr-1" />
+                          Settings
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="max-w-md">
+                        <DialogHeader>
+                          <DialogTitle>Refresh Sensitivity Settings</DialogTitle>
+                          <DialogDescription>
+                            Adjust how sensitive the AI refresh is to market changes for {ea.symbol}
+                          </DialogDescription>
+                        </DialogHeader>
+                        
+                        <div className="space-y-6 py-4">
+                          <div className="text-center p-4 bg-gradient-to-r from-slate-50 to-slate-100 dark:from-slate-800 dark:to-slate-900 rounded-lg">
+                            <div className={`text-lg font-semibold ${getSensitivityLevel(thresholds.volatility, thresholds.atr, thresholds.price).color}`}>
+                              {getSensitivityLevel(thresholds.volatility, thresholds.atr, thresholds.price).label}
+                            </div>
+                            <p className="text-sm text-muted-foreground">
+                              {getSensitivityLevel(thresholds.volatility, thresholds.atr, thresholds.price).description}
+                            </p>
+                          </div>
+
+                          <div className="space-y-4">
+                            <div>
+                              <div className="flex justify-between mb-2">
+                                <Label htmlFor="volatility">Volatility Change</Label>
+                                <span className="text-sm font-medium">{thresholds.volatility}%</span>
+                              </div>
+                              <Slider
+                                id="volatility"
+                                min={5}
+                                max={100}
+                                step={5}
+                                value={[thresholds.volatility]}
+                                onValueChange={([val]) => setThresholds(prev => ({ ...prev, volatility: val }))}
+                              />
+                              <p className="text-xs text-muted-foreground mt-1">
+                                Triggers when market volatility changes by this percentage
+                              </p>
+                            </div>
+
+                            <div>
+                              <div className="flex justify-between mb-2">
+                                <Label htmlFor="atr">ATR Change</Label>
+                                <span className="text-sm font-medium">{thresholds.atr}%</span>
+                              </div>
+                              <Slider
+                                id="atr"
+                                min={5}
+                                max={100}
+                                step={5}
+                                value={[thresholds.atr]}
+                                onValueChange={([val]) => setThresholds(prev => ({ ...prev, atr: val }))}
+                              />
+                              <p className="text-xs text-muted-foreground mt-1">
+                                Triggers when Average True Range changes by this percentage
+                              </p>
+                            </div>
+
+                            <div>
+                              <div className="flex justify-between mb-2">
+                                <Label htmlFor="price">Price Move</Label>
+                                <span className="text-sm font-medium">{thresholds.price}%</span>
+                              </div>
+                              <Slider
+                                id="price"
+                                min={1}
+                                max={20}
+                                step={1}
+                                value={[thresholds.price]}
+                                onValueChange={([val]) => setThresholds(prev => ({ ...prev, price: val }))}
+                              />
+                              <p className="text-xs text-muted-foreground mt-1">
+                                Triggers when price moves by this percentage
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
+                            <p className="text-xs text-blue-700 dark:text-blue-300">
+                              <strong>Tip:</strong> Lower values = more frequent updates. Higher values = fewer, but more significant updates.
+                              Default: Volatility 30%, ATR 20%, Price 2%
+                            </p>
+                          </div>
+                        </div>
+
+                        <DialogFooter>
+                          <Button
+                            variant="outline"
+                            onClick={() => setThresholds({ volatility: 30, atr: 20, price: 2 })}
+                            data-testid={`button-reset-thresholds-${ea.id}`}
+                          >
+                            Reset to Default
+                          </Button>
+                          <Button
+                            onClick={() => updateThresholdsMutation.mutate({ eaId: ea.id, thresholds })}
+                            disabled={updateThresholdsMutation.isPending}
+                            data-testid={`button-save-thresholds-${ea.id}`}
+                          >
+                            {updateThresholdsMutation.isPending ? 'Saving...' : 'Save Settings'}
+                          </Button>
+                        </DialogFooter>
                       </DialogContent>
                     </Dialog>
 

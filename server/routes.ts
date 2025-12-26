@@ -3120,7 +3120,13 @@ Return ONLY a JSON object with this structure:
         let reanalysisResult: any = null;
         
         if (previousBars.length > 0) {
-          patternChange = patternChangeDetector.compareSnapshots(previousBars, result.bars);
+          // Use EA's configured thresholds or defaults
+          const thresholds = {
+            volatility: ea.refreshVolatilityThreshold ?? 30,
+            atr: ea.refreshAtrThreshold ?? 20,
+            price: ea.refreshPriceThreshold ?? 2
+          };
+          patternChange = patternChangeDetector.compareSnapshots(previousBars, result.bars, thresholds);
           aiReanalysisTriggered = patternChange.hasSignificantChange;
         }
         

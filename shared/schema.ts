@@ -340,6 +340,9 @@ export const savedEAs = pgTable("saved_eas", {
   takeProfit: text("take_profit"), // Take profit from analysis
   chartAnalysisData: jsonb("chart_analysis_data"), // Full analysis summary for share card
   multiTimeframeGroupId: text("multi_timeframe_group_id"), // Links to multi-timeframe analyses
+  refreshVolatilityThreshold: integer("refresh_volatility_threshold").default(30), // % volatility change to trigger refresh
+  refreshAtrThreshold: integer("refresh_atr_threshold").default(20), // % ATR change to trigger refresh
+  refreshPriceThreshold: integer("refresh_price_threshold").default(2), // % price change to trigger refresh
   isShared: boolean("is_shared").default(false),
   price: integer("price"), // Price in cents, null if not shared
   shareCount: integer("share_count").default(0),
