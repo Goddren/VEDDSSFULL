@@ -3197,13 +3197,78 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               if (reanalysisResult.directionChanged) {
                 console.log(`Direction change confirmed: ${previousDirection} → ${reanalysisResult.newDirection}`);
                 
+                // Regenerate EA code with new direction and levels
+                const { generateMT5EACode, generateTradingViewCode, generateTradeLockerCode } = await import('./ea-generators');
+                
+                // Use stored chartAnalysisData if available, otherwise construct from EA fields
+                const storedAnalyses = ea.chartAnalysisData as any[] || [];
+                const updatedTimeframeData = storedAnalyses.length > 0 
+                  ? storedAnalyses.map((analysis: any, index: number) => ({
+                      timeframe: analysis.timeframe || (index === 0 ? 'H1' : index === 1 ? 'H4' : 'D1'),
+                      analysis: {
+                        ...analysis,
+                        // Override with new reanalysis values
+                        direction: reanalysisResult.newDirection,
+                        confidence: String(reanalysisResult.confidence),
+                        trend: reanalysisResult.newDirection === 'BUY' ? 'Bullish' : 'Bearish',
+                        entryPoint: reanalysisResult.newEntryPrice || analysis.entryPoint || ea.entryPoint,
+                        stopLoss: reanalysisResult.newStopLoss || analysis.stopLoss || ea.stopLoss,
+                        takeProfit: reanalysisResult.newTakeProfit || analysis.takeProfit || ea.takeProfit,
+                        patterns: reanalysisResult.newPatterns || analysis.patterns || [],
+                        atrStopLoss: { 
+                          recommended: reanalysisResult.newStopLoss || ea.stopLoss, 
+                          multiplier: 1.5 
+                        }
+                      }
+                    }))
+                  : [{
+                      timeframe: 'H1',
+                      analysis: {
+                        direction: reanalysisResult.newDirection,
+                        confidence: String(reanalysisResult.confidence),
+                        trend: reanalysisResult.newDirection === 'BUY' ? 'Bullish' : 'Bearish',
+                        entryPoint: reanalysisResult.newEntryPrice || ea.entryPoint,
+                        stopLoss: reanalysisResult.newStopLoss || ea.stopLoss,
+                        takeProfit: reanalysisResult.newTakeProfit || ea.takeProfit,
+                        patterns: reanalysisResult.newPatterns || [],
+                        indicators: [],
+                        supportResistance: [],
+                        atrStopLoss: { recommended: reanalysisResult.newStopLoss || ea.stopLoss, multiplier: 1.5 }
+                      }
+                    }];
+                
+                let regeneratedCode = '';
+                const eaConfig = {
+                  eaName: ea.name,
+                  strategyType: ea.strategyType || 'day_trading',
+                  chartDate: new Date().toISOString().split('T')[0],
+                  validityDays: 30
+                };
+                
+                try {
+                  if (ea.platformType === 'MT5') {
+                    regeneratedCode = generateMT5EACode(symbol, updatedTimeframeData, eaConfig);
+                  } else if (ea.platformType === 'TradingView') {
+                    regeneratedCode = generateTradingViewCode(symbol, updatedTimeframeData, eaConfig);
+                  } else if (ea.platformType === 'TradeLocker') {
+                    regeneratedCode = generateTradeLockerCode(symbol, updatedTimeframeData, eaConfig);
+                  }
+                  
+                  console.log(`EA code regenerated for ${ea.name} (${ea.platformType})`);
+                } catch (codeGenError) {
+                  console.error('Failed to regenerate EA code:', codeGenError);
+                }
+                
+                // Update EA with new signals and regenerated code
+                const updatedPatterns = reanalysisResult.newPatterns || (storedAnalyses[0]?.patterns);
                 await storage.updateSavedEA(eaId, {
                   direction: reanalysisResult.newDirection,
                   confidence: String(reanalysisResult.confidence),
-                  entryPoint: reanalysisResult.newEntryPrice,
-                  stopLoss: reanalysisResult.newStopLoss,
-                  takeProfit: reanalysisResult.newTakeProfit,
-                  patterns: reanalysisResult.newPatterns
+                  entryPoint: reanalysisResult.newEntryPrice || ea.entryPoint,
+                  stopLoss: reanalysisResult.newStopLoss || ea.stopLoss,
+                  takeProfit: reanalysisResult.newTakeProfit || ea.takeProfit,
+                  ...(updatedPatterns ? { chartAnalysisData: storedAnalyses.map((a: any) => ({ ...a, patterns: updatedPatterns })) } : {}),
+                  ...(regeneratedCode ? { eaCode: regeneratedCode } : {})
                 });
                 
                 // Trigger webhooks if user has direction change webhooks enabled
@@ -3271,8 +3336,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 ...patternChange, 
                 previousDirection: ea.direction,
                 newDirection: reanalysisResult.newDirection,
+                newEntryPrice: reanalysisResult.newEntryPrice,
+                newStopLoss: reanalysisResult.newStopLoss,
+                newTakeProfit: reanalysisResult.newTakeProfit,
                 changeReason: reanalysisResult.changeReason,
-                recommendation: reanalysisResult.recommendation 
+                recommendation: reanalysisResult.recommendation,
+                codeRegenerated: true
               } 
             : patternChange,
           newDirection: reanalysisResult?.newDirection || null,

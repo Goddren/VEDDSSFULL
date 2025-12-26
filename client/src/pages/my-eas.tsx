@@ -379,6 +379,28 @@ export default function MyEAsPage() {
                                           <Badge variant="outline" className="ml-1">{job.newConfidence}%</Badge>
                                         )}
                                       </div>
+                                      {(job.changeSummary?.newEntryPrice || job.changeSummary?.newStopLoss || job.changeSummary?.newTakeProfit) && (
+                                        <div className="grid grid-cols-3 gap-2 text-xs mt-2">
+                                          {job.changeSummary.newEntryPrice && (
+                                            <div>
+                                              <span className="text-muted-foreground">Entry:</span>
+                                              <span className="ml-1 font-medium">{job.changeSummary.newEntryPrice}</span>
+                                            </div>
+                                          )}
+                                          {job.changeSummary.newStopLoss && (
+                                            <div>
+                                              <span className="text-muted-foreground">SL:</span>
+                                              <span className="ml-1 font-medium text-red-500">{job.changeSummary.newStopLoss}</span>
+                                            </div>
+                                          )}
+                                          {job.changeSummary.newTakeProfit && (
+                                            <div>
+                                              <span className="text-muted-foreground">TP:</span>
+                                              <span className="ml-1 font-medium text-green-500">{job.changeSummary.newTakeProfit}</span>
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
                                       {job.changeSummary?.changeReason && (
                                         <p className="text-xs text-muted-foreground">{job.changeSummary.changeReason}</p>
                                       )}
@@ -386,6 +408,11 @@ export default function MyEAsPage() {
                                         <p className="text-xs font-medium text-indigo-600 dark:text-indigo-400">
                                           Recommendation: {job.changeSummary.recommendation}
                                         </p>
+                                      )}
+                                      {job.changeSummary?.codeRegenerated && (
+                                        <Badge variant="outline" className="mt-2 text-xs bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 border-green-300">
+                                          EA Code Updated
+                                        </Badge>
                                       )}
                                     </div>
                                   )}
