@@ -915,11 +915,50 @@ export default function WebhooksPage() {
             </div>
           </CardHeader>
           <CardContent className="space-y-6">
+            {/* EA Settings - Copy These Values */}
+            <div className="p-4 bg-gradient-to-r from-yellow-900/30 to-orange-900/30 border border-yellow-600/50 rounded-lg">
+              <h4 className="text-yellow-400 font-bold flex items-center gap-2 mb-3">
+                <AlertCircle className="w-5 h-5" />
+                Copy These Values Into Your EA Settings
+              </h4>
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label className="text-gray-300 font-medium">WebhookURL (paste in EA)</Label>
+                  <div className="flex items-center gap-2 bg-gray-900 p-3 rounded-lg border border-gray-700">
+                    <code className="flex-1 text-green-400 text-sm break-all" data-testid="text-webhook-url">
+                      {window.location.origin}/api/mt5-signal
+                    </code>
+                    <Button 
+                      variant="ghost" 
+                      size="sm"
+                      onClick={() => copyToClipboard(`${window.location.origin}/api/mt5-signal`)}
+                      className="text-gray-400 hover:text-white shrink-0"
+                      data-testid="button-copy-webhook-url"
+                    >
+                      <Copy className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-gray-300 font-medium">APIKey (create below, then paste in EA)</Label>
+                  <div className="flex items-center gap-2 bg-gray-900 p-3 rounded-lg border border-gray-700">
+                    <span className="flex-1 text-gray-400 text-sm">
+                      {mt5Tokens.length > 0 ? (
+                        <span className="text-green-400">You have {mt5Tokens.length} token(s) - use any active one</span>
+                      ) : (
+                        <span className="text-yellow-400">Create a token below first →</span>
+                      )}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {/* API Token Management */}
             <div className="space-y-4">
               <h4 className="text-white font-semibold flex items-center gap-2">
                 <Key className="w-4 h-4" />
-                API Tokens
+                API Tokens (Step 1: Create Your API Key)
               </h4>
               
               {/* Create new token */}
