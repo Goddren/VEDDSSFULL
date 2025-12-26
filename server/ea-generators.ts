@@ -457,6 +457,14 @@ input double FirstTradeEntry = 0;               // AI entry point (0 = use marke
 input double FirstTradeStopLoss = 0;            // AI stop loss level
 input double FirstTradeTakeProfit = 0;          // AI take profit level
 
+//--- Pending Order Settings
+input group "=== Pending Orders ==="
+input bool UsePendingOrders = false;            // Use pending orders instead of market orders
+input bool UseLimitOrders = true;               // true = Limit orders (better price), false = Stop orders (breakout)
+input double PendingOrderDistance = 20;         // Distance from current price (pips)
+input int PendingOrderExpiration = 24;          // Hours until pending order expires (0 = GTC)
+input bool AutoDeleteOnSignalChange = true;     // Delete pending orders when signal changes
+
 //--- Global variables
 int rsi_handle, macd_handle, atr_handle;
 double rsi_buffer[], macd_main[], macd_signal[], atr_buffer[];
@@ -938,7 +946,12 @@ ${higherTFs.map(tf => `   bool tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_
       {
          double sl = UseATR_StopLoss ? CalculateATR_StopLoss(true) : 0;
          double tp = UseATR_StopLoss ? CalculateATR_TakeProfit(true) : 0;
-         OpenBuyPosition(sl, tp, lot_size);
+         
+         // Use pending or market order based on settings
+         if(UsePendingOrders && CountPendingOrders() == 0)
+            PlacePendingBuyOrder(sl, tp, lot_size);
+         else if(!UsePendingOrders)
+            OpenBuyPosition(sl, tp, lot_size);
       }
    }
    else if(sell_signal && AllowSellTrades && IsTradingDayAllowed() && CheckVolumeThreshold() && CheckStartTimeAllowed() && CheckDailyTradeLimit())
@@ -983,7 +996,49 @@ ${higherTFs.map(tf => `   bool tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_
       {
          double sl = UseATR_StopLoss ? CalculateATR_StopLoss(false) : 0;
          double tp = UseATR_StopLoss ? CalculateATR_TakeProfit(false) : 0;
-         OpenSellPosition(sl, tp, lot_size);
+         
+         // Use pending or market order based on settings
+         if(UsePendingOrders && CountPendingOrders() == 0)
+            PlacePendingSellOrder(sl, tp, lot_size);
+         else if(!UsePendingOrders)
+            OpenSellPosition(sl, tp, lot_size);
+      }
+   }
+   
+   // Auto-delete pending orders on signal change if enabled
+   if(AutoDeleteOnSignalChange && CountPendingOrders() > 0)
+   {
+      // If we have buy pending orders but signal changed to sell, delete them
+      bool has_pending_buy = false;
+      bool has_pending_sell = false;
+      for(int i = OrdersTotal() - 1; i >= 0; i--)
+      {
+         ulong ticket = OrderGetTicket(i);
+         if(ticket <= 0) continue;
+         
+         // Select the order before reading properties
+         if(!OrderSelect(ticket)) continue;
+         
+         if(OrderGetString(ORDER_SYMBOL) != _Symbol) continue;
+         if(OrderGetInteger(ORDER_MAGIC) != MagicNumber) continue;
+         
+         ENUM_ORDER_TYPE otype = (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
+         if(otype == ORDER_TYPE_BUY_LIMIT || otype == ORDER_TYPE_BUY_STOP)
+            has_pending_buy = true;
+         if(otype == ORDER_TYPE_SELL_LIMIT || otype == ORDER_TYPE_SELL_STOP)
+            has_pending_sell = true;
+      }
+      
+      // Delete pending orders if signal changed direction
+      if(has_pending_buy && sell_signal && !buy_signal)
+      {
+         Print("Signal changed to SELL - deleting pending BUY orders");
+         DeleteAllPendingOrders();
+      }
+      else if(has_pending_sell && buy_signal && !sell_signal)
+      {
+         Print("Signal changed to BUY - deleting pending SELL orders");
+         DeleteAllPendingOrders();
       }
    }
 }
@@ -1750,6 +1805,193 @@ void OpenSellPosition(double sl, double tp, double lot_size = 0)
    }
    else
       Print("Error opening sell order: ", GetLastError());
+}
+
+//+------------------------------------------------------------------+
+//| Place pending buy order (Buy Limit or Buy Stop)                  |
+//+------------------------------------------------------------------+
+void PlacePendingBuyOrder(double sl, double tp, double lot_size = 0)
+{
+   if(lot_size == 0)
+      lot_size = LotSize;
+      
+   MqlTradeRequest request = {};
+   MqlTradeResult result = {};
+   
+   double current_price = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+   double entry_price;
+   ENUM_ORDER_TYPE order_type;
+   
+   // Determine order type and entry price based on UseLimitOrders setting
+   if(UseLimitOrders)
+   {
+      // Buy Limit: Entry below current price (wait for pullback)
+      entry_price = current_price - PendingOrderDistance * point * 10;
+      order_type = ORDER_TYPE_BUY_LIMIT;
+   }
+   else
+   {
+      // Buy Stop: Entry above current price (breakout confirmation)
+      entry_price = current_price + PendingOrderDistance * point * 10;
+      order_type = ORDER_TYPE_BUY_STOP;
+   }
+   
+   // Normalize price
+   int digits = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
+   entry_price = NormalizeDouble(entry_price, digits);
+   
+   // Calculate expiration time
+   datetime expiration = 0;
+   if(PendingOrderExpiration > 0)
+      expiration = TimeCurrent() + PendingOrderExpiration * 3600;
+   
+   request.action = TRADE_ACTION_PENDING;
+   request.symbol = _Symbol;
+   request.volume = lot_size;
+   request.type = order_type;
+   request.price = entry_price;
+   request.sl = sl;
+   request.tp = tp;
+   request.magic = MagicNumber;
+   request.comment = "Multi-TF Pending Buy";
+   
+   if(PendingOrderExpiration > 0)
+   {
+      request.type_time = ORDER_TIME_SPECIFIED;
+      request.expiration = expiration;
+   }
+   else
+   {
+      request.type_time = ORDER_TIME_GTC;
+   }
+   
+   if(OrderSend(request, result))
+   {
+      Print("Pending buy order placed at ", entry_price, " (", EnumToString(order_type), ")");
+      last_buy_price = entry_price;
+   }
+   else
+      Print("Error placing pending buy order: ", GetLastError());
+}
+
+//+------------------------------------------------------------------+
+//| Place pending sell order (Sell Limit or Sell Stop)               |
+//+------------------------------------------------------------------+
+void PlacePendingSellOrder(double sl, double tp, double lot_size = 0)
+{
+   if(lot_size == 0)
+      lot_size = LotSize;
+      
+   MqlTradeRequest request = {};
+   MqlTradeResult result = {};
+   
+   double current_price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+   double entry_price;
+   ENUM_ORDER_TYPE order_type;
+   
+   // Determine order type and entry price based on UseLimitOrders setting
+   if(UseLimitOrders)
+   {
+      // Sell Limit: Entry above current price (wait for rally)
+      entry_price = current_price + PendingOrderDistance * point * 10;
+      order_type = ORDER_TYPE_SELL_LIMIT;
+   }
+   else
+   {
+      // Sell Stop: Entry below current price (breakdown confirmation)
+      entry_price = current_price - PendingOrderDistance * point * 10;
+      order_type = ORDER_TYPE_SELL_STOP;
+   }
+   
+   // Normalize price
+   int digits = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
+   entry_price = NormalizeDouble(entry_price, digits);
+   
+   // Calculate expiration time
+   datetime expiration = 0;
+   if(PendingOrderExpiration > 0)
+      expiration = TimeCurrent() + PendingOrderExpiration * 3600;
+   
+   request.action = TRADE_ACTION_PENDING;
+   request.symbol = _Symbol;
+   request.volume = lot_size;
+   request.type = order_type;
+   request.price = entry_price;
+   request.sl = sl;
+   request.tp = tp;
+   request.magic = MagicNumber;
+   request.comment = "Multi-TF Pending Sell";
+   
+   if(PendingOrderExpiration > 0)
+   {
+      request.type_time = ORDER_TIME_SPECIFIED;
+      request.expiration = expiration;
+   }
+   else
+   {
+      request.type_time = ORDER_TIME_GTC;
+   }
+   
+   if(OrderSend(request, result))
+   {
+      Print("Pending sell order placed at ", entry_price, " (", EnumToString(order_type), ")");
+      last_sell_price = entry_price;
+   }
+   else
+      Print("Error placing pending sell order: ", GetLastError());
+}
+
+//+------------------------------------------------------------------+
+//| Delete all pending orders for this EA                            |
+//+------------------------------------------------------------------+
+void DeleteAllPendingOrders()
+{
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      ulong ticket = OrderGetTicket(i);
+      if(ticket <= 0) continue;
+      
+      // Select the order before reading properties
+      if(!OrderSelect(ticket)) continue;
+      
+      if(OrderGetString(ORDER_SYMBOL) != _Symbol) continue;
+      if(OrderGetInteger(ORDER_MAGIC) != MagicNumber) continue;
+      
+      MqlTradeRequest request = {};
+      MqlTradeResult result = {};
+      
+      request.action = TRADE_ACTION_REMOVE;
+      request.order = ticket;
+      
+      if(OrderSend(request, result))
+         Print("Pending order ", ticket, " deleted");
+      else
+         Print("Error deleting pending order: ", GetLastError());
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Count pending orders for this EA                                 |
+//+------------------------------------------------------------------+
+int CountPendingOrders()
+{
+   int count = 0;
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      ulong ticket = OrderGetTicket(i);
+      if(ticket <= 0) continue;
+      
+      // Select the order before reading properties
+      if(!OrderSelect(ticket)) continue;
+      
+      if(OrderGetString(ORDER_SYMBOL) != _Symbol) continue;
+      if(OrderGetInteger(ORDER_MAGIC) != MagicNumber) continue;
+      
+      count++;
+   }
+   return count;
 }
 
 //+------------------------------------------------------------------+
