@@ -915,178 +915,155 @@ export default function WebhooksPage() {
             </div>
           </CardHeader>
           <CardContent className="space-y-6">
-            {/* EA Settings - Copy These Values */}
-            <div className="p-4 bg-gradient-to-r from-yellow-900/30 to-orange-900/30 border border-yellow-600/50 rounded-lg">
-              <h4 className="text-yellow-400 font-bold flex items-center gap-2 mb-3">
-                <AlertCircle className="w-5 h-5" />
-                Copy These Values Into Your EA Settings
-              </h4>
-              <div className="grid md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label className="text-gray-300 font-medium">WebhookURL (paste in EA)</Label>
-                  <div className="flex items-center gap-2 bg-gray-900 p-3 rounded-lg border border-gray-700">
-                    <code className="flex-1 text-green-400 text-sm break-all" data-testid="text-webhook-url">
-                      {window.location.origin}/api/mt5-signal
-                    </code>
-                    <Button 
-                      variant="ghost" 
-                      size="sm"
-                      onClick={() => copyToClipboard(`${window.location.origin}/api/mt5-signal`)}
-                      className="text-gray-400 hover:text-white shrink-0"
-                      data-testid="button-copy-webhook-url"
-                    >
-                      <Copy className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-gray-300 font-medium">APIKey (create below, then paste in EA)</Label>
-                  <div className="flex items-center gap-2 bg-gray-900 p-3 rounded-lg border border-gray-700">
-                    <span className="flex-1 text-gray-400 text-sm">
-                      {mt5Tokens.length > 0 ? (
-                        <span className="text-green-400">You have {mt5Tokens.length} token(s) - use any active one</span>
-                      ) : (
-                        <span className="text-yellow-400">Create a token below first →</span>
-                      )}
-                    </span>
-                  </div>
-                </div>
-              </div>
+            {/* Important Note */}
+            <div className="p-3 bg-blue-900/30 border border-blue-600/50 rounded-lg">
+              <p className="text-blue-300 text-sm flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                <span><strong>Note:</strong> The API Key for the Trade Copier is NOT the same as your OpenAI API key in Settings. You create a new Trade Copier API key right here on this page (see Step 1 below).</span>
+              </p>
             </div>
 
-            {/* API Token Management */}
+            {/* Step-by-Step Guide */}
             <div className="space-y-4">
-              <h4 className="text-white font-semibold flex items-center gap-2">
-                <Key className="w-4 h-4" />
-                API Tokens (Step 1: Create Your API Key)
-              </h4>
+              <h4 className="text-white font-bold text-lg">Quick Setup Guide</h4>
               
-              {/* Create new token */}
-              <div className="flex gap-2">
-                <Input
-                  placeholder="Token name (e.g., My MT5 Account)"
-                  value={newTokenName}
-                  onChange={(e) => setNewTokenName(e.target.value)}
-                  className="bg-gray-900 border-gray-700 flex-1"
-                  data-testid="input-token-name"
-                />
-                <Button
-                  onClick={() => createTokenMutation.mutate(newTokenName)}
-                  disabled={!newTokenName || createTokenMutation.isPending}
-                  data-testid="button-create-token"
-                >
-                  {createTokenMutation.isPending ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-                </Button>
-              </div>
-
-              {/* Newly created token display */}
-              {newlyCreatedToken && (
-                <motion.div 
-                  initial={{ opacity: 0, y: -10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="p-4 bg-green-900/30 border border-green-600/50 rounded-lg"
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-green-400 font-semibold">New Token Created</span>
-                    <Button 
-                      variant="ghost" 
-                      size="sm"
-                      onClick={() => setNewlyCreatedToken(null)}
-                    >
-                      <XCircle className="w-4 h-4" />
-                    </Button>
-                  </div>
-                  <p className="text-yellow-400 text-sm mb-2">Copy this token now - it won't be shown again!</p>
-                  <div className="flex items-center gap-2 bg-gray-900 p-2 rounded font-mono text-sm">
-                    <code className="flex-1 text-gray-300 break-all">{newlyCreatedToken.token}</code>
-                    <Button 
-                      variant="ghost" 
-                      size="sm"
-                      onClick={() => copyToClipboard(newlyCreatedToken.token)}
-                      data-testid="button-copy-new-token"
-                    >
-                      <Copy className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </motion.div>
-              )}
-
-              {/* Token list */}
-              {mt5Tokens.length > 0 ? (
-                <div className="space-y-2">
-                  {mt5Tokens.map(token => (
-                    <div key={token.id} className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg border border-gray-700">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-white font-medium">{token.name}</span>
-                          {token.isActive ? (
-                            <Badge className="bg-green-500/20 text-green-400 text-xs">Active</Badge>
-                          ) : (
-                            <Badge className="bg-gray-500/20 text-gray-400 text-xs">Inactive</Badge>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-4 text-sm text-gray-400 mt-1">
-                          <span className="font-mono">{token.token}</span>
-                          <span>{token.signalCount} signals</span>
-                          {token.lastUsedAt && (
-                            <span>Last used: {new Date(token.lastUsedAt).toLocaleDateString()}</span>
-                          )}
-                        </div>
-                      </div>
-                      <Button
-                        variant="ghost"
+              {/* Step 1: Create API Key */}
+              <div className="p-4 bg-gray-800/50 rounded-lg border border-gray-700">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-white font-bold">1</div>
+                  <h5 className="text-white font-semibold">Create Your API Key (do this first)</h5>
+                </div>
+                <p className="text-gray-400 text-sm mb-3">Type a name for your token below and click the + button. This creates a unique key just for your EA.</p>
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Token name (e.g., My MT5 Account)"
+                    value={newTokenName}
+                    onChange={(e) => setNewTokenName(e.target.value)}
+                    className="bg-gray-900 border-gray-700 flex-1"
+                    data-testid="input-token-name"
+                  />
+                  <Button
+                    onClick={() => createTokenMutation.mutate(newTokenName)}
+                    disabled={!newTokenName || createTokenMutation.isPending}
+                    data-testid="button-create-token"
+                  >
+                    {createTokenMutation.isPending ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                  </Button>
+                </div>
+                
+                {/* Newly created token display */}
+                {newlyCreatedToken && (
+                  <motion.div 
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="mt-4 p-4 bg-green-900/30 border border-green-600/50 rounded-lg"
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-green-400 font-semibold">Your New API Key - Copy This!</span>
+                      <Button 
+                        variant="ghost" 
                         size="sm"
-                        onClick={() => deleteTokenMutation.mutate(token.id)}
-                        className="text-red-400 hover:text-red-300"
-                        data-testid={`button-delete-token-${token.id}`}
+                        onClick={() => setNewlyCreatedToken(null)}
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <XCircle className="w-4 h-4" />
                       </Button>
                     </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-4 text-gray-500">
-                  No API tokens yet. Create one to get started.
-                </div>
-              )}
-            </div>
+                    <p className="text-yellow-400 text-sm mb-2">Copy this token now and paste it into your EA's "APIKey" field. It won't be shown again!</p>
+                    <div className="flex items-center gap-2 bg-gray-900 p-2 rounded font-mono text-sm">
+                      <code className="flex-1 text-green-400 break-all">{newlyCreatedToken.token}</code>
+                      <Button 
+                        variant="ghost" 
+                        size="sm"
+                        onClick={() => copyToClipboard(newlyCreatedToken.token)}
+                        data-testid="button-copy-new-token"
+                      >
+                        <Copy className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </motion.div>
+                )}
 
-            {/* Setup Instructions */}
-            <div className="space-y-4 pt-4 border-t border-gray-700">
-              <h4 className="text-white font-semibold flex items-center gap-2">
-                <Server className="w-4 h-4" />
-                Setup Instructions
-              </h4>
-              <div className="grid md:grid-cols-2 gap-4">
-                <div className="p-4 bg-gray-800/50 rounded-lg">
-                  <h5 className="text-primary font-semibold mb-2">1. Download & Install EA</h5>
-                  <ol className="text-sm text-gray-400 space-y-1 list-decimal list-inside">
-                    <li>Download the VEDD Trade Copier EA above</li>
-                    <li>Open MT5 and go to File &gt; Open Data Folder</li>
-                    <li>Navigate to MQL5 &gt; Experts</li>
-                    <li>Copy the .mq5 file there and compile</li>
-                  </ol>
+                {/* Existing tokens */}
+                {mt5Tokens.length > 0 && !newlyCreatedToken && (
+                  <div className="mt-4 space-y-2">
+                    <p className="text-gray-400 text-sm">Your existing tokens:</p>
+                    {mt5Tokens.map(token => (
+                      <div key={token.id} className="flex items-center justify-between p-2 bg-gray-900/50 rounded border border-gray-700">
+                        <div className="flex items-center gap-2">
+                          <span className="text-white text-sm">{token.name}</span>
+                          <Badge className={token.isActive ? "bg-green-500/20 text-green-400 text-xs" : "bg-gray-500/20 text-gray-400 text-xs"}>
+                            {token.isActive ? 'Active' : 'Inactive'}
+                          </Badge>
+                          <code className="text-gray-500 text-xs font-mono">{token.token}</code>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => deleteTokenMutation.mutate(token.id)}
+                          className="text-red-400 hover:text-red-300"
+                          data-testid={`button-delete-token-${token.id}`}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Step 2: Copy Webhook URL */}
+              <div className="p-4 bg-gray-800/50 rounded-lg border border-gray-700">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-white font-bold">2</div>
+                  <h5 className="text-white font-semibold">Copy the Webhook URL</h5>
                 </div>
-                <div className="p-4 bg-gray-800/50 rounded-lg">
-                  <h5 className="text-primary font-semibold mb-2">2. Configure EA Settings</h5>
-                  <ol className="text-sm text-gray-400 space-y-1 list-decimal list-inside">
-                    <li>Attach EA to any chart</li>
-                    <li>Set WebhookURL to: <code className="text-xs bg-gray-900 px-1 rounded">{window.location.origin}/api/mt5-signal</code></li>
-                    <li>Paste your API Key from above</li>
-                    <li>Enable "Allow WebRequest" in EA options</li>
-                  </ol>
+                <p className="text-gray-400 text-sm mb-3">Copy this URL and paste it into your EA's "WebhookURL" field:</p>
+                <div className="flex items-center gap-2 bg-gray-900 p-3 rounded-lg border border-green-700/50">
+                  <code className="flex-1 text-green-400 text-sm break-all" data-testid="text-webhook-url">
+                    {window.location.origin}/api/mt5-signal
+                  </code>
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => copyToClipboard(`${window.location.origin}/api/mt5-signal`)}
+                    className="shrink-0"
+                    data-testid="button-copy-webhook-url"
+                  >
+                    <Copy className="w-4 h-4 mr-2" />
+                    Copy
+                  </Button>
                 </div>
-                <div className="p-4 bg-gray-800/50 rounded-lg md:col-span-2">
-                  <h5 className="text-primary font-semibold mb-2">3. Configure Webhook Destination</h5>
-                  <p className="text-sm text-gray-400">
-                    Create a webhook above with "MT5 Trade Copier Signal" as a trigger. When you open trades in MT5, 
-                    the EA will send signals to VEDD AI, which then relays them to your configured webhooks 
-                    (TradeLocker, TradingView alerts, etc.).
-                  </p>
+              </div>
+
+              {/* Step 3: Configure EA */}
+              <div className="p-4 bg-gray-800/50 rounded-lg border border-gray-700">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-white font-bold">3</div>
+                  <h5 className="text-white font-semibold">Configure Your EA in MT5</h5>
+                </div>
+                <div className="grid md:grid-cols-2 gap-4 text-sm text-gray-400">
+                  <div>
+                    <p className="font-medium text-white mb-2">In MetaTrader 5:</p>
+                    <ol className="list-decimal list-inside space-y-1">
+                      <li>Download the EA using the button above</li>
+                      <li>Go to File → Open Data Folder</li>
+                      <li>Navigate to MQL5 → Experts</li>
+                      <li>Copy the .mq5 file there and compile</li>
+                    </ol>
+                  </div>
+                  <div>
+                    <p className="font-medium text-white mb-2">In EA Settings:</p>
+                    <ol className="list-decimal list-inside space-y-1">
+                      <li>Attach EA to any chart</li>
+                      <li>Paste the <span className="text-green-400">WebhookURL</span> from Step 2</li>
+                      <li>Paste the <span className="text-green-400">APIKey</span> from Step 1</li>
+                      <li>Enable "Allow WebRequest" in EA options</li>
+                    </ol>
+                  </div>
                 </div>
               </div>
             </div>
+
 
             {/* Recent Signals */}
             {mt5Signals.length > 0 && (
