@@ -191,7 +191,11 @@ export function generateMT5EACode(
     consensusDirection = primaryDirection;
   }
   
-  const consensusConfidence = Math.max(buyCount, sellCount) / sortedTimeframes.length * 100;
+  // Calculate consensus confidence with safety check to prevent NaN
+  const rawConfidence = sortedTimeframes.length > 0 
+    ? Math.max(buyCount, sellCount) / sortedTimeframes.length * 100 
+    : 50;
+  const consensusConfidence = isNaN(rawConfidence) ? 50 : rawConfidence;
   
   // Parse ATR multiplier as number
   const atrMultiplierValue = primaryTF.analysis.atrStopLoss?.multiplier || 1.5;
@@ -3286,7 +3290,11 @@ export function generateTradingViewCode(
     consensusDirection = primaryDirection;
   }
   
-  const consensusConfidence = Math.max(buyCount, sellCount) / sortedTimeframes.length * 100;
+  // Calculate consensus confidence with safety check to prevent NaN
+  const rawConfidence = sortedTimeframes.length > 0 
+    ? Math.max(buyCount, sellCount) / sortedTimeframes.length * 100 
+    : 50;
+  const consensusConfidence = isNaN(rawConfidence) ? 50 : rawConfidence;
   
   const entryPoint = primaryTF.analysis.entryPoint || 'Market';
   const stopLossRaw = primaryTF.analysis.atrStopLoss?.recommended || primaryTF.analysis.stopLoss;
@@ -3557,7 +3565,11 @@ export function generateTradeLockerCode(
     consensusDirection = primaryDirection;
   }
   
-  const consensusConfidence = Math.max(buyCount, sellCount) / sortedTimeframes.length * 100;
+  // Calculate consensus confidence with safety check to prevent NaN
+  const rawConfidence = sortedTimeframes.length > 0 
+    ? Math.max(buyCount, sellCount) / sortedTimeframes.length * 100 
+    : 50;
+  const consensusConfidence = isNaN(rawConfidence) ? 50 : rawConfidence;
 
   const detectedPatterns = sortedTimeframes
     .flatMap(tf => tf.analysis.patterns || [])
