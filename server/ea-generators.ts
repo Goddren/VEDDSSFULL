@@ -547,7 +547,7 @@ int current_ai_confidence = ${Math.round(consensusConfidence)};  // Current conf
 bool trading_paused = false;  // Trading pause status
 bool rsi_ok = false, macd_ok = false, atr_ok = false;  // Indicator status flags
 bool first_trade_placed = false;  // Track if first trade has been placed
-datetime last_trade_day = 0;  // Track last trade day for one-trade-per-day limit
+int last_trade_day = 0;  // Track last trade day for one-trade-per-day limit (as days since epoch)
 int daily_trade_count = 0;  // Count trades opened today
 
 //--- Candlestick Pattern Variables (from AI Analysis)
@@ -2200,7 +2200,6 @@ void ExecuteSmartOrder(int direction, double lot_size, double sl_pips, double tp
    int digits = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
    
    double entry_price, sl_price, tp_price;
-   ENUM_ORDER_TYPE order_type;
    datetime expiry = TimeCurrent() + (PendingOrderExpiryHours * 3600);
    
    switch(g_orderDecision)
@@ -2883,10 +2882,11 @@ void OpenBuyPosition(double sl, double tp, double lot_size = 0)
       
       // Track for one-trade-per-day limit
       datetime current_time = TimeCurrent();
-      if(last_trade_day != current_time / 86400)
+      int current_day = (int)(current_time / 86400);
+      if(last_trade_day != current_day)
       {
          daily_trade_count = 0;
-         last_trade_day = current_time / 86400;
+         last_trade_day = current_day;
       }
       daily_trade_count++;
    }
@@ -2922,10 +2922,11 @@ void OpenSellPosition(double sl, double tp, double lot_size = 0)
    {
       // Track for one-trade-per-day limit
       datetime current_time = TimeCurrent();
-      if(last_trade_day != current_time / 86400)
+      int current_day = (int)(current_time / 86400);
+      if(last_trade_day != current_day)
       {
          daily_trade_count = 0;
-         last_trade_day = current_time / 86400;
+         last_trade_day = current_day;
       }
       daily_trade_count++;
       Print("Sell order opened successfully at ", price, " with lot size: ", lot_size);
@@ -3152,7 +3153,7 @@ bool CheckDailyTradeLimit()
       
    // Reset counter if new day
    datetime current_time = TimeCurrent();
-   int current_day = current_time / 86400;
+   int current_day = (int)(current_time / 86400);
    
    if(last_trade_day != current_day)
    {
