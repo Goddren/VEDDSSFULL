@@ -417,7 +417,40 @@ input int BreakoutStartMinute = ${breakoutStartMinute};   // Minute to start pla
 input bool OneTradePerDay = ${oneTradePerDay ? 'true' : 'false'};  // Only allow 1 trade per day
 input double BreakoutBuffer = 0;                // Buffer pips above high/below low (0 = at exact level, positive = above/below)
 input int BreakoutConfirmationBars = 2;         // Number of confirmed bars to validate breakout
-input bool RequireBreakoutVolume = true;        // Require volume confirmation on breakout
+
+//--- ADVANCED MULTI-STAGE ENTRY SYSTEM
+input group "=== Higher Timeframe Context (Stage 1) ==="
+input bool UseHTFContext = true;                // Enable higher timeframe trend analysis
+input string HTFPrimaryTimeframe = "H4";        // Primary HTF for trend (H4, D1, W1)
+input string HTFSecondaryTimeframe = "D1";      // Secondary HTF for confirmation
+input int HTFSwingLookback = 20;                // Bars to look back for swing highs/lows
+input double HTFTrendSlopeThreshold = 0.0002;   // Min MACD slope for trending state
+input int HTFStructureConfirmBars = 3;          // Bars to confirm structure break
+
+input group "=== Candlestick Pattern Scoring (Stage 2) ==="
+input bool UsePatternScoring = true;            // Enable pattern confidence scoring
+input double PatternWeightEngulfing = 30.0;     // Engulfing pattern weight (0-100)
+input double PatternWeightHammer = 25.0;        // Hammer/Shooting Star weight (0-100)
+input double PatternWeightDoji = 15.0;          // Doji pattern weight (0-100)
+input double PatternWeightMorningStar = 35.0;   // Morning/Evening Star weight (0-100)
+input double PatternSRProximityPips = 20.0;     // Pips from S/R for bonus score
+input double PatternVolumeBoost = 1.5;          // Volume multiplier for pattern boost
+input int PatternMinConfidence = 40;            // Min confidence to consider pattern valid
+
+input group "=== Lower Timeframe Entry (Stage 3) ==="
+input bool UseLTFTiming = true;                 // Enable lower TF entry timing
+input string LTFTriggerTimeframe = "M15";       // Timeframe for precise entry (M5, M15)
+input int LTFTriggerTimeoutBars = 5;            // Max bars to wait for LTF trigger
+input bool LTFUseOscillatorFilter = true;       // Require oscillator confirmation on LTF
+input int LTFBreakOfStructureLookback = 10;     // Bars to check for structure break
+
+input group "=== Smart Order Type Decision (Stage 4) ==="
+input bool UseSmartOrderType = true;            // Enable smart pending/market order selection
+input double OptimalEntryZonePips = 15.0;       // Price range considered optimal for market entry
+input double RetraceExpectedPips = 30.0;        // Expected retrace for limit order placement
+input double MomentumStrengthThreshold = 0.0003;// MACD strength threshold for breakout stop orders
+input int PendingOrderExpiryHours = 4;          // Hours until pending order expires
+input bool CancelPendingOnStateChange = true;   // Auto-cancel pending if HTF state changes
 
 //--- Trading Hours (Peak Volume Times) - OPTIONAL
 input group "=== Trading Hours (Peak Volume) - OPTIONAL ==="
@@ -527,6 +560,67 @@ enum CANDLE_PATTERN
    PATTERN_BULLISH_HARAMI = 10,
    PATTERN_BEARISH_HARAMI = 11
 };
+
+//--- Market State Enumeration (Stage 1: Higher Timeframe Context)
+enum MARKET_STATE
+{
+   STATE_TREND_BULLISH = 1,      // Strong uptrend confirmed
+   STATE_TREND_BEARISH = 2,      // Strong downtrend confirmed
+   STATE_TRANSITION_BULLISH = 3, // Transitioning to bullish (watch for confirmation)
+   STATE_TRANSITION_BEARISH = 4, // Transitioning to bearish (watch for confirmation)
+   STATE_RANGE = 5,              // Ranging/consolidation (wait for breakout)
+   STATE_UNKNOWN = 0             // Unable to determine
+};
+
+//--- Order Type Enumeration (Stage 4: Smart Order Decision)
+enum ORDER_TYPE_DECISION
+{
+   DECISION_MARKET = 0,          // Execute at market price (strong confluence)
+   DECISION_LIMIT = 1,           // Place limit order (expect retrace)
+   DECISION_STOP = 2,            // Place stop order (breakout momentum)
+   DECISION_WAIT = 3             // No trade - conditions not met
+};
+
+//--- Pattern Signal Structure (Stage 2: Candlestick Scoring)
+struct PatternSignal
+{
+   int confidence;               // Pattern confidence (0-100)
+   int bias;                     // Direction: 1=bullish, -1=bearish, 0=neutral
+   double preferredEntryZone;    // Optimal entry price based on patterns
+   bool isValid;                 // Pattern meets minimum confidence
+   string patternName;           // Name of strongest pattern detected
+};
+
+//--- Entry Trigger Structure (Stage 3: Lower Timeframe Timing)
+struct EntryTrigger
+{
+   bool triggerMet;              // Lower TF confirms entry
+   double entryPrice;            // Suggested entry price
+   double stopBuffer;            // Additional SL buffer from LTF structure
+   datetime expiry;              // Time window for this trigger
+   bool oscillatorConfirmed;     // RSI/MFI confirms direction
+   bool structureBreak;          // Micro-structure break detected
+};
+
+//--- Market Context Structure (Combined HTF Analysis)
+struct MarketContext
+{
+   MARKET_STATE primaryState;    // State from primary HTF
+   MARKET_STATE secondaryState;  // State from secondary HTF
+   int trendStrength;            // Combined strength (0-100)
+   double swingHigh;             // Recent swing high
+   double swingLow;              // Recent swing low
+   bool inTransition;            // Market is transitioning
+   double htfMACDSlope;          // MACD slope for momentum
+};
+
+//--- Global variables for multi-stage system
+MarketContext g_htfContext;
+PatternSignal g_patternSignal;
+EntryTrigger g_entryTrigger;
+ORDER_TYPE_DECISION g_orderDecision;
+ulong g_pendingOrderTicket = 0;  // Track pending order for management
+MARKET_STATE g_lastHTFState = STATE_UNKNOWN;  // Track state changes
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
@@ -844,6 +938,16 @@ void OnTick()
    macd_ok = CopyBuffer(macd_handle, 0, 0, 3, macd_main) > 0 && CopyBuffer(macd_handle, 1, 0, 3, macd_signal) > 0;
    atr_ok = CopyBuffer(atr_handle, 0, 0, 3, atr_buffer) > 0;
    
+   //=====================================================================
+   // MULTI-STAGE ENTRY SYSTEM ANALYSIS
+   //=====================================================================
+   
+   //--- STAGE 1: Higher Timeframe Context Analysis
+   AnalyzeHigherTimeframeContext();
+   
+   //--- STAGE 2: Candlestick Pattern Scoring
+   ScoreCandlestickPatterns();
+   
    //--- Check multi-timeframe conditions
    bool tf_${sortedTimeframes[0].timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_trend_bullish = CheckBullishCondition();
    bool tf_${sortedTimeframes[0].timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_trend_bearish = CheckBearishCondition();
@@ -943,6 +1047,12 @@ ${higherTFs.map(tf => `      if(tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}
       Print("  - BUY: ", buy_positions, " | SELL: ", sell_positions, " | Total: ", total_positions);
       Print("  - Mode: ", MultiTradeMode, " | Max: ", MaxOpenTrades);
       Print("====================================================");
+      
+      // Print multi-stage analysis every 50 bars
+      if(bar_count % 50 == 0)
+      {
+         PrintMultiStageAnalysis();
+      }
    }
    
    //--- Check if trading is paused due to AI direction change
@@ -958,9 +1068,34 @@ ${higherTFs.map(tf => `      if(tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}
       return;  // Skip all trading logic
    }
    
-   //--- Execute trades based on multi-trade strategy
+   //--- Execute trades based on multi-trade strategy with MULTI-STAGE ENTRY SYSTEM
    if(buy_signal && AllowBuyTrades && IsTradingDayAllowed() && CheckVolumeThreshold() && CheckStartTimeAllowed() && CheckDailyTradeLimit())
    {
+      //--- STAGE 3: Lower Timeframe Entry Timing (for BUY)
+      EvaluateLowerTimeframeTrigger(1);  // 1 = bullish
+      
+      //--- STAGE 4: Smart Order Type Decision
+      g_orderDecision = DecideOrderType(1);
+      
+      // Check if multi-stage system allows entry
+      bool multi_stage_ok = true;
+      if(UsePatternScoring && !g_patternSignal.isValid)
+      {
+         multi_stage_ok = false;  // Pattern confidence too low
+      }
+      if(UseLTFTiming && !g_entryTrigger.triggerMet)
+      {
+         multi_stage_ok = false;  // LTF timing not confirmed
+      }
+      if(UseHTFContext && g_htfContext.primaryState == STATE_TREND_BEARISH)
+      {
+         multi_stage_ok = false;  // HTF is bearish, skip buy
+      }
+      if(UseSmartOrderType && g_orderDecision == DECISION_WAIT)
+      {
+         multi_stage_ok = false;  // Insufficient confluence
+      }
+      
       bool can_open = false;
       double lot_size = LotSize;
       
@@ -997,20 +1132,55 @@ ${higherTFs.map(tf => `      if(tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}
             break;
       }
       
-      if(can_open)
+      if(can_open && multi_stage_ok)
       {
-         double sl = UseATR_StopLoss ? CalculateATR_StopLoss(true) : 0;
-         double tp = UseATR_StopLoss ? CalculateATR_TakeProfit(true) : 0;
+         double sl_pips = UseATR_StopLoss ? CalculateATR_StopLoss(true) : StopLossPips;
+         double tp_pips = UseATR_StopLoss ? CalculateATR_TakeProfit(true) : TakeProfitPips;
          
-         // Use pending or market order based on settings
-         if(UsePendingOrders && CountPendingOrders() == 0)
-            PlacePendingBuyOrder(sl, tp, lot_size);
+         // Use smart order system if enabled
+         if(UseSmartOrderType)
+         {
+            ExecuteSmartOrder(1, lot_size, sl_pips, tp_pips);
+         }
+         // Otherwise use legacy pending/market order logic
+         else if(UsePendingOrders && CountPendingOrders() == 0)
+            PlacePendingBuyOrder(sl_pips, tp_pips, lot_size);
          else if(!UsePendingOrders)
-            OpenBuyPosition(sl, tp, lot_size);
+            OpenBuyPosition(sl_pips, tp_pips, lot_size);
+      }
+      else if(!multi_stage_ok && can_open)
+      {
+         Print("BUY signal blocked by multi-stage filters: Pattern=", g_patternSignal.isValid, 
+               " LTF=", g_entryTrigger.triggerMet, " HTF=", GetStateName(g_htfContext.primaryState));
       }
    }
    else if(sell_signal && AllowSellTrades && IsTradingDayAllowed() && CheckVolumeThreshold() && CheckStartTimeAllowed() && CheckDailyTradeLimit())
    {
+      //--- STAGE 3: Lower Timeframe Entry Timing (for SELL)
+      EvaluateLowerTimeframeTrigger(-1);  // -1 = bearish
+      
+      //--- STAGE 4: Smart Order Type Decision
+      g_orderDecision = DecideOrderType(-1);
+      
+      // Check if multi-stage system allows entry
+      bool multi_stage_ok = true;
+      if(UsePatternScoring && !g_patternSignal.isValid)
+      {
+         multi_stage_ok = false;  // Pattern confidence too low
+      }
+      if(UseLTFTiming && !g_entryTrigger.triggerMet)
+      {
+         multi_stage_ok = false;  // LTF timing not confirmed
+      }
+      if(UseHTFContext && g_htfContext.primaryState == STATE_TREND_BULLISH)
+      {
+         multi_stage_ok = false;  // HTF is bullish, skip sell
+      }
+      if(UseSmartOrderType && g_orderDecision == DECISION_WAIT)
+      {
+         multi_stage_ok = false;  // Insufficient confluence
+      }
+      
       bool can_open = false;
       double lot_size = LotSize;
       
@@ -1047,16 +1217,26 @@ ${higherTFs.map(tf => `      if(tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}
             break;
       }
       
-      if(can_open)
+      if(can_open && multi_stage_ok)
       {
-         double sl = UseATR_StopLoss ? CalculateATR_StopLoss(false) : 0;
-         double tp = UseATR_StopLoss ? CalculateATR_TakeProfit(false) : 0;
+         double sl_pips = UseATR_StopLoss ? CalculateATR_StopLoss(false) : StopLossPips;
+         double tp_pips = UseATR_StopLoss ? CalculateATR_TakeProfit(false) : TakeProfitPips;
          
-         // Use pending or market order based on settings
-         if(UsePendingOrders && CountPendingOrders() == 0)
-            PlacePendingSellOrder(sl, tp, lot_size);
+         // Use smart order system if enabled
+         if(UseSmartOrderType)
+         {
+            ExecuteSmartOrder(-1, lot_size, sl_pips, tp_pips);
+         }
+         // Otherwise use legacy pending/market order logic
+         else if(UsePendingOrders && CountPendingOrders() == 0)
+            PlacePendingSellOrder(sl_pips, tp_pips, lot_size);
          else if(!UsePendingOrders)
-            OpenSellPosition(sl, tp, lot_size);
+            OpenSellPosition(sl_pips, tp_pips, lot_size);
+      }
+      else if(!multi_stage_ok && can_open)
+      {
+         Print("SELL signal blocked by multi-stage filters: Pattern=", g_patternSignal.isValid, 
+               " LTF=", g_entryTrigger.triggerMet, " HTF=", GetStateName(g_htfContext.primaryState));
       }
    }
    
@@ -1526,6 +1706,600 @@ string GetCandlePatternName()
    if(IsBearishEngulfing(1)) return "Bearish Engulfing";
    if(IsDoji(1)) return "Doji";
    return "None";
+}
+
+//+------------------------------------------------------------------+
+//|                 MULTI-STAGE ENTRY SYSTEM                          |
+//+------------------------------------------------------------------+
+
+//+------------------------------------------------------------------+
+//| STAGE 1: Analyze Higher Timeframe Context                        |
+//| Returns market state (trending, transitioning, or ranging)       |
+//+------------------------------------------------------------------+
+MARKET_STATE AnalyzeHTFState(string timeframe)
+{
+   ENUM_TIMEFRAMES tf = StringToTimeframe(timeframe);
+   
+   // Get MACD for trend direction and slope
+   int htf_macd = iMACD(_Symbol, tf, MACD_FastEMA, MACD_SlowEMA, MACD_SignalSMA, PRICE_CLOSE);
+   double htf_macd_main[], htf_macd_signal[];
+   
+   ArraySetAsSeries(htf_macd_main, true);
+   ArraySetAsSeries(htf_macd_signal, true);
+   
+   if(CopyBuffer(htf_macd, 0, 0, 5, htf_macd_main) <= 0 ||
+      CopyBuffer(htf_macd, 1, 0, 5, htf_macd_signal) <= 0)
+   {
+      IndicatorRelease(htf_macd);
+      return STATE_UNKNOWN;
+   }
+   
+   IndicatorRelease(htf_macd);
+   
+   // Calculate MACD slope (rate of change)
+   double macd_slope = (htf_macd_main[0] - htf_macd_main[2]) / 2;
+   bool macd_bullish = htf_macd_main[0] > htf_macd_signal[0];
+   bool macd_bearish = htf_macd_main[0] < htf_macd_signal[0];
+   
+   // Check for recent crossover (transition signal)
+   bool recent_bull_cross = (htf_macd_main[0] > htf_macd_signal[0]) && 
+                            (htf_macd_main[1] <= htf_macd_signal[1]);
+   bool recent_bear_cross = (htf_macd_main[0] < htf_macd_signal[0]) && 
+                            (htf_macd_main[1] >= htf_macd_signal[1]);
+   
+   // Get price for swing analysis
+   double highs[], lows[];
+   ArraySetAsSeries(highs, true);
+   ArraySetAsSeries(lows, true);
+   
+   if(CopyHigh(_Symbol, tf, 0, HTFSwingLookback, highs) <= 0 ||
+      CopyLow(_Symbol, tf, 0, HTFSwingLookback, lows) <= 0)
+      return STATE_UNKNOWN;
+   
+   // Find swing high and swing low
+   double swing_high = highs[ArrayMaximum(highs)];
+   double swing_low = lows[ArrayMinimum(lows)];
+   double current_price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   double range = swing_high - swing_low;
+   
+   // Store in global context
+   g_htfContext.swingHigh = swing_high;
+   g_htfContext.swingLow = swing_low;
+   g_htfContext.htfMACDSlope = macd_slope;
+   
+   // Determine market state
+   if(MathAbs(macd_slope) < HTFTrendSlopeThreshold)
+   {
+      // Low momentum = ranging
+      g_htfContext.inTransition = false;
+      return STATE_RANGE;
+   }
+   else if(recent_bull_cross)
+   {
+      // Just crossed bullish = transitioning
+      g_htfContext.inTransition = true;
+      return STATE_TRANSITION_BULLISH;
+   }
+   else if(recent_bear_cross)
+   {
+      // Just crossed bearish = transitioning
+      g_htfContext.inTransition = true;
+      return STATE_TRANSITION_BEARISH;
+   }
+   else if(macd_bullish && macd_slope > HTFTrendSlopeThreshold)
+   {
+      // Strong bullish momentum
+      g_htfContext.inTransition = false;
+      return STATE_TREND_BULLISH;
+   }
+   else if(macd_bearish && macd_slope < -HTFTrendSlopeThreshold)
+   {
+      // Strong bearish momentum
+      g_htfContext.inTransition = false;
+      return STATE_TREND_BEARISH;
+   }
+   
+   return STATE_RANGE;
+}
+
+//+------------------------------------------------------------------+
+//| STAGE 1: Full Higher Timeframe Analysis                          |
+//+------------------------------------------------------------------+
+void AnalyzeHigherTimeframeContext()
+{
+   if(!UseHTFContext)
+   {
+      g_htfContext.primaryState = STATE_UNKNOWN;
+      g_htfContext.secondaryState = STATE_UNKNOWN;
+      g_htfContext.trendStrength = 50;
+      return;
+   }
+   
+   // Analyze primary HTF
+   g_htfContext.primaryState = AnalyzeHTFState(HTFPrimaryTimeframe);
+   
+   // Analyze secondary HTF
+   g_htfContext.secondaryState = AnalyzeHTFState(HTFSecondaryTimeframe);
+   
+   // Calculate combined trend strength
+   int strength = 50;  // Neutral starting point
+   
+   // Primary HTF contribution (60% weight)
+   if(g_htfContext.primaryState == STATE_TREND_BULLISH) strength += 30;
+   else if(g_htfContext.primaryState == STATE_TREND_BEARISH) strength -= 30;
+   else if(g_htfContext.primaryState == STATE_TRANSITION_BULLISH) strength += 15;
+   else if(g_htfContext.primaryState == STATE_TRANSITION_BEARISH) strength -= 15;
+   
+   // Secondary HTF contribution (40% weight)
+   if(g_htfContext.secondaryState == STATE_TREND_BULLISH) strength += 20;
+   else if(g_htfContext.secondaryState == STATE_TREND_BEARISH) strength -= 20;
+   else if(g_htfContext.secondaryState == STATE_TRANSITION_BULLISH) strength += 10;
+   else if(g_htfContext.secondaryState == STATE_TRANSITION_BEARISH) strength -= 10;
+   
+   g_htfContext.trendStrength = MathMax(0, MathMin(100, strength));
+   
+   // Check for state change (for pending order management)
+   if(CancelPendingOnStateChange && g_htfContext.primaryState != g_lastHTFState)
+   {
+      if(g_pendingOrderTicket > 0 && g_lastHTFState != STATE_UNKNOWN)
+      {
+         Print("HTF state changed - cancelling pending order");
+         CancelPendingOrder(g_pendingOrderTicket);
+         g_pendingOrderTicket = 0;
+      }
+      g_lastHTFState = g_htfContext.primaryState;
+   }
+}
+
+//+------------------------------------------------------------------+
+//| STAGE 2: Score Candlestick Patterns with Confidence              |
+//+------------------------------------------------------------------+
+void ScoreCandlestickPatterns()
+{
+   g_patternSignal.confidence = 0;
+   g_patternSignal.bias = 0;
+   g_patternSignal.isValid = false;
+   g_patternSignal.patternName = "None";
+   g_patternSignal.preferredEntryZone = 0;
+   
+   if(!UsePatternScoring)
+   {
+      g_patternSignal.isValid = true;  // No pattern required
+      return;
+   }
+   
+   double current_price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+   int score = 0;
+   int direction = 0;  // 1 = bullish, -1 = bearish
+   string pattern_name = "None";
+   
+   // Check for bullish patterns
+   if(IsHammer(1))
+   {
+      score += (int)PatternWeightHammer;
+      direction = 1;
+      pattern_name = "Hammer";
+   }
+   if(IsInvertedHammer(1))
+   {
+      score += (int)(PatternWeightHammer * 0.8);  // Slightly weaker
+      direction = 1;
+      if(pattern_name == "None") pattern_name = "Inv. Hammer";
+   }
+   if(IsBullishEngulfing(1))
+   {
+      score += (int)PatternWeightEngulfing;
+      direction = 1;
+      pattern_name = "Bull Engulfing";
+   }
+   
+   // Check for bearish patterns
+   if(IsShootingStar(1))
+   {
+      score += (int)PatternWeightHammer;
+      direction = -1;
+      pattern_name = "Shooting Star";
+   }
+   if(IsBearishEngulfing(1))
+   {
+      score += (int)PatternWeightEngulfing;
+      direction = -1;
+      pattern_name = "Bear Engulfing";
+   }
+   
+   // Doji adds uncertainty weight (can go either way)
+   if(IsDoji(1))
+   {
+      score += (int)PatternWeightDoji;
+      if(pattern_name == "None") pattern_name = "Doji";
+      // Direction depends on context (HTF)
+      if(g_htfContext.primaryState == STATE_TREND_BULLISH || 
+         g_htfContext.primaryState == STATE_TRANSITION_BULLISH)
+         direction = 1;
+      else if(g_htfContext.primaryState == STATE_TREND_BEARISH ||
+              g_htfContext.primaryState == STATE_TRANSITION_BEARISH)
+         direction = -1;
+   }
+   
+   // Support/Resistance proximity bonus
+   double dist_to_support = current_price - g_htfContext.swingLow;
+   double dist_to_resistance = g_htfContext.swingHigh - current_price;
+   double proximity_pips = PatternSRProximityPips * point * 10;
+   
+   if(direction == 1 && dist_to_support < proximity_pips)
+   {
+      // Bullish pattern near support = stronger signal
+      score += 15;
+      g_patternSignal.preferredEntryZone = g_htfContext.swingLow;
+   }
+   else if(direction == -1 && dist_to_resistance < proximity_pips)
+   {
+      // Bearish pattern near resistance = stronger signal
+      score += 15;
+      g_patternSignal.preferredEntryZone = g_htfContext.swingHigh;
+   }
+   
+   // Volume boost
+   if(CheckVolumeConfirmation())
+   {
+      score = (int)(score * PatternVolumeBoost);
+   }
+   
+   // AI pattern alignment bonus
+   if((direction == 1 && ai_bullish_candles) || (direction == -1 && ai_bearish_candles))
+   {
+      score += 20;  // AI agrees with pattern direction
+   }
+   
+   // Cap at 100
+   g_patternSignal.confidence = MathMin(100, score);
+   g_patternSignal.bias = direction;
+   g_patternSignal.isValid = (score >= PatternMinConfidence);
+   g_patternSignal.patternName = pattern_name;
+}
+
+//+------------------------------------------------------------------+
+//| STAGE 3: Lower Timeframe Entry Timing                            |
+//+------------------------------------------------------------------+
+void EvaluateLowerTimeframeTrigger(int intended_direction)
+{
+   g_entryTrigger.triggerMet = false;
+   g_entryTrigger.entryPrice = 0;
+   g_entryTrigger.stopBuffer = 0;
+   g_entryTrigger.expiry = TimeCurrent() + (LTFTriggerTimeoutBars * 60 * 15);  // Approx based on M15
+   g_entryTrigger.oscillatorConfirmed = false;
+   g_entryTrigger.structureBreak = false;
+   
+   if(!UseLTFTiming)
+   {
+      g_entryTrigger.triggerMet = true;  // No LTF timing required
+      return;
+   }
+   
+   ENUM_TIMEFRAMES ltf = StringToTimeframe(LTFTriggerTimeframe);
+   
+   // Get LTF RSI
+   int ltf_rsi = iRSI(_Symbol, ltf, RSI_Period, PRICE_CLOSE);
+   double ltf_rsi_buffer[];
+   ArraySetAsSeries(ltf_rsi_buffer, true);
+   
+   if(CopyBuffer(ltf_rsi, 0, 0, 3, ltf_rsi_buffer) > 0)
+   {
+      if(LTFUseOscillatorFilter)
+      {
+         // Check RSI aligns with direction
+         if(intended_direction == 1)
+         {
+            // For buy: RSI should be rising from oversold or mid-range
+            g_entryTrigger.oscillatorConfirmed = (ltf_rsi_buffer[0] > ltf_rsi_buffer[1]) && 
+                                                  (ltf_rsi_buffer[0] < RSI_Overbought);
+         }
+         else if(intended_direction == -1)
+         {
+            // For sell: RSI should be falling from overbought or mid-range  
+            g_entryTrigger.oscillatorConfirmed = (ltf_rsi_buffer[0] < ltf_rsi_buffer[1]) && 
+                                                  (ltf_rsi_buffer[0] > RSI_Oversold);
+         }
+      }
+      else
+      {
+         g_entryTrigger.oscillatorConfirmed = true;
+      }
+   }
+   
+   IndicatorRelease(ltf_rsi);
+   
+   // Check for structure break (micro-structure)
+   double ltf_highs[], ltf_lows[];
+   ArraySetAsSeries(ltf_highs, true);
+   ArraySetAsSeries(ltf_lows, true);
+   
+   if(CopyHigh(_Symbol, ltf, 0, LTFBreakOfStructureLookback, ltf_highs) > 0 &&
+      CopyLow(_Symbol, ltf, 0, LTFBreakOfStructureLookback, ltf_lows) > 0)
+   {
+      double current_price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+      double recent_high = ltf_highs[ArrayMaximum(ltf_highs, 1, LTFBreakOfStructureLookback - 1)];
+      double recent_low = ltf_lows[ArrayMinimum(ltf_lows, 1, LTFBreakOfStructureLookback - 1)];
+      
+      if(intended_direction == 1)
+      {
+         // Break above recent LTF high = bullish structure break
+         g_entryTrigger.structureBreak = (current_price > recent_high);
+         g_entryTrigger.stopBuffer = recent_low;
+      }
+      else if(intended_direction == -1)
+      {
+         // Break below recent LTF low = bearish structure break
+         g_entryTrigger.structureBreak = (current_price < recent_low);
+         g_entryTrigger.stopBuffer = recent_high;
+      }
+   }
+   
+   // Trigger met if oscillator confirms OR structure breaks
+   g_entryTrigger.triggerMet = g_entryTrigger.oscillatorConfirmed || g_entryTrigger.structureBreak;
+   g_entryTrigger.entryPrice = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+}
+
+//+------------------------------------------------------------------+
+//| STAGE 4: Smart Order Type Decision                               |
+//+------------------------------------------------------------------+
+ORDER_TYPE_DECISION DecideOrderType(int intended_direction)
+{
+   if(!UseSmartOrderType)
+   {
+      return DECISION_MARKET;  // Default to market orders
+   }
+   
+   double current_price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+   double optimal_zone = OptimalEntryZonePips * point * 10;
+   double retrace_dist = RetraceExpectedPips * point * 10;
+   
+   // Calculate distance from preferred entry zone
+   double dist_from_zone = 0;
+   double ideal_entry = 0;
+   
+   if(intended_direction == 1)
+   {
+      // For buy: ideal entry is near support/swing low
+      ideal_entry = (g_patternSignal.preferredEntryZone > 0) ? 
+                    g_patternSignal.preferredEntryZone : g_htfContext.swingLow;
+      dist_from_zone = current_price - ideal_entry;
+   }
+   else if(intended_direction == -1)
+   {
+      // For sell: ideal entry is near resistance/swing high
+      ideal_entry = (g_patternSignal.preferredEntryZone > 0) ? 
+                    g_patternSignal.preferredEntryZone : g_htfContext.swingHigh;
+      dist_from_zone = ideal_entry - current_price;
+   }
+   
+   // Check for breakout momentum (strong MACD)
+   bool strong_momentum = MathAbs(g_htfContext.htfMACDSlope) > MomentumStrengthThreshold;
+   bool structure_break = g_entryTrigger.structureBreak;
+   
+   // Decision logic
+   if(structure_break && strong_momentum)
+   {
+      // Strong breakout with momentum = STOP order to catch continuation
+      return DECISION_STOP;
+   }
+   else if(dist_from_zone < optimal_zone)
+   {
+      // Price is in optimal zone = MARKET order
+      return DECISION_MARKET;
+   }
+   else if(dist_from_zone > retrace_dist && g_htfContext.inTransition)
+   {
+      // Price extended, market transitioning = LIMIT order for retrace
+      return DECISION_LIMIT;
+   }
+   else if(g_patternSignal.isValid && g_entryTrigger.triggerMet)
+   {
+      // Pattern + LTF trigger confirmed = MARKET order
+      return DECISION_MARKET;
+   }
+   
+   // Default to waiting if confluence not strong enough
+   if(g_patternSignal.confidence < PatternMinConfidence)
+   {
+      return DECISION_WAIT;
+   }
+   
+   return DECISION_MARKET;
+}
+
+//+------------------------------------------------------------------+
+//| Execute trade based on order type decision                       |
+//+------------------------------------------------------------------+
+void ExecuteSmartOrder(int direction, double lot_size, double sl_pips, double tp_pips)
+{
+   double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+   int digits = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
+   
+   double entry_price, sl_price, tp_price;
+   ENUM_ORDER_TYPE order_type;
+   datetime expiry = TimeCurrent() + (PendingOrderExpiryHours * 3600);
+   
+   switch(g_orderDecision)
+   {
+      case DECISION_MARKET:
+         // Execute immediately at market
+         if(direction == 1)
+         {
+            entry_price = ask;
+            sl_price = NormalizeDouble(entry_price - sl_pips * point * 10, digits);
+            tp_price = NormalizeDouble(entry_price + tp_pips * point * 10, digits);
+            OpenPosition(ORDER_TYPE_BUY, entry_price, sl_price, tp_price, lot_size);
+         }
+         else
+         {
+            entry_price = bid;
+            sl_price = NormalizeDouble(entry_price + sl_pips * point * 10, digits);
+            tp_price = NormalizeDouble(entry_price - tp_pips * point * 10, digits);
+            OpenPosition(ORDER_TYPE_SELL, entry_price, sl_price, tp_price, lot_size);
+         }
+         break;
+         
+      case DECISION_LIMIT:
+         // Place limit order for better entry
+         if(direction == 1)
+         {
+            // Buy limit below current price
+            entry_price = NormalizeDouble(bid - (RetraceExpectedPips * point * 10), digits);
+            sl_price = NormalizeDouble(entry_price - sl_pips * point * 10, digits);
+            tp_price = NormalizeDouble(entry_price + tp_pips * point * 10, digits);
+            g_pendingOrderTicket = PlacePendingOrder(ORDER_TYPE_BUY_LIMIT, entry_price, sl_price, tp_price, lot_size, expiry);
+         }
+         else
+         {
+            // Sell limit above current price
+            entry_price = NormalizeDouble(ask + (RetraceExpectedPips * point * 10), digits);
+            sl_price = NormalizeDouble(entry_price + sl_pips * point * 10, digits);
+            tp_price = NormalizeDouble(entry_price - tp_pips * point * 10, digits);
+            g_pendingOrderTicket = PlacePendingOrder(ORDER_TYPE_SELL_LIMIT, entry_price, sl_price, tp_price, lot_size, expiry);
+         }
+         Print("Placed LIMIT order - expecting retrace to ", entry_price);
+         break;
+         
+      case DECISION_STOP:
+         // Place stop order to catch breakout
+         if(direction == 1)
+         {
+            // Buy stop above current price
+            entry_price = NormalizeDouble(ask + (OptimalEntryZonePips * point * 10), digits);
+            sl_price = NormalizeDouble(entry_price - sl_pips * point * 10, digits);
+            tp_price = NormalizeDouble(entry_price + tp_pips * point * 10, digits);
+            g_pendingOrderTicket = PlacePendingOrder(ORDER_TYPE_BUY_STOP, entry_price, sl_price, tp_price, lot_size, expiry);
+         }
+         else
+         {
+            // Sell stop below current price
+            entry_price = NormalizeDouble(bid - (OptimalEntryZonePips * point * 10), digits);
+            sl_price = NormalizeDouble(entry_price + sl_pips * point * 10, digits);
+            tp_price = NormalizeDouble(entry_price - tp_pips * point * 10, digits);
+            g_pendingOrderTicket = PlacePendingOrder(ORDER_TYPE_SELL_STOP, entry_price, sl_price, tp_price, lot_size, expiry);
+         }
+         Print("Placed STOP order - waiting for breakout at ", entry_price);
+         break;
+         
+      case DECISION_WAIT:
+         Print("Order decision: WAIT - insufficient confluence");
+         break;
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Cancel pending order                                             |
+//+------------------------------------------------------------------+
+bool CancelPendingOrder(ulong ticket)
+{
+   MqlTradeRequest request = {};
+   MqlTradeResult result = {};
+   
+   request.action = TRADE_ACTION_REMOVE;
+   request.order = ticket;
+   
+   if(!OrderSend(request, result))
+   {
+      Print("Failed to cancel pending order: ", GetLastError());
+      return false;
+   }
+   
+   return true;
+}
+
+//+------------------------------------------------------------------+
+//| Place pending order and return ticket                            |
+//+------------------------------------------------------------------+
+ulong PlacePendingOrder(ENUM_ORDER_TYPE order_type, double price, double sl, double tp, double lots, datetime expiry)
+{
+   MqlTradeRequest request = {};
+   MqlTradeResult result = {};
+   
+   request.action = TRADE_ACTION_PENDING;
+   request.symbol = _Symbol;
+   request.volume = lots;
+   request.type = order_type;
+   request.price = price;
+   request.sl = sl;
+   request.tp = tp;
+   request.deviation = 20;
+   request.magic = MagicNumber;
+   request.type_time = ORDER_TIME_SPECIFIED;
+   request.expiration = expiry;
+   request.type_filling = ORDER_FILLING_IOC;
+   
+   if(!OrderSend(request, result))
+   {
+      Print("Failed to place pending order: ", GetLastError());
+      return 0;
+   }
+   
+   Print("Pending order placed: Ticket #", result.order, " at ", price);
+   return result.order;
+}
+
+//+------------------------------------------------------------------+
+//| Get state name for logging                                       |
+//+------------------------------------------------------------------+
+string GetStateName(MARKET_STATE state)
+{
+   switch(state)
+   {
+      case STATE_TREND_BULLISH: return "TREND BULLISH";
+      case STATE_TREND_BEARISH: return "TREND BEARISH";
+      case STATE_TRANSITION_BULLISH: return "TRANSITION BULLISH";
+      case STATE_TRANSITION_BEARISH: return "TRANSITION BEARISH";
+      case STATE_RANGE: return "RANGING";
+      default: return "UNKNOWN";
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Get order decision name for logging                              |
+//+------------------------------------------------------------------+
+string GetOrderDecisionName(ORDER_TYPE_DECISION decision)
+{
+   switch(decision)
+   {
+      case DECISION_MARKET: return "MARKET";
+      case DECISION_LIMIT: return "LIMIT";
+      case DECISION_STOP: return "STOP";
+      case DECISION_WAIT: return "WAIT";
+      default: return "UNKNOWN";
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Print multi-stage analysis summary                               |
+//+------------------------------------------------------------------+
+void PrintMultiStageAnalysis()
+{
+   Print("========== MULTI-STAGE ENTRY ANALYSIS ==========");
+   Print("STAGE 1 - Higher Timeframe Context:");
+   Print("  Primary (", HTFPrimaryTimeframe, "): ", GetStateName(g_htfContext.primaryState));
+   Print("  Secondary (", HTFSecondaryTimeframe, "): ", GetStateName(g_htfContext.secondaryState));
+   Print("  Trend Strength: ", g_htfContext.trendStrength, "%");
+   Print("  In Transition: ", g_htfContext.inTransition ? "YES" : "NO");
+   Print("");
+   Print("STAGE 2 - Pattern Scoring:");
+   Print("  Pattern: ", g_patternSignal.patternName);
+   Print("  Confidence: ", g_patternSignal.confidence, "%");
+   Print("  Bias: ", g_patternSignal.bias > 0 ? "BULLISH" : g_patternSignal.bias < 0 ? "BEARISH" : "NEUTRAL");
+   Print("  Valid: ", g_patternSignal.isValid ? "YES" : "NO");
+   Print("");
+   Print("STAGE 3 - Lower Timeframe Trigger:");
+   Print("  Trigger Met: ", g_entryTrigger.triggerMet ? "YES" : "NO");
+   Print("  Oscillator OK: ", g_entryTrigger.oscillatorConfirmed ? "YES" : "NO");
+   Print("  Structure Break: ", g_entryTrigger.structureBreak ? "YES" : "NO");
+   Print("");
+   Print("STAGE 4 - Order Decision:");
+   Print("  Decision: ", GetOrderDecisionName(g_orderDecision));
+   Print("=================================================");
 }
 
 //+------------------------------------------------------------------+
