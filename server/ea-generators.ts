@@ -386,6 +386,7 @@ input int RSI_Oversold = ${strategyType === 'scalping' ? '25' : '30'};          
 input int MACD_FastEMA = 12;                    // MACD fast EMA period
 input int MACD_SlowEMA = 26;                    // MACD slow EMA period
 input int MACD_SignalSMA = 9;                   // MACD signal SMA period
+input int ATR_Period = ${strategyType === 'scalping' ? '7' : '14'};                      // ATR period for volatility measurement
 
 //--- Candlestick Pattern Recognition
 input group "=== Candlestick Pattern Recognition ==="
@@ -397,7 +398,6 @@ input bool DetectDoji = true;                   // Detect Doji patterns
 input bool DetectHammer = true;                 // Detect Hammer/Hanging Man
 input bool DetectEngulfing = true;              // Detect Engulfing patterns
 input bool DetectMorningStar = true;            // Detect Morning/Evening Star
-input int ATR_Period = ${strategyType === 'scalping' ? '7' : '14'};                      // ATR period (shorter for scalping)
 input int Volume_MA_Period = ${strategyType === 'position_trading' ? '50' : '20'};                // Volume moving average period
 
 //--- Trading Rules
