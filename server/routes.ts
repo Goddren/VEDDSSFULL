@@ -169,6 +169,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Initialize news service
   newsService.initialize(process.env.FINNHUB_API_KEY, process.env.OPENAI_API_KEY);
+
+  // Health check endpoint for keeping the app awake and verifying connectivity
+  app.get("/api/health", (_req: Request, res: Response) => {
+    res.json({ 
+      status: "ok", 
+      timestamp: new Date().toISOString(),
+      message: "VEDD AI is running"
+    });
+  });
+
   // Sample charts endpoint
   app.get("/api/sample-charts", (_req: Request, res: Response) => {
     // Return sample chart IDs - in production these would be real files
