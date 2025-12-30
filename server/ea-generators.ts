@@ -452,6 +452,18 @@ input double MomentumStrengthThreshold = 0.0003;// MACD strength threshold for b
 input int PendingOrderExpiryHours = 4;          // Hours until pending order expires
 input bool CancelPendingOnStateChange = true;   // Auto-cancel pending if HTF state changes
 
+//--- CHOPPY MARKET FILTER - Pauses Trading in Ranging/Choppy Conditions
+input group "=== Choppy Market Filter ==="
+input bool UseChoppyMarketFilter = true;        // Enable choppy market detection
+input int ADX_Period = 14;                      // ADX period for trend strength
+input double ADX_ChoppyThreshold = 20.0;        // ADX below this = choppy/ranging (pause trading)
+input double ADX_StrongTrendThreshold = 30.0;   // ADX above this = strong trend (full confidence)
+input int ChoppyConfirmBars = 3;                // Bars ADX must stay below threshold to confirm choppy
+input bool UseATRChoppyFilter = true;           // Also check ATR volatility for choppy detection
+input double ATRChoppyRatio = 0.5;              // ATR below (this * avg ATR) = low volatility choppy
+input int ChoppyATRLookback = 20;               // Bars to calculate average ATR
+input bool LogChoppyState = true;               // Print messages when choppy state changes
+
 //--- Trading Hours (Peak Volume Times) - OPTIONAL
 input group "=== Trading Hours (Peak Volume) - OPTIONAL ==="
 input bool UseTradeHours = false;               // Enable to only trade during peak hours (disabled by default)
@@ -614,6 +626,18 @@ struct MarketContext
    double htfMACDSlope;          // MACD slope for momentum
 };
 
+//--- Choppy Market State Structure
+struct ChoppyMarketState
+{
+   bool isChoppy;                // Market is currently choppy/ranging
+   double currentADX;            // Current ADX value
+   double avgATR;                // Average ATR for comparison
+   double currentATR;            // Current ATR value
+   int choppyBarsCount;          // Consecutive bars below threshold
+   datetime lastStateChange;     // When state last changed
+   string reason;                // Why market is considered choppy
+};
+
 //--- Global variables for multi-stage system
 MarketContext g_htfContext;
 PatternSignal g_patternSignal;
@@ -621,6 +645,9 @@ EntryTrigger g_entryTrigger;
 ORDER_TYPE_DECISION g_orderDecision;
 ulong g_pendingOrderTicket = 0;  // Track pending order for management
 MARKET_STATE g_lastHTFState = STATE_UNKNOWN;  // Track state changes
+ChoppyMarketState g_choppyState;  // Choppy market detection state
+bool g_wasChoppy = false;         // Previous choppy state for change detection
+int g_adxHandle = INVALID_HANDLE; // ADX indicator handle
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
@@ -635,6 +662,21 @@ int OnInit()
    rsi_handle = iRSI(_Symbol, PERIOD_CURRENT, RSI_Period, PRICE_CLOSE);
    macd_handle = iMACD(_Symbol, PERIOD_CURRENT, MACD_FastEMA, MACD_SlowEMA, MACD_SignalSMA, PRICE_CLOSE);
    atr_handle = iATR(_Symbol, PERIOD_CURRENT, 14);
+   
+   //--- Initialize ADX for choppy market detection
+   if(UseChoppyMarketFilter)
+   {
+      g_adxHandle = iADX(_Symbol, PERIOD_CURRENT, ADX_Period);
+      if(g_adxHandle == INVALID_HANDLE)
+      {
+         Print("Warning: Failed to create ADX indicator for choppy market detection");
+      }
+      // Initialize choppy state
+      g_choppyState.isChoppy = false;
+      g_choppyState.choppyBarsCount = 0;
+      g_choppyState.lastStateChange = TimeCurrent();
+      g_choppyState.reason = "";
+   }
    
    if(rsi_handle == INVALID_HANDLE || macd_handle == INVALID_HANDLE || atr_handle == INVALID_HANDLE)
    {
@@ -1046,6 +1088,20 @@ ${higherTFs.map(tf => `      if(tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}
       Print("POSITIONS:");
       Print("  - BUY: ", buy_positions, " | SELL: ", sell_positions, " | Total: ", total_positions);
       Print("  - Mode: ", MultiTradeMode, " | Max: ", MaxOpenTrades);
+      Print("");
+      if(UseChoppyMarketFilter)
+      {
+         Print("CHOPPY MARKET FILTER:");
+         Print("  - Status: ", g_choppyState.isChoppy ? "CHOPPY (Trading Paused)" : "CLEAR (Trading Active)");
+         Print("  - ADX: ", DoubleToString(g_choppyState.currentADX, 2), 
+               " (Threshold: ", DoubleToString(ADX_ChoppyThreshold, 1), 
+               ", Strong: ", DoubleToString(ADX_StrongTrendThreshold, 1), ")");
+         Print("  - Trend Strength: ", GetTrendStrengthFromADX(), "%");
+         if(g_choppyState.isChoppy)
+         {
+            Print("  - Reason: ", g_choppyState.reason);
+         }
+      }
       Print("====================================================");
       
       // Print multi-stage analysis every 50 bars
@@ -1066,6 +1122,29 @@ ${higherTFs.map(tf => `      if(tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}
          Print("   Set trading_paused = false manually to resume");
       }
       return;  // Skip all trading logic
+   }
+   
+   //--- CHOPPY MARKET DETECTION - Evaluate and pause if market is ranging
+   EvaluateChoppyMarketState();
+   
+   if(IsMarketChoppy())
+   {
+      static int choppy_warning_count = 0;
+      choppy_warning_count++;
+      if(choppy_warning_count % 50 == 0)  // Print occasionally
+      {
+         Print("TRADING PAUSED - CHOPPY MARKET DETECTED");
+         Print("   Reason: ", g_choppyState.reason);
+         Print("   ADX: ", DoubleToString(g_choppyState.currentADX, 2), 
+               " (Threshold: ", DoubleToString(ADX_ChoppyThreshold, 1), ")");
+         if(UseATRChoppyFilter)
+         {
+            Print("   ATR: ", DoubleToString(g_choppyState.currentATR, 5),
+                  " (Avg: ", DoubleToString(g_choppyState.avgATR, 5), ")");
+         }
+         Print("   Waiting for trend to develop...");
+      }
+      return;  // Skip all trading logic when market is choppy
    }
    
    //--- Execute trades based on multi-trade strategy with MULTI-STAGE ENTRY SYSTEM
@@ -2257,6 +2336,162 @@ string GetStateName(MARKET_STATE state)
       case STATE_RANGE: return "RANGING";
       default: return "UNKNOWN";
    }
+}
+
+//+------------------------------------------------------------------+
+//| CHOPPY MARKET DETECTION - Pauses Trading in Ranging Markets      |
+//+------------------------------------------------------------------+
+void EvaluateChoppyMarketState()
+{
+   if(!UseChoppyMarketFilter || g_adxHandle == INVALID_HANDLE)
+   {
+      g_choppyState.isChoppy = false;
+      return;
+   }
+   
+   // Get ADX values
+   double adx_buffer[];
+   ArraySetAsSeries(adx_buffer, true);
+   
+   if(CopyBuffer(g_adxHandle, 0, 0, ChoppyConfirmBars + 1, adx_buffer) <= 0)
+   {
+      Print("Failed to get ADX data for choppy detection");
+      return;
+   }
+   
+   g_choppyState.currentADX = adx_buffer[0];
+   
+   // Check ADX threshold
+   bool adx_choppy = (g_choppyState.currentADX < ADX_ChoppyThreshold);
+   
+   // Check if ADX has been below threshold for confirmation bars
+   int consecutive_choppy = 0;
+   for(int i = 0; i < ChoppyConfirmBars; i++)
+   {
+      if(adx_buffer[i] < ADX_ChoppyThreshold)
+         consecutive_choppy++;
+   }
+   
+   bool adx_confirmed_choppy = (consecutive_choppy >= ChoppyConfirmBars);
+   
+   // ATR-based choppy detection (low volatility)
+   bool atr_choppy = false;
+   g_choppyState.reason = "";
+   
+   if(UseATRChoppyFilter)
+   {
+      double atr_values[];
+      ArraySetAsSeries(atr_values, true);
+      
+      if(CopyBuffer(atr_handle, 0, 0, ChoppyATRLookback + 1, atr_values) > 0)
+      {
+         g_choppyState.currentATR = atr_values[0];
+         
+         // Calculate average ATR
+         double atr_sum = 0;
+         for(int i = 1; i <= ChoppyATRLookback; i++)
+         {
+            atr_sum += atr_values[i];
+         }
+         g_choppyState.avgATR = atr_sum / ChoppyATRLookback;
+         
+         // Current ATR significantly below average = low volatility choppy
+         atr_choppy = (g_choppyState.currentATR < g_choppyState.avgATR * ATRChoppyRatio);
+         
+         if(atr_choppy)
+         {
+            g_choppyState.reason = "Low volatility (ATR)";
+         }
+      }
+   }
+   
+   // Combine ADX and ATR choppy signals
+   bool now_choppy = false;
+   
+   if(adx_confirmed_choppy && atr_choppy)
+   {
+      now_choppy = true;
+      g_choppyState.reason = "ADX < " + DoubleToString(ADX_ChoppyThreshold, 1) + " + Low ATR";
+   }
+   else if(adx_confirmed_choppy && !UseATRChoppyFilter)
+   {
+      now_choppy = true;
+      g_choppyState.reason = "ADX < " + DoubleToString(ADX_ChoppyThreshold, 1);
+   }
+   else if(adx_confirmed_choppy && g_choppyState.currentADX < 15.0)
+   {
+      // Very low ADX overrides ATR check
+      now_choppy = true;
+      g_choppyState.reason = "Very low ADX (" + DoubleToString(g_choppyState.currentADX, 1) + ")";
+   }
+   
+   // Update consecutive bar count
+   if(adx_choppy)
+   {
+      g_choppyState.choppyBarsCount++;
+   }
+   else
+   {
+      g_choppyState.choppyBarsCount = 0;
+   }
+   
+   // State change logging
+   if(now_choppy != g_wasChoppy)
+   {
+      g_choppyState.lastStateChange = TimeCurrent();
+      
+      if(LogChoppyState)
+      {
+         if(now_choppy)
+         {
+            Print("=== CHOPPY MARKET DETECTED - TRADING PAUSED ===");
+            Print("Reason: ", g_choppyState.reason);
+            Print("ADX: ", DoubleToString(g_choppyState.currentADX, 2));
+            if(UseATRChoppyFilter)
+            {
+               Print("ATR: ", DoubleToString(g_choppyState.currentATR, 5), 
+                     " (Avg: ", DoubleToString(g_choppyState.avgATR, 5), ")");
+            }
+         }
+         else
+         {
+            Print("=== CHOPPY MARKET CLEARED - TRADING RESUMED ===");
+            Print("ADX: ", DoubleToString(g_choppyState.currentADX, 2));
+         }
+      }
+   }
+   
+   g_choppyState.isChoppy = now_choppy;
+   g_wasChoppy = now_choppy;
+}
+
+//+------------------------------------------------------------------+
+//| Check if trading should be paused due to choppy market           |
+//+------------------------------------------------------------------+
+bool IsMarketChoppy()
+{
+   if(!UseChoppyMarketFilter)
+      return false;
+   
+   return g_choppyState.isChoppy;
+}
+
+//+------------------------------------------------------------------+
+//| Get trend strength based on ADX                                   |
+//+------------------------------------------------------------------+
+int GetTrendStrengthFromADX()
+{
+   if(!UseChoppyMarketFilter || g_adxHandle == INVALID_HANDLE)
+      return 50;  // Default medium strength
+   
+   if(g_choppyState.currentADX >= ADX_StrongTrendThreshold)
+      return 100;  // Strong trend
+   else if(g_choppyState.currentADX >= ADX_ChoppyThreshold)
+      return 75;   // Moderate trend
+   else if(g_choppyState.currentADX >= 15.0)
+      return 40;   // Weak trend
+   else
+      return 20;   // Very weak / choppy
 }
 
 //+------------------------------------------------------------------+
