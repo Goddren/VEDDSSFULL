@@ -333,6 +333,20 @@ export default function SubscriptionPage() {
               <p className="text-xs text-muted-foreground">Scenario planning with AI</p>
             </div>
           </div>
+          <div className="flex items-start gap-2 p-3 bg-background rounded-lg border-2 border-indigo-500">
+            <Check className="h-5 w-5 text-indigo-500 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-medium text-sm text-indigo-600 dark:text-indigo-400">4-Stage Entry System</p>
+              <p className="text-xs text-muted-foreground">HTF trend → Pattern scoring → LTF timing → Smart orders</p>
+            </div>
+          </div>
+          <div className="flex items-start gap-2 p-3 bg-background rounded-lg border-2 border-rose-500">
+            <Check className="h-5 w-5 text-rose-500 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-medium text-sm text-rose-600 dark:text-rose-400">Choppy Market Filter</p>
+              <p className="text-xs text-muted-foreground">Auto-pause in sideways markets</p>
+            </div>
+          </div>
         </div>
       </div>
 

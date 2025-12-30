@@ -23,7 +23,9 @@ import {
   Menu,
   User,
   Settings,
-  Info
+  Info,
+  Layers,
+  Pause
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -303,6 +305,20 @@ export default function LandingPage() {
                   title: "MT5 Trade Copier EA",
                   description: "Copy trades from MetaTrader 5 directly to TradeLocker and other platforms with our downloadable EA and API tokens.",
                   color: "bg-amber-50 dark:bg-amber-900/20",
+                  bgGradient: "bg-theme-light border border-theme-light"
+                },
+                {
+                  icon: <Layers className="h-7 w-7 text-indigo-500" />,
+                  title: "4-Stage Entry System",
+                  description: "Advanced multi-stage entry pipeline: HTF trend analysis → candlestick pattern scoring → LTF timing confirmation → smart order type selection for precision entries.",
+                  color: "bg-indigo-50 dark:bg-indigo-900/20",
+                  bgGradient: "bg-theme-light border border-theme-light"
+                },
+                {
+                  icon: <Pause className="h-7 w-7 text-rose-500" />,
+                  title: "Choppy Market Filter",
+                  description: "Automatically pauses trading during sideways/ranging markets using ADX and ATR analysis. Resumes when trends develop to avoid whipsaws.",
+                  color: "bg-rose-50 dark:bg-rose-900/20",
                   bgGradient: "bg-theme-light border border-theme-light"
                 }
               ]}
