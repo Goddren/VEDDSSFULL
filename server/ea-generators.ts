@@ -2941,6 +2941,49 @@ void OpenSellPosition(double sl, double tp, double lot_size = 0)
 }
 
 //+------------------------------------------------------------------+
+//| Open position with specified order type (for smart order system) |
+//+------------------------------------------------------------------+
+void OpenPosition(ENUM_ORDER_TYPE order_type, double price, double sl, double tp, double lots)
+{
+   MqlTradeRequest request = {};
+   MqlTradeResult result = {};
+   
+   request.action = TRADE_ACTION_DEAL;
+   request.symbol = _Symbol;
+   request.volume = lots;
+   request.type = order_type;
+   request.price = price;
+   request.sl = sl;
+   request.tp = tp;
+   request.deviation = 10;
+   request.magic = MagicNumber;
+   request.comment = "Multi-TF Smart Order";
+   
+   if(OrderSend(request, result))
+   {
+      // Track for one-trade-per-day limit
+      datetime current_time = TimeCurrent();
+      int current_day = (int)(current_time / 86400);
+      if(last_trade_day != current_day)
+      {
+         daily_trade_count = 0;
+         last_trade_day = current_day;
+      }
+      daily_trade_count++;
+      
+      // Track last price for grid/pyramiding
+      if(order_type == ORDER_TYPE_BUY)
+         last_buy_price = price;
+      else
+         last_sell_price = price;
+         
+      Print("Position opened: ", EnumToString(order_type), " at ", price, " with lot size: ", lots);
+   }
+   else
+      Print("Error opening position: ", GetLastError());
+}
+
+//+------------------------------------------------------------------+
 //| Place pending buy order (Buy Limit or Buy Stop)                  |
 //+------------------------------------------------------------------+
 void PlacePendingBuyOrder(double sl, double tp, double lot_size = 0)
