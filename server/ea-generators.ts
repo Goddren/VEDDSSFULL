@@ -303,23 +303,25 @@ enum ENUM_MULTI_TRADE_MODE
 // Bullish Patterns Found: ${hasBullishCandles ? bullishCandlePatterns.map((p: any) => p.name).join(', ') : 'None'}
 // Bearish Patterns Found: ${hasBearishCandles ? bearishCandlePatterns.map((p: any) => p.name).join(', ') : 'None'}
 //
-// TRADING STRATEGY - HYBRID APPROACH
+// TRADING STRATEGY - BIDIRECTIONAL HYBRID APPROACH
 //========================================================================
-// This EA combines AI pattern analysis with technical indicator confirmation:
+// NEW: BidirectionalTrading = true (default) enables trading BOTH directions!
 //
-// When AI suggests ${consensusDirection}:
-//   - Easier entry requirements (MACD confirmation + reasonable RSI)
-//   - Trusts the AI's pattern detection from your chart
-//   - Waits for technical indicators to align with AI direction
+// BIDIRECTIONAL MODE (Recommended):
+//   - Trades BUY when MACD is bullish + RSI not overbought
+//   - Trades SELL when MACD is bearish + RSI not oversold
+//   - AI direction provides confidence boost (easier entry when AI agrees)
+//   - Opposite to AI requires fresh crossover + volume confirmation
 //
-// When AI is neutral/opposite:
-//   - Stricter entry requirements (fresh MACD crossover + strong RSI)
-//   - Requires clear technical signals to override AI analysis
+// AI CONFIRMATION MODE (RequireAIConfirmation = true):
+//   - Only trades in the direction AI suggested (${consensusDirection})
+//   - More conservative, fewer trades
+//   - Use when you trust the AI chart analysis completely
 //
 // This hybrid approach gives you the best of both worlds:
 // - AI identifies patterns humans might miss
 // - Technical indicators confirm entries in real-time
-// - Reduces false signals and improves win rate
+// - Can catch reversals when market conditions change
 //========================================================================
 //
 // LIVE AI REFRESH FEATURE (COMING SOON!)
@@ -398,6 +400,8 @@ input int Volume_MA_Period = ${strategyType === 'position_trading' ? '50' : '20'
 input group "=== Trading Rules ==="
 input bool AllowBuyTrades = true;               // Allow BUY trades
 input bool AllowSellTrades = true;              // Allow SELL trades
+input bool BidirectionalTrading = true;         // Trade BOTH directions based on real-time signals (recommended)
+input bool RequireAIConfirmation = false;       // Require AI direction match (restricts to one direction)
 input bool UseVolumeFilter = ${strategyType === 'scalping' ? 'true' : 'false'};             // Require volume confirmation (stricter for scalping)
 input bool UseMultiTimeframeConfirmation = ${strategyType === 'position_trading' ? 'true' : 'false'};  // Use multiple timeframes for confirmation
 input int MinTimeframesAgree = ${Math.max(1, Math.floor(sortedTimeframes.length / 2))};                     // Minimum timeframes that must agree
@@ -851,9 +855,37 @@ ${higherTFs.map(tf => `   bool tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_
    // Note: If multi-timeframe confirmation is disabled, use current timeframe signals only
    bool buy_signal, sell_signal;
    
-   if(UseMultiTimeframeConfirmation)
+   if(BidirectionalTrading)
    {
-      // Require multiple timeframes to agree
+      // BIDIRECTIONAL MODE: Use real-time indicator checks on all timeframes
+      // Count how many timeframes are currently bullish/bearish based on MACD
+      int bullish_count = 0;
+      int bearish_count = 0;
+      
+      // Primary timeframe
+      if(tf_${sortedTimeframes[0].timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_trend_bullish) bullish_count++;
+      if(tf_${sortedTimeframes[0].timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_trend_bearish) bearish_count++;
+      
+      // Higher timeframes
+${higherTFs.map(tf => `      if(tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_trend_bullish) bullish_count++;
+      if(tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_trend_bearish) bearish_count++;`).join('\n')}
+      
+      if(UseMultiTimeframeConfirmation)
+      {
+         // Require minimum timeframes to agree
+         buy_signal = (bullish_count >= MinTimeframesAgree);
+         sell_signal = (bearish_count >= MinTimeframesAgree);
+      }
+      else
+      {
+         // Primary timeframe only
+         buy_signal = tf_${sortedTimeframes[0].timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_trend_bullish;
+         sell_signal = tf_${sortedTimeframes[0].timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_trend_bearish;
+      }
+   }
+   else if(UseMultiTimeframeConfirmation)
+   {
+      // LEGACY MODE: Require AI-flagged timeframes to agree
       ${buyConditions.length > 0 ? 
         `buy_signal = (${buyConditions.join(' && ')});  // ${buyCount} timeframe(s) suggest BUY` : 
         `buy_signal = tf_${sortedTimeframes[0].timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_trend_bullish;  // Using primary timeframe only`}
@@ -863,7 +895,7 @@ ${higherTFs.map(tf => `   bool tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_
    }
    else
    {
-      // Use primary timeframe signals only (more trades)
+      // LEGACY MODE: Use primary timeframe signals only
       buy_signal = tf_${sortedTimeframes[0].timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_trend_bullish;
       sell_signal = tf_${sortedTimeframes[0].timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_trend_bearish;
    }
@@ -904,7 +936,8 @@ ${higherTFs.map(tf => `   bool tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_
       Print("");
       Print("TRADE SIGNALS:");
       Print("  - BUY Signal: ", buy_signal, " | SELL Signal: ", sell_signal);
-      Print("  - Volume OK: ", volume_confirmed, " | Multi-TF: ", UseMultiTimeframeConfirmation);
+      Print("  - Bidirectional: ", BidirectionalTrading, " | Multi-TF: ", UseMultiTimeframeConfirmation);
+      Print("  - Volume OK: ", volume_confirmed);
       Print("");
       Print("POSITIONS:");
       Print("  - BUY: ", buy_positions, " | SELL: ", sell_positions, " | Total: ", total_positions);
@@ -1067,8 +1100,8 @@ ${higherTFs.map(tf => `   bool tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}_
 
 //+------------------------------------------------------------------+
 //| Check bullish condition on current timeframe                     |
-//| STRENGTH-BASED ENTRY: Adjusts requirements based on timeframe    |
-//| confidence level (high=light check, low=strict check)            |
+//| BIDIRECTIONAL MODE: Uses real-time technical indicators           |
+//| AI CONFIRMATION MODE: Only trades in AI-suggested direction       |
 //+------------------------------------------------------------------+
 bool CheckBullishCondition()
 {
@@ -1078,8 +1111,45 @@ bool CheckBullishCondition()
    
    bool ai_suggests_buy = ${consensusDirection === 'BUY' ? 'true' : 'false'};  // Based on chart pattern analysis
    
-   if(!ai_suggests_buy) return false;  // Only trade if AI says BUY
+   // If RequireAIConfirmation is enabled, only trade AI-suggested direction
+   if(RequireAIConfirmation && !ai_suggests_buy) return false;
    
+   // BIDIRECTIONAL MODE: Use real-time technical indicators
+   if(BidirectionalTrading)
+   {
+      // Candlestick pattern check (optional confirmation)
+      bool candle_ok = !RequireCandleConfirmation || HasBullishCandlePattern();
+      
+      // Real-time indicator checks
+      bool rsi_check = true;
+      if(rsi_ok)
+         rsi_check = (rsi_buffer[0] < RSI_Overbought);  // Not overbought
+      
+      bool macd_check = true;
+      if(macd_ok)
+         macd_check = (macd_main[0] > macd_signal[0]);  // MACD bullish
+      
+      // AI suggests same direction = easier entry, opposite = stricter entry
+      if(ai_suggests_buy)
+      {
+         // AI agrees: lighter confirmation
+         return rsi_check && macd_check && candle_ok;
+      }
+      else
+      {
+         // AI disagrees: require stronger confirmation + fresh crossover
+         bool fresh_crossover = false;
+         if(macd_ok && ArraySize(macd_main) >= 2 && ArraySize(macd_signal) >= 2)
+            fresh_crossover = (macd_main[0] > macd_signal[0]) && (macd_main[1] <= macd_signal[1]);
+         
+         bool strong_rsi = rsi_ok ? (rsi_buffer[0] < 50) : true;  // RSI must be in lower half
+         bool volume_ok = CheckVolumeConfirmation();
+         
+         return strong_rsi && fresh_crossover && volume_ok && candle_ok;
+      }
+   }
+   
+   // LEGACY MODE (RequireAIConfirmation = true, BidirectionalTrading = false)
    // STRENGTH-BASED ENTRY REQUIREMENTS
    int confidence = current_ai_confidence;
    
@@ -1089,7 +1159,6 @@ bool CheckBullishCondition()
    if(confidence >= 80)
    {
       // HIGH CONFIDENCE (80%+): Light confirmation needed
-      // RSI just needs to not be extremely overbought
       if(rsi_ok)
          return (rsi_buffer[0] < 80) && candle_ok;
       return candle_ok;
@@ -1097,32 +1166,28 @@ bool CheckBullishCondition()
    else if(confidence >= 50)
    {
       // MEDIUM CONFIDENCE (50-79%): Standard confirmation required
-      // RSI should be neutral-to-bullish AND MACD should be bullish
       bool rsi_check = true;
       if(rsi_ok)
-         rsi_check = (rsi_buffer[0] < 75);  // Stricter RSI: < 75
+         rsi_check = (rsi_buffer[0] < 75);
       
       bool macd_check = true;
       if(macd_ok)
-         macd_check = (macd_main[0] > macd_signal[0]);  // MACD must be bullish
+         macd_check = (macd_main[0] > macd_signal[0]);
       
       return rsi_check && macd_check && candle_ok;
    }
    else
    {
       // LOW CONFIDENCE (<50%): Strict confirmation ALL required
-      // RSI oversold (opportunity), MACD bullish crossover, volume confirmation
       bool rsi_check = true;
       if(rsi_ok)
-         rsi_check = (rsi_buffer[0] < 50);  // Very strict RSI: < 50
+         rsi_check = (rsi_buffer[0] < 50);
       
       bool macd_check = true;
       if(macd_ok)
-         macd_check = (macd_main[0] > macd_signal[0]);  // MACD must be bullish
+         macd_check = (macd_main[0] > macd_signal[0]);
       
-      bool volume_check = CheckVolumeConfirmation();  // Volume must confirm
-      
-      // For low confidence, candlestick patterns provide extra confirmation
+      bool volume_check = CheckVolumeConfirmation();
       bool candle_boost = HasBullishCandlePattern();
       
       return rsi_check && macd_check && volume_check && candle_boost;
@@ -1131,8 +1196,8 @@ bool CheckBullishCondition()
 
 //+------------------------------------------------------------------+
 //| Check bearish condition on current timeframe                     |
-//| STRENGTH-BASED ENTRY: Adjusts requirements based on timeframe    |
-//| confidence level (high=light check, low=strict check)            |
+//| BIDIRECTIONAL MODE: Uses real-time technical indicators           |
+//| AI CONFIRMATION MODE: Only trades in AI-suggested direction       |
 //+------------------------------------------------------------------+
 bool CheckBearishCondition()
 {
@@ -1141,8 +1206,45 @@ bool CheckBearishCondition()
    
    bool ai_suggests_sell = ${consensusDirection === 'SELL' ? 'true' : 'false'};  // Based on chart pattern analysis
    
-   if(!ai_suggests_sell) return false;  // Only trade if AI says SELL
+   // If RequireAIConfirmation is enabled, only trade AI-suggested direction
+   if(RequireAIConfirmation && !ai_suggests_sell) return false;
    
+   // BIDIRECTIONAL MODE: Use real-time technical indicators
+   if(BidirectionalTrading)
+   {
+      // Candlestick pattern check (optional confirmation)
+      bool candle_ok = !RequireCandleConfirmation || HasBearishCandlePattern();
+      
+      // Real-time indicator checks
+      bool rsi_check = true;
+      if(rsi_ok)
+         rsi_check = (rsi_buffer[0] > RSI_Oversold);  // Not oversold
+      
+      bool macd_check = true;
+      if(macd_ok)
+         macd_check = (macd_main[0] < macd_signal[0]);  // MACD bearish
+      
+      // AI suggests same direction = easier entry, opposite = stricter entry
+      if(ai_suggests_sell)
+      {
+         // AI agrees: lighter confirmation
+         return rsi_check && macd_check && candle_ok;
+      }
+      else
+      {
+         // AI disagrees: require stronger confirmation + fresh crossover
+         bool fresh_crossover = false;
+         if(macd_ok && ArraySize(macd_main) >= 2 && ArraySize(macd_signal) >= 2)
+            fresh_crossover = (macd_main[0] < macd_signal[0]) && (macd_main[1] >= macd_signal[1]);
+         
+         bool strong_rsi = rsi_ok ? (rsi_buffer[0] > 50) : true;  // RSI must be in upper half
+         bool volume_ok = CheckVolumeConfirmation();
+         
+         return strong_rsi && fresh_crossover && volume_ok && candle_ok;
+      }
+   }
+   
+   // LEGACY MODE (RequireAIConfirmation = true, BidirectionalTrading = false)
    // STRENGTH-BASED ENTRY REQUIREMENTS
    int confidence = current_ai_confidence;
    
@@ -1152,7 +1254,6 @@ bool CheckBearishCondition()
    if(confidence >= 80)
    {
       // HIGH CONFIDENCE (80%+): Light confirmation needed
-      // RSI just needs to not be extremely oversold
       if(rsi_ok)
          return (rsi_buffer[0] > 20) && candle_ok;
       return candle_ok;
@@ -1160,32 +1261,28 @@ bool CheckBearishCondition()
    else if(confidence >= 50)
    {
       // MEDIUM CONFIDENCE (50-79%): Standard confirmation required
-      // RSI should be neutral-to-bearish AND MACD should be bearish
       bool rsi_check = true;
       if(rsi_ok)
-         rsi_check = (rsi_buffer[0] > 25);  // Stricter RSI: > 25
+         rsi_check = (rsi_buffer[0] > 25);
       
       bool macd_check = true;
       if(macd_ok)
-         macd_check = (macd_main[0] < macd_signal[0]);  // MACD must be bearish
+         macd_check = (macd_main[0] < macd_signal[0]);
       
       return rsi_check && macd_check && candle_ok;
    }
    else
    {
       // LOW CONFIDENCE (<50%): Strict confirmation ALL required
-      // RSI overbought (opportunity), MACD bearish crossover, volume confirmation
       bool rsi_check = true;
       if(rsi_ok)
-         rsi_check = (rsi_buffer[0] > 50);  // Very strict RSI: > 50
+         rsi_check = (rsi_buffer[0] > 50);
       
       bool macd_check = true;
       if(macd_ok)
-         macd_check = (macd_main[0] < macd_signal[0]);  // MACD must be bearish
+         macd_check = (macd_main[0] < macd_signal[0]);
       
-      bool volume_check = CheckVolumeConfirmation();  // Volume must confirm
-      
-      // For low confidence, candlestick patterns provide extra confirmation
+      bool volume_check = CheckVolumeConfirmation();
       bool candle_boost = HasBearishCandlePattern();
       
       return rsi_check && macd_check && volume_check && candle_boost;
