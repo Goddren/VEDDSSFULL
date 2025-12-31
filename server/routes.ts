@@ -762,12 +762,13 @@ Respond ONLY in valid JSON format with these exact keys:
       }
       
       // Add chart details for the recommended timeframe
+      // Use the unified consensus direction instead of individual timeframe direction to ensure consistency
       const recommendedAnalysis = analyses.find((a: any) => a.timeframe === synthesis.bestChartTimeframe);
       if (recommendedAnalysis) {
         synthesis.recommendedChart = {
           timeframe: synthesis.bestChartTimeframe,
-          direction: recommendedAnalysis.direction,
-          confidence: recommendedAnalysis.confidence,
+          direction: synthesis.direction, // Use consensus direction for consistency
+          confidence: synthesis.confidence, // Use unified confidence
           patterns: recommendedAnalysis.patterns || [],
           rsi: recommendedAnalysis.momentumIndicators?.rsi?.value,
           preferredVolumeThreshold: synthesis.preferredVolumeThreshold || "150% above average",
