@@ -13,7 +13,7 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
-import { Menu, Bell, User, LogOut, Settings, History, LineChart, CreditCard, Award, Users, Newspaper, Wand2, Clock, Briefcase, Zap, HelpCircle, BookOpen, GraduationCap, FileText, Lightbulb } from 'lucide-react';
+import { Menu, Bell, User, LogOut, Settings, History, LineChart, CreditCard, Award, Users, Newspaper, Wand2, Clock, Briefcase, Zap, HelpCircle, BookOpen, GraduationCap, FileText, Lightbulb, ChevronDown, MoreHorizontal } from 'lucide-react';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 
 const Header: React.FC = () => {
@@ -21,20 +21,28 @@ const Header: React.FC = () => {
   const { user, logoutMutation } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
 
-  const navItems = [
+  // Primary nav items shown directly in header
+  const primaryNavItems = [
     { name: 'Dashboard', path: '/dashboard', active: location === '/dashboard', icon: <Settings className="h-4 w-4 mr-2" /> },
     { name: 'Analysis', path: '/analysis', active: location === '/analysis', icon: <LineChart className="h-4 w-4 mr-2" /> },
-    { name: 'What If', path: '/what-if', active: location === '/what-if', icon: <Lightbulb className="h-4 w-4 mr-2" /> },
     { name: 'Multi-TF EA', path: '/multi-timeframe', active: location === '/multi-timeframe', icon: <Clock className="h-4 w-4 mr-2" /> },
-    { name: 'Historical', path: '/historical', active: location === '/historical', icon: <History className="h-4 w-4 mr-2" /> },
     { name: 'My EAs', path: '/my-eas', active: location === '/my-eas', icon: <Briefcase className="h-4 w-4 mr-2" /> },
-    { name: 'EA Marketplace', path: '/ea-marketplace', active: location === '/ea-marketplace', icon: <Zap className="h-4 w-4 mr-2" /> },
+    { name: 'Marketplace', path: '/ea-marketplace', active: location === '/ea-marketplace', icon: <Zap className="h-4 w-4 mr-2" /> },
+  ];
+
+  // Secondary nav items shown in "More" dropdown
+  const moreNavItems = [
+    { name: 'What If Analysis', path: '/what-if', active: location === '/what-if', icon: <Lightbulb className="h-4 w-4 mr-2" /> },
+    { name: 'Historical', path: '/historical', active: location === '/historical', icon: <History className="h-4 w-4 mr-2" /> },
     { name: 'Community', path: '/community', active: location === '/community', icon: <Users className="h-4 w-4 mr-2" /> },
     { name: 'Blog', path: '/blog', active: location === '/blog', icon: <Newspaper className="h-4 w-4 mr-2" /> },
     { name: 'Achievements', path: '/achievements', active: location === '/achievements', icon: <Award className="h-4 w-4 mr-2" /> },
     { name: 'Pricing', path: '/subscription', active: location === '/subscription', icon: <CreditCard className="h-4 w-4 mr-2" /> },
     { name: 'Support', path: '/support', active: location === '/support', icon: <HelpCircle className="h-4 w-4 mr-2" /> },
   ];
+
+  // All nav items for mobile menu
+  const navItems = [...primaryNavItems, ...moreNavItems];
 
   // Get user initials for avatar fallback
   const getUserInitials = () => {
@@ -69,16 +77,38 @@ const Header: React.FC = () => {
           </Link>
         </div>
         
-        <div className="hidden md:flex space-x-8">
-          {navItems.map(item => (
+        <div className="hidden md:flex items-center space-x-4 lg:space-x-6">
+          {primaryNavItems.map(item => (
             <Link 
               key={item.path} 
               href={item.path}
-              className={`transition-colors flex items-center ${item.active ? 'text-primary font-medium' : 'text-muted-foreground hover:text-foreground'}`}
+              className={`text-sm transition-colors flex items-center ${item.active ? 'text-primary font-medium' : 'text-muted-foreground hover:text-foreground'}`}
             >
               {item.name}
             </Link>
           ))}
+          
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground">
+                <MoreHorizontal className="h-4 w-4 mr-1" />
+                More
+                <ChevronDown className="h-3 w-3 ml-1" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="center" className="w-48">
+              {moreNavItems.map(item => (
+                <DropdownMenuItem key={item.path} asChild className="cursor-pointer">
+                  <Link href={item.path}>
+                    <div className={`flex items-center w-full ${item.active ? 'text-primary font-medium' : ''}`}>
+                      {item.icon}
+                      <span>{item.name}</span>
+                    </div>
+                  </Link>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
         
         <div className="flex items-center space-x-2 md:space-x-4">

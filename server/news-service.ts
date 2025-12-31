@@ -672,30 +672,27 @@ Return JSON:
 
   private getFallbackMarketNews(): NewsItem[] {
     const now = Date.now();
-    return [
-      {
-        id: 'market-1',
-        headline: 'Global markets show mixed signals amid economic uncertainty',
-        summary: 'Traders are closely watching central bank decisions and economic data releases.',
-        source: 'VEDD AI Market Analysis',
-        url: '#',
-        image: '',
-        datetime: now - 3600000,
-        related: '',
-        category: 'general'
-      },
-      {
-        id: 'market-2',
-        headline: 'Technical indicators suggest key market turning points',
-        summary: 'Major indices approaching critical support and resistance levels.',
-        source: 'VEDD AI Market Analysis',
-        url: '#',
-        image: '',
-        datetime: now - 7200000,
-        related: '',
-        category: 'general'
-      }
+    const headlines = [
+      { headline: 'Global markets show mixed signals amid economic uncertainty', summary: 'Traders are closely watching central bank decisions and economic data releases.' },
+      { headline: 'Technical indicators suggest key market turning points', summary: 'Major indices approaching critical support and resistance levels.' },
+      { headline: 'Currency markets remain volatile as investors assess data', summary: 'Forex traders monitoring central bank policies and economic indicators closely.' },
+      { headline: 'Precious metals respond to risk sentiment shifts', summary: 'Gold and silver prices fluctuate as traders balance risk-on and risk-off strategies.' },
+      { headline: 'Energy markets face supply and demand pressures', summary: 'Oil prices react to inventory data and production forecasts.' },
     ];
+    
+    const randomizedHeadlines = headlines.sort(() => Math.random() - 0.5).slice(0, 3);
+    
+    return randomizedHeadlines.map((item, index) => ({
+      id: `market-${now}-${index}`,
+      headline: item.headline,
+      summary: item.summary,
+      source: 'VEDD AI Market Analysis',
+      url: '#',
+      image: '',
+      datetime: now - (index * 3600000),
+      related: '',
+      category: 'general'
+    }));
   }
 
   private getDefaultSentiment(): NewsSentiment {

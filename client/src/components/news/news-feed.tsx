@@ -1,10 +1,12 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/queryClient';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { TrendingUp, TrendingDown, Minus, Newspaper, ExternalLink, Clock, AlertCircle, Calendar, Zap } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { TrendingUp, TrendingDown, Minus, Newspaper, ExternalLink, Clock, AlertCircle, Calendar, Zap, RefreshCw } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
+import { useState } from 'react';
 
 interface NewsItem {
   id: string;
@@ -42,17 +44,32 @@ interface NewsFeedProps {
 }
 
 export function NewsFeed({ symbol, showSentiment = true, maxItems = 5, compact = false }: NewsFeedProps) {
-  const { data, isLoading, error } = useQuery<NewsResponse>({
-    queryKey: symbol ? ['/api/news/symbol', symbol] : ['/api/news/market'],
+  const queryClient = useQueryClient();
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  
+  const queryKey = symbol ? ['/api/news/symbol', symbol] : ['/api/news/market'];
+  
+  const { data, isLoading, error, dataUpdatedAt } = useQuery<NewsResponse>({
+    queryKey,
     queryFn: async () => {
       const url = symbol ? `/api/news/symbol/${symbol}` : '/api/news/market';
       const res = await apiRequest('GET', url);
       if (!res.ok) throw new Error('Failed to fetch news');
       return res.json();
     },
-    staleTime: 5 * 60 * 1000,
-    refetchInterval: 10 * 60 * 1000,
+    staleTime: 2 * 60 * 1000,
+    refetchInterval: 5 * 60 * 1000,
   });
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await queryClient.invalidateQueries({ queryKey });
+    setTimeout(() => setIsRefreshing(false), 1000);
+  };
+
+  const lastUpdated = dataUpdatedAt 
+    ? formatDistanceToNow(new Date(dataUpdatedAt), { addSuffix: true })
+    : null;
 
   if (isLoading) {
     return (
@@ -97,18 +114,40 @@ export function NewsFeed({ symbol, showSentiment = true, maxItems = 5, compact =
   const { news, sentiment } = data;
   const displayNews = news.slice(0, maxItems);
 
+  const isFallbackNews = displayNews.some(item => item.source === 'VEDD AI Market Analysis');
+
   return (
     <Card>
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-lg flex items-center gap-2">
-            <Newspaper className="w-5 h-5" />
-            {symbol ? `${symbol} News` : 'Market News'}
-          </CardTitle>
+          <div className="flex items-center gap-2">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Newspaper className="w-5 h-5" />
+              {symbol ? `${symbol} News` : 'Market News'}
+            </CardTitle>
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+              className="h-7 w-7 p-0"
+              title="Refresh news"
+            >
+              <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+            </Button>
+          </div>
           {showSentiment && sentiment && (
             <SentimentBadge sentiment={sentiment} />
           )}
         </div>
+        {lastUpdated && (
+          <p className="text-xs text-muted-foreground">Updated {lastUpdated}</p>
+        )}
+        {isFallbackNews && (
+          <p className="text-xs text-amber-600 dark:text-amber-400">
+            Showing sample news - Live news requires API configuration
+          </p>
+        )}
       </CardHeader>
       <CardContent className="space-y-4">
         {showSentiment && sentiment && !compact && (
