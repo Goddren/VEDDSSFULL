@@ -1494,6 +1494,20 @@ export default function MultiTimeframeAnalysis() {
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-3">
+                      {/* Prominent Suggested Chart Display */}
+                      <div className="p-3 bg-amber-100 dark:bg-amber-900/30 rounded-lg border-2 border-amber-400 dark:border-amber-600 mb-3">
+                        <div className="flex items-center gap-2">
+                          <span className="text-2xl">📊</span>
+                          <div>
+                            <p className="text-xs text-amber-700 dark:text-amber-300 font-medium">SUGGESTED CHART</p>
+                            <p className="text-xl font-bold text-amber-900 dark:text-amber-100">{symbol || 'UNKNOWN'}</p>
+                          </div>
+                        </div>
+                        <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">
+                          Place this EA on your <strong>{symbol}</strong> chart in your trading platform
+                        </p>
+                      </div>
+                      
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                         <div>
                           <p className="text-xs text-muted-foreground">Strategy Type</p>
