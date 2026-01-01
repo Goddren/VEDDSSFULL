@@ -82,6 +82,7 @@ export class TradeLockerService {
   private tokenExpiresAt: Date | null = null;
   private accountId: string;
   private serverId: string;
+  private accNum: string = '1'; // The account order number (1, 2, 3...), different from accountId
 
   constructor(accountType: 'demo' | 'live', accountId: string, serverId: string) {
     this.baseUrl = accountType === 'demo' 
@@ -89,6 +90,38 @@ export class TradeLockerService {
       : 'https://live.tradelocker.com/backend-api';
     this.accountId = accountId;
     this.serverId = serverId;
+  }
+  
+  // Fetch and cache the correct accNum for this account
+  async resolveAccNum(): Promise<string> {
+    await this.ensureAuthenticated();
+    
+    try {
+      const response = await fetch(`${this.baseUrl}/auth/jwt/all-accounts`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${this.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.accounts && Array.isArray(data.accounts)) {
+          const account = data.accounts.find((acc: any) => 
+            acc.id?.toString() === this.accountId || acc.accountId?.toString() === this.accountId
+          );
+          if (account && account.accNum) {
+            this.accNum = account.accNum.toString();
+            console.log('[TradeLocker] Resolved accNum:', this.accNum, 'for accountId:', this.accountId);
+          }
+        }
+      }
+    } catch (error) {
+      console.log('[TradeLocker] Could not resolve accNum, using default:', this.accNum);
+    }
+    
+    return this.accNum;
   }
 
   async authenticate(email: string, password: string): Promise<TradeLockerAuthResponse> {
@@ -125,6 +158,9 @@ export class TradeLockerService {
       this.accessToken = data.accessToken;
       this.refreshToken = data.refreshToken;
       this.tokenExpiresAt = new Date(Date.now() + (data.expiresIn || 3600) * 1000);
+      
+      // Resolve accNum after authentication
+      await this.resolveAccNum();
 
       return {
         accessToken: data.accessToken,
@@ -270,7 +306,7 @@ export class TradeLockerService {
         headers: {
           'Authorization': `Bearer ${this.accessToken}`,
           'Content-Type': 'application/json',
-          'accNum': this.accountId,
+          'accNum': this.accNum,
         },
       });
 
@@ -289,33 +325,116 @@ export class TradeLockerService {
     await this.ensureAuthenticated();
 
     try {
+      console.log('[TradeLocker] Placing order with accNum:', this.accNum, 'accountId:', this.accountId);
+      console.log('[TradeLocker] Order details:', order);
+      
+      // First, get the tradableInstrumentId and routeId for this symbol
+      const instrumentsResponse = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/instruments`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${this.accessToken}`,
+          'Content-Type': 'application/json',
+          'accNum': this.accNum,
+        },
+      });
+      
+      if (!instrumentsResponse.ok) {
+        throw new Error(`Failed to get instruments: ${instrumentsResponse.status}`);
+      }
+      
+      const instrumentsData = await instrumentsResponse.json();
+      console.log('[TradeLocker] Instruments response structure:', Object.keys(instrumentsData));
+      
+      // Find the instrument matching the symbol
+      let tradableInstrumentId: number | null = null;
+      let routeId: number | null = null;
+      
+      // Handle the response format - could be array or object with d property
+      const instruments = instrumentsData.d?.instruments || instrumentsData.instruments || instrumentsData;
+      const routes = instrumentsData.d?.routes || instrumentsData.routes || [];
+      
+      if (Array.isArray(instruments)) {
+        const instrument = instruments.find((inst: any) => 
+          inst.name === order.symbol || 
+          inst.symbol === order.symbol ||
+          inst.name?.toUpperCase() === order.symbol.toUpperCase() ||
+          inst.symbol?.toUpperCase() === order.symbol.toUpperCase()
+        );
+        if (instrument) {
+          tradableInstrumentId = instrument.tradableInstrumentId || instrument.id;
+          console.log('[TradeLocker] Found instrument:', instrument.name, 'tradableInstrumentId:', tradableInstrumentId);
+        }
+      }
+      
+      // Get TRADE routeId (not INFO)
+      if (Array.isArray(routes)) {
+        const tradeRoute = routes.find((r: any) => r.name === 'TRADE' || r.type === 'TRADE');
+        if (tradeRoute) {
+          routeId = tradeRoute.id;
+          console.log('[TradeLocker] Found TRADE routeId:', routeId);
+        }
+      }
+      
+      if (!tradableInstrumentId) {
+        throw new Error(`Instrument not found: ${order.symbol}. Make sure the symbol matches exactly with TradeLocker.`);
+      }
+      
+      if (!routeId) {
+        // Default routeId if not found - typically 1 for TRADE
+        routeId = 1;
+        console.log('[TradeLocker] Using default routeId:', routeId);
+      }
+      
+      // Build the order payload per TradeLocker API spec
+      const orderPayload: any = {
+        tradableInstrumentId,
+        routeId,
+        qty: order.quantity,
+        side: order.side,
+        type: order.type,
+        validity: order.type === 'market' ? 'IOC' : 'GTC',
+      };
+      
+      // Add price for limit orders
+      if (order.type === 'limit' && order.price) {
+        orderPayload.price = order.price;
+      }
+      
+      // Add stop loss if provided
+      if (order.stopLoss) {
+        orderPayload.stopLoss = order.stopLoss;
+        orderPayload.stopLossType = 'absolute';
+      }
+      
+      // Add take profit if provided
+      if (order.takeProfit) {
+        orderPayload.takeProfit = order.takeProfit;
+        orderPayload.takeProfitType = 'absolute';
+      }
+      
+      console.log('[TradeLocker] Order payload:', JSON.stringify(orderPayload));
+      
       const response = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/orders`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${this.accessToken}`,
           'Content-Type': 'application/json',
-          'accNum': this.accountId,
+          'accNum': this.accNum,
         },
-        body: JSON.stringify({
-          instrumentId: order.symbol,
-          side: order.side,
-          type: order.type,
-          quantity: order.quantity,
-          price: order.price,
-          stopLoss: order.stopLoss,
-          takeProfit: order.takeProfit,
-        }),
+        body: JSON.stringify(orderPayload),
       });
 
+      const responseText = await response.text();
+      console.log('[TradeLocker] Order response status:', response.status, 'body:', responseText);
+      
       if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Order placement failed: ${response.status} - ${errorText}`);
+        throw new Error(`Order placement failed: ${response.status} - ${responseText}`);
       }
 
-      const data = await response.json();
+      const data = JSON.parse(responseText);
       return {
-        orderId: data.orderId || data.id,
-        status: data.status || 'submitted',
+        orderId: data.d?.orderId || data.orderId || data.id,
+        status: data.s === 'ok' ? 'submitted' : (data.status || 'submitted'),
         filledQuantity: data.filledQuantity,
         filledPrice: data.filledPrice,
         message: data.message,
@@ -335,7 +454,7 @@ export class TradeLockerService {
         headers: {
           'Authorization': `Bearer ${this.accessToken}`,
           'Content-Type': 'application/json',
-          'accNum': this.accountId,
+          'accNum': this.accNum,
         },
       });
 
@@ -365,7 +484,7 @@ export class TradeLockerService {
         headers: {
           'Authorization': `Bearer ${this.accessToken}`,
           'Content-Type': 'application/json',
-          'accNum': this.accountId,
+          'accNum': this.accNum,
         },
       });
 
