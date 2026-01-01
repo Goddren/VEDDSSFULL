@@ -535,19 +535,11 @@ export async function executeMT5SignalOnTradeLocker(
       connection.serverId
     );
 
-    if (connection.accessToken && connection.refreshToken) {
-      console.log('[TradeLocker Execute] Using existing tokens');
-      service.setTokens(
-        connection.accessToken,
-        connection.refreshToken,
-        connection.tokenExpiresAt || undefined
-      );
-    } else {
-      console.log('[TradeLocker Execute] Authenticating with credentials');
-      const password = decryptPassword(connection.encryptedPassword);
-      await service.authenticate(connection.email, password);
-      console.log('[TradeLocker Execute] Authentication successful');
-    }
+    // Always authenticate fresh to ensure accNum is resolved correctly
+    console.log('[TradeLocker Execute] Authenticating with credentials');
+    const password = decryptPassword(connection.encryptedPassword);
+    await service.authenticate(connection.email, password);
+    console.log('[TradeLocker Execute] Authentication successful');
 
     if (signal.action === 'OPEN' || signal.action.toUpperCase() === 'OPEN') {
       console.log('[TradeLocker Execute] Placing order:', {
