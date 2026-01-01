@@ -185,6 +185,7 @@ export class TradeLockerService {
         headers: {
           'Authorization': `Bearer ${this.accessToken}`,
           'Content-Type': 'application/json',
+          'accNum': this.accountId,
         },
       });
 
@@ -216,6 +217,7 @@ export class TradeLockerService {
         headers: {
           'Authorization': `Bearer ${this.accessToken}`,
           'Content-Type': 'application/json',
+          'accNum': this.accountId,
         },
       });
 
@@ -239,6 +241,7 @@ export class TradeLockerService {
         headers: {
           'Authorization': `Bearer ${this.accessToken}`,
           'Content-Type': 'application/json',
+          'accNum': this.accountId,
         },
         body: JSON.stringify({
           instrumentId: order.symbol,
@@ -279,6 +282,7 @@ export class TradeLockerService {
         headers: {
           'Authorization': `Bearer ${this.accessToken}`,
           'Content-Type': 'application/json',
+          'accNum': this.accountId,
         },
       });
 
@@ -308,6 +312,7 @@ export class TradeLockerService {
         headers: {
           'Authorization': `Bearer ${this.accessToken}`,
           'Content-Type': 'application/json',
+          'accNum': this.accountId,
         },
       });
 
