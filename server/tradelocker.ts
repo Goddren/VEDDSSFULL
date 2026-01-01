@@ -93,6 +93,7 @@ export class TradeLockerService {
   }
   
   // Fetch and cache the correct accNum for this account
+  // accNum is 0-indexed: 0 for first account, 1 for second, etc.
   async resolveAccNum(): Promise<string> {
     await this.ensureAuthenticated();
     
@@ -107,13 +108,20 @@ export class TradeLockerService {
       
       if (response.ok) {
         const data = await response.json();
+        console.log('[TradeLocker] All accounts response:', JSON.stringify(data));
         if (data.accounts && Array.isArray(data.accounts)) {
-          const account = data.accounts.find((acc: any) => 
+          // Find the index of the account in the list (0-indexed)
+          const accountIndex = data.accounts.findIndex((acc: any) => 
             acc.id?.toString() === this.accountId || acc.accountId?.toString() === this.accountId
           );
-          if (account && account.accNum) {
-            this.accNum = account.accNum.toString();
-            console.log('[TradeLocker] Resolved accNum:', this.accNum, 'for accountId:', this.accountId);
+          if (accountIndex >= 0) {
+            // Use the index as accNum (0-indexed as per API docs)
+            this.accNum = accountIndex.toString();
+            console.log('[TradeLocker] Resolved accNum (0-indexed):', this.accNum, 'for accountId:', this.accountId);
+          } else {
+            // Default to "0" if account not found (first account)
+            this.accNum = '0';
+            console.log('[TradeLocker] Account not found in list, using default accNum: 0');
           }
         }
       }
