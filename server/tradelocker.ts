@@ -92,6 +92,13 @@ export class TradeLockerService {
   }
 
   async authenticate(email: string, password: string): Promise<TradeLockerAuthResponse> {
+    console.log('[TradeLocker Auth] Attempting authentication:', {
+      baseUrl: this.baseUrl,
+      email: email,
+      serverId: this.serverId,
+      accountId: this.accountId
+    });
+    
     try {
       const response = await fetch(`${this.baseUrl}/auth/jwt/token`, {
         method: 'POST',
@@ -105,8 +112,11 @@ export class TradeLockerService {
         }),
       });
 
+      console.log('[TradeLocker Auth] Response status:', response.status);
+      
       if (!response.ok) {
         const errorText = await response.text();
+        console.log('[TradeLocker Auth] Error response:', errorText);
         throw new Error(`Authentication failed: ${response.status} - ${errorText}`);
       }
 
