@@ -190,7 +190,9 @@ export class TradeLockerService {
     await this.ensureAuthenticated();
 
     try {
-      const response = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}`, {
+      // TradeLocker API: GET /trade/accounts returns list, we filter by accountId
+      console.log('[TradeLocker] Getting account info for accountId:', this.accountId);
+      const response = await fetch(`${this.baseUrl}/trade/accounts`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${this.accessToken}`,
@@ -199,8 +201,11 @@ export class TradeLockerService {
         },
       });
 
+      console.log('[TradeLocker] Account info response status:', response.status);
       if (!response.ok) {
-        throw new Error(`Failed to get account info: ${response.status}`);
+        const errorText = await response.text();
+        console.log('[TradeLocker] Account info error:', errorText);
+        throw new Error(`Failed to get account info: ${response.status} - ${errorText}`);
       }
 
       const data = await response.json();
