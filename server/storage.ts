@@ -1310,6 +1310,9 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteTradelockerConnection(id: number): Promise<boolean> {
+    // First delete all trade logs referencing this connection
+    await db.delete(tradelockerTradeLogs).where(eq(tradelockerTradeLogs.connectionId, id));
+    // Then delete the connection
     await db.delete(tradelockerConnections).where(eq(tradelockerConnections.id, id));
     return true;
   }
