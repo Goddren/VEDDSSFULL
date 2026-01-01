@@ -82,7 +82,7 @@ export class TradeLockerService {
   private tokenExpiresAt: Date | null = null;
   private accountId: string;
   private serverId: string;
-  private accNum: string = '1'; // The account order number (1, 2, 3...) from API, different from accountId
+  private accNum: string = '0'; // The account order number (0, 1, 2...) from API, different from accountId
 
   constructor(accountType: 'demo' | 'live', accountId: string, serverId: string) {
     this.baseUrl = accountType === 'demo' 
@@ -108,19 +108,25 @@ export class TradeLockerService {
       
       if (response.ok) {
         const data = await response.json();
-        console.log('[TradeLocker] All accounts response:', JSON.stringify(data));
-        if (data.accounts && Array.isArray(data.accounts)) {
-          // Find the account and use its accNum value from the API
-          const account = data.accounts.find((acc: any) => 
-            acc.id?.toString() === this.accountId || acc.accountId?.toString() === this.accountId
+        console.log('[TradeLocker] All accounts raw response:', JSON.stringify(data));
+        
+        // Handle both array directly and {accounts: [...]} wrapper formats
+        const accounts = Array.isArray(data) ? data : (data.accounts || []);
+        
+        if (accounts.length > 0) {
+          // Find the account matching our stored accountId
+          const account = accounts.find((acc: any) => 
+            acc.id?.toString() === this.accountId || 
+            acc.accountId?.toString() === this.accountId
           );
+          
           if (account && account.accNum !== undefined) {
             this.accNum = account.accNum.toString();
-            console.log('[TradeLocker] Using API-provided accNum:', this.accNum, 'for accountId:', this.accountId);
-          } else if (data.accounts.length > 0) {
-            // If account not found, use first account's accNum
-            this.accNum = data.accounts[0].accNum?.toString() || '1';
-            console.log('[TradeLocker] Account not found, using first account accNum:', this.accNum);
+            console.log('[TradeLocker] Found matching account, using accNum:', this.accNum, 'for accountId:', this.accountId);
+          } else {
+            // If account not found by ID, use first account's accNum (usually 0)
+            this.accNum = accounts[0].accNum?.toString() ?? '0';
+            console.log('[TradeLocker] Account not found by ID, using first account accNum:', this.accNum);
           }
         }
       }
@@ -254,14 +260,19 @@ export class TradeLockerService {
       const accountsData = await accountsResponse.json();
       console.log('[TradeLocker] Accounts data:', JSON.stringify(accountsData));
       
-      // Find the accNum for our accountId
-      let accNum = 1;
-      if (accountsData.accounts && Array.isArray(accountsData.accounts)) {
-        const accountIndex = accountsData.accounts.findIndex((acc: any) => 
+      // Find the accNum for our accountId from the response
+      const accounts = Array.isArray(accountsData) ? accountsData : (accountsData.accounts || []);
+      let accNum = 0;
+      
+      if (accounts.length > 0) {
+        const account = accounts.find((acc: any) => 
           acc.id?.toString() === this.accountId || acc.accountId?.toString() === this.accountId
         );
-        if (accountIndex >= 0) {
-          accNum = accountIndex + 1;
+        if (account && account.accNum !== undefined) {
+          accNum = account.accNum;
+        } else {
+          // Use first account's accNum if not found
+          accNum = accounts[0].accNum ?? 0;
         }
       }
       
@@ -331,8 +342,8 @@ export class TradeLockerService {
   async placeOrder(order: TradeLockerOrderRequest): Promise<TradeLockerOrderResponse> {
     await this.ensureAuthenticated();
     
-    // Ensure accNum is resolved
-    if (this.accNum === '1' && this.accessToken) {
+    // Always resolve accNum before placing orders to ensure we have the correct value
+    if (this.accessToken) {
       await this.resolveAccNum();
     }
 
