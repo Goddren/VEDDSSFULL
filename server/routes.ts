@@ -4711,6 +4711,62 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
     res.json(trades);
   });
 
+  app.get("/api/tradelocker/debug-accounts", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const userId = (req.user as User).id;
+    
+    const connection = await storage.getUserTradelockerConnection(userId);
+    if (!connection) {
+      return res.status(404).json({ error: "No connection found" });
+    }
+    
+    try {
+      const password = decryptPassword(connection.encryptedPassword);
+      const baseUrl = connection.accountType === 'demo' 
+        ? 'https://demo.tradelocker.com/backend-api'
+        : 'https://live.tradelocker.com/backend-api';
+      
+      // Authenticate
+      const authResponse = await fetch(`${baseUrl}/auth/jwt/token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: connection.email,
+          password: password,
+          server: connection.serverId,
+        }),
+      });
+      
+      if (!authResponse.ok) {
+        const errText = await authResponse.text();
+        return res.status(400).json({ error: 'Auth failed', details: errText });
+      }
+      
+      const authData = await authResponse.json();
+      
+      // Get all accounts
+      const accountsResponse = await fetch(`${baseUrl}/auth/jwt/all-accounts`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${authData.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      const accountsData = await accountsResponse.json();
+      
+      res.json({
+        storedAccountId: connection.accountId,
+        storedServerId: connection.serverId,
+        allAccountsResponse: accountsData,
+      });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
