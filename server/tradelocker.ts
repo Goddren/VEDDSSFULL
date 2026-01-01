@@ -190,32 +190,70 @@ export class TradeLockerService {
     await this.ensureAuthenticated();
 
     try {
-      // TradeLocker API: GET /trade/accounts returns list, we filter by accountId
-      console.log('[TradeLocker] Getting account info for accountId:', this.accountId);
+      // TradeLocker API: First get all accounts to find our accNum
+      console.log('[TradeLocker] Getting all accounts to find accNum for accountId:', this.accountId);
+      
+      const accountsResponse = await fetch(`${this.baseUrl}/auth/jwt/all-accounts`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${this.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      console.log('[TradeLocker] All accounts response status:', accountsResponse.status);
+      if (!accountsResponse.ok) {
+        const errorText = await accountsResponse.text();
+        console.log('[TradeLocker] All accounts error:', errorText);
+        throw new Error(`Failed to get accounts list: ${accountsResponse.status} - ${errorText}`);
+      }
+      
+      const accountsData = await accountsResponse.json();
+      console.log('[TradeLocker] Accounts data:', JSON.stringify(accountsData));
+      
+      // Find the accNum for our accountId
+      let accNum = 1;
+      if (accountsData.accounts && Array.isArray(accountsData.accounts)) {
+        const accountIndex = accountsData.accounts.findIndex((acc: any) => 
+          acc.id?.toString() === this.accountId || acc.accountId?.toString() === this.accountId
+        );
+        if (accountIndex >= 0) {
+          accNum = accountIndex + 1;
+        }
+      }
+      
+      console.log('[TradeLocker] Using accNum:', accNum, 'for accountId:', this.accountId);
+      
+      // Now get account details with the correct accNum
       const response = await fetch(`${this.baseUrl}/trade/accounts`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${this.accessToken}`,
           'Content-Type': 'application/json',
-          'accNum': this.accountId,
+          'accNum': accNum.toString(),
         },
       });
 
-      console.log('[TradeLocker] Account info response status:', response.status);
+      console.log('[TradeLocker] Account details response status:', response.status);
       if (!response.ok) {
         const errorText = await response.text();
-        console.log('[TradeLocker] Account info error:', errorText);
+        console.log('[TradeLocker] Account details error:', errorText);
         throw new Error(`Failed to get account info: ${response.status} - ${errorText}`);
       }
 
       const data = await response.json();
+      console.log('[TradeLocker] Account details:', JSON.stringify(data));
+      
+      // Handle both array and single object responses
+      const accountData = Array.isArray(data) ? data[0] : data;
+      
       return {
-        accountId: data.id || this.accountId,
-        balance: data.balance || 0,
-        equity: data.equity || 0,
-        margin: data.margin || 0,
-        freeMargin: data.freeMargin || 0,
-        currency: data.currency || 'USD',
+        accountId: accountData?.id?.toString() || this.accountId,
+        balance: accountData?.balance || 0,
+        equity: accountData?.equity || 0,
+        margin: accountData?.margin || 0,
+        freeMargin: accountData?.freeMargin || 0,
+        currency: accountData?.currency || 'USD',
       };
     } catch (error) {
       console.error('TradeLocker get account info error:', error);
