@@ -463,8 +463,10 @@ export class TradeLockerService {
       
       // Check if TradeLocker returned an error in the structured response
       if (data.s !== 'ok') {
-        // Capture as much error detail as possible
+        // Capture as much error detail as possible - TradeLocker uses 'errmsg' field
         const errorDetails = [];
+        if (data.errmsg) errorDetails.push(data.errmsg);
+        if (data.d?.errmsg) errorDetails.push(data.d.errmsg);
         if (data.d?.message) errorDetails.push(data.d.message);
         if (data.d?.messages && Array.isArray(data.d.messages)) errorDetails.push(...data.d.messages);
         if (data.d?.error) errorDetails.push(data.d.error);
