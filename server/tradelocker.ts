@@ -323,12 +323,19 @@ export class TradeLockerService {
 
   async placeOrder(order: TradeLockerOrderRequest): Promise<TradeLockerOrderResponse> {
     await this.ensureAuthenticated();
+    
+    // Ensure accNum is resolved
+    if (this.accNum === '1' && this.accessToken) {
+      await this.resolveAccNum();
+    }
 
     try {
-      console.log('[TradeLocker] Placing order with accNum:', this.accNum, 'accountId:', this.accountId);
+      console.log('[TradeLocker] Placing order with accNum:', this.accNum, '(type:', typeof this.accNum, ') accountId:', this.accountId);
       console.log('[TradeLocker] Order details:', order);
+      console.log('[TradeLocker] Access token present:', !!this.accessToken);
       
       // First, get the tradableInstrumentId and routeId for this symbol
+      console.log('[TradeLocker] Fetching instruments...');
       const instrumentsResponse = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/instruments`, {
         method: 'GET',
         headers: {
@@ -338,8 +345,11 @@ export class TradeLockerService {
         },
       });
       
+      console.log('[TradeLocker] Instruments response status:', instrumentsResponse.status);
       if (!instrumentsResponse.ok) {
-        throw new Error(`Failed to get instruments: ${instrumentsResponse.status}`);
+        const errText = await instrumentsResponse.text();
+        console.log('[TradeLocker] Instruments error:', errText);
+        throw new Error(`Failed to get instruments: ${instrumentsResponse.status} - ${errText}`);
       }
       
       const instrumentsData = await instrumentsResponse.json();
