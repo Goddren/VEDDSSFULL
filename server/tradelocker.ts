@@ -463,8 +463,22 @@ export class TradeLockerService {
       
       // Check if TradeLocker returned an error in the structured response
       if (data.s !== 'ok') {
-        const errorMsg = data.d?.message || data.d?.messages?.join(', ') || data.message || 'Order rejected by TradeLocker';
-        console.log('[TradeLocker] Order rejected:', errorMsg);
+        // Capture as much error detail as possible
+        const errorDetails = [];
+        if (data.d?.message) errorDetails.push(data.d.message);
+        if (data.d?.messages && Array.isArray(data.d.messages)) errorDetails.push(...data.d.messages);
+        if (data.d?.error) errorDetails.push(data.d.error);
+        if (data.d?.errorCode) errorDetails.push(`Code: ${data.d.errorCode}`);
+        if (data.message) errorDetails.push(data.message);
+        if (data.error) errorDetails.push(data.error);
+        
+        // If still no error details, include the raw response
+        const errorMsg = errorDetails.length > 0 
+          ? errorDetails.join(' | ') 
+          : `Rejected (status: ${data.s}, raw: ${responseText.substring(0, 200)})`;
+        
+        console.log('[TradeLocker] Order rejected - Full response:', responseText);
+        console.log('[TradeLocker] Parsed error:', errorMsg);
         return {
           orderId: undefined,
           status: 'rejected',
