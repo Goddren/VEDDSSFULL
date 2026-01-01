@@ -344,6 +344,13 @@ export async function executeMT5SignalOnTradeLocker(
     takeProfit?: number;
   }
 ): Promise<{ success: boolean; orderId?: string; error?: string }> {
+  console.log('[TradeLocker Execute] Starting trade execution:', {
+    accountType: connection.accountType,
+    accountId: connection.accountId,
+    serverId: connection.serverId,
+    signal: { action: signal.action, symbol: signal.symbol, direction: signal.direction, volume: signal.volume }
+  });
+  
   try {
     const service = new TradeLockerService(
       connection.accountType as 'demo' | 'live',
@@ -352,17 +359,26 @@ export async function executeMT5SignalOnTradeLocker(
     );
 
     if (connection.accessToken && connection.refreshToken) {
+      console.log('[TradeLocker Execute] Using existing tokens');
       service.setTokens(
         connection.accessToken,
         connection.refreshToken,
         connection.tokenExpiresAt || undefined
       );
     } else {
+      console.log('[TradeLocker Execute] Authenticating with credentials');
       const password = decryptPassword(connection.encryptedPassword);
       await service.authenticate(connection.email, password);
+      console.log('[TradeLocker Execute] Authentication successful');
     }
 
-    if (signal.action === 'OPEN') {
+    if (signal.action === 'OPEN' || signal.action.toUpperCase() === 'OPEN') {
+      console.log('[TradeLocker Execute] Placing order:', {
+        symbol: signal.symbol,
+        side: signal.direction.toLowerCase(),
+        type: 'market',
+        quantity: signal.volume,
+      });
       const orderResult = await service.placeOrder({
         symbol: signal.symbol,
         side: signal.direction.toLowerCase() as 'buy' | 'sell',
@@ -371,22 +387,25 @@ export async function executeMT5SignalOnTradeLocker(
         stopLoss: signal.stopLoss,
         takeProfit: signal.takeProfit,
       });
+      console.log('[TradeLocker Execute] Order result:', orderResult);
 
       return {
         success: orderResult.status !== 'rejected',
         orderId: orderResult.orderId,
         error: orderResult.status === 'rejected' ? orderResult.message : undefined,
       };
-    } else if (signal.action === 'CLOSE') {
+    } else if (signal.action === 'CLOSE' || signal.action.toUpperCase() === 'CLOSE') {
+      console.log('[TradeLocker Execute] Close action requested (not implemented)');
       return {
         success: true,
         error: 'Close by symbol not yet implemented - requires position lookup',
       };
     }
 
-    return { success: false, error: 'Unknown action type' };
+    console.log('[TradeLocker Execute] Unknown action type:', signal.action);
+    return { success: false, error: `Unknown action type: ${signal.action}` };
   } catch (error) {
-    console.error('Error executing MT5 signal on TradeLocker:', error);
+    console.error('[TradeLocker Execute] Error:', error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',

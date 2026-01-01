@@ -4501,7 +4501,13 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       // Execute on TradeLocker if auto-execute is enabled
       let tradelockerResult = null;
       const tlConnection = await storage.getUserTradelockerConnection(token.userId);
+      console.log('[TradeLocker] Checking connection for user:', token.userId);
+      console.log('[TradeLocker] Connection found:', tlConnection ? 'yes' : 'no');
+      if (tlConnection) {
+        console.log('[TradeLocker] Connection status - isActive:', tlConnection.isActive, 'autoExecute:', tlConnection.autoExecute);
+      }
       if (tlConnection && tlConnection.isActive && tlConnection.autoExecute) {
+        console.log('[TradeLocker] Executing signal on TradeLocker:', { action, symbol, direction, volume });
         try {
           tradelockerResult = await executeMT5SignalOnTradeLocker(tlConnection, {
             action,
