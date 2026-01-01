@@ -497,9 +497,9 @@ input bool AllowHedging = ${multiTradeStrategy === 'hedging' ? 'true' : 'false'}
 
 //--- Live AI Refresh (Daily Real-Time Analysis)
 input group "=== AI Live Refresh (Costs ~$1-3/month) ==="
-input bool EnableLiveRefresh = false;           // DISABLED - Contact support to enable
-input string RefreshAPIURL = "https://YOUR_REPLIT_DOMAIN/api/ea/refresh-analysis";  // API endpoint URL (get from support)
-input string RefreshAPIKey = "FEATURE_DISABLED_CONTACT_SUPPORT";  // Contact support for secure token
+input bool EnableLiveRefresh = false;           // Enable to get daily AI updates
+input string RefreshAPIURL = "${process.env.REPL_SLUG ? `https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER?.toLowerCase()}.repl.co` : 'https://YOUR_APP_URL'}/api/ea/refresh-analysis";  // Your VEDD AI endpoint
+input string RefreshAPIKey = "YOUR_API_KEY";    // Get from VEDD AI > Webhooks > MT5 Trade Copier
 input int RefreshIntervalHours = 24;            // Hours between refreshes (24 = once per day)
 input bool PauseOnDirectionChange = true;       // Pause trading if AI changes direction
 
@@ -705,9 +705,11 @@ int OnInit()
    Print("Live AI Refresh: ", EnableLiveRefresh ? "ENABLED" : "DISABLED");
    if(EnableLiveRefresh)
    {
-      if(RefreshAPIKey == "YOUR_API_KEY_HERE")
+      if(RefreshAPIKey == "YOUR_API_KEY" || RefreshAPIKey == "YOUR_API_KEY_HERE")
       {
-         Print("WARNING: Replace 'YOUR_API_KEY_HERE' with your actual API key!");
+         Print("WARNING: API key not configured!");
+         Print("Get your API token from: VEDD AI > Webhooks > MT5 Trade Copier");
+         Print("Then set RefreshAPIKey in EA inputs to your token");
          Print("Trading will be PAUSED until you set a valid API key.");
          trading_paused = true;
       }
@@ -738,7 +740,7 @@ void OnDeinit(const int reason)
 void OnTimer()
 {
    if(!EnableLiveRefresh) return;
-   if(RefreshAPIKey == "YOUR_API_KEY_HERE") return;  // Skip if API key not set
+   if(RefreshAPIKey == "YOUR_API_KEY" || RefreshAPIKey == "YOUR_API_KEY_HERE") return;  // Skip if API key not set
    
    Print("======================================");
    Print("REFRESHING AI ANALYSIS...");
