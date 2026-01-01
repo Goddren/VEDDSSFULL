@@ -460,12 +460,36 @@ export class TradeLockerService {
       }
 
       const data = JSON.parse(responseText);
+      
+      // Check if TradeLocker returned an error in the structured response
+      if (data.s !== 'ok') {
+        const errorMsg = data.d?.message || data.d?.messages?.join(', ') || data.message || 'Order rejected by TradeLocker';
+        console.log('[TradeLocker] Order rejected:', errorMsg);
+        return {
+          orderId: undefined,
+          status: 'rejected',
+          message: errorMsg,
+        };
+      }
+      
+      // Verify we actually got an orderId back
+      const orderId = data.d?.orderId || data.d?.id || data.orderId || data.id;
+      if (!orderId) {
+        console.log('[TradeLocker] No orderId in response:', data);
+        return {
+          orderId: undefined,
+          status: 'rejected',
+          message: 'No order ID returned - order may not have been placed',
+        };
+      }
+      
+      console.log('[TradeLocker] Order successfully placed with orderId:', orderId);
       return {
-        orderId: data.d?.orderId || data.orderId || data.id,
-        status: data.s === 'ok' ? 'submitted' : (data.status || 'submitted'),
-        filledQuantity: data.filledQuantity,
-        filledPrice: data.filledPrice,
-        message: data.message,
+        orderId: orderId.toString(),
+        status: 'submitted',
+        filledQuantity: data.d?.filledQty || data.filledQuantity,
+        filledPrice: data.d?.avgPrice || data.filledPrice,
+        message: 'Order placed successfully',
       };
     } catch (error) {
       console.error('TradeLocker place order error:', error);
