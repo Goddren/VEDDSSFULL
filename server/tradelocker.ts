@@ -82,7 +82,7 @@ export class TradeLockerService {
   private tokenExpiresAt: Date | null = null;
   private accountId: string;
   private serverId: string;
-  private accNum: string = '1'; // The account order number (1, 2, 3...), different from accountId
+  private accNum: string = '0'; // The account order number (0-indexed: 0, 1, 2...), different from accountId
 
   constructor(accountType: 'demo' | 'live', accountId: string, serverId: string) {
     this.baseUrl = accountType === 'demo' 
@@ -93,7 +93,7 @@ export class TradeLockerService {
   }
   
   // Fetch and cache the correct accNum for this account
-  // accNum is 0-indexed: 0 for first account, 1 for second, etc.
+  // The accNum is returned by the all-accounts endpoint - use that value directly
   async resolveAccNum(): Promise<string> {
     await this.ensureAuthenticated();
     
@@ -110,16 +110,15 @@ export class TradeLockerService {
         const data = await response.json();
         console.log('[TradeLocker] All accounts response:', JSON.stringify(data));
         if (data.accounts && Array.isArray(data.accounts)) {
-          // Find the index of the account in the list (0-indexed)
+          // Find the index of this account in the list (0-indexed for the header)
           const accountIndex = data.accounts.findIndex((acc: any) => 
             acc.id?.toString() === this.accountId || acc.accountId?.toString() === this.accountId
           );
           if (accountIndex >= 0) {
-            // Use the index as accNum (0-indexed as per API docs)
             this.accNum = accountIndex.toString();
-            console.log('[TradeLocker] Resolved accNum (0-indexed):', this.accNum, 'for accountId:', this.accountId);
+            console.log('[TradeLocker] Using 0-indexed accNum:', this.accNum, 'for accountId:', this.accountId);
           } else {
-            // Default to "0" if account not found (first account)
+            // Default to "0" for first account
             this.accNum = '0';
             console.log('[TradeLocker] Account not found in list, using default accNum: 0');
           }

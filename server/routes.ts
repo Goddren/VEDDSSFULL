@@ -2655,7 +2655,7 @@ Respond ONLY in valid JSON format with these exact keys:
       const authHeader = req.headers.authorization;
       if (authHeader && authHeader.startsWith('Bearer ')) {
         const token = authHeader.substring(7);
-        const apiToken = await storage.getApiTokenByToken(token);
+        const apiToken = await storage.getMt5ApiTokenByToken(token);
         
         if (!apiToken || !apiToken.isActive) {
           return res.status(401).json({ 
@@ -2666,8 +2666,8 @@ Respond ONLY in valid JSON format with these exact keys:
         
         userId = apiToken.userId;
         
-        // Update last used timestamp
-        await storage.updateApiTokenLastUsed(apiToken.id);
+        // Update last used timestamp (increment signal count)
+        await storage.incrementMt5TokenSignalCount(apiToken.id);
       } else if (req.isAuthenticated()) {
         // Fall back to session authentication (for web UI)
         userId = (req.user as Express.User).id;
