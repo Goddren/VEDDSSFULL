@@ -414,16 +414,18 @@ export class TradeLockerService {
       }
       
       // Build the order payload per TradeLocker API spec
+      // Note: routeId should be numeric from the routes array, but we also try "TRADE" string as fallback
       const orderPayload: any = {
         tradableInstrumentId,
-        routeId,
+        routeId: routeId || "TRADE",  // Use numeric routeId or string "TRADE" as fallback
         qty: order.quantity,
         side: order.side,
         type: order.type,
         validity: order.type === 'market' ? 'IOC' : 'GTC',
+        price: 0,  // Required field - 0 for market orders
       };
       
-      // Add price for limit orders
+      // Add price for limit orders (override the 0)
       if (order.type === 'limit' && order.price) {
         orderPayload.price = order.price;
       }
