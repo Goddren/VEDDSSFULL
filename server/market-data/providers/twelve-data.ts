@@ -87,6 +87,18 @@ export class TwelveDataProvider implements MarketDataProvider {
       rateLimiter.recordRequest(this.name);
       
       const response = await fetch(url.toString());
+      
+      // Handle HTTP errors first
+      if (response.status === 401) {
+        throw new Error('Twelve Data API key is invalid or expired. Please check your TWELVE_DATA_API_KEY in secrets.');
+      }
+      if (response.status === 429) {
+        throw new Error('Twelve Data rate limit exceeded. Free tier: 8 requests/minute. Wait a moment and try again.');
+      }
+      if (!response.ok) {
+        throw new Error(`Twelve Data API error: ${response.status} ${response.statusText}`);
+      }
+      
       const data = await response.json();
       
       if (data.status === 'error') {
