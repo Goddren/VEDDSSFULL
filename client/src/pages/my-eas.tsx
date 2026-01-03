@@ -21,6 +21,68 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { ShareCardDialog } from '@/components/share-card-dialog';
+import { HelpCircle } from 'lucide-react';
+
+// Helper function to explain common AI Refresh errors
+function getRefreshErrorExplanation(errorMessage: string): { title: string; explanation: string; fix: string } | null {
+  const msg = errorMessage.toLowerCase();
+  
+  // 401 Unauthorized - Most common for AI refresh
+  if (msg.includes('401') || msg.includes('unauthorized')) {
+    return {
+      title: '401 Unauthorized',
+      explanation: 'The market data API key (Twelve Data) is invalid, expired, or missing.',
+      fix: 'Contact support to verify the TWELVE_DATA_API_KEY is configured correctly. Your session may also have expired - try logging out and back in.'
+    };
+  }
+  
+  // Market data service not initialized
+  if (msg.includes('market data service not initialized') || msg.includes('twelve_data_api_key')) {
+    return {
+      title: 'Market Data Service Not Available',
+      explanation: 'The live market data service is not configured on the server.',
+      fix: 'The TWELVE_DATA_API_KEY needs to be added to the server secrets. Contact support.'
+    };
+  }
+  
+  // Rate limit
+  if (msg.includes('rate limit') || msg.includes('429') || msg.includes('too many requests')) {
+    return {
+      title: 'Rate Limit Exceeded',
+      explanation: 'Too many refresh requests have been made in a short time.',
+      fix: 'Wait 1-2 minutes before trying again. The free tier allows 8 requests per minute.'
+    };
+  }
+  
+  // Session expired
+  if (msg.includes('session') || msg.includes('not logged in')) {
+    return {
+      title: 'Session Expired',
+      explanation: 'Your login session has expired.',
+      fix: 'Log out and log back in to refresh your session, then try again.'
+    };
+  }
+  
+  // Network errors
+  if (msg.includes('network') || msg.includes('fetch') || msg.includes('econnrefused')) {
+    return {
+      title: 'Network Error',
+      explanation: 'Could not connect to the market data service.',
+      fix: 'Check your internet connection and try again.'
+    };
+  }
+  
+  // Generic server error
+  if (msg.includes('500') || msg.includes('internal server error')) {
+    return {
+      title: 'Server Error',
+      explanation: 'The server encountered an unexpected error.',
+      fix: 'Try again in a few minutes. If the problem persists, contact support.'
+    };
+  }
+  
+  return null;
+}
 
 function getSensitivityLevel(volatility: number, atr: number, price: number): { label: string; color: string; description: string } {
   const avgThreshold = (volatility + atr + price) / 3;
@@ -143,17 +205,21 @@ export default function MyEAsPage() {
       }
     },
     onError: (error: Error) => {
+      const explanation = getRefreshErrorExplanation(error.message);
       toast({ 
-        title: 'Refresh failed', 
-        description: error.message,
-        variant: 'destructive' 
+        title: explanation ? `Refresh failed: ${explanation.title}` : 'Refresh failed', 
+        description: explanation 
+          ? `${explanation.explanation}\n\n💡 Fix: ${explanation.fix}`
+          : error.message,
+        variant: 'destructive',
+        duration: 10000
       });
     },
   });
 
   const copyCodeMutation = useMutation({
     mutationFn: async (eaId: number) => {
-      const ea = eas.find(e => e.id === eaId);
+      const ea = eas.find((e: any) => e.id === eaId);
       if (!ea) throw new Error('EA not found');
       navigator.clipboard.writeText(ea.eaCode);
       return true;
