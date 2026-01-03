@@ -39,6 +39,89 @@ import {
   BookOpen
 } from "lucide-react";
 import { motion } from "framer-motion";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+
+// Helper function to explain common error messages
+function getErrorExplanation(errorMessage: string | null, responseStatus?: number | null): { title: string; explanation: string; fix: string } | null {
+  if (!errorMessage && !responseStatus) return null;
+  
+  const msg = (errorMessage || '').toLowerCase();
+  const status = responseStatus;
+  
+  // 401 Unauthorized errors
+  if (status === 401 || msg.includes('401') || msg.includes('unauthorized')) {
+    return {
+      title: '401 Unauthorized',
+      explanation: 'The API key or token is invalid, expired, or missing.',
+      fix: 'Check that your API key is correct and hasn\'t expired. Regenerate the token if needed.'
+    };
+  }
+  
+  // 403 Forbidden errors
+  if (status === 403 || msg.includes('403') || msg.includes('forbidden')) {
+    return {
+      title: '403 Forbidden',
+      explanation: 'You don\'t have permission to perform this action.',
+      fix: 'Your account may not have API trading enabled. Contact your broker to enable API access.'
+    };
+  }
+  
+  // TradeLocker route forbidden
+  if (msg.includes('route is forbidden') || msg.includes('route forbidden')) {
+    return {
+      title: 'Route Forbidden',
+      explanation: 'TradeLocker is blocking API order placement for this account.',
+      fix: 'Contact TradeLocker or your broker to enable API trading permissions on your account.'
+    };
+  }
+  
+  // 429 Rate limit
+  if (status === 429 || msg.includes('rate limit') || msg.includes('too many requests')) {
+    return {
+      title: '429 Too Many Requests',
+      explanation: 'You\'ve exceeded the API rate limit.',
+      fix: 'Wait a few minutes before trying again. Reduce the frequency of requests.'
+    };
+  }
+  
+  // 500 Server error
+  if (status === 500 || msg.includes('500') || msg.includes('internal server error')) {
+    return {
+      title: '500 Server Error',
+      explanation: 'The server encountered an unexpected error.',
+      fix: 'Try again later. If the problem persists, contact support.'
+    };
+  }
+  
+  // Connection errors
+  if (msg.includes('econnrefused') || msg.includes('connection refused') || msg.includes('network')) {
+    return {
+      title: 'Connection Error',
+      explanation: 'Could not connect to the server.',
+      fix: 'Check your internet connection and verify the webhook URL is correct.'
+    };
+  }
+  
+  // Invalid instrument
+  if (msg.includes('instrument not found') || msg.includes('invalid symbol')) {
+    return {
+      title: 'Invalid Instrument',
+      explanation: 'The trading symbol/instrument is not recognized.',
+      fix: 'Make sure the symbol matches exactly with the broker (e.g., EURUSD vs EUR/USD).'
+    };
+  }
+  
+  // Session expired
+  if (msg.includes('session') && msg.includes('expired')) {
+    return {
+      title: 'Session Expired',
+      explanation: 'Your login session has expired.',
+      fix: 'Log out and log back in to refresh your session.'
+    };
+  }
+  
+  return null;
+}
 
 type WebhookConfig = {
   id: number;
@@ -709,7 +792,25 @@ export default function WebhooksPage() {
                                     <p className="text-xs text-gray-400">HTTP {log.responseStatus}</p>
                                   )}
                                   {log.errorMessage && (
-                                    <p className="text-xs text-red-400 mt-1">{log.errorMessage}</p>
+                                    <div className="mt-2 space-y-1">
+                                      <p className="text-xs text-red-400">{log.errorMessage}</p>
+                                      {(() => {
+                                        const explanation = getErrorExplanation(log.errorMessage, log.responseStatus);
+                                        if (explanation) {
+                                          return (
+                                            <div className="p-2 bg-red-900/20 border border-red-700/30 rounded text-xs">
+                                              <p className="text-amber-400 font-medium flex items-center gap-1">
+                                                <HelpCircle className="w-3 h-3" />
+                                                {explanation.title}
+                                              </p>
+                                              <p className="text-gray-400 mt-1">{explanation.explanation}</p>
+                                              <p className="text-green-400 mt-1"><strong>Fix:</strong> {explanation.fix}</p>
+                                            </div>
+                                          );
+                                        }
+                                        return null;
+                                      })()}
+                                    </div>
                                   )}
                                 </div>
                               ))}
