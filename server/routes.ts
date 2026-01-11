@@ -5053,15 +5053,148 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
   // WALLET AUTHENTICATION & GOVERNANCE ROUTES
   // ==========================================
 
+  // Base58 decoder for Solana addresses
+  function decodeBase58(str: string): Uint8Array {
+    const ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+    const bytes: number[] = [];
+    for (let i = 0; i < str.length; i++) {
+      const value = ALPHABET.indexOf(str[i]);
+      if (value < 0) return new Uint8Array();
+      let carry = value;
+      for (let j = 0; j < bytes.length; j++) {
+        carry += bytes[j] * 58;
+        bytes[j] = carry & 0xff;
+        carry >>= 8;
+      }
+      while (carry > 0) {
+        bytes.push(carry & 0xff);
+        carry >>= 8;
+      }
+    }
+    for (let i = 0; i < str.length && str[i] === '1'; i++) {
+      bytes.push(0);
+    }
+    return new Uint8Array(bytes.reverse());
+  }
+
+  // Solana signature verification using tweetnacl
+  async function verifySolanaSignature(
+    message: string,
+    signature: string,
+    walletAddress: string
+  ): Promise<boolean> {
+    try {
+      const nacl = await import('tweetnacl');
+
+      const messageBytes = new TextEncoder().encode(message);
+      
+      // Client sends signature as base64 (Buffer.from(sig).toString('base64'))
+      const signatureBytes = Uint8Array.from(Buffer.from(signature, 'base64'));
+      
+      // Wallet address is base58 encoded
+      const publicKeyBytes = decodeBase58(walletAddress);
+
+      if (publicKeyBytes.length !== 32) {
+        console.error('Invalid public key length:', publicKeyBytes.length);
+        return false;
+      }
+
+      if (signatureBytes.length !== 64) {
+        console.error('Invalid signature length:', signatureBytes.length);
+        return false;
+      }
+
+      return nacl.sign.detached.verify(messageBytes, signatureBytes, publicKeyBytes);
+    } catch (err) {
+      console.error('Signature verification error:', err);
+      return false;
+    }
+  }
+
+  // Server-side Solana token verification (ignore client-sent values for security)
+  async function verifyTokenBalancesServerSide(walletAddress: string): Promise<{
+    veddBalance: number;
+    isAmbassador: boolean;
+    ambassadorNftMint: string | null;
+  }> {
+    const VEDD_TOKEN_MINT = 'VEDDxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
+    const SOLANA_RPC = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
+    
+    try {
+      const response = await fetch(SOLANA_RPC, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'getTokenAccountsByOwner',
+          params: [
+            walletAddress,
+            { programId: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA' },
+            { encoding: 'jsonParsed' }
+          ]
+        })
+      });
+      
+      const data = await response.json();
+      let veddBalance = 0;
+      let isAmbassador = false;
+      let ambassadorNftMint: string | null = null;
+      
+      if (data.result?.value) {
+        for (const account of data.result.value) {
+          const parsedInfo = account.account.data.parsed.info;
+          const mint = parsedInfo.mint;
+          const balance = parsedInfo.tokenAmount.uiAmount || 0;
+          
+          if (mint === VEDD_TOKEN_MINT) {
+            veddBalance = balance;
+          }
+          
+          if (mint.startsWith('VEDDAMB') && parsedInfo.tokenAmount.amount === '1') {
+            isAmbassador = true;
+            ambassadorNftMint = mint;
+          }
+        }
+      }
+      
+      return { veddBalance, isAmbassador, ambassadorNftMint };
+    } catch (err) {
+      console.error('Server-side token verification failed:', err);
+      return { veddBalance: 0, isAmbassador: false, ambassadorNftMint: null };
+    }
+  }
+
   // Authenticate via Solana wallet
   app.post("/api/wallet/authenticate", async (req: Request, res: Response) => {
-    const { walletAddress, signature, message, veddBalance, isAmbassador, ambassadorNftMint } = req.body;
+    const { walletAddress, signature, message } = req.body;
     
     if (!walletAddress || !signature || !message) {
       return res.status(400).json({ error: "Missing required fields" });
     }
 
     try {
+      // Verify the signature matches the wallet address
+      const isValidSignature = await verifySolanaSignature(message, signature, walletAddress);
+      if (!isValidSignature) {
+        console.error('Invalid signature for wallet:', walletAddress);
+        return res.status(401).json({ error: "Invalid wallet signature. Authentication failed." });
+      }
+
+      // Verify message freshness (within 5 minutes)
+      const timestampMatch = message.match(/Timestamp: (\d+)/);
+      if (timestampMatch) {
+        const messageTimestamp = parseInt(timestampMatch[1], 10);
+        const now = Date.now();
+        const fiveMinutes = 5 * 60 * 1000;
+        if (Math.abs(now - messageTimestamp) > fiveMinutes) {
+          return res.status(400).json({ error: "Authentication message expired. Please try again." });
+        }
+      }
+
+      // Server-side verification of token balances (ignore client-sent values)
+      const { veddBalance, isAmbassador, ambassadorNftMint } = await verifyTokenBalancesServerSide(walletAddress);
+
       // Find or create user by wallet address
       let user = await storage.getUserByWalletAddress(walletAddress);
       
@@ -5071,9 +5204,9 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           const currentUser = req.user as User;
           await storage.updateUser(currentUser.id, {
             walletAddress,
-            veddTokenBalance: veddBalance || 0,
-            isAmbassador: isAmbassador || false,
-            ambassadorNftMint: ambassadorNftMint || null,
+            veddTokenBalance: veddBalance,
+            isAmbassador,
+            ambassadorNftMint,
             lastWalletSync: new Date(),
           });
           user = await storage.getUser(currentUser.id);
@@ -5084,11 +5217,11 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           });
         }
       } else {
-        // Update token balances
+        // Update token balances from server verification
         await storage.updateUser(user.id, {
-          veddTokenBalance: veddBalance || 0,
-          isAmbassador: isAmbassador || false,
-          ambassadorNftMint: ambassadorNftMint || null,
+          veddTokenBalance: veddBalance,
+          isAmbassador,
+          ambassadorNftMint,
           lastWalletSync: new Date(),
         });
 
@@ -5191,7 +5324,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         return res.status(400).json({ error: "You have already voted on this proposal" });
       }
 
-      const power = votingPower || user.veddTokenBalance || 1;
+      // Use server-verified token balance, not client-sent votingPower
+      const power = user.veddTokenBalance || 1;
       await storage.createGovernanceVote({
         proposalId,
         userId: user.id,

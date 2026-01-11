@@ -177,7 +177,9 @@ export function SolanaWalletProvider({ children }: { children: ReactNode }) {
     try {
       const encodedMessage = new TextEncoder().encode(message);
       const { signature } = await provider.signMessage(encodedMessage, 'utf8');
-      return Buffer.from(signature).toString('base64');
+      // Convert Uint8Array to base64 using browser-native approach
+      const base64Signature = btoa(String.fromCharCode(...new Uint8Array(signature)));
+      return base64Signature;
     } catch (err: any) {
       console.error('Sign message error:', err);
       setError(err.message || 'Failed to sign message');

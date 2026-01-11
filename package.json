@@ -92,6 +92,7 @@
     "tailwindcss-animate": "^1.0.7",
     "technicalindicators": "^3.1.0",
     "telegram": "^2.26.22",
+    "tweetnacl": "^1.0.3",
     "twilio": "^5.5.2",
     "uuid": "^11.1.0",
     "vaul": "^1.1.0",
