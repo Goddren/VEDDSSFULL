@@ -654,6 +654,341 @@ bool g_wasChoppy = false;         // Previous choppy state for change detection
 int g_adxHandle = INVALID_HANDLE; // ADX indicator handle
 
 //+------------------------------------------------------------------+
+//| CHART VISUALIZATION SETTINGS                                     |
+//+------------------------------------------------------------------+
+input group "=== Chart Display Settings ==="
+input bool ShowInfoPanel = true;              // Show EA info panel on chart
+input bool ShowSupportResistance = true;      // Show support/resistance lines
+input bool ShowEntryZone = true;              // Show entry zone highlight
+input bool ShowTradeLevels = true;            // Show TP/SL levels on trades
+input bool ShowSignalArrows = true;           // Show buy/sell signal arrows
+input color PanelBackColor = clrMidnightBlue; // Panel background color
+input color BuyColor = clrLime;               // Buy signal color
+input color SellColor = clrRed;               // Sell signal color
+input color NeutralColor = clrGold;           // Neutral/warning color
+input int ArrowSize = 3;                      // Signal arrow size (1-5)
+
+//--- Chart object name prefixes
+string OBJ_PREFIX = "VEDD_";
+string PANEL_NAME = "VEDD_InfoPanel";
+string PANEL_TITLE = "VEDD_Title";
+string LINE_SUPPORT = "VEDD_Support";
+string LINE_RESIST = "VEDD_Resistance";
+string LINE_TP = "VEDD_TP";
+string LINE_SL = "VEDD_SL";
+string LINE_ENTRY = "VEDD_Entry";
+string ARROW_SIGNAL = "VEDD_Signal_";
+string TEXT_INFO = "VEDD_Info_";
+
+//--- Last known values for display
+double g_lastRSI = 0;
+double g_lastMACD = 0;
+double g_lastATR = 0;
+string g_lastSignal = "WAITING";
+datetime g_lastSignalTime = 0;
+int g_signalCount = 0;
+
+//+------------------------------------------------------------------+
+//| Delete all chart objects created by this EA                      |
+//+------------------------------------------------------------------+
+void CleanupChartObjects()
+{
+   int total = ObjectsTotal(0);
+   for(int i = total - 1; i >= 0; i--)
+   {
+      string name = ObjectName(0, i);
+      if(StringFind(name, OBJ_PREFIX) == 0)
+      {
+         ObjectDelete(0, name);
+      }
+   }
+   ChartRedraw(0);
+}
+
+//+------------------------------------------------------------------+
+//| Create the info panel background                                 |
+//+------------------------------------------------------------------+
+void CreateInfoPanel()
+{
+   if(!ShowInfoPanel) return;
+   
+   // Create panel background
+   ObjectCreate(0, PANEL_NAME, OBJ_RECTANGLE_LABEL, 0, 0, 0);
+   ObjectSetInteger(0, PANEL_NAME, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+   ObjectSetInteger(0, PANEL_NAME, OBJPROP_XDISTANCE, 10);
+   ObjectSetInteger(0, PANEL_NAME, OBJPROP_YDISTANCE, 30);
+   ObjectSetInteger(0, PANEL_NAME, OBJPROP_XSIZE, 220);
+   ObjectSetInteger(0, PANEL_NAME, OBJPROP_YSIZE, 200);
+   ObjectSetInteger(0, PANEL_NAME, OBJPROP_BGCOLOR, PanelBackColor);
+   ObjectSetInteger(0, PANEL_NAME, OBJPROP_BORDER_COLOR, clrWhite);
+   ObjectSetInteger(0, PANEL_NAME, OBJPROP_BORDER_TYPE, BORDER_FLAT);
+   ObjectSetInteger(0, PANEL_NAME, OBJPROP_WIDTH, 2);
+   ObjectSetInteger(0, PANEL_NAME, OBJPROP_BACK, false);
+   ObjectSetInteger(0, PANEL_NAME, OBJPROP_SELECTABLE, false);
+   
+   // Create title
+   ObjectCreate(0, PANEL_TITLE, OBJ_LABEL, 0, 0, 0);
+   ObjectSetInteger(0, PANEL_TITLE, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+   ObjectSetInteger(0, PANEL_TITLE, OBJPROP_XDISTANCE, 20);
+   ObjectSetInteger(0, PANEL_TITLE, OBJPROP_YDISTANCE, 35);
+   ObjectSetString(0, PANEL_TITLE, OBJPROP_TEXT, "VEDD AI - ${eaName}");
+   ObjectSetString(0, PANEL_TITLE, OBJPROP_FONT, "Arial Bold");
+   ObjectSetInteger(0, PANEL_TITLE, OBJPROP_FONTSIZE, 10);
+   ObjectSetInteger(0, PANEL_TITLE, OBJPROP_COLOR, clrWhite);
+   ObjectSetInteger(0, PANEL_TITLE, OBJPROP_SELECTABLE, false);
+   
+   // Create info labels
+   CreateInfoLabel(TEXT_INFO + "Direction", "AI Direction:", 55);
+   CreateInfoLabel(TEXT_INFO + "Signal", "Current Signal:", 75);
+   CreateInfoLabel(TEXT_INFO + "RSI", "RSI(${strategyType === 'scalping' ? '7' : '14'}):", 95);
+   CreateInfoLabel(TEXT_INFO + "MACD", "MACD:", 115);
+   CreateInfoLabel(TEXT_INFO + "ATR", "ATR:", 135);
+   CreateInfoLabel(TEXT_INFO + "Choppy", "Market State:", 155);
+   CreateInfoLabel(TEXT_INFO + "Trades", "Open Trades:", 175);
+   CreateInfoLabel(TEXT_INFO + "Status", "Status:", 195);
+}
+
+//+------------------------------------------------------------------+
+//| Create an info label                                             |
+//+------------------------------------------------------------------+
+void CreateInfoLabel(string name, string text, int y_offset)
+{
+   ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
+   ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+   ObjectSetInteger(0, name, OBJPROP_XDISTANCE, 20);
+   ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y_offset);
+   ObjectSetString(0, name, OBJPROP_TEXT, text);
+   ObjectSetString(0, name, OBJPROP_FONT, "Arial");
+   ObjectSetInteger(0, name, OBJPROP_FONTSIZE, 9);
+   ObjectSetInteger(0, name, OBJPROP_COLOR, clrWhite);
+   ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+   
+   // Create value label
+   string value_name = name + "_val";
+   ObjectCreate(0, value_name, OBJ_LABEL, 0, 0, 0);
+   ObjectSetInteger(0, value_name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+   ObjectSetInteger(0, value_name, OBJPROP_XDISTANCE, 120);
+   ObjectSetInteger(0, value_name, OBJPROP_YDISTANCE, y_offset);
+   ObjectSetString(0, value_name, OBJPROP_TEXT, "---");
+   ObjectSetString(0, value_name, OBJPROP_FONT, "Arial Bold");
+   ObjectSetInteger(0, value_name, OBJPROP_FONTSIZE, 9);
+   ObjectSetInteger(0, value_name, OBJPROP_COLOR, NeutralColor);
+   ObjectSetInteger(0, value_name, OBJPROP_SELECTABLE, false);
+}
+
+//+------------------------------------------------------------------+
+//| Update info panel values                                         |
+//+------------------------------------------------------------------+
+void UpdateInfoPanel()
+{
+   if(!ShowInfoPanel) return;
+   
+   // Update Direction
+   color dir_color = current_ai_direction == "BUY" ? BuyColor : (current_ai_direction == "SELL" ? SellColor : NeutralColor);
+   ObjectSetString(0, TEXT_INFO + "Direction_val", OBJPROP_TEXT, current_ai_direction + " (" + IntegerToString(current_ai_confidence) + "%)");
+   ObjectSetInteger(0, TEXT_INFO + "Direction_val", OBJPROP_COLOR, dir_color);
+   
+   // Update Signal
+   ObjectSetString(0, TEXT_INFO + "Signal_val", OBJPROP_TEXT, g_lastSignal);
+   color sig_color = g_lastSignal == "BUY" ? BuyColor : (g_lastSignal == "SELL" ? SellColor : NeutralColor);
+   ObjectSetInteger(0, TEXT_INFO + "Signal_val", OBJPROP_COLOR, sig_color);
+   
+   // Update RSI
+   string rsi_status = g_lastRSI > RSI_Overbought ? "OB" : (g_lastRSI < RSI_Oversold ? "OS" : "OK");
+   color rsi_color = g_lastRSI > RSI_Overbought ? SellColor : (g_lastRSI < RSI_Oversold ? BuyColor : clrWhite);
+   ObjectSetString(0, TEXT_INFO + "RSI_val", OBJPROP_TEXT, DoubleToString(g_lastRSI, 1) + " [" + rsi_status + "]");
+   ObjectSetInteger(0, TEXT_INFO + "RSI_val", OBJPROP_COLOR, rsi_color);
+   
+   // Update MACD
+   string macd_status = g_lastMACD > 0 ? "Bullish" : "Bearish";
+   color macd_color = g_lastMACD > 0 ? BuyColor : SellColor;
+   ObjectSetString(0, TEXT_INFO + "MACD_val", OBJPROP_TEXT, macd_status);
+   ObjectSetInteger(0, TEXT_INFO + "MACD_val", OBJPROP_COLOR, macd_color);
+   
+   // Update ATR
+   ObjectSetString(0, TEXT_INFO + "ATR_val", OBJPROP_TEXT, DoubleToString(g_lastATR, _Digits));
+   ObjectSetInteger(0, TEXT_INFO + "ATR_val", OBJPROP_COLOR, clrWhite);
+   
+   // Update Market State
+   string state_text = g_choppyState.isChoppy ? "CHOPPY" : "TRENDING";
+   color state_color = g_choppyState.isChoppy ? NeutralColor : BuyColor;
+   ObjectSetString(0, TEXT_INFO + "Choppy_val", OBJPROP_TEXT, state_text);
+   ObjectSetInteger(0, TEXT_INFO + "Choppy_val", OBJPROP_COLOR, state_color);
+   
+   // Update Open Trades
+   int open_trades = CountOpenPositions();
+   ObjectSetString(0, TEXT_INFO + "Trades_val", OBJPROP_TEXT, IntegerToString(open_trades) + " / " + IntegerToString(MaxSimultaneousTrades));
+   ObjectSetInteger(0, TEXT_INFO + "Trades_val", OBJPROP_COLOR, open_trades > 0 ? BuyColor : clrWhite);
+   
+   // Update Status
+   string status = trading_paused ? "PAUSED" : (g_choppyState.isChoppy ? "WAITING" : "ACTIVE");
+   color status_color = trading_paused ? SellColor : (g_choppyState.isChoppy ? NeutralColor : BuyColor);
+   ObjectSetString(0, TEXT_INFO + "Status_val", OBJPROP_TEXT, status);
+   ObjectSetInteger(0, TEXT_INFO + "Status_val", OBJPROP_COLOR, status_color);
+   
+   ChartRedraw(0);
+}
+
+//+------------------------------------------------------------------+
+//| Draw support and resistance lines                                |
+//+------------------------------------------------------------------+
+void DrawSupportResistance()
+{
+   if(!ShowSupportResistance) return;
+   
+   // Use swing high/low from market context if available
+   if(g_htfContext.swingHigh > 0)
+   {
+      if(ObjectFind(0, LINE_RESIST) < 0)
+      {
+         ObjectCreate(0, LINE_RESIST, OBJ_HLINE, 0, 0, g_htfContext.swingHigh);
+      }
+      ObjectSetDouble(0, LINE_RESIST, OBJPROP_PRICE, g_htfContext.swingHigh);
+      ObjectSetInteger(0, LINE_RESIST, OBJPROP_COLOR, SellColor);
+      ObjectSetInteger(0, LINE_RESIST, OBJPROP_STYLE, STYLE_DASH);
+      ObjectSetInteger(0, LINE_RESIST, OBJPROP_WIDTH, 1);
+      ObjectSetString(0, LINE_RESIST, OBJPROP_TEXT, "Resistance");
+      ObjectSetInteger(0, LINE_RESIST, OBJPROP_BACK, true);
+   }
+   
+   if(g_htfContext.swingLow > 0)
+   {
+      if(ObjectFind(0, LINE_SUPPORT) < 0)
+      {
+         ObjectCreate(0, LINE_SUPPORT, OBJ_HLINE, 0, 0, g_htfContext.swingLow);
+      }
+      ObjectSetDouble(0, LINE_SUPPORT, OBJPROP_PRICE, g_htfContext.swingLow);
+      ObjectSetInteger(0, LINE_SUPPORT, OBJPROP_COLOR, BuyColor);
+      ObjectSetInteger(0, LINE_SUPPORT, OBJPROP_STYLE, STYLE_DASH);
+      ObjectSetInteger(0, LINE_SUPPORT, OBJPROP_WIDTH, 1);
+      ObjectSetString(0, LINE_SUPPORT, OBJPROP_TEXT, "Support");
+      ObjectSetInteger(0, LINE_SUPPORT, OBJPROP_BACK, true);
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Draw signal arrow on chart                                       |
+//+------------------------------------------------------------------+
+void DrawSignalArrow(bool is_buy, datetime time, double price)
+{
+   if(!ShowSignalArrows) return;
+   
+   g_signalCount++;
+   string arrow_name = ARROW_SIGNAL + IntegerToString(g_signalCount);
+   
+   int arrow_code = is_buy ? 233 : 234;  // Wingdings arrows
+   color arrow_color = is_buy ? BuyColor : SellColor;
+   
+   ObjectCreate(0, arrow_name, OBJ_ARROW, 0, time, price);
+   ObjectSetInteger(0, arrow_name, OBJPROP_ARROWCODE, arrow_code);
+   ObjectSetInteger(0, arrow_name, OBJPROP_COLOR, arrow_color);
+   ObjectSetInteger(0, arrow_name, OBJPROP_WIDTH, ArrowSize);
+   ObjectSetInteger(0, arrow_name, OBJPROP_BACK, false);
+   ObjectSetInteger(0, arrow_name, OBJPROP_SELECTABLE, false);
+   
+   g_lastSignal = is_buy ? "BUY" : "SELL";
+   g_lastSignalTime = time;
+   
+   ChartRedraw(0);
+}
+
+//+------------------------------------------------------------------+
+//| Draw TP/SL lines for active trade                                |
+//+------------------------------------------------------------------+
+void DrawTradeLevels(double entry, double tp, double sl)
+{
+   if(!ShowTradeLevels) return;
+   
+   // Entry line
+   if(ObjectFind(0, LINE_ENTRY) < 0)
+      ObjectCreate(0, LINE_ENTRY, OBJ_HLINE, 0, 0, entry);
+   ObjectSetDouble(0, LINE_ENTRY, OBJPROP_PRICE, entry);
+   ObjectSetInteger(0, LINE_ENTRY, OBJPROP_COLOR, clrWhite);
+   ObjectSetInteger(0, LINE_ENTRY, OBJPROP_STYLE, STYLE_DOT);
+   ObjectSetInteger(0, LINE_ENTRY, OBJPROP_WIDTH, 1);
+   ObjectSetString(0, LINE_ENTRY, OBJPROP_TEXT, "Entry: " + DoubleToString(entry, _Digits));
+   
+   // TP line
+   if(tp > 0)
+   {
+      if(ObjectFind(0, LINE_TP) < 0)
+         ObjectCreate(0, LINE_TP, OBJ_HLINE, 0, 0, tp);
+      ObjectSetDouble(0, LINE_TP, OBJPROP_PRICE, tp);
+      ObjectSetInteger(0, LINE_TP, OBJPROP_COLOR, BuyColor);
+      ObjectSetInteger(0, LINE_TP, OBJPROP_STYLE, STYLE_SOLID);
+      ObjectSetInteger(0, LINE_TP, OBJPROP_WIDTH, 2);
+      ObjectSetString(0, LINE_TP, OBJPROP_TEXT, "TP: " + DoubleToString(tp, _Digits));
+   }
+   
+   // SL line
+   if(sl > 0)
+   {
+      if(ObjectFind(0, LINE_SL) < 0)
+         ObjectCreate(0, LINE_SL, OBJ_HLINE, 0, 0, sl);
+      ObjectSetDouble(0, LINE_SL, OBJPROP_PRICE, sl);
+      ObjectSetInteger(0, LINE_SL, OBJPROP_COLOR, SellColor);
+      ObjectSetInteger(0, LINE_SL, OBJPROP_STYLE, STYLE_SOLID);
+      ObjectSetInteger(0, LINE_SL, OBJPROP_WIDTH, 2);
+      ObjectSetString(0, LINE_SL, OBJPROP_TEXT, "SL: " + DoubleToString(sl, _Digits));
+   }
+   
+   ChartRedraw(0);
+}
+
+//+------------------------------------------------------------------+
+//| Clear trade level lines when no position                         |
+//+------------------------------------------------------------------+
+void ClearTradeLevels()
+{
+   ObjectDelete(0, LINE_ENTRY);
+   ObjectDelete(0, LINE_TP);
+   ObjectDelete(0, LINE_SL);
+}
+
+//+------------------------------------------------------------------+
+//| Update all chart visuals (called from OnTick)                    |
+//+------------------------------------------------------------------+
+void UpdateChartVisuals()
+{
+   // Store last indicator values for display
+   if(CopyBuffer(rsi_handle, 0, 0, 1, rsi_buffer) > 0)
+      g_lastRSI = rsi_buffer[0];
+   if(CopyBuffer(macd_handle, 0, 0, 1, macd_main) > 0)
+      g_lastMACD = macd_main[0];
+   if(CopyBuffer(atr_handle, 0, 0, 1, atr_buffer) > 0)
+      g_lastATR = atr_buffer[0];
+   
+   // Update info panel
+   UpdateInfoPanel();
+   
+   // Update support/resistance
+   DrawSupportResistance();
+   
+   // Update trade levels if position exists
+   if(CountOpenPositions() > 0)
+   {
+      for(int i = PositionsTotal() - 1; i >= 0; i--)
+      {
+         if(PositionSelectByTicket(PositionGetTicket(i)))
+         {
+            if(PositionGetString(POSITION_SYMBOL) == _Symbol && PositionGetInteger(POSITION_MAGIC) == MagicNumber)
+            {
+               double entry = PositionGetDouble(POSITION_PRICE_OPEN);
+               double tp = PositionGetDouble(POSITION_TP);
+               double sl = PositionGetDouble(POSITION_SL);
+               DrawTradeLevels(entry, tp, sl);
+               break;
+            }
+         }
+      }
+   }
+   else
+   {
+      ClearTradeLevels();
+   }
+}
+
+//+------------------------------------------------------------------+
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
 int OnInit()
