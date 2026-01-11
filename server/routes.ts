@@ -4571,6 +4571,138 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
     }
   });
 
+  // MT5 Chart Data Receiver - receives live chart data from MT5 EA for AI refresh
+  app.post("/api/mt5/chart-data", async (req: Request, res: Response) => {
+    try {
+      // Accept API key from multiple header formats for compatibility
+      const apiKey = (req.headers['authorization']?.replace('Bearer ', '') || req.headers['x-api-key'] || req.headers['x-vedd-api-key']) as string;
+      if (!apiKey) {
+        return res.status(401).json({ error: "API key required. Set Authorization: Bearer YOUR_TOKEN header in your EA settings." });
+      }
+      
+      const token = await storage.getMt5ApiTokenByToken(apiKey);
+      if (!token) {
+        return res.status(401).json({ error: "Invalid API key" });
+      }
+      if (!token.isActive) {
+        return res.status(403).json({ error: "API key is disabled" });
+      }
+      
+      const { symbol, timeframe, broker, timestamp, candles, indicators } = req.body;
+      
+      // Validate required fields
+      if (!symbol || typeof symbol !== 'string' || symbol.length > 20) {
+        return res.status(400).json({ error: "Invalid or missing symbol" });
+      }
+      if (!timeframe || typeof timeframe !== 'string' || timeframe.length > 10) {
+        return res.status(400).json({ error: "Invalid or missing timeframe" });
+      }
+      if (!candles || !Array.isArray(candles) || candles.length === 0 || candles.length > 200) {
+        return res.status(400).json({ error: "Candles must be an array with 1-200 items" });
+      }
+      
+      // Validate candle structure (check first candle)
+      const firstCandle = candles[0];
+      if (typeof firstCandle !== 'object' || firstCandle === null) {
+        return res.status(400).json({ error: "Invalid candle format" });
+      }
+      
+      // Sanitize symbol and timeframe
+      const sanitizedSymbol = symbol.replace(/[^A-Za-z0-9/]/g, '').toUpperCase();
+      const sanitizedTimeframe = timeframe.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+      
+      // Store the chart data for later use in AI refresh
+      const chartDataKey = `mt5_chart_${token.userId}_${sanitizedSymbol}_${sanitizedTimeframe}`;
+      const chartData = {
+        symbol,
+        timeframe,
+        broker: broker || 'Unknown',
+        receivedAt: new Date().toISOString(),
+        candleCount: candles.length,
+        candles: candles.slice(0, 100), // Store last 100 candles max
+        indicators: indicators || null,
+        latestPrice: candles[0]?.c || null,
+      };
+      
+      // Store in a simple in-memory cache (you could extend this to database storage)
+      (global as any).mt5ChartDataCache = (global as any).mt5ChartDataCache || {};
+      (global as any).mt5ChartDataCache[chartDataKey] = chartData;
+      
+      // Increment signal count for the token (tracking usage)
+      await storage.incrementMt5TokenSignalCount(token.id);
+      
+      // Check if this data should trigger an EA refresh
+      let refreshTriggered = false;
+      const userEAs = await storage.getSavedEAsByUser(token.userId);
+      const matchingEA = userEAs.find(ea => 
+        ea.symbol.toUpperCase().replace('/', '') === symbol.toUpperCase().replace('/', '') &&
+        ea.liveRefreshEnabled
+      );
+      
+      if (matchingEA && indicators && typeof indicators === 'object') {
+        try {
+          // Detect pattern changes based on indicator data
+          const rsi = typeof indicators.rsi === 'number' ? indicators.rsi : null;
+          const macdHist = indicators.macd && typeof indicators.macd.histogram === 'number' 
+            ? indicators.macd.histogram : null;
+          
+          // Simple pattern change detection
+          let patternChange = null;
+          if (rsi !== null && (rsi > 70 || rsi < 30)) {
+            patternChange = rsi > 70 ? 'RSI overbought detected' : 'RSI oversold detected';
+          }
+          if (macdHist !== null && matchingEA.direction) {
+            const prevDirection = matchingEA.direction;
+            const macdSignal = macdHist > 0 ? 'BUY' : 'SELL';
+            if (prevDirection !== macdSignal && prevDirection !== 'NEUTRAL') {
+              patternChange = `MACD histogram crossed ${macdHist > 0 ? 'positive' : 'negative'}`;
+            }
+          }
+          
+          if (patternChange) {
+            console.log(`[MT5 Chart Data] Pattern change detected for EA ${matchingEA.id}: ${patternChange}`);
+            refreshTriggered = true;
+          }
+        } catch (indicatorError) {
+          console.error('[MT5 Chart Data] Error processing indicators:', indicatorError);
+        }
+      }
+      
+      res.json({ 
+        success: true, 
+        message: "Chart data received",
+        symbol,
+        timeframe,
+        candlesReceived: candles.length,
+        indicatorsReceived: indicators ? Object.keys(indicators).length : 0,
+        refreshTriggered,
+        matchingEA: matchingEA ? matchingEA.id : null,
+      });
+    } catch (error) {
+      console.error('Error processing MT5 chart data:', error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to process chart data" });
+    }
+  });
+
+  // Get cached MT5 chart data for a symbol
+  app.get("/api/mt5/chart-data/:symbol/:timeframe", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const userId = (req.user as User).id;
+    const { symbol, timeframe } = req.params;
+    
+    const chartDataKey = `mt5_chart_${userId}_${symbol}_${timeframe}`;
+    const cache = (global as any).mt5ChartDataCache || {};
+    const chartData = cache[chartDataKey];
+    
+    if (!chartData) {
+      return res.status(404).json({ error: "No chart data found. Make sure your MT5 Chart Data EA is running." });
+    }
+    
+    res.json(chartData);
+  });
+
   // TradeLocker Connection Routes
   app.get("/api/tradelocker/connection", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) {

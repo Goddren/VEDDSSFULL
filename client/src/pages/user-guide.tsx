@@ -135,6 +135,19 @@ const guideSections: GuideSection[] = [
           'Download EA code for use on your trading platform',
           'Use "Live AI Refresh" to update EAs with current market data'
         ]
+      },
+      {
+        heading: 'MT5 Chart Data EA for Live AI Refresh',
+        steps: [
+          'Download the Chart Data EA from the Webhooks page',
+          'Install the EA in MT5: File → Open Data Folder → MQL5 → Experts',
+          'Enable WebRequest: Tools → Options → Expert Advisors → Allow WebRequest',
+          'Add your AI Trading Vault URL to allowed URLs',
+          'Configure the EA with your API token and attach to any chart',
+          'The EA sends live OHLCV data and indicators (RSI, MACD, ATR, Bollinger Bands) every 60 seconds',
+          'Enable "Live AI Refresh" on your saved EAs to receive updated analysis'
+        ],
+        tips: ['Use the same API token from the MT5 Trade Copier section', 'The EA sends data from your broker\'s actual price feed for more accurate analysis']
       }
     ]
   },

@@ -287,6 +287,24 @@ const trainingModules: TrainingModule[] = [
           'Demonstrate the webhook testing feature in your tutorials',
           'Explain how automation saves time and reduces missed opportunities'
         ]
+      },
+      {
+        id: 'features-5',
+        title: 'MT5 Chart Data EA for Live AI Refresh',
+        content: [
+          'NEW: Chart Data EA sends live price data directly from MT5 to AI Trading Vault',
+          'Sends OHLCV candle data plus technical indicators (RSI, MACD, ATR, Bollinger Bands, Moving Averages)',
+          'Uses your broker\'s actual price feed for more accurate AI analysis',
+          'Data is sent every 60 seconds (configurable) to keep analysis fresh',
+          'Works with the Live AI Refresh feature to automatically update EA signals',
+          'Same API token used for MT5 Trade Copier works for Chart Data EA'
+        ],
+        tips: [
+          'Highlight that this uses real broker data, not third-party feeds',
+          'Demo the setup process: download EA, configure token, enable WebRequest in MT5',
+          'Show how Live AI Refresh uses this data to provide updated trading signals',
+          'Explain this is perfect for traders who want analysis based on their specific broker\'s prices'
+        ]
       }
     ]
   },

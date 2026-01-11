@@ -1199,6 +1199,176 @@ export default function WebhooksPage() {
           </CardContent>
         </Card>
 
+        {/* MT5 Chart Data EA Section */}
+        <Card className="mt-8 bg-gradient-to-br from-green-900/30 to-teal-900/30 border-green-700/50">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-white text-xl flex items-center gap-3">
+                  <Activity className="w-6 h-6 text-green-400" />
+                  MT5 Chart Data EA
+                  <Badge className="bg-green-500/20 text-green-400 text-xs">NEW</Badge>
+                </CardTitle>
+                <CardDescription className="mt-1">
+                  Send live chart data from MT5 to AI Trading Vault for real-time AI refresh analysis
+                </CardDescription>
+              </div>
+              <a 
+                href="/downloads/VEDD_ChartData_EA.mq5" 
+                download
+                className="inline-flex"
+              >
+                <Button className="bg-gradient-to-r from-green-600 to-teal-600">
+                  <Download className="w-4 h-4 mr-2" />
+                  Download Chart Data EA
+                </Button>
+              </a>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="p-3 bg-green-900/30 border border-green-600/50 rounded-lg">
+              <p className="text-green-300 text-sm flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                <span><strong>What it does:</strong> This EA runs on your MT5 charts and sends OHLCV candle data plus technical indicators (RSI, MACD, ATR, Bollinger Bands, Moving Averages) directly to AI Trading Vault. This enables real-time AI refresh analysis using your broker's actual price feed.</span>
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              <h4 className="text-white font-bold text-lg">Setup Instructions</h4>
+              
+              <div className="p-4 bg-gray-800/50 rounded-lg border border-gray-700">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-8 h-8 rounded-full bg-green-600 flex items-center justify-center text-white font-bold">1</div>
+                  <h5 className="text-white font-semibold">Download & Install</h5>
+                </div>
+                <ol className="text-sm text-gray-400 list-decimal list-inside space-y-1">
+                  <li>Download the Chart Data EA using the button above</li>
+                  <li>In MT5, go to File → Open Data Folder → MQL5 → Experts</li>
+                  <li>Copy the .mq5 file there</li>
+                  <li>In MT5, open Navigator (Ctrl+N) → Right-click Experts → Refresh</li>
+                  <li>Double-click to compile the EA</li>
+                </ol>
+              </div>
+
+              <div className="p-4 bg-gray-800/50 rounded-lg border border-gray-700">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-8 h-8 rounded-full bg-green-600 flex items-center justify-center text-white font-bold">2</div>
+                  <h5 className="text-white font-semibold">Enable WebRequest in MT5</h5>
+                </div>
+                <ol className="text-sm text-gray-400 list-decimal list-inside space-y-1">
+                  <li>In MT5, go to Tools → Options → Expert Advisors</li>
+                  <li>Check "Allow WebRequest for listed URL"</li>
+                  <li>Add your AI Trading Vault URL (shown below)</li>
+                  <li>Click OK to save</li>
+                </ol>
+                <div className="mt-3 flex items-center gap-2 bg-gray-900 p-3 rounded-lg border border-green-700/50">
+                  <code className="flex-1 text-green-400 text-sm break-all">
+                    {window.location.origin}
+                  </code>
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => copyToClipboard(window.location.origin)}
+                    className="shrink-0"
+                  >
+                    <Copy className="w-4 h-4 mr-2" />
+                    Copy
+                  </Button>
+                </div>
+              </div>
+
+              <div className="p-4 bg-gray-800/50 rounded-lg border border-gray-700">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-8 h-8 rounded-full bg-green-600 flex items-center justify-center text-white font-bold">3</div>
+                  <h5 className="text-white font-semibold">Configure EA Settings</h5>
+                </div>
+                <p className="text-gray-400 text-sm mb-3">Attach the EA to the chart you want to analyze. In the EA inputs:</p>
+                
+                <div className="p-3 bg-amber-900/30 border border-amber-600/50 rounded-lg mb-3">
+                  <p className="text-amber-300 text-sm flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                    <span><strong>Important:</strong> You must update the API_URL in the EA settings to match your AI Trading Vault URL. Copy the URL below and paste it into the EA's "API_URL" input field.</span>
+                  </p>
+                </div>
+                
+                <div className="flex items-center gap-2 bg-gray-900 p-3 rounded-lg border border-green-700/50 mb-4">
+                  <code className="flex-1 text-green-400 text-sm break-all">
+                    {window.location.origin}/api/mt5/chart-data
+                  </code>
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => copyToClipboard(`${window.location.origin}/api/mt5/chart-data`)}
+                    className="shrink-0"
+                  >
+                    <Copy className="w-4 h-4 mr-2" />
+                    Copy URL
+                  </Button>
+                </div>
+                
+                <div className="grid md:grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <p className="text-white font-medium mb-2">Required Settings:</p>
+                    <ul className="text-gray-400 space-y-1">
+                      <li>• <span className="text-green-400">API_URL</span>: Paste the URL you copied above</li>
+                      <li>• <span className="text-green-400">API_TOKEN</span>: Your token from "MT5 Trade Copier" section above</li>
+                    </ul>
+                  </div>
+                  <div>
+                    <p className="text-white font-medium mb-2">Optional Settings:</p>
+                    <ul className="text-gray-400 space-y-1">
+                      <li>• <span className="text-amber-400">CANDLES_TO_SEND</span>: Number of candles (default: 50)</li>
+                      <li>• <span className="text-amber-400">SEND_INTERVAL_SECONDS</span>: Update frequency (default: 60)</li>
+                      <li>• <span className="text-amber-400">INCLUDE_INDICATORS</span>: Send RSI, MACD, etc. (default: true)</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-4 bg-gray-800/50 rounded-lg border border-gray-700">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-8 h-8 rounded-full bg-green-600 flex items-center justify-center text-white font-bold">4</div>
+                  <h5 className="text-white font-semibold">Run & Monitor</h5>
+                </div>
+                <ol className="text-sm text-gray-400 list-decimal list-inside space-y-1">
+                  <li>Enable the EA on your chart (green face icon should appear)</li>
+                  <li>Check the "Experts" tab in MT5 for connection logs</li>
+                  <li>The EA will send data every 60 seconds (or your configured interval)</li>
+                  <li>Use "Live AI Refresh" in your EAs to receive updated analysis</li>
+                </ol>
+              </div>
+            </div>
+
+            <div className="p-4 bg-teal-900/20 border border-teal-600/30 rounded-lg">
+              <h4 className="text-teal-400 font-semibold flex items-center gap-2 mb-3">
+                <Zap className="w-4 h-4" />
+                Data Sent to AI Trading Vault
+              </h4>
+              <div className="grid md:grid-cols-2 gap-4 text-sm">
+                <div>
+                  <p className="text-white font-medium mb-2">Candle Data (OHLCV):</p>
+                  <ul className="text-gray-400 space-y-1">
+                    <li>• Open, High, Low, Close prices</li>
+                    <li>• Volume for each candle</li>
+                    <li>• Timestamp for each bar</li>
+                    <li>• Symbol and timeframe</li>
+                  </ul>
+                </div>
+                <div>
+                  <p className="text-white font-medium mb-2">Technical Indicators:</p>
+                  <ul className="text-gray-400 space-y-1">
+                    <li>• RSI (14-period)</li>
+                    <li>• MACD (12, 26, 9)</li>
+                    <li>• ATR (14-period)</li>
+                    <li>• EMA 20, EMA 50, SMA 200</li>
+                    <li>• Bollinger Bands (20, 2)</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* TradeLocker Direct Connection Section */}
         <Card className="mt-8 bg-gradient-to-br from-cyan-900/30 to-blue-900/30 border-cyan-700/50">
           <CardHeader>
