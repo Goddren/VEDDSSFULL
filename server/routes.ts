@@ -5049,6 +5049,174 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
     }
   });
 
+  // ==========================================
+  // WALLET AUTHENTICATION & GOVERNANCE ROUTES
+  // ==========================================
+
+  // Authenticate via Solana wallet
+  app.post("/api/wallet/authenticate", async (req: Request, res: Response) => {
+    const { walletAddress, signature, message, veddBalance, isAmbassador, ambassadorNftMint } = req.body;
+    
+    if (!walletAddress || !signature || !message) {
+      return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    try {
+      // Find or create user by wallet address
+      let user = await storage.getUserByWalletAddress(walletAddress);
+      
+      if (!user) {
+        // Check if user is authenticated and wants to link wallet
+        if (req.isAuthenticated()) {
+          const currentUser = req.user as User;
+          await storage.updateUser(currentUser.id, {
+            walletAddress,
+            veddTokenBalance: veddBalance || 0,
+            isAmbassador: isAmbassador || false,
+            ambassadorNftMint: ambassadorNftMint || null,
+            lastWalletSync: new Date(),
+          });
+          user = await storage.getUser(currentUser.id);
+        } else {
+          return res.status(400).json({ 
+            error: "Wallet not linked to any account. Please log in first to link your wallet.",
+            needsAccount: true 
+          });
+        }
+      } else {
+        // Update token balances
+        await storage.updateUser(user.id, {
+          veddTokenBalance: veddBalance || 0,
+          isAmbassador: isAmbassador || false,
+          ambassadorNftMint: ambassadorNftMint || null,
+          lastWalletSync: new Date(),
+        });
+
+        // Check and apply token-gated subscription
+        if (veddBalance > 0 && !user.tokenGatedSubscriptionEnd) {
+          const threeMonthsFromNow = new Date();
+          threeMonthsFromNow.setMonth(threeMonthsFromNow.getMonth() + 3);
+          await storage.updateUser(user.id, {
+            tokenGatedSubscriptionEnd: threeMonthsFromNow,
+            subscriptionStatus: 'active',
+          });
+        }
+      }
+      
+      res.json({ 
+        success: true,
+        user: user ? { id: user.id, username: user.username, walletAddress, veddBalance, isAmbassador } : null,
+        tokenGatedAccess: veddBalance > 0,
+      });
+    } catch (err) {
+      console.error('Wallet authentication error:', err);
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Get governance proposals
+  app.get("/api/governance/proposals", async (req: Request, res: Response) => {
+    try {
+      const proposals = await storage.getGovernanceProposals();
+      res.json(proposals);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Create governance proposal
+  app.post("/api/governance/proposals", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const user = req.user as User;
+    
+    if (!user.veddTokenBalance || user.veddTokenBalance < 100) {
+      return res.status(403).json({ error: "Must hold at least 100 VEDD tokens to create proposals" });
+    }
+
+    const { title, description, category, proposerWallet, endDate, quorumRequired } = req.body;
+    
+    if (!title || !description || !category || !proposerWallet || !endDate) {
+      return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    try {
+      const proposal = await storage.createGovernanceProposal({
+        title,
+        description,
+        category,
+        proposerUserId: user.id,
+        proposerWallet,
+        endDate: new Date(endDate),
+        quorumRequired: quorumRequired || 1000,
+        status: 'active',
+        startDate: new Date(),
+      });
+      res.json(proposal);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Vote on governance proposal
+  app.post("/api/governance/vote", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const user = req.user as User;
+    
+    if (!user.veddTokenBalance || user.veddTokenBalance <= 0) {
+      return res.status(403).json({ error: "Must hold VEDD tokens to vote" });
+    }
+
+    const { proposalId, vote, walletAddress, votingPower } = req.body;
+    
+    if (!proposalId || !vote || !walletAddress) {
+      return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    try {
+      const proposal = await storage.getGovernanceProposal(proposalId);
+      if (!proposal) {
+        return res.status(404).json({ error: "Proposal not found" });
+      }
+
+      if (proposal.status !== 'active' || new Date(proposal.endDate) < new Date()) {
+        return res.status(400).json({ error: "Voting has ended for this proposal" });
+      }
+
+      const existingVote = await storage.getUserVote(proposalId, user.id);
+      if (existingVote) {
+        return res.status(400).json({ error: "You have already voted on this proposal" });
+      }
+
+      const power = votingPower || user.veddTokenBalance || 1;
+      await storage.createGovernanceVote({
+        proposalId,
+        userId: user.id,
+        walletAddress,
+        vote,
+        votingPower: power,
+      });
+
+      // Update proposal vote counts
+      const updates: any = {
+        totalVotingPower: proposal.totalVotingPower + power,
+      };
+      if (vote === 'for') {
+        updates.votesFor = proposal.votesFor + 1;
+      } else if (vote === 'against') {
+        updates.votesAgainst = proposal.votesAgainst + 1;
+      }
+      await storage.updateGovernanceProposal(proposalId, updates);
+
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

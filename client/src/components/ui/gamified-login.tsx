@@ -9,7 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, AlertTriangle, Lock, Unlock, Sparkles, Shield, Eye, EyeOff, ChevronUp, X } from "lucide-react";
+import { Loader2, AlertTriangle, Lock, Unlock, Sparkles, Shield, Eye, EyeOff, ChevronUp, X, Wallet, Coins, Award } from "lucide-react";
+import { WalletLoginButton } from "@/components/wallet/wallet-login-button";
 import logoPath from "@assets/IMG_3645.png";
 
 type LoginFormValues = z.infer<typeof loginUserSchema> & { acceptDisclaimer: boolean };
@@ -21,7 +22,7 @@ interface GamifiedLoginProps {
 }
 
 export function GamifiedLogin({ isOpen, onClose }: GamifiedLoginProps) {
-  const [activeTab, setActiveTab] = useState<"login" | "register">("login");
+  const [activeTab, setActiveTab] = useState<"login" | "register" | "wallet">("login");
   const [showPassword, setShowPassword] = useState(false);
   const [isUnlocking, setIsUnlocking] = useState(false);
   const { loginMutation, registerMutation } = useAuth();
@@ -152,10 +153,10 @@ export function GamifiedLogin({ isOpen, onClose }: GamifiedLoginProps) {
                   </motion.p>
                 </div>
 
-                <div className="flex justify-center gap-4 px-6 mb-4">
+                <div className="flex justify-center gap-2 px-6 mb-4 flex-wrap">
                   <button
                     onClick={() => setActiveTab("login")}
-                    className={`relative px-6 py-2 rounded-full font-medium transition-all ${
+                    className={`relative px-5 py-2 rounded-full font-medium transition-all ${
                       activeTab === "login"
                         ? "text-white"
                         : "text-gray-400 hover:text-gray-300"
@@ -172,7 +173,7 @@ export function GamifiedLogin({ isOpen, onClose }: GamifiedLoginProps) {
                   </button>
                   <button
                     onClick={() => setActiveTab("register")}
-                    className={`relative px-6 py-2 rounded-full font-medium transition-all ${
+                    className={`relative px-5 py-2 rounded-full font-medium transition-all ${
                       activeTab === "register"
                         ? "text-white"
                         : "text-gray-400 hover:text-gray-300"
@@ -186,6 +187,26 @@ export function GamifiedLogin({ isOpen, onClose }: GamifiedLoginProps) {
                       />
                     )}
                     <span className="relative z-10">Register</span>
+                  </button>
+                  <button
+                    onClick={() => setActiveTab("wallet")}
+                    className={`relative px-5 py-2 rounded-full font-medium transition-all flex items-center gap-2 ${
+                      activeTab === "wallet"
+                        ? "text-white"
+                        : "text-gray-400 hover:text-gray-300"
+                    }`}
+                  >
+                    {activeTab === "wallet" && (
+                      <motion.div
+                        layoutId="activeTab"
+                        className="absolute inset-0 bg-gradient-to-r from-purple-600 to-indigo-500 rounded-full"
+                        transition={{ type: "spring", duration: 0.5 }}
+                      />
+                    )}
+                    <span className="relative z-10 flex items-center gap-2">
+                      <Wallet className="h-4 w-4" />
+                      Wallet
+                    </span>
                   </button>
                 </div>
 
@@ -295,7 +316,7 @@ export function GamifiedLogin({ isOpen, onClose }: GamifiedLoginProps) {
                           </form>
                         </Form>
                       </motion.div>
-                    ) : (
+                    ) : activeTab === "register" ? (
                       <motion.div
                         key="register"
                         initial={{ opacity: 0, x: 20 }}
@@ -418,7 +439,58 @@ export function GamifiedLogin({ isOpen, onClose }: GamifiedLoginProps) {
                           </form>
                         </Form>
                       </motion.div>
-                    )}
+                    ) : activeTab === "wallet" ? (
+                      <motion.div
+                        key="wallet"
+                        initial={{ opacity: 0, x: 20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, x: -20 }}
+                        transition={{ duration: 0.2 }}
+                        className="max-w-md mx-auto"
+                      >
+                        <div className="mb-6 text-center">
+                          <div className="inline-flex items-center gap-2 px-4 py-2 bg-purple-500/20 border border-purple-500/30 rounded-full mb-4">
+                            <Coins className="h-4 w-4 text-purple-400" />
+                            <span className="text-purple-300 text-sm font-medium">VEDD Token Holders</span>
+                          </div>
+                          <h3 className="text-white text-lg font-semibold mb-2">Connect with Pump.fun Wallet</h3>
+                          <p className="text-gray-400 text-sm">
+                            Connect your Solana wallet to verify VEDD tokens and ambassador NFT
+                          </p>
+                        </div>
+
+                        <WalletLoginButton 
+                          onWalletLogin={(data) => {
+                            console.log('Wallet login:', data);
+                            onClose();
+                          }}
+                        />
+
+                        <div className="mt-6 space-y-3">
+                          <div className="flex items-center gap-3 p-3 bg-gray-800/40 rounded-lg border border-gray-700/50">
+                            <Award className="h-5 w-5 text-green-400 flex-shrink-0" />
+                            <div>
+                              <p className="text-white text-sm font-medium">Ambassador NFT</p>
+                              <p className="text-gray-400 text-xs">Unlock exclusive features with your certification NFT</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3 p-3 bg-gray-800/40 rounded-lg border border-gray-700/50">
+                            <Coins className="h-5 w-5 text-amber-400 flex-shrink-0" />
+                            <div>
+                              <p className="text-white text-sm font-medium">Token-Gated Access</p>
+                              <p className="text-gray-400 text-xs">VEDD holders get 3 months free subscription</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3 p-3 bg-gray-800/40 rounded-lg border border-gray-700/50">
+                            <Shield className="h-5 w-5 text-purple-400 flex-shrink-0" />
+                            <div>
+                              <p className="text-white text-sm font-medium">Governance Voting</p>
+                              <p className="text-gray-400 text-xs">Vote on VEDD AI proposals with your tokens</p>
+                            </div>
+                          </div>
+                        </div>
+                      </motion.div>
+                    ) : null}
                   </AnimatePresence>
                 </div>
 

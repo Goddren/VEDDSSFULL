@@ -5,6 +5,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { AuthProvider } from "@/hooks/use-auth";
 import { ProtectedRoute } from "@/lib/protected-route";
+import { SolanaWalletProvider } from "@/hooks/use-solana-wallet";
 import NotFound from "@/pages/not-found";
 import Header from "@/components/layout/header";
 import Footer from "@/components/layout/footer";
@@ -147,10 +148,12 @@ function AppRoutes() {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <AppRoutes />
-        <NewsNotificationScheduler />
-      </AuthProvider>
+      <SolanaWalletProvider>
+        <AuthProvider>
+          <AppRoutes />
+          <NewsNotificationScheduler />
+        </AuthProvider>
+      </SolanaWalletProvider>
     </QueryClientProvider>
   );
 }

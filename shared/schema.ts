@@ -34,6 +34,13 @@ export const users = pgTable("users", {
   monthlyAnalysisCount: integer("monthly_analysis_count").default(0),
   monthlySocialShareCount: integer("monthly_social_share_count").default(0),
   lastCountReset: timestamp("last_count_reset"),
+  // Solana wallet integration
+  walletAddress: text("wallet_address").unique(), // Solana wallet public key
+  veddTokenBalance: real("vedd_token_balance").default(0), // VEDD token holdings
+  isAmbassador: boolean("is_ambassador").default(false), // Has ambassador NFT
+  ambassadorNftMint: text("ambassador_nft_mint"), // Ambassador NFT mint address
+  tokenGatedSubscriptionEnd: timestamp("token_gated_subscription_end"), // 3-month free sub for token holders
+  lastWalletSync: timestamp("last_wallet_sync"), // Last time wallet data was synced
   // faithBasedContent field temporarily removed due to database issues
   // Using localStorage instead of database column for faith-based content preferences
   // referralCode field temporarily removed due to database issues
@@ -751,3 +758,55 @@ export const insertAmbassadorCertificationSchema = createInsertSchema(ambassador
 
 export type AmbassadorCertification = typeof ambassadorCertifications.$inferSelect;
 export type InsertAmbassadorCertification = z.infer<typeof insertAmbassadorCertificationSchema>;
+
+// Governance Proposals - VEDD token holder voting
+export const governanceProposals = pgTable("governance_proposals", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  proposerUserId: integer("proposer_user_id").references(() => users.id).notNull(),
+  proposerWallet: text("proposer_wallet").notNull(), // Wallet address of proposer
+  category: text("category").notNull(), // 'feature', 'tokenomics', 'partnership', 'community', 'other'
+  status: text("status").notNull().default('active'), // 'active', 'passed', 'rejected', 'executed', 'cancelled'
+  votesFor: integer("votes_for").notNull().default(0),
+  votesAgainst: integer("votes_against").notNull().default(0),
+  totalVotingPower: real("total_voting_power").notNull().default(0), // Total VEDD tokens used in voting
+  quorumRequired: real("quorum_required").notNull().default(1000), // Min VEDD tokens needed
+  startDate: timestamp("start_date").defaultNow().notNull(),
+  endDate: timestamp("end_date").notNull(),
+  executedAt: timestamp("executed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const governanceVotes = pgTable("governance_votes", {
+  id: serial("id").primaryKey(),
+  proposalId: integer("proposal_id").references(() => governanceProposals.id).notNull(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  walletAddress: text("wallet_address").notNull(),
+  vote: text("vote").notNull(), // 'for', 'against', 'abstain'
+  votingPower: real("voting_power").notNull(), // VEDD tokens held at time of vote
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => {
+  return {
+    uniqueVote: unique().on(table.proposalId, table.userId),
+  };
+});
+
+export const insertGovernanceProposalSchema = createInsertSchema(governanceProposals).omit({
+  id: true,
+  votesFor: true,
+  votesAgainst: true,
+  totalVotingPower: true,
+  executedAt: true,
+  createdAt: true,
+});
+
+export const insertGovernanceVoteSchema = createInsertSchema(governanceVotes).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type GovernanceProposal = typeof governanceProposals.$inferSelect;
+export type InsertGovernanceProposal = z.infer<typeof insertGovernanceProposalSchema>;
+export type GovernanceVote = typeof governanceVotes.$inferSelect;
+export type InsertGovernanceVote = z.infer<typeof insertGovernanceVoteSchema>;

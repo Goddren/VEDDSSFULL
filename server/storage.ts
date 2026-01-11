@@ -3,7 +3,7 @@ import {
   userProfiles, follows, analysisFeedback, analysisViews, priceAlerts,
   savedEAs, eaSubscriptions, marketDataSnapshots, marketDataRefreshJobs, eaShareAssets, userStreaks, scenarioAnalyses,
   webhookConfigs, webhookLogs, mt5ApiTokens, mt5SignalLogs, tradelockerConnections, tradelockerTradeLogs,
-  ambassadorTrainingProgress, ambassadorCertifications,
+  ambassadorTrainingProgress, ambassadorCertifications, governanceProposals, governanceVotes,
   type User, type InsertUser, type ChartAnalysis, type InsertChartAnalysis,
   type Achievement, type InsertAchievement, type UserAchievement, type InsertUserAchievement,
   type UserProfile, type InsertUserProfile, type Follow, type InsertFollow,
@@ -16,7 +16,8 @@ import {
   type Mt5ApiToken, type InsertMt5ApiToken, type Mt5SignalLog, type InsertMt5SignalLog,
   type TradelockerConnection, type InsertTradelockerConnection, type TradelockerTradeLog, type InsertTradelockerTradeLog,
   type AmbassadorTrainingProgress, type InsertAmbassadorTrainingProgress,
-  type AmbassadorCertification, type InsertAmbassadorCertification
+  type AmbassadorCertification, type InsertAmbassadorCertification,
+  type GovernanceProposal, type InsertGovernanceProposal, type GovernanceVote, type InsertGovernanceVote
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, sql, desc } from "drizzle-orm";
@@ -209,6 +210,17 @@ export interface IStorage {
   createAmbassadorCertification(cert: InsertAmbassadorCertification): Promise<AmbassadorCertification>;
   updateAmbassadorCertification(id: number, data: Partial<AmbassadorCertification>): Promise<AmbassadorCertification | undefined>;
   getAllAmbassadorCertifications(): Promise<AmbassadorCertification[]>;
+  
+  // Wallet integration methods
+  getUserByWalletAddress(walletAddress: string): Promise<User | undefined>;
+  
+  // Governance methods
+  getGovernanceProposals(): Promise<GovernanceProposal[]>;
+  getGovernanceProposal(id: number): Promise<GovernanceProposal | undefined>;
+  createGovernanceProposal(proposal: InsertGovernanceProposal): Promise<GovernanceProposal>;
+  updateGovernanceProposal(id: number, data: Partial<GovernanceProposal>): Promise<GovernanceProposal | undefined>;
+  createGovernanceVote(vote: InsertGovernanceVote): Promise<GovernanceVote>;
+  getUserVote(proposalId: number, userId: number): Promise<GovernanceVote | undefined>;
 }
 
 // Create PostgreSQL session store
@@ -1394,6 +1406,52 @@ export class DatabaseStorage implements IStorage {
   async getAllAmbassadorCertifications(): Promise<AmbassadorCertification[]> {
     return await db.select().from(ambassadorCertifications)
       .orderBy(desc(ambassadorCertifications.issueDate));
+  }
+
+  // Wallet integration methods
+  async getUserByWalletAddress(walletAddress: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users)
+      .where(eq(users.walletAddress, walletAddress));
+    return user;
+  }
+
+  // Governance methods
+  async getGovernanceProposals(): Promise<GovernanceProposal[]> {
+    return await db.select().from(governanceProposals)
+      .orderBy(desc(governanceProposals.createdAt));
+  }
+
+  async getGovernanceProposal(id: number): Promise<GovernanceProposal | undefined> {
+    const [result] = await db.select().from(governanceProposals)
+      .where(eq(governanceProposals.id, id));
+    return result;
+  }
+
+  async createGovernanceProposal(proposal: InsertGovernanceProposal): Promise<GovernanceProposal> {
+    const [result] = await db.insert(governanceProposals).values(proposal).returning();
+    return result;
+  }
+
+  async updateGovernanceProposal(id: number, data: Partial<GovernanceProposal>): Promise<GovernanceProposal | undefined> {
+    const [result] = await db.update(governanceProposals)
+      .set(data)
+      .where(eq(governanceProposals.id, id))
+      .returning();
+    return result;
+  }
+
+  async createGovernanceVote(vote: InsertGovernanceVote): Promise<GovernanceVote> {
+    const [result] = await db.insert(governanceVotes).values(vote).returning();
+    return result;
+  }
+
+  async getUserVote(proposalId: number, userId: number): Promise<GovernanceVote | undefined> {
+    const [result] = await db.select().from(governanceVotes)
+      .where(and(
+        eq(governanceVotes.proposalId, proposalId),
+        eq(governanceVotes.userId, userId)
+      ));
+    return result;
   }
 }
 
