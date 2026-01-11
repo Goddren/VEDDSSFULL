@@ -1,7 +1,7 @@
-# VEDD AI - Trading Chart Analysis Platform
+# AI Powered Trading Vault
 
 ## Overview
-VEDD AI is a comprehensive trading chart analysis platform that leverages artificial intelligence and traditional technical analysis to provide traders with actionable insights. It enables users to upload trading charts from various platforms (MT4, MT5, TradingView) for AI-powered analysis, including pattern recognition, trend analysis, and trading recommendations. The platform also features a mobile companion app, advanced EA trading strategies, an EA marketplace for monetization, and social sharing capabilities. VEDD AI aims to empower traders with intelligent tools and foster a community around shared strategies.
+AI Powered Trading Vault is a comprehensive AI-powered trading chart analysis platform that leverages artificial intelligence and traditional technical analysis to provide traders with actionable insights. It enables users to upload trading charts from various platforms (MT4, MT5, TradingView) for AI-powered analysis, including pattern recognition, trend analysis, and trading recommendations. The platform features a secure vault-themed interface, Solana wallet integration for token-gated access, governance voting for VEDD token holders, advanced EA trading strategies, an EA marketplace for monetization, and social sharing capabilities. The vault aims to empower traders with intelligent tools and foster a community around shared strategies.
 
 ## User Preferences
 Preferred communication style: Simple, everyday language.
@@ -12,7 +12,7 @@ Preferred communication style: Simple, everyday language.
 - **Frontend**: React 18 with TypeScript, Tailwind CSS, Vite.
 - **Component Library**: Custom UI components built on Radix UI primitives.
 - **Mobile Companion App**: Progressive Web App (PWA) with offline support, push notifications, and a mobile-first responsive design. Features include a touch-friendly chart viewer, quick access actions, and network status indicators.
-- **Social Share Card System**: Generates branded share cards with VEDD AI branding, EA details, multi-timeframe analysis, and daily devotional scriptures for social media promotion.
+- **Social Share Card System**: Generates branded share cards with AI Trading Vault branding, EA details, multi-timeframe analysis, and daily devotional scriptures for social media promotion.
 - **User Guide**: Comprehensive documentation page covering all platform features with searchable sections, step-by-step guides, tips, and FAQs.
 - **Ambassador Training Program**: Complete training system for promoting the application through social media and live explainer videos, featuring modules on platform features, social media strategies, video creation, live demos, and compliance, with quizzes and certification upon completion.
 - **Gamification System**: Streak tracking with five-tier progression (YG → Apprentice → Journeyman → Expert → OG) based on XP earned from chart analyses (10 XP) and EA creations (25 XP). Includes a StreakBanner component showing current streak/tier and StreakTrackerPage for detailed statistics.

@@ -513,7 +513,7 @@ export default function WebhooksPage() {
               <DialogHeader>
                 <DialogTitle className="text-white">Create New Webhook</DialogTitle>
                 <DialogDescription>
-                  Configure a webhook to receive trading signals from VEDD AI
+                  Configure a webhook to receive trading signals from AI Trading Vault
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-4 py-4">
@@ -757,7 +757,7 @@ export default function WebhooksPage() {
                           <pre className="mt-2 p-3 bg-gray-900 rounded-lg text-xs text-gray-300 overflow-x-auto">
 {`{
   "type": "synthesis",
-  "source": "VEDD AI",
+  "source": "AI Trading Vault",
   "timestamp": "2024-01-15T10:30:00Z",
   "signal": {
     "symbol": "EUR/USD",
@@ -851,7 +851,7 @@ export default function WebhooksPage() {
                   <span className="text-primary font-bold">2</span>
                 </div>
                 <h4 className="font-semibold text-white mb-2">Analyze Charts</h4>
-                <p className="text-sm text-gray-400">Use VEDD AI to analyze charts and generate trading signals</p>
+                <p className="text-sm text-gray-400">Use AI Trading Vault to analyze charts and generate trading signals</p>
               </div>
               <div className="text-center">
                 <div className="w-12 h-12 rounded-full bg-primary/20 flex items-center justify-center mx-auto mb-3">
@@ -936,7 +936,7 @@ export default function WebhooksPage() {
                   <li>Use services like <span className="text-amber-400">3Commas, Alertatron, or PineConnector</span></li>
                   <li>These services provide a webhook URL</li>
                   <li>Set up your TradingView alerts to POST to that URL</li>
-                  <li>Configure VEDD AI to relay signals there</li>
+                  <li>Configure AI Trading Vault to relay signals there</li>
                 </ol>
                 <a 
                   href="https://www.tradingview.com/support/solutions/43000529348-about-webhooks/" 
@@ -1483,7 +1483,7 @@ export default function WebhooksPage() {
                 <h5 className="text-green-400 font-semibold mb-2">How It Works</h5>
                 <ol className="text-sm text-gray-400 space-y-1 list-decimal list-inside">
                   <li>Your EA sends current price data to the endpoint</li>
-                  <li>VEDD AI analyzes the data with GPT-4o</li>
+                  <li>AI Trading Vault analyzes the data with GPT-4o</li>
                   <li>Returns updated direction, confidence, and patterns</li>
                   <li>EA can adjust trading based on fresh analysis</li>
                 </ol>

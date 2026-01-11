@@ -84,8 +84,11 @@ export default function LandingPage() {
       <header className="w-full border-b border-theme-light py-4 px-6 bg-theme-light">
         <div className="max-w-7xl mx-auto flex justify-between items-center">
           <div className="flex items-center">
-            <img src={logoImg} alt="VEDD Logo" className="h-12" />
-            <span className="ml-2 text-xs text-red-500 italic font-light">seize the day divine</span>
+            <img src={logoImg} alt="Trading Vault Logo" className="h-12" />
+            <div className="ml-3 flex flex-col">
+              <span className="text-lg font-bold text-white dark:text-white">AI Trading Vault</span>
+              <span className="text-[10px] text-red-500 italic font-light -mt-1">Powered by Intelligence</span>
+            </div>
           </div>
           <div className="flex items-center space-x-4">
             <ThemeToggle />
@@ -131,15 +134,18 @@ export default function LandingPage() {
       >
         <div className="max-w-7xl mx-auto text-center">
           <motion.div variants={fadeIn} className="mb-8 flex justify-center">
-            <img 
-              src={logoImg} 
-              alt="VEDD Logo" 
-              className="h-20 md:h-28 drop-shadow-sm transition-all duration-300"
-            />
+            <div className="relative">
+              <div className="absolute inset-0 bg-red-500/20 rounded-full blur-2xl animate-pulse" />
+              <img 
+                src={logoImg} 
+                alt="AI Trading Vault Logo" 
+                className="relative h-20 md:h-28 drop-shadow-sm transition-all duration-300"
+              />
+            </div>
           </motion.div>
           
           <motion.h1 variants={slideUp} className="text-4xl font-bold tracking-tight text-theme-main sm:text-5xl md:text-6xl">
-            <span className="text-red-500">AI-Powered</span> Chart Analysis
+            <span className="text-red-500">AI Powered</span> Trading Vault
           </motion.h1>
           
           <motion.p variants={slideUp} className="mt-6 text-xl text-theme-muted max-w-3xl mx-auto">
@@ -480,7 +486,7 @@ export default function LandingPage() {
               <span className="text-red-500">Replace Multiple Apps</span> With One
             </h2>
             <p className="mt-4 text-lg text-theme-muted max-w-3xl mx-auto">
-              Stop paying for separate tools. VEDD AI bundles everything you need into one powerful platform.
+              Stop paying for separate tools. AI Trading Vault bundles everything you need into one powerful platform.
             </p>
           </motion.div>
 
@@ -492,7 +498,7 @@ export default function LandingPage() {
               <p className="text-2xl font-bold text-red-500 line-through mb-2">$82-197/mo</p>
               <p className="text-sm text-theme-muted">AI pattern analysis & automated chart scanning</p>
               <div className="mt-3 pt-3 border-t border-theme-light">
-                <p className="text-xs text-green-500 font-medium">✓ Included in VEDD AI</p>
+                <p className="text-xs text-green-500 font-medium">✓ Included in AI Trading Vault</p>
               </div>
             </motion.div>
 
@@ -503,7 +509,7 @@ export default function LandingPage() {
               <p className="text-2xl font-bold text-red-500 line-through mb-2">$118-228/mo</p>
               <p className="text-sm text-theme-muted">AI stock scanning & signal generation</p>
               <div className="mt-3 pt-3 border-t border-theme-light">
-                <p className="text-xs text-green-500 font-medium">✓ Included in VEDD AI</p>
+                <p className="text-xs text-green-500 font-medium">✓ Included in AI Trading Vault</p>
               </div>
             </motion.div>
 
@@ -514,7 +520,7 @@ export default function LandingPage() {
               <p className="text-2xl font-bold text-red-500 line-through mb-2">$19.99/mo</p>
               <p className="text-sm text-theme-muted">Expert Advisor code generator</p>
               <div className="mt-3 pt-3 border-t border-theme-light">
-                <p className="text-xs text-green-500 font-medium">✓ Included in VEDD AI</p>
+                <p className="text-xs text-green-500 font-medium">✓ Included in AI Trading Vault</p>
               </div>
             </motion.div>
 
@@ -525,7 +531,7 @@ export default function LandingPage() {
               <p className="text-2xl font-bold text-red-500 line-through mb-2">$50-150/mo</p>
               <p className="text-sm text-theme-muted">MT5 to TradeLocker signal relay</p>
               <div className="mt-3 pt-3 border-t border-theme-light">
-                <p className="text-xs text-green-500 font-medium">✓ Included in VEDD AI</p>
+                <p className="text-xs text-green-500 font-medium">✓ Included in AI Trading Vault</p>
               </div>
             </motion.div>
 
@@ -536,7 +542,7 @@ export default function LandingPage() {
               <p className="text-2xl font-bold text-red-500 line-through mb-2">$30-80/mo</p>
               <p className="text-sm text-theme-muted">Financial news analysis & sentiment scoring</p>
               <div className="mt-3 pt-3 border-t border-theme-light">
-                <p className="text-xs text-green-500 font-medium">✓ Included in VEDD AI</p>
+                <p className="text-xs text-green-500 font-medium">✓ Included in AI Trading Vault</p>
               </div>
             </motion.div>
 
@@ -547,7 +553,7 @@ export default function LandingPage() {
               <p className="text-2xl font-bold text-red-500 line-through mb-2">$15-40/mo</p>
               <p className="text-sm text-theme-muted">Trading signal webhooks & automation</p>
               <div className="mt-3 pt-3 border-t border-theme-light">
-                <p className="text-xs text-green-500 font-medium">✓ Included in VEDD AI</p>
+                <p className="text-xs text-green-500 font-medium">✓ Included in AI Trading Vault</p>
               </div>
             </motion.div>
           </motion.div>
@@ -560,7 +566,7 @@ export default function LandingPage() {
               <ArrowRight className="h-8 w-8" />
               <span className="text-5xl font-bold">$39.95/mo</span>
             </div>
-            <p className="text-lg opacity-90 mb-6">Save up to $8,000 per year with VEDD AI Pro</p>
+            <p className="text-lg opacity-90 mb-6">Save up to $8,000 per year with AI Trading Vault Pro</p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <Link href="/subscription">
                 <Button size="lg" variant="secondary" className="bg-white text-green-600 hover:bg-gray-100">

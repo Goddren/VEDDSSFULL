@@ -48,12 +48,12 @@ const guideSections: GuideSection[] = [
     id: 'getting-started',
     title: 'Getting Started',
     icon: Play,
-    description: 'Learn the basics of using VEDD AI for your trading analysis',
+    description: 'Learn the basics of using AI Trading Vault for your trading analysis',
     content: [
       {
         heading: 'Creating Your Account',
         steps: [
-          'Visit the VEDD AI homepage and click "Get Started"',
+          'Visit the AI Trading Vault homepage and click "Get Started"',
           'Fill in your username, email, and create a secure password',
           'Verify your email address to activate your account',
           'Complete your profile with trading preferences'
@@ -185,7 +185,7 @@ const guideSections: GuideSection[] = [
         heading: 'Sharing Analysis Cards',
         steps: [
           'Generate branded share cards from your analyses',
-          'Cards include VEDD AI branding and key metrics',
+          'Cards include AI Trading Vault branding and key metrics',
           'Share directly to social media platforms',
           'Track engagement on your shared content'
         ]
@@ -326,7 +326,7 @@ const faqs = [
   },
   {
     question: 'What trading platforms are supported?',
-    answer: 'VEDD AI supports chart uploads from MT4, MT5, TradingView, and TradeLocker. EA code can be generated for MT5, TradingView (Pine Script), and TradeLocker.'
+    answer: 'AI Trading Vault supports chart uploads from MT4, MT5, TradingView, and TradeLocker. EA code can be generated for MT5, TradingView (Pine Script), and TradeLocker.'
   },
   {
     question: 'How do I earn money from the EA Marketplace?',
@@ -359,10 +359,10 @@ export default function UserGuidePage() {
             Documentation
           </Badge>
           <h1 className="text-4xl md:text-5xl font-bold mb-4" data-testid="text-guide-title">
-            VEDD AI User Guide
+            AI Trading Vault User Guide
           </h1>
           <p className="text-gray-400 text-lg max-w-2xl mx-auto">
-            Everything you need to know about using VEDD AI for smarter trading decisions
+            Everything you need to know about using AI Trading Vault for smarter trading decisions
           </p>
         </div>
 

@@ -26,7 +26,7 @@ export function WalletLoginButton({ onWalletLogin, className }: WalletLoginButto
     try {
       setIsAuthenticating(true);
 
-      const message = `VEDD AI Wallet Authentication\nWallet: ${walletData.address}\nTimestamp: ${Date.now()}`;
+      const message = `AI Trading Vault Wallet Authentication\nWallet: ${walletData.address}\nTimestamp: ${Date.now()}`;
       const signature = await signMessage(message);
 
       if (!signature) {

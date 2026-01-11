@@ -114,7 +114,7 @@ export function NewsFeed({ symbol, showSentiment = true, maxItems = 5, compact =
   const { news, sentiment } = data;
   const displayNews = news.slice(0, maxItems);
 
-  const isFallbackNews = displayNews.some(item => item.source === 'VEDD AI Market Analysis');
+  const isFallbackNews = displayNews.some(item => item.source === 'AI Trading Vault Market Analysis');
 
   return (
     <Card>

@@ -222,7 +222,7 @@ export function ShareCardDialog({
               </div>
 
               <p className="text-xs text-muted-foreground text-center">
-                Your analysis includes today's trading wisdom and VEDD AI branding
+                Your analysis includes today's trading wisdom and AI Trading Vault branding
               </p>
             </>
           ) : (

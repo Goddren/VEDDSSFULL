@@ -193,7 +193,7 @@ export default function SubscriptionPage() {
       {/* Competitive Pricing Comparison */}
       <div className="mb-12 p-6 bg-gradient-to-r from-green-500/10 to-green-500/5 rounded-lg border border-green-500/20">
         <h2 className="text-2xl font-bold mb-4 text-center">Replace 6+ Separate Tools With One Platform</h2>
-        <p className="text-center text-muted-foreground mb-6">Stop paying for multiple subscriptions — VEDD AI includes everything</p>
+        <p className="text-center text-muted-foreground mb-6">Stop paying for multiple subscriptions — AI Trading Vault includes everything</p>
         
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
           <Card className="border border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-950/50">
@@ -260,7 +260,7 @@ export default function SubscriptionPage() {
             </div>
             <div className="hidden md:block text-3xl">→</div>
             <div className="text-center">
-              <p className="text-sm opacity-80">VEDD AI Pro (everything included)</p>
+              <p className="text-sm opacity-80">AI Trading Vault Pro (everything included)</p>
               <p className="text-3xl font-bold">$39.95/mo</p>
             </div>
             <div className="hidden md:block text-3xl">or</div>
@@ -269,13 +269,13 @@ export default function SubscriptionPage() {
               <p className="text-3xl font-bold">$249.95 once</p>
             </div>
           </div>
-          <p className="text-sm opacity-90">Save up to <strong>$8,000/year</strong> with VEDD AI Pro</p>
+          <p className="text-sm opacity-90">Save up to <strong>$8,000/year</strong> with AI Trading Vault Pro</p>
         </div>
       </div>
 
       {/* NEW: All-In-One Features */}
       <div className="mb-12 p-6 bg-gradient-to-r from-primary/10 to-primary/5 rounded-lg border border-primary/20">
-        <h2 className="text-2xl font-bold mb-4 text-center">Everything Included in VEDD AI</h2>
+        <h2 className="text-2xl font-bold mb-4 text-center">Everything Included in AI Trading Vault</h2>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div className="flex items-start gap-2 p-3 bg-background rounded-lg">
             <Check className="h-5 w-5 text-green-500 flex-shrink-0 mt-0.5" />

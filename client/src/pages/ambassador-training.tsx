@@ -82,7 +82,7 @@ interface TrainingModule {
 // Weekly content schedule for ambassadors
 const weeklySchedule = [
   { day: 'Monday', action: 'YouTube Tutorial', details: 'Deep dive into one charting feature', icon: Video },
-  { day: 'Tuesday', action: 'Quick Tip Reel', details: '30-60 sec chart hack using VEDD AI', icon: Camera },
+  { day: 'Tuesday', action: 'Quick Tip Reel', details: '30-60 sec chart hack using AI Trading Vault', icon: Camera },
   { day: 'Wednesday', action: 'Live Session', details: 'Real-time chart analysis + Q&A', icon: Mic },
   { day: 'Thursday', action: 'Community Spotlight', details: 'Share user success stories', icon: Users },
   { day: 'Friday', action: 'Market Recap', details: 'Weekly chart analysis using the tool', icon: TrendingUp },
@@ -94,7 +94,7 @@ const weeklySchedule = [
 const successMetrics = [
   { metric: 'Subscriber Growth', description: 'Growth on YouTube and social platforms tied to chart analysis content', icon: TrendingUp },
   { metric: 'Engagement Rate', description: 'Increase in live attendance and tutorial views', icon: Heart },
-  { metric: 'Conversions', description: 'Track sign-ups to VEDD AI linked to ambassador content', icon: Target },
+  { metric: 'Conversions', description: 'Track sign-ups to AI Trading Vault linked to ambassador content', icon: Target },
   { metric: 'Community Building', description: 'Build a following of traders who rely on you for chart insights', icon: Users }
 ];
 
@@ -112,7 +112,7 @@ const coreResponsibilities = [
   {
     title: 'Content Creation',
     items: [
-      'Produce weekly YouTube tutorials explaining VEDD AI features (chart layouts, indicators, overlays, analysis workflows)',
+      'Produce weekly YouTube tutorials explaining AI Trading Vault features (chart layouts, indicators, overlays, analysis workflows)',
       'Create short-form content (TikTok/Instagram Reels) highlighting quick tips and chart hacks'
     ]
   },
@@ -133,7 +133,7 @@ const coreResponsibilities = [
   {
     title: 'Brand Representation',
     items: [
-      'Embody VEDD AI\'s professional yet accessible identity',
+      'Embody AI Trading Vault\'s professional yet accessible identity',
       'Align content with product updates, campaigns, and market cycles'
     ]
   },
@@ -156,23 +156,23 @@ const compensationInfo = {
 const trainingModules: TrainingModule[] = [
   {
     id: 'intro',
-    title: 'Introduction to VEDD AI',
-    description: 'Learn what makes VEDD AI unique and how it helps traders',
+    title: 'Introduction to AI Trading Vault',
+    description: 'Learn what makes AI Trading Vault unique and how it helps traders',
     duration: '15 min',
     icon: BookOpen,
     image: chartAnalysisImg,
     lessons: [
       {
         id: 'intro-1',
-        title: 'What is VEDD AI?',
+        title: 'What is AI Trading Vault?',
         content: [
-          'VEDD AI is a cutting-edge chart analysis platform designed to empower traders and analysts with intuitive tools for technical market insights',
+          'AI Trading Vault is a cutting-edge chart analysis platform designed to empower traders and analysts with intuitive tools for technical market insights',
           'Our mission is to make professional-grade charting accessible, educational, and community-driven',
           'Features include AI-powered chart analysis, EA generation, marketplace, and social trading',
           'Available for Forex, Stocks, Crypto, and Indices traders on MT5, TradingView, and TradeLocker'
         ],
         tips: [
-          'Emphasize that VEDD AI makes professional-grade charting accessible to everyone',
+          'Emphasize that AI Trading Vault makes professional-grade charting accessible to everyone',
           'Highlight the educational and community-driven aspects of the platform'
         ]
       },
@@ -191,7 +191,7 @@ const trainingModules: TrainingModule[] = [
           'Mention the earning potential through the marketplace'
         ],
         quiz: {
-          question: 'What is the main benefit of VEDD AI for traders?',
+          question: 'What is the main benefit of AI Trading Vault for traders?',
           options: [
             'Free trading signals',
             'AI-powered chart analysis that saves time',
@@ -266,7 +266,7 @@ const trainingModules: TrainingModule[] = [
           section: 'marketplace'
         },
         quiz: {
-          question: 'How many platforms can VEDD AI generate EA code for?',
+          question: 'How many platforms can AI Trading Vault generate EA code for?',
           options: ['1', '2', '3', '5'],
           correct: 2
         }
@@ -293,7 +293,7 @@ const trainingModules: TrainingModule[] = [
   {
     id: 'technical-analysis',
     title: 'Chart Patterns & Technical Analysis',
-    description: 'Understand common patterns VEDD AI identifies and what they mean',
+    description: 'Understand common patterns AI Trading Vault identifies and what they mean',
     duration: '40 min',
     icon: TrendingUp,
     image: chartAnalysisImg,
@@ -310,7 +310,7 @@ const trainingModules: TrainingModule[] = [
         ],
         tips: [
           'Always explain these patterns in simple terms for beginners',
-          'Show real examples from VEDD AI analysis in your content'
+          'Show real examples from AI Trading Vault analysis in your content'
         ]
       },
       {
@@ -327,7 +327,7 @@ const trainingModules: TrainingModule[] = [
         ],
         tips: [
           'Use visual diagrams when explaining these patterns',
-          'Emphasize that VEDD AI automatically identifies these for users'
+          'Emphasize that AI Trading Vault automatically identifies these for users'
         ],
         quiz: {
           question: 'What does a Head and Shoulders pattern typically signal?',
@@ -351,7 +351,7 @@ const trainingModules: TrainingModule[] = [
           'Key Levels: Round numbers, previous highs/lows, and psychological levels often act as S/R'
         ],
         tips: [
-          'Show how VEDD AI identifies these levels automatically',
+          'Show how AI Trading Vault identifies these levels automatically',
           'Explain why these levels matter for setting stop-loss and take-profit'
         ]
       },
@@ -368,7 +368,7 @@ const trainingModules: TrainingModule[] = [
         ],
         tips: [
           'Explain indicators in plain language without jargon',
-          'Show how VEDD AI combines multiple indicators for better signals'
+          'Show how AI Trading Vault combines multiple indicators for better signals'
         ],
         quiz: {
           question: 'What does an RSI reading above 70 typically indicate?',
@@ -389,26 +389,26 @@ const trainingModules: TrainingModule[] = [
           'Downtrend: Series of lower highs and lower lows - look for sell opportunities on rallies',
           'Sideways/Range: Price bounces between support and resistance - trade the range or wait for breakout',
           'Trendlines: Lines connecting swing highs or lows - act as dynamic support/resistance',
-          'Trend Strength: Strong trends have steep angles, weak trends are shallow - VEDD AI confidence reflects this'
+          'Trend Strength: Strong trends have steep angles, weak trends are shallow - AI Trading Vault confidence reflects this'
         ],
         tips: [
           'Always mention "the trend is your friend" concept',
-          'Show how VEDD AI identifies trend direction automatically'
+          'Show how AI Trading Vault identifies trend direction automatically'
         ]
       },
       {
         id: 'ta-6',
         title: 'Risk Management Basics',
         content: [
-          'Stop-Loss: Predetermined exit point to limit losses - VEDD AI suggests these based on analysis',
+          'Stop-Loss: Predetermined exit point to limit losses - AI Trading Vault suggests these based on analysis',
           'Take-Profit: Target price to lock in gains - based on support/resistance and risk-reward',
           'Risk-Reward Ratio: Comparison of potential profit to potential loss - 1:2 or higher is ideal',
           'Position Sizing: Amount to risk per trade - typically 1-2% of account per trade',
-          'Entry Point: Optimal price to enter a trade - VEDD AI provides specific levels'
+          'Entry Point: Optimal price to enter a trade - AI Trading Vault provides specific levels'
         ],
         tips: [
           'Emphasize that even the best analysis requires proper risk management',
-          'Show how VEDD AI calculates risk-reward automatically'
+          'Show how AI Trading Vault calculates risk-reward automatically'
         ],
         quiz: {
           question: 'What is considered a good minimum risk-reward ratio?',
@@ -426,7 +426,7 @@ const trainingModules: TrainingModule[] = [
   {
     id: 'social-media',
     title: 'Social Media Promotion',
-    description: 'Strategies for promoting VEDD AI on social platforms',
+    description: 'Strategies for promoting AI Trading Vault on social platforms',
     duration: '25 min',
     icon: Share2,
     image: socialMediaImg,
@@ -451,7 +451,7 @@ const trainingModules: TrainingModule[] = [
         title: 'Content Ideas That Work',
         content: [
           'Before/after analysis comparisons',
-          '"Day in the life" of using VEDD AI',
+          '"Day in the life" of using AI Trading Vault',
           'Weekly market analysis using the platform',
           'Tutorial walkthroughs for new features',
           'Success stories and testimonials',
@@ -517,7 +517,7 @@ const trainingModules: TrainingModule[] = [
         content: [
           'Hook (0-5 sec): Grab attention with a bold statement or question',
           'Problem (5-15 sec): Address the pain point of manual analysis',
-          'Solution (15-45 sec): Introduce VEDD AI as the answer',
+          'Solution (15-45 sec): Introduce AI Trading Vault as the answer',
           'Demo (45-90 sec): Show the platform in action',
           'CTA (last 10 sec): Direct viewers to sign up'
         ],
@@ -532,7 +532,7 @@ const trainingModules: TrainingModule[] = [
         content: [
           'Start with: "Are you tired of spending hours analyzing charts?"',
           'Transition: "What if AI could do it for you in seconds?"',
-          'Demo: "Let me show you how VEDD AI works..."',
+          'Demo: "Let me show you how AI Trading Vault works..."',
           'Benefits: "This saves me X hours every week"',
           'Close: "Click the link below to try it yourself"'
         ],
@@ -557,7 +557,7 @@ const trainingModules: TrainingModule[] = [
         content: [
           'Use jump cuts to keep pace engaging',
           'Add text overlays for key points',
-          'Include the VEDD AI logo/branding',
+          'Include the AI Trading Vault logo/branding',
           'Add background music (royalty-free)',
           'Use transitions between sections'
         ],
@@ -717,7 +717,7 @@ const trainingModules: TrainingModule[] = [
           'Common brokers using MT5: IC Markets, Pepperstone, OANDA, XM, FXCM'
         ],
         tips: [
-          'Many traders are familiar with MT5 - focus on how VEDD AI enhances their workflow',
+          'Many traders are familiar with MT5 - focus on how AI Trading Vault enhances their workflow',
           'Emphasize the EA download and one-click installation process',
           'Show how to enable WebRequest for webhooks in your tutorials'
         ],
@@ -735,13 +735,13 @@ const trainingModules: TrainingModule[] = [
           'No download required - runs in any modern web browser',
           'Chart export: Use the screenshot tool or browser screenshot',
           'Webhook setup: Settings → API → Create Webhook → Copy URL',
-          'TradeLocker supports receiving signals via webhooks from VEDD AI',
+          'TradeLocker supports receiving signals via webhooks from AI Trading Vault',
           'Growing platform popular with prop firms and modern brokers'
         ],
         tips: [
           'Highlight TradeLocker\'s modern design and ease of use',
           'Show the webhook setup process for trade copying',
-          'Mention that VEDD AI generates TradeLocker-compatible code'
+          'Mention that AI Trading Vault generates TradeLocker-compatible code'
         ],
         guideLink: {
           text: 'See User Guide: Chart Analysis',
@@ -763,7 +763,7 @@ const trainingModules: TrainingModule[] = [
         tips: [
           'TradingView users are often active on social media - great audience for content',
           'Show how to export high-quality chart screenshots',
-          'Explain that VEDD AI generates Pine Script code they can paste directly'
+          'Explain that AI Trading Vault generates Pine Script code they can paste directly'
         ],
         guideLink: {
           text: 'See User Guide: EA Code Generation',
@@ -777,13 +777,13 @@ const trainingModules: TrainingModule[] = [
           'MT5: Best for automated trading with Expert Advisors, requires desktop software',
           'TradeLocker: Best for web-based trading and webhook integrations, modern interface',
           'TradingView: Best for charting and social features, great for analysis sharing',
-          'VEDD AI supports ALL THREE platforms for chart upload and EA code generation',
+          'AI Trading Vault supports ALL THREE platforms for chart upload and EA code generation',
           'Webhook Signal System can relay signals to any platform with webhook support',
           'MT5 Trade Copier: Unique feature to copy trades from MT5 to other platforms'
         ],
         tips: [
           'Create comparison content to help traders choose the right platform',
-          'Emphasize that VEDD AI is platform-agnostic - works with their preferred tool',
+          'Emphasize that AI Trading Vault is platform-agnostic - works with their preferred tool',
           'Show cross-platform workflows (analyze on TradingView, trade on MT5, etc.)'
         ],
         guideLink: {
@@ -872,7 +872,7 @@ export default function AmbassadorTrainingPage() {
       refetchCertification();
       toast({
         title: 'Certification Issued!',
-        description: 'You are now a certified VEDD AI Ambassador!'
+        description: 'You are now a certified AI Trading Vault Ambassador!'
       });
     },
     onError: (err: Error) => {
@@ -1014,11 +1014,11 @@ export default function AmbassadorTrainingPage() {
             Ambassador Program
           </Badge>
           <h1 className="text-4xl md:text-5xl font-bold mb-4" data-testid="text-training-title">
-            VEDD AI Ambassador Training
+            AI Trading Vault Ambassador Training
           </h1>
           <p className="text-gray-400 text-lg max-w-2xl mx-auto">
-            Complete this training to become a certified VEDD AI Ambassador. 
-            Serve as the public educator and promoter of VEDD AI's chart analysis capabilities through live social presence and clear video tutorials.
+            Complete this training to become a certified AI Trading Vault Ambassador. 
+            Serve as the public educator and promoter of AI Trading Vault's chart analysis capabilities through live social presence and clear video tutorials.
           </p>
         </div>
 
@@ -1030,12 +1030,12 @@ export default function AmbassadorTrainingPage() {
               Position Overview
             </CardTitle>
             <CardDescription className="text-base">
-              We are seeking a dynamic Ambassador to represent VEDD AI across social platforms
+              We are seeking a dynamic Ambassador to represent AI Trading Vault across social platforms
             </CardDescription>
           </CardHeader>
           <CardContent>
             <p className="text-gray-300 mb-6">
-              This individual will serve as the face and voice of the platform, educating users through tutorials, live sessions, and community engagement. The Ambassador will simplify complex charting concepts, showcase platform features, and inspire traders to adopt VEDD AI as their go-to analysis tool.
+              This individual will serve as the face and voice of the platform, educating users through tutorials, live sessions, and community engagement. The Ambassador will simplify complex charting concepts, showcase platform features, and inspire traders to adopt AI Trading Vault as their go-to analysis tool.
             </p>
             <div className="grid md:grid-cols-2 gap-4">
               <div className="flex items-center gap-3 text-gray-400">

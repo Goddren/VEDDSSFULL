@@ -74,8 +74,8 @@ export default function EASharePage() {
   const shareOnPlatform = (platform: string) => {
     const shareUrl = window.location.href;
     const text = data?.ea 
-      ? `Check out this ${data.ea.symbol} trading analysis from VEDD AI!`
-      : 'Check out this trading analysis from VEDD AI!';
+      ? `Check out this ${data.ea.symbol} trading analysis from AI Trading Vault!`
+      : 'Check out this trading analysis from AI Trading Vault!';
 
     let url = '';
     switch (platform) {
@@ -298,7 +298,7 @@ export default function EASharePage() {
                   <p className="text-sm font-medium mb-2">Want to create your own analysis?</p>
                   <Link to="/analysis">
                     <Button size="sm" className="w-full" data-testid="button-try-vedd">
-                      Try VEDD AI Free
+                      Try AI Trading Vault Free
                     </Button>
                   </Link>
                 </div>

@@ -485,7 +485,7 @@ export function GamifiedLogin({ isOpen, onClose }: GamifiedLoginProps) {
                             <Shield className="h-5 w-5 text-purple-400 flex-shrink-0" />
                             <div>
                               <p className="text-white text-sm font-medium">Governance Voting</p>
-                              <p className="text-gray-400 text-xs">Vote on VEDD AI proposals with your tokens</p>
+                              <p className="text-gray-400 text-xs">Vote on AI Trading Vault proposals with your tokens</p>
                             </div>
                           </div>
                         </div>

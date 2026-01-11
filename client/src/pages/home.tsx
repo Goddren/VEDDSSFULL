@@ -165,7 +165,7 @@ const Home = () => {
                     {/* Placeholder thumbnail - shows a preview of the app */}
                     <div className="absolute inset-0 flex flex-col items-center justify-center">
                       <div className="bg-gradient-to-r from-gray-800/80 to-gray-900/80 p-4 rounded-lg mb-4 text-center">
-                        <div className="text-2xl font-bold text-white mb-1">VEDD AI</div>
+                        <div className="text-2xl font-bold text-white mb-1">AI Trading Vault</div>
                         <div className="text-sm text-gray-400">See how it works</div>
                       </div>
                       
@@ -444,7 +444,7 @@ const Home = () => {
                 </div>
                 <h3 className="text-2xl font-bold mb-3">Explainer Video Coming Soon</h3>
                 <p className="text-gray-400 max-w-md mx-auto mb-6">
-                  We're creating an amazing video to show you exactly how VEDD AI transforms your trading. 
+                  We're creating an amazing video to show you exactly how AI Trading Vault transforms your trading. 
                   In the meantime, try our live demo!
                 </p>
                 <Button 

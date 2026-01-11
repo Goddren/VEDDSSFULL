@@ -160,7 +160,7 @@ export default function AuthPage() {
                               </FormLabel>
                               <p className="text-xs text-muted-foreground">
                                 I acknowledge that trading involves substantial risk of loss and is not suitable for all investors. 
-                                All trading signals, analysis, and recommendations provided by VEDD AI are for educational purposes only 
+                                All trading signals, analysis, and recommendations provided by AI Trading Vault are for educational purposes only 
                                 and should not be considered as financial advice. Past performance does not guarantee future results. 
                                 Market conditions may not follow predicted patterns, and I understand that I trade at my own risk 
                                 and discretion.
