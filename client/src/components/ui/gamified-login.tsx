@@ -3,6 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { motion, AnimatePresence } from "framer-motion";
+import { useLocation } from "wouter";
 import { insertUserSchema, loginUserSchema } from "@shared/schema";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
@@ -26,6 +27,7 @@ export function GamifiedLogin({ isOpen, onClose }: GamifiedLoginProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [isUnlocking, setIsUnlocking] = useState(false);
   const [showCelebration, setShowCelebration] = useState(false);
+  const [, navigate] = useLocation();
   const { loginMutation, registerMutation } = useAuth();
 
   const loginFormSchema = loginUserSchema.extend({
@@ -70,6 +72,7 @@ export function GamifiedLogin({ isOpen, onClose }: GamifiedLoginProps) {
         setShowCelebration(true);
         setTimeout(() => {
           onClose();
+          navigate("/dashboard");
         }, 2500);
       },
       onError: () => setIsUnlocking(false)
@@ -84,6 +87,7 @@ export function GamifiedLogin({ isOpen, onClose }: GamifiedLoginProps) {
         setShowCelebration(true);
         setTimeout(() => {
           onClose();
+          navigate("/dashboard");
         }, 2500);
       },
       onError: () => setIsUnlocking(false)
