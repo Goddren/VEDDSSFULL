@@ -4803,7 +4803,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       return res.status(401).json({ error: "Authentication required" });
     }
     const userId = (req.user as User).id;
-    const { lessonId, moduleId, quizScore, totalProgress } = req.body;
+    const { completedLessons: newCompletedLessons, quizScores: newQuizScores } = req.body;
     
     try {
       let progress = await storage.getAmbassadorTrainingProgress(userId);
@@ -4818,27 +4818,45 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         });
       }
       
-      const completedLessons = (progress.completedLessons as string[]) || [];
-      const completedModules = (progress.completedModules as string[]) || [];
-      const quizScores = (progress.quizScores as Record<string, number>) || {};
+      // Merge new data with existing
+      const completedLessons = Array.isArray(newCompletedLessons) 
+        ? newCompletedLessons 
+        : (progress.completedLessons as string[]) || [];
       
-      if (lessonId && !completedLessons.includes(lessonId)) {
-        completedLessons.push(lessonId);
-      }
-      if (moduleId && !completedModules.includes(moduleId)) {
-        completedModules.push(moduleId);
-      }
-      if (lessonId && quizScore !== undefined) {
-        quizScores[lessonId] = quizScore;
+      const quizScores = newQuizScores && typeof newQuizScores === 'object'
+        ? { ...(progress.quizScores as Record<string, number> || {}), ...newQuizScores }
+        : (progress.quizScores as Record<string, number>) || {};
+      
+      // Calculate completed modules from completed lessons
+      // Module mapping matches the frontend training modules
+      const moduleMap: Record<string, string[]> = {
+        'intro': ['intro-1', 'intro-2'],
+        'features': ['features-1', 'features-2', 'features-3', 'features-4'],
+        'technical-analysis': ['ta-1', 'ta-2', 'ta-3', 'ta-4', 'ta-5', 'ta-6'],
+        'social-media': ['social-1', 'social-2', 'social-3'],
+        'video-creation': ['video-1', 'video-2', 'video-3', 'video-4'],
+        'live-demos': ['live-1', 'live-2', 'live-3'],
+        'compliance': ['compliance-1', 'compliance-2', 'compliance-3'],
+        'platform-essentials': ['platform-1', 'platform-2', 'platform-3', 'platform-4']
+      };
+      
+      const completedModules: string[] = [];
+      for (const [moduleId, lessonIds] of Object.entries(moduleMap)) {
+        if (lessonIds.every(id => completedLessons.includes(id))) {
+          completedModules.push(moduleId);
+        }
       }
       
+      // Calculate total progress (total lessons = 29 across 8 modules)
+      const totalLessons = 29;
+      const totalProgress = Math.round((completedLessons.length / totalLessons) * 100);
       const isCompleted = totalProgress >= 100;
       
       const updatedProgress = await storage.updateAmbassadorTrainingProgress(userId, {
         completedLessons,
         completedModules,
         quizScores,
-        totalProgress: totalProgress || progress.totalProgress,
+        totalProgress,
         isCompleted,
         completedAt: isCompleted ? new Date() : undefined
       });

@@ -803,10 +803,46 @@ export default function AmbassadorTrainingPage() {
   const progress = (completedLessons.size / totalLessons) * 100;
   const isComplete = completedLessons.size === totalLessons;
 
+  // Fetch training progress
+  const { data: trainingProgress, refetch: refetchProgress } = useQuery<AmbassadorTrainingProgress | null>({
+    queryKey: ['/api/ambassador/training/progress'],
+    enabled: !!user,
+  });
+
+  // Initialize local state from saved progress
+  useEffect(() => {
+    if (trainingProgress) {
+      if (trainingProgress.completedLessons && trainingProgress.completedLessons.length > 0) {
+        setCompletedLessons(new Set(trainingProgress.completedLessons));
+      }
+      if (trainingProgress.quizScores) {
+        setQuizAnswers(trainingProgress.quizScores as Record<string, number>);
+      }
+    }
+  }, [trainingProgress]);
+
   // Fetch certification data
   const { data: certification, refetch: refetchCertification } = useQuery<AmbassadorCertification | null>({
     queryKey: ['/api/ambassador/certification'],
     enabled: !!user,
+  });
+
+  // Save progress mutation
+  const saveProgressMutation = useMutation({
+    mutationFn: async (data: { completedLessons: string[]; quizScores: Record<string, number> }) => {
+      const res = await apiRequest('POST', '/api/ambassador/training/progress', data);
+      return res.json();
+    },
+    onSuccess: () => {
+      refetchProgress();
+    },
+    onError: (err: Error) => {
+      toast({
+        title: 'Error saving progress',
+        description: err.message,
+        variant: 'destructive'
+      });
+    }
   });
 
   // Issue certification mutation
@@ -876,7 +912,15 @@ export default function AmbassadorTrainingPage() {
   });
 
   const markLessonComplete = (lessonId: string) => {
-    setCompletedLessons(prev => new Set(Array.from(prev).concat(lessonId)));
+    const newCompleted = new Set(Array.from(completedLessons).concat(lessonId));
+    setCompletedLessons(newCompleted);
+    
+    // Save to backend
+    saveProgressMutation.mutate({
+      completedLessons: Array.from(newCompleted),
+      quizScores: quizAnswers
+    });
+    
     toast({
       title: 'Lesson Complete!',
       description: 'Keep going to earn your Ambassador certificate.'
@@ -884,8 +928,18 @@ export default function AmbassadorTrainingPage() {
   };
 
   const handleQuizAnswer = (lessonId: string, answerIndex: number, correctIndex: number) => {
-    setQuizAnswers(prev => ({ ...prev, [lessonId]: answerIndex }));
-    if (answerIndex === correctIndex) {
+    const isCorrect = answerIndex === correctIndex;
+    // Store 100 for correct, 0 for incorrect (for percentage calculation)
+    const newQuizAnswers = { ...quizAnswers, [lessonId]: isCorrect ? 100 : 0 };
+    setQuizAnswers(newQuizAnswers);
+    
+    // Always save quiz result to backend
+    saveProgressMutation.mutate({
+      completedLessons: Array.from(completedLessons),
+      quizScores: newQuizAnswers
+    });
+    
+    if (isCorrect) {
       toast({
         title: 'Correct!',
         description: 'Great job! You can now mark this lesson complete.'
