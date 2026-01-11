@@ -337,6 +337,23 @@ export default function WebhooksPage() {
     queryKey: ['/api/mt5-signals'],
   });
 
+  // MT5 Chart Data EA connection status
+  type Mt5ConnectionStatus = {
+    connected: boolean;
+    lastSeen?: string;
+    secondsAgo?: number;
+    symbol?: string;
+    timeframe?: string;
+    broker?: string;
+    candleCount?: number;
+    message: string;
+  };
+  
+  const { data: mt5ConnectionStatus, refetch: refetchConnectionStatus } = useQuery<Mt5ConnectionStatus>({
+    queryKey: ['/api/mt5/connection-status'],
+    refetchInterval: 10000, // Refresh every 10 seconds
+  });
+
   const createTokenMutation = useMutation({
     mutationFn: async (name: string) => {
       const res = await apiRequest('POST', '/api/mt5-tokens', { name });
@@ -1016,6 +1033,64 @@ export default function WebhooksPage() {
             </div>
           </CardHeader>
           <CardContent className="space-y-6">
+            {/* MT5 Connection Status */}
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className={`p-4 rounded-lg border ${
+                mt5ConnectionStatus?.connected 
+                  ? 'bg-green-900/30 border-green-500/50' 
+                  : 'bg-gray-800/50 border-gray-600/50'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className={`w-3 h-3 rounded-full ${
+                    mt5ConnectionStatus?.connected ? 'bg-green-500 animate-pulse' : 'bg-gray-500'
+                  }`} />
+                  <div>
+                    <h4 className={`font-semibold ${
+                      mt5ConnectionStatus?.connected ? 'text-green-400' : 'text-gray-400'
+                    }`}>
+                      {mt5ConnectionStatus?.connected ? 'MT5 Connected' : 'MT5 Not Connected'}
+                    </h4>
+                    <p className="text-sm text-gray-400">
+                      {mt5ConnectionStatus?.connected 
+                        ? `${mt5ConnectionStatus.symbol} ${mt5ConnectionStatus.timeframe} from ${mt5ConnectionStatus.broker}`
+                        : 'Start the Chart Data EA on your MT5 terminal'
+                      }
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {mt5ConnectionStatus?.connected && mt5ConnectionStatus.secondsAgo !== undefined && (
+                    <Badge className="bg-green-500/20 text-green-400 border-green-500/30">
+                      <Activity className="w-3 h-3 mr-1" />
+                      {mt5ConnectionStatus.secondsAgo < 60 
+                        ? `${mt5ConnectionStatus.secondsAgo}s ago`
+                        : `${Math.floor(mt5ConnectionStatus.secondsAgo / 60)}m ago`
+                      }
+                    </Badge>
+                  )}
+                  <Button 
+                    variant="ghost" 
+                    size="sm"
+                    onClick={() => refetchConnectionStatus()}
+                    className="text-gray-400 hover:text-white"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+              {mt5ConnectionStatus?.connected && (
+                <div className="mt-3 pt-3 border-t border-gray-700/50">
+                  <p className="text-xs text-gray-500">
+                    Hey G, VEDD AI is receiving live data from your chart! Analysis updates appear in your MT5 Experts tab.
+                  </p>
+                </div>
+              )}
+            </motion.div>
+
             {/* Important Note */}
             <div className="p-3 bg-blue-900/30 border border-blue-600/50 rounded-lg">
               <p className="text-blue-300 text-sm flex items-start gap-2">

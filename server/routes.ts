@@ -4628,6 +4628,17 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       (global as any).mt5ChartDataCache = (global as any).mt5ChartDataCache || {};
       (global as any).mt5ChartDataCache[chartDataKey] = chartData;
       
+      // Track connection status per user for UI display
+      (global as any).mt5ConnectionStatus = (global as any).mt5ConnectionStatus || {};
+      (global as any).mt5ConnectionStatus[token.userId] = {
+        connected: true,
+        lastSeen: new Date().toISOString(),
+        symbol: sanitizedSymbol,
+        timeframe: sanitizedTimeframe,
+        broker: broker || 'Unknown',
+        candleCount: candles.length,
+      };
+      
       // Increment signal count for the token (tracking usage)
       await storage.incrementMt5TokenSignalCount(token.id);
       
@@ -4887,6 +4898,43 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
     }
     
     res.json(chartData);
+  });
+
+  // Get MT5 Chart Data EA connection status for the current user
+  app.get("/api/mt5/connection-status", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const userId = (req.user as User).id;
+    
+    const statusCache = (global as any).mt5ConnectionStatus || {};
+    const status = statusCache[userId];
+    
+    if (!status) {
+      return res.json({ 
+        connected: false, 
+        message: "No MT5 Chart Data EA connection detected. Start the EA on your MT5 terminal." 
+      });
+    }
+    
+    // Check if connection is recent (within last 5 minutes = 300 seconds)
+    const lastSeen = new Date(status.lastSeen);
+    const now = new Date();
+    const secondsAgo = Math.floor((now.getTime() - lastSeen.getTime()) / 1000);
+    const isActive = secondsAgo < 300; // 5 minutes
+    
+    res.json({
+      connected: isActive,
+      lastSeen: status.lastSeen,
+      secondsAgo,
+      symbol: status.symbol,
+      timeframe: status.timeframe,
+      broker: status.broker,
+      candleCount: status.candleCount,
+      message: isActive 
+        ? `Connected: ${status.symbol} ${status.timeframe} from ${status.broker}`
+        : `Last seen ${Math.floor(secondsAgo / 60)} minutes ago`
+    });
   });
 
   // TradeLocker Connection Routes
