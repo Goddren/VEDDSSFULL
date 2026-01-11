@@ -350,7 +350,6 @@ export class TradeLockerService {
     try {
       console.log('[TradeLocker] Placing order with accNum:', this.accNum, '(type:', typeof this.accNum, ') accountId:', this.accountId);
       console.log('[TradeLocker] Order details:', order);
-      console.log('[TradeLocker] Access token present:', !!this.accessToken);
       
       // First, get the tradableInstrumentId and routeId for this symbol
       console.log('[TradeLocker] Fetching instruments...');
