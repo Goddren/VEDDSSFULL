@@ -1055,6 +1055,12 @@ int OnInit()
       }
    }
    Print("======================================");
+   
+   // Initialize chart visualization
+   CleanupChartObjects();  // Clean any previous objects
+   CreateInfoPanel();      // Create info panel
+   Print("Chart visualization initialized");
+   
    return(INIT_SUCCEEDED);
 }
 
@@ -1067,6 +1073,11 @@ void OnDeinit(const int reason)
    IndicatorRelease(rsi_handle);
    IndicatorRelease(macd_handle);
    IndicatorRelease(atr_handle);
+   if(g_adxHandle != INVALID_HANDLE) IndicatorRelease(g_adxHandle);
+   
+   // Clean up all chart objects created by this EA
+   CleanupChartObjects();
+   Print("Chart visualization cleaned up");
 }
 
 //+------------------------------------------------------------------+
