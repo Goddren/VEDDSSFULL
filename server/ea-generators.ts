@@ -718,7 +718,7 @@ void CreateInfoPanel()
    ObjectSetInteger(0, PANEL_NAME, OBJPROP_XDISTANCE, 10);
    ObjectSetInteger(0, PANEL_NAME, OBJPROP_YDISTANCE, 30);
    ObjectSetInteger(0, PANEL_NAME, OBJPROP_XSIZE, 220);
-   ObjectSetInteger(0, PANEL_NAME, OBJPROP_YSIZE, 200);
+   ObjectSetInteger(0, PANEL_NAME, OBJPROP_YSIZE, 215);
    ObjectSetInteger(0, PANEL_NAME, OBJPROP_BGCOLOR, PanelBackColor);
    ObjectSetInteger(0, PANEL_NAME, OBJPROP_BORDER_COLOR, clrWhite);
    ObjectSetInteger(0, PANEL_NAME, OBJPROP_BORDER_TYPE, BORDER_FLAT);
@@ -737,15 +737,27 @@ void CreateInfoPanel()
    ObjectSetInteger(0, PANEL_TITLE, OBJPROP_COLOR, clrWhite);
    ObjectSetInteger(0, PANEL_TITLE, OBJPROP_SELECTABLE, false);
    
-   // Create info labels
-   CreateInfoLabel(TEXT_INFO + "Direction", "AI Direction:", 55);
-   CreateInfoLabel(TEXT_INFO + "Signal", "Current Signal:", 75);
-   CreateInfoLabel(TEXT_INFO + "RSI", "RSI(${strategyType === 'scalping' ? '7' : '14'}):", 95);
-   CreateInfoLabel(TEXT_INFO + "MACD", "MACD:", 115);
-   CreateInfoLabel(TEXT_INFO + "ATR", "ATR:", 135);
-   CreateInfoLabel(TEXT_INFO + "Choppy", "Market State:", 155);
-   CreateInfoLabel(TEXT_INFO + "Trades", "Open Trades:", 175);
-   CreateInfoLabel(TEXT_INFO + "Status", "Status:", 195);
+   // Create brand tagline - "Vous Etes Des Dieux" (You Are Gods)
+   string brandTagline = OBJ_PREFIX + "BrandTagline";
+   ObjectCreate(0, brandTagline, OBJ_LABEL, 0, 0, 0);
+   ObjectSetInteger(0, brandTagline, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+   ObjectSetInteger(0, brandTagline, OBJPROP_XDISTANCE, 20);
+   ObjectSetInteger(0, brandTagline, OBJPROP_YDISTANCE, 48);
+   ObjectSetString(0, brandTagline, OBJPROP_TEXT, "Vous Etes Des Dieux");
+   ObjectSetString(0, brandTagline, OBJPROP_FONT, "Arial Italic");
+   ObjectSetInteger(0, brandTagline, OBJPROP_FONTSIZE, 8);
+   ObjectSetInteger(0, brandTagline, OBJPROP_COLOR, clrGold);
+   ObjectSetInteger(0, brandTagline, OBJPROP_SELECTABLE, false);
+   
+   // Create info labels (offset by 15 for brand tagline)
+   CreateInfoLabel(TEXT_INFO + "Direction", "AI Direction:", 70);
+   CreateInfoLabel(TEXT_INFO + "Signal", "Current Signal:", 90);
+   CreateInfoLabel(TEXT_INFO + "RSI", "RSI(${strategyType === 'scalping' ? '7' : '14'}):", 110);
+   CreateInfoLabel(TEXT_INFO + "MACD", "MACD:", 130);
+   CreateInfoLabel(TEXT_INFO + "ATR", "ATR:", 150);
+   CreateInfoLabel(TEXT_INFO + "Choppy", "Market State:", 170);
+   CreateInfoLabel(TEXT_INFO + "Trades", "Open Trades:", 190);
+   CreateInfoLabel(TEXT_INFO + "Status", "Status:", 210);
 }
 
 //+------------------------------------------------------------------+
