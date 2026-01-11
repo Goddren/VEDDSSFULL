@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { SlidingButton } from "@/components/ui/sliding-button";
 import { Link } from "wouter";
@@ -25,7 +26,9 @@ import {
   Settings,
   Info,
   Layers,
-  Pause
+  Pause,
+  Lock,
+  ChevronUp
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -33,15 +36,20 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { EarlyAccessForm } from "@/components/early-access/early-access-form";
 import { FeatureSlider } from "@/components/ui/feature-slider";
 import { PatternSlider } from "@/components/ui/pattern-slider";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
+import { GamifiedLogin } from "@/components/ui/gamified-login";
+import { DemoSection } from "@/components/ui/demo-section";
+import { InteractiveFeatureCard, FeatureCardGrid } from "@/components/ui/interactive-feature-card";
 import { patternDescriptions } from "@/assets/pattern-descriptions";
 import logoImg from "@/assets/IMG_3645.png";
 
 export default function LandingPage() {
+  const [isLoginOpen, setIsLoginOpen] = useState(false);
+  
   // Animation variants
   const fadeIn = {
     hidden: { opacity: 0 },
@@ -141,38 +149,25 @@ export default function LandingPage() {
           
           <motion.div variants={slideUp} className="mt-10 flex flex-col items-center gap-4">
             <div className="w-full max-w-md flex justify-center mb-4">
-              <Link href="/auth" className="w-full max-w-[280px]">
-                <div className="relative w-full h-16 rounded-full bg-gray-800 p-1 overflow-hidden cursor-pointer shadow-lg shadow-gray-900/20 group">
-                  {/* Track */}
-                  <div className="absolute inset-0 bg-gradient-to-r from-red-600 via-red-500 to-red-600 opacity-90 bg-size-200 animate-gradient-x"></div>
-                  
-                  {/* Animated background effects */}
-                  <div className="absolute inset-0 overflow-hidden">
-                    <div className="absolute -bottom-10 -left-10 h-20 w-20 bg-white/20 rounded-full transition-all duration-500 group-hover:scale-150"></div>
-                    <div className="absolute -top-10 -right-10 h-20 w-20 bg-white/20 rounded-full transition-all duration-500 group-hover:scale-150"></div>
-                  </div>
-                  
-                  {/* Text label */}
-                  <div className="absolute inset-0 flex items-center justify-center text-white font-semibold text-lg">
-                    <span className="mr-2">Get Started</span>
-                    <span className="transform transition-transform duration-500 group-hover:translate-x-3">→</span>
-                  </div>
-                  
-                  {/* Left sliding indicator */}
-                  <div className="absolute left-1 top-1 bottom-1 flex items-center opacity-0 group-hover:opacity-100 transition-all duration-500 transform -translate-x-full group-hover:translate-x-0">
-                    <div className="h-14 w-14 rounded-full bg-white/10 flex items-center justify-center">
-                      <ArrowRight className="h-5 w-5 text-white" />
-                    </div>
-                  </div>
-                  
-                  {/* Right sliding indicator */}
-                  <div className="absolute right-1 top-1 bottom-1 flex items-center opacity-0 group-hover:opacity-100 transition-all duration-500 transform translate-x-full group-hover:translate-x-0">
-                    <div className="h-14 w-14 rounded-full bg-white/10 flex items-center justify-center">
-                      <ArrowRight className="h-5 w-5 text-white" />
-                    </div>
-                  </div>
+              <motion.button
+                onClick={() => setIsLoginOpen(true)}
+                className="relative w-full max-w-[280px] h-16 rounded-full bg-gray-800 p-1 overflow-hidden cursor-pointer shadow-lg shadow-gray-900/20 group"
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.98 }}
+              >
+                <div className="absolute inset-0 bg-gradient-to-r from-red-600 via-red-500 to-red-600 opacity-90 bg-size-200 animate-gradient-x"></div>
+                
+                <div className="absolute inset-0 overflow-hidden">
+                  <div className="absolute -bottom-10 -left-10 h-20 w-20 bg-white/20 rounded-full transition-all duration-500 group-hover:scale-150"></div>
+                  <div className="absolute -top-10 -right-10 h-20 w-20 bg-white/20 rounded-full transition-all duration-500 group-hover:scale-150"></div>
                 </div>
-              </Link>
+                
+                <div className="absolute inset-0 flex items-center justify-center text-white font-semibold text-lg">
+                  <Lock className="h-5 w-5 mr-2" />
+                  <span className="mr-2">Enter the Vault</span>
+                  <ChevronUp className="h-5 w-5 transform transition-transform duration-500 group-hover:-translate-y-1" />
+                </div>
+              </motion.button>
             </div>
             
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
@@ -875,6 +870,19 @@ export default function LandingPage() {
         </div>
       </motion.section>
       
+      {/* Interactive Demo Section */}
+      <motion.section
+        initial="hidden"
+        whileInView="visible"
+        viewport={{ once: true }}
+        variants={staggerContainer}
+        className="py-20 bg-theme-off border-t border-theme-light"
+      >
+        <div className="max-w-7xl mx-auto px-6 lg:px-8">
+          <DemoSection />
+        </div>
+      </motion.section>
+      
       {/* Footer */}
       <footer className="w-full border-t border-theme-light py-6 px-6 bg-theme-light">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center">
@@ -890,15 +898,34 @@ export default function LandingPage() {
             <Link href="/subscription" className="text-sm text-theme-main hover:text-red-500 transition-colors duration-300">
               Pricing
             </Link>
-            <Link href="/auth" className="text-sm text-theme-main hover:text-red-500 transition-colors duration-300">
+            <button 
+              onClick={() => setIsLoginOpen(true)}
+              className="text-sm text-theme-main hover:text-red-500 transition-colors duration-300"
+            >
               Login
-            </Link>
+            </button>
             <Link href="/contact" className="text-sm text-theme-main hover:text-red-500 transition-colors duration-300">
               Contact
             </Link>
           </div>
         </div>
       </footer>
+      
+      {/* Floating Login Button */}
+      <motion.button
+        onClick={() => setIsLoginOpen(true)}
+        className="fixed bottom-6 right-6 z-40 p-4 rounded-full bg-gradient-to-r from-red-600 to-red-500 text-white shadow-lg shadow-red-500/30 hover:shadow-xl hover:shadow-red-500/40 transition-shadow"
+        whileHover={{ scale: 1.1 }}
+        whileTap={{ scale: 0.95 }}
+        initial={{ opacity: 0, y: 50 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 1 }}
+      >
+        <Lock className="h-6 w-6" />
+      </motion.button>
+      
+      {/* Gamified Login Modal */}
+      <GamifiedLogin isOpen={isLoginOpen} onClose={() => setIsLoginOpen(false)} />
     </div>
   );
 }
