@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/use-auth';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
+import type { AmbassadorCertification, AmbassadorTrainingProgress } from '@shared/schema';
 import { 
   GraduationCap, 
   Video, 
@@ -29,7 +30,13 @@ import {
   Trophy,
   Megaphone,
   Heart,
-  Globe
+  Globe,
+  Wallet,
+  Coins,
+  ExternalLink,
+  Copy,
+  Shield,
+  Download
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -37,6 +44,7 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
+import { Input } from '@/components/ui/input';
 import { Link } from 'wouter';
 
 interface TrainingModule {
@@ -788,10 +796,84 @@ export default function AmbassadorTrainingPage() {
   const [expandedLesson, setExpandedLesson] = useState<string | null>(null);
   const [quizAnswers, setQuizAnswers] = useState<Record<string, number>>({});
   const [showCertificate, setShowCertificate] = useState(false);
+  const [walletAddress, setWalletAddress] = useState('');
+  const [showNFTSection, setShowNFTSection] = useState(false);
 
   const totalLessons = trainingModules.reduce((acc, m) => acc + m.lessons.length, 0);
   const progress = (completedLessons.size / totalLessons) * 100;
   const isComplete = completedLessons.size === totalLessons;
+
+  // Fetch certification data
+  const { data: certification, refetch: refetchCertification } = useQuery<AmbassadorCertification | null>({
+    queryKey: ['/api/ambassador/certification'],
+    enabled: !!user,
+  });
+
+  // Issue certification mutation
+  const issueCertificationMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest('POST', '/api/ambassador/certification/issue');
+      return res.json();
+    },
+    onSuccess: () => {
+      refetchCertification();
+      toast({
+        title: 'Certification Issued!',
+        description: 'You are now a certified VEDD AI Ambassador!'
+      });
+    },
+    onError: (err: Error) => {
+      toast({
+        title: 'Error',
+        description: err.message,
+        variant: 'destructive'
+      });
+    }
+  });
+
+  // Connect wallet mutation
+  const connectWalletMutation = useMutation({
+    mutationFn: async (address: string) => {
+      const res = await apiRequest('POST', '/api/ambassador/certification/connect-wallet', { walletAddress: address });
+      return res.json();
+    },
+    onSuccess: () => {
+      refetchCertification();
+      toast({
+        title: 'Wallet Connected!',
+        description: 'Your Solana wallet has been linked to your certification.'
+      });
+    },
+    onError: (err: Error) => {
+      toast({
+        title: 'Error',
+        description: err.message,
+        variant: 'destructive'
+      });
+    }
+  });
+
+  // Claim tokens mutation
+  const claimTokensMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest('POST', '/api/ambassador/certification/claim-tokens');
+      return res.json();
+    },
+    onSuccess: (data) => {
+      refetchCertification();
+      toast({
+        title: 'Tokens Claimed!',
+        description: data.message
+      });
+    },
+    onError: (err: Error) => {
+      toast({
+        title: 'Error',
+        description: err.message,
+        variant: 'destructive'
+      });
+    }
+  });
 
   const markLessonComplete = (lessonId: string) => {
     setCompletedLessons(prev => new Set(Array.from(prev).concat(lessonId)));
@@ -813,6 +895,40 @@ export default function AmbassadorTrainingPage() {
         title: 'Not quite right',
         description: 'Review the content and try again.',
         variant: 'destructive'
+      });
+    }
+  };
+
+  const handleClaimCertification = async () => {
+    if (!isComplete) {
+      toast({
+        title: 'Training Incomplete',
+        description: 'Complete all lessons to claim your certification.',
+        variant: 'destructive'
+      });
+      return;
+    }
+    issueCertificationMutation.mutate();
+  };
+
+  const handleConnectWallet = () => {
+    if (!walletAddress || walletAddress.length < 32) {
+      toast({
+        title: 'Invalid Wallet',
+        description: 'Please enter a valid Solana wallet address.',
+        variant: 'destructive'
+      });
+      return;
+    }
+    connectWalletMutation.mutate(walletAddress);
+  };
+
+  const copyVerificationLink = () => {
+    if (certification) {
+      navigator.clipboard.writeText(`https://veddbuild.com/verify/${certification.certificateNumber}`);
+      toast({
+        title: 'Copied!',
+        description: 'Verification link copied to clipboard.'
       });
     }
   };
@@ -1338,36 +1454,214 @@ export default function AmbassadorTrainingPage() {
         </div>
 
         {showCertificate && (
-          <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-            <Card className="max-w-2xl w-full bg-gradient-to-br from-amber-900/50 to-gray-900 border-amber-500/50">
-              <CardContent className="p-8 text-center">
-                <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-amber-500/20 flex items-center justify-center">
-                  <Trophy className="w-10 h-10 text-amber-400" />
+          <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 overflow-y-auto">
+            <Card className="max-w-3xl w-full bg-gradient-to-br from-amber-900/50 to-gray-900 border-amber-500/50 my-8">
+              <CardContent className="p-8">
+                <div className="text-center mb-6">
+                  <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-amber-500/20 flex items-center justify-center">
+                    <Trophy className="w-10 h-10 text-amber-400" />
+                  </div>
+                  <Badge className="mb-4 bg-amber-500/20 text-amber-400 border-amber-500/30">
+                    Certificate of Completion
+                  </Badge>
+                  <h2 className="text-3xl font-bold mb-2">Congratulations!</h2>
+                  <p className="text-xl text-gray-300 mb-2">{user?.fullName || user?.username || 'Trader'}</p>
+                  <p className="text-sm italic text-amber-400/80">Vous Etes Des Dieux</p>
                 </div>
-                <Badge className="mb-4 bg-amber-500/20 text-amber-400 border-amber-500/30">
-                  Certificate of Completion
-                </Badge>
-                <h2 className="text-3xl font-bold mb-2">Congratulations!</h2>
-                <p className="text-xl text-gray-300 mb-4">{user?.username || 'Trader'}</p>
-                <p className="text-gray-400 mb-6">
-                  You have successfully completed the VEDD AI Ambassador Training Program 
-                  and are now certified to promote VEDD AI through social media and live videos.
-                </p>
-                <div className="flex items-center justify-center gap-4 mb-6">
+
+                {certification ? (
+                  <>
+                    <div className="bg-gray-800/50 rounded-lg p-4 mb-6">
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+                        <div>
+                          <div className="text-2xl font-bold text-amber-400">{certification.modulesCompleted}</div>
+                          <div className="text-xs text-gray-400">Modules</div>
+                        </div>
+                        <div>
+                          <div className="text-2xl font-bold text-amber-400">{certification.finalScore}%</div>
+                          <div className="text-xs text-gray-400">Score</div>
+                        </div>
+                        <div>
+                          <div className="text-2xl font-bold text-amber-400">{certification.veddTokenBalance}</div>
+                          <div className="text-xs text-gray-400">VEDD Tokens</div>
+                        </div>
+                        <div>
+                          <div className="text-2xl font-bold text-green-400">
+                            <Shield className="w-6 h-6 inline" />
+                          </div>
+                          <div className="text-xs text-gray-400">Verified</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-4 mb-6">
+                      <div className="flex items-center justify-between bg-gray-800/30 rounded-lg p-3">
+                        <div>
+                          <div className="text-sm text-gray-400">Certificate Number</div>
+                          <div className="font-mono text-amber-400">{certification.certificateNumber}</div>
+                        </div>
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={copyVerificationLink}
+                          className="gap-2"
+                        >
+                          <Copy className="w-4 h-4" />
+                          Copy Link
+                        </Button>
+                      </div>
+
+                      {certification.certificateImageUrl && (
+                        <div className="text-center">
+                          <img 
+                            src={certification.certificateImageUrl} 
+                            alt="Certificate" 
+                            className="max-w-full rounded-lg border border-amber-500/30 mx-auto"
+                            style={{ maxHeight: '200px' }}
+                          />
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="mt-2 gap-2"
+                            onClick={() => {
+                              const link = document.createElement('a');
+                              link.href = certification.certificateImageUrl!;
+                              link.download = `VEDD-Ambassador-${certification.certificateNumber}.png`;
+                              link.click();
+                            }}
+                          >
+                            <Download className="w-4 h-4" />
+                            Download Certificate
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+
+                    <Separator className="my-6" />
+
+                    <div className="space-y-4">
+                      <h3 className="text-lg font-semibold flex items-center gap-2">
+                        <Wallet className="w-5 h-5 text-purple-400" />
+                        NFT & Token Rewards
+                      </h3>
+
+                      {!certification.solanaWalletAddress ? (
+                        <div className="bg-purple-900/20 rounded-lg p-4 border border-purple-500/30">
+                          <p className="text-sm text-gray-400 mb-3">
+                            Connect your Solana wallet to receive your Ambassador NFT and claim your VEDD tokens.
+                          </p>
+                          <div className="flex gap-2">
+                            <Input
+                              placeholder="Enter Solana wallet address..."
+                              value={walletAddress}
+                              onChange={(e) => setWalletAddress(e.target.value)}
+                              className="flex-1"
+                            />
+                            <Button 
+                              onClick={handleConnectWallet}
+                              disabled={connectWalletMutation.isPending}
+                              className="bg-purple-600 hover:bg-purple-700"
+                            >
+                              {connectWalletMutation.isPending ? 'Connecting...' : 'Connect'}
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between bg-green-900/20 rounded-lg p-3 border border-green-500/30">
+                            <div>
+                              <div className="text-sm text-gray-400">Connected Wallet</div>
+                              <div className="font-mono text-sm text-green-400 truncate max-w-xs">
+                                {certification.solanaWalletAddress}
+                              </div>
+                            </div>
+                            <CheckCircle2 className="w-5 h-5 text-green-400" />
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-3">
+                            <Card className="bg-gray-800/50 border-gray-700">
+                              <CardContent className="p-4">
+                                <div className="flex items-center gap-2 mb-2">
+                                  <Coins className="w-5 h-5 text-amber-400" />
+                                  <span className="font-semibold">VEDD Tokens</span>
+                                </div>
+                                <div className="text-2xl font-bold text-amber-400 mb-2">
+                                  {certification.veddTokenBalance}
+                                </div>
+                                {certification.veddTokenClaimed ? (
+                                  <Badge variant="outline" className="text-green-400 border-green-500/30">
+                                    Claimed
+                                  </Badge>
+                                ) : (
+                                  <Button
+                                    size="sm"
+                                    onClick={() => claimTokensMutation.mutate()}
+                                    disabled={claimTokensMutation.isPending}
+                                    className="w-full bg-amber-600 hover:bg-amber-700"
+                                  >
+                                    {claimTokensMutation.isPending ? 'Claiming...' : 'Claim Tokens'}
+                                  </Button>
+                                )}
+                              </CardContent>
+                            </Card>
+
+                            <Card className="bg-gray-800/50 border-gray-700">
+                              <CardContent className="p-4">
+                                <div className="flex items-center gap-2 mb-2">
+                                  <Sparkles className="w-5 h-5 text-purple-400" />
+                                  <span className="font-semibold">NFT Certificate</span>
+                                </div>
+                                {certification.nftMintAddress ? (
+                                  <>
+                                    <div className="text-sm text-gray-400 mb-2">Minted</div>
+                                    <a
+                                      href={`https://solscan.io/token/${certification.nftMintAddress}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-purple-400 hover:text-purple-300 text-sm flex items-center gap-1"
+                                    >
+                                      View on Solscan
+                                      <ExternalLink className="w-3 h-3" />
+                                    </a>
+                                  </>
+                                ) : (
+                                  <>
+                                    <div className="text-sm text-gray-400 mb-2">Coming Soon</div>
+                                    <Badge variant="outline" className="text-gray-400 border-gray-500/30">
+                                      Pending Mint
+                                    </Badge>
+                                  </>
+                                )}
+                              </CardContent>
+                            </Card>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                ) : (
                   <div className="text-center">
-                    <div className="text-2xl font-bold text-amber-400">{totalLessons}</div>
-                    <div className="text-sm text-gray-400">Lessons</div>
+                    <p className="text-gray-400 mb-6">
+                      You have completed all training modules! Claim your digital certificate and NFT now.
+                    </p>
+                    <Button
+                      onClick={handleClaimCertification}
+                      disabled={issueCertificationMutation.isPending || !isComplete}
+                      className="bg-amber-600 hover:bg-amber-700 gap-2"
+                    >
+                      {issueCertificationMutation.isPending ? (
+                        'Issuing Certificate...'
+                      ) : (
+                        <>
+                          <Award className="w-5 h-5" />
+                          Claim Ambassador Certification
+                        </>
+                      )}
+                    </Button>
                   </div>
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-amber-400">{trainingModules.length}</div>
-                    <div className="text-sm text-gray-400">Modules</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-amber-400">100%</div>
-                    <div className="text-sm text-gray-400">Complete</div>
-                  </div>
-                </div>
-                <div className="flex gap-4 justify-center">
+                )}
+
+                <div className="flex gap-4 justify-center mt-6">
                   <Button 
                     variant="outline" 
                     onClick={() => setShowCertificate(false)}
