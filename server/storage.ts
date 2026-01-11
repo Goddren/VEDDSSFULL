@@ -3,6 +3,7 @@ import {
   userProfiles, follows, analysisFeedback, analysisViews, priceAlerts,
   savedEAs, eaSubscriptions, marketDataSnapshots, marketDataRefreshJobs, eaShareAssets, userStreaks, scenarioAnalyses,
   webhookConfigs, webhookLogs, mt5ApiTokens, mt5SignalLogs, tradelockerConnections, tradelockerTradeLogs,
+  ambassadorTrainingProgress, ambassadorCertifications,
   type User, type InsertUser, type ChartAnalysis, type InsertChartAnalysis,
   type Achievement, type InsertAchievement, type UserAchievement, type InsertUserAchievement,
   type UserProfile, type InsertUserProfile, type Follow, type InsertFollow,
@@ -13,7 +14,9 @@ import {
   type ScenarioAnalysis, type InsertScenarioAnalysis,
   type WebhookConfig, type InsertWebhookConfig, type WebhookLog, type InsertWebhookLog,
   type Mt5ApiToken, type InsertMt5ApiToken, type Mt5SignalLog, type InsertMt5SignalLog,
-  type TradelockerConnection, type InsertTradelockerConnection, type TradelockerTradeLog, type InsertTradelockerTradeLog
+  type TradelockerConnection, type InsertTradelockerConnection, type TradelockerTradeLog, type InsertTradelockerTradeLog,
+  type AmbassadorTrainingProgress, type InsertAmbassadorTrainingProgress,
+  type AmbassadorCertification, type InsertAmbassadorCertification
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, sql, desc } from "drizzle-orm";
@@ -194,6 +197,18 @@ export interface IStorage {
   // TradeLocker Trade Log methods
   createTradelockerTradeLog(log: InsertTradelockerTradeLog): Promise<TradelockerTradeLog>;
   getTradelockerTradeLogs(userId: number, limit?: number): Promise<TradelockerTradeLog[]>;
+  
+  // Ambassador Training Progress methods
+  getAmbassadorTrainingProgress(userId: number): Promise<AmbassadorTrainingProgress | undefined>;
+  createAmbassadorTrainingProgress(progress: InsertAmbassadorTrainingProgress): Promise<AmbassadorTrainingProgress>;
+  updateAmbassadorTrainingProgress(userId: number, data: Partial<AmbassadorTrainingProgress>): Promise<AmbassadorTrainingProgress | undefined>;
+  
+  // Ambassador Certification methods
+  getAmbassadorCertification(userId: number): Promise<AmbassadorCertification | undefined>;
+  getAmbassadorCertificationByNumber(certNumber: string): Promise<AmbassadorCertification | undefined>;
+  createAmbassadorCertification(cert: InsertAmbassadorCertification): Promise<AmbassadorCertification>;
+  updateAmbassadorCertification(id: number, data: Partial<AmbassadorCertification>): Promise<AmbassadorCertification | undefined>;
+  getAllAmbassadorCertifications(): Promise<AmbassadorCertification[]>;
 }
 
 // Create PostgreSQL session store
@@ -1328,6 +1343,57 @@ export class DatabaseStorage implements IStorage {
       .where(eq(tradelockerTradeLogs.userId, userId))
       .orderBy(desc(tradelockerTradeLogs.createdAt))
       .limit(limit);
+  }
+
+  // Ambassador Training Progress methods
+  async getAmbassadorTrainingProgress(userId: number): Promise<AmbassadorTrainingProgress | undefined> {
+    const [result] = await db.select().from(ambassadorTrainingProgress)
+      .where(eq(ambassadorTrainingProgress.userId, userId));
+    return result;
+  }
+
+  async createAmbassadorTrainingProgress(progress: InsertAmbassadorTrainingProgress): Promise<AmbassadorTrainingProgress> {
+    const [result] = await db.insert(ambassadorTrainingProgress).values(progress).returning();
+    return result;
+  }
+
+  async updateAmbassadorTrainingProgress(userId: number, data: Partial<AmbassadorTrainingProgress>): Promise<AmbassadorTrainingProgress | undefined> {
+    const [result] = await db.update(ambassadorTrainingProgress)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(ambassadorTrainingProgress.userId, userId))
+      .returning();
+    return result;
+  }
+
+  // Ambassador Certification methods
+  async getAmbassadorCertification(userId: number): Promise<AmbassadorCertification | undefined> {
+    const [result] = await db.select().from(ambassadorCertifications)
+      .where(eq(ambassadorCertifications.userId, userId));
+    return result;
+  }
+
+  async getAmbassadorCertificationByNumber(certNumber: string): Promise<AmbassadorCertification | undefined> {
+    const [result] = await db.select().from(ambassadorCertifications)
+      .where(eq(ambassadorCertifications.certificateNumber, certNumber));
+    return result;
+  }
+
+  async createAmbassadorCertification(cert: InsertAmbassadorCertification): Promise<AmbassadorCertification> {
+    const [result] = await db.insert(ambassadorCertifications).values(cert).returning();
+    return result;
+  }
+
+  async updateAmbassadorCertification(id: number, data: Partial<AmbassadorCertification>): Promise<AmbassadorCertification | undefined> {
+    const [result] = await db.update(ambassadorCertifications)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(ambassadorCertifications.id, id))
+      .returning();
+    return result;
+  }
+
+  async getAllAmbassadorCertifications(): Promise<AmbassadorCertification[]> {
+    return await db.select().from(ambassadorCertifications)
+      .orderBy(desc(ambassadorCertifications.issueDate));
   }
 }
 

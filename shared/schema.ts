@@ -692,3 +692,62 @@ export const TIER_CONFIG = {
   Elite: { name: 'Elite', minXP: 5000, icon: '👑', color: 'gold', nextTier: 'OG', xpNeeded: 15000 },
   OG: { name: 'Original Gangster', minXP: 15000, icon: '🏆', color: 'red', nextTier: null, xpNeeded: null },
 } as const;
+
+// Ambassador Training Progress
+export const ambassadorTrainingProgress = pgTable("ambassador_training_progress", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull().unique(),
+  completedModules: jsonb("completed_modules").notNull().default([]), // Array of completed module IDs
+  completedLessons: jsonb("completed_lessons").notNull().default([]), // Array of completed lesson IDs
+  quizScores: jsonb("quiz_scores").notNull().default({}), // { lessonId: score }
+  totalProgress: integer("total_progress").notNull().default(0), // 0-100 percentage
+  startedAt: timestamp("started_at").defaultNow().notNull(),
+  completedAt: timestamp("completed_at"),
+  isCompleted: boolean("is_completed").notNull().default(false),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertAmbassadorTrainingProgressSchema = createInsertSchema(ambassadorTrainingProgress).omit({
+  id: true,
+  startedAt: true,
+  completedAt: true,
+  updatedAt: true,
+});
+
+export type AmbassadorTrainingProgress = typeof ambassadorTrainingProgress.$inferSelect;
+export type InsertAmbassadorTrainingProgress = z.infer<typeof insertAmbassadorTrainingProgressSchema>;
+
+// Ambassador Certifications - Digital certificates tied to VEDD TOKEN and NFT
+export const ambassadorCertifications = pgTable("ambassador_certifications", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull().unique(),
+  certificateNumber: text("certificate_number").notNull().unique(), // e.g., "VEDD-AMB-2026-00001"
+  holderName: text("holder_name").notNull(), // Name on the certificate
+  issueDate: timestamp("issue_date").defaultNow().notNull(),
+  expiryDate: timestamp("expiry_date"), // Optional expiry
+  status: text("status").notNull().default('active'), // 'active', 'revoked', 'expired'
+  finalScore: integer("final_score").notNull(), // Average quiz score
+  modulesCompleted: integer("modules_completed").notNull(),
+  solanaWalletAddress: text("solana_wallet_address"), // User's Solana wallet for NFT
+  nftMintAddress: text("nft_mint_address"), // Solana NFT mint address
+  nftMetadataUri: text("nft_metadata_uri"), // IPFS/Arweave URI for NFT metadata
+  nftTransactionId: text("nft_transaction_id"), // Solana transaction signature
+  nftMintedAt: timestamp("nft_minted_at"),
+  veddTokenBalance: integer("vedd_token_balance").notNull().default(100), // Initial VEDD token reward
+  veddTokenClaimed: boolean("vedd_token_claimed").notNull().default(false),
+  verificationHash: text("verification_hash").notNull(), // SHA256 hash for verification
+  certificateImageUrl: text("certificate_image_url"), // Generated certificate image
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertAmbassadorCertificationSchema = createInsertSchema(ambassadorCertifications).omit({
+  id: true,
+  issueDate: true,
+  nftMintedAt: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type AmbassadorCertification = typeof ambassadorCertifications.$inferSelect;
+export type InsertAmbassadorCertification = z.infer<typeof insertAmbassadorCertificationSchema>;
