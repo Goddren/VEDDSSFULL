@@ -105,8 +105,8 @@ export function EarlyAccessForm() {
               50% OFF
             </span>
           </div>
-          <div className="absolute -bottom-5 left-0 right-0 text-center">
-            <span className="text-xs font-medium text-red-400">Only <span className="font-bold">5 spots</span> left!</span>
+          <div className="absolute -bottom-6 left-0 right-0 text-center">
+            <span className="text-xs font-semibold text-red-600 dark:text-red-400 bg-white/90 dark:bg-transparent px-2 py-0.5 rounded-full shadow-sm">Only <span className="font-bold">5 spots</span> left!</span>
           </div>
         </div>
       </DialogTrigger>

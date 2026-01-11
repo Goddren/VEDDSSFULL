@@ -4,6 +4,14 @@ import { useAuth } from '@/hooks/use-auth';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
 import type { AmbassadorCertification, AmbassadorTrainingProgress } from '@shared/schema';
+
+// Import module images
+import socialMediaImg from '@assets/stock_images/social_media_marketi_1d2f1efd.jpg';
+import videoCreationImg from '@assets/stock_images/professional_video_r_aada2fa4.jpg';
+import liveStreamImg from '@assets/stock_images/live_streaming_video_1e9c8eed.jpg';
+import chartAnalysisImg from '@assets/stock_images/trading_chart_analys_8f9ce15e.jpg';
+import complianceImg from '@assets/stock_images/business_compliance__a162932c.jpg';
+import platformsImg from '@assets/stock_images/trading_platforms_mu_e4e1343a.jpg';
 import { 
   GraduationCap, 
   Video, 
@@ -53,6 +61,7 @@ interface TrainingModule {
   description: string;
   duration: string;
   icon: typeof GraduationCap;
+  image?: string;
   lessons: {
     id: string;
     title: string;
@@ -151,6 +160,7 @@ const trainingModules: TrainingModule[] = [
     description: 'Learn what makes VEDD AI unique and how it helps traders',
     duration: '15 min',
     icon: BookOpen,
+    image: chartAnalysisImg,
     lessons: [
       {
         id: 'intro-1',
@@ -199,6 +209,7 @@ const trainingModules: TrainingModule[] = [
     description: 'Master all features to explain them confidently',
     duration: '30 min',
     icon: Target,
+    image: chartAnalysisImg,
     lessons: [
       {
         id: 'features-1',
@@ -285,6 +296,7 @@ const trainingModules: TrainingModule[] = [
     description: 'Understand common patterns VEDD AI identifies and what they mean',
     duration: '40 min',
     icon: TrendingUp,
+    image: chartAnalysisImg,
     lessons: [
       {
         id: 'ta-1',
@@ -417,6 +429,7 @@ const trainingModules: TrainingModule[] = [
     description: 'Strategies for promoting VEDD AI on social platforms',
     duration: '25 min',
     icon: Share2,
+    image: socialMediaImg,
     lessons: [
       {
         id: 'social-1',
@@ -481,6 +494,7 @@ const trainingModules: TrainingModule[] = [
     description: 'Learn to create compelling video content',
     duration: '35 min',
     icon: Video,
+    image: videoCreationImg,
     lessons: [
       {
         id: 'video-1',
@@ -560,6 +574,7 @@ const trainingModules: TrainingModule[] = [
     description: 'Master live presentations and demos',
     duration: '20 min',
     icon: Monitor,
+    image: liveStreamImg,
     lessons: [
       {
         id: 'live-1',
@@ -623,6 +638,7 @@ const trainingModules: TrainingModule[] = [
     description: 'Stay compliant and build trust',
     duration: '15 min',
     icon: Award,
+    image: complianceImg,
     lessons: [
       {
         id: 'compliance-1',
@@ -686,6 +702,7 @@ const trainingModules: TrainingModule[] = [
     description: 'What you need to know about MT5, TradeLocker, and TradingView',
     duration: '30 min',
     icon: Monitor,
+    image: platformsImg,
     lessons: [
       {
         id: 'platform-1',
@@ -1257,9 +1274,19 @@ export default function AmbassadorTrainingPage() {
           <div className="lg:col-span-3">
             {currentModule && (
               <Card className="bg-gray-900/50 border-gray-800">
-                <CardHeader>
+                {currentModule.image && (
+                  <div className="relative h-48 overflow-hidden rounded-t-lg">
+                    <img 
+                      src={currentModule.image} 
+                      alt={currentModule.title}
+                      className="w-full h-full object-cover"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-gray-900/90 to-transparent" />
+                  </div>
+                )}
+                <CardHeader className={currentModule.image ? '-mt-16 relative z-10' : ''}>
                   <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-xl bg-amber-500/20 flex items-center justify-center">
+                    <div className="w-12 h-12 rounded-xl bg-amber-500/20 flex items-center justify-center backdrop-blur-sm">
                       <currentModule.icon className="w-6 h-6 text-amber-400" />
                     </div>
                     <div>
