@@ -1306,6 +1306,9 @@ void PlaceFirstTradeWithAISetup()
 //+------------------------------------------------------------------+
 void OnTick()
 {
+   //--- Update chart visualization (every tick for smooth display)
+   UpdateChartVisuals();
+   
    //--- Manage trailing stop for existing positions (every tick)
    if(UseTrailingStop)
       ManageTrailingStop();
@@ -3232,6 +3235,9 @@ void OpenBuyPosition(double sl, double tp, double lot_size = 0)
       Print("Buy order opened successfully at ", price, " with lot size: ", lot_size);
       last_buy_price = price;  // Track for grid/pyramiding
       
+      // Draw signal arrow on chart
+      DrawSignalArrow(true, TimeCurrent(), price);
+      
       // Track for one-trade-per-day limit
       datetime current_time = TimeCurrent();
       int current_day = (int)(current_time / 86400);
@@ -3272,6 +3278,12 @@ void OpenSellPosition(double sl, double tp, double lot_size = 0)
    
    if(OrderSend(request, result))
    {
+      Print("Sell order opened successfully at ", price, " with lot size: ", lot_size);
+      last_sell_price = price;  // Track for grid/pyramiding
+      
+      // Draw signal arrow on chart
+      DrawSignalArrow(false, TimeCurrent(), price);
+      
       // Track for one-trade-per-day limit
       datetime current_time = TimeCurrent();
       int current_day = (int)(current_time / 86400);
@@ -3281,8 +3293,6 @@ void OpenSellPosition(double sl, double tp, double lot_size = 0)
          last_trade_day = current_day;
       }
       daily_trade_count++;
-      Print("Sell order opened successfully at ", price, " with lot size: ", lot_size);
-      last_sell_price = price;  // Track for grid/pyramiding
    }
    else
       Print("Error opening sell order: ", GetLastError());
@@ -3309,6 +3319,20 @@ void OpenPosition(ENUM_ORDER_TYPE order_type, double price, double sl, double tp
    
    if(OrderSend(request, result))
    {
+      Print("Position opened: ", EnumToString(order_type), " at ", price, " with lot size: ", lots);
+      
+      // Track last price for grid/pyramiding and draw signal arrow
+      if(order_type == ORDER_TYPE_BUY)
+      {
+         last_buy_price = price;
+         DrawSignalArrow(true, TimeCurrent(), price);
+      }
+      else
+      {
+         last_sell_price = price;
+         DrawSignalArrow(false, TimeCurrent(), price);
+      }
+      
       // Track for one-trade-per-day limit
       datetime current_time = TimeCurrent();
       int current_day = (int)(current_time / 86400);
@@ -3318,14 +3342,6 @@ void OpenPosition(ENUM_ORDER_TYPE order_type, double price, double sl, double tp
          last_trade_day = current_day;
       }
       daily_trade_count++;
-      
-      // Track last price for grid/pyramiding
-      if(order_type == ORDER_TYPE_BUY)
-         last_buy_price = price;
-      else
-         last_sell_price = price;
-         
-      Print("Position opened: ", EnumToString(order_type), " at ", price, " with lot size: ", lots);
    }
    else
       Print("Error opening position: ", GetLastError());
