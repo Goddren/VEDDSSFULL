@@ -4767,6 +4767,270 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
     }
   });
 
+  // ============================================================
+  // AMBASSADOR TRAINING & CERTIFICATION ROUTES
+  // ============================================================
+
+  // Get ambassador training progress
+  app.get("/api/ambassador/training/progress", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const userId = (req.user as User).id;
+    
+    try {
+      let progress = await storage.getAmbassadorTrainingProgress(userId);
+      if (!progress) {
+        // Create initial progress record
+        progress = await storage.createAmbassadorTrainingProgress({
+          userId,
+          completedModules: [],
+          completedLessons: [],
+          quizScores: {},
+          totalProgress: 0,
+          isCompleted: false
+        });
+      }
+      res.json(progress);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Update ambassador training progress
+  app.post("/api/ambassador/training/progress", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const userId = (req.user as User).id;
+    const { lessonId, moduleId, quizScore, totalProgress } = req.body;
+    
+    try {
+      let progress = await storage.getAmbassadorTrainingProgress(userId);
+      if (!progress) {
+        progress = await storage.createAmbassadorTrainingProgress({
+          userId,
+          completedModules: [],
+          completedLessons: [],
+          quizScores: {},
+          totalProgress: 0,
+          isCompleted: false
+        });
+      }
+      
+      const completedLessons = (progress.completedLessons as string[]) || [];
+      const completedModules = (progress.completedModules as string[]) || [];
+      const quizScores = (progress.quizScores as Record<string, number>) || {};
+      
+      if (lessonId && !completedLessons.includes(lessonId)) {
+        completedLessons.push(lessonId);
+      }
+      if (moduleId && !completedModules.includes(moduleId)) {
+        completedModules.push(moduleId);
+      }
+      if (lessonId && quizScore !== undefined) {
+        quizScores[lessonId] = quizScore;
+      }
+      
+      const isCompleted = totalProgress >= 100;
+      
+      const updatedProgress = await storage.updateAmbassadorTrainingProgress(userId, {
+        completedLessons,
+        completedModules,
+        quizScores,
+        totalProgress: totalProgress || progress.totalProgress,
+        isCompleted,
+        completedAt: isCompleted ? new Date() : undefined
+      });
+      
+      res.json(updatedProgress);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Get user's ambassador certification
+  app.get("/api/ambassador/certification", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const userId = (req.user as User).id;
+    
+    try {
+      const certification = await storage.getAmbassadorCertification(userId);
+      res.json(certification || null);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Issue ambassador certification (when training is complete)
+  app.post("/api/ambassador/certification/issue", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const userId = (req.user as User).id;
+    const user = req.user as User;
+    
+    try {
+      // Check if already certified
+      const existingCert = await storage.getAmbassadorCertification(userId);
+      if (existingCert) {
+        return res.status(400).json({ error: "Already certified", certification: existingCert });
+      }
+      
+      // Check training completion
+      const progress = await storage.getAmbassadorTrainingProgress(userId);
+      if (!progress || !progress.isCompleted) {
+        return res.status(400).json({ error: "Training not completed" });
+      }
+      
+      // Calculate final score from quiz scores
+      const quizScores = (progress.quizScores as Record<string, number>) || {};
+      const scores = Object.values(quizScores);
+      const finalScore = scores.length > 0 
+        ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) 
+        : 100;
+      
+      // Import certificate service functions
+      const { generateCertificateNumber, generateVerificationHash, generateCertificateImage, generateNFTMetadata } = await import('./certificate-service');
+      
+      const certificateNumber = generateCertificateNumber();
+      const holderName = user.fullName || user.username;
+      const issueDate = new Date();
+      const modulesCompleted = ((progress.completedModules as string[]) || []).length;
+      
+      const certData = {
+        holderName,
+        certificateNumber,
+        issueDate,
+        finalScore,
+        modulesCompleted
+      };
+      
+      const verificationHash = generateVerificationHash(certData);
+      
+      // Generate certificate image
+      const imageBuffer = await generateCertificateImage(certData);
+      const imageBase64 = `data:image/png;base64,${imageBuffer.toString('base64')}`;
+      
+      // Create certification record
+      const certification = await storage.createAmbassadorCertification({
+        userId,
+        certificateNumber,
+        holderName,
+        status: 'active',
+        finalScore,
+        modulesCompleted,
+        verificationHash,
+        veddTokenBalance: 100, // Initial VEDD token reward
+        veddTokenClaimed: false,
+        certificateImageUrl: imageBase64
+      });
+      
+      res.json({
+        success: true,
+        certification,
+        message: 'Congratulations! You are now a certified VEDD AI Ambassador!',
+        nftMetadata: generateNFTMetadata(certData, imageBase64)
+      });
+    } catch (err) {
+      console.error('Certification error:', err);
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Connect Solana wallet for NFT minting
+  app.post("/api/ambassador/certification/connect-wallet", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const userId = (req.user as User).id;
+    const { walletAddress } = req.body;
+    
+    if (!walletAddress || typeof walletAddress !== 'string') {
+      return res.status(400).json({ error: "Wallet address required" });
+    }
+    
+    try {
+      const certification = await storage.getAmbassadorCertification(userId);
+      if (!certification) {
+        return res.status(404).json({ error: "No certification found" });
+      }
+      
+      const updated = await storage.updateAmbassadorCertification(certification.id, {
+        solanaWalletAddress: walletAddress
+      });
+      
+      res.json({ success: true, certification: updated });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Claim VEDD tokens
+  app.post("/api/ambassador/certification/claim-tokens", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const userId = (req.user as User).id;
+    
+    try {
+      const certification = await storage.getAmbassadorCertification(userId);
+      if (!certification) {
+        return res.status(404).json({ error: "No certification found" });
+      }
+      
+      if (certification.veddTokenClaimed) {
+        return res.status(400).json({ error: "Tokens already claimed" });
+      }
+      
+      if (!certification.solanaWalletAddress) {
+        return res.status(400).json({ error: "Connect your Solana wallet first" });
+      }
+      
+      // In production, this would initiate a token transfer on Solana
+      // For now, we mark as claimed and log the pending transfer
+      const updated = await storage.updateAmbassadorCertification(certification.id, {
+        veddTokenClaimed: true
+      });
+      
+      res.json({ 
+        success: true, 
+        message: `${certification.veddTokenBalance} VEDD tokens have been queued for transfer to ${certification.solanaWalletAddress}`,
+        certification: updated
+      });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Verify certification (public endpoint)
+  app.get("/api/ambassador/verify/:certificateNumber", async (req: Request, res: Response) => {
+    const { certificateNumber } = req.params;
+    
+    try {
+      const certification = await storage.getAmbassadorCertificationByNumber(certificateNumber);
+      if (!certification) {
+        return res.status(404).json({ valid: false, error: "Certificate not found" });
+      }
+      
+      res.json({
+        valid: true,
+        certificateNumber: certification.certificateNumber,
+        holderName: certification.holderName,
+        issueDate: certification.issueDate,
+        status: certification.status,
+        finalScore: certification.finalScore,
+        modulesCompleted: certification.modulesCompleted,
+        hasNFT: !!certification.nftMintAddress,
+        nftMintAddress: certification.nftMintAddress
+      });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
