@@ -207,31 +207,57 @@ void ParseAndDisplayAnalysis(string json)
       lastTP = 0;
    }
    
-   // Print detailed analysis to Experts tab
-   Print("========================================");
-   Print("   AI TRADING VAULT - ANALYSIS RESULTS");
-   Print("========================================");
-   Print("Symbol: ", _Symbol, " | Timeframe: ", GetTimeframeString());
-   Print("----------------------------------------");
-   Print("SIGNAL: ", lastSignal, " | Confidence: ", lastConfidence, "%");
-   Print("TREND:  ", lastTrend);
+   // Print conversational analysis to Experts tab
+   Print("");
+   Print("Hey G, VEDD AI here! Just scanned ", _Symbol, " on the ", GetTimeframeString(), " chart.");
+   Print("");
    
+   // Main signal message
+   if(lastSignal == "BUY")
+   {
+      Print("Looking BULLISH right now! I'm seeing a ", lastConfidence, "% confidence BUY setup.");
+   }
+   else if(lastSignal == "SELL")
+   {
+      Print("Looking BEARISH right now! I'm seeing a ", lastConfidence, "% confidence SELL setup.");
+   }
+   else
+   {
+      Print("Market's a bit choppy - I'd stay on the sidelines for now (NEUTRAL).");
+   }
+   
+   // Trend info
+   if(StringLen(lastTrend) > 0)
+   {
+      if(StringFind(lastTrend, "STRONG") >= 0)
+         Print("The trend is looking strong - ", lastTrend, ". Momentum is on our side!");
+      else if(StringFind(lastTrend, "UP") >= 0)
+         Print("We're in an uptrend. Bulls are in control.");
+      else if(StringFind(lastTrend, "DOWN") >= 0)
+         Print("We're in a downtrend. Bears are running the show.");
+      else
+         Print("Trend: ", lastTrend);
+   }
+   
+   // Patterns detected
    if(StringLen(lastPatterns) > 0)
    {
-      Print("PATTERNS: ", lastPatterns);
+      Print("");
+      Print("PATTERNS DETECTED: ", lastPatterns);
    }
    
+   // Trade plan
    if(lastEntry > 0)
    {
-      Print("----------------------------------------");
-      Print("TRADE PLAN:");
-      Print("  Entry: ", DoubleToString(lastEntry, _Digits));
-      Print("  Stop Loss: ", DoubleToString(lastSL, _Digits));
-      Print("  Take Profit: ", DoubleToString(lastTP, _Digits));
+      Print("");
+      Print("Here's my trade plan for you:");
+      Print("   Entry @ ", DoubleToString(lastEntry, _Digits));
+      Print("   Stop Loss @ ", DoubleToString(lastSL, _Digits), " (protect your capital!)");
+      Print("   Take Profit @ ", DoubleToString(lastTP, _Digits), " (secure those gains!)");
    }
    
-   Print("========================================");
-   Print("Analysis #", sendCount, " completed at ", TimeToString(TimeCurrent()));
+   Print("");
+   Print("Stay sharp, trade smart! - VEDD AI (Analysis #", sendCount, ")");
    
    // Show on chart if enabled
    if(SHOW_CHART_COMMENT)
@@ -245,32 +271,49 @@ void ParseAndDisplayAnalysis(string json)
 //+------------------------------------------------------------------+
 void UpdateChartComment()
 {
-   string signalColor = "";
-   if(lastSignal == "BUY") signalColor = ">>> BUY <<<";
-   else if(lastSignal == "SELL") signalColor = ">>> SELL <<<";
-   else signalColor = "--- NEUTRAL ---";
-   
    string commentText = "";
-   commentText += "====== AI TRADING VAULT ======\n";
-   commentText += signalColor + "\n";
-   commentText += "Confidence: " + IntegerToString(lastConfidence) + "%\n";
-   commentText += "Trend: " + lastTrend + "\n";
+   commentText += "VEDD AI Trading Assistant\n";
+   commentText += "------------------------\n";
    
+   // Signal with emoji-style indicators
+   if(lastSignal == "BUY")
+   {
+      commentText += ">> BULLISH - BUY <<\n";
+      commentText += "Confidence: " + IntegerToString(lastConfidence) + "%\n";
+   }
+   else if(lastSignal == "SELL")
+   {
+      commentText += ">> BEARISH - SELL <<\n";
+      commentText += "Confidence: " + IntegerToString(lastConfidence) + "%\n";
+   }
+   else
+   {
+      commentText += "-- NEUTRAL (Wait) --\n";
+   }
+   
+   // Trend
+   if(StringLen(lastTrend) > 0)
+   {
+      commentText += "Trend: " + lastTrend + "\n";
+   }
+   
+   // Patterns
    if(StringLen(lastPatterns) > 0)
    {
       commentText += "Patterns: " + lastPatterns + "\n";
    }
    
+   // Trade plan
    if(lastEntry > 0)
    {
-      commentText += "------- TRADE PLAN -------\n";
+      commentText += "------------------------\n";
       commentText += "Entry: " + DoubleToString(lastEntry, _Digits) + "\n";
       commentText += "SL: " + DoubleToString(lastSL, _Digits) + "\n";
       commentText += "TP: " + DoubleToString(lastTP, _Digits) + "\n";
    }
    
-   commentText += "=============================\n";
-   commentText += "Updated: " + TimeToString(TimeCurrent(), TIME_MINUTES);
+   commentText += "------------------------\n";
+   commentText += TimeToString(TimeCurrent(), TIME_MINUTES);
    
    Comment(commentText);
 }
