@@ -5,21 +5,29 @@
 //+------------------------------------------------------------------+
 #property copyright "AI Powered Trading Vault"
 #property link      "https://aipoweredtradingvault.com"
-#property version   "1.00"
-#property description "Sends chart data to AI Trading Vault for live AI refresh analysis"
+#property version   "2.00"
+#property description "Sends chart data to AI Trading Vault and displays AI analysis results"
 #property strict
 
 //--- Input parameters
-input string   API_URL = "https://your-app-url.replit.app/api/mt5/chart-data";  // Your AI Trading Vault URL
+input string   API_URL = "https://your-app-url.replit.app/api/mt5/chart-data";  // Your AI Trading Vault URL (CHANGE THIS!)
 input string   API_TOKEN = "";                    // Your API Token from AI Trading Vault
 input int      CANDLES_TO_SEND = 50;              // Number of candles to send
 input int      SEND_INTERVAL_SECONDS = 60;        // Send interval (seconds)
 input bool     INCLUDE_INDICATORS = true;         // Include technical indicators
-input int      TIMEOUT = 10000;                   // Request timeout (ms)
+input bool     SHOW_CHART_COMMENT = true;         // Show analysis on chart
+input int      TIMEOUT = 15000;                   // Request timeout (ms)
 
 //--- Global variables
 datetime lastSendTime = 0;
 int sendCount = 0;
+string lastSignal = "";
+string lastTrend = "";
+int lastConfidence = 0;
+string lastPatterns = "";
+double lastEntry = 0;
+double lastSL = 0;
+double lastTP = 0;
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
@@ -143,7 +151,10 @@ bool SendChartData()
    {
       string response = CharArrayToString(resultData, 0, WHOLE_ARRAY, CP_UTF8);
       sendCount++;
-      Print("Chart data sent successfully (#", sendCount, "). Response: ", response);
+      
+      // Parse and display AI analysis
+      ParseAndDisplayAnalysis(response);
+      
       return true;
    }
    else if(httpCode == 401)
@@ -157,6 +168,157 @@ bool SendChartData()
       Print("HTTP Error: ", httpCode, " - Response: ", response);
       return false;
    }
+}
+
+//+------------------------------------------------------------------+
+//| Parse JSON response and display analysis                         |
+//+------------------------------------------------------------------+
+void ParseAndDisplayAnalysis(string json)
+{
+   // Use MT5-friendly flat fields (mt5Signal, mt5Confidence, etc.)
+   // These are at the top level of the response for reliable parsing
+   
+   lastSignal = ExtractJsonString(json, "\"mt5Signal\":\"", "\"");
+   lastTrend = ExtractJsonString(json, "\"mt5Trend\":\"", "\"");
+   lastPatterns = ExtractJsonString(json, "\"mt5Patterns\":\"", "\"");
+   
+   // Parse confidence (number field)
+   string confStr = ExtractJsonNumber(json, "\"mt5Confidence\":");
+   lastConfidence = (int)StringToInteger(confStr);
+   
+   // Check if we have a trade plan
+   string hasPlanStr = ExtractJsonString(json, "\"mt5HasTradePlan\":", ",");
+   bool hasTradePlan = (StringFind(hasPlanStr, "true") >= 0);
+   
+   if(hasTradePlan)
+   {
+      string entryStr = ExtractJsonNumber(json, "\"mt5Entry\":");
+      string slStr = ExtractJsonNumber(json, "\"mt5StopLoss\":");
+      string tpStr = ExtractJsonNumber(json, "\"mt5TakeProfit\":");
+      
+      lastEntry = StringToDouble(entryStr);
+      lastSL = StringToDouble(slStr);
+      lastTP = StringToDouble(tpStr);
+   }
+   else
+   {
+      lastEntry = 0;
+      lastSL = 0;
+      lastTP = 0;
+   }
+   
+   // Print detailed analysis to Experts tab
+   Print("========================================");
+   Print("   AI TRADING VAULT - ANALYSIS RESULTS");
+   Print("========================================");
+   Print("Symbol: ", _Symbol, " | Timeframe: ", GetTimeframeString());
+   Print("----------------------------------------");
+   Print("SIGNAL: ", lastSignal, " | Confidence: ", lastConfidence, "%");
+   Print("TREND:  ", lastTrend);
+   
+   if(StringLen(lastPatterns) > 0)
+   {
+      Print("PATTERNS: ", lastPatterns);
+   }
+   
+   if(lastEntry > 0)
+   {
+      Print("----------------------------------------");
+      Print("TRADE PLAN:");
+      Print("  Entry: ", DoubleToString(lastEntry, _Digits));
+      Print("  Stop Loss: ", DoubleToString(lastSL, _Digits));
+      Print("  Take Profit: ", DoubleToString(lastTP, _Digits));
+   }
+   
+   Print("========================================");
+   Print("Analysis #", sendCount, " completed at ", TimeToString(TimeCurrent()));
+   
+   // Show on chart if enabled
+   if(SHOW_CHART_COMMENT)
+   {
+      UpdateChartComment();
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Update chart comment with latest analysis                        |
+//+------------------------------------------------------------------+
+void UpdateChartComment()
+{
+   string signalColor = "";
+   if(lastSignal == "BUY") signalColor = ">>> BUY <<<";
+   else if(lastSignal == "SELL") signalColor = ">>> SELL <<<";
+   else signalColor = "--- NEUTRAL ---";
+   
+   string commentText = "";
+   commentText += "====== AI TRADING VAULT ======\n";
+   commentText += signalColor + "\n";
+   commentText += "Confidence: " + IntegerToString(lastConfidence) + "%\n";
+   commentText += "Trend: " + lastTrend + "\n";
+   
+   if(StringLen(lastPatterns) > 0)
+   {
+      commentText += "Patterns: " + lastPatterns + "\n";
+   }
+   
+   if(lastEntry > 0)
+   {
+      commentText += "------- TRADE PLAN -------\n";
+      commentText += "Entry: " + DoubleToString(lastEntry, _Digits) + "\n";
+      commentText += "SL: " + DoubleToString(lastSL, _Digits) + "\n";
+      commentText += "TP: " + DoubleToString(lastTP, _Digits) + "\n";
+   }
+   
+   commentText += "=============================\n";
+   commentText += "Updated: " + TimeToString(TimeCurrent(), TIME_MINUTES);
+   
+   Comment(commentText);
+}
+
+//+------------------------------------------------------------------+
+//| Extract string value from JSON                                   |
+//+------------------------------------------------------------------+
+string ExtractJsonString(string json, string startTag, string endTag)
+{
+   int startPos = StringFind(json, startTag);
+   if(startPos < 0) return "";
+   
+   startPos += StringLen(startTag);
+   int endPos = StringFind(json, endTag, startPos);
+   if(endPos < 0) return "";
+   
+   return StringSubstr(json, startPos, endPos - startPos);
+}
+
+//+------------------------------------------------------------------+
+//| Extract numeric value from JSON (handles comma or } as delimiter)|
+//+------------------------------------------------------------------+
+string ExtractJsonNumber(string json, string startTag)
+{
+   int startPos = StringFind(json, startTag);
+   if(startPos < 0) return "0";
+   
+   startPos += StringLen(startTag);
+   
+   // Find the end of the number (comma, }, or end of string)
+   int endComma = StringFind(json, ",", startPos);
+   int endBrace = StringFind(json, "}", startPos);
+   
+   int endPos = -1;
+   if(endComma >= 0 && endBrace >= 0)
+      endPos = MathMin(endComma, endBrace);
+   else if(endComma >= 0)
+      endPos = endComma;
+   else if(endBrace >= 0)
+      endPos = endBrace;
+   else
+      return "0";
+   
+   string numStr = StringSubstr(json, startPos, endPos - startPos);
+   StringTrimLeft(numStr);
+   StringTrimRight(numStr);
+   
+   return numStr;
 }
 
 //+------------------------------------------------------------------+

@@ -4639,42 +4639,228 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         ea.liveRefreshEnabled
       );
       
-      if (matchingEA && indicators && typeof indicators === 'object') {
+      // Build comprehensive AI analysis from the indicators
+      let analysis: any = {
+        symbol: sanitizedSymbol,
+        timeframe: sanitizedTimeframe,
+        analyzedAt: new Date().toISOString(),
+        signal: 'NEUTRAL',
+        confidence: 50,
+        trend: 'SIDEWAYS',
+        patterns: [] as string[],
+        indicators: {} as any,
+        tradePlan: null as any,
+        alerts: [] as string[],
+      };
+      
+      if (indicators && typeof indicators === 'object') {
         try {
-          // Detect pattern changes based on indicator data
           const rsi = typeof indicators.rsi === 'number' ? indicators.rsi : null;
-          const macdHist = indicators.macd && typeof indicators.macd.histogram === 'number' 
-            ? indicators.macd.histogram : null;
+          const macdMain = indicators.macd?.main;
+          const macdSignal = indicators.macd?.signal;
+          const macdHist = indicators.macd?.histogram;
+          const ema20 = indicators.ema20;
+          const ema50 = indicators.ema50;
+          const sma200 = indicators.sma200;
+          const bbUpper = indicators.bollingerBands?.upper;
+          const bbMiddle = indicators.bollingerBands?.middle;
+          const bbLower = indicators.bollingerBands?.lower;
+          const atr = indicators.atr;
+          const currentPrice = indicators.price?.bid || candles[0]?.c;
           
-          // Simple pattern change detection
-          let patternChange = null;
-          if (rsi !== null && (rsi > 70 || rsi < 30)) {
-            patternChange = rsi > 70 ? 'RSI overbought detected' : 'RSI oversold detected';
+          // RSI Analysis
+          let rsiSignal = 'NEUTRAL';
+          let rsiStatus = '';
+          if (rsi !== null) {
+            if (rsi > 70) {
+              rsiSignal = 'SELL';
+              rsiStatus = 'OVERBOUGHT';
+              analysis.patterns.push('RSI Overbought (>70)');
+              analysis.alerts.push('RSI indicates overbought conditions');
+            } else if (rsi < 30) {
+              rsiSignal = 'BUY';
+              rsiStatus = 'OVERSOLD';
+              analysis.patterns.push('RSI Oversold (<30)');
+              analysis.alerts.push('RSI indicates oversold conditions');
+            } else if (rsi > 50) {
+              rsiStatus = 'BULLISH';
+            } else {
+              rsiStatus = 'BEARISH';
+            }
+            analysis.indicators.rsi = { value: rsi, status: rsiStatus, signal: rsiSignal };
           }
-          if (macdHist !== null && matchingEA.direction) {
-            const prevDirection = matchingEA.direction;
-            const macdSignal = macdHist > 0 ? 'BUY' : 'SELL';
-            if (prevDirection !== macdSignal && prevDirection !== 'NEUTRAL') {
-              patternChange = `MACD histogram crossed ${macdHist > 0 ? 'positive' : 'negative'}`;
+          
+          // MACD Analysis
+          let macdSignalDir = 'NEUTRAL';
+          let macdStatus = '';
+          if (macdHist !== undefined && macdHist !== null) {
+            if (macdHist > 0) {
+              macdSignalDir = 'BUY';
+              macdStatus = 'BULLISH';
+              if (macdMain > macdSignal) {
+                analysis.patterns.push('MACD Bullish Crossover');
+              }
+            } else {
+              macdSignalDir = 'SELL';
+              macdStatus = 'BEARISH';
+              if (macdMain < macdSignal) {
+                analysis.patterns.push('MACD Bearish Crossover');
+              }
+            }
+            analysis.indicators.macd = { 
+              main: macdMain, 
+              signal: macdSignal, 
+              histogram: macdHist, 
+              status: macdStatus,
+              signalDir: macdSignalDir 
+            };
+          }
+          
+          // Moving Average Analysis
+          let maSignal = 'NEUTRAL';
+          let maTrend = 'SIDEWAYS';
+          if (currentPrice && ema20 && ema50 && sma200) {
+            if (currentPrice > ema20 && ema20 > ema50 && ema50 > sma200) {
+              maSignal = 'BUY';
+              maTrend = 'STRONG UPTREND';
+              analysis.patterns.push('Price above all MAs - Strong Uptrend');
+            } else if (currentPrice < ema20 && ema20 < ema50 && ema50 < sma200) {
+              maSignal = 'SELL';
+              maTrend = 'STRONG DOWNTREND';
+              analysis.patterns.push('Price below all MAs - Strong Downtrend');
+            } else if (currentPrice > sma200) {
+              maTrend = 'UPTREND';
+              if (currentPrice > ema20) {
+                maSignal = 'BUY';
+              }
+            } else {
+              maTrend = 'DOWNTREND';
+              if (currentPrice < ema20) {
+                maSignal = 'SELL';
+              }
+            }
+            analysis.indicators.movingAverages = {
+              ema20, ema50, sma200,
+              priceAboveEMA20: currentPrice > ema20,
+              priceAboveSMA200: currentPrice > sma200,
+              trend: maTrend,
+              signal: maSignal
+            };
+          }
+          
+          // Bollinger Bands Analysis
+          let bbSignal = 'NEUTRAL';
+          let bbStatus = '';
+          if (currentPrice && bbUpper && bbMiddle && bbLower) {
+            if (currentPrice >= bbUpper) {
+              bbSignal = 'SELL';
+              bbStatus = 'AT UPPER BAND';
+              analysis.patterns.push('Price at Upper Bollinger Band');
+              analysis.alerts.push('Price touching upper BB - potential reversal');
+            } else if (currentPrice <= bbLower) {
+              bbSignal = 'BUY';
+              bbStatus = 'AT LOWER BAND';
+              analysis.patterns.push('Price at Lower Bollinger Band');
+              analysis.alerts.push('Price touching lower BB - potential reversal');
+            } else {
+              bbStatus = 'WITHIN BANDS';
+            }
+            analysis.indicators.bollingerBands = {
+              upper: bbUpper, middle: bbMiddle, lower: bbLower,
+              status: bbStatus, signal: bbSignal
+            };
+          }
+          
+          // ATR for volatility
+          if (atr) {
+            const volatility = atr > (currentPrice * 0.02) ? 'HIGH' : atr > (currentPrice * 0.01) ? 'MEDIUM' : 'LOW';
+            analysis.indicators.atr = { value: atr, volatility };
+          }
+          
+          // Calculate overall signal (weighted consensus)
+          let buyVotes = 0, sellVotes = 0;
+          if (rsiSignal === 'BUY') buyVotes += 1.5;
+          if (rsiSignal === 'SELL') sellVotes += 1.5;
+          if (macdSignalDir === 'BUY') buyVotes += 2;
+          if (macdSignalDir === 'SELL') sellVotes += 2;
+          if (maSignal === 'BUY') buyVotes += 2;
+          if (maSignal === 'SELL') sellVotes += 2;
+          if (bbSignal === 'BUY') buyVotes += 1;
+          if (bbSignal === 'SELL') sellVotes += 1;
+          
+          const totalVotes = 6.5;
+          if (buyVotes > sellVotes && buyVotes >= 3) {
+            analysis.signal = 'BUY';
+            analysis.confidence = Math.min(95, Math.round((buyVotes / totalVotes) * 100));
+          } else if (sellVotes > buyVotes && sellVotes >= 3) {
+            analysis.signal = 'SELL';
+            analysis.confidence = Math.min(95, Math.round((sellVotes / totalVotes) * 100));
+          } else {
+            analysis.signal = 'NEUTRAL';
+            analysis.confidence = 50;
+          }
+          
+          analysis.trend = maTrend;
+          
+          // Generate trade plan if we have a signal
+          if (analysis.signal !== 'NEUTRAL' && currentPrice && atr) {
+            const stopDistance = atr * 1.5;
+            const targetDistance = atr * 2.5;
+            
+            if (analysis.signal === 'BUY') {
+              analysis.tradePlan = {
+                direction: 'BUY',
+                entry: currentPrice,
+                stopLoss: currentPrice - stopDistance,
+                takeProfit: currentPrice + targetDistance,
+                riskReward: (targetDistance / stopDistance).toFixed(2)
+              };
+            } else {
+              analysis.tradePlan = {
+                direction: 'SELL',
+                entry: currentPrice,
+                stopLoss: currentPrice + stopDistance,
+                takeProfit: currentPrice - targetDistance,
+                riskReward: (targetDistance / stopDistance).toFixed(2)
+              };
             }
           }
           
-          if (patternChange) {
-            console.log(`[MT5 Chart Data] Pattern change detected for EA ${matchingEA.id}: ${patternChange}`);
-            refreshTriggered = true;
+          // Detect pattern changes for EA refresh
+          if (matchingEA && matchingEA.direction) {
+            const prevDirection = matchingEA.direction;
+            if (analysis.signal !== 'NEUTRAL' && analysis.signal !== prevDirection && prevDirection !== 'NEUTRAL') {
+              console.log(`[MT5 Chart Data] Pattern change detected for EA ${matchingEA.id}: Signal changed from ${prevDirection} to ${analysis.signal}`);
+              refreshTriggered = true;
+            }
           }
         } catch (indicatorError) {
           console.error('[MT5 Chart Data] Error processing indicators:', indicatorError);
+          analysis.alerts.push('Error processing some indicators');
         }
       }
       
+      // Create flat summary for easy MT5 parsing (top-level, no nested objects)
+      const patternsStr = analysis.patterns.slice(0, 3).join(' | ');
+      const alertsStr = analysis.alerts.slice(0, 2).join(' | ');
+      
       res.json({ 
         success: true, 
-        message: "Chart data received",
-        symbol,
-        timeframe,
+        message: "Chart data received and analyzed",
+        // MT5-friendly flat summary (parse these fields in EA)
+        mt5Signal: analysis.signal,
+        mt5Confidence: analysis.confidence,
+        mt5Trend: analysis.trend,
+        mt5Patterns: patternsStr,
+        mt5Alerts: alertsStr,
+        mt5Entry: analysis.tradePlan?.entry || 0,
+        mt5StopLoss: analysis.tradePlan?.stopLoss || 0,
+        mt5TakeProfit: analysis.tradePlan?.takeProfit || 0,
+        mt5RiskReward: analysis.tradePlan?.riskReward || "0",
+        mt5HasTradePlan: analysis.tradePlan ? true : false,
+        // Full analysis for web clients
+        analysis,
         candlesReceived: candles.length,
-        indicatorsReceived: indicators ? Object.keys(indicators).length : 0,
         refreshTriggered,
         matchingEA: matchingEA ? matchingEA.id : null,
       });
