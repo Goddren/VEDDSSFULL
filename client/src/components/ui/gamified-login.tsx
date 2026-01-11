@@ -25,6 +25,7 @@ export function GamifiedLogin({ isOpen, onClose }: GamifiedLoginProps) {
   const [activeTab, setActiveTab] = useState<"login" | "register" | "wallet">("login");
   const [showPassword, setShowPassword] = useState(false);
   const [isUnlocking, setIsUnlocking] = useState(false);
+  const [showCelebration, setShowCelebration] = useState(false);
   const { loginMutation, registerMutation } = useAuth();
 
   const loginFormSchema = loginUserSchema.extend({
@@ -65,7 +66,13 @@ export function GamifiedLogin({ isOpen, onClose }: GamifiedLoginProps) {
     setIsUnlocking(true);
     const { acceptDisclaimer, ...loginData } = values;
     loginMutation.mutate(loginData, {
-      onSettled: () => setIsUnlocking(false)
+      onSuccess: () => {
+        setShowCelebration(true);
+        setTimeout(() => {
+          onClose();
+        }, 2500);
+      },
+      onError: () => setIsUnlocking(false)
     });
   };
 
@@ -73,7 +80,13 @@ export function GamifiedLogin({ isOpen, onClose }: GamifiedLoginProps) {
     setIsUnlocking(true);
     const { confirmPassword, ...registerData } = values;
     registerMutation.mutate(registerData, {
-      onSettled: () => setIsUnlocking(false)
+      onSuccess: () => {
+        setShowCelebration(true);
+        setTimeout(() => {
+          onClose();
+        }, 2500);
+      },
+      onError: () => setIsUnlocking(false)
     });
   };
 
@@ -86,9 +99,79 @@ export function GamifiedLogin({ isOpen, onClose }: GamifiedLoginProps) {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50"
-            onClick={onClose}
+            onClick={!showCelebration ? onClose : undefined}
           />
 
+          {showCelebration ? (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 1.2 }}
+              className="fixed inset-0 z-50 flex items-center justify-center"
+            >
+              <div className="relative flex flex-col items-center">
+                <motion.div
+                  initial={{ scale: 0, rotate: -180 }}
+                  animate={{ scale: 1, rotate: 0 }}
+                  transition={{ type: "spring", duration: 0.8 }}
+                  className="relative"
+                >
+                  <div className="absolute inset-0 bg-green-500/40 rounded-full blur-3xl animate-pulse" />
+                  <div className="absolute inset-0 bg-amber-500/30 rounded-full blur-2xl animate-ping" />
+                  <div className="relative p-8 rounded-full bg-gradient-to-br from-green-600 to-green-700 border-4 border-green-400 shadow-2xl shadow-green-500/50">
+                    <motion.div
+                      animate={{ rotate: [0, -15, 15, -10, 10, 0] }}
+                      transition={{ duration: 0.6, delay: 0.3 }}
+                    >
+                      <Unlock className="h-16 w-16 text-white" />
+                    </motion.div>
+                  </div>
+                </motion.div>
+
+                <motion.h2
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.4 }}
+                  className="mt-8 text-3xl font-bold text-white text-center"
+                >
+                  Vault Unlocked!
+                </motion.h2>
+                <motion.p
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.6 }}
+                  className="mt-2 text-green-400 text-lg"
+                >
+                  Welcome to AI Trading Vault
+                </motion.p>
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.8 }}
+                  className="mt-4 flex items-center gap-2 text-amber-400"
+                >
+                  <Sparkles className="h-5 w-5" />
+                  <span>Preparing your dashboard...</span>
+                  <Sparkles className="h-5 w-5" />
+                </motion.div>
+
+                {[...Array(12)].map((_, i) => (
+                  <motion.div
+                    key={i}
+                    initial={{ opacity: 0, scale: 0 }}
+                    animate={{ 
+                      opacity: [0, 1, 0],
+                      scale: [0, 1, 0.5],
+                      x: Math.cos(i * 30 * Math.PI / 180) * 150,
+                      y: Math.sin(i * 30 * Math.PI / 180) * 150,
+                    }}
+                    transition={{ duration: 1.5, delay: 0.2 + i * 0.05 }}
+                    className="absolute w-3 h-3 bg-amber-400 rounded-full"
+                  />
+                ))}
+              </div>
+            </motion.div>
+          ) : (
           <motion.div
             initial={{ y: "100%" }}
             animate={{ y: 0 }}
@@ -498,6 +581,7 @@ export function GamifiedLogin({ isOpen, onClose }: GamifiedLoginProps) {
               </div>
             </div>
           </motion.div>
+          )}
         </>
       )}
     </AnimatePresence>
