@@ -4644,7 +4644,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       
       // Check if this data should trigger an EA refresh
       let refreshTriggered = false;
-      const userEAs = await storage.getSavedEAsByUser(token.userId);
+      const userEAs = await storage.getUserSavedEAs(token.userId);
       const matchingEA = userEAs.find(ea => 
         ea.symbol.toUpperCase().replace('/', '') === symbol.toUpperCase().replace('/', '') &&
         ea.liveRefreshEnabled
