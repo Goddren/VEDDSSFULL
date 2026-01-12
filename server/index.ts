@@ -20,6 +20,17 @@ app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 // Serve EA templates for download
 app.use('/ea-templates', express.static(path.join(process.cwd(), 'public/ea-templates')));
 
+// Serve downloads folder (for MT5 EA files) with proper content type
+app.use('/downloads', express.static(path.join(process.cwd(), 'public/downloads'), {
+  setHeaders: (res, filePath) => {
+    // Force download and set correct content type for MQ5 files
+    if (filePath.endsWith('.mq5')) {
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      res.setHeader('Content-Disposition', 'attachment; filename="' + path.basename(filePath) + '"');
+    }
+  }
+}));
+
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
