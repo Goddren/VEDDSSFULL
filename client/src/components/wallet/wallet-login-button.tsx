@@ -12,12 +12,14 @@ interface WalletLoginButtonProps {
 }
 
 export function WalletLoginButton({ onWalletLogin, className }: WalletLoginButtonProps) {
-  const { connected, connecting, walletData, connect, disconnect, signMessage, refreshWalletData, error } = useSolanaWallet();
+  const { connected, connecting, walletData, walletType, connect, disconnect, signMessage, refreshWalletData, error, availableWallets } = useSolanaWallet();
   const [isAuthenticating, setIsAuthenticating] = useState(false);
+  const [showWalletOptions, setShowWalletOptions] = useState(false);
   const { toast } = useToast();
 
-  const handleConnect = async () => {
-    await connect();
+  const handleConnect = async (type: 'phantom' | 'pumpfun') => {
+    setShowWalletOptions(false);
+    await connect(type);
   };
 
   const handleAuthenticate = async () => {
@@ -89,23 +91,51 @@ export function WalletLoginButton({ onWalletLogin, className }: WalletLoginButto
         animate={{ opacity: 1, scale: 1 }}
         className={className}
       >
-        <Button
-          onClick={handleConnect}
-          disabled={connecting}
-          className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-semibold py-6 rounded-xl shadow-lg shadow-purple-500/30 flex items-center justify-center gap-3"
-        >
-          {connecting ? (
-            <>
-              <RefreshCw className="h-5 w-5 animate-spin" />
-              Connecting...
-            </>
-          ) : (
-            <>
+        {!showWalletOptions ? (
+          <Button
+            onClick={() => setShowWalletOptions(true)}
+            disabled={connecting}
+            className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-semibold py-6 rounded-xl shadow-lg shadow-purple-500/30 flex items-center justify-center gap-3"
+          >
+            {connecting ? (
+              <>
+                <RefreshCw className="h-5 w-5 animate-spin" />
+                Connecting...
+              </>
+            ) : (
+              <>
+                <Wallet className="h-5 w-5" />
+                Connect Wallet
+              </>
+            )}
+          </Button>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-gray-400 text-sm text-center mb-2">Choose your wallet</p>
+            <Button
+              onClick={() => handleConnect('phantom')}
+              disabled={connecting}
+              className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-semibold py-4 rounded-xl shadow-lg shadow-purple-500/30 flex items-center justify-center gap-3"
+            >
               <Wallet className="h-5 w-5" />
-              Connect Phantom Wallet
-            </>
-          )}
-        </Button>
+              Phantom Wallet
+            </Button>
+            <Button
+              onClick={() => handleConnect('pumpfun')}
+              disabled={connecting}
+              className="w-full bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white font-semibold py-4 rounded-xl shadow-lg shadow-green-500/30 flex items-center justify-center gap-3"
+            >
+              <Coins className="h-5 w-5" />
+              pump.fun Wallet
+            </Button>
+            <button 
+              onClick={() => setShowWalletOptions(false)}
+              className="w-full text-gray-400 text-sm hover:text-white transition-colors py-2"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
         {error && (
           <p className="text-red-400 text-sm mt-2 text-center">{error}</p>
         )}

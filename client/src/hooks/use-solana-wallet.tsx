@@ -1,8 +1,9 @@
 import { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
 import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
 
-interface PhantomProvider {
+interface SolanaProvider {
   isPhantom?: boolean;
+  isPumpFun?: boolean;
   publicKey?: { toString: () => string; toBytes: () => Uint8Array };
   connect: (options?: { onlyIfTrusted?: boolean }) => Promise<{ publicKey: { toString: () => string } }>;
   disconnect: () => Promise<void>;
@@ -10,6 +11,8 @@ interface PhantomProvider {
   on: (event: string, callback: (...args: any[]) => void) => void;
   off: (event: string, callback: (...args: any[]) => void) => void;
 }
+
+type WalletType = 'phantom' | 'pumpfun' | null;
 
 interface WalletData {
   address: string;
@@ -23,11 +26,13 @@ interface WalletContextType {
   connected: boolean;
   connecting: boolean;
   walletData: WalletData | null;
-  connect: () => Promise<void>;
+  walletType: WalletType;
+  connect: (type?: WalletType) => Promise<void>;
   disconnect: () => Promise<void>;
   signMessage: (message: string) => Promise<string | null>;
   refreshWalletData: () => Promise<void>;
   error: string | null;
+  availableWallets: WalletType[];
 }
 
 const WalletContext = createContext<WalletContextType | null>(null);
@@ -36,7 +41,7 @@ const VEDD_TOKEN_MINT = 'VEDDxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
 const AMBASSADOR_NFT_COLLECTION = 'VEDDAMBxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
 const SOLANA_RPC = 'https://api.mainnet-beta.solana.com';
 
-const getPhantomProvider = (): PhantomProvider | null => {
+const getPhantomProvider = (): SolanaProvider | null => {
   if (typeof window === 'undefined') return null;
   const anyWindow = window as any;
   if (anyWindow.solana?.isPhantom) {
@@ -48,11 +53,48 @@ const getPhantomProvider = (): PhantomProvider | null => {
   return null;
 };
 
+const getPumpFunProvider = (): SolanaProvider | null => {
+  if (typeof window === 'undefined') return null;
+  const anyWindow = window as any;
+  // pump.fun wallet injects as window.pumpPortal or similar
+  if (anyWindow.pumpPortal?.solana) {
+    return { ...anyWindow.pumpPortal.solana, isPumpFun: true };
+  }
+  // Also check standard Wallet Standard providers
+  if (anyWindow.solana && !anyWindow.solana.isPhantom) {
+    // Generic Solana wallet that's not Phantom
+    return anyWindow.solana;
+  }
+  return null;
+};
+
+const getAvailableWallets = (): WalletType[] => {
+  const wallets: WalletType[] = [];
+  if (getPhantomProvider()) wallets.push('phantom');
+  if (getPumpFunProvider()) wallets.push('pumpfun');
+  return wallets;
+};
+
+const getProvider = (type: WalletType): SolanaProvider | null => {
+  if (type === 'phantom') return getPhantomProvider();
+  if (type === 'pumpfun') return getPumpFunProvider();
+  return getPhantomProvider() || getPumpFunProvider();
+};
+
 export function SolanaWalletProvider({ children }: { children: ReactNode }) {
   const [connected, setConnected] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [walletData, setWalletData] = useState<WalletData | null>(null);
+  const [walletType, setWalletType] = useState<WalletType>(null);
   const [error, setError] = useState<string | null>(null);
+  const [availableWallets, setAvailableWallets] = useState<WalletType[]>([]);
+
+  useEffect(() => {
+    const checkWallets = () => setAvailableWallets(getAvailableWallets());
+    checkWallets();
+    const interval = setInterval(checkWallets, 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   const fetchTokenBalances = useCallback(async (address: string): Promise<Partial<WalletData>> => {
     try {
@@ -103,7 +145,7 @@ export function SolanaWalletProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const refreshWalletData = useCallback(async () => {
-    const provider = getPhantomProvider();
+    const provider = getProvider(walletType);
     if (!provider?.publicKey) return;
 
     const address = provider.publicKey.toString();
@@ -116,14 +158,20 @@ export function SolanaWalletProvider({ children }: { children: ReactNode }) {
       isAmbassador: balances.isAmbassador || false,
       ambassadorNftMint: balances.ambassadorNftMint || null,
     });
-  }, [fetchTokenBalances]);
+  }, [fetchTokenBalances, walletType]);
 
-  const connect = useCallback(async () => {
-    const provider = getPhantomProvider();
+  const connect = useCallback(async (type?: WalletType) => {
+    const targetType = type || 'phantom';
+    const provider = getProvider(targetType);
     
     if (!provider) {
-      setError('Please install Phantom wallet to connect');
-      window.open('https://phantom.app/', '_blank');
+      if (targetType === 'pumpfun') {
+        setError('Please install pump.fun wallet to connect');
+        window.open('https://pump.fun/', '_blank');
+      } else {
+        setError('Please install Phantom wallet to connect');
+        window.open('https://phantom.app/', '_blank');
+      }
       return;
     }
 
@@ -144,6 +192,7 @@ export function SolanaWalletProvider({ children }: { children: ReactNode }) {
         ambassadorNftMint: balances.ambassadorNftMint || null,
       });
 
+      setWalletType(targetType);
       setConnected(true);
     } catch (err: any) {
       console.error('Wallet connection error:', err);
@@ -154,7 +203,7 @@ export function SolanaWalletProvider({ children }: { children: ReactNode }) {
   }, [fetchTokenBalances]);
 
   const disconnect = useCallback(async () => {
-    const provider = getPhantomProvider();
+    const provider = getProvider(walletType);
     if (provider) {
       try {
         await provider.disconnect();
@@ -164,11 +213,12 @@ export function SolanaWalletProvider({ children }: { children: ReactNode }) {
     }
     setConnected(false);
     setWalletData(null);
+    setWalletType(null);
     setError(null);
-  }, []);
+  }, [walletType]);
 
   const signMessage = useCallback(async (message: string): Promise<string | null> => {
-    const provider = getPhantomProvider();
+    const provider = getProvider(walletType);
     if (!provider || !provider.signMessage) {
       setError('Wallet does not support message signing');
       return null;
@@ -185,7 +235,7 @@ export function SolanaWalletProvider({ children }: { children: ReactNode }) {
       setError(err.message || 'Failed to sign message');
       return null;
     }
-  }, []);
+  }, [walletType]);
 
   useEffect(() => {
     const provider = getPhantomProvider();
@@ -231,11 +281,13 @@ export function SolanaWalletProvider({ children }: { children: ReactNode }) {
         connected,
         connecting,
         walletData,
+        walletType,
         connect,
         disconnect,
         signMessage,
         refreshWalletData,
         error,
+        availableWallets,
       }}
     >
       {children}
