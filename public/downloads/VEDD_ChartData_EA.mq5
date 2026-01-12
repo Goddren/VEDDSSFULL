@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "AI Powered Trading Vault"
 #property link      "https://aipoweredtradingvault.com"
-#property version   "3.00"
+#property version   "3.10"
 #property description "Sends chart data to AI Trading Vault, displays analysis, and auto-trades signals"
 #property strict
 
@@ -19,6 +19,13 @@ input int      SEND_INTERVAL_SECONDS = 60;        // Send interval (seconds)
 input bool     INCLUDE_INDICATORS = true;         // Include technical indicators
 input bool     SHOW_CHART_COMMENT = true;         // Show analysis on chart
 input int      TIMEOUT = 15000;                   // Request timeout (ms)
+
+//--- Input parameters: Multi-Timeframe Analysis
+input bool     ENABLE_MULTI_TIMEFRAME = true;     // Enable Multi-Timeframe Analysis (Better AI!)
+input bool     INCLUDE_M15 = true;                // Include M15 timeframe
+input bool     INCLUDE_H1 = true;                 // Include H1 timeframe  
+input bool     INCLUDE_H4 = true;                 // Include H4 timeframe
+input bool     INCLUDE_D1 = false;                // Include D1 timeframe
 
 //--- Input parameters: Auto-Trading
 input bool     ENABLE_AUTO_TRADING = false;       // Enable Auto-Trading (CAREFUL!)
@@ -68,11 +75,22 @@ int OnInit()
    trade.SetDeviationInPoints(SLIPPAGE_POINTS);
    
    Print("========================================");
-   Print("AI Trading Vault - Chart Data EA v3.0");
+   Print("AI Trading Vault - Chart Data EA v3.1");
    Print("Symbol: ", _Symbol);
-   Print("Timeframe: ", EnumToString(Period()));
+   Print("Primary Timeframe: ", EnumToString(Period()));
    Print("Candles to send: ", CANDLES_TO_SEND);
    Print("Send interval: ", SEND_INTERVAL_SECONDS, " seconds");
+   Print("----------------------------------------");
+   Print("MULTI-TIMEFRAME: ", ENABLE_MULTI_TIMEFRAME ? "ENABLED (Better AI!)" : "DISABLED");
+   if(ENABLE_MULTI_TIMEFRAME)
+   {
+      string tfList = "";
+      if(INCLUDE_M15) tfList += "M15 ";
+      if(INCLUDE_H1) tfList += "H1 ";
+      if(INCLUDE_H4) tfList += "H4 ";
+      if(INCLUDE_D1) tfList += "D1 ";
+      Print("Timeframes: ", tfList);
+   }
    Print("----------------------------------------");
    Print("AUTO-TRADING: ", ENABLE_AUTO_TRADING ? "ENABLED" : "DISABLED");
    if(ENABLE_AUTO_TRADING)
@@ -127,14 +145,23 @@ bool SendChartData()
       indicatorsJson = BuildIndicatorsJson();
    }
    
+   // Build multi-timeframe data if enabled
+   string multiTimeframeJson = "";
+   if(ENABLE_MULTI_TIMEFRAME)
+   {
+      multiTimeframeJson = BuildMultiTimeframeJson();
+   }
+   
    string jsonPayload = StringFormat(
-      "{\"symbol\":\"%s\",\"timeframe\":\"%s\",\"broker\":\"%s\",\"timestamp\":%d,\"candles\":%s%s}",
+      "{\"symbol\":\"%s\",\"timeframe\":\"%s\",\"broker\":\"%s\",\"timestamp\":%d,\"candles\":%s%s%s,\"multiTimeframe\":%s}",
       _Symbol,
       GetTimeframeString(),
       AccountInfoString(ACCOUNT_COMPANY),
       TimeCurrent(),
       candlesJson,
-      INCLUDE_INDICATORS ? ",\"indicators\":" + indicatorsJson : ""
+      INCLUDE_INDICATORS ? ",\"indicators\":" + indicatorsJson : "",
+      ENABLE_MULTI_TIMEFRAME ? ",\"multiTimeframeEnabled\":true" : "",
+      ENABLE_MULTI_TIMEFRAME ? multiTimeframeJson : "null"
    );
    
    uchar jsonData[];
@@ -887,6 +914,158 @@ string BuildIndicatorsJson()
       ema20, ema50, sma200,
       bbUpper, bbMiddle, bbLower,
       bid, ask, spread
+   );
+   
+   return json;
+}
+
+//+------------------------------------------------------------------+
+//| Build multi-timeframe analysis data                              |
+//+------------------------------------------------------------------+
+string BuildMultiTimeframeJson()
+{
+   string json = "{";
+   bool first = true;
+   
+   // Build data for each enabled timeframe
+   if(INCLUDE_M15)
+   {
+      if(!first) json += ",";
+      json += "\"M15\":" + BuildTimeframeData(PERIOD_M15);
+      first = false;
+   }
+   
+   if(INCLUDE_H1)
+   {
+      if(!first) json += ",";
+      json += "\"H1\":" + BuildTimeframeData(PERIOD_H1);
+      first = false;
+   }
+   
+   if(INCLUDE_H4)
+   {
+      if(!first) json += ",";
+      json += "\"H4\":" + BuildTimeframeData(PERIOD_H4);
+      first = false;
+   }
+   
+   if(INCLUDE_D1)
+   {
+      if(!first) json += ",";
+      json += "\"D1\":" + BuildTimeframeData(PERIOD_D1);
+      first = false;
+   }
+   
+   json += "}";
+   return json;
+}
+
+//+------------------------------------------------------------------+
+//| Build data for a specific timeframe                              |
+//+------------------------------------------------------------------+
+string BuildTimeframeData(ENUM_TIMEFRAMES tf)
+{
+   int candleCount = 30; // Fewer candles for additional timeframes
+   
+   // Get candles
+   string candlesJson = "[";
+   for(int i = 0; i < candleCount; i++)
+   {
+      datetime time = iTime(_Symbol, tf, i);
+      double open = iOpen(_Symbol, tf, i);
+      double high = iHigh(_Symbol, tf, i);
+      double low = iLow(_Symbol, tf, i);
+      double close = iClose(_Symbol, tf, i);
+      long volume = iVolume(_Symbol, tf, i);
+      
+      candlesJson += StringFormat(
+         "{\"t\":%d,\"o\":%.5f,\"h\":%.5f,\"l\":%.5f,\"c\":%.5f,\"v\":%d}",
+         time, open, high, low, close, volume
+      );
+      
+      if(i < candleCount - 1) candlesJson += ",";
+   }
+   candlesJson += "]";
+   
+   // Calculate indicators for this timeframe
+   double rsi = 0;
+   int rsiHandle = iRSI(_Symbol, tf, 14, PRICE_CLOSE);
+   if(rsiHandle != INVALID_HANDLE)
+   {
+      double rsiBuffer[];
+      ArraySetAsSeries(rsiBuffer, true);
+      if(CopyBuffer(rsiHandle, 0, 0, 1, rsiBuffer) > 0)
+         rsi = rsiBuffer[0];
+      IndicatorRelease(rsiHandle);
+   }
+   
+   double macdMain = 0, macdSignal = 0;
+   int macdHandle = iMACD(_Symbol, tf, 12, 26, 9, PRICE_CLOSE);
+   if(macdHandle != INVALID_HANDLE)
+   {
+      double macdMainBuffer[], macdSignalBuffer[];
+      ArraySetAsSeries(macdMainBuffer, true);
+      ArraySetAsSeries(macdSignalBuffer, true);
+      if(CopyBuffer(macdHandle, 0, 0, 1, macdMainBuffer) > 0)
+         macdMain = macdMainBuffer[0];
+      if(CopyBuffer(macdHandle, 1, 0, 1, macdSignalBuffer) > 0)
+         macdSignal = macdSignalBuffer[0];
+      IndicatorRelease(macdHandle);
+   }
+   
+   double ema20 = 0, ema50 = 0, sma200 = 0;
+   
+   int ema20Handle = iMA(_Symbol, tf, 20, 0, MODE_EMA, PRICE_CLOSE);
+   if(ema20Handle != INVALID_HANDLE)
+   {
+      double buffer[];
+      ArraySetAsSeries(buffer, true);
+      if(CopyBuffer(ema20Handle, 0, 0, 1, buffer) > 0)
+         ema20 = buffer[0];
+      IndicatorRelease(ema20Handle);
+   }
+   
+   int ema50Handle = iMA(_Symbol, tf, 50, 0, MODE_EMA, PRICE_CLOSE);
+   if(ema50Handle != INVALID_HANDLE)
+   {
+      double buffer[];
+      ArraySetAsSeries(buffer, true);
+      if(CopyBuffer(ema50Handle, 0, 0, 1, buffer) > 0)
+         ema50 = buffer[0];
+      IndicatorRelease(ema50Handle);
+   }
+   
+   int sma200Handle = iMA(_Symbol, tf, 200, 0, MODE_SMA, PRICE_CLOSE);
+   if(sma200Handle != INVALID_HANDLE)
+   {
+      double buffer[];
+      ArraySetAsSeries(buffer, true);
+      if(CopyBuffer(sma200Handle, 0, 0, 1, buffer) > 0)
+         sma200 = buffer[0];
+      IndicatorRelease(sma200Handle);
+   }
+   
+   // Determine trend for this timeframe
+   double currentClose = iClose(_Symbol, tf, 0);
+   string trend = "NEUTRAL";
+   if(currentClose > ema20 && ema20 > ema50)
+      trend = "BULLISH";
+   else if(currentClose < ema20 && ema20 < ema50)
+      trend = "BEARISH";
+   else if(currentClose > sma200)
+      trend = "ABOVE_SMA200";
+   else if(currentClose < sma200)
+      trend = "BELOW_SMA200";
+   
+   // Build JSON for this timeframe
+   string json = StringFormat(
+      "{\"candles\":%s,\"indicators\":{\"rsi\":%.2f,\"macdMain\":%.5f,\"macdSignal\":%.5f,\"ema20\":%.5f,\"ema50\":%.5f,\"sma200\":%.5f},\"trend\":\"%s\",\"close\":%.5f}",
+      candlesJson,
+      rsi,
+      macdMain, macdSignal,
+      ema20, ema50, sma200,
+      trend,
+      currentClose
    );
    
    return json;

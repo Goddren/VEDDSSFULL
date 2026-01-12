@@ -4799,7 +4799,44 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           if (bbSignal === 'BUY') buyVotes += 1;
           if (bbSignal === 'SELL') sellVotes += 1;
           
-          const totalVotes = 6.5;
+          // Multi-timeframe alignment bonus (if multi-timeframe data is provided)
+          const { multiTimeframe, multiTimeframeEnabled } = req.body;
+          let mtfBullish = 0, mtfBearish = 0, mtfCount = 0;
+          
+          if (multiTimeframeEnabled && multiTimeframe && typeof multiTimeframe === 'object') {
+            const timeframes = ['M15', 'H1', 'H4', 'D1'];
+            for (const tf of timeframes) {
+              if (multiTimeframe[tf]) {
+                mtfCount++;
+                const tfData = multiTimeframe[tf];
+                const tfTrend = tfData.trend || '';
+                
+                if (tfTrend === 'BULLISH' || tfTrend === 'ABOVE_SMA200') {
+                  mtfBullish++;
+                } else if (tfTrend === 'BEARISH' || tfTrend === 'BELOW_SMA200') {
+                  mtfBearish++;
+                }
+                
+                // Add timeframe RSI extreme conditions
+                const tfRsi = tfData.indicators?.rsi;
+                if (tfRsi && tfRsi < 30) mtfBullish += 0.5;
+                if (tfRsi && tfRsi > 70) mtfBearish += 0.5;
+              }
+            }
+            
+            // Apply multi-timeframe alignment bonus
+            if (mtfCount > 0) {
+              if (mtfBullish > mtfBearish) {
+                buyVotes += mtfBullish * 0.75;  // Up to 3 extra votes if all aligned
+                analysis.patterns.push(`MTF Aligned: ${mtfBullish}/${mtfCount} bullish`);
+              } else if (mtfBearish > mtfBullish) {
+                sellVotes += mtfBearish * 0.75;
+                analysis.patterns.push(`MTF Aligned: ${mtfBearish}/${mtfCount} bearish`);
+              }
+            }
+          }
+          
+          const totalVotes = multiTimeframeEnabled && mtfCount > 0 ? 6.5 + (mtfCount * 0.75) : 6.5;
           if (buyVotes > sellVotes && buyVotes >= 3) {
             analysis.signal = 'BUY';
             analysis.confidence = Math.min(95, Math.round((buyVotes / totalVotes) * 100));
@@ -4809,6 +4846,15 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           } else {
             analysis.signal = 'NEUTRAL';
             analysis.confidence = 50;
+          }
+          
+          // Boost confidence if multi-timeframe data confirms the signal
+          if (multiTimeframeEnabled && mtfCount >= 2) {
+            if ((analysis.signal === 'BUY' && mtfBullish >= mtfCount * 0.6) ||
+                (analysis.signal === 'SELL' && mtfBearish >= mtfCount * 0.6)) {
+              analysis.confidence = Math.min(95, analysis.confidence + 10);
+              analysis.patterns.push('Multi-TF Confirmation (+10% conf)');
+            }
           }
           
           analysis.trend = maTrend;
