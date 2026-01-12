@@ -1,15 +1,17 @@
 //+------------------------------------------------------------------+
 //|                                           VEDD_ChartData_EA.mq5 |
 //|                              AI Powered Trading Vault           |
-//|                         Chart Data Sender for AI Refresh        |
+//|                  Chart Data Sender + Auto-Trading EA            |
 //+------------------------------------------------------------------+
 #property copyright "AI Powered Trading Vault"
 #property link      "https://aipoweredtradingvault.com"
-#property version   "2.00"
-#property description "Sends chart data to AI Trading Vault and displays AI analysis results"
+#property version   "3.00"
+#property description "Sends chart data to AI Trading Vault, displays analysis, and auto-trades signals"
 #property strict
 
-//--- Input parameters
+#include <Trade\Trade.mqh>
+
+//--- Input parameters: Connection
 input string   API_URL = "https://your-app-url.replit.app/api/mt5/chart-data";  // Your AI Trading Vault URL (CHANGE THIS!)
 input string   API_TOKEN = "";                    // Your API Token from AI Trading Vault
 input int      CANDLES_TO_SEND = 50;              // Number of candles to send
@@ -17,6 +19,20 @@ input int      SEND_INTERVAL_SECONDS = 60;        // Send interval (seconds)
 input bool     INCLUDE_INDICATORS = true;         // Include technical indicators
 input bool     SHOW_CHART_COMMENT = true;         // Show analysis on chart
 input int      TIMEOUT = 15000;                   // Request timeout (ms)
+
+//--- Input parameters: Auto-Trading
+input bool     ENABLE_AUTO_TRADING = false;       // Enable Auto-Trading (CAREFUL!)
+input bool     ENABLE_PENDING_ORDERS = false;     // Use pending orders instead of market orders
+input double   LOT_SIZE = 0.01;                   // Fixed lot size
+input bool     USE_RISK_PERCENT = false;          // Use risk % instead of fixed lot
+input double   RISK_PERCENT = 1.0;                // Risk per trade (% of balance)
+input int      MIN_CONFIDENCE = 70;               // Minimum signal confidence to trade
+input int      MAX_OPEN_TRADES = 1;               // Maximum open trades (this EA)
+input double   DAILY_LOSS_LIMIT = 100.0;          // Daily loss limit ($) - 0 to disable
+input int      COOLDOWN_SECONDS = 300;            // Cooldown between trades (seconds)
+input int      PENDING_EXPIRY_HOURS = 4;          // Pending order expiry (hours)
+input int      SLIPPAGE_POINTS = 30;              // Max slippage for market orders
+input int      MAGIC_NUMBER = 202501;             // Magic number for EA trades
 
 //--- Global variables
 datetime lastSendTime = 0;
@@ -28,6 +44,14 @@ string lastPatterns = "";
 double lastEntry = 0;
 double lastSL = 0;
 double lastTP = 0;
+bool hasTradePlan = false;
+
+//--- Trading state
+datetime lastTradeTime = 0;
+string lastExecutedSignal = "";
+double dailyLossAccumulated = 0;
+datetime dailyLossResetDate = 0;
+CTrade trade;
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
@@ -40,15 +64,26 @@ int OnInit()
       return(INIT_PARAMETERS_INCORRECT);
    }
    
+   trade.SetExpertMagicNumber(MAGIC_NUMBER);
+   trade.SetDeviationInPoints(SLIPPAGE_POINTS);
+   
    Print("========================================");
-   Print("AI Trading Vault - Chart Data EA");
+   Print("AI Trading Vault - Chart Data EA v3.0");
    Print("Symbol: ", _Symbol);
    Print("Timeframe: ", EnumToString(Period()));
    Print("Candles to send: ", CANDLES_TO_SEND);
    Print("Send interval: ", SEND_INTERVAL_SECONDS, " seconds");
+   Print("----------------------------------------");
+   Print("AUTO-TRADING: ", ENABLE_AUTO_TRADING ? "ENABLED" : "DISABLED");
+   if(ENABLE_AUTO_TRADING)
+   {
+      Print("Lot Size: ", USE_RISK_PERCENT ? DoubleToString(RISK_PERCENT, 1) + "% risk" : DoubleToString(LOT_SIZE, 2) + " lots");
+      Print("Min Confidence: ", MIN_CONFIDENCE, "%");
+      Print("Max Open Trades: ", MAX_OPEN_TRADES);
+      Print("Pending Orders: ", ENABLE_PENDING_ORDERS ? "YES" : "NO");
+   }
    Print("========================================");
    
-   // Send initial data
    SendChartData();
    
    return(INIT_SUCCEEDED);
@@ -67,11 +102,15 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTick()
 {
-   // Check if enough time has passed since last send
    if(TimeCurrent() - lastSendTime >= SEND_INTERVAL_SECONDS)
    {
       SendChartData();
       lastSendTime = TimeCurrent();
+   }
+   
+   if(ENABLE_AUTO_TRADING)
+   {
+      ManagePendingOrders();
    }
 }
 
@@ -80,17 +119,14 @@ void OnTick()
 //+------------------------------------------------------------------+
 bool SendChartData()
 {
-   // Build OHLCV data array
    string candlesJson = BuildCandlesJson();
    
-   // Build indicators data if enabled
    string indicatorsJson = "";
    if(INCLUDE_INDICATORS)
    {
       indicatorsJson = BuildIndicatorsJson();
    }
    
-   // Build complete JSON payload
    string jsonPayload = StringFormat(
       "{\"symbol\":\"%s\",\"timeframe\":\"%s\",\"broker\":\"%s\",\"timestamp\":%d,\"candles\":%s%s}",
       _Symbol,
@@ -101,23 +137,19 @@ bool SendChartData()
       INCLUDE_INDICATORS ? ",\"indicators\":" + indicatorsJson : ""
    );
    
-   // Convert to char array
    uchar jsonData[];
    StringToCharArray(jsonPayload, jsonData, 0, StringLen(jsonPayload), CP_UTF8);
    
-   // Prepare request headers
    string headers = "Content-Type: application/json\r\n";
    headers += "Authorization: Bearer " + API_TOKEN + "\r\n";
    headers += "X-MT5-Symbol: " + _Symbol + "\r\n";
    headers += "X-MT5-Timeframe: " + GetTimeframeString() + "\r\n";
    
-   // Response containers
    char resultData[];
    string resultHeaders;
    
    ResetLastError();
    
-   // Send HTTP POST request
    int httpCode = WebRequest(
       "POST",
       API_URL,
@@ -128,7 +160,6 @@ bool SendChartData()
       resultHeaders
    );
    
-   // Handle response
    if(httpCode == -1)
    {
       int errorCode = GetLastError();
@@ -152,8 +183,12 @@ bool SendChartData()
       string response = CharArrayToString(resultData, 0, WHOLE_ARRAY, CP_UTF8);
       sendCount++;
       
-      // Parse and display AI analysis
       ParseAndDisplayAnalysis(response);
+      
+      if(ENABLE_AUTO_TRADING && hasTradePlan)
+      {
+         ProcessAutoTrade();
+      }
       
       return true;
    }
@@ -175,20 +210,15 @@ bool SendChartData()
 //+------------------------------------------------------------------+
 void ParseAndDisplayAnalysis(string json)
 {
-   // Use MT5-friendly flat fields (mt5Signal, mt5Confidence, etc.)
-   // These are at the top level of the response for reliable parsing
-   
    lastSignal = ExtractJsonString(json, "\"mt5Signal\":\"", "\"");
    lastTrend = ExtractJsonString(json, "\"mt5Trend\":\"", "\"");
    lastPatterns = ExtractJsonString(json, "\"mt5Patterns\":\"", "\"");
    
-   // Parse confidence (number field)
    string confStr = ExtractJsonNumber(json, "\"mt5Confidence\":");
    lastConfidence = (int)StringToInteger(confStr);
    
-   // Check if we have a trade plan
    string hasPlanStr = ExtractJsonString(json, "\"mt5HasTradePlan\":", ",");
-   bool hasTradePlan = (StringFind(hasPlanStr, "true") >= 0);
+   hasTradePlan = (StringFind(hasPlanStr, "true") >= 0);
    
    if(hasTradePlan)
    {
@@ -207,12 +237,10 @@ void ParseAndDisplayAnalysis(string json)
       lastTP = 0;
    }
    
-   // Print conversational analysis to Experts tab
    Print("");
    Print("Hey G, VEDD AI here! Just scanned ", _Symbol, " on the ", GetTimeframeString(), " chart.");
    Print("");
    
-   // Main signal message
    if(lastSignal == "BUY")
    {
       Print("Looking BULLISH right now! I'm seeing a ", lastConfidence, "% confidence BUY setup.");
@@ -226,7 +254,6 @@ void ParseAndDisplayAnalysis(string json)
       Print("Market's a bit choppy - I'd stay on the sidelines for now (NEUTRAL).");
    }
    
-   // Trend info
    if(StringLen(lastTrend) > 0)
    {
       if(StringFind(lastTrend, "STRONG") >= 0)
@@ -239,14 +266,12 @@ void ParseAndDisplayAnalysis(string json)
          Print("Trend: ", lastTrend);
    }
    
-   // Patterns detected
    if(StringLen(lastPatterns) > 0)
    {
       Print("");
       Print("PATTERNS DETECTED: ", lastPatterns);
    }
    
-   // Trade plan
    if(lastEntry > 0)
    {
       Print("");
@@ -259,10 +284,372 @@ void ParseAndDisplayAnalysis(string json)
    Print("");
    Print("Stay sharp, trade smart! - VEDD AI (Analysis #", sendCount, ")");
    
-   // Show on chart if enabled
    if(SHOW_CHART_COMMENT)
    {
       UpdateChartComment();
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Process auto-trade based on signal                               |
+//+------------------------------------------------------------------+
+void ProcessAutoTrade()
+{
+   if(lastConfidence < MIN_CONFIDENCE)
+   {
+      Print("[AUTO-TRADE] Signal confidence ", lastConfidence, "% below minimum ", MIN_CONFIDENCE, "%. Skipping.");
+      return;
+   }
+   
+   if(lastSignal != "BUY" && lastSignal != "SELL")
+   {
+      Print("[AUTO-TRADE] Signal is NEUTRAL. No trade.");
+      return;
+   }
+   
+   if(lastSignal == lastExecutedSignal && (TimeCurrent() - lastTradeTime) < COOLDOWN_SECONDS)
+   {
+      Print("[AUTO-TRADE] Same signal within cooldown period. Skipping.");
+      return;
+   }
+   
+   if(CountOpenTrades() >= MAX_OPEN_TRADES)
+   {
+      Print("[AUTO-TRADE] Max open trades reached (", MAX_OPEN_TRADES, "). Skipping.");
+      return;
+   }
+   
+   // Check for existing pending orders to prevent stacking duplicates
+   if(ENABLE_PENDING_ORDERS && HasExistingPendingOrder(lastSignal))
+   {
+      Print("[AUTO-TRADE] Already have a pending ", lastSignal, " order. Skipping.");
+      return;
+   }
+   
+   if(!CheckDailyLossLimit())
+   {
+      Print("[AUTO-TRADE] Daily loss limit reached. No more trades today.");
+      return;
+   }
+   
+   if(!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) || !MQLInfoInteger(MQL_TRADE_ALLOWED))
+   {
+      Print("[AUTO-TRADE] Trading not allowed. Check permissions.");
+      return;
+   }
+   
+   double lotSize = CalculateLotSize();
+   
+   if(ENABLE_PENDING_ORDERS && lastEntry > 0)
+   {
+      PlacePendingOrder(lotSize);
+   }
+   else
+   {
+      PlaceMarketOrder(lotSize);
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Calculate lot size based on settings                             |
+//+------------------------------------------------------------------+
+double CalculateLotSize()
+{
+   double lots = LOT_SIZE;
+   
+   if(USE_RISK_PERCENT && lastSL > 0 && lastEntry > 0)
+   {
+      double balance = AccountInfoDouble(ACCOUNT_BALANCE);
+      double riskAmount = balance * (RISK_PERCENT / 100.0);
+      double slDistance = MathAbs(lastEntry - lastSL);
+      double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
+      double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+      
+      if(slDistance > 0 && tickValue > 0 && tickSize > 0)
+      {
+         double slTicks = slDistance / tickSize;
+         lots = riskAmount / (slTicks * tickValue);
+      }
+   }
+   
+   double minLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+   double maxLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
+   double lotStep = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+   
+   lots = MathMax(minLot, MathMin(maxLot, lots));
+   lots = MathFloor(lots / lotStep) * lotStep;
+   
+   return NormalizeDouble(lots, 2);
+}
+
+//+------------------------------------------------------------------+
+//| Place market order                                               |
+//+------------------------------------------------------------------+
+void PlaceMarketOrder(double lots)
+{
+   double sl = lastSL > 0 ? lastSL : 0;
+   double tp = lastTP > 0 ? lastTP : 0;
+   string comment = "VEDD AI " + lastSignal + " " + IntegerToString(lastConfidence) + "%";
+   
+   bool result = false;
+   
+   if(lastSignal == "BUY")
+   {
+      double price = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+      result = trade.Buy(lots, _Symbol, price, sl, tp, comment);
+   }
+   else if(lastSignal == "SELL")
+   {
+      double price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+      result = trade.Sell(lots, _Symbol, price, sl, tp, comment);
+   }
+   
+   if(result)
+   {
+      Print("[AUTO-TRADE] SUCCESS! ", lastSignal, " ", lots, " lots @ ", trade.ResultPrice());
+      Print("[AUTO-TRADE] SL: ", sl, " | TP: ", tp);
+      lastTradeTime = TimeCurrent();
+      lastExecutedSignal = lastSignal;
+   }
+   else
+   {
+      Print("[AUTO-TRADE] FAILED! Error: ", trade.ResultRetcode(), " - ", trade.ResultRetcodeDescription());
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Place pending order                                              |
+//+------------------------------------------------------------------+
+void PlacePendingOrder(double lots)
+{
+   if(lastEntry <= 0)
+   {
+      Print("[AUTO-TRADE] No entry price for pending order. Using market order.");
+      PlaceMarketOrder(lots);
+      return;
+   }
+   
+   double currentBid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   double currentAsk = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   double sl = lastSL > 0 ? lastSL : 0;
+   double tp = lastTP > 0 ? lastTP : 0;
+   string comment = "VEDD AI Pending " + lastSignal;
+   datetime expiry = TimeCurrent() + PENDING_EXPIRY_HOURS * 3600;
+   
+   ENUM_ORDER_TYPE orderType;
+   double price = lastEntry;
+   bool result = false;
+   
+   if(lastSignal == "BUY")
+   {
+      if(lastEntry > currentAsk)
+         orderType = ORDER_TYPE_BUY_STOP;
+      else if(lastEntry < currentAsk)
+         orderType = ORDER_TYPE_BUY_LIMIT;
+      else
+      {
+         PlaceMarketOrder(lots);
+         return;
+      }
+   }
+   else if(lastSignal == "SELL")
+   {
+      if(lastEntry < currentBid)
+         orderType = ORDER_TYPE_SELL_STOP;
+      else if(lastEntry > currentBid)
+         orderType = ORDER_TYPE_SELL_LIMIT;
+      else
+      {
+         PlaceMarketOrder(lots);
+         return;
+      }
+   }
+   else
+   {
+      return;
+   }
+   
+   MqlTradeRequest request = {};
+   MqlTradeResult tradeResult = {};
+   
+   request.action = TRADE_ACTION_PENDING;
+   request.symbol = _Symbol;
+   request.volume = lots;
+   request.type = orderType;
+   request.price = NormalizeDouble(price, _Digits);
+   request.sl = NormalizeDouble(sl, _Digits);
+   request.tp = NormalizeDouble(tp, _Digits);
+   request.deviation = SLIPPAGE_POINTS;
+   request.magic = MAGIC_NUMBER;
+   request.comment = comment;
+   request.type_time = ORDER_TIME_SPECIFIED;
+   request.expiration = expiry;
+   
+   result = OrderSend(request, tradeResult);
+   
+   if(result && tradeResult.retcode == TRADE_RETCODE_DONE)
+   {
+      Print("[AUTO-TRADE] PENDING ORDER PLACED! ", EnumToString(orderType));
+      Print("[AUTO-TRADE] Entry: ", price, " | SL: ", sl, " | TP: ", tp);
+      Print("[AUTO-TRADE] Expires: ", TimeToString(expiry));
+      lastTradeTime = TimeCurrent();
+      lastExecutedSignal = lastSignal;
+   }
+   else
+   {
+      Print("[AUTO-TRADE] PENDING ORDER FAILED! Error: ", tradeResult.retcode, " - ", GetRetcodeDescription(tradeResult.retcode));
+      Print("[AUTO-TRADE] Will retry on next signal. NOT falling back to market order for safety.");
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Check if we have an existing pending order for this direction    |
+//+------------------------------------------------------------------+
+bool HasExistingPendingOrder(string direction)
+{
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      ulong ticket = OrderGetTicket(i);
+      if(ticket > 0 && OrderSelect(ticket))
+      {
+         if(OrderGetInteger(ORDER_MAGIC) == MAGIC_NUMBER &&
+            OrderGetString(ORDER_SYMBOL) == _Symbol)
+         {
+            ENUM_ORDER_TYPE orderType = (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
+            bool isBuyPending = (orderType == ORDER_TYPE_BUY_LIMIT || orderType == ORDER_TYPE_BUY_STOP);
+            bool isSellPending = (orderType == ORDER_TYPE_SELL_LIMIT || orderType == ORDER_TYPE_SELL_STOP);
+            
+            if((direction == "BUY" && isBuyPending) || (direction == "SELL" && isSellPending))
+            {
+               return true;
+            }
+         }
+      }
+   }
+   return false;
+}
+
+//+------------------------------------------------------------------+
+//| Get retcode description                                          |
+//+------------------------------------------------------------------+
+string GetRetcodeDescription(uint retcode)
+{
+   switch(retcode)
+   {
+      case TRADE_RETCODE_REQUOTE: return "Requote";
+      case TRADE_RETCODE_REJECT: return "Rejected";
+      case TRADE_RETCODE_CANCEL: return "Canceled";
+      case TRADE_RETCODE_PLACED: return "Placed";
+      case TRADE_RETCODE_DONE: return "Done";
+      case TRADE_RETCODE_DONE_PARTIAL: return "Partial";
+      case TRADE_RETCODE_ERROR: return "Error";
+      case TRADE_RETCODE_TIMEOUT: return "Timeout";
+      case TRADE_RETCODE_INVALID: return "Invalid request";
+      case TRADE_RETCODE_INVALID_VOLUME: return "Invalid volume";
+      case TRADE_RETCODE_INVALID_PRICE: return "Invalid price";
+      case TRADE_RETCODE_INVALID_STOPS: return "Invalid stops";
+      case TRADE_RETCODE_TRADE_DISABLED: return "Trade disabled";
+      case TRADE_RETCODE_MARKET_CLOSED: return "Market closed";
+      case TRADE_RETCODE_NO_MONEY: return "No money";
+      case TRADE_RETCODE_PRICE_CHANGED: return "Price changed";
+      case TRADE_RETCODE_PRICE_OFF: return "No quotes";
+      case TRADE_RETCODE_INVALID_EXPIRATION: return "Invalid expiration";
+      case TRADE_RETCODE_ORDER_CHANGED: return "Order changed";
+      case TRADE_RETCODE_TOO_MANY_REQUESTS: return "Too many requests";
+      default: return "Unknown (" + IntegerToString(retcode) + ")";
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Count open trades by this EA                                     |
+//+------------------------------------------------------------------+
+int CountOpenTrades()
+{
+   int count = 0;
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      if(PositionSelectByTicket(PositionGetTicket(i)))
+      {
+         if(PositionGetInteger(POSITION_MAGIC) == MAGIC_NUMBER && 
+            PositionGetString(POSITION_SYMBOL) == _Symbol)
+         {
+            count++;
+         }
+      }
+   }
+   return count;
+}
+
+//+------------------------------------------------------------------+
+//| Check and update daily loss limit                                |
+//+------------------------------------------------------------------+
+bool CheckDailyLossLimit()
+{
+   if(DAILY_LOSS_LIMIT <= 0) return true;
+   
+   MqlDateTime now;
+   TimeCurrent(now);
+   datetime today = StringToTime(StringFormat("%04d.%02d.%02d", now.year, now.mon, now.day));
+   
+   if(today != dailyLossResetDate)
+   {
+      dailyLossAccumulated = 0;
+      dailyLossResetDate = today;
+   }
+   
+   datetime todayStart = today;
+   datetime todayEnd = today + 86400;
+   
+   HistorySelect(todayStart, todayEnd);
+   
+   double todayPnL = 0;
+   for(int i = HistoryDealsTotal() - 1; i >= 0; i--)
+   {
+      ulong ticket = HistoryDealGetTicket(i);
+      if(ticket > 0)
+      {
+         if(HistoryDealGetInteger(ticket, DEAL_MAGIC) == MAGIC_NUMBER &&
+            HistoryDealGetString(ticket, DEAL_SYMBOL) == _Symbol)
+         {
+            todayPnL += HistoryDealGetDouble(ticket, DEAL_PROFIT);
+         }
+      }
+   }
+   
+   if(todayPnL < -DAILY_LOSS_LIMIT)
+   {
+      return false;
+   }
+   
+   return true;
+}
+
+//+------------------------------------------------------------------+
+//| Manage pending orders (cancel old, update on signal change)      |
+//+------------------------------------------------------------------+
+void ManagePendingOrders()
+{
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      ulong ticket = OrderGetTicket(i);
+      if(ticket > 0 && OrderSelect(ticket))
+      {
+         if(OrderGetInteger(ORDER_MAGIC) == MAGIC_NUMBER &&
+            OrderGetString(ORDER_SYMBOL) == _Symbol)
+         {
+            ENUM_ORDER_TYPE orderType = (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
+            bool isBuyPending = (orderType == ORDER_TYPE_BUY_LIMIT || orderType == ORDER_TYPE_BUY_STOP);
+            bool isSellPending = (orderType == ORDER_TYPE_SELL_LIMIT || orderType == ORDER_TYPE_SELL_STOP);
+            
+            if((isBuyPending && lastSignal == "SELL") || (isSellPending && lastSignal == "BUY"))
+            {
+               if(trade.OrderDelete(ticket))
+               {
+                  Print("[AUTO-TRADE] Cancelled pending order due to signal flip.");
+               }
+            }
+         }
+      }
    }
 }
 
@@ -272,10 +659,9 @@ void ParseAndDisplayAnalysis(string json)
 void UpdateChartComment()
 {
    string commentText = "";
-   commentText += "VEDD AI Trading Assistant\n";
-   commentText += "------------------------\n";
+   commentText += "VEDD AI Trading Assistant v3.0\n";
+   commentText += "------------------------------\n";
    
-   // Signal with emoji-style indicators
    if(lastSignal == "BUY")
    {
       commentText += ">> BULLISH - BUY <<\n";
@@ -291,28 +677,35 @@ void UpdateChartComment()
       commentText += "-- NEUTRAL (Wait) --\n";
    }
    
-   // Trend
    if(StringLen(lastTrend) > 0)
    {
       commentText += "Trend: " + lastTrend + "\n";
    }
    
-   // Patterns
    if(StringLen(lastPatterns) > 0)
    {
       commentText += "Patterns: " + lastPatterns + "\n";
    }
    
-   // Trade plan
    if(lastEntry > 0)
    {
-      commentText += "------------------------\n";
+      commentText += "------------------------------\n";
       commentText += "Entry: " + DoubleToString(lastEntry, _Digits) + "\n";
       commentText += "SL: " + DoubleToString(lastSL, _Digits) + "\n";
       commentText += "TP: " + DoubleToString(lastTP, _Digits) + "\n";
    }
    
-   commentText += "------------------------\n";
+   commentText += "------------------------------\n";
+   if(ENABLE_AUTO_TRADING)
+   {
+      commentText += "AUTO-TRADE: ON\n";
+      commentText += "Open Trades: " + IntegerToString(CountOpenTrades()) + "/" + IntegerToString(MAX_OPEN_TRADES) + "\n";
+   }
+   else
+   {
+      commentText += "AUTO-TRADE: OFF\n";
+   }
+   
    commentText += TimeToString(TimeCurrent(), TIME_MINUTES);
    
    Comment(commentText);
@@ -343,7 +736,6 @@ string ExtractJsonNumber(string json, string startTag)
    
    startPos += StringLen(startTag);
    
-   // Find the end of the number (comma, }, or end of string)
    int endComma = StringFind(json, ",", startPos);
    int endBrace = StringFind(json, "}", startPos);
    
@@ -397,7 +789,6 @@ string BuildCandlesJson()
 //+------------------------------------------------------------------+
 string BuildIndicatorsJson()
 {
-   // Calculate RSI (14)
    double rsi = 0;
    int rsiHandle = iRSI(_Symbol, PERIOD_CURRENT, 14, PRICE_CLOSE);
    if(rsiHandle != INVALID_HANDLE)
@@ -409,7 +800,6 @@ string BuildIndicatorsJson()
       IndicatorRelease(rsiHandle);
    }
    
-   // Calculate MACD (12, 26, 9)
    double macdMain = 0, macdSignal = 0, macdHist = 0;
    int macdHandle = iMACD(_Symbol, PERIOD_CURRENT, 12, 26, 9, PRICE_CLOSE);
    if(macdHandle != INVALID_HANDLE)
@@ -425,7 +815,6 @@ string BuildIndicatorsJson()
       IndicatorRelease(macdHandle);
    }
    
-   // Calculate ATR (14)
    double atr = 0;
    int atrHandle = iATR(_Symbol, PERIOD_CURRENT, 14);
    if(atrHandle != INVALID_HANDLE)
@@ -437,7 +826,6 @@ string BuildIndicatorsJson()
       IndicatorRelease(atrHandle);
    }
    
-   // Calculate Moving Averages
    double ema20 = 0, ema50 = 0, sma200 = 0;
    
    int ema20Handle = iMA(_Symbol, PERIOD_CURRENT, 20, 0, MODE_EMA, PRICE_CLOSE);
@@ -470,7 +858,6 @@ string BuildIndicatorsJson()
       IndicatorRelease(sma200Handle);
    }
    
-   // Calculate Bollinger Bands (20, 2)
    double bbUpper = 0, bbMiddle = 0, bbLower = 0;
    int bbHandle = iBands(_Symbol, PERIOD_CURRENT, 20, 0, 2, PRICE_CLOSE);
    if(bbHandle != INVALID_HANDLE)
@@ -488,12 +875,10 @@ string BuildIndicatorsJson()
       IndicatorRelease(bbHandle);
    }
    
-   // Get current price info
    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
    double spread = (ask - bid) / SymbolInfoDouble(_Symbol, SYMBOL_POINT);
    
-   // Build indicators JSON
    string json = StringFormat(
       "{\"rsi\":%.2f,\"macd\":{\"main\":%.5f,\"signal\":%.5f,\"histogram\":%.5f},\"atr\":%.5f,\"ema20\":%.5f,\"ema50\":%.5f,\"sma200\":%.5f,\"bollingerBands\":{\"upper\":%.5f,\"middle\":%.5f,\"lower\":%.5f},\"price\":{\"bid\":%.5f,\"ask\":%.5f,\"spread\":%.1f}}",
       rsi,
