@@ -2711,6 +2711,60 @@ Respond ONLY in valid JSON format with these exact keys:
       
       console.log(`EA Refresh Request: ${symbol} ${timeframe}, Price: ${currentPrice}`);
 
+      // Fetch news sentiment and economic calendar (non-blocking, with fallbacks)
+      let newsSentiment: any = null;
+      let upcomingEvents: any[] = [];
+      let newsContext = "";
+      let highImpactWarning = "";
+      
+      try {
+        // Initialize news service if needed
+        if (!newsService.isInitialized()) {
+          newsService.initialize();
+        }
+        
+        // Fetch news sentiment (5 days back for relevance)
+        const newsItems = await newsService.fetchCompanyNews(symbol, 5);
+        if (newsItems.length > 0) {
+          newsSentiment = await newsService.analyzeNewsSentiment(newsItems, symbol);
+        }
+        
+        // Fetch upcoming economic events (next 2 days)
+        upcomingEvents = await newsService.fetchEconomicCalendar(2);
+        
+        // Filter for high-impact events in next 2 hours
+        const now = new Date();
+        const twoHoursFromNow = new Date(now.getTime() + 2 * 60 * 60 * 1000);
+        const imminentHighImpact = upcomingEvents.filter(event => {
+          const eventTime = new Date(event.datetime || event.time);
+          return eventTime >= now && eventTime <= twoHoursFromNow && event.impact === 'high';
+        });
+        
+        // Build news context for AI
+        if (newsSentiment) {
+          newsContext = `
+News Sentiment Analysis:
+- Overall Score: ${newsSentiment.overallScore}/100 (${newsSentiment.overallLabel})
+- Bullish Headlines: ${newsSentiment.bullishCount || 0}
+- Bearish Headlines: ${newsSentiment.bearishCount || 0}
+- Trading Implication: ${newsSentiment.tradingImplication || 'Neutral'}`;
+        }
+        
+        if (imminentHighImpact.length > 0) {
+          const eventsList = imminentHighImpact.map(e => `${e.event} at ${e.time}`).join(', ');
+          highImpactWarning = `HIGH IMPACT NEWS ALERT: ${eventsList}. Consider waiting or reducing position size.`;
+          newsContext += `\n\nUPCOMING HIGH-IMPACT EVENTS (next 2 hours): ${eventsList}`;
+        }
+        
+        if (upcomingEvents.length > 0 && imminentHighImpact.length === 0) {
+          const nextEvent = upcomingEvents[0];
+          newsContext += `\n\nNext Economic Event: ${nextEvent.event} (${nextEvent.impact} impact) at ${nextEvent.time}`;
+        }
+      } catch (newsError) {
+        console.log('News fetch error (non-fatal):', newsError);
+        // Continue without news data
+      }
+
       // Call OpenAI for lightweight text-based analysis (no image needed)
       const openai = new (await import('openai')).default({
         baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL || process.env.OPENAI_BASE_URL,
@@ -2725,12 +2779,14 @@ Current Price Data:
 - Low: ${low}
 - Current: ${currentPrice}
 - Original AI Direction: ${originalDirection || 'Not specified'}
+${newsContext}
 
 Provide a brief analysis focusing on:
 1. Current trend direction (BUY/SELL/NEUTRAL)
-2. Confidence level (0-100%)
+2. Confidence level (0-100%) - REDUCE confidence by 10-20% if high-impact news is imminent
 3. Any detected patterns or warnings
 4. Whether the original direction is still valid
+5. If news sentiment contradicts price action, note the conflict
 
 Return ONLY a JSON object with this structure:
 {
@@ -2739,7 +2795,9 @@ Return ONLY a JSON object with this structure:
   "patterns": ["Pattern1", "Pattern2"],
   "directionChanged": true/false,
   "warning": "Optional warning message",
-  "recommendation": "Brief trading recommendation"
+  "recommendation": "Brief trading recommendation",
+  "newsAlignment": "aligned|conflicting|neutral",
+  "newsImpact": "Description of how news affects this trade"
 }`;
 
       const response = await openai.chat.completions.create({
@@ -2779,7 +2837,12 @@ Return ONLY a JSON object with this structure:
         };
       }
 
-      // Return the fresh analysis
+      // Combine AI warning with high-impact news warning (filter empty strings)
+      const warnings = [analysis.warning, highImpactWarning].filter(w => w && w.trim().length > 0);
+      const combinedWarning = warnings.join(' | ');
+      
+      // Return the fresh analysis with news context
+      // Use mt5-prefixed flat fields for EA compatibility
       res.json({
         success: true,
         timestamp: new Date().toISOString(),
@@ -2790,12 +2853,37 @@ Return ONLY a JSON object with this structure:
           confidence: analysis.confidence || 0,
           patterns: analysis.patterns || [],
           directionChanged: analysis.directionChanged || false,
-          warning: analysis.warning || "",
-          recommendation: analysis.recommendation || ""
-        }
+          warning: combinedWarning || "",
+          recommendation: analysis.recommendation || "",
+          newsAlignment: analysis.newsAlignment || "neutral",
+          newsImpact: analysis.newsImpact || ""
+        },
+        // MT5 EA-friendly flat fields for parsing
+        mt5Signal: analysis.direction || "NEUTRAL",
+        mt5Confidence: analysis.confidence || 0,
+        mt5Trend: analysis.patterns?.[0] || "",
+        mt5Patterns: (analysis.patterns || []).join(", "),
+        mt5NewsSentiment: newsSentiment?.overallLabel || "",
+        mt5NewsScore: newsSentiment?.overallScore || 0,
+        mt5NewsAlignment: analysis.newsAlignment || "neutral",
+        mt5NewsImpact: analysis.newsImpact || "",
+        mt5HighImpactAlert: highImpactWarning || "",
+        // Nested data for web UI
+        news: newsSentiment ? {
+          sentiment: newsSentiment.overallLabel,
+          score: newsSentiment.overallScore,
+          tradingImplication: newsSentiment.tradingImplication
+        } : null,
+        upcomingEvents: upcomingEvents.slice(0, 3).map(e => ({
+          event: e.event,
+          time: e.time,
+          impact: e.impact,
+          country: e.country
+        })),
+        highImpactAlert: highImpactWarning || null
       });
 
-      console.log(`EA Refresh Complete: ${symbol} - ${analysis.direction} (${analysis.confidence}%)`);
+      console.log(`EA Refresh Complete: ${symbol} - ${analysis.direction} (${analysis.confidence}%) | News: ${newsSentiment?.overallLabel || 'N/A'}`);
 
     } catch (error) {
       console.error("EA refresh analysis error:", error);

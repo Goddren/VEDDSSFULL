@@ -5,8 +5,8 @@
 //+------------------------------------------------------------------+
 #property copyright "AI Powered Trading Vault"
 #property link      "https://aipoweredtradingvault.com"
-#property version   "3.20"
-#property description "Sends chart data to AI Trading Vault, displays analysis, and auto-trades signals"
+#property version   "3.30"
+#property description "Sends chart data to AI Trading Vault with news-aware analysis and auto-trading"
 #property strict
 
 #include <Trade\Trade.mqh>
@@ -55,6 +55,14 @@ double lastSL = 0;
 double lastTP = 0;
 bool hasTradePlan = false;
 
+//--- News context variables
+string lastNewsSentiment = "";
+int lastNewsScore = 0;
+string lastNewsAlignment = "";
+string lastNewsImpact = "";
+string lastHighImpactAlert = "";
+bool hasNewsData = false;
+
 //--- Trading state
 datetime lastTradeTime = 0;
 string lastExecutedSignal = "";
@@ -77,7 +85,7 @@ int OnInit()
    trade.SetDeviationInPoints(SLIPPAGE_POINTS);
    
    Print("========================================");
-   Print("AI Trading Vault - Chart Data EA v3.1");
+   Print("AI Trading Vault - Chart Data EA v3.30 (News-Aware)");
    Print("Symbol: ", _Symbol);
    Print("Primary Timeframe: ", EnumToString(Period()));
    Print("Candles to send: ", CANDLES_TO_SEND);
@@ -268,6 +276,23 @@ void ParseAndDisplayAnalysis(string json)
       lastTP = 0;
    }
    
+   // Extract news context (uses mt5-prefixed flat fields from API)
+   lastNewsSentiment = ExtractJsonString(json, "\"mt5NewsSentiment\":\"", "\"");
+   lastNewsAlignment = ExtractJsonString(json, "\"mt5NewsAlignment\":\"", "\"");
+   lastNewsImpact = ExtractJsonString(json, "\"mt5NewsImpact\":\"", "\"");
+   lastHighImpactAlert = ExtractJsonString(json, "\"mt5HighImpactAlert\":\"", "\"");
+   
+   string newsScoreStr = ExtractJsonNumber(json, "\"mt5NewsScore\":");
+   if(StringLen(newsScoreStr) > 0 && StringLen(lastNewsSentiment) > 0)
+   {
+      lastNewsScore = (int)StringToInteger(newsScoreStr);
+      hasNewsData = true;
+   }
+   else
+   {
+      hasNewsData = false;
+   }
+   
    Print("");
    Print("Hey G, VEDD AI here! Just scanned ", _Symbol, " on the ", GetTimeframeString(), " chart.");
    Print("");
@@ -310,6 +335,34 @@ void ParseAndDisplayAnalysis(string json)
       Print("   Entry @ ", DoubleToString(lastEntry, _Digits));
       Print("   Stop Loss @ ", DoubleToString(lastSL, _Digits), " (protect your capital!)");
       Print("   Take Profit @ ", DoubleToString(lastTP, _Digits), " (secure those gains!)");
+   }
+   
+   // Display news context if available
+   if(hasNewsData)
+   {
+      Print("");
+      Print("NEWS ANALYSIS:");
+      Print("   Sentiment: ", lastNewsSentiment, " (Score: ", lastNewsScore, "/100)");
+      if(StringLen(lastNewsAlignment) > 0)
+      {
+         if(lastNewsAlignment == "aligned")
+            Print("   News CONFIRMS the technical signal!");
+         else if(lastNewsAlignment == "conflicting")
+            Print("   WARNING: News CONFLICTS with technical signal. Be cautious!");
+         else
+            Print("   News is neutral on this pair.");
+      }
+      if(StringLen(lastNewsImpact) > 0)
+      {
+         Print("   Impact: ", lastNewsImpact);
+      }
+   }
+   
+   // High impact news warning
+   if(StringLen(lastHighImpactAlert) > 0)
+   {
+      Print("");
+      Print("*** ALERT: ", lastHighImpactAlert, " ***");
    }
    
    Print("");
@@ -724,6 +777,27 @@ void UpdateChartComment()
       commentText += "Entry: " + DoubleToString(lastEntry, _Digits) + "\n";
       commentText += "SL: " + DoubleToString(lastSL, _Digits) + "\n";
       commentText += "TP: " + DoubleToString(lastTP, _Digits) + "\n";
+   }
+   
+   // News section
+   if(hasNewsData)
+   {
+      commentText += "------------------------------\n";
+      commentText += "NEWS: " + lastNewsSentiment + " (" + IntegerToString(lastNewsScore) + ")\n";
+      if(StringLen(lastNewsAlignment) > 0)
+      {
+         if(lastNewsAlignment == "aligned")
+            commentText += ">> News CONFIRMS signal <<\n";
+         else if(lastNewsAlignment == "conflicting")
+            commentText += "!! News CONFLICTS - Caution !!\n";
+      }
+   }
+   
+   // High impact alert
+   if(StringLen(lastHighImpactAlert) > 0)
+   {
+      commentText += "------------------------------\n";
+      commentText += "!! NEWS ALERT !!\n";
    }
    
    commentText += "------------------------------\n";
