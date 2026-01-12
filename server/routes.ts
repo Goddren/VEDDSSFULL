@@ -4804,7 +4804,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           let mtfBullish = 0, mtfBearish = 0, mtfCount = 0;
           
           if (multiTimeframeEnabled && multiTimeframe && typeof multiTimeframe === 'object') {
-            const timeframes = ['M15', 'H1', 'H4', 'D1'];
+            const timeframes = ['M5', 'M15', 'H1', 'H4', 'D1', 'W1'];
             for (const tf of timeframes) {
               if (multiTimeframe[tf]) {
                 mtfCount++;

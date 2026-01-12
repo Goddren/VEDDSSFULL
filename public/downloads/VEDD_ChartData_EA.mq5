@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "AI Powered Trading Vault"
 #property link      "https://aipoweredtradingvault.com"
-#property version   "3.10"
+#property version   "3.20"
 #property description "Sends chart data to AI Trading Vault, displays analysis, and auto-trades signals"
 #property strict
 
@@ -22,10 +22,12 @@ input int      TIMEOUT = 15000;                   // Request timeout (ms)
 
 //--- Input parameters: Multi-Timeframe Analysis
 input bool     ENABLE_MULTI_TIMEFRAME = true;     // Enable Multi-Timeframe Analysis (Better AI!)
+input bool     INCLUDE_M5 = false;                // Include M5 timeframe (scalping)
 input bool     INCLUDE_M15 = true;                // Include M15 timeframe
 input bool     INCLUDE_H1 = true;                 // Include H1 timeframe  
 input bool     INCLUDE_H4 = true;                 // Include H4 timeframe
 input bool     INCLUDE_D1 = false;                // Include D1 timeframe
+input bool     INCLUDE_W1 = false;                // Include Weekly timeframe (swing trading)
 
 //--- Input parameters: Auto-Trading
 input bool     ENABLE_AUTO_TRADING = false;       // Enable Auto-Trading (CAREFUL!)
@@ -85,10 +87,12 @@ int OnInit()
    if(ENABLE_MULTI_TIMEFRAME)
    {
       string tfList = "";
+      if(INCLUDE_M5) tfList += "M5 ";
       if(INCLUDE_M15) tfList += "M15 ";
       if(INCLUDE_H1) tfList += "H1 ";
       if(INCLUDE_H4) tfList += "H4 ";
       if(INCLUDE_D1) tfList += "D1 ";
+      if(INCLUDE_W1) tfList += "W1 ";
       Print("Timeframes: ", tfList);
    }
    Print("----------------------------------------");
@@ -928,6 +932,13 @@ string BuildMultiTimeframeJson()
    bool first = true;
    
    // Build data for each enabled timeframe
+   if(INCLUDE_M5)
+   {
+      if(!first) json += ",";
+      json += "\"M5\":" + BuildTimeframeData(PERIOD_M5);
+      first = false;
+   }
+   
    if(INCLUDE_M15)
    {
       if(!first) json += ",";
@@ -953,6 +964,13 @@ string BuildMultiTimeframeJson()
    {
       if(!first) json += ",";
       json += "\"D1\":" + BuildTimeframeData(PERIOD_D1);
+      first = false;
+   }
+   
+   if(INCLUDE_W1)
+   {
+      if(!first) json += ",";
+      json += "\"W1\":" + BuildTimeframeData(PERIOD_W1);
       first = false;
    }
    
