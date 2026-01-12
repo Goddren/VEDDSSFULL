@@ -139,15 +139,16 @@ const guideSections: GuideSection[] = [
       {
         heading: 'MT5 Chart Data EA for Live AI Refresh',
         steps: [
-          'Download the Chart Data EA from the Webhooks page',
-          'Install the EA in MT5: File → Open Data Folder → MQL5 → Experts',
+          'Visit the dedicated MT5 Chart Data EA page at /mt5-chart-data for full setup',
+          'Create an API token on the page (or use existing one from Trade Copier)',
+          'Download the Chart Data EA (v3.20) and install in MT5: File → Open Data Folder → MQL5 → Experts',
           'Enable WebRequest: Tools → Options → Expert Advisors → Allow WebRequest',
-          'Add your AI Trading Vault URL to allowed URLs',
-          'Configure the EA with your API token and attach to any chart',
-          'The EA sends live OHLCV data and indicators (RSI, MACD, ATR, Bollinger Bands) every 60 seconds',
-          'Enable "Live AI Refresh" on your saved EAs to receive updated analysis'
+          'Configure the EA with your API URL and token, then attach to any chart',
+          'Enable Multi-Timeframe Analysis for M5, M15, H1, H4, D1, and W1 data collection',
+          'The EA sends live OHLCV data and indicators every 60 seconds',
+          'When 60%+ of timeframes align, AI confidence gets a +10% boost!'
         ],
-        tips: ['Use the same API token from the MT5 Trade Copier section', 'The EA sends data from your broker\'s actual price feed for more accurate analysis']
+        tips: ['Enable Multi-Timeframe for stronger signals', 'M5 and W1 are ideal for scalping and swing trading respectively', 'Visit /mt5-chart-data for the complete setup guide']
       }
     ]
   },

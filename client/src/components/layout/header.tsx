@@ -13,7 +13,7 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
-import { Menu, Bell, User, LogOut, Settings, History, LineChart, CreditCard, Award, Users, Newspaper, Wand2, Clock, Briefcase, Zap, HelpCircle, BookOpen, GraduationCap, FileText, Lightbulb, ChevronDown, MoreHorizontal } from 'lucide-react';
+import { Menu, Bell, User, LogOut, Settings, History, LineChart, CreditCard, Award, Users, Newspaper, Wand2, Clock, Briefcase, Zap, HelpCircle, BookOpen, GraduationCap, FileText, Lightbulb, ChevronDown, MoreHorizontal, BarChart3, Webhook } from 'lucide-react';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 
 const Header: React.FC = () => {
@@ -32,6 +32,8 @@ const Header: React.FC = () => {
 
   // Secondary nav items shown in "More" dropdown
   const moreNavItems = [
+    { name: 'MT5 Chart Data', path: '/mt5-chart-data', active: location === '/mt5-chart-data', icon: <BarChart3 className="h-4 w-4 mr-2" /> },
+    { name: 'Webhooks', path: '/webhooks', active: location === '/webhooks', icon: <Webhook className="h-4 w-4 mr-2" /> },
     { name: 'What If Analysis', path: '/what-if', active: location === '/what-if', icon: <Lightbulb className="h-4 w-4 mr-2" /> },
     { name: 'Historical', path: '/historical', active: location === '/historical', icon: <History className="h-4 w-4 mr-2" /> },
     { name: 'Community', path: '/community', active: location === '/community', icon: <Users className="h-4 w-4 mr-2" /> },

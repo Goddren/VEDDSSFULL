@@ -1,0 +1,558 @@
+import { useState } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { queryClient, apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { Link } from "wouter";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { 
+  ArrowLeft,
+  Activity,
+  AlertCircle,
+  RefreshCw,
+  Copy,
+  Download,
+  Key,
+  Zap,
+  CheckCircle,
+  XCircle,
+  Clock,
+  Plus,
+  Trash2,
+  Eye,
+  EyeOff,
+  TrendingUp,
+  BarChart3,
+  Layers,
+  Target,
+  Shield,
+  BookOpen
+} from "lucide-react";
+import { motion } from "framer-motion";
+
+type Mt5ApiToken = {
+  id: number;
+  userId: number;
+  token: string;
+  name: string;
+  isActive: boolean;
+  lastUsedAt: string | null;
+  signalCount: number;
+  createdAt: string;
+};
+
+type ConnectionStatus = {
+  connected: boolean;
+  lastSeen?: string;
+  secondsAgo?: number;
+  symbol?: string;
+  timeframe?: string;
+  broker?: string;
+  candleCount?: number;
+  message?: string;
+};
+
+export default function MT5ChartDataPage() {
+  const { toast } = useToast();
+  const [newTokenName, setNewTokenName] = useState("");
+  const [newlyCreatedToken, setNewlyCreatedToken] = useState<Mt5ApiToken | null>(null);
+  const [showToken, setShowToken] = useState<Record<number, boolean>>({});
+
+  const copyToClipboard = (text: string, label = "Copied!") => {
+    navigator.clipboard.writeText(text);
+    toast({ title: label, description: "Copied to clipboard" });
+  };
+
+  const { data: mt5Tokens = [], isLoading: tokensLoading } = useQuery<Mt5ApiToken[]>({
+    queryKey: ['/api/mt5-tokens'],
+  });
+
+  const { data: mt5ConnectionStatus, refetch: refetchConnectionStatus } = useQuery<ConnectionStatus>({
+    queryKey: ['/api/mt5/connection-status'],
+    refetchInterval: 30000,
+  });
+
+  const createTokenMutation = useMutation({
+    mutationFn: async (name: string) => {
+      const res = await apiRequest('POST', '/api/mt5-tokens', { name });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setNewlyCreatedToken(data);
+      setNewTokenName("");
+      queryClient.invalidateQueries({ queryKey: ['/api/mt5-tokens'] });
+      toast({ title: "Token Created!", description: "Copy this token now - it won't be shown again!" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const deleteTokenMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest('DELETE', `/api/mt5-tokens/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/mt5-tokens'] });
+      toast({ title: "Token Deleted" });
+    },
+  });
+
+  const apiUrl = `${window.location.origin}/api/mt5/chart-data`;
+  const baseUrl = window.location.origin;
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 p-6">
+      <div className="max-w-6xl mx-auto space-y-8">
+        <div className="flex items-center gap-4">
+          <Link href="/webhooks">
+            <Button variant="ghost" size="sm">
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              Back to Webhooks
+            </Button>
+          </Link>
+        </div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="text-center space-y-4"
+        >
+          <div className="inline-flex items-center gap-3 px-6 py-3 rounded-full bg-gradient-to-r from-green-500/20 to-teal-500/20 border border-green-500/30">
+            <BarChart3 className="w-8 h-8 text-green-400" />
+            <h1 className="text-3xl font-bold text-white">MT5 Chart Data EA</h1>
+            <Badge className="bg-green-500/20 text-green-400">v3.20</Badge>
+          </div>
+          <p className="text-gray-400 text-lg max-w-2xl mx-auto">
+            Stream live chart data from MetaTrader 5 to VEDD AI for real-time analysis with multi-timeframe support
+          </p>
+        </motion.div>
+
+        <Card className={`border-2 ${mt5ConnectionStatus?.connected ? 'border-green-500/50 bg-green-900/20' : 'border-gray-700 bg-gray-800/50'}`}>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className={`w-4 h-4 rounded-full ${mt5ConnectionStatus?.connected ? 'bg-green-500 animate-pulse' : 'bg-gray-500'}`} />
+                <div>
+                  <h3 className={`text-xl font-bold ${mt5ConnectionStatus?.connected ? 'text-green-400' : 'text-gray-400'}`}>
+                    {mt5ConnectionStatus?.connected ? 'MT5 Connected' : 'MT5 Not Connected'}
+                  </h3>
+                  <p className="text-gray-400">
+                    {mt5ConnectionStatus?.connected 
+                      ? `${mt5ConnectionStatus.symbol} ${mt5ConnectionStatus.timeframe} from ${mt5ConnectionStatus.broker}`
+                      : 'Start the Chart Data EA on your MT5 terminal to connect'
+                    }
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                {mt5ConnectionStatus?.connected && mt5ConnectionStatus.secondsAgo !== undefined && (
+                  <Badge className="bg-green-500/20 text-green-400 border-green-500/30">
+                    <Activity className="w-3 h-3 mr-1" />
+                    {mt5ConnectionStatus.secondsAgo < 60 
+                      ? `${mt5ConnectionStatus.secondsAgo}s ago`
+                      : `${Math.floor(mt5ConnectionStatus.secondsAgo / 60)}m ago`
+                    }
+                  </Badge>
+                )}
+                <Button variant="outline" size="sm" onClick={() => refetchConnectionStatus()}>
+                  <RefreshCw className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+            {mt5ConnectionStatus?.connected && (
+              <div className="mt-4 pt-4 border-t border-gray-700/50">
+                <p className="text-sm text-green-300">
+                  Hey G, VEDD AI is receiving live data from your chart! Analysis updates appear in your MT5 Experts tab.
+                </p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <div className="grid lg:grid-cols-2 gap-6">
+          <Card className="bg-gray-800/50 border-gray-700">
+            <CardHeader>
+              <CardTitle className="text-white flex items-center gap-2">
+                <Key className="w-5 h-5 text-amber-400" />
+                Step 1: Create API Token
+              </CardTitle>
+              <CardDescription>Generate a unique token for your MT5 EA</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Token name (e.g., My MT5 Account)"
+                  value={newTokenName}
+                  onChange={(e) => setNewTokenName(e.target.value)}
+                  className="bg-gray-900 border-gray-700 flex-1"
+                />
+                <Button
+                  onClick={() => createTokenMutation.mutate(newTokenName)}
+                  disabled={!newTokenName || createTokenMutation.isPending}
+                >
+                  {createTokenMutation.isPending ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                </Button>
+              </div>
+
+              {newlyCreatedToken && (
+                <motion.div 
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="p-4 bg-green-900/30 border border-green-600/50 rounded-lg"
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-green-400 font-semibold flex items-center gap-2">
+                      <CheckCircle className="w-4 h-4" />
+                      Your New API Token - Copy This!
+                    </span>
+                    <Button variant="ghost" size="sm" onClick={() => setNewlyCreatedToken(null)}>
+                      <XCircle className="w-4 h-4" />
+                    </Button>
+                  </div>
+                  <p className="text-yellow-400 text-sm mb-2">Copy this token now! It won't be shown again.</p>
+                  <div className="flex items-center gap-2 bg-gray-900 p-2 rounded font-mono text-sm">
+                    <code className="flex-1 text-green-400 break-all">{newlyCreatedToken.token}</code>
+                    <Button variant="ghost" size="sm" onClick={() => copyToClipboard(newlyCreatedToken.token, "Token copied!")}>
+                      <Copy className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </motion.div>
+              )}
+
+              {mt5Tokens.length > 0 && !newlyCreatedToken && (
+                <div className="space-y-2">
+                  <Label className="text-gray-400 text-sm">Your existing tokens:</Label>
+                  {mt5Tokens.map(token => (
+                    <div key={token.id} className="flex items-center justify-between p-3 bg-gray-900/50 rounded border border-gray-700">
+                      <div className="flex items-center gap-3">
+                        <span className="text-white font-medium">{token.name}</span>
+                        <Badge className={token.isActive ? "bg-green-500/20 text-green-400" : "bg-gray-500/20 text-gray-400"}>
+                          {token.isActive ? 'Active' : 'Inactive'}
+                        </Badge>
+                        <div className="flex items-center gap-1">
+                          <code className="text-gray-500 text-xs font-mono">
+                            {showToken[token.id] ? token.token : `${token.token.slice(0, 8)}...`}
+                          </code>
+                          <Button variant="ghost" size="sm" onClick={() => setShowToken(prev => ({ ...prev, [token.id]: !prev[token.id] }))}>
+                            {showToken[token.id] ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                          </Button>
+                          <Button variant="ghost" size="sm" onClick={() => copyToClipboard(token.token)}>
+                            <Copy className="w-3 h-3" />
+                          </Button>
+                        </div>
+                      </div>
+                      <Button variant="ghost" size="sm" onClick={() => deleteTokenMutation.mutate(token.id)} className="text-red-400 hover:text-red-300">
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="bg-gray-800/50 border-gray-700">
+            <CardHeader>
+              <CardTitle className="text-white flex items-center gap-2">
+                <Zap className="w-5 h-5 text-green-400" />
+                Step 2: Copy API URL
+              </CardTitle>
+              <CardDescription>This is the endpoint your EA will send data to</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <Label className="text-gray-400 text-sm mb-2 block">API URL (paste into EA's API_URL field):</Label>
+                <div className="flex items-center gap-2 bg-gray-900 p-3 rounded-lg border border-green-700/50">
+                  <code className="flex-1 text-green-400 text-sm break-all">{apiUrl}</code>
+                  <Button variant="outline" size="sm" onClick={() => copyToClipboard(apiUrl, "URL copied!")}>
+                    <Copy className="w-4 h-4 mr-2" />
+                    Copy
+                  </Button>
+                </div>
+              </div>
+              
+              <div>
+                <Label className="text-gray-400 text-sm mb-2 block">Base URL (for MT5 WebRequest whitelist):</Label>
+                <div className="flex items-center gap-2 bg-gray-900 p-3 rounded-lg border border-gray-700">
+                  <code className="flex-1 text-amber-400 text-sm break-all">{baseUrl}</code>
+                  <Button variant="outline" size="sm" onClick={() => copyToClipboard(baseUrl, "Base URL copied!")}>
+                    <Copy className="w-4 h-4 mr-2" />
+                    Copy
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        <Card className="bg-gradient-to-r from-green-900/30 to-teal-900/30 border-green-700/50">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-white text-xl flex items-center gap-3">
+                  <Download className="w-6 h-6 text-green-400" />
+                  Step 3: Download & Install EA
+                </CardTitle>
+                <CardDescription>Get the Chart Data EA for your MetaTrader 5</CardDescription>
+              </div>
+              <a href="/downloads/VEDD_ChartData_EA.mq5" download className="inline-flex">
+                <Button className="bg-gradient-to-r from-green-600 to-teal-600 hover:from-green-500 hover:to-teal-500">
+                  <Download className="w-4 h-4 mr-2" />
+                  Download VEDD_ChartData_EA.mq5
+                </Button>
+              </a>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="grid md:grid-cols-2 gap-6">
+              <div>
+                <h4 className="text-white font-semibold mb-3 flex items-center gap-2">
+                  <Target className="w-4 h-4 text-green-400" />
+                  Installation Steps
+                </h4>
+                <ol className="text-sm text-gray-400 space-y-2 list-decimal list-inside">
+                  <li>Download the EA file using the button above</li>
+                  <li>In MT5, go to File → Open Data Folder</li>
+                  <li>Navigate to MQL5 → Experts</li>
+                  <li>Copy the .mq5 file into this folder</li>
+                  <li>Restart MT5 or right-click Navigator → Refresh</li>
+                  <li>Drag the EA onto your chart</li>
+                </ol>
+              </div>
+              <div>
+                <h4 className="text-white font-semibold mb-3 flex items-center gap-2">
+                  <Shield className="w-4 h-4 text-amber-400" />
+                  Enable WebRequest
+                </h4>
+                <ol className="text-sm text-gray-400 space-y-2 list-decimal list-inside">
+                  <li>In MT5, go to Tools → Options → Expert Advisors</li>
+                  <li>Check "Allow WebRequest for listed URL"</li>
+                  <li>Click "Add" and paste: <code className="text-green-400 bg-gray-900 px-1 rounded">{baseUrl}</code></li>
+                  <li>Click OK to save settings</li>
+                </ol>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-gray-800/50 border-gray-700">
+          <CardHeader>
+            <CardTitle className="text-white flex items-center gap-2">
+              <Layers className="w-5 h-5 text-purple-400" />
+              Multi-Timeframe Analysis
+            </CardTitle>
+            <CardDescription>The EA can analyze multiple timeframes for stronger signals</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid md:grid-cols-3 gap-4">
+              <div className="p-4 bg-gray-900/50 rounded-lg border border-purple-700/30">
+                <h4 className="text-purple-400 font-semibold mb-2">Scalping (Fast)</h4>
+                <p className="text-sm text-gray-400 mb-2">Enable M5 for quick entries</p>
+                <Badge className="bg-purple-500/20 text-purple-400">M5, M15</Badge>
+              </div>
+              <div className="p-4 bg-gray-900/50 rounded-lg border border-blue-700/30">
+                <h4 className="text-blue-400 font-semibold mb-2">Day Trading (Default)</h4>
+                <p className="text-sm text-gray-400 mb-2">Best for intraday analysis</p>
+                <Badge className="bg-blue-500/20 text-blue-400">M15, H1, H4</Badge>
+              </div>
+              <div className="p-4 bg-gray-900/50 rounded-lg border border-teal-700/30">
+                <h4 className="text-teal-400 font-semibold mb-2">Swing Trading</h4>
+                <p className="text-sm text-gray-400 mb-2">Enable D1 and W1 for bigger moves</p>
+                <Badge className="bg-teal-500/20 text-teal-400">H4, D1, W1</Badge>
+              </div>
+            </div>
+            <div className="mt-4 p-4 bg-green-900/20 border border-green-700/30 rounded-lg">
+              <p className="text-green-300 text-sm flex items-start gap-2">
+                <TrendingUp className="w-4 h-4 mt-0.5 shrink-0" />
+                <span><strong>Pro Tip:</strong> When 60%+ of your selected timeframes align with the signal direction, AI confidence gets a +10% boost. The more timeframes agree, the stronger the signal!</span>
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-gray-800/50 border-gray-700">
+          <CardHeader>
+            <CardTitle className="text-white flex items-center gap-2">
+              <BookOpen className="w-5 h-5 text-amber-400" />
+              EA Settings Reference
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Accordion type="single" collapsible className="space-y-2">
+              <AccordionItem value="connection" className="bg-gray-900/50 rounded-lg border border-gray-700 px-4">
+                <AccordionTrigger className="text-white hover:no-underline">
+                  <span className="flex items-center gap-2">
+                    <Zap className="w-4 h-4 text-yellow-400" />
+                    Connection Settings
+                  </span>
+                </AccordionTrigger>
+                <AccordionContent className="text-gray-400">
+                  <div className="space-y-3 pt-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-green-400 font-mono">API_URL</span>
+                      <span>Your AI Trading Vault endpoint URL</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-green-400 font-mono">API_TOKEN</span>
+                      <span>Your unique authentication token</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-amber-400 font-mono">CANDLES_TO_SEND</span>
+                      <span>Number of candles to send (default: 50)</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-amber-400 font-mono">SEND_INTERVAL_SECONDS</span>
+                      <span>How often to send data (default: 60)</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-amber-400 font-mono">INCLUDE_INDICATORS</span>
+                      <span>Send RSI, MACD, etc. (default: true)</span>
+                    </div>
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+
+              <AccordionItem value="multitf" className="bg-gray-900/50 rounded-lg border border-gray-700 px-4">
+                <AccordionTrigger className="text-white hover:no-underline">
+                  <span className="flex items-center gap-2">
+                    <Layers className="w-4 h-4 text-purple-400" />
+                    Multi-Timeframe Settings
+                  </span>
+                </AccordionTrigger>
+                <AccordionContent className="text-gray-400">
+                  <div className="space-y-3 pt-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-green-400 font-mono">ENABLE_MULTI_TIMEFRAME</span>
+                      <span>Enable multi-TF analysis (default: true)</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-purple-400 font-mono">INCLUDE_M5</span>
+                      <span>Include 5-minute data (scalping)</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-purple-400 font-mono">INCLUDE_M15</span>
+                      <span>Include 15-minute data (default: true)</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-purple-400 font-mono">INCLUDE_H1</span>
+                      <span>Include 1-hour data (default: true)</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-purple-400 font-mono">INCLUDE_H4</span>
+                      <span>Include 4-hour data (default: true)</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-purple-400 font-mono">INCLUDE_D1</span>
+                      <span>Include daily data</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-purple-400 font-mono">INCLUDE_W1</span>
+                      <span>Include weekly data (swing trading)</span>
+                    </div>
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+
+              <AccordionItem value="autotrading" className="bg-gray-900/50 rounded-lg border border-gray-700 px-4">
+                <AccordionTrigger className="text-white hover:no-underline">
+                  <span className="flex items-center gap-2">
+                    <Target className="w-4 h-4 text-red-400" />
+                    Auto-Trading Settings (Advanced)
+                  </span>
+                </AccordionTrigger>
+                <AccordionContent className="text-gray-400">
+                  <div className="p-3 mb-3 bg-red-900/30 border border-red-600/50 rounded-lg">
+                    <p className="text-red-300 text-sm flex items-start gap-2">
+                      <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                      <span><strong>Warning:</strong> Auto-trading is disabled by default. Enable at your own risk. Start with a demo account!</span>
+                    </p>
+                  </div>
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center">
+                      <span className="text-red-400 font-mono">ENABLE_AUTO_TRADING</span>
+                      <span>Enable automatic trade execution (default: false)</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-amber-400 font-mono">LOT_SIZE</span>
+                      <span>Fixed lot size for trades (default: 0.01)</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-amber-400 font-mono">MIN_CONFIDENCE</span>
+                      <span>Minimum AI confidence to trade (default: 70)</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-amber-400 font-mono">MAX_OPEN_TRADES</span>
+                      <span>Maximum open trades per symbol (default: 1)</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-amber-400 font-mono">DAILY_LOSS_LIMIT</span>
+                      <span>Max daily loss in account currency (default: 100)</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-amber-400 font-mono">COOLDOWN_SECONDS</span>
+                      <span>Wait time between trades (default: 300)</span>
+                    </div>
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-teal-900/20 border-teal-600/30">
+          <CardHeader>
+            <CardTitle className="text-teal-400 flex items-center gap-2">
+              <Activity className="w-5 h-5" />
+              What Data Gets Sent
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid md:grid-cols-2 gap-6">
+              <div>
+                <h4 className="text-white font-semibold mb-3">Candle Data (OHLCV)</h4>
+                <ul className="text-sm text-gray-400 space-y-1">
+                  <li>• Open, High, Low, Close prices</li>
+                  <li>• Volume for each candle</li>
+                  <li>• Timestamp for each bar</li>
+                  <li>• Symbol and timeframe identifier</li>
+                </ul>
+              </div>
+              <div>
+                <h4 className="text-white font-semibold mb-3">Technical Indicators</h4>
+                <ul className="text-sm text-gray-400 space-y-1">
+                  <li>• RSI (14-period)</li>
+                  <li>• MACD (12, 26, 9)</li>
+                  <li>• ATR (14-period)</li>
+                  <li>• EMA 20, EMA 50, SMA 200</li>
+                  <li>• Bollinger Bands (20, 2)</li>
+                  <li>• Current Bid/Ask spread</li>
+                </ul>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <div className="text-center">
+          <Link href="/user-guide">
+            <Button variant="outline" className="mr-4">
+              <BookOpen className="w-4 h-4 mr-2" />
+              Read Full User Guide
+            </Button>
+          </Link>
+          <Link href="/webhooks">
+            <Button variant="outline">
+              <Zap className="w-4 h-4 mr-2" />
+              Webhook Settings
+            </Button>
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}

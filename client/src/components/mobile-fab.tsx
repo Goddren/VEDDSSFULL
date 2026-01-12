@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Camera, Briefcase, Plus, X, TrendingUp } from "lucide-react";
+import { Camera, Briefcase, Plus, X, TrendingUp, BarChart3 } from "lucide-react";
 import { useLocation } from "wouter";
 import { isMobileDevice } from "@/lib/pwa";
 
@@ -39,6 +39,15 @@ export function MobileFAB() {
         setIsOpen(false);
       },
       testId: "fab-multi-timeframe"
+    },
+    {
+      icon: <BarChart3 className="w-6 h-6" />,
+      label: "MT5 Chart Data",
+      action: () => {
+        setLocation("/mt5-chart-data");
+        setIsOpen(false);
+      },
+      testId: "fab-mt5-chart-data"
     },
   ];
 

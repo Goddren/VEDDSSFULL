@@ -292,18 +292,21 @@ const trainingModules: TrainingModule[] = [
         id: 'features-5',
         title: 'MT5 Chart Data EA for Live AI Refresh',
         content: [
-          'NEW: Chart Data EA sends live price data directly from MT5 to AI Trading Vault',
+          'NEW: Chart Data EA (v3.20) sends live price data directly from MT5 to AI Trading Vault',
+          'Dedicated page at /mt5-chart-data with full setup guide, token generation, and EA download',
+          'Multi-Timeframe Analysis: Collects data from M5, M15, H1, H4, D1, and W1 timeframes',
           'Sends OHLCV candle data plus technical indicators (RSI, MACD, ATR, Bollinger Bands, Moving Averages)',
           'Uses your broker\'s actual price feed for more accurate AI analysis',
-          'Data is sent every 60 seconds (configurable) to keep analysis fresh',
-          'Works with the Live AI Refresh feature to automatically update EA signals',
+          'When 60%+ of timeframes align with the signal, AI confidence gets a +10% boost!',
+          'Auto-Trading capability (disabled by default) with risk management and daily loss limits',
           'Same API token used for MT5 Trade Copier works for Chart Data EA'
         ],
         tips: [
-          'Highlight that this uses real broker data, not third-party feeds',
-          'Demo the setup process: download EA, configure token, enable WebRequest in MT5',
-          'Show how Live AI Refresh uses this data to provide updated trading signals',
-          'Explain this is perfect for traders who want analysis based on their specific broker\'s prices'
+          'Direct viewers to /mt5-chart-data for the complete setup experience',
+          'Highlight the Multi-Timeframe Analysis feature as a key differentiator',
+          'Demo the setup process: visit page, create token, download EA, configure in MT5',
+          'Show how timeframe alignment boosts confidence for stronger signals',
+          'Explain M5 is great for scalpers, W1 is ideal for swing traders'
         ]
       }
     ]

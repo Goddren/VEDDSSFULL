@@ -47,6 +47,7 @@ import AmbassadorTrainingPage from "@/pages/ambassador-training";
 import StreakTrackerPage from "@/pages/streak-tracker";
 import WhatIfAnalysisPage from "@/pages/what-if-analysis";
 import WebhooksPage from "@/pages/webhooks";
+import MT5ChartDataPage from "@/pages/mt5-chart-data";
 import StreakBanner from "@/components/StreakBanner";
 import { MobileFAB } from "@/components/mobile-fab";
 import { NetworkStatus } from "@/components/network-status";
@@ -128,6 +129,7 @@ function AppLayout() {
             <ProtectedRoute path="/social-hub" component={SocialHub} />
             <ProtectedRoute path="/what-if" component={WhatIfAnalysisPage} />
             <ProtectedRoute path="/webhooks" component={WebhooksPage} />
+            <ProtectedRoute path="/mt5-chart-data" component={MT5ChartDataPage} />
             
             <Route component={NotFound} />
           </Switch>
