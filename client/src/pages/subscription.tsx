@@ -192,16 +192,25 @@ export default function SubscriptionPage() {
 
       {/* Competitive Pricing Comparison */}
       <div className="mb-12 p-6 bg-gradient-to-r from-green-500/10 to-green-500/5 rounded-lg border border-green-500/20">
-        <h2 className="text-2xl font-bold mb-4 text-center">Replace 6+ Separate Tools With One Platform</h2>
+        <h2 className="text-2xl font-bold mb-4 text-center">Replace 7+ Separate Tools With One Platform</h2>
         <p className="text-center text-muted-foreground mb-6">Stop paying for multiple subscriptions — AI Trading Vault includes everything</p>
         
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 mb-6">
+          <Card className="border border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-950/50">
+            <CardHeader className="pb-1 pt-3 px-3">
+              <CardTitle className="text-xs text-muted-foreground line-through">EA AI Refresh</CardTitle>
+            </CardHeader>
+            <CardContent className="px-3 pb-3">
+              <p className="text-lg font-bold text-red-500 line-through">$249-349/mo</p>
+              <p className="text-xs text-muted-foreground">Live AI Re-analysis</p>
+            </CardContent>
+          </Card>
           <Card className="border border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-950/50">
             <CardHeader className="pb-1 pt-3 px-3">
               <CardTitle className="text-xs text-muted-foreground line-through">TrendSpider</CardTitle>
             </CardHeader>
             <CardContent className="px-3 pb-3">
-              <p className="text-lg font-bold text-red-500 line-through">$82-197/mo</p>
+              <p className="text-lg font-bold text-red-500 line-through">$139-197/mo</p>
               <p className="text-xs text-muted-foreground">AI Patterns</p>
             </CardContent>
           </Card>
@@ -210,16 +219,16 @@ export default function SubscriptionPage() {
               <CardTitle className="text-xs text-muted-foreground line-through">Trade Ideas</CardTitle>
             </CardHeader>
             <CardContent className="px-3 pb-3">
-              <p className="text-lg font-bold text-red-500 line-through">$118-228/mo</p>
+              <p className="text-lg font-bold text-red-500 line-through">$167-228/mo</p>
               <p className="text-xs text-muted-foreground">AI Scanning</p>
             </CardContent>
           </Card>
           <Card className="border border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-950/50">
             <CardHeader className="pb-1 pt-3 px-3">
-              <CardTitle className="text-xs text-muted-foreground line-through">EA Builder</CardTitle>
+              <CardTitle className="text-xs text-muted-foreground line-through">EA Builder Pro</CardTitle>
             </CardHeader>
             <CardContent className="px-3 pb-3">
-              <p className="text-lg font-bold text-red-500 line-through">$19.99/mo</p>
+              <p className="text-lg font-bold text-red-500 line-through">$59-99/mo</p>
               <p className="text-xs text-muted-foreground">EA Generator</p>
             </CardContent>
           </Card>
@@ -228,17 +237,17 @@ export default function SubscriptionPage() {
               <CardTitle className="text-xs text-muted-foreground line-through">Trade Copier</CardTitle>
             </CardHeader>
             <CardContent className="px-3 pb-3">
-              <p className="text-lg font-bold text-red-500 line-through">$50-150/mo</p>
+              <p className="text-lg font-bold text-red-500 line-through">$79-149/mo</p>
               <p className="text-xs text-muted-foreground">MT5→TradeLocker</p>
             </CardContent>
           </Card>
           <Card className="border border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-950/50">
             <CardHeader className="pb-1 pt-3 px-3">
-              <CardTitle className="text-xs text-muted-foreground line-through">News Tools</CardTitle>
+              <CardTitle className="text-xs text-muted-foreground line-through">News Sentiment</CardTitle>
             </CardHeader>
             <CardContent className="px-3 pb-3">
-              <p className="text-lg font-bold text-red-500 line-through">$30-80/mo</p>
-              <p className="text-xs text-muted-foreground">Sentiment</p>
+              <p className="text-lg font-bold text-red-500 line-through">$79-129/mo</p>
+              <p className="text-xs text-muted-foreground">AI News Analysis</p>
             </CardContent>
           </Card>
           <Card className="border border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-950/50">
@@ -246,8 +255,8 @@ export default function SubscriptionPage() {
               <CardTitle className="text-xs text-muted-foreground line-through">Webhooks</CardTitle>
             </CardHeader>
             <CardContent className="px-3 pb-3">
-              <p className="text-lg font-bold text-red-500 line-through">$15-40/mo</p>
-              <p className="text-xs text-muted-foreground">Alerts</p>
+              <p className="text-lg font-bold text-red-500 line-through">$29-59/mo</p>
+              <p className="text-xs text-muted-foreground">Signal Alerts</p>
             </CardContent>
           </Card>
         </div>
@@ -256,7 +265,7 @@ export default function SubscriptionPage() {
           <div className="flex flex-col md:flex-row items-center justify-center gap-4 mb-3">
             <div className="text-center">
               <p className="text-sm opacity-80">Total if purchased separately</p>
-              <p className="text-2xl font-bold line-through opacity-70">$315-713/mo</p>
+              <p className="text-2xl font-bold line-through opacity-70">$801-1,210/mo</p>
             </div>
             <div className="hidden md:block text-3xl">→</div>
             <div className="text-center">
@@ -269,7 +278,7 @@ export default function SubscriptionPage() {
               <p className="text-3xl font-bold">$249.95 once</p>
             </div>
           </div>
-          <p className="text-sm opacity-90">Save up to <strong>$8,000/year</strong> with AI Trading Vault Pro</p>
+          <p className="text-sm opacity-90">Save up to <strong>$14,000/year</strong> with AI Trading Vault Pro</p>
         </div>
       </div>
 
