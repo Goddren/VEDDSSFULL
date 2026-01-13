@@ -270,15 +270,15 @@ export default function SubscriptionPage() {
             <div className="hidden md:block text-3xl">→</div>
             <div className="text-center">
               <p className="text-sm opacity-80">AI Trading Vault Pro (everything included)</p>
-              <p className="text-3xl font-bold">$39.95/mo</p>
+              <p className="text-3xl font-bold">$150/mo</p>
             </div>
             <div className="hidden md:block text-3xl">or</div>
             <div className="text-center">
               <p className="text-sm opacity-80">Lifetime Access</p>
-              <p className="text-3xl font-bold">$249.95 once</p>
+              <p className="text-3xl font-bold">$999 once</p>
             </div>
           </div>
-          <p className="text-sm opacity-90">Save up to <strong>$14,000/year</strong> with AI Trading Vault Pro</p>
+          <p className="text-sm opacity-90">Save up to <strong>$12,700/year</strong> with AI Trading Vault Pro</p>
         </div>
       </div>
 
