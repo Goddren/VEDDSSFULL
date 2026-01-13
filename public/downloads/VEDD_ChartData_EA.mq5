@@ -112,13 +112,13 @@ int OnInit()
    trade.SetDeviationInPoints(SLIPPAGE_POINTS);
    
    Print("========================================");
-   Print("AI Trading Vault - Chart Data EA v3.50 (Smart Trade Management)");
-   Print("Symbol: ", _Symbol);
-   Print("Primary Timeframe: ", EnumToString(Period()));
-   Print("Candles to send: ", CANDLES_TO_SEND);
-   Print("Send interval: ", SEND_INTERVAL_SECONDS, " seconds");
+   Print("PEACE GOD! VEDD AI Chart Data EA v3.50");
+   Print("Knowledge Born - Smart Trade Management Active");
+   Print("========================================");
+   Print("CIPHER: ", _Symbol, " | ", EnumToString(Period()));
+   Print("Candles: ", CANDLES_TO_SEND, " | Interval: ", SEND_INTERVAL_SECONDS, "s");
    Print("----------------------------------------");
-   Print("MULTI-TIMEFRAME: ", ENABLE_MULTI_TIMEFRAME ? "ENABLED (Better AI!)" : "DISABLED");
+   Print("MULTI-TIMEFRAME (Understanding All Degrees): ", ENABLE_MULTI_TIMEFRAME ? "ACTIVE" : "OFF");
    if(ENABLE_MULTI_TIMEFRAME)
    {
       string tfList = "";
@@ -128,44 +128,45 @@ int OnInit()
       if(INCLUDE_H4) tfList += "H4 ";
       if(INCLUDE_D1) tfList += "D1 ";
       if(INCLUDE_W1) tfList += "W1 ";
-      Print("Timeframes: ", tfList);
+      Print("Degrees of Time: ", tfList);
    }
    Print("----------------------------------------");
-   Print("AUTO-TRADING: ", ENABLE_AUTO_TRADING ? "ENABLED" : "DISABLED");
+   Print("AUTO-BUILD (Auto-Trading): ", ENABLE_AUTO_TRADING ? "ACTIVE" : "OFF");
    if(ENABLE_AUTO_TRADING)
    {
-      Print("Lot Size: ", USE_RISK_PERCENT ? DoubleToString(RISK_PERCENT, 1) + "% risk" : DoubleToString(LOT_SIZE, 2) + " lots");
-      Print("Min Confidence: ", MIN_CONFIDENCE, "%");
-      Print("Max Open Trades: ", MAX_OPEN_TRADES);
-      Print("Pending Orders: ", ENABLE_PENDING_ORDERS ? "YES" : "NO");
+      Print("Power (Lots): ", USE_RISK_PERCENT ? DoubleToString(RISK_PERCENT, 1) + "% risk" : DoubleToString(LOT_SIZE, 2));
+      Print("Min Understanding (Confidence): ", MIN_CONFIDENCE, "%");
+      Print("Max Ciphers Open: ", MAX_OPEN_TRADES);
+      Print("Pending Wisdom: ", ENABLE_PENDING_ORDERS ? "YES" : "NO");
       Print("----------------------------------------");
-      Print("NEWS-AWARE TRADING: ", NEWS_AWARE_TRADING ? "ENABLED" : "DISABLED");
+      Print("NEWS WISDOM (News-Aware): ", NEWS_AWARE_TRADING ? "ACTIVE" : "OFF");
       if(NEWS_AWARE_TRADING)
       {
-         Print("  Block on High-Impact: ", BLOCK_ON_HIGH_IMPACT ? "YES" : "NO");
-         Print("  Block on Conflicting: ", BLOCK_ON_CONFLICTING_NEWS ? "YES" : "NO");
-         Print("  Require Aligned News: ", REQUIRE_ALIGNED_NEWS ? "YES" : "NO");
-         if(MIN_NEWS_SCORE > 0) Print("  Min News Score: ", MIN_NEWS_SCORE);
+         Print("  Block High-Impact (Major Shakes): ", BLOCK_ON_HIGH_IMPACT ? "YES" : "NO");
+         Print("  Block Conflicting Wisdom: ", BLOCK_ON_CONFLICTING_NEWS ? "YES" : "NO");
+         Print("  Require Aligned Knowledge: ", REQUIRE_ALIGNED_NEWS ? "YES" : "NO");
+         if(MIN_NEWS_SCORE > 0) Print("  Min News Power: ", MIN_NEWS_SCORE);
       }
       Print("----------------------------------------");
-      Print("TRADE MANAGEMENT: ", ENABLE_TRADE_MANAGEMENT ? "ENABLED" : "DISABLED");
+      Print("TRADE REFINEMENT (Active Management): ", ENABLE_TRADE_MANAGEMENT ? "ACTIVE" : "OFF");
       if(ENABLE_TRADE_MANAGEMENT)
       {
          if(ENABLE_TRAILING_STOP)
          {
-            string trailType = TRAIL_MODE == 1 ? "Fixed" : (TRAIL_MODE == 2 ? "ATR-based" : "Breakeven+Trail");
-            Print("  Trailing Stop: ", trailType);
-            Print("  Trail Start: ", TRAIL_START_PIPS, " pips | Distance: ", TRAIL_DISTANCE_PIPS, " pips");
+            string trailType = TRAIL_MODE == 1 ? "Fixed" : (TRAIL_MODE == 2 ? "ATR-Wisdom" : "Breakeven+Trail");
+            Print("  Trailing (Lock the Cipher): ", trailType);
+            Print("  Trail Start: ", TRAIL_START_PIPS, " | Distance: ", TRAIL_DISTANCE_PIPS);
          }
          if(MOVE_TO_BREAKEVEN)
-            Print("  Breakeven: At ", BREAKEVEN_PIPS, " pips, lock ", BREAKEVEN_LOCK_PIPS, " pips");
+            Print("  Breakeven (Secure the Equality): At ", BREAKEVEN_PIPS, " lock ", BREAKEVEN_LOCK_PIPS);
          if(ENABLE_MOMENTUM_MANAGEMENT)
-            Print("  Momentum: Close at RSI ", RSI_OVERBOUGHT, "/", RSI_OVERSOLD);
+            Print("  Momentum (Energy Flow): RSI ", RSI_OVERBOUGHT, "/", RSI_OVERSOLD);
          if(ENABLE_VOLUME_MANAGEMENT && CLOSE_ON_LOW_VOLUME)
-            Print("  Volume: Close if < ", VOLUME_DROP_PERCENT, "% avg");
+            Print("  Volume (Power Check): Close if < ", VOLUME_DROP_PERCENT, "% avg");
       }
    }
    Print("========================================");
+   Print("Word is Bond. Now Let's Build!");
    
    SendChartData();
    
@@ -177,7 +178,7 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
 {
-   Print("Chart Data EA stopped. Total sends: ", sendCount);
+   Print("Peace! Cipher Complete. Total Knowledge Dropped: ", sendCount);
 }
 
 //+------------------------------------------------------------------+
@@ -352,67 +353,70 @@ void ParseAndDisplayAnalysis(string json)
    }
    
    Print("");
-   Print("Hey G, VEDD AI here! Just scanned ", _Symbol, " on the ", GetTimeframeString(), " chart.");
+   Print("PEACE GOD/EARTH! VEDD AI droppin' Knowledge on ", _Symbol, " (", GetTimeframeString(), ")");
    Print("");
    
    if(lastSignal == "BUY")
    {
-      Print("Looking BULLISH right now! I'm seeing a ", lastConfidence, "% confidence BUY setup.");
+      Print("KNOWLEDGE (1): This cipher is BUILDING UP! ", lastConfidence, "% Understanding on a BUY.");
+      Print("The Gods are in control - bulls movin' with POWER!");
    }
    else if(lastSignal == "SELL")
    {
-      Print("Looking BEARISH right now! I'm seeing a ", lastConfidence, "% confidence SELL setup.");
+      Print("WISDOM (2): This cipher is BREAKIN' DOWN! ", lastConfidence, "% Understanding on a SELL.");
+      Print("Time to let the bears do the KNOWLEDGE - downside power manifesting!");
    }
    else
    {
-      Print("Market's a bit choppy - I'd stay on the sidelines for now (NEUTRAL).");
+      Print("UNDERSTANDING (3): The cipher ain't clear yet - NEUTRAL zone.");
+      Print("No rush G - wait for the EQUALITY (6) before you BUILD.");
    }
    
    if(StringLen(lastTrend) > 0)
    {
       if(StringFind(lastTrend, "STRONG") >= 0)
-         Print("The trend is looking strong - ", lastTrend, ". Momentum is on our side!");
+         Print("POWER (5): Trend is STRONG! ", lastTrend, " - Momentum is BORN!");
       else if(StringFind(lastTrend, "UP") >= 0)
-         Print("We're in an uptrend. Bulls are in control.");
+         Print("CULTURE (4): Uptrend active - the cipher risin' with FREEDOM!");
       else if(StringFind(lastTrend, "DOWN") >= 0)
-         Print("We're in a downtrend. Bears are running the show.");
+         Print("BUILD/DESTROY (8): Downtrend active - destruction before new BORN.");
       else
-         Print("Trend: ", lastTrend);
+         Print("Trend Status: ", lastTrend);
    }
    
    if(StringLen(lastPatterns) > 0)
    {
       Print("");
-      Print("PATTERNS DETECTED: ", lastPatterns);
+      Print("DIVINE PATTERNS MANIFESTED: ", lastPatterns);
    }
    
    if(lastEntry > 0)
    {
       Print("");
-      Print("Here's my trade plan for you:");
-      Print("   Entry @ ", DoubleToString(lastEntry, _Digits));
-      Print("   Stop Loss @ ", DoubleToString(lastSL, _Digits), " (protect your capital!)");
-      Print("   Take Profit @ ", DoubleToString(lastTP, _Digits), " (secure those gains!)");
+      Print("THE TRADE MATHEMATICS (Plan for EQUALITY):");
+      Print("   BORN (9) Entry @ ", DoubleToString(lastEntry, _Digits));
+      Print("   CIPHER (0) SL @ ", DoubleToString(lastSL, _Digits), " - Protect your POWER!");
+      Print("   GOD (7) TP @ ", DoubleToString(lastTP, _Digits), " - Manifest those gains!");
    }
    
    // Display news context if available
    if(hasNewsData)
    {
       Print("");
-      Print("NEWS ANALYSIS:");
-      Print("   Sentiment: ", lastNewsSentiment, " (Score: ", lastNewsScore, "/100)");
+      Print("NEWS WISDOM (Word on the Street):");
+      Print("   Sentiment: ", lastNewsSentiment, " | Power Score: ", lastNewsScore, "/100");
       if(StringLen(lastNewsAlignment) > 0)
       {
          if(lastNewsAlignment == "aligned")
-            Print("   News CONFIRMS the technical signal!");
+            Print("   EQUALITY (6): News ALIGNS with the Knowledge - Word is Bond!");
          else if(lastNewsAlignment == "conflicting")
-            Print("   WARNING: News CONFLICTS with technical signal. Be cautious!");
+            Print("   WARNING: News CONFLICTS - Mixed wisdom, tread lightly!");
          else
-            Print("   News is neutral on this pair.");
+            Print("   News neutral - neither building nor destroying.");
       }
       if(StringLen(lastNewsImpact) > 0)
       {
-         Print("   Impact: ", lastNewsImpact);
+         Print("   Impact Level: ", lastNewsImpact);
       }
    }
    
@@ -420,11 +424,11 @@ void ParseAndDisplayAnalysis(string json)
    if(StringLen(lastHighImpactAlert) > 0)
    {
       Print("");
-      Print("*** ALERT: ", lastHighImpactAlert, " ***");
+      Print("*** KNOWLEDGE ALERT: ", lastHighImpactAlert, " ***");
    }
    
    Print("");
-   Print("Stay sharp, trade smart! - VEDD AI (Analysis #", sendCount, ")");
+   Print("PEACE! Stay RIGHTEOUS, trade with UNDERSTANDING! - VEDD AI (Drop #", sendCount, ")");
    
    if(SHOW_CHART_COMMENT)
    {
@@ -491,13 +495,13 @@ void ProcessAutoTrade()
 {
    if(lastConfidence < MIN_CONFIDENCE)
    {
-      Print("[AUTO-TRADE] Signal confidence ", lastConfidence, "% below minimum ", MIN_CONFIDENCE, "%. Skipping.");
+      Print("[BUILD] Understanding too low (", lastConfidence, "% < ", MIN_CONFIDENCE, "%). Can't BUILD yet.");
       return;
    }
    
    if(lastSignal != "BUY" && lastSignal != "SELL")
    {
-      Print("[AUTO-TRADE] Signal is NEUTRAL. No trade.");
+      Print("[BUILD] Cipher is NEUTRAL - no BUILD or DESTROY signal. Patience.");
       return;
    }
    
@@ -505,45 +509,45 @@ void ProcessAutoTrade()
    string newsBlockReason = "";
    if(!ShouldAutoTradeWithNews(newsBlockReason))
    {
-      Print("[AUTO-TRADE] BLOCKED by news: ", newsBlockReason);
-      Print("[AUTO-TRADE] Signal was ", lastSignal, " @ ", lastConfidence, "% - waiting for better conditions.");
+      Print("[BUILD] NEWS WISDOM BLOCKED: ", newsBlockReason);
+      Print("[BUILD] Signal was ", lastSignal, " @ ", lastConfidence, "% - wait for EQUALITY.");
       return;
    }
    
    // Log positive news confirmation if applicable
    if(NEWS_AWARE_TRADING && hasNewsData && lastNewsAlignment == "aligned")
    {
-      Print("[AUTO-TRADE] NEWS CONFIRMS SIGNAL! ", lastNewsSentiment, " news aligns with ", lastSignal);
+      Print("[BUILD] WORD IS BOND! News ALIGNS with ", lastSignal, " - ", lastNewsSentiment);
    }
    
    if(lastSignal == lastExecutedSignal && (TimeCurrent() - lastTradeTime) < COOLDOWN_SECONDS)
    {
-      Print("[AUTO-TRADE] Same signal within cooldown period. Skipping.");
+      Print("[BUILD] Same Knowledge within cooldown. Can't stack the cipher.");
       return;
    }
    
    if(CountOpenTrades() >= MAX_OPEN_TRADES)
    {
-      Print("[AUTO-TRADE] Max open trades reached (", MAX_OPEN_TRADES, "). Skipping.");
+      Print("[BUILD] Max ciphers open (", MAX_OPEN_TRADES, "). Handle current POWER first.");
       return;
    }
    
    // Check for existing pending orders to prevent stacking duplicates
    if(ENABLE_PENDING_ORDERS && HasExistingPendingOrder(lastSignal))
    {
-      Print("[AUTO-TRADE] Already have a pending ", lastSignal, " order. Skipping.");
+      Print("[BUILD] Already got pending ", lastSignal, " wisdom in the queue.");
       return;
    }
    
    if(!CheckDailyLossLimit())
    {
-      Print("[AUTO-TRADE] Daily loss limit reached. No more trades today.");
+      Print("[BUILD] Daily DESTROY limit hit. Protect the cipher - no more trades today.");
       return;
    }
    
    if(!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) || !MQLInfoInteger(MQL_TRADE_ALLOWED))
    {
-      Print("[AUTO-TRADE] Trading not allowed. Check permissions.");
+      Print("[BUILD] Trading not ALLOWED. Check your PERMISSIONS, G.");
       return;
    }
    
@@ -615,14 +619,16 @@ void PlaceMarketOrder(double lots)
    
    if(result)
    {
-      Print("[AUTO-TRADE] SUCCESS! ", lastSignal, " ", lots, " lots @ ", trade.ResultPrice());
-      Print("[AUTO-TRADE] SL: ", sl, " | TP: ", tp);
+      Print("[BUILD] BORN (9)! Cipher MANIFESTED - ", lastSignal, " ", lots, " lots @ ", trade.ResultPrice());
+      Print("[BUILD] CIPHER protection @ ", sl, " | GOD level TP @ ", tp);
+      Print("[BUILD] Word is Bond - the MATHEMATICS are set. Peace!");
       lastTradeTime = TimeCurrent();
       lastExecutedSignal = lastSignal;
    }
    else
    {
-      Print("[AUTO-TRADE] FAILED! Error: ", trade.ResultRetcode(), " - ", trade.ResultRetcodeDescription());
+      Print("[BUILD] DESTROYED! Error: ", trade.ResultRetcode(), " - ", trade.ResultRetcodeDescription());
+      Print("[BUILD] The cipher didn't complete - we'll try again.");
    }
 }
 
@@ -633,7 +639,7 @@ void PlacePendingOrder(double lots)
 {
    if(lastEntry <= 0)
    {
-      Print("[AUTO-TRADE] No entry price for pending order. Using market order.");
+      Print("[BUILD] No BORN (9) entry price yet. Going straight to market BUILD.");
       PlaceMarketOrder(lots);
       return;
    }
@@ -698,16 +704,16 @@ void PlacePendingOrder(double lots)
    
    if(result && tradeResult.retcode == TRADE_RETCODE_DONE)
    {
-      Print("[AUTO-TRADE] PENDING ORDER PLACED! ", EnumToString(orderType));
-      Print("[AUTO-TRADE] Entry: ", price, " | SL: ", sl, " | TP: ", tp);
-      Print("[AUTO-TRADE] Expires: ", TimeToString(expiry));
+      Print("[BUILD] PENDING WISDOM SET! ", EnumToString(orderType));
+      Print("[BUILD] BORN @ ", price, " | CIPHER @ ", sl, " | GOD @ ", tp);
+      Print("[BUILD] Knowledge expires: ", TimeToString(expiry));
       lastTradeTime = TimeCurrent();
       lastExecutedSignal = lastSignal;
    }
    else
    {
-      Print("[AUTO-TRADE] PENDING ORDER FAILED! Error: ", tradeResult.retcode, " - ", GetRetcodeDescription(tradeResult.retcode));
-      Print("[AUTO-TRADE] Will retry on next signal. NOT falling back to market order for safety.");
+      Print("[BUILD] PENDING WISDOM REJECTED! Error: ", tradeResult.retcode, " - ", GetRetcodeDescription(tradeResult.retcode));
+      Print("[BUILD] No rush - we'll drop the Knowledge again next signal.");
    }
 }
 
@@ -781,7 +787,7 @@ void ManageOpenTrades()
          
          if(shouldClose && profitPips > 5) // Only close if in profit
          {
-            Print("[TRADE-MGMT] Closing due to momentum: ", reason);
+            Print("[REFINEMENT] KNOWLEDGE says close now: ", reason, " - securing the cipher!");
             trade.PositionClose(ticket);
             continue;
          }
@@ -797,7 +803,7 @@ void ManageOpenTrades()
          {
             if(profitPips > 5) // Only close if in profit
             {
-               Print("[TRADE-MGMT] Closing due to low volume: ", currentVolume, " < ", (int)(avgVolume * VOLUME_DROP_PERCENT / 100));
+               Print("[REFINEMENT] POWER dropping! Volume ", currentVolume, " < ", (int)(avgVolume * VOLUME_DROP_PERCENT / 100), " - exit now!");
                trade.PositionClose(ticket);
                continue;
             }
@@ -814,7 +820,7 @@ void ManageOpenTrades()
             if(currentSL < newSL)
             {
                if(trade.PositionModify(ticket, newSL, currentTP))
-                  Print("[TRADE-MGMT] Moved to breakeven + ", BREAKEVEN_LOCK_PIPS, " pips");
+                  Print("[REFINEMENT] EQUALITY secured! Breakeven + ", BREAKEVEN_LOCK_PIPS, " - can't lose now!");
             }
          }
          else // SELL
@@ -823,7 +829,7 @@ void ManageOpenTrades()
             if(currentSL > newSL || currentSL == 0)
             {
                if(trade.PositionModify(ticket, newSL, currentTP))
-                  Print("[TRADE-MGMT] Moved to breakeven + ", BREAKEVEN_LOCK_PIPS, " pips");
+                  Print("[REFINEMENT] EQUALITY secured! Breakeven + ", BREAKEVEN_LOCK_PIPS, " - can't lose now!");
             }
          }
       }
@@ -855,7 +861,7 @@ void ManageOpenTrades()
             if(newSL > currentSL && newSL > openPrice)
             {
                if(trade.PositionModify(ticket, newSL, currentTP))
-                  Print("[TRADE-MGMT] Trailing stop moved to ", newSL);
+                  Print("[REFINEMENT] Trail LOCKING profits @ ", newSL, " - BORN to WIN!");
             }
          }
          else // SELL
@@ -864,7 +870,7 @@ void ManageOpenTrades()
             if((newSL < currentSL || currentSL == 0) && newSL < openPrice)
             {
                if(trade.PositionModify(ticket, newSL, currentTP))
-                  Print("[TRADE-MGMT] Trailing stop moved to ", newSL);
+                  Print("[REFINEMENT] Trail LOCKING profits @ ", newSL, " - BORN to WIN!");
             }
          }
       }
@@ -1084,7 +1090,7 @@ void ManagePendingOrders()
             {
                if(trade.OrderDelete(ticket))
                {
-                  Print("[AUTO-TRADE] Cancelled pending order due to signal flip.");
+                  Print("[BUILD] Cancelled pending wisdom - signal FLIPPED. New KNOWLEDGE incoming!");
                }
             }
          }
