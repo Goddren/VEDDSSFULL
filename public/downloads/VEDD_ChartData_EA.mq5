@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "AI Powered Trading Vault"
 #property link      "https://aipoweredtradingvault.com"
-#property version   "3.50"
+#property version   "3.60"
 #property description "Sends chart data to AI Trading Vault with news-aware analysis, smart auto-trading, and active trade management"
 #property strict
 
@@ -98,6 +98,38 @@ input bool     ENABLE_VOLUME_MANAGEMENT = true;   // Manage trades by volume
 input bool     CLOSE_ON_LOW_VOLUME = false;       // Close if Power drops significantly
 input double   VOLUME_DROP_PERCENT = 50.0;        // Close if Power below X% of average
 
+//+------------------------------------------------------------------+
+//| INPUT SECTION 9: PYRAMIDING (Stack the Power)                   |
+//+------------------------------------------------------------------+
+input group "═══ PYRAMIDING (Stack the Power) ═══"
+input bool     ENABLE_PYRAMIDING = false;         // Enable pyramiding (add to winners)
+input int      PYRAMID_MAX_POSITIONS = 3;         // Max positions to stack (cipher count)
+input int      PYRAMID_TRIGGER_PIPS = 30;         // Add position every X pips profit
+input double   PYRAMID_LOT_MULTIPLIER = 1.0;      // Lot multiplier for each add (1.0 = same size)
+input bool     PYRAMID_MOVE_SL = true;            // Move all SL to new entry on add
+input int      PYRAMID_MIN_CONFIDENCE = 65;       // Min confidence to add (Understanding check)
+
+//+------------------------------------------------------------------+
+//| INPUT SECTION 10: GRID TRADING (The Matrix)                     |
+//+------------------------------------------------------------------+
+input group "═══ GRID TRADING (The Matrix) ═══"
+input bool     ENABLE_GRID = false;               // Enable grid trading (CAREFUL - many orders!)
+input int      GRID_LEVELS = 3;                   // Number of grid levels above/below
+input int      GRID_SPACING_PIPS = 20;            // Pips between grid orders
+input double   GRID_LOT_SIZE = 0.01;              // Lot size per grid order
+input bool     GRID_HEDGE_MODE = false;           // Place orders both directions (hedge)
+input int      GRID_TP_PIPS = 15;                 // Take profit per grid order
+input int      GRID_MAX_ORDERS = 6;               // Max total grid orders at once
+
+//+------------------------------------------------------------------+
+//| INPUT SECTION 11: MARTINGALE (Double or Nothing)                |
+//+------------------------------------------------------------------+
+input group "═══ MARTINGALE (Double or Nothing - RISKY!) ═══"
+input bool     ENABLE_MARTINGALE = false;         // Enable martingale (VERY RISKY!)
+input double   MARTINGALE_MULTIPLIER = 2.0;       // Lot multiplier after loss
+input int      MARTINGALE_MAX_LEVEL = 3;          // Max martingale levels (safety limit)
+input bool     MARTINGALE_RESET_ON_WIN = true;    // Reset to base lot after win
+
 //--- Global variables
 datetime lastSendTime = 0;
 int sendCount = 0;
@@ -125,6 +157,18 @@ double dailyLossAccumulated = 0;
 datetime dailyLossResetDate = 0;
 CTrade trade;
 
+//--- Pyramiding state
+int pyramidPositionCount = 0;
+double pyramidLastAddPrice = 0;
+
+//--- Martingale state
+int martingaleLevel = 0;
+double martingaleCurrentLot = 0;
+bool lastTradeWasLoss = false;
+
+//--- Grid state
+int activeGridOrders = 0;
+
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
@@ -140,7 +184,7 @@ int OnInit()
    trade.SetDeviationInPoints(SLIPPAGE_POINTS);
    
    Print("========================================");
-   Print("PEACE GOD! VEDD AI Chart Data EA v3.50");
+   Print("PEACE GOD! VEDD AI Chart Data EA v3.60");
    Print("Knowledge Born - Smart Trade Management Active");
    Print("========================================");
    Print("CIPHER: ", _Symbol, " | ", EnumToString(Period()));
@@ -192,6 +236,26 @@ int OnInit()
          if(ENABLE_VOLUME_MANAGEMENT && CLOSE_ON_LOW_VOLUME)
             Print("  Volume (Power Check): Close if < ", VOLUME_DROP_PERCENT, "% avg");
       }
+      Print("----------------------------------------");
+      Print("PYRAMIDING (Stack the Power): ", ENABLE_PYRAMIDING ? "ACTIVE" : "OFF");
+      if(ENABLE_PYRAMIDING)
+      {
+         Print("  Max Stacks: ", PYRAMID_MAX_POSITIONS, " | Trigger: ", PYRAMID_TRIGGER_PIPS, " pips");
+         Print("  Lot Multiplier: ", PYRAMID_LOT_MULTIPLIER, "x");
+      }
+      Print("----------------------------------------");
+      Print("GRID TRADING (The Matrix): ", ENABLE_GRID ? "ACTIVE" : "OFF");
+      if(ENABLE_GRID)
+      {
+         Print("  Levels: ", GRID_LEVELS, " | Spacing: ", GRID_SPACING_PIPS, " pips");
+         Print("  Hedge Mode: ", GRID_HEDGE_MODE ? "YES (both ways)" : "NO (signal only)");
+      }
+      Print("----------------------------------------");
+      Print("MARTINGALE (Double or Nothing): ", ENABLE_MARTINGALE ? "ACTIVE - BE CAREFUL!" : "OFF");
+      if(ENABLE_MARTINGALE)
+      {
+         Print("  Multiplier: ", MARTINGALE_MULTIPLIER, "x | Max Level: ", MARTINGALE_MAX_LEVEL);
+      }
    }
    Print("========================================");
    Print("Word is Bond. Now Let's Build!");
@@ -227,6 +291,16 @@ void OnTick()
       if(ENABLE_TRADE_MANAGEMENT)
       {
          ManageOpenTrades();
+      }
+      
+      if(ENABLE_PYRAMIDING)
+      {
+         CheckPyramidOpportunity();
+      }
+      
+      if(ENABLE_GRID)
+      {
+         ManageGridOrders();
       }
    }
 }
@@ -613,6 +687,12 @@ double CalculateLotSize()
       }
    }
    
+   // Apply martingale multiplier if enabled
+   if(ENABLE_MARTINGALE)
+   {
+      lots = GetMartingaleLotSize(lots);
+   }
+   
    double minLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
    double maxLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
    double lotStep = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
@@ -973,6 +1053,276 @@ double GetAverageVolume(int bars)
       totalVolume += (double)iVolume(_Symbol, PERIOD_CURRENT, i);
    }
    return bars > 0 ? totalVolume / bars : 0;
+}
+
+//+------------------------------------------------------------------+
+//| PYRAMIDING - Check for opportunity to add to winning position    |
+//+------------------------------------------------------------------+
+void CheckPyramidOpportunity()
+{
+   if(!ENABLE_PYRAMIDING) return;
+   
+   double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+   double pipValue = (_Digits == 3 || _Digits == 5) ? point * 10 : point;
+   
+   // Count our current positions
+   int posCount = 0;
+   double bestProfitPips = 0;
+   double baseOpenPrice = 0;
+   ENUM_POSITION_TYPE currentDirection = POSITION_TYPE_BUY;
+   
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket <= 0) continue;
+      if(PositionGetInteger(POSITION_MAGIC) != MAGIC_NUMBER) continue;
+      if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+      
+      posCount++;
+      double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+      ENUM_POSITION_TYPE posType = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+      currentDirection = posType;
+      
+      if(posCount == 1) baseOpenPrice = openPrice;
+      
+      double currentBid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+      double currentAsk = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+      double profitPips = 0;
+      
+      if(posType == POSITION_TYPE_BUY)
+         profitPips = (currentBid - openPrice) / pipValue;
+      else
+         profitPips = (openPrice - currentAsk) / pipValue;
+      
+      if(profitPips > bestProfitPips) bestProfitPips = profitPips;
+   }
+   
+   pyramidPositionCount = posCount;
+   
+   // Check if we should add
+   if(posCount == 0 || posCount >= PYRAMID_MAX_POSITIONS) return;
+   if(lastConfidence < PYRAMID_MIN_CONFIDENCE) return;
+   if(bestProfitPips < PYRAMID_TRIGGER_PIPS * posCount) return;
+   
+   // Check direction matches
+   if((currentDirection == POSITION_TYPE_BUY && lastSignal != "BUY") ||
+      (currentDirection == POSITION_TYPE_SELL && lastSignal != "SELL"))
+      return;
+   
+   // Calculate pyramid lot size
+   double baseLot = CalculateLotSize();
+   double pyramidLot = NormalizeDouble(baseLot * MathPow(PYRAMID_LOT_MULTIPLIER, posCount), 2);
+   
+   // Place the pyramid order
+   Print("[PYRAMID] STACKING POWER! Adding position #", posCount + 1);
+   Print("[PYRAMID] Current profit: ", DoubleToString(bestProfitPips, 1), " pips | Adding ", pyramidLot, " lots");
+   
+   double sl = lastSL > 0 ? lastSL : 0;
+   double tp = lastTP > 0 ? lastTP : 0;
+   string comment = "VEDD Pyramid #" + IntegerToString(posCount + 1);
+   
+   bool result = false;
+   if(currentDirection == POSITION_TYPE_BUY)
+   {
+      double price = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+      result = trade.Buy(pyramidLot, _Symbol, price, sl, tp, comment);
+   }
+   else
+   {
+      double price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+      result = trade.Sell(pyramidLot, _Symbol, price, sl, tp, comment);
+   }
+   
+   if(result)
+   {
+      Print("[PYRAMID] BORN! Stack #", posCount + 1, " MANIFESTED - Building POWER!");
+      pyramidLastAddPrice = (currentDirection == POSITION_TYPE_BUY) ? 
+                           SymbolInfoDouble(_Symbol, SYMBOL_ASK) : 
+                           SymbolInfoDouble(_Symbol, SYMBOL_BID);
+      
+      // Move all SL to new entry if enabled
+      if(PYRAMID_MOVE_SL)
+      {
+         MovePyramidStops(currentDirection, pyramidLastAddPrice);
+      }
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Move all pyramid position stops to new entry level               |
+//+------------------------------------------------------------------+
+void MovePyramidStops(ENUM_POSITION_TYPE direction, double newSLLevel)
+{
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket <= 0) continue;
+      if(PositionGetInteger(POSITION_MAGIC) != MAGIC_NUMBER) continue;
+      if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+      
+      double currentTP = PositionGetDouble(POSITION_TP);
+      trade.PositionModify(ticket, newSLLevel, currentTP);
+   }
+   Print("[PYRAMID] All stops moved to EQUALITY @ ", newSLLevel);
+}
+
+//+------------------------------------------------------------------+
+//| GRID TRADING - Manage grid orders                                |
+//+------------------------------------------------------------------+
+void ManageGridOrders()
+{
+   if(!ENABLE_GRID) return;
+   
+   double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+   double pipValue = (_Digits == 3 || _Digits == 5) ? point * 10 : point;
+   double currentBid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   double currentAsk = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   
+   // Count existing grid orders
+   activeGridOrders = 0;
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      ulong ticket = OrderGetTicket(i);
+      if(ticket > 0 && OrderSelect(ticket))
+      {
+         if(OrderGetInteger(ORDER_MAGIC) == MAGIC_NUMBER + 100 &&
+            OrderGetString(ORDER_SYMBOL) == _Symbol)
+         {
+            activeGridOrders++;
+         }
+      }
+   }
+   
+   // Also count grid positions
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket <= 0) continue;
+      if(PositionGetInteger(POSITION_MAGIC) == MAGIC_NUMBER + 100 &&
+         PositionGetString(POSITION_SYMBOL) == _Symbol)
+      {
+         activeGridOrders++;
+      }
+   }
+   
+   // Don't place more if at max
+   if(activeGridOrders >= GRID_MAX_ORDERS) return;
+   
+   // Only place grid on valid signals
+   if(lastSignal != "BUY" && lastSignal != "SELL") return;
+   
+   // Place grid levels based on signal direction
+   double spacing = GRID_SPACING_PIPS * pipValue;
+   double tp = GRID_TP_PIPS * pipValue;
+   datetime expiry = TimeCurrent() + 86400; // 24 hours
+   
+   MqlTradeRequest request = {};
+   MqlTradeResult result = {};
+   
+   for(int level = 1; level <= GRID_LEVELS && activeGridOrders < GRID_MAX_ORDERS; level++)
+   {
+      // Place in signal direction
+      if(lastSignal == "BUY" || GRID_HEDGE_MODE)
+      {
+         double buyPrice = NormalizeDouble(currentAsk - (spacing * level), _Digits);
+         double buyTP = NormalizeDouble(buyPrice + tp, _Digits);
+         
+         request.action = TRADE_ACTION_PENDING;
+         request.symbol = _Symbol;
+         request.volume = GRID_LOT_SIZE;
+         request.type = ORDER_TYPE_BUY_LIMIT;
+         request.price = buyPrice;
+         request.sl = 0;
+         request.tp = buyTP;
+         request.deviation = SLIPPAGE_POINTS;
+         request.magic = MAGIC_NUMBER + 100;
+         request.comment = "VEDD Grid BUY L" + IntegerToString(level);
+         request.type_time = ORDER_TIME_SPECIFIED;
+         request.expiration = expiry;
+         
+         if(OrderSend(request, result) && result.retcode == TRADE_RETCODE_DONE)
+         {
+            Print("[GRID] Matrix BUY level ", level, " set @ ", buyPrice);
+            activeGridOrders++;
+         }
+      }
+      
+      if(lastSignal == "SELL" || GRID_HEDGE_MODE)
+      {
+         double sellPrice = NormalizeDouble(currentBid + (spacing * level), _Digits);
+         double sellTP = NormalizeDouble(sellPrice - tp, _Digits);
+         
+         request.action = TRADE_ACTION_PENDING;
+         request.symbol = _Symbol;
+         request.volume = GRID_LOT_SIZE;
+         request.type = ORDER_TYPE_SELL_LIMIT;
+         request.price = sellPrice;
+         request.sl = 0;
+         request.tp = sellTP;
+         request.deviation = SLIPPAGE_POINTS;
+         request.magic = MAGIC_NUMBER + 100;
+         request.comment = "VEDD Grid SELL L" + IntegerToString(level);
+         request.type_time = ORDER_TIME_SPECIFIED;
+         request.expiration = expiry;
+         
+         if(OrderSend(request, result) && result.retcode == TRADE_RETCODE_DONE)
+         {
+            Print("[GRID] Matrix SELL level ", level, " set @ ", sellPrice);
+            activeGridOrders++;
+         }
+      }
+   }
+   
+   if(activeGridOrders > 0)
+      Print("[GRID] THE MATRIX is set! ", activeGridOrders, " grid orders active.");
+}
+
+//+------------------------------------------------------------------+
+//| MARTINGALE - Calculate lot size with martingale                  |
+//+------------------------------------------------------------------+
+double GetMartingaleLotSize(double baseLot)
+{
+   if(!ENABLE_MARTINGALE) return baseLot;
+   
+   // Check last trade result
+   if(HistorySelect(TimeCurrent() - 86400, TimeCurrent()))
+   {
+      int totalDeals = HistoryDealsTotal();
+      for(int i = totalDeals - 1; i >= 0; i--)
+      {
+         ulong ticket = HistoryDealGetTicket(i);
+         if(ticket <= 0) continue;
+         if(HistoryDealGetInteger(ticket, DEAL_MAGIC) != MAGIC_NUMBER) continue;
+         if(HistoryDealGetString(ticket, DEAL_SYMBOL) != _Symbol) continue;
+         
+         ENUM_DEAL_ENTRY entry = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(ticket, DEAL_ENTRY);
+         if(entry == DEAL_ENTRY_OUT)
+         {
+            double profit = HistoryDealGetDouble(ticket, DEAL_PROFIT);
+            if(profit < 0)
+            {
+               lastTradeWasLoss = true;
+               if(martingaleLevel < MARTINGALE_MAX_LEVEL)
+                  martingaleLevel++;
+            }
+            else if(profit > 0 && MARTINGALE_RESET_ON_WIN)
+            {
+               martingaleLevel = 0;
+               lastTradeWasLoss = false;
+            }
+            break;
+         }
+      }
+   }
+   
+   double martingaleLot = baseLot * MathPow(MARTINGALE_MULTIPLIER, martingaleLevel);
+   
+   if(martingaleLevel > 0)
+   {
+      Print("[MARTINGALE] Level ", martingaleLevel, " - DOUBLING DOWN! Lot: ", DoubleToString(martingaleLot, 2));
+   }
+   
+   return martingaleLot;
 }
 
 //+------------------------------------------------------------------+
