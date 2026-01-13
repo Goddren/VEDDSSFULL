@@ -11,7 +11,10 @@
 
 #include <Trade\Trade.mqh>
 
-//--- Input parameters: Connection
+//+------------------------------------------------------------------+
+//| INPUT SECTION 1: CONNECTION (The Cipher Link)                   |
+//+------------------------------------------------------------------+
+input group "═══ CONNECTION SETTINGS (Knowledge Link) ═══"
 input string   API_URL = "https://your-app-url.replit.app/api/mt5/chart-data";  // Your AI Trading Vault URL (CHANGE THIS!)
 input string   API_TOKEN = "";                    // Your API Token from AI Trading Vault
 input int      CANDLES_TO_SEND = 50;              // Number of candles to send
@@ -20,55 +23,80 @@ input bool     INCLUDE_INDICATORS = true;         // Include technical indicator
 input bool     SHOW_CHART_COMMENT = true;         // Show analysis on chart
 input int      TIMEOUT = 15000;                   // Request timeout (ms)
 
-//--- Input parameters: Multi-Timeframe Analysis
+//+------------------------------------------------------------------+
+//| INPUT SECTION 2: MULTI-TIMEFRAME (Understanding All Degrees)    |
+//+------------------------------------------------------------------+
+input group "═══ MULTI-TIMEFRAME (Understanding All Degrees) ═══"
 input bool     ENABLE_MULTI_TIMEFRAME = true;     // Enable Multi-Timeframe Analysis (Better AI!)
-input bool     INCLUDE_M5 = false;                // Include M5 timeframe (scalping)
-input bool     INCLUDE_M15 = true;                // Include M15 timeframe
-input bool     INCLUDE_H1 = true;                 // Include H1 timeframe  
-input bool     INCLUDE_H4 = true;                 // Include H4 timeframe
-input bool     INCLUDE_D1 = false;                // Include D1 timeframe
-input bool     INCLUDE_W1 = false;                // Include Weekly timeframe (swing trading)
+input bool     INCLUDE_M5 = false;                // M5 (Scalpers - Quick Knowledge)
+input bool     INCLUDE_M15 = true;                // M15 (Short-term Wisdom)
+input bool     INCLUDE_H1 = true;                 // H1 (Intraday Power)
+input bool     INCLUDE_H4 = true;                 // H4 (Swing Culture)
+input bool     INCLUDE_D1 = false;                // D1 (Daily Understanding)
+input bool     INCLUDE_W1 = false;                // W1 (Weekly God View)
 
-//--- Input parameters: Auto-Trading
-input bool     ENABLE_AUTO_TRADING = false;       // Enable Auto-Trading (CAREFUL!)
-input bool     ENABLE_PENDING_ORDERS = false;     // Use pending orders instead of market orders
-input double   LOT_SIZE = 0.01;                   // Fixed lot size
+//+------------------------------------------------------------------+
+//| INPUT SECTION 3: AUTO-TRADING (The Build)                       |
+//+------------------------------------------------------------------+
+input group "═══ AUTO-TRADING (The Build) ═══"
+input bool     ENABLE_AUTO_TRADING = false;       // Enable Auto-Trading (CAREFUL - Word is Bond!)
+input bool     ENABLE_PENDING_ORDERS = false;     // Use pending orders (Wisdom before entry)
+input double   LOT_SIZE = 0.01;                   // Fixed lot size (Power)
 input bool     USE_RISK_PERCENT = false;          // Use risk % instead of fixed lot
 input double   RISK_PERCENT = 1.0;                // Risk per trade (% of balance)
-input int      MIN_CONFIDENCE = 70;               // Minimum signal confidence to trade
-input int      MAX_OPEN_TRADES = 1;               // Maximum open trades (this EA)
-input double   DAILY_LOSS_LIMIT = 100.0;          // Daily loss limit ($) - 0 to disable
-input int      COOLDOWN_SECONDS = 300;            // Cooldown between trades (seconds)
-input int      PENDING_EXPIRY_HOURS = 4;          // Pending order expiry (hours)
+input int      MIN_CONFIDENCE = 70;               // Min Understanding % to trade
+input int      MAX_OPEN_TRADES = 1;               // Max ciphers open at once
+input double   DAILY_LOSS_LIMIT = 100.0;          // Daily Destroy limit ($) - 0 to disable
+input int      COOLDOWN_SECONDS = 300;            // Cooldown between builds (seconds)
+input int      PENDING_EXPIRY_HOURS = 4;          // Pending wisdom expiry (hours)
 input int      SLIPPAGE_POINTS = 30;              // Max slippage for market orders
-input int      MAGIC_NUMBER = 202501;             // Magic number for EA trades
+input int      MAGIC_NUMBER = 202501;             // Magic number (Cipher ID)
 
-//--- Input parameters: News-Aware Trading
-input bool     NEWS_AWARE_TRADING = true;         // Enable news-aware trading rules
-input bool     BLOCK_ON_HIGH_IMPACT = true;       // Block trades during high-impact news
-input bool     BLOCK_ON_CONFLICTING_NEWS = true;  // Block trades when news conflicts with signal
-input bool     REQUIRE_ALIGNED_NEWS = false;      // Only trade when news aligns with signal
-input int      MIN_NEWS_SCORE = 0;                // Minimum news score to trade (0-100, 0=any)
+//+------------------------------------------------------------------+
+//| INPUT SECTION 4: NEWS WISDOM (Word on the Street)               |
+//+------------------------------------------------------------------+
+input group "═══ NEWS WISDOM (Word on the Street) ═══"
+input bool     NEWS_AWARE_TRADING = true;         // Enable news-aware trading (Knowledge Check)
+input bool     BLOCK_ON_HIGH_IMPACT = true;       // Block during high-impact (Major Shakes)
+input bool     BLOCK_ON_CONFLICTING_NEWS = true;  // Block when news conflicts
+input bool     REQUIRE_ALIGNED_NEWS = false;      // Only trade when news ALIGNS (Equality)
+input int      MIN_NEWS_SCORE = 0;                // Min news Power score (0-100, 0=any)
 
-//--- Input parameters: Trade Management & Trailing Stop
+//+------------------------------------------------------------------+
+//| INPUT SECTION 5: TRAILING STOP (Lock the Cipher)                |
+//+------------------------------------------------------------------+
+input group "═══ TRAILING STOP (Lock the Cipher) ═══"
 input bool     ENABLE_TRADE_MANAGEMENT = true;    // Enable active trade management
 input bool     ENABLE_TRAILING_STOP = true;       // Enable trailing stop
-input int      TRAIL_MODE = 1;                    // Trail Mode: 1=Fixed, 2=ATR-based, 3=Breakeven+Trail
-input int      TRAIL_START_PIPS = 20;             // Start trailing after X pips profit
+input int      TRAIL_MODE = 1;                    // Mode: 1=Fixed, 2=ATR-Wisdom, 3=Breakeven+Trail
+input int      TRAIL_START_PIPS = 20;             // Start trailing after X pips BORN
 input int      TRAIL_DISTANCE_PIPS = 15;          // Trailing distance in pips
-input double   TRAIL_ATR_MULTIPLIER = 1.5;        // ATR multiplier for trail (Mode 2)
-input bool     MOVE_TO_BREAKEVEN = true;          // Move SL to breakeven at profit target
-input int      BREAKEVEN_PIPS = 15;               // Move to breakeven at X pips profit
-input int      BREAKEVEN_LOCK_PIPS = 2;           // Lock in X pips profit at breakeven
+input double   TRAIL_ATR_MULTIPLIER = 1.5;        // ATR multiplier (Mode 2 Wisdom)
 
-//--- Input parameters: Momentum & Volume Management
-input bool     ENABLE_MOMENTUM_MANAGEMENT = true; // Manage trades based on momentum
-input bool     CLOSE_ON_MOMENTUM_REVERSAL = true; // Close trade if momentum reverses strongly
-input int      RSI_OVERBOUGHT = 70;               // RSI overbought level (close longs)
-input int      RSI_OVERSOLD = 30;                 // RSI oversold level (close shorts)
-input bool     ENABLE_VOLUME_MANAGEMENT = true;   // Manage trades based on volume
-input bool     CLOSE_ON_LOW_VOLUME = false;       // Close trade if volume drops significantly
-input double   VOLUME_DROP_PERCENT = 50.0;        // Close if volume drops below X% of average
+//+------------------------------------------------------------------+
+//| INPUT SECTION 6: BREAKEVEN (Secure the Equality)                |
+//+------------------------------------------------------------------+
+input group "═══ BREAKEVEN (Secure the Equality) ═══"
+input bool     MOVE_TO_BREAKEVEN = true;          // Move SL to breakeven at profit
+input int      BREAKEVEN_PIPS = 15;               // Move at X pips profit (Equality point)
+input int      BREAKEVEN_LOCK_PIPS = 2;           // Lock in X pips at breakeven
+
+//+------------------------------------------------------------------+
+//| INPUT SECTION 7: MOMENTUM (Energy Flow)                         |
+//+------------------------------------------------------------------+
+input group "═══ MOMENTUM (Energy Flow) ═══"
+input bool     ENABLE_MOMENTUM_MANAGEMENT = true; // Manage trades by momentum
+input bool     CLOSE_ON_MOMENTUM_REVERSAL = true; // Close if momentum reverses (Power shift)
+input int      RSI_OVERBOUGHT = 70;               // RSI overbought (close longs - too much God)
+input int      RSI_OVERSOLD = 30;                 // RSI oversold (close shorts - too much Earth)
+
+//+------------------------------------------------------------------+
+//| INPUT SECTION 8: VOLUME (Power Check)                           |
+//+------------------------------------------------------------------+
+input group "═══ VOLUME (Power Check) ═══"
+input bool     ENABLE_VOLUME_MANAGEMENT = true;   // Manage trades by volume
+input bool     CLOSE_ON_LOW_VOLUME = false;       // Close if Power drops significantly
+input double   VOLUME_DROP_PERCENT = 50.0;        // Close if Power below X% of average
 
 //--- Global variables
 datetime lastSendTime = 0;
