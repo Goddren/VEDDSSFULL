@@ -5,8 +5,8 @@
 //+------------------------------------------------------------------+
 #property copyright "AI Powered Trading Vault"
 #property link      "https://aipoweredtradingvault.com"
-#property version   "3.30"
-#property description "Sends chart data to AI Trading Vault with news-aware analysis and auto-trading"
+#property version   "3.40"
+#property description "Sends chart data to AI Trading Vault with news-aware analysis and smart auto-trading"
 #property strict
 
 #include <Trade\Trade.mqh>
@@ -42,6 +42,13 @@ input int      COOLDOWN_SECONDS = 300;            // Cooldown between trades (se
 input int      PENDING_EXPIRY_HOURS = 4;          // Pending order expiry (hours)
 input int      SLIPPAGE_POINTS = 30;              // Max slippage for market orders
 input int      MAGIC_NUMBER = 202501;             // Magic number for EA trades
+
+//--- Input parameters: News-Aware Trading
+input bool     NEWS_AWARE_TRADING = true;         // Enable news-aware trading rules
+input bool     BLOCK_ON_HIGH_IMPACT = true;       // Block trades during high-impact news
+input bool     BLOCK_ON_CONFLICTING_NEWS = true;  // Block trades when news conflicts with signal
+input bool     REQUIRE_ALIGNED_NEWS = false;      // Only trade when news aligns with signal
+input int      MIN_NEWS_SCORE = 0;                // Minimum news score to trade (0-100, 0=any)
 
 //--- Global variables
 datetime lastSendTime = 0;
@@ -85,7 +92,7 @@ int OnInit()
    trade.SetDeviationInPoints(SLIPPAGE_POINTS);
    
    Print("========================================");
-   Print("AI Trading Vault - Chart Data EA v3.30 (News-Aware)");
+   Print("AI Trading Vault - Chart Data EA v3.40 (News-Smart Trading)");
    Print("Symbol: ", _Symbol);
    Print("Primary Timeframe: ", EnumToString(Period()));
    Print("Candles to send: ", CANDLES_TO_SEND);
@@ -111,6 +118,15 @@ int OnInit()
       Print("Min Confidence: ", MIN_CONFIDENCE, "%");
       Print("Max Open Trades: ", MAX_OPEN_TRADES);
       Print("Pending Orders: ", ENABLE_PENDING_ORDERS ? "YES" : "NO");
+      Print("----------------------------------------");
+      Print("NEWS-AWARE TRADING: ", NEWS_AWARE_TRADING ? "ENABLED" : "DISABLED");
+      if(NEWS_AWARE_TRADING)
+      {
+         Print("  Block on High-Impact: ", BLOCK_ON_HIGH_IMPACT ? "YES" : "NO");
+         Print("  Block on Conflicting: ", BLOCK_ON_CONFLICTING_NEWS ? "YES" : "NO");
+         Print("  Require Aligned News: ", REQUIRE_ALIGNED_NEWS ? "YES" : "NO");
+         if(MIN_NEWS_SCORE > 0) Print("  Min News Score: ", MIN_NEWS_SCORE);
+      }
    }
    Print("========================================");
    
@@ -375,6 +391,58 @@ void ParseAndDisplayAnalysis(string json)
 }
 
 //+------------------------------------------------------------------+
+//| Check if news conditions allow trading                           |
+//+------------------------------------------------------------------+
+bool ShouldAutoTradeWithNews(string &reason)
+{
+   // Skip news checks if feature is disabled
+   if(!NEWS_AWARE_TRADING)
+   {
+      return true;
+   }
+   
+   // Check for high-impact news alert
+   if(BLOCK_ON_HIGH_IMPACT && StringLen(lastHighImpactAlert) > 0)
+   {
+      reason = "High-impact news event imminent";
+      return false;
+   }
+   
+   // If we have news data, apply additional checks
+   if(hasNewsData)
+   {
+      // Block if news conflicts with signal
+      if(BLOCK_ON_CONFLICTING_NEWS && lastNewsAlignment == "conflicting")
+      {
+         reason = "News CONFLICTS with " + lastSignal + " signal";
+         return false;
+      }
+      
+      // Require aligned news if setting enabled
+      if(REQUIRE_ALIGNED_NEWS && lastNewsAlignment != "aligned")
+      {
+         reason = "News not aligned (need bullish/bearish confirmation)";
+         return false;
+      }
+      
+      // Check minimum news score
+      if(MIN_NEWS_SCORE > 0 && lastNewsScore < MIN_NEWS_SCORE)
+      {
+         reason = "News score " + IntegerToString(lastNewsScore) + " below minimum " + IntegerToString(MIN_NEWS_SCORE);
+         return false;
+      }
+   }
+   else if(REQUIRE_ALIGNED_NEWS)
+   {
+      // If we require aligned news but have no news data, block
+      reason = "No news data available (required for aligned trading)";
+      return false;
+   }
+   
+   return true;
+}
+
+//+------------------------------------------------------------------+
 //| Process auto-trade based on signal                               |
 //+------------------------------------------------------------------+
 void ProcessAutoTrade()
@@ -389,6 +457,21 @@ void ProcessAutoTrade()
    {
       Print("[AUTO-TRADE] Signal is NEUTRAL. No trade.");
       return;
+   }
+   
+   // NEWS-AWARE TRADING CHECK
+   string newsBlockReason = "";
+   if(!ShouldAutoTradeWithNews(newsBlockReason))
+   {
+      Print("[AUTO-TRADE] BLOCKED by news: ", newsBlockReason);
+      Print("[AUTO-TRADE] Signal was ", lastSignal, " @ ", lastConfidence, "% - waiting for better conditions.");
+      return;
+   }
+   
+   // Log positive news confirmation if applicable
+   if(NEWS_AWARE_TRADING && hasNewsData && lastNewsAlignment == "aligned")
+   {
+      Print("[AUTO-TRADE] NEWS CONFIRMS SIGNAL! ", lastNewsSentiment, " news aligns with ", lastSignal);
    }
    
    if(lastSignal == lastExecutedSignal && (TimeCurrent() - lastTradeTime) < COOLDOWN_SECONDS)
