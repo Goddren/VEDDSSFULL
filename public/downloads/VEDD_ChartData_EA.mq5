@@ -5,8 +5,8 @@
 //+------------------------------------------------------------------+
 #property copyright "AI Powered Trading Vault"
 #property link      "https://aipoweredtradingvault.com"
-#property version   "3.40"
-#property description "Sends chart data to AI Trading Vault with news-aware analysis and smart auto-trading"
+#property version   "3.50"
+#property description "Sends chart data to AI Trading Vault with news-aware analysis, smart auto-trading, and active trade management"
 #property strict
 
 #include <Trade\Trade.mqh>
@@ -50,6 +50,26 @@ input bool     BLOCK_ON_CONFLICTING_NEWS = true;  // Block trades when news conf
 input bool     REQUIRE_ALIGNED_NEWS = false;      // Only trade when news aligns with signal
 input int      MIN_NEWS_SCORE = 0;                // Minimum news score to trade (0-100, 0=any)
 
+//--- Input parameters: Trade Management & Trailing Stop
+input bool     ENABLE_TRADE_MANAGEMENT = true;    // Enable active trade management
+input bool     ENABLE_TRAILING_STOP = true;       // Enable trailing stop
+input int      TRAIL_MODE = 1;                    // Trail Mode: 1=Fixed, 2=ATR-based, 3=Breakeven+Trail
+input int      TRAIL_START_PIPS = 20;             // Start trailing after X pips profit
+input int      TRAIL_DISTANCE_PIPS = 15;          // Trailing distance in pips
+input double   TRAIL_ATR_MULTIPLIER = 1.5;        // ATR multiplier for trail (Mode 2)
+input bool     MOVE_TO_BREAKEVEN = true;          // Move SL to breakeven at profit target
+input int      BREAKEVEN_PIPS = 15;               // Move to breakeven at X pips profit
+input int      BREAKEVEN_LOCK_PIPS = 2;           // Lock in X pips profit at breakeven
+
+//--- Input parameters: Momentum & Volume Management
+input bool     ENABLE_MOMENTUM_MANAGEMENT = true; // Manage trades based on momentum
+input bool     CLOSE_ON_MOMENTUM_REVERSAL = true; // Close trade if momentum reverses strongly
+input int      RSI_OVERBOUGHT = 70;               // RSI overbought level (close longs)
+input int      RSI_OVERSOLD = 30;                 // RSI oversold level (close shorts)
+input bool     ENABLE_VOLUME_MANAGEMENT = true;   // Manage trades based on volume
+input bool     CLOSE_ON_LOW_VOLUME = false;       // Close trade if volume drops significantly
+input double   VOLUME_DROP_PERCENT = 50.0;        // Close if volume drops below X% of average
+
 //--- Global variables
 datetime lastSendTime = 0;
 int sendCount = 0;
@@ -92,7 +112,7 @@ int OnInit()
    trade.SetDeviationInPoints(SLIPPAGE_POINTS);
    
    Print("========================================");
-   Print("AI Trading Vault - Chart Data EA v3.40 (News-Smart Trading)");
+   Print("AI Trading Vault - Chart Data EA v3.50 (Smart Trade Management)");
    Print("Symbol: ", _Symbol);
    Print("Primary Timeframe: ", EnumToString(Period()));
    Print("Candles to send: ", CANDLES_TO_SEND);
@@ -127,6 +147,23 @@ int OnInit()
          Print("  Require Aligned News: ", REQUIRE_ALIGNED_NEWS ? "YES" : "NO");
          if(MIN_NEWS_SCORE > 0) Print("  Min News Score: ", MIN_NEWS_SCORE);
       }
+      Print("----------------------------------------");
+      Print("TRADE MANAGEMENT: ", ENABLE_TRADE_MANAGEMENT ? "ENABLED" : "DISABLED");
+      if(ENABLE_TRADE_MANAGEMENT)
+      {
+         if(ENABLE_TRAILING_STOP)
+         {
+            string trailType = TRAIL_MODE == 1 ? "Fixed" : (TRAIL_MODE == 2 ? "ATR-based" : "Breakeven+Trail");
+            Print("  Trailing Stop: ", trailType);
+            Print("  Trail Start: ", TRAIL_START_PIPS, " pips | Distance: ", TRAIL_DISTANCE_PIPS, " pips");
+         }
+         if(MOVE_TO_BREAKEVEN)
+            Print("  Breakeven: At ", BREAKEVEN_PIPS, " pips, lock ", BREAKEVEN_LOCK_PIPS, " pips");
+         if(ENABLE_MOMENTUM_MANAGEMENT)
+            Print("  Momentum: Close at RSI ", RSI_OVERBOUGHT, "/", RSI_OVERSOLD);
+         if(ENABLE_VOLUME_MANAGEMENT && CLOSE_ON_LOW_VOLUME)
+            Print("  Volume: Close if < ", VOLUME_DROP_PERCENT, "% avg");
+      }
    }
    Print("========================================");
    
@@ -157,6 +194,11 @@ void OnTick()
    if(ENABLE_AUTO_TRADING)
    {
       ManagePendingOrders();
+      
+      if(ENABLE_TRADE_MANAGEMENT)
+      {
+         ManageOpenTrades();
+      }
    }
 }
 
@@ -667,6 +709,236 @@ void PlacePendingOrder(double lots)
       Print("[AUTO-TRADE] PENDING ORDER FAILED! Error: ", tradeResult.retcode, " - ", GetRetcodeDescription(tradeResult.retcode));
       Print("[AUTO-TRADE] Will retry on next signal. NOT falling back to market order for safety.");
    }
+}
+
+//+------------------------------------------------------------------+
+//| Manage open trades - trailing stop, momentum, volume             |
+//+------------------------------------------------------------------+
+void ManageOpenTrades()
+{
+   double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+   // Calculate pip value based on broker digit precision
+   // 3 or 5 digit brokers use point*10, 2 or 4 digit use point
+   double pipValue = (_Digits == 3 || _Digits == 5) ? point * 10 : point;
+   
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket <= 0) continue;
+      
+      if(PositionGetInteger(POSITION_MAGIC) != MAGIC_NUMBER) continue;
+      if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+      
+      double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+      double currentSL = PositionGetDouble(POSITION_SL);
+      double currentTP = PositionGetDouble(POSITION_TP);
+      double positionVolume = PositionGetDouble(POSITION_VOLUME);
+      ENUM_POSITION_TYPE posType = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+      
+      double currentBid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+      double currentAsk = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+      double currentPrice = (posType == POSITION_TYPE_BUY) ? currentBid : currentAsk;
+      
+      // Calculate profit in pips
+      double profitPips = 0;
+      if(posType == POSITION_TYPE_BUY)
+         profitPips = (currentBid - openPrice) / pipValue;
+      else
+         profitPips = (openPrice - currentAsk) / pipValue;
+      
+      // 1. MOMENTUM MANAGEMENT - Check if momentum reversed
+      if(ENABLE_MOMENTUM_MANAGEMENT && CLOSE_ON_MOMENTUM_REVERSAL)
+      {
+         double rsi = GetCurrentRSI();
+         bool shouldClose = false;
+         string reason = "";
+         
+         if(posType == POSITION_TYPE_BUY && rsi >= RSI_OVERBOUGHT)
+         {
+            shouldClose = true;
+            reason = "RSI overbought (" + DoubleToString(rsi, 1) + ")";
+         }
+         else if(posType == POSITION_TYPE_SELL && rsi <= RSI_OVERSOLD)
+         {
+            shouldClose = true;
+            reason = "RSI oversold (" + DoubleToString(rsi, 1) + ")";
+         }
+         
+         // Also check MACD reversal
+         double macdMain, macdSignal;
+         GetCurrentMACD(macdMain, macdSignal);
+         
+         if(posType == POSITION_TYPE_BUY && macdMain < macdSignal && profitPips > 10)
+         {
+            shouldClose = true;
+            reason = "MACD bearish crossover";
+         }
+         else if(posType == POSITION_TYPE_SELL && macdMain > macdSignal && profitPips > 10)
+         {
+            shouldClose = true;
+            reason = "MACD bullish crossover";
+         }
+         
+         if(shouldClose && profitPips > 5) // Only close if in profit
+         {
+            Print("[TRADE-MGMT] Closing due to momentum: ", reason);
+            trade.PositionClose(ticket);
+            continue;
+         }
+      }
+      
+      // 2. VOLUME MANAGEMENT - Check if volume dropped
+      if(ENABLE_VOLUME_MANAGEMENT && CLOSE_ON_LOW_VOLUME)
+      {
+         double avgVolume = GetAverageVolume(20);
+         long currentVolume = iVolume(_Symbol, PERIOD_CURRENT, 0);
+         
+         if(avgVolume > 0 && currentVolume < avgVolume * (VOLUME_DROP_PERCENT / 100.0))
+         {
+            if(profitPips > 5) // Only close if in profit
+            {
+               Print("[TRADE-MGMT] Closing due to low volume: ", currentVolume, " < ", (int)(avgVolume * VOLUME_DROP_PERCENT / 100));
+               trade.PositionClose(ticket);
+               continue;
+            }
+         }
+      }
+      
+      // 3. BREAKEVEN - Move SL to breakeven
+      if(MOVE_TO_BREAKEVEN && profitPips >= BREAKEVEN_PIPS)
+      {
+         double newSL = 0;
+         if(posType == POSITION_TYPE_BUY)
+         {
+            newSL = NormalizeDouble(openPrice + (BREAKEVEN_LOCK_PIPS * pipValue), _Digits);
+            if(currentSL < newSL)
+            {
+               if(trade.PositionModify(ticket, newSL, currentTP))
+                  Print("[TRADE-MGMT] Moved to breakeven + ", BREAKEVEN_LOCK_PIPS, " pips");
+            }
+         }
+         else // SELL
+         {
+            newSL = NormalizeDouble(openPrice - (BREAKEVEN_LOCK_PIPS * pipValue), _Digits);
+            if(currentSL > newSL || currentSL == 0)
+            {
+               if(trade.PositionModify(ticket, newSL, currentTP))
+                  Print("[TRADE-MGMT] Moved to breakeven + ", BREAKEVEN_LOCK_PIPS, " pips");
+            }
+         }
+      }
+      
+      // 4. TRAILING STOP
+      if(ENABLE_TRAILING_STOP && profitPips >= TRAIL_START_PIPS)
+      {
+         double trailDistance = 0;
+         
+         // Calculate trail distance based on mode
+         if(TRAIL_MODE == 1) // Fixed
+         {
+            trailDistance = TRAIL_DISTANCE_PIPS * pipValue;
+         }
+         else if(TRAIL_MODE == 2) // ATR-based
+         {
+            double atr = GetCurrentATR();
+            trailDistance = atr * TRAIL_ATR_MULTIPLIER;
+         }
+         else if(TRAIL_MODE == 3) // Breakeven + Trail
+         {
+            trailDistance = TRAIL_DISTANCE_PIPS * pipValue;
+         }
+         
+         double newSL = 0;
+         if(posType == POSITION_TYPE_BUY)
+         {
+            newSL = NormalizeDouble(currentBid - trailDistance, _Digits);
+            if(newSL > currentSL && newSL > openPrice)
+            {
+               if(trade.PositionModify(ticket, newSL, currentTP))
+                  Print("[TRADE-MGMT] Trailing stop moved to ", newSL);
+            }
+         }
+         else // SELL
+         {
+            newSL = NormalizeDouble(currentAsk + trailDistance, _Digits);
+            if((newSL < currentSL || currentSL == 0) && newSL < openPrice)
+            {
+               if(trade.PositionModify(ticket, newSL, currentTP))
+                  Print("[TRADE-MGMT] Trailing stop moved to ", newSL);
+            }
+         }
+      }
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Get current RSI value                                            |
+//+------------------------------------------------------------------+
+double GetCurrentRSI()
+{
+   double rsi = 50; // Default neutral
+   int rsiHandle = iRSI(_Symbol, PERIOD_CURRENT, 14, PRICE_CLOSE);
+   if(rsiHandle != INVALID_HANDLE)
+   {
+      double rsiBuffer[];
+      ArraySetAsSeries(rsiBuffer, true);
+      if(CopyBuffer(rsiHandle, 0, 0, 1, rsiBuffer) > 0)
+         rsi = rsiBuffer[0];
+      IndicatorRelease(rsiHandle);
+   }
+   return rsi;
+}
+
+//+------------------------------------------------------------------+
+//| Get current MACD values                                          |
+//+------------------------------------------------------------------+
+void GetCurrentMACD(double &macdMain, double &macdSignal)
+{
+   macdMain = 0;
+   macdSignal = 0;
+   int macdHandle = iMACD(_Symbol, PERIOD_CURRENT, 12, 26, 9, PRICE_CLOSE);
+   if(macdHandle != INVALID_HANDLE)
+   {
+      double macdMainBuffer[], macdSignalBuffer[];
+      ArraySetAsSeries(macdMainBuffer, true);
+      ArraySetAsSeries(macdSignalBuffer, true);
+      if(CopyBuffer(macdHandle, 0, 0, 1, macdMainBuffer) > 0)
+         macdMain = macdMainBuffer[0];
+      if(CopyBuffer(macdHandle, 1, 0, 1, macdSignalBuffer) > 0)
+         macdSignal = macdSignalBuffer[0];
+      IndicatorRelease(macdHandle);
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Get current ATR value                                            |
+//+------------------------------------------------------------------+
+double GetCurrentATR()
+{
+   double atr = 0;
+   int atrHandle = iATR(_Symbol, PERIOD_CURRENT, 14);
+   if(atrHandle != INVALID_HANDLE)
+   {
+      double atrBuffer[];
+      ArraySetAsSeries(atrBuffer, true);
+      if(CopyBuffer(atrHandle, 0, 0, 1, atrBuffer) > 0)
+         atr = atrBuffer[0];
+      IndicatorRelease(atrHandle);
+   }
+   return atr;
+}
+
+//+------------------------------------------------------------------+
+//| Get average volume over N bars                                   |
+//+------------------------------------------------------------------+
+double GetAverageVolume(int bars)
+{
+   double totalVolume = 0;
+   for(int i = 1; i <= bars; i++)
+   {
+      totalVolume += (double)iVolume(_Symbol, PERIOD_CURRENT, i);
+   }
+   return bars > 0 ? totalVolume / bars : 0;
 }
 
 //+------------------------------------------------------------------+

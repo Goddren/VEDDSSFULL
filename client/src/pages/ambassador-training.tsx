@@ -292,7 +292,7 @@ const trainingModules: TrainingModule[] = [
         id: 'features-5',
         title: 'MT5 Chart Data EA for Live AI Refresh',
         content: [
-          'Chart Data EA (v3.40) sends live price data directly from MT5 to AI Trading Vault',
+          'Chart Data EA (v3.50) sends live price data directly from MT5 to AI Trading Vault',
           'Dedicated page at /mt5-chart-data with full setup guide, token generation, and EA download',
           'Multi-Timeframe Analysis: Collects data from M5, M15, H1, H4, D1, and W1 timeframes',
           'Sends OHLCV candle data plus technical indicators (RSI, MACD, ATR, Bollinger Bands, Moving Averages)',
@@ -325,6 +325,24 @@ const trainingModules: TrainingModule[] = [
           'Show the news alignment feature - "aligned" means news confirms your trade',
           'Demonstrate the high-impact alert system in your tutorials',
           'Explain the configurable settings: traders can customize how aggressive the news filtering is'
+        ]
+      },
+      {
+        id: 'features-7',
+        title: 'Active Trade Management (v3.50)',
+        content: [
+          'NEW in v3.50: EA actively manages open trades based on momentum, volume, and trailing stops',
+          'TRAILING STOP: 3 modes available - Fixed pips, ATR-based (adapts to volatility), or Breakeven+Trail',
+          'BREAKEVEN: Auto-moves stop loss to entry + lock pips once profit target is reached',
+          'MOMENTUM EXITS: Closes trades when RSI hits overbought/oversold or MACD reverses',
+          'VOLUME MANAGEMENT: Optionally close trades when market volume drops significantly',
+          'All settings fully configurable - traders can enable/disable each feature individually'
+        ],
+        tips: [
+          'Highlight how trailing stops automatically lock in profits as trades move favorably',
+          'Explain ATR-based trailing adapts to market volatility - wider stops in volatile markets',
+          'Show momentum exits help avoid giving back profits when markets reverse',
+          'Emphasize this is like having a professional trade manager watching 24/7'
         ]
       }
     ]

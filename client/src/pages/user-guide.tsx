@@ -141,7 +141,7 @@ const guideSections: GuideSection[] = [
         steps: [
           'Visit the dedicated MT5 Chart Data EA page at /mt5-chart-data for full setup',
           'Create an API token on the page (or use existing one from Trade Copier)',
-          'Download the Chart Data EA (v3.40) and install in MT5: File → Open Data Folder → MQL5 → Experts',
+          'Download the Chart Data EA (v3.50) and install in MT5: File → Open Data Folder → MQL5 → Experts',
           'Enable WebRequest: Tools → Options → Expert Advisors → Allow WebRequest',
           'Configure the EA with your API URL and token, then attach to any chart',
           'Enable Multi-Timeframe Analysis for M5, M15, H1, H4, D1, and W1 data collection',
@@ -164,6 +164,24 @@ const guideSections: GuideSection[] = [
           '  • Set a minimum news score threshold'
         ],
         tips: ['News-aware trading helps avoid getting caught by surprise announcements', 'High-impact news warnings are shown on your MT5 chart', 'Check the Experts tab in MT5 for detailed news analysis']
+      },
+      {
+        heading: 'Active Trade Management',
+        steps: [
+          'The EA (v3.50) now actively manages open trades based on market conditions',
+          'TRAILING STOP OPTIONS: Choose from 3 modes:',
+          '  • Fixed: Trail by a set number of pips (default 15 pips)',
+          '  • ATR-based: Trail using ATR multiplier for volatility-adjusted stops',
+          '  • Breakeven + Trail: Move to breakeven first, then trail from there',
+          'BREAKEVEN: Automatically move stop loss to entry + lock pips when in profit',
+          'MOMENTUM MANAGEMENT: EA monitors RSI and MACD in real-time',
+          '  • Closes long trades when RSI hits overbought (70+)',
+          '  • Closes short trades when RSI hits oversold (30-)',
+          '  • Detects MACD crossover reversals and exits in profit',
+          'VOLUME MANAGEMENT: Optionally close trades when market volume drops',
+          'All settings are configurable in the EA input parameters'
+        ],
+        tips: ['Start with conservative settings: 20 pip trail start, 15 pip distance', 'ATR-based trailing adapts to market volatility automatically', 'Momentum exits help lock in profits before reversals']
       }
     ]
   },
