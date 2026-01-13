@@ -292,7 +292,7 @@ const trainingModules: TrainingModule[] = [
         id: 'features-5',
         title: 'MT5 Chart Data EA for Live AI Refresh',
         content: [
-          'NEW: Chart Data EA (v3.20) sends live price data directly from MT5 to AI Trading Vault',
+          'Chart Data EA (v3.40) sends live price data directly from MT5 to AI Trading Vault',
           'Dedicated page at /mt5-chart-data with full setup guide, token generation, and EA download',
           'Multi-Timeframe Analysis: Collects data from M5, M15, H1, H4, D1, and W1 timeframes',
           'Sends OHLCV candle data plus technical indicators (RSI, MACD, ATR, Bollinger Bands, Moving Averages)',
@@ -307,6 +307,24 @@ const trainingModules: TrainingModule[] = [
           'Demo the setup process: visit page, create token, download EA, configure in MT5',
           'Show how timeframe alignment boosts confidence for stronger signals',
           'Explain M5 is great for scalpers, W1 is ideal for swing traders'
+        ]
+      },
+      {
+        id: 'features-6',
+        title: 'News-Aware Smart Trading',
+        content: [
+          'AI grades financial news in real-time: analyzes sentiment (bullish/bearish/neutral) with scores 0-100',
+          'News alignment detection: AI checks if news CONFIRMS or CONFLICTS with your technical signal',
+          'High-impact event alerts: NFP, FOMC, CPI, and other major events trigger warnings',
+          'Smart auto-trading rules: Block trades during high-impact news, skip conflicting signals, require news confirmation',
+          'Smart trade blocking: EA automatically skips trades when news conditions are unfavorable',
+          'All news analysis displayed in MT5 Experts tab and chart comments for full visibility'
+        ],
+        tips: [
+          'Emphasize how this protects traders from surprise news moves',
+          'Show the news alignment feature - "aligned" means news confirms your trade',
+          'Demonstrate the high-impact alert system in your tutorials',
+          'Explain the configurable settings: traders can customize how aggressive the news filtering is'
         ]
       }
     ]

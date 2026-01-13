@@ -141,7 +141,7 @@ const guideSections: GuideSection[] = [
         steps: [
           'Visit the dedicated MT5 Chart Data EA page at /mt5-chart-data for full setup',
           'Create an API token on the page (or use existing one from Trade Copier)',
-          'Download the Chart Data EA (v3.20) and install in MT5: File → Open Data Folder → MQL5 → Experts',
+          'Download the Chart Data EA (v3.40) and install in MT5: File → Open Data Folder → MQL5 → Experts',
           'Enable WebRequest: Tools → Options → Expert Advisors → Allow WebRequest',
           'Configure the EA with your API URL and token, then attach to any chart',
           'Enable Multi-Timeframe Analysis for M5, M15, H1, H4, D1, and W1 data collection',
@@ -149,6 +149,21 @@ const guideSections: GuideSection[] = [
           'When 60%+ of timeframes align, AI confidence gets a +10% boost!'
         ],
         tips: ['Enable Multi-Timeframe for stronger signals', 'M5 and W1 are ideal for scalping and swing trading respectively', 'Visit /mt5-chart-data for the complete setup guide']
+      },
+      {
+        heading: 'News-Aware Smart Trading',
+        steps: [
+          'The AI grades financial news in real-time using sentiment analysis (bullish/bearish/neutral)',
+          'Each news batch receives a score from 0-100 indicating strength of sentiment',
+          'The AI checks if news ALIGNS with or CONFLICTS with your technical signal',
+          'High-impact economic events (NFP, FOMC, etc.) are detected and flagged',
+          'When auto-trading is enabled, you can configure news-aware trading rules:',
+          '  • Block trades during high-impact news events',
+          '  • Skip trades when news conflicts with your signal',
+          '  • Only trade when news confirms your signal direction',
+          '  • Set a minimum news score threshold'
+        ],
+        tips: ['News-aware trading helps avoid getting caught by surprise announcements', 'High-impact news warnings are shown on your MT5 chart', 'Check the Experts tab in MT5 for detailed news analysis']
       }
     ]
   },

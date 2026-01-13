@@ -305,11 +305,11 @@ export default function SubscriptionPage() {
               <p className="text-xs text-muted-foreground">Auto re-analysis on change</p>
             </div>
           </div>
-          <div className="flex items-start gap-2 p-3 bg-background rounded-lg">
-            <Check className="h-5 w-5 text-green-500 flex-shrink-0 mt-0.5" />
+          <div className="flex items-start gap-2 p-3 bg-background rounded-lg border-2 border-amber-500">
+            <Check className="h-5 w-5 text-amber-500 flex-shrink-0 mt-0.5" />
             <div>
-              <p className="font-medium text-sm">News Sentiment</p>
-              <p className="text-xs text-muted-foreground">Real-time market news</p>
+              <p className="font-medium text-sm text-amber-600 dark:text-amber-400">News-Smart Trading</p>
+              <p className="text-xs text-muted-foreground">AI grades news, blocks bad trades</p>
             </div>
           </div>
           <div className="flex items-start gap-2 p-3 bg-background rounded-lg">
