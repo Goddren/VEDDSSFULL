@@ -141,34 +141,72 @@ const guideSections: GuideSection[] = [
         steps: [
           'Visit the dedicated MT5 Chart Data EA page at /mt5-chart-data for full setup',
           'Create an API token on the page (or use existing one from Trade Copier)',
-          'Download the Chart Data EA (v3.50) and install in MT5: File → Open Data Folder → MQL5 → Experts',
+          'Download the Chart Data EA (v3.60) and install in MT5: File → Open Data Folder → MQL5 → Experts',
           'Enable WebRequest: Tools → Options → Expert Advisors → Allow WebRequest',
           'Configure the EA with your API URL and token, then attach to any chart',
           'Enable Multi-Timeframe Analysis for M5, M15, H1, H4, D1, and W1 data collection',
           'The EA sends live OHLCV data and indicators every 60 seconds',
-          'When 60%+ of timeframes align, AI confidence gets a +10% boost!'
+          'When 60%+ of timeframes align, AI confidence gets a +10% boost!',
+          'View Connected Pairs on the Dashboard sidebar to monitor all active MT5 connections'
         ],
-        tips: ['Enable Multi-Timeframe for stronger signals', 'M5 and W1 are ideal for scalping and swing trading respectively', 'Visit /mt5-chart-data for the complete setup guide']
+        tips: ['Enable Multi-Timeframe for stronger signals', 'M5 and W1 are ideal for scalping and swing trading respectively', 'Visit /mt5-chart-data for the complete setup guide', 'Connected Pairs shows hourly breakout levels and volume data']
       },
       {
-        heading: 'News-Aware Smart Trading',
+        heading: 'Trading Hours Filter (UTC)',
         steps: [
-          'The AI grades financial news in real-time using sentiment analysis (bullish/bearish/neutral)',
-          'Each news batch receives a score from 0-100 indicating strength of sentiment',
-          'The AI checks if news ALIGNS with or CONFLICTS with your technical signal',
-          'High-impact economic events (NFP, FOMC, etc.) are detected and flagged',
-          'When auto-trading is enabled, you can configure news-aware trading rules:',
-          '  • Block trades during high-impact news events',
-          '  • Skip trades when news conflicts with your signal',
-          '  • Only trade when news confirms your signal direction',
-          '  • Set a minimum news score threshold'
+          'Enable "Use Trading Hours Filter" to restrict when the EA trades',
+          'Set Start and End hours in UTC (e.g., 8-20 for London/NY session overlap)',
+          'Configure which days of the week to allow trading (Sunday through Saturday)',
+          'The EA will only execute trades within your specified hours',
+          'Useful for avoiding low-liquidity overnight sessions'
         ],
-        tips: ['News-aware trading helps avoid getting caught by surprise announcements', 'High-impact news warnings are shown on your MT5 chart', 'Check the Experts tab in MT5 for detailed news analysis']
+        tips: ['UTC 8-20 covers both London and New York sessions', 'Disable Sunday and Saturday for Forex trading', 'Overnight sessions can be enabled for specific strategies']
+      },
+      {
+        heading: 'Allowed Chart Timeframes vs AI Analysis Timeframes',
+        steps: [
+          'ANALYZE_* settings control which timeframes send data to AI for analysis (M5, M15, H1, H4, D1, W1)',
+          'TRADE_ON_* settings control which chart timeframes are allowed to execute trades (M1 through W1)',
+          'Example: Analyze H1, H4, D1 for signals but only trade on M15 and M30 charts',
+          'This allows higher timeframe trend analysis while executing on lower timeframes',
+          'Separating these gives you full control over data collection vs execution'
+        ],
+        tips: ['Use higher timeframes for analysis (H1+) and lower timeframes for execution (M15-M30)', 'Disable M1 execution to avoid noise-based trades', 'W1 analysis is great for swing trading direction']
+      },
+      {
+        heading: 'News-Aware Smart Trading (Expanded)',
+        steps: [
+          'The EA has 4 categories of news filtering controls:',
+          '',
+          '📊 IMPACT LEVEL FILTERS:',
+          '  • Block on HIGH Impact News (NFP, FOMC - enabled by default)',
+          '  • Block on MEDIUM Impact News (optional)',
+          '  • Block on LOW Impact News (optional)',
+          '',
+          '⏰ TIMING SETTINGS:',
+          '  • Minutes BEFORE News to stop trading (default: 30 min)',
+          '  • Minutes AFTER News to resume trading (default: 15 min)',
+          '  • Close open trades before news (optional safety feature)',
+          '',
+          '📈 SENTIMENT SETTINGS:',
+          '  • Block on Conflicting Sentiment (news vs technical signal)',
+          '  • Require Aligned News (only trade when news confirms signal)',
+          '  • Min News Score (0-100 threshold)',
+          '',
+          '📅 EVENT TYPE FILTERS:',
+          '  • Block on NFP (Non-Farm Payrolls)',
+          '  • Block on FOMC/Fed Decisions',
+          '  • Block on CPI/Inflation Data',
+          '  • Block on GDP Releases',
+          '  • Block on Interest Rate Decisions',
+          '  • Block on Employment Data'
+        ],
+        tips: ['Start with HIGH impact blocking only, then add more as needed', 'The 30 min before / 15 min after timing works well for most traders', 'NFP and FOMC are the most market-moving events - keep those blocked', 'Check MT5 Experts tab to see news analysis in real-time']
       },
       {
         heading: 'Active Trade Management',
         steps: [
-          'The EA (v3.50) now actively manages open trades based on market conditions',
+          'The EA (v3.60) actively manages open trades based on market conditions',
           'TRAILING STOP OPTIONS: Choose from 3 modes:',
           '  • Fixed: Trail by a set number of pips (default 15 pips)',
           '  • ATR-based: Trail using ATR multiplier for volatility-adjusted stops',
@@ -182,6 +220,20 @@ const guideSections: GuideSection[] = [
           'All settings are configurable in the EA input parameters'
         ],
         tips: ['Start with conservative settings: 20 pip trail start, 15 pip distance', 'ATR-based trailing adapts to market volatility automatically', 'Momentum exits help lock in profits before reversals']
+      },
+      {
+        heading: 'Connected Pairs Display',
+        steps: [
+          'View all your active MT5 connections on the Dashboard sidebar',
+          'Each connected pair shows: Symbol, Current Price, Status (Live/Stale)',
+          'Hourly Breakout Levels: High and Low for the current hour',
+          'Volume Metrics: Current volume, Average volume, Volume ratio',
+          'HIGH VOL badge appears when volume is 1.5x above average',
+          'Broker info shows which MT5 account is connected',
+          'Also visible on the MT5 Chart Data page (/mt5-chart-data)',
+          'Data refreshes every 10 seconds while EA is connected'
+        ],
+        tips: ['Use breakout levels to identify intraday support/resistance', 'High volume often precedes significant price moves', 'Multiple pairs can connect simultaneously from different charts']
       }
     ]
   },
