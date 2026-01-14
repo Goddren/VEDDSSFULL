@@ -58,6 +58,19 @@ input int      PENDING_EXPIRY_HOURS = 4;          // Pending Order Expiry (hours
 input int      COOLDOWN_SECONDS = 300;            // Seconds Between Trades
 
 //+------------------------------------------------------------------+
+//|                *** ALLOWED TRADING TIMEFRAMES ***                |
+//+------------------------------------------------------------------+
+input string   _atf_header = "========== ALLOWED TRADING TIMEFRAMES =========="; // *** TRADING TIMEFRAMES ***
+input bool     TRADE_ON_M1 = false;               // Allow Trading on M1
+input bool     TRADE_ON_M5 = true;                // Allow Trading on M5
+input bool     TRADE_ON_M15 = true;               // Allow Trading on M15
+input bool     TRADE_ON_M30 = true;               // Allow Trading on M30
+input bool     TRADE_ON_H1 = true;                // Allow Trading on H1
+input bool     TRADE_ON_H4 = true;                // Allow Trading on H4
+input bool     TRADE_ON_D1 = false;               // Allow Trading on D1
+input bool     TRADE_ON_W1 = false;               // Allow Trading on W1
+
+//+------------------------------------------------------------------+
 //|                    *** NEWS FILTER ***                           |
 //+------------------------------------------------------------------+
 input string   _news_header = "========== NEWS FILTER =========="; // *** NEWS FILTER ***
@@ -210,6 +223,17 @@ int OnInit()
       Print("Min Understanding (Confidence): ", MIN_CONFIDENCE, "%");
       Print("Max Ciphers Open: ", MAX_OPEN_TRADES);
       Print("Pending Wisdom: ", ENABLE_PENDING_ORDERS ? "YES" : "NO");
+      Print("----------------------------------------");
+      string allowedTF = "";
+      if(TRADE_ON_M1) allowedTF += "M1 ";
+      if(TRADE_ON_M5) allowedTF += "M5 ";
+      if(TRADE_ON_M15) allowedTF += "M15 ";
+      if(TRADE_ON_M30) allowedTF += "M30 ";
+      if(TRADE_ON_H1) allowedTF += "H1 ";
+      if(TRADE_ON_H4) allowedTF += "H4 ";
+      if(TRADE_ON_D1) allowedTF += "D1 ";
+      if(TRADE_ON_W1) allowedTF += "W1 ";
+      Print("ALLOWED TRADING TIMEFRAMES: ", allowedTF);
       Print("----------------------------------------");
       Print("NEWS WISDOM (News-Aware): ", NEWS_AWARE_TRADING ? "ACTIVE" : "OFF");
       if(NEWS_AWARE_TRADING)
@@ -591,10 +615,38 @@ bool ShouldAutoTradeWithNews(string &reason)
 }
 
 //+------------------------------------------------------------------+
+//| Check if current timeframe is allowed for trading                 |
+//+------------------------------------------------------------------+
+bool IsTimeframeAllowed()
+{
+   ENUM_TIMEFRAMES tf = Period();
+   
+   switch(tf)
+   {
+      case PERIOD_M1:  return TRADE_ON_M1;
+      case PERIOD_M5:  return TRADE_ON_M5;
+      case PERIOD_M15: return TRADE_ON_M15;
+      case PERIOD_M30: return TRADE_ON_M30;
+      case PERIOD_H1:  return TRADE_ON_H1;
+      case PERIOD_H4:  return TRADE_ON_H4;
+      case PERIOD_D1:  return TRADE_ON_D1;
+      case PERIOD_W1:  return TRADE_ON_W1;
+      default:         return true;  // Allow other timeframes by default
+   }
+}
+
+//+------------------------------------------------------------------+
 //| Process auto-trade based on signal                               |
 //+------------------------------------------------------------------+
 void ProcessAutoTrade()
 {
+   // TIMEFRAME CHECK - Only trade on allowed timeframes
+   if(!IsTimeframeAllowed())
+   {
+      Print("[BUILD] Timeframe ", EnumToString(Period()), " not allowed for trading. Skipping.");
+      return;
+   }
+   
    if(lastConfidence < MIN_CONFIDENCE)
    {
       Print("[BUILD] Understanding too low (", lastConfidence, "% < ", MIN_CONFIDENCE, "%). Can't BUILD yet.");
