@@ -48,6 +48,7 @@ import StreakTrackerPage from "@/pages/streak-tracker";
 import WhatIfAnalysisPage from "@/pages/what-if-analysis";
 import WebhooksPage from "@/pages/webhooks";
 import MT5ChartDataPage from "@/pages/mt5-chart-data";
+import NotificationSettings from "@/pages/notification-settings";
 import StreakBanner from "@/components/StreakBanner";
 import { MobileFAB } from "@/components/mobile-fab";
 import { NetworkStatus } from "@/components/network-status";
@@ -130,6 +131,7 @@ function AppLayout() {
             <ProtectedRoute path="/what-if" component={WhatIfAnalysisPage} />
             <ProtectedRoute path="/webhooks" component={WebhooksPage} />
             <ProtectedRoute path="/mt5-chart-data" component={MT5ChartDataPage} />
+            <ProtectedRoute path="/notification-settings" component={NotificationSettings} />
             
             <Route component={NotFound} />
           </Switch>

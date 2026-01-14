@@ -390,7 +390,7 @@ const guideSections: GuideSection[] = [
     id: 'mobile-features',
     title: 'Mobile Features',
     icon: Bell,
-    description: 'Trade on the go with mobile alerts',
+    description: 'Trade on the go with mobile alerts and gesture controls',
     content: [
       {
         heading: 'Mobile Alerts',
@@ -402,12 +402,63 @@ const guideSections: GuideSection[] = [
         ]
       },
       {
+        heading: 'Push Notification Settings',
+        steps: [
+          'Go to /notification-settings to customize your alerts',
+          'Enable/disable specific notification types:',
+          '  • Price Alerts - when targets are hit',
+          '  • Analysis Complete - when AI finishes',
+          '  • Trade Signals - real-time opportunities',
+          '  • News Alerts - high-impact market news',
+          'Set Quiet Hours to mute notifications at night',
+          'Enable/disable sound and vibration separately',
+          'Test notifications to verify they work'
+        ],
+        tips: ['Long-press the Alerts button in the FAB menu to quickly access settings', 'Enable Daily Digest for a summary of your trading activity']
+      },
+      {
+        heading: 'Gesture Controls',
+        steps: [
+          'FLOATING ACTION BUTTON (FAB):',
+          '  • Tap the + button to open quick actions menu',
+          '  • Drag the FAB to reposition it on screen',
+          '  • Long-press "Alerts" to go directly to notification settings',
+          '',
+          'SWIPE GESTURES:',
+          '  • Swipe LEFT on alert cards to reveal DELETE action',
+          '  • Swipe RIGHT on alert cards to reveal ARCHIVE action',
+          '  • Tap the revealed action button or swipe further to confirm',
+          '',
+          'PULL TO REFRESH:',
+          '  • Pull down at the top of lists to refresh data',
+          '  • Release when the arrow flips to trigger refresh',
+          '',
+          'CHART VIEWER GESTURES:',
+          '  • Pinch to zoom in/out on chart images',
+          '  • Drag to pan when zoomed in',
+          '  • Double-tap to reset zoom level'
+        ],
+        tips: ['Haptic feedback confirms your gestures on supported devices', 'All gestures work on mobile browsers and installed PWA']
+      },
+      {
+        heading: 'Install as App (PWA)',
+        steps: [
+          'VEDD AI can be installed as a native-like app on your device',
+          'On iOS: Tap Share → Add to Home Screen',
+          'On Android: Tap the browser menu → Install App or Add to Home Screen',
+          'The installed app works offline and loads faster',
+          'Push notifications work best when installed as an app'
+        ],
+        tips: ['The PWA install prompt appears automatically on Android Chrome', 'You can check PWA status on the Notification Settings page']
+      },
+      {
         heading: 'Mobile-Friendly Design',
         steps: [
           'Access all features from your mobile browser',
-          'Touch-optimized chart viewing',
-          'Quick-access floating action button',
-          'Responsive design for all screen sizes'
+          'Touch-optimized chart viewing with pinch-to-zoom',
+          'Quick-access floating action button (draggable)',
+          'Responsive design for all screen sizes',
+          'Offline support for basic features'
         ]
       }
     ]

@@ -99,9 +99,17 @@ self.addEventListener('push', (event) => {
     icon: '/icons/icon-192x192.png',
     badge: '/icons/icon-96x96.png',
     vibrate: [200, 100, 200],
+    tag: 'vedd-alert',
+    renotify: true,
+    requireInteraction: false,
     data: {
-      url: '/mobile-alerts'
-    }
+      url: '/mobile-alerts',
+      type: 'alert'
+    },
+    actions: [
+      { action: 'view', title: 'View Details' },
+      { action: 'dismiss', title: 'Dismiss' }
+    ]
   };
 
   if (event.data) {
@@ -109,8 +117,35 @@ self.addEventListener('push', (event) => {
       const data = event.data.json();
       notificationData = {
         ...notificationData,
-        ...data
+        ...data,
+        data: { ...notificationData.data, ...data.data }
       };
+      
+      if (data.type === 'price_alert') {
+        notificationData.tag = 'vedd-price-alert';
+        notificationData.vibrate = [300, 100, 300, 100, 300];
+        notificationData.requireInteraction = true;
+      } else if (data.type === 'analysis_complete') {
+        notificationData.tag = 'vedd-analysis';
+        notificationData.actions = [
+          { action: 'view', title: 'View Analysis' },
+          { action: 'share', title: 'Share' }
+        ];
+      } else if (data.type === 'trade_signal') {
+        notificationData.tag = 'vedd-trade-signal';
+        notificationData.vibrate = [500, 200, 500];
+        notificationData.requireInteraction = true;
+        notificationData.actions = [
+          { action: 'trade', title: 'Open Trade' },
+          { action: 'view', title: 'View Details' }
+        ];
+      } else if (data.type === 'news_alert') {
+        notificationData.tag = 'vedd-news';
+        notificationData.actions = [
+          { action: 'view', title: 'Read News' },
+          { action: 'dismiss', title: 'Dismiss' }
+        ];
+      }
     } catch (e) {
       notificationData.body = event.data.text();
     }
@@ -123,22 +158,55 @@ self.addEventListener('push', (event) => {
 
 // Notification click event
 self.addEventListener('notificationclick', (event) => {
-  console.log('Service Worker: Notification clicked', event);
+  console.log('Service Worker: Notification clicked', event.action);
   event.notification.close();
 
-  const urlToOpen = event.notification.data?.url || '/mobile-alerts';
+  if (event.action === 'dismiss') {
+    return;
+  }
+
+  let urlToOpen = event.notification.data?.url || '/mobile-alerts';
+  const notificationType = event.notification.data?.type;
+  const notificationId = event.notification.data?.id;
+
+  if (event.action === 'trade' && notificationType === 'trade_signal') {
+    urlToOpen = '/dashboard';
+  } else if (event.action === 'share' && notificationType === 'analysis_complete') {
+    urlToOpen = notificationId ? `/analysis/${notificationId}?share=true` : '/analysis';
+  } else if (event.action === 'view') {
+    switch (notificationType) {
+      case 'price_alert':
+        urlToOpen = '/mobile-alerts';
+        break;
+      case 'analysis_complete':
+        urlToOpen = notificationId ? `/analysis/${notificationId}` : '/analysis';
+        break;
+      case 'trade_signal':
+        urlToOpen = '/dashboard';
+        break;
+      case 'news_alert':
+        urlToOpen = '/news';
+        break;
+      default:
+        urlToOpen = event.notification.data?.url || '/mobile-alerts';
+    }
+  }
 
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true })
       .then((clientList) => {
-        // Check if there's already a window open
         for (let i = 0; i < clientList.length; i++) {
           const client = clientList[i];
-          if (client.url.includes(urlToOpen) && 'focus' in client) {
+          if ('focus' in client) {
+            const clientUrl = new URL(client.url);
+            const targetUrl = new URL(urlToOpen, self.location.origin);
+            
+            if (clientUrl.pathname !== targetUrl.pathname) {
+              client.navigate(urlToOpen);
+            }
             return client.focus();
           }
         }
-        // Open new window
         if (clients.openWindow) {
           return clients.openWindow(urlToOpen);
         }
