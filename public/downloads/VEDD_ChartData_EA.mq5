@@ -90,10 +90,33 @@ input bool     TRADE_ON_W1 = false;               // Allow Trading on W1 Chart
 //+------------------------------------------------------------------+
 input string   _news_header = "========== NEWS FILTER =========="; // *** NEWS FILTER ***
 input bool     NEWS_AWARE_TRADING = true;         // Enable News-Aware Trading
-input bool     BLOCK_ON_HIGH_IMPACT = true;       // Block During High-Impact News
-input bool     BLOCK_ON_CONFLICTING_NEWS = true;  // Block on Conflicting News
+
+//--- News Impact Levels
+input string   _news_impact = "--- Impact Level Filters ---"; // -- Impact Filters --
+input bool     BLOCK_ON_HIGH_IMPACT = true;       // Block on HIGH Impact News
+input bool     BLOCK_ON_MEDIUM_IMPACT = false;    // Block on MEDIUM Impact News
+input bool     BLOCK_ON_LOW_IMPACT = false;       // Block on LOW Impact News
+
+//--- News Timing
+input string   _news_timing = "--- Timing Settings ---"; // -- Timing --
+input int      MINUTES_BEFORE_NEWS = 30;          // Stop Trading X Min BEFORE News
+input int      MINUTES_AFTER_NEWS = 15;           // Resume Trading X Min AFTER News
+input bool     CLOSE_TRADES_BEFORE_NEWS = false;  // Close Open Trades Before News
+
+//--- News Sentiment
+input string   _news_sentiment = "--- Sentiment Settings ---"; // -- Sentiment --
+input bool     BLOCK_ON_CONFLICTING_NEWS = true;  // Block on Conflicting Sentiment
 input bool     REQUIRE_ALIGNED_NEWS = false;      // Only Trade When News Aligns
 input int      MIN_NEWS_SCORE = 0;                // Min News Score (0-100, 0=Any)
+
+//--- Specific News Events
+input string   _news_events = "--- Event Type Filters ---"; // -- Event Types --
+input bool     BLOCK_ON_NFP = true;               // Block on Non-Farm Payrolls (NFP)
+input bool     BLOCK_ON_FOMC = true;              // Block on FOMC/Fed Decisions
+input bool     BLOCK_ON_CPI = true;               // Block on CPI/Inflation Data
+input bool     BLOCK_ON_GDP = false;              // Block on GDP Releases
+input bool     BLOCK_ON_INTEREST_RATE = true;     // Block on Interest Rate Decisions
+input bool     BLOCK_ON_EMPLOYMENT = false;       // Block on Employment Data
 
 //+------------------------------------------------------------------+
 //|                    *** TRAILING STOP ***                         |
@@ -265,13 +288,30 @@ int OnInit()
       if(TRADE_ON_W1) allowedTF += "W1 ";
       Print("ALLOWED CHART TIMEFRAMES: ", allowedTF);
       Print("----------------------------------------");
-      Print("NEWS WISDOM (News-Aware): ", NEWS_AWARE_TRADING ? "ACTIVE" : "OFF");
+      Print("NEWS FILTER: ", NEWS_AWARE_TRADING ? "ACTIVE" : "OFF");
       if(NEWS_AWARE_TRADING)
       {
-         Print("  Block High-Impact (Major Shakes): ", BLOCK_ON_HIGH_IMPACT ? "YES" : "NO");
-         Print("  Block Conflicting Wisdom: ", BLOCK_ON_CONFLICTING_NEWS ? "YES" : "NO");
-         Print("  Require Aligned Knowledge: ", REQUIRE_ALIGNED_NEWS ? "YES" : "NO");
-         if(MIN_NEWS_SCORE > 0) Print("  Min News Power: ", MIN_NEWS_SCORE);
+         Print("  [Impact Levels]");
+         Print("    Block HIGH Impact: ", BLOCK_ON_HIGH_IMPACT ? "YES" : "NO");
+         Print("    Block MEDIUM Impact: ", BLOCK_ON_MEDIUM_IMPACT ? "YES" : "NO");
+         Print("    Block LOW Impact: ", BLOCK_ON_LOW_IMPACT ? "YES" : "NO");
+         Print("  [Timing]");
+         Print("    Pause ", MINUTES_BEFORE_NEWS, " min BEFORE news");
+         Print("    Resume ", MINUTES_AFTER_NEWS, " min AFTER news");
+         Print("    Close trades before news: ", CLOSE_TRADES_BEFORE_NEWS ? "YES" : "NO");
+         Print("  [Sentiment]");
+         Print("    Block Conflicting: ", BLOCK_ON_CONFLICTING_NEWS ? "YES" : "NO");
+         Print("    Require Aligned: ", REQUIRE_ALIGNED_NEWS ? "YES" : "NO");
+         if(MIN_NEWS_SCORE > 0) Print("    Min Score: ", MIN_NEWS_SCORE);
+         Print("  [Blocked Events]");
+         string blocked = "";
+         if(BLOCK_ON_NFP) blocked += "NFP ";
+         if(BLOCK_ON_FOMC) blocked += "FOMC ";
+         if(BLOCK_ON_CPI) blocked += "CPI ";
+         if(BLOCK_ON_GDP) blocked += "GDP ";
+         if(BLOCK_ON_INTEREST_RATE) blocked += "RATES ";
+         if(BLOCK_ON_EMPLOYMENT) blocked += "JOBS ";
+         Print("    Events: ", blocked != "" ? blocked : "None");
       }
       Print("----------------------------------------");
       Print("TRADE REFINEMENT (Active Management): ", ENABLE_TRADE_MANAGEMENT ? "ACTIVE" : "OFF");
