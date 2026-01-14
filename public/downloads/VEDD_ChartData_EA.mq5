@@ -24,16 +24,16 @@ input bool     SHOW_CHART_COMMENT = true;         // Show Analysis on Chart
 input int      TIMEOUT = 15000;                   // Request Timeout (ms)
 
 //+------------------------------------------------------------------+
-//|                    *** TIMEFRAME ANALYSIS ***                    |
+//|              *** MULTI-TIMEFRAME AI ANALYSIS ***                 |
 //+------------------------------------------------------------------+
-input string   _tf_header = "========== TIMEFRAMES =========="; // *** TIMEFRAMES ***
-input bool     ENABLE_MULTI_TIMEFRAME = true;     // Enable Multi-Timeframe
-input bool     INCLUDE_M5 = false;                // Include M5 (Scalping)
-input bool     INCLUDE_M15 = true;                // Include M15 (Short-term)
-input bool     INCLUDE_H1 = true;                 // Include H1 (Intraday)
-input bool     INCLUDE_H4 = true;                 // Include H4 (Swing)
-input bool     INCLUDE_D1 = false;                // Include D1 (Daily)
-input bool     INCLUDE_W1 = false;                // Include W1 (Weekly)
+input string   _tf_header = "========== MULTI-TF AI ANALYSIS =========="; // *** AI ANALYSIS TFs ***
+input bool     ENABLE_MULTI_TIMEFRAME = true;     // Enable Multi-TF AI Analysis
+input bool     ANALYZE_M5 = false;                // Analyze M5 (Scalping)
+input bool     ANALYZE_M15 = true;                // Analyze M15 (Short-term)
+input bool     ANALYZE_H1 = true;                 // Analyze H1 (Intraday)
+input bool     ANALYZE_H4 = true;                 // Analyze H4 (Swing)
+input bool     ANALYZE_D1 = false;                // Analyze D1 (Daily)
+input bool     ANALYZE_W1 = false;                // Analyze W1 (Weekly)
 
 //+------------------------------------------------------------------+
 //|                    *** RISK MANAGEMENT ***                       |
@@ -222,13 +222,13 @@ int OnInit()
    if(ENABLE_MULTI_TIMEFRAME)
    {
       string tfList = "";
-      if(INCLUDE_M5) tfList += "M5 ";
-      if(INCLUDE_M15) tfList += "M15 ";
-      if(INCLUDE_H1) tfList += "H1 ";
-      if(INCLUDE_H4) tfList += "H4 ";
-      if(INCLUDE_D1) tfList += "D1 ";
-      if(INCLUDE_W1) tfList += "W1 ";
-      Print("Degrees of Time: ", tfList);
+      if(ANALYZE_M5) tfList += "M5 ";
+      if(ANALYZE_M15) tfList += "M15 ";
+      if(ANALYZE_H1) tfList += "H1 ";
+      if(ANALYZE_H4) tfList += "H4 ";
+      if(ANALYZE_D1) tfList += "D1 ";
+      if(ANALYZE_W1) tfList += "W1 ";
+      Print("AI Analysis Timeframes: ", tfList);
    }
    Print("----------------------------------------");
    Print("AUTO-BUILD (Auto-Trading): ", ENABLE_AUTO_TRADING ? "ACTIVE" : "OFF");
@@ -1878,42 +1878,42 @@ string BuildMultiTimeframeJson()
    bool first = true;
    
    // Build data for each enabled timeframe
-   if(INCLUDE_M5)
+   if(ANALYZE_M5)
    {
       if(!first) json += ",";
       json += "\"M5\":" + BuildTimeframeData(PERIOD_M5);
       first = false;
    }
    
-   if(INCLUDE_M15)
+   if(ANALYZE_M15)
    {
       if(!first) json += ",";
       json += "\"M15\":" + BuildTimeframeData(PERIOD_M15);
       first = false;
    }
    
-   if(INCLUDE_H1)
+   if(ANALYZE_H1)
    {
       if(!first) json += ",";
       json += "\"H1\":" + BuildTimeframeData(PERIOD_H1);
       first = false;
    }
    
-   if(INCLUDE_H4)
+   if(ANALYZE_H4)
    {
       if(!first) json += ",";
       json += "\"H4\":" + BuildTimeframeData(PERIOD_H4);
       first = false;
    }
    
-   if(INCLUDE_D1)
+   if(ANALYZE_D1)
    {
       if(!first) json += ",";
       json += "\"D1\":" + BuildTimeframeData(PERIOD_D1);
       first = false;
    }
    
-   if(INCLUDE_W1)
+   if(ANALYZE_W1)
    {
       if(!first) json += ",";
       json += "\"W1\":" + BuildTimeframeData(PERIOD_W1);
