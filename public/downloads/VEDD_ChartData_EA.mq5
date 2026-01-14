@@ -12,9 +12,9 @@
 #include <Trade\Trade.mqh>
 
 //+------------------------------------------------------------------+
-//| INPUT SECTION 1: CONNECTION (The Cipher Link)                   |
+//| SECTION 1: CONNECTION - Link to the Cipher                      |
 //+------------------------------------------------------------------+
-input group "═══ CONNECTION SETTINGS (Knowledge Link) ═══"
+input group "══════════ 1. CONNECTION ══════════"
 input string   API_URL = "https://your-app-url.replit.app/api/mt5/chart-data";  // Your AI Trading Vault URL (CHANGE THIS!)
 input string   API_TOKEN = "";                    // Your API Token from AI Trading Vault
 input int      CANDLES_TO_SEND = 50;              // Number of candles to send
@@ -24,110 +24,110 @@ input bool     SHOW_CHART_COMMENT = true;         // Show analysis on chart
 input int      TIMEOUT = 15000;                   // Request timeout (ms)
 
 //+------------------------------------------------------------------+
-//| INPUT SECTION 2: MULTI-TIMEFRAME (Understanding All Degrees)    |
+//| SECTION 2: TIMEFRAMES - Degrees of Knowledge                    |
 //+------------------------------------------------------------------+
-input group "═══ MULTI-TIMEFRAME (Understanding All Degrees) ═══"
-input bool     ENABLE_MULTI_TIMEFRAME = true;     // Enable Multi-Timeframe Analysis (Better AI!)
-input bool     INCLUDE_M5 = false;                // M5 (Scalpers - Quick Knowledge)
-input bool     INCLUDE_M15 = true;                // M15 (Short-term Wisdom)
-input bool     INCLUDE_H1 = true;                 // H1 (Intraday Power)
-input bool     INCLUDE_H4 = true;                 // H4 (Swing Culture)
-input bool     INCLUDE_D1 = false;                // D1 (Daily Understanding)
-input bool     INCLUDE_W1 = false;                // W1 (Weekly God View)
+input group "══════════ 2. TIMEFRAMES ══════════"
+input bool     ENABLE_MULTI_TIMEFRAME = true;     // Enable Multi-Timeframe Analysis
+input bool     INCLUDE_M5 = false;                // M5 (Scalping)
+input bool     INCLUDE_M15 = true;                // M15 (Short-term)
+input bool     INCLUDE_H1 = true;                 // H1 (Intraday)
+input bool     INCLUDE_H4 = true;                 // H4 (Swing)
+input bool     INCLUDE_D1 = false;                // D1 (Daily)
+input bool     INCLUDE_W1 = false;                // W1 (Weekly)
 
 //+------------------------------------------------------------------+
-//| INPUT SECTION 3: AUTO-TRADING (The Build)                       |
+//| SECTION 3: RISK MANAGEMENT - Protect Your Cipher                |
 //+------------------------------------------------------------------+
-input group "═══ AUTO-TRADING (The Build) ═══"
-input bool     ENABLE_AUTO_TRADING = false;       // Enable Auto-Trading (CAREFUL - Word is Bond!)
-input bool     ENABLE_PENDING_ORDERS = false;     // Use pending orders (Wisdom before entry)
-input double   LOT_SIZE = 0.01;                   // Fixed lot size (Power)
+input group "══════════ 3. RISK MANAGEMENT ══════════"
+input double   LOT_SIZE = 0.01;                   // Fixed lot size
 input bool     USE_RISK_PERCENT = false;          // Use risk % instead of fixed lot
 input double   RISK_PERCENT = 1.0;                // Risk per trade (% of balance)
-input int      MIN_CONFIDENCE = 70;               // Min Understanding % to trade
-input int      MAX_OPEN_TRADES = 1;               // Max ciphers open at once
-input double   DAILY_LOSS_LIMIT = 100.0;          // Daily Destroy limit ($) - 0 to disable
-input int      COOLDOWN_SECONDS = 300;            // Cooldown between builds (seconds)
-input int      PENDING_EXPIRY_HOURS = 4;          // Pending wisdom expiry (hours)
-input int      SLIPPAGE_POINTS = 30;              // Max slippage for market orders
-input int      MAGIC_NUMBER = 202501;             // Magic number (Cipher ID)
+input int      MAX_OPEN_TRADES = 1;               // Max positions open at once
+input double   DAILY_LOSS_LIMIT = 100.0;          // Daily loss limit ($) - 0 to disable
+input int      SLIPPAGE_POINTS = 30;              // Max slippage (points)
+input int      MAGIC_NUMBER = 202501;             // Magic number (Trade ID)
 
 //+------------------------------------------------------------------+
-//| INPUT SECTION 4: NEWS WISDOM (Word on the Street)               |
+//| SECTION 4: ENTRY SETTINGS - How to Enter the Market             |
 //+------------------------------------------------------------------+
-input group "═══ NEWS WISDOM (Word on the Street) ═══"
-input bool     NEWS_AWARE_TRADING = true;         // Enable news-aware trading (Knowledge Check)
-input bool     BLOCK_ON_HIGH_IMPACT = true;       // Block during high-impact (Major Shakes)
-input bool     BLOCK_ON_CONFLICTING_NEWS = true;  // Block when news conflicts
-input bool     REQUIRE_ALIGNED_NEWS = false;      // Only trade when news ALIGNS (Equality)
-input int      MIN_NEWS_SCORE = 0;                // Min news Power score (0-100, 0=any)
+input group "══════════ 4. ENTRY SETTINGS ══════════"
+input bool     ENABLE_AUTO_TRADING = false;       // Enable Auto-Trading (CAREFUL!)
+input int      MIN_CONFIDENCE = 70;               // Min AI confidence % to trade
+input bool     ENABLE_PENDING_ORDERS = false;     // Use pending orders at AI entry price
+input int      PENDING_EXPIRY_HOURS = 4;          // Pending order expiry (hours)
+input int      COOLDOWN_SECONDS = 300;            // Seconds between trades
 
 //+------------------------------------------------------------------+
-//| INPUT SECTION 5: TRAILING STOP (Lock the Cipher)                |
+//| SECTION 5: NEWS FILTER - Trade Around News Events               |
 //+------------------------------------------------------------------+
-input group "═══ TRAILING STOP (Lock the Cipher) ═══"
+input group "══════════ 5. NEWS FILTER ══════════"
+input bool     NEWS_AWARE_TRADING = true;         // Enable news-aware trading
+input bool     BLOCK_ON_HIGH_IMPACT = true;       // Block during high-impact news
+input bool     BLOCK_ON_CONFLICTING_NEWS = true;  // Block on conflicting news
+input bool     REQUIRE_ALIGNED_NEWS = false;      // Only trade when news aligns
+input int      MIN_NEWS_SCORE = 0;                // Min news score (0-100, 0=any)
+
+//+------------------------------------------------------------------+
+//| SECTION 6: EXIT - TRAILING STOP                                 |
+//+------------------------------------------------------------------+
+input group "══════════ 6. EXIT: TRAILING STOP ══════════"
 input bool     ENABLE_TRADE_MANAGEMENT = true;    // Enable active trade management
 input bool     ENABLE_TRAILING_STOP = true;       // Enable trailing stop
-input int      TRAIL_MODE = 1;                    // Mode: 1=Fixed, 2=ATR-Wisdom, 3=Breakeven+Trail
-input int      TRAIL_START_PIPS = 20;             // Start trailing after X pips BORN
-input int      TRAIL_DISTANCE_PIPS = 15;          // Trailing distance in pips
-input double   TRAIL_ATR_MULTIPLIER = 1.5;        // ATR multiplier (Mode 2 Wisdom)
+input int      TRAIL_MODE = 1;                    // Mode: 1=Fixed, 2=ATR-Based, 3=Breakeven+Trail
+input int      TRAIL_START_PIPS = 20;             // Start trailing after X pips profit
+input int      TRAIL_DISTANCE_PIPS = 15;          // Trailing distance (pips)
+input double   TRAIL_ATR_MULTIPLIER = 1.5;        // ATR multiplier (Mode 2 only)
 
 //+------------------------------------------------------------------+
-//| INPUT SECTION 6: BREAKEVEN (Secure the Equality)                |
+//| SECTION 7: EXIT - BREAKEVEN                                     |
 //+------------------------------------------------------------------+
-input group "═══ BREAKEVEN (Secure the Equality) ═══"
+input group "══════════ 7. EXIT: BREAKEVEN ══════════"
 input bool     MOVE_TO_BREAKEVEN = true;          // Move SL to breakeven at profit
-input int      BREAKEVEN_PIPS = 15;               // Move at X pips profit (Equality point)
+input int      BREAKEVEN_PIPS = 15;               // Move at X pips profit
 input int      BREAKEVEN_LOCK_PIPS = 2;           // Lock in X pips at breakeven
 
 //+------------------------------------------------------------------+
-//| INPUT SECTION 7: MOMENTUM (Energy Flow)                         |
+//| SECTION 8: EXIT - MOMENTUM & VOLUME                             |
 //+------------------------------------------------------------------+
-input group "═══ MOMENTUM (Energy Flow) ═══"
+input group "══════════ 8. EXIT: MOMENTUM & VOLUME ══════════"
 input bool     ENABLE_MOMENTUM_MANAGEMENT = true; // Manage trades by momentum
-input bool     CLOSE_ON_MOMENTUM_REVERSAL = true; // Close if momentum reverses (Power shift)
-input int      RSI_OVERBOUGHT = 70;               // RSI overbought (close longs - too much God)
-input int      RSI_OVERSOLD = 30;                 // RSI oversold (close shorts - too much Earth)
-
-//+------------------------------------------------------------------+
-//| INPUT SECTION 8: VOLUME (Power Check)                           |
-//+------------------------------------------------------------------+
-input group "═══ VOLUME (Power Check) ═══"
+input bool     CLOSE_ON_MOMENTUM_REVERSAL = true; // Close if momentum reverses
+input int      RSI_OVERBOUGHT = 70;               // RSI overbought (close longs)
+input int      RSI_OVERSOLD = 30;                 // RSI oversold (close shorts)
 input bool     ENABLE_VOLUME_MANAGEMENT = true;   // Manage trades by volume
-input bool     CLOSE_ON_LOW_VOLUME = false;       // Close if Power drops significantly
-input double   VOLUME_DROP_PERCENT = 50.0;        // Close if Power below X% of average
+input bool     CLOSE_ON_LOW_VOLUME = false;       // Close if volume drops
+input double   VOLUME_DROP_PERCENT = 50.0;        // Close if volume < X% of average
 
 //+------------------------------------------------------------------+
-//| INPUT SECTION 9: PYRAMIDING (Stack the Power)                   |
+//| SECTION 9: ADVANCED - PYRAMIDING (Add to Winners)               |
 //+------------------------------------------------------------------+
-input group "═══ PYRAMIDING (Stack the Power) ═══"
+input group "══════════ 9. ADVANCED: PYRAMIDING ══════════"
 input bool     ENABLE_PYRAMIDING = false;         // Enable pyramiding (add to winners)
-input int      PYRAMID_MAX_POSITIONS = 3;         // Max positions to stack (cipher count)
+input int      PYRAMID_MAX_POSITIONS = 3;         // Max positions to stack
 input int      PYRAMID_TRIGGER_PIPS = 30;         // Add position every X pips profit
-input double   PYRAMID_LOT_MULTIPLIER = 1.0;      // Lot multiplier for each add (1.0 = same size)
+input double   PYRAMID_LOT_MULTIPLIER = 1.0;      // Lot multiplier for each add
 input bool     PYRAMID_MOVE_SL = true;            // Move all SL to new entry on add
-input int      PYRAMID_MIN_CONFIDENCE = 65;       // Min confidence to add (Understanding check)
+input int      PYRAMID_MIN_CONFIDENCE = 65;       // Min AI confidence to add
 
 //+------------------------------------------------------------------+
-//| INPUT SECTION 10: GRID TRADING (The Matrix)                     |
+//| SECTION 10: ADVANCED - GRID TRADING                             |
 //+------------------------------------------------------------------+
-input group "═══ GRID TRADING (The Matrix) ═══"
-input bool     ENABLE_GRID = false;               // Enable grid trading (CAREFUL - many orders!)
-input int      GRID_LEVELS = 3;                   // Number of grid levels above/below
+input group "══════════ 10. ADVANCED: GRID TRADING ══════════"
+input bool     ENABLE_GRID = false;               // Enable grid trading (CAREFUL!)
+input int      GRID_LEVELS = 3;                   // Number of grid levels
 input int      GRID_SPACING_PIPS = 20;            // Pips between grid orders
 input double   GRID_LOT_SIZE = 0.01;              // Lot size per grid order
-input bool     GRID_HEDGE_MODE = false;           // Place orders both directions (hedge)
+input bool     GRID_HEDGE_MODE = false;           // Place orders both directions
 input int      GRID_TP_PIPS = 15;                 // Take profit per grid order
-input int      GRID_MAX_ORDERS = 6;               // Max total grid orders at once
+input int      GRID_MAX_ORDERS = 6;               // Max total grid orders
 
 //+------------------------------------------------------------------+
-//| INPUT SECTION 11: MARTINGALE (Double or Nothing)                |
+//| SECTION 11: ADVANCED - MARTINGALE (RISKY!)                      |
 //+------------------------------------------------------------------+
-input group "═══ MARTINGALE (Double or Nothing - RISKY!) ═══"
+input group "══════════ 11. ADVANCED: MARTINGALE ══════════"
 input bool     ENABLE_MARTINGALE = false;         // Enable martingale (VERY RISKY!)
 input double   MARTINGALE_MULTIPLIER = 2.0;       // Lot multiplier after loss
-input int      MARTINGALE_MAX_LEVEL = 3;          // Max martingale levels (safety limit)
+input int      MARTINGALE_MAX_LEVEL = 3;          // Max martingale levels
 input bool     MARTINGALE_RESET_ON_WIN = true;    // Reset to base lot after win
 
 //--- Global variables
