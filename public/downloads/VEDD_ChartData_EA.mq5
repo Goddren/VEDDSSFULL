@@ -11,10 +11,7 @@
 
 #include <Trade\Trade.mqh>
 
-//+------------------------------------------------------------------+
-//| SECTION 1: CONNECTION - Link to the Cipher                      |
-//+------------------------------------------------------------------+
-input group "══════════ 1. CONNECTION ══════════"
+//--- Input parameters - 1. CONNECTION
 input string   API_URL = "https://your-app-url.replit.app/api/mt5/chart-data";  // Your AI Trading Vault URL (CHANGE THIS!)
 input string   API_TOKEN = "";                    // Your API Token from AI Trading Vault
 input int      CANDLES_TO_SEND = 50;              // Number of candles to send
@@ -23,10 +20,7 @@ input bool     INCLUDE_INDICATORS = true;         // Include technical indicator
 input bool     SHOW_CHART_COMMENT = true;         // Show analysis on chart
 input int      TIMEOUT = 15000;                   // Request timeout (ms)
 
-//+------------------------------------------------------------------+
-//| SECTION 2: TIMEFRAMES - Degrees of Knowledge                    |
-//+------------------------------------------------------------------+
-input group "══════════ 2. TIMEFRAMES ══════════"
+//--- Input parameters - 2. TIMEFRAMES
 input bool     ENABLE_MULTI_TIMEFRAME = true;     // Enable Multi-Timeframe Analysis
 input bool     INCLUDE_M5 = false;                // M5 (Scalping)
 input bool     INCLUDE_M15 = true;                // M15 (Short-term)
@@ -35,10 +29,7 @@ input bool     INCLUDE_H4 = true;                 // H4 (Swing)
 input bool     INCLUDE_D1 = false;                // D1 (Daily)
 input bool     INCLUDE_W1 = false;                // W1 (Weekly)
 
-//+------------------------------------------------------------------+
-//| SECTION 3: RISK MANAGEMENT - Protect Your Cipher                |
-//+------------------------------------------------------------------+
-input group "══════════ 3. RISK MANAGEMENT ══════════"
+//--- Input parameters - 3. RISK MANAGEMENT
 input double   LOT_SIZE = 0.01;                   // Fixed lot size
 input bool     USE_RISK_PERCENT = false;          // Use risk % instead of fixed lot
 input double   RISK_PERCENT = 1.0;                // Risk per trade (% of balance)
@@ -47,30 +38,21 @@ input double   DAILY_LOSS_LIMIT = 100.0;          // Daily loss limit ($) - 0 to
 input int      SLIPPAGE_POINTS = 30;              // Max slippage (points)
 input int      MAGIC_NUMBER = 202501;             // Magic number (Trade ID)
 
-//+------------------------------------------------------------------+
-//| SECTION 4: ENTRY SETTINGS - How to Enter the Market             |
-//+------------------------------------------------------------------+
-input group "══════════ 4. ENTRY SETTINGS ══════════"
+//--- Input parameters - 4. ENTRY SETTINGS
 input bool     ENABLE_AUTO_TRADING = false;       // Enable Auto-Trading (CAREFUL!)
 input int      MIN_CONFIDENCE = 70;               // Min AI confidence % to trade
 input bool     ENABLE_PENDING_ORDERS = false;     // Use pending orders at AI entry price
 input int      PENDING_EXPIRY_HOURS = 4;          // Pending order expiry (hours)
 input int      COOLDOWN_SECONDS = 300;            // Seconds between trades
 
-//+------------------------------------------------------------------+
-//| SECTION 5: NEWS FILTER - Trade Around News Events               |
-//+------------------------------------------------------------------+
-input group "══════════ 5. NEWS FILTER ══════════"
+//--- Input parameters - 5. NEWS FILTER
 input bool     NEWS_AWARE_TRADING = true;         // Enable news-aware trading
 input bool     BLOCK_ON_HIGH_IMPACT = true;       // Block during high-impact news
 input bool     BLOCK_ON_CONFLICTING_NEWS = true;  // Block on conflicting news
 input bool     REQUIRE_ALIGNED_NEWS = false;      // Only trade when news aligns
 input int      MIN_NEWS_SCORE = 0;                // Min news score (0-100, 0=any)
 
-//+------------------------------------------------------------------+
-//| SECTION 6: EXIT - TRAILING STOP                                 |
-//+------------------------------------------------------------------+
-input group "══════════ 6. EXIT: TRAILING STOP ══════════"
+//--- Input parameters - 6. EXIT: TRAILING STOP
 input bool     ENABLE_TRADE_MANAGEMENT = true;    // Enable active trade management
 input bool     ENABLE_TRAILING_STOP = true;       // Enable trailing stop
 input int      TRAIL_MODE = 1;                    // Mode: 1=Fixed, 2=ATR-Based, 3=Breakeven+Trail
@@ -78,18 +60,12 @@ input int      TRAIL_START_PIPS = 20;             // Start trailing after X pips
 input int      TRAIL_DISTANCE_PIPS = 15;          // Trailing distance (pips)
 input double   TRAIL_ATR_MULTIPLIER = 1.5;        // ATR multiplier (Mode 2 only)
 
-//+------------------------------------------------------------------+
-//| SECTION 7: EXIT - BREAKEVEN                                     |
-//+------------------------------------------------------------------+
-input group "══════════ 7. EXIT: BREAKEVEN ══════════"
+//--- Input parameters - 7. EXIT: BREAKEVEN
 input bool     MOVE_TO_BREAKEVEN = true;          // Move SL to breakeven at profit
 input int      BREAKEVEN_PIPS = 15;               // Move at X pips profit
 input int      BREAKEVEN_LOCK_PIPS = 2;           // Lock in X pips at breakeven
 
-//+------------------------------------------------------------------+
-//| SECTION 8: EXIT - MOMENTUM & VOLUME                             |
-//+------------------------------------------------------------------+
-input group "══════════ 8. EXIT: MOMENTUM & VOLUME ══════════"
+//--- Input parameters - 8. EXIT: MOMENTUM & VOLUME
 input bool     ENABLE_MOMENTUM_MANAGEMENT = true; // Manage trades by momentum
 input bool     CLOSE_ON_MOMENTUM_REVERSAL = true; // Close if momentum reverses
 input int      RSI_OVERBOUGHT = 70;               // RSI overbought (close longs)
@@ -98,10 +74,7 @@ input bool     ENABLE_VOLUME_MANAGEMENT = true;   // Manage trades by volume
 input bool     CLOSE_ON_LOW_VOLUME = false;       // Close if volume drops
 input double   VOLUME_DROP_PERCENT = 50.0;        // Close if volume < X% of average
 
-//+------------------------------------------------------------------+
-//| SECTION 9: ADVANCED - PYRAMIDING (Add to Winners)               |
-//+------------------------------------------------------------------+
-input group "══════════ 9. ADVANCED: PYRAMIDING ══════════"
+//--- Input parameters - 9. ADVANCED: PYRAMIDING
 input bool     ENABLE_PYRAMIDING = false;         // Enable pyramiding (add to winners)
 input int      PYRAMID_MAX_POSITIONS = 3;         // Max positions to stack
 input int      PYRAMID_TRIGGER_PIPS = 30;         // Add position every X pips profit
@@ -109,10 +82,7 @@ input double   PYRAMID_LOT_MULTIPLIER = 1.0;      // Lot multiplier for each add
 input bool     PYRAMID_MOVE_SL = true;            // Move all SL to new entry on add
 input int      PYRAMID_MIN_CONFIDENCE = 65;       // Min AI confidence to add
 
-//+------------------------------------------------------------------+
-//| SECTION 10: ADVANCED - GRID TRADING                             |
-//+------------------------------------------------------------------+
-input group "══════════ 10. ADVANCED: GRID TRADING ══════════"
+//--- Input parameters - 10. ADVANCED: GRID TRADING
 input bool     ENABLE_GRID = false;               // Enable grid trading (CAREFUL!)
 input int      GRID_LEVELS = 3;                   // Number of grid levels
 input int      GRID_SPACING_PIPS = 20;            // Pips between grid orders
@@ -121,10 +91,7 @@ input bool     GRID_HEDGE_MODE = false;           // Place orders both direction
 input int      GRID_TP_PIPS = 15;                 // Take profit per grid order
 input int      GRID_MAX_ORDERS = 6;               // Max total grid orders
 
-//+------------------------------------------------------------------+
-//| SECTION 11: ADVANCED - MARTINGALE (RISKY!)                      |
-//+------------------------------------------------------------------+
-input group "══════════ 11. ADVANCED: MARTINGALE ══════════"
+//--- Input parameters - 11. ADVANCED: MARTINGALE (RISKY!)
 input bool     ENABLE_MARTINGALE = false;         // Enable martingale (VERY RISKY!)
 input double   MARTINGALE_MULTIPLIER = 2.0;       // Lot multiplier after loss
 input int      MARTINGALE_MAX_LEVEL = 3;          // Max martingale levels
