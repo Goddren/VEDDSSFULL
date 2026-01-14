@@ -4735,6 +4735,37 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         (global as any).mt5ConnectedPairs[token.userId] = {};
       }
       const pairKey = `${sanitizedSymbol}_${sanitizedTimeframe}`;
+      
+      // Calculate hourly breakout levels from candle data
+      // Find high/low for recent hourly period (last few candles depending on timeframe)
+      let hourlyHigh = candles[0]?.h || 0;
+      let hourlyLow = candles[0]?.l || Infinity;
+      let hourlyVolume = 0;
+      let avgVolume = 0;
+      
+      // Calculate candles per hour based on timeframe
+      const tfMinutes: Record<string, number> = {
+        'M1': 1, 'M5': 5, 'M15': 15, 'M30': 30, 'H1': 60, 'H4': 240, 'D1': 1440
+      };
+      const minutes = tfMinutes[sanitizedTimeframe] || 60;
+      const candlesPerHour = Math.max(1, Math.floor(60 / minutes));
+      
+      // Get hourly high/low/volume from recent candles
+      const hourlyCandles = candles.slice(0, Math.min(candlesPerHour, candles.length));
+      for (const candle of hourlyCandles) {
+        if (candle.h > hourlyHigh) hourlyHigh = candle.h;
+        if (candle.l < hourlyLow) hourlyLow = candle.l;
+        hourlyVolume += (candle.v || 0);
+      }
+      
+      // Calculate average volume from all candles
+      const totalVolume = candles.reduce((sum: number, c: any) => sum + (c.v || 0), 0);
+      avgVolume = candles.length > 0 ? totalVolume / candles.length : 0;
+      
+      // Determine if current volume is high relative to average
+      const volumeRatio = avgVolume > 0 ? hourlyVolume / (avgVolume * candlesPerHour) : 1;
+      const isHighVolume = volumeRatio > 1.5;
+      
       (global as any).mt5ConnectedPairs[token.userId][pairKey] = {
         symbol: sanitizedSymbol,
         timeframe: sanitizedTimeframe,
@@ -4744,6 +4775,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         latestPrice: candles[0]?.c || null,
         latestHigh: candles[0]?.h || null,
         latestLow: candles[0]?.l || null,
+        hourlyHigh: hourlyHigh !== 0 ? hourlyHigh : null,
+        hourlyLow: hourlyLow !== Infinity ? hourlyLow : null,
+        hourlyVolume: hourlyVolume,
+        avgVolume: avgVolume,
+        volumeRatio: volumeRatio,
+        isHighVolume: isHighVolume,
       };
       
       // Increment signal count for the token (tracking usage)
