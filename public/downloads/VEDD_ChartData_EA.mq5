@@ -58,17 +58,32 @@ input int      PENDING_EXPIRY_HOURS = 4;          // Pending Order Expiry (hours
 input int      COOLDOWN_SECONDS = 300;            // Seconds Between Trades
 
 //+------------------------------------------------------------------+
-//|                *** ALLOWED TRADING TIMEFRAMES ***                |
+//|                  *** TRADING HOURS (UTC) ***                     |
 //+------------------------------------------------------------------+
-input string   _atf_header = "========== ALLOWED TRADING TIMEFRAMES =========="; // *** TRADING TIMEFRAMES ***
-input bool     TRADE_ON_M1 = false;               // Allow Trading on M1
-input bool     TRADE_ON_M5 = true;                // Allow Trading on M5
-input bool     TRADE_ON_M15 = true;               // Allow Trading on M15
-input bool     TRADE_ON_M30 = true;               // Allow Trading on M30
-input bool     TRADE_ON_H1 = true;                // Allow Trading on H1
-input bool     TRADE_ON_H4 = true;                // Allow Trading on H4
-input bool     TRADE_ON_D1 = false;               // Allow Trading on D1
-input bool     TRADE_ON_W1 = false;               // Allow Trading on W1
+input string   _hours_header = "========== TRADING HOURS (UTC) =========="; // *** TRADING HOURS ***
+input bool     USE_TRADING_HOURS = true;          // Enable Trading Hours Filter
+input int      TRADE_START_HOUR = 8;              // Start Trading Hour (UTC) 0-23
+input int      TRADE_END_HOUR = 20;               // End Trading Hour (UTC) 0-23
+input bool     TRADE_ON_SUNDAY = false;           // Allow Trading on Sunday
+input bool     TRADE_ON_MONDAY = true;            // Allow Trading on Monday
+input bool     TRADE_ON_TUESDAY = true;           // Allow Trading on Tuesday
+input bool     TRADE_ON_WEDNESDAY = true;         // Allow Trading on Wednesday
+input bool     TRADE_ON_THURSDAY = true;          // Allow Trading on Thursday
+input bool     TRADE_ON_FRIDAY = true;            // Allow Trading on Friday
+input bool     TRADE_ON_SATURDAY = false;         // Allow Trading on Saturday
+
+//+------------------------------------------------------------------+
+//|                *** ALLOWED CHART TIMEFRAMES ***                  |
+//+------------------------------------------------------------------+
+input string   _atf_header = "========== ALLOWED CHART TIMEFRAMES =========="; // *** CHART TIMEFRAMES ***
+input bool     TRADE_ON_M1 = false;               // Allow Trading on M1 Chart
+input bool     TRADE_ON_M5 = true;                // Allow Trading on M5 Chart
+input bool     TRADE_ON_M15 = true;               // Allow Trading on M15 Chart
+input bool     TRADE_ON_M30 = true;               // Allow Trading on M30 Chart
+input bool     TRADE_ON_H1 = true;                // Allow Trading on H1 Chart
+input bool     TRADE_ON_H4 = true;                // Allow Trading on H4 Chart
+input bool     TRADE_ON_D1 = false;               // Allow Trading on D1 Chart
+input bool     TRADE_ON_W1 = false;               // Allow Trading on W1 Chart
 
 //+------------------------------------------------------------------+
 //|                    *** NEWS FILTER ***                           |
@@ -224,6 +239,21 @@ int OnInit()
       Print("Max Ciphers Open: ", MAX_OPEN_TRADES);
       Print("Pending Wisdom: ", ENABLE_PENDING_ORDERS ? "YES" : "NO");
       Print("----------------------------------------");
+      Print("TRADING HOURS (UTC): ", USE_TRADING_HOURS ? "ACTIVE" : "OFF (24/7)");
+      if(USE_TRADING_HOURS)
+      {
+         Print("  Hours: ", TRADE_START_HOUR, ":00 - ", TRADE_END_HOUR, ":00 UTC");
+         string days = "";
+         if(TRADE_ON_SUNDAY) days += "Sun ";
+         if(TRADE_ON_MONDAY) days += "Mon ";
+         if(TRADE_ON_TUESDAY) days += "Tue ";
+         if(TRADE_ON_WEDNESDAY) days += "Wed ";
+         if(TRADE_ON_THURSDAY) days += "Thu ";
+         if(TRADE_ON_FRIDAY) days += "Fri ";
+         if(TRADE_ON_SATURDAY) days += "Sat ";
+         Print("  Days: ", days);
+      }
+      Print("----------------------------------------");
       string allowedTF = "";
       if(TRADE_ON_M1) allowedTF += "M1 ";
       if(TRADE_ON_M5) allowedTF += "M5 ";
@@ -233,7 +263,7 @@ int OnInit()
       if(TRADE_ON_H4) allowedTF += "H4 ";
       if(TRADE_ON_D1) allowedTF += "D1 ";
       if(TRADE_ON_W1) allowedTF += "W1 ";
-      Print("ALLOWED TRADING TIMEFRAMES: ", allowedTF);
+      Print("ALLOWED CHART TIMEFRAMES: ", allowedTF);
       Print("----------------------------------------");
       Print("NEWS WISDOM (News-Aware): ", NEWS_AWARE_TRADING ? "ACTIVE" : "OFF");
       if(NEWS_AWARE_TRADING)
@@ -615,6 +645,48 @@ bool ShouldAutoTradeWithNews(string &reason)
 }
 
 //+------------------------------------------------------------------+
+//| Check if current UTC time is within trading hours                 |
+//+------------------------------------------------------------------+
+bool IsTradingHoursAllowed()
+{
+   if(!USE_TRADING_HOURS) return true;  // Trading hours filter disabled
+   
+   // Get current UTC time
+   datetime utcTime = TimeGMT();
+   MqlDateTime dt;
+   TimeToStruct(utcTime, dt);
+   
+   // Check day of week (0=Sunday, 1=Monday, ... 6=Saturday)
+   bool dayAllowed = false;
+   switch(dt.day_of_week)
+   {
+      case 0: dayAllowed = TRADE_ON_SUNDAY; break;
+      case 1: dayAllowed = TRADE_ON_MONDAY; break;
+      case 2: dayAllowed = TRADE_ON_TUESDAY; break;
+      case 3: dayAllowed = TRADE_ON_WEDNESDAY; break;
+      case 4: dayAllowed = TRADE_ON_THURSDAY; break;
+      case 5: dayAllowed = TRADE_ON_FRIDAY; break;
+      case 6: dayAllowed = TRADE_ON_SATURDAY; break;
+   }
+   
+   if(!dayAllowed) return false;
+   
+   // Check hour range (handles overnight sessions too)
+   int currentHour = dt.hour;
+   
+   if(TRADE_START_HOUR <= TRADE_END_HOUR)
+   {
+      // Normal range: e.g., 8 to 20
+      return (currentHour >= TRADE_START_HOUR && currentHour < TRADE_END_HOUR);
+   }
+   else
+   {
+      // Overnight range: e.g., 20 to 8 (trades from 20:00 to 07:59)
+      return (currentHour >= TRADE_START_HOUR || currentHour < TRADE_END_HOUR);
+   }
+}
+
+//+------------------------------------------------------------------+
 //| Check if current timeframe is allowed for trading                 |
 //+------------------------------------------------------------------+
 bool IsTimeframeAllowed()
@@ -640,6 +712,15 @@ bool IsTimeframeAllowed()
 //+------------------------------------------------------------------+
 void ProcessAutoTrade()
 {
+   // TRADING HOURS CHECK - Only trade during allowed UTC hours
+   if(!IsTradingHoursAllowed())
+   {
+      MqlDateTime dt;
+      TimeToStruct(TimeGMT(), dt);
+      Print("[BUILD] Outside trading hours. UTC: ", dt.hour, ":00 | Allowed: ", TRADE_START_HOUR, ":00 - ", TRADE_END_HOUR, ":00");
+      return;
+   }
+   
    // TIMEFRAME CHECK - Only trade on allowed timeframes
    if(!IsTimeframeAllowed())
    {
