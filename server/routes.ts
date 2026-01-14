@@ -4716,8 +4716,11 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       (global as any).mt5ChartDataCache = (global as any).mt5ChartDataCache || {};
       (global as any).mt5ChartDataCache[chartDataKey] = chartData;
       
-      // Track connection status per user for UI display
+      // Track connection status per user for UI display (track ALL connected pairs)
       (global as any).mt5ConnectionStatus = (global as any).mt5ConnectionStatus || {};
+      (global as any).mt5ConnectedPairs = (global as any).mt5ConnectedPairs || {};
+      
+      // Single status (backwards compatible)
       (global as any).mt5ConnectionStatus[token.userId] = {
         connected: true,
         lastSeen: new Date().toISOString(),
@@ -4725,6 +4728,22 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         timeframe: sanitizedTimeframe,
         broker: broker || 'Unknown',
         candleCount: candles.length,
+      };
+      
+      // Track ALL connected pairs per user
+      if (!(global as any).mt5ConnectedPairs[token.userId]) {
+        (global as any).mt5ConnectedPairs[token.userId] = {};
+      }
+      const pairKey = `${sanitizedSymbol}_${sanitizedTimeframe}`;
+      (global as any).mt5ConnectedPairs[token.userId][pairKey] = {
+        symbol: sanitizedSymbol,
+        timeframe: sanitizedTimeframe,
+        broker: broker || 'Unknown',
+        lastSeen: new Date().toISOString(),
+        candleCount: candles.length,
+        latestPrice: candles[0]?.c || null,
+        latestHigh: candles[0]?.h || null,
+        latestLow: candles[0]?.l || null,
       };
       
       // Increment signal count for the token (tracking usage)
@@ -5068,6 +5087,53 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       message: isActive 
         ? `Connected: ${status.symbol} ${status.timeframe} from ${status.broker}`
         : `Last seen ${Math.floor(secondsAgo / 60)} minutes ago`
+    });
+  });
+
+  // Get ALL connected MT5 pairs for the current user
+  app.get("/api/mt5/connected-pairs", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const userId = (req.user as User).id;
+    
+    const pairsCache = (global as any).mt5ConnectedPairs || {};
+    const userPairs = pairsCache[userId] || {};
+    
+    const now = new Date();
+    const activePairs: any[] = [];
+    const stalePairs: any[] = [];
+    
+    // Process each pair and check if it's active
+    for (const [key, pair] of Object.entries(userPairs)) {
+      const pairData = pair as any;
+      const lastSeen = new Date(pairData.lastSeen);
+      const secondsAgo = Math.floor((now.getTime() - lastSeen.getTime()) / 1000);
+      const isActive = secondsAgo < 300; // 5 minutes
+      
+      const pairInfo = {
+        ...pairData,
+        secondsAgo,
+        isActive,
+        status: isActive ? 'LIVE' : (secondsAgo < 900 ? 'STALE' : 'OFFLINE'),
+      };
+      
+      if (isActive) {
+        activePairs.push(pairInfo);
+      } else if (secondsAgo < 3600) { // Keep stale pairs for up to 1 hour
+        stalePairs.push(pairInfo);
+      }
+    }
+    
+    // Sort by last seen (most recent first)
+    activePairs.sort((a, b) => new Date(b.lastSeen).getTime() - new Date(a.lastSeen).getTime());
+    stalePairs.sort((a, b) => new Date(b.lastSeen).getTime() - new Date(a.lastSeen).getTime());
+    
+    res.json({
+      activePairs,
+      stalePairs,
+      totalActive: activePairs.length,
+      totalStale: stalePairs.length,
     });
   });
 

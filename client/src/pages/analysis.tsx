@@ -20,6 +20,7 @@ import { MarketCalendar } from '@/components/market/market-calendar';
 import { ChartInsightsPanel } from '@/components/market-insights/chart-insights-panel';
 import AnalysisStatusNotification from '@/components/ui/analysis-status-notification';
 import { trackAnalysisCompleted } from '@/lib/achievement-system';
+import { ConnectedPairs } from '@/components/mt5/connected-pairs';
 
 // Image compression utility
 interface CompressOptions {
@@ -661,6 +662,9 @@ const Analysis: React.FC = () => {
               </p>
             </CardContent>
           </Card>
+          
+          {/* MT5 Connected Pairs */}
+          <ConnectedPairs />
         </div>
 
         {/* Analysis Section */}
