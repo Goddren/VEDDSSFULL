@@ -28,6 +28,7 @@ import { getUserLevel } from '@/lib/achievement-system';
 import TradingCoach from '@/components/trading-coach/trading-coach';
 import { DailyWisdom } from '@/components/scripture/daily-wisdom';
 import { NewsFeed } from '@/components/news/news-feed';
+import { ConnectedPairs } from '@/components/mt5/connected-pairs';
 
 interface Analysis {
   id: number;
@@ -400,6 +401,11 @@ const Dashboard: React.FC = () => {
                 <DailyWisdom />
               </div>
             )}
+            
+            {/* MT5 Connected Pairs */}
+            <div className="mb-6">
+              <ConnectedPairs />
+            </div>
             
             {/* Market News Feed */}
             <div className="mb-6">

@@ -34,6 +34,7 @@ import {
   BookOpen
 } from "lucide-react";
 import { motion } from "framer-motion";
+import { ConnectedPairs } from "@/components/mt5/connected-pairs";
 
 type Mt5ApiToken = {
   id: number;
@@ -174,6 +175,9 @@ export default function MT5ChartDataPage() {
             )}
           </CardContent>
         </Card>
+
+        {/* Connected Pairs Display */}
+        <ConnectedPairs />
 
         <div className="grid lg:grid-cols-2 gap-6">
           <Card className="bg-gray-800/50 border-gray-700">
