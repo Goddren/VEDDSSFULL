@@ -108,6 +108,8 @@ input string   _news_sentiment = "--- Sentiment Settings ---"; // -- Sentiment -
 input bool     BLOCK_ON_CONFLICTING_NEWS = true;  // Block on Conflicting Sentiment
 input bool     REQUIRE_ALIGNED_NEWS = false;      // Only Trade When News Aligns
 input int      MIN_NEWS_SCORE = 0;                // Min News Score (0-100, 0=Any)
+input int      MIN_ABSOLUTE_SCORE = 0;            // Min Absolute Score (0-100, trades on extremes +/-)
+input bool     TRADE_ON_EXTREME_NEWS = false;     // Trade ONLY on Extreme News (+/- threshold)
 
 //--- Specific News Events
 input string   _news_events = "--- Event Type Filters ---"; // -- Event Types --
@@ -303,6 +305,8 @@ int OnInit()
          Print("    Block Conflicting: ", BLOCK_ON_CONFLICTING_NEWS ? "YES" : "NO");
          Print("    Require Aligned: ", REQUIRE_ALIGNED_NEWS ? "YES" : "NO");
          if(MIN_NEWS_SCORE > 0) Print("    Min Score: ", MIN_NEWS_SCORE);
+         if(MIN_ABSOLUTE_SCORE > 0) Print("    Min Absolute Score: ", MIN_ABSOLUTE_SCORE, " (trades on +/- extremes)");
+         if(TRADE_ON_EXTREME_NEWS) Print("    Trade On Extreme News: YES");
          Print("  [Blocked Events]");
          string blocked = "";
          if(BLOCK_ON_NFP) blocked += "NFP ";
@@ -667,11 +671,34 @@ bool ShouldAutoTradeWithNews(string &reason)
          return false;
       }
       
-      // Check minimum news score
+      // Check minimum news score (positive threshold)
       if(MIN_NEWS_SCORE > 0 && lastNewsScore < MIN_NEWS_SCORE)
       {
          reason = "News score " + IntegerToString(lastNewsScore) + " below minimum " + IntegerToString(MIN_NEWS_SCORE);
          return false;
+      }
+      
+      // Check minimum absolute score (trades on extreme sentiment in either direction)
+      if(MIN_ABSOLUTE_SCORE > 0)
+      {
+         int absScore = MathAbs(lastNewsScore);
+         if(absScore < MIN_ABSOLUTE_SCORE)
+         {
+            reason = "News score " + IntegerToString(lastNewsScore) + " not extreme enough (need +/-" + IntegerToString(MIN_ABSOLUTE_SCORE) + ")";
+            return false;
+         }
+      }
+      
+      // Trade ONLY on extreme news mode - requires significant sentiment
+      if(TRADE_ON_EXTREME_NEWS)
+      {
+         int threshold = (MIN_ABSOLUTE_SCORE > 0) ? MIN_ABSOLUTE_SCORE : 50; // Default 50 if not set
+         int absScore = MathAbs(lastNewsScore);
+         if(absScore < threshold)
+         {
+            reason = "Waiting for extreme news (current: " + IntegerToString(lastNewsScore) + ", need +/-" + IntegerToString(threshold) + ")";
+            return false;
+         }
       }
    }
    else if(REQUIRE_ALIGNED_NEWS)
