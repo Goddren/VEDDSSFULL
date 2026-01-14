@@ -11,91 +11,124 @@
 
 #include <Trade\Trade.mqh>
 
-//--- Input parameters - 1. CONNECTION
-input string   API_URL = "https://your-app-url.replit.app/api/mt5/chart-data";  // Your AI Trading Vault URL (CHANGE THIS!)
-input string   API_TOKEN = "";                    // Your API Token from AI Trading Vault
-input int      CANDLES_TO_SEND = 50;              // Number of candles to send
-input int      SEND_INTERVAL_SECONDS = 60;        // Send interval (seconds)
-input bool     INCLUDE_INDICATORS = true;         // Include technical indicators
-input bool     SHOW_CHART_COMMENT = true;         // Show analysis on chart
-input int      TIMEOUT = 15000;                   // Request timeout (ms)
+//+------------------------------------------------------------------+
+//|                    *** CONNECTION SETTINGS ***                   |
+//+------------------------------------------------------------------+
+input string   _conn_header = "========== API CONNECTION =========="; // *** CONNECTION ***
+input string   API_URL = "https://your-app-url.replit.app/api/mt5/chart-data";  // API URL (CHANGE THIS!)
+input string   API_TOKEN = "";                    // API Token from AI Trading Vault
+input int      CANDLES_TO_SEND = 50;              // Candles to Send
+input int      SEND_INTERVAL_SECONDS = 60;        // Send Interval (seconds)
+input bool     INCLUDE_INDICATORS = true;         // Include Technical Indicators
+input bool     SHOW_CHART_COMMENT = true;         // Show Analysis on Chart
+input int      TIMEOUT = 15000;                   // Request Timeout (ms)
 
-//--- Input parameters - 2. TIMEFRAMES
-input bool     ENABLE_MULTI_TIMEFRAME = true;     // Enable Multi-Timeframe Analysis
-input bool     INCLUDE_M5 = false;                // M5 (Scalping)
-input bool     INCLUDE_M15 = true;                // M15 (Short-term)
-input bool     INCLUDE_H1 = true;                 // H1 (Intraday)
-input bool     INCLUDE_H4 = true;                 // H4 (Swing)
-input bool     INCLUDE_D1 = false;                // D1 (Daily)
-input bool     INCLUDE_W1 = false;                // W1 (Weekly)
+//+------------------------------------------------------------------+
+//|                    *** TIMEFRAME ANALYSIS ***                    |
+//+------------------------------------------------------------------+
+input string   _tf_header = "========== TIMEFRAMES =========="; // *** TIMEFRAMES ***
+input bool     ENABLE_MULTI_TIMEFRAME = true;     // Enable Multi-Timeframe
+input bool     INCLUDE_M5 = false;                // Include M5 (Scalping)
+input bool     INCLUDE_M15 = true;                // Include M15 (Short-term)
+input bool     INCLUDE_H1 = true;                 // Include H1 (Intraday)
+input bool     INCLUDE_H4 = true;                 // Include H4 (Swing)
+input bool     INCLUDE_D1 = false;                // Include D1 (Daily)
+input bool     INCLUDE_W1 = false;                // Include W1 (Weekly)
 
-//--- Input parameters - 3. RISK MANAGEMENT
-input double   LOT_SIZE = 0.01;                   // Fixed lot size
-input bool     USE_RISK_PERCENT = false;          // Use risk % instead of fixed lot
-input double   RISK_PERCENT = 1.0;                // Risk per trade (% of balance)
-input int      MAX_OPEN_TRADES = 1;               // Max positions open at once
-input double   DAILY_LOSS_LIMIT = 100.0;          // Daily loss limit ($) - 0 to disable
-input int      SLIPPAGE_POINTS = 30;              // Max slippage (points)
-input int      MAGIC_NUMBER = 202501;             // Magic number (Trade ID)
+//+------------------------------------------------------------------+
+//|                    *** RISK MANAGEMENT ***                       |
+//+------------------------------------------------------------------+
+input string   _risk_header = "========== RISK MANAGEMENT =========="; // *** RISK MANAGEMENT ***
+input double   LOT_SIZE = 0.01;                   // Fixed Lot Size
+input bool     USE_RISK_PERCENT = false;          // Use Risk % Instead of Fixed Lot
+input double   RISK_PERCENT = 1.0;                // Risk Per Trade (% of Balance)
+input int      MAX_OPEN_TRADES = 1;               // Max Positions Open at Once
+input double   DAILY_LOSS_LIMIT = 100.0;          // Daily Loss Limit ($) - 0=Disable
+input int      SLIPPAGE_POINTS = 30;              // Max Slippage (points)
+input int      MAGIC_NUMBER = 202501;             // Magic Number (Trade ID)
 
-//--- Input parameters - 4. ENTRY SETTINGS
+//+------------------------------------------------------------------+
+//|                    *** ENTRY SETTINGS ***                        |
+//+------------------------------------------------------------------+
+input string   _entry_header = "========== ENTRY SETTINGS =========="; // *** ENTRY SETTINGS ***
 input bool     ENABLE_AUTO_TRADING = false;       // Enable Auto-Trading (CAREFUL!)
-input int      MIN_CONFIDENCE = 70;               // Min AI confidence % to trade
-input bool     ENABLE_PENDING_ORDERS = false;     // Use pending orders at AI entry price
-input int      PENDING_EXPIRY_HOURS = 4;          // Pending order expiry (hours)
-input int      COOLDOWN_SECONDS = 300;            // Seconds between trades
+input int      MIN_CONFIDENCE = 70;               // Min AI Confidence % to Trade
+input bool     ENABLE_PENDING_ORDERS = false;     // Use Pending Orders at AI Price
+input int      PENDING_EXPIRY_HOURS = 4;          // Pending Order Expiry (hours)
+input int      COOLDOWN_SECONDS = 300;            // Seconds Between Trades
 
-//--- Input parameters - 5. NEWS FILTER
-input bool     NEWS_AWARE_TRADING = true;         // Enable news-aware trading
-input bool     BLOCK_ON_HIGH_IMPACT = true;       // Block during high-impact news
-input bool     BLOCK_ON_CONFLICTING_NEWS = true;  // Block on conflicting news
-input bool     REQUIRE_ALIGNED_NEWS = false;      // Only trade when news aligns
-input int      MIN_NEWS_SCORE = 0;                // Min news score (0-100, 0=any)
+//+------------------------------------------------------------------+
+//|                    *** NEWS FILTER ***                           |
+//+------------------------------------------------------------------+
+input string   _news_header = "========== NEWS FILTER =========="; // *** NEWS FILTER ***
+input bool     NEWS_AWARE_TRADING = true;         // Enable News-Aware Trading
+input bool     BLOCK_ON_HIGH_IMPACT = true;       // Block During High-Impact News
+input bool     BLOCK_ON_CONFLICTING_NEWS = true;  // Block on Conflicting News
+input bool     REQUIRE_ALIGNED_NEWS = false;      // Only Trade When News Aligns
+input int      MIN_NEWS_SCORE = 0;                // Min News Score (0-100, 0=Any)
 
-//--- Input parameters - 6. EXIT: TRAILING STOP
-input bool     ENABLE_TRADE_MANAGEMENT = true;    // Enable active trade management
-input bool     ENABLE_TRAILING_STOP = true;       // Enable trailing stop
-input int      TRAIL_MODE = 1;                    // Mode: 1=Fixed, 2=ATR-Based, 3=Breakeven+Trail
-input int      TRAIL_START_PIPS = 20;             // Start trailing after X pips profit
-input int      TRAIL_DISTANCE_PIPS = 15;          // Trailing distance (pips)
-input double   TRAIL_ATR_MULTIPLIER = 1.5;        // ATR multiplier (Mode 2 only)
+//+------------------------------------------------------------------+
+//|                    *** TRAILING STOP ***                         |
+//+------------------------------------------------------------------+
+input string   _trail_header = "========== TRAILING STOP =========="; // *** TRAILING STOP ***
+input bool     ENABLE_TRADE_MANAGEMENT = true;    // Enable Trade Management
+input bool     ENABLE_TRAILING_STOP = true;       // Enable Trailing Stop
+input int      TRAIL_MODE = 1;                    // Trail Mode (1=Fixed, 2=ATR, 3=BE+Trail)
+input int      TRAIL_START_PIPS = 20;             // Start Trailing at X Pips Profit
+input int      TRAIL_DISTANCE_PIPS = 15;          // Trailing Distance (pips)
+input double   TRAIL_ATR_MULTIPLIER = 1.5;        // ATR Multiplier (Mode 2 Only)
 
-//--- Input parameters - 7. EXIT: BREAKEVEN
-input bool     MOVE_TO_BREAKEVEN = true;          // Move SL to breakeven at profit
-input int      BREAKEVEN_PIPS = 15;               // Move at X pips profit
-input int      BREAKEVEN_LOCK_PIPS = 2;           // Lock in X pips at breakeven
+//+------------------------------------------------------------------+
+//|                    *** BREAKEVEN ***                             |
+//+------------------------------------------------------------------+
+input string   _be_header = "========== BREAKEVEN =========="; // *** BREAKEVEN ***
+input bool     MOVE_TO_BREAKEVEN = true;          // Move SL to Breakeven
+input int      BREAKEVEN_PIPS = 15;               // Move at X Pips Profit
+input int      BREAKEVEN_LOCK_PIPS = 2;           // Lock in X Pips at Breakeven
 
-//--- Input parameters - 8. EXIT: MOMENTUM & VOLUME
-input bool     ENABLE_MOMENTUM_MANAGEMENT = true; // Manage trades by momentum
-input bool     CLOSE_ON_MOMENTUM_REVERSAL = true; // Close if momentum reverses
-input int      RSI_OVERBOUGHT = 70;               // RSI overbought (close longs)
-input int      RSI_OVERSOLD = 30;                 // RSI oversold (close shorts)
-input bool     ENABLE_VOLUME_MANAGEMENT = true;   // Manage trades by volume
-input bool     CLOSE_ON_LOW_VOLUME = false;       // Close if volume drops
-input double   VOLUME_DROP_PERCENT = 50.0;        // Close if volume < X% of average
+//+------------------------------------------------------------------+
+//|                 *** MOMENTUM & VOLUME EXIT ***                   |
+//+------------------------------------------------------------------+
+input string   _mom_header = "========== MOMENTUM & VOLUME EXIT =========="; // *** MOMENTUM & VOLUME ***
+input bool     ENABLE_MOMENTUM_MANAGEMENT = true; // Manage Trades by Momentum
+input bool     CLOSE_ON_MOMENTUM_REVERSAL = true; // Close if Momentum Reverses
+input int      RSI_OVERBOUGHT = 70;               // RSI Overbought Level (Close Longs)
+input int      RSI_OVERSOLD = 30;                 // RSI Oversold Level (Close Shorts)
+input bool     ENABLE_VOLUME_MANAGEMENT = true;   // Manage Trades by Volume
+input bool     CLOSE_ON_LOW_VOLUME = false;       // Close if Volume Drops
+input double   VOLUME_DROP_PERCENT = 50.0;        // Close if Volume < X% of Avg
 
-//--- Input parameters - 9. ADVANCED: PYRAMIDING
-input bool     ENABLE_PYRAMIDING = false;         // Enable pyramiding (add to winners)
-input int      PYRAMID_MAX_POSITIONS = 3;         // Max positions to stack
-input int      PYRAMID_TRIGGER_PIPS = 30;         // Add position every X pips profit
-input double   PYRAMID_LOT_MULTIPLIER = 1.0;      // Lot multiplier for each add
-input bool     PYRAMID_MOVE_SL = true;            // Move all SL to new entry on add
-input int      PYRAMID_MIN_CONFIDENCE = 65;       // Min AI confidence to add
+//+------------------------------------------------------------------+
+//|                    *** PYRAMIDING ***                            |
+//+------------------------------------------------------------------+
+input string   _pyr_header = "========== PYRAMIDING (Add to Winners) =========="; // *** PYRAMIDING ***
+input bool     ENABLE_PYRAMIDING = false;         // Enable Pyramiding
+input int      PYRAMID_MAX_POSITIONS = 3;         // Max Positions to Stack
+input int      PYRAMID_TRIGGER_PIPS = 30;         // Add Position Every X Pips Profit
+input double   PYRAMID_LOT_MULTIPLIER = 1.0;      // Lot Multiplier for Each Add
+input bool     PYRAMID_MOVE_SL = true;            // Move All SL to New Entry
+input int      PYRAMID_MIN_CONFIDENCE = 65;       // Min AI Confidence to Add
 
-//--- Input parameters - 10. ADVANCED: GRID TRADING
-input bool     ENABLE_GRID = false;               // Enable grid trading (CAREFUL!)
-input int      GRID_LEVELS = 3;                   // Number of grid levels
-input int      GRID_SPACING_PIPS = 20;            // Pips between grid orders
-input double   GRID_LOT_SIZE = 0.01;              // Lot size per grid order
-input bool     GRID_HEDGE_MODE = false;           // Place orders both directions
-input int      GRID_TP_PIPS = 15;                 // Take profit per grid order
-input int      GRID_MAX_ORDERS = 6;               // Max total grid orders
+//+------------------------------------------------------------------+
+//|                    *** GRID TRADING ***                          |
+//+------------------------------------------------------------------+
+input string   _grid_header = "========== GRID TRADING (CAREFUL!) =========="; // *** GRID TRADING ***
+input bool     ENABLE_GRID = false;               // Enable Grid Trading
+input int      GRID_LEVELS = 3;                   // Number of Grid Levels
+input int      GRID_SPACING_PIPS = 20;            // Pips Between Grid Orders
+input double   GRID_LOT_SIZE = 0.01;              // Lot Size Per Grid Order
+input bool     GRID_HEDGE_MODE = false;           // Place Orders Both Directions
+input int      GRID_TP_PIPS = 15;                 // Take Profit Per Grid Order
+input int      GRID_MAX_ORDERS = 6;               // Max Total Grid Orders
 
-//--- Input parameters - 11. ADVANCED: MARTINGALE (RISKY!)
-input bool     ENABLE_MARTINGALE = false;         // Enable martingale (VERY RISKY!)
-input double   MARTINGALE_MULTIPLIER = 2.0;       // Lot multiplier after loss
-input int      MARTINGALE_MAX_LEVEL = 3;          // Max martingale levels
-input bool     MARTINGALE_RESET_ON_WIN = true;    // Reset to base lot after win
+//+------------------------------------------------------------------+
+//|                    *** MARTINGALE ***                            |
+//+------------------------------------------------------------------+
+input string   _mart_header = "========== MARTINGALE (VERY RISKY!) =========="; // *** MARTINGALE ***
+input bool     ENABLE_MARTINGALE = false;         // Enable Martingale
+input double   MARTINGALE_MULTIPLIER = 2.0;       // Lot Multiplier After Loss
+input int      MARTINGALE_MAX_LEVEL = 3;          // Max Martingale Levels
+input bool     MARTINGALE_RESET_ON_WIN = true;    // Reset to Base Lot After Win
 
 //--- Global variables
 datetime lastSendTime = 0;
