@@ -207,7 +207,7 @@ const trainingModules: TrainingModule[] = [
     id: 'features',
     title: 'Core Features Deep Dive',
     description: 'Master all features to explain them confidently',
-    duration: '30 min',
+    duration: '45 min',
     icon: Target,
     image: chartAnalysisImg,
     lessons: [
@@ -383,6 +383,122 @@ const trainingModules: TrainingModule[] = [
           'Show momentum exits help avoid giving back profits when markets reverse',
           'Emphasize this is like having a professional trade manager watching 24/7'
         ]
+      },
+      {
+        id: 'features-8',
+        title: 'Live Account Balance Tracking',
+        content: [
+          'NEW: Real-time account balance and performance metrics streamed from MT5',
+          'View your complete account breakdown without switching to MT5 terminal:',
+          '',
+          '💰 BALANCE METRICS:',
+          '  • Account Balance - Current account balance',
+          '  • Equity - Balance + unrealized profit/loss',
+          '  • Margin Used - Amount reserved for open positions',
+          '  • Free Margin - Available margin for new trades',
+          '',
+          '📊 DAILY PERFORMANCE:',
+          '  • Daily P&L - Profit/loss for the current trading day',
+          '  • Daily P&L Percentage - Performance as a percentage of balance',
+          '  • Unrealized P&L - Floating profit/loss on open positions',
+          '',
+          '📈 POSITION BREAKDOWN:',
+          '  • Open Positions Count - Total number of active trades',
+          '  • Buy vs Sell Breakdown - Positions by direction',
+          '  • Total Lots - Combined lot size for buy and sell trades',
+          '  • Pending Orders - Orders waiting to execute',
+          '',
+          '🏦 ACCOUNT INFO:',
+          '  • Account Number and Name',
+          '  • Broker and Server details',
+          '  • Leverage ratio',
+          '  • Margin Level percentage'
+        ],
+        tips: [
+          'Show the account breakdown section on the MT5 Chart Data page',
+          'Emphasize traders can monitor their account without going back to MT5',
+          'Highlight the Daily P&L feature for tracking daily performance',
+          'Demo how the data refreshes every 10 seconds automatically',
+          'Explain margin level colors: green (>200%), yellow (100-200%), red (<100%)'
+        ]
+      },
+      {
+        id: 'features-9',
+        title: 'Mobile App Features',
+        content: [
+          'AI Trading Vault works as a Progressive Web App (PWA) on mobile devices',
+          'Install on your home screen for a native app experience',
+          '',
+          '👆 GESTURE CONTROLS:',
+          '  • Pull-to-Refresh - Swipe down on any page to refresh data',
+          '  • Swipe Navigation - Swipe left/right to navigate between pages',
+          '  • Long-Press Actions - Hold on cards for quick action menus',
+          '  • Haptic Feedback - Tactile feedback for touch interactions',
+          '',
+          '🔔 PUSH NOTIFICATIONS:',
+          '  • Trade Alerts - Get notified when AI identifies trading opportunities',
+          '  • Analysis Complete - Notifications when chart analysis finishes',
+          '  • EA Signals - Alerts when your EAs generate signals',
+          '  • News Events - High-impact economic event reminders',
+          '  • Granular Controls - Enable/disable each notification type individually',
+          '',
+          '📱 MOBILE-OPTIMIZED UI:',
+          '  • Touch-friendly chart viewer',
+          '  • Floating Action Button (FAB) for quick access to common actions',
+          '  • Drag-to-reposition FAB anywhere on screen',
+          '  • Responsive design adapts to any screen size',
+          '  • Offline support - access cached data without internet'
+        ],
+        tips: [
+          'Show how to install the PWA from the browser menu (Add to Home Screen)',
+          'Demo the pull-to-refresh gesture in your mobile tutorials',
+          'Highlight the notification settings page for customizing alerts',
+          'Emphasize the app works offline for viewing saved analyses',
+          'Show the draggable FAB feature for accessing actions quickly'
+        ]
+      },
+      {
+        id: 'features-10',
+        title: 'Extreme News Sentiment Trading',
+        content: [
+          'Trade on extreme news sentiment in BOTH directions - bullish AND bearish',
+          'Perfect for traders who want to capitalize on significant market-moving news',
+          '',
+          '📊 HOW IT WORKS:',
+          '  • AI analyzes financial news and assigns sentiment scores from -100 to +100',
+          '  • Scores near +100 indicate strongly bullish news',
+          '  • Scores near -100 indicate strongly bearish news',
+          '  • Scores near 0 are neutral or mixed sentiment',
+          '',
+          '⚙️ KEY SETTINGS:',
+          '  • Min Absolute Score (0-100): Filter for extreme sentiment in either direction',
+          '    Example: Setting 80 allows trades when sentiment is +80 OR -80',
+          '  • Trade On Extreme News: Only open trades when news sentiment is significant',
+          '    Combines with Min Absolute Score for news-based trading strategies',
+          '',
+          '💡 USE CASES:',
+          '  • NFP Trading: Catch big moves on Non-Farm Payrolls in either direction',
+          '  • FOMC Decisions: Trade rate decision surprises (hawkish or dovish)',
+          '  • Earnings Releases: React to better/worse than expected company results',
+          '  • Economic Data: GDP, CPI, employment data surprises'
+        ],
+        tips: [
+          'Explain the difference between Min News Score (bullish only) and Min Absolute Score (both directions)',
+          'Show that a Min Absolute Score of 80 catches both +80 and -80 sentiment',
+          'Demo the Trade On Extreme News toggle in the EA settings',
+          'Emphasize this is for experienced traders who understand news volatility',
+          'Warn about wider spreads and slippage during major news events'
+        ],
+        quiz: {
+          question: 'What does setting Min Absolute Score to 80 allow?',
+          options: [
+            'Only bullish news with score above 80',
+            'Only bearish news with score below -80',
+            'Both bullish (+80) AND bearish (-80) extreme sentiment',
+            'Blocks all trades during news'
+          ],
+          correct: 2
+        }
       }
     ]
   },
