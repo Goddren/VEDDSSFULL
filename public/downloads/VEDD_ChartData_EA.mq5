@@ -423,8 +423,11 @@ bool SendChartData()
       multiTimeframeJson = BuildMultiTimeframeJson();
    }
    
+   // Build account data for balance tracking
+   string accountJson = BuildAccountJson();
+   
    string jsonPayload = StringFormat(
-      "{\"symbol\":\"%s\",\"timeframe\":\"%s\",\"broker\":\"%s\",\"timestamp\":%d,\"candles\":%s%s%s,\"multiTimeframe\":%s}",
+      "{\"symbol\":\"%s\",\"timeframe\":\"%s\",\"broker\":\"%s\",\"timestamp\":%d,\"candles\":%s%s%s,\"multiTimeframe\":%s,\"account\":%s}",
       _Symbol,
       GetTimeframeString(),
       AccountInfoString(ACCOUNT_COMPANY),
@@ -432,7 +435,8 @@ bool SendChartData()
       candlesJson,
       INCLUDE_INDICATORS ? ",\"indicators\":" + indicatorsJson : "",
       ENABLE_MULTI_TIMEFRAME ? ",\"multiTimeframeEnabled\":true" : "",
-      ENABLE_MULTI_TIMEFRAME ? multiTimeframeJson : "null"
+      ENABLE_MULTI_TIMEFRAME ? multiTimeframeJson : "null",
+      accountJson
    );
    
    uchar jsonData[];
@@ -1798,6 +1802,98 @@ string ExtractJsonNumber(string json, string startTag)
    StringTrimRight(numStr);
    
    return numStr;
+}
+
+//+------------------------------------------------------------------+
+//| Build JSON object with account data                              |
+//+------------------------------------------------------------------+
+string BuildAccountJson()
+{
+   double balance = AccountInfoDouble(ACCOUNT_BALANCE);
+   double equity = AccountInfoDouble(ACCOUNT_EQUITY);
+   double margin = AccountInfoDouble(ACCOUNT_MARGIN);
+   double freeMargin = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
+   double profit = AccountInfoDouble(ACCOUNT_PROFIT);
+   double credit = AccountInfoDouble(ACCOUNT_CREDIT);
+   string currency = AccountInfoString(ACCOUNT_CURRENCY);
+   long accountNumber = AccountInfoInteger(ACCOUNT_LOGIN);
+   string accountName = AccountInfoString(ACCOUNT_NAME);
+   string server = AccountInfoString(ACCOUNT_SERVER);
+   int leverage = (int)AccountInfoInteger(ACCOUNT_LEVERAGE);
+   
+   // Calculate margin level
+   double marginLevel = 0;
+   if(margin > 0)
+      marginLevel = (equity / margin) * 100;
+   
+   // Calculate daily P&L (compare with starting balance if we tracked it)
+   static double dayStartBalance = 0;
+   static datetime lastDayChecked = 0;
+   
+   MqlDateTime currentTime;
+   TimeToStruct(TimeCurrent(), currentTime);
+   datetime currentDayStart = StringToTime(StringFormat("%04d.%02d.%02d 00:00", currentTime.year, currentTime.mon, currentTime.day));
+   
+   // Reset daily tracking at the start of a new day
+   if(currentDayStart != lastDayChecked)
+   {
+      dayStartBalance = balance - profit; // Approximate starting balance
+      lastDayChecked = currentDayStart;
+   }
+   
+   double dailyPnL = balance - dayStartBalance;
+   double dailyPnLPercent = 0;
+   if(dayStartBalance > 0)
+      dailyPnLPercent = (dailyPnL / dayStartBalance) * 100;
+   
+   // Count open positions
+   int openPositions = PositionsTotal();
+   int openOrders = OrdersTotal();
+   
+   // Calculate total lots and positions breakdown
+   double totalBuyLots = 0;
+   double totalSellLots = 0;
+   int buyPositions = 0;
+   int sellPositions = 0;
+   double unrealizedProfit = 0;
+   
+   for(int i = 0; i < openPositions; i++)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket > 0)
+      {
+         ENUM_POSITION_TYPE posType = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+         double posLots = PositionGetDouble(POSITION_VOLUME);
+         double posProfit = PositionGetDouble(POSITION_PROFIT);
+         unrealizedProfit += posProfit;
+         
+         if(posType == POSITION_TYPE_BUY)
+         {
+            buyPositions++;
+            totalBuyLots += posLots;
+         }
+         else if(posType == POSITION_TYPE_SELL)
+         {
+            sellPositions++;
+            totalSellLots += posLots;
+         }
+      }
+   }
+   
+   string json = StringFormat(
+      "{\"balance\":%.2f,\"equity\":%.2f,\"margin\":%.2f,\"freeMargin\":%.2f,\"profit\":%.2f,\"credit\":%.2f,"
+      "\"currency\":\"%s\",\"accountNumber\":%d,\"accountName\":\"%s\",\"server\":\"%s\",\"leverage\":%d,"
+      "\"marginLevel\":%.2f,\"dailyPnL\":%.2f,\"dailyPnLPercent\":%.2f,"
+      "\"openPositions\":%d,\"pendingOrders\":%d,\"buyPositions\":%d,\"sellPositions\":%d,"
+      "\"totalBuyLots\":%.2f,\"totalSellLots\":%.2f,\"unrealizedProfit\":%.2f}",
+      balance, equity, margin, freeMargin, profit, credit,
+      currency, accountNumber, accountName, server, leverage,
+      marginLevel, dailyPnL, dailyPnLPercent,
+      openPositions, openOrders, buyPositions, sellPositions,
+      totalBuyLots, totalSellLots, unrealizedProfit
+   );
+   
+   return json;
 }
 
 //+------------------------------------------------------------------+

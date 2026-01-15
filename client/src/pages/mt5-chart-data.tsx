@@ -58,6 +58,35 @@ type ConnectionStatus = {
   message?: string;
 };
 
+type AccountData = {
+  connected: boolean;
+  lastUpdated?: string;
+  secondsAgo?: number;
+  broker?: string;
+  balance: number;
+  equity: number;
+  margin: number;
+  freeMargin: number;
+  profit: number;
+  credit: number;
+  currency: string;
+  accountNumber: number;
+  accountName: string;
+  server: string;
+  leverage: number;
+  marginLevel: number;
+  dailyPnL: number;
+  dailyPnLPercent: number;
+  openPositions: number;
+  pendingOrders: number;
+  buyPositions: number;
+  sellPositions: number;
+  totalBuyLots: number;
+  totalSellLots: number;
+  unrealizedProfit: number;
+  message?: string;
+};
+
 export default function MT5ChartDataPage() {
   const { toast } = useToast();
   const [newTokenName, setNewTokenName] = useState("");
@@ -76,6 +105,11 @@ export default function MT5ChartDataPage() {
   const { data: mt5ConnectionStatus, refetch: refetchConnectionStatus } = useQuery<ConnectionStatus>({
     queryKey: ['/api/mt5/connection-status'],
     refetchInterval: 30000,
+  });
+
+  const { data: accountData, refetch: refetchAccountData } = useQuery<AccountData>({
+    queryKey: ['/api/mt5/account-data'],
+    refetchInterval: 10000,
   });
 
   const createTokenMutation = useMutation({
@@ -178,6 +212,155 @@ export default function MT5ChartDataPage() {
 
         {/* Connected Pairs Display */}
         <ConnectedPairs />
+
+        {/* Account Balance Breakdown */}
+        {accountData?.connected && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+          >
+            <Card className="bg-gradient-to-br from-gray-800/80 to-gray-900/80 border-amber-500/30">
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-white flex items-center gap-2">
+                    <TrendingUp className="w-5 h-5 text-amber-400" />
+                    Account Balance Breakdown
+                  </CardTitle>
+                  <div className="flex items-center gap-2">
+                    <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/30">
+                      {accountData.broker}
+                    </Badge>
+                    <Button variant="ghost" size="sm" onClick={() => refetchAccountData()}>
+                      <RefreshCw className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+                <CardDescription>
+                  Account #{accountData.accountNumber} • {accountData.server} • 1:{accountData.leverage} Leverage
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Main Balance Stats */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="p-4 bg-gray-900/50 rounded-lg border border-gray-700">
+                    <p className="text-gray-400 text-sm">Balance</p>
+                    <p className="text-2xl font-bold text-white">
+                      {accountData.currency} {accountData.balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </p>
+                  </div>
+                  <div className="p-4 bg-gray-900/50 rounded-lg border border-gray-700">
+                    <p className="text-gray-400 text-sm">Equity</p>
+                    <p className={`text-2xl font-bold ${accountData.equity >= accountData.balance ? 'text-green-400' : 'text-red-400'}`}>
+                      {accountData.currency} {accountData.equity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </p>
+                  </div>
+                  <div className="p-4 bg-gray-900/50 rounded-lg border border-gray-700">
+                    <p className="text-gray-400 text-sm">Daily P&L</p>
+                    <p className={`text-2xl font-bold ${accountData.dailyPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      {accountData.dailyPnL >= 0 ? '+' : ''}{accountData.currency} {accountData.dailyPnL.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </p>
+                    <p className={`text-sm ${accountData.dailyPnLPercent >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                      {accountData.dailyPnLPercent >= 0 ? '+' : ''}{accountData.dailyPnLPercent.toFixed(2)}%
+                    </p>
+                  </div>
+                  <div className="p-4 bg-gray-900/50 rounded-lg border border-gray-700">
+                    <p className="text-gray-400 text-sm">Unrealized P&L</p>
+                    <p className={`text-2xl font-bold ${accountData.unrealizedProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      {accountData.unrealizedProfit >= 0 ? '+' : ''}{accountData.currency} {accountData.unrealizedProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Margin Stats */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="p-3 bg-gray-900/30 rounded-lg">
+                    <p className="text-gray-500 text-xs">Margin Used</p>
+                    <p className="text-lg font-semibold text-white">
+                      {accountData.currency} {accountData.margin.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </p>
+                  </div>
+                  <div className="p-3 bg-gray-900/30 rounded-lg">
+                    <p className="text-gray-500 text-xs">Free Margin</p>
+                    <p className="text-lg font-semibold text-green-400">
+                      {accountData.currency} {accountData.freeMargin.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </p>
+                  </div>
+                  <div className="p-3 bg-gray-900/30 rounded-lg">
+                    <p className="text-gray-500 text-xs">Margin Level</p>
+                    <p className={`text-lg font-semibold ${accountData.marginLevel > 200 ? 'text-green-400' : accountData.marginLevel > 100 ? 'text-yellow-400' : 'text-red-400'}`}>
+                      {accountData.marginLevel > 0 ? `${accountData.marginLevel.toFixed(1)}%` : 'N/A'}
+                    </p>
+                  </div>
+                  <div className="p-3 bg-gray-900/30 rounded-lg">
+                    <p className="text-gray-500 text-xs">Credit</p>
+                    <p className="text-lg font-semibold text-gray-400">
+                      {accountData.currency} {accountData.credit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Open Positions Breakdown */}
+                <div className="p-4 bg-gray-900/50 rounded-lg border border-gray-700">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-gray-400 font-medium">Open Positions</p>
+                    <Badge className="bg-blue-500/20 text-blue-400">
+                      {accountData.openPositions} positions • {accountData.pendingOrders} pending
+                    </Badge>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="flex items-center justify-between p-3 bg-green-900/20 rounded border border-green-700/30">
+                      <div>
+                        <p className="text-green-400 font-medium">BUY Positions</p>
+                        <p className="text-gray-400 text-sm">{accountData.buyPositions} trades</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-green-400 font-bold">{accountData.totalBuyLots.toFixed(2)}</p>
+                        <p className="text-gray-500 text-xs">total lots</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between p-3 bg-red-900/20 rounded border border-red-700/30">
+                      <div>
+                        <p className="text-red-400 font-medium">SELL Positions</p>
+                        <p className="text-gray-400 text-sm">{accountData.sellPositions} trades</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-red-400 font-bold">{accountData.totalSellLots.toFixed(2)}</p>
+                        <p className="text-gray-500 text-xs">total lots</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Last Updated */}
+                <div className="flex items-center justify-between text-xs text-gray-500">
+                  <span>Account: {accountData.accountName}</span>
+                  <span>
+                    Last updated: {accountData.secondsAgo !== undefined && accountData.secondsAgo < 60 
+                      ? `${accountData.secondsAgo}s ago`
+                      : accountData.secondsAgo !== undefined 
+                        ? `${Math.floor(accountData.secondsAgo / 60)}m ago`
+                        : 'Unknown'
+                    }
+                  </span>
+                </div>
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
+
+        {/* No Account Data Message */}
+        {!accountData?.connected && mt5ConnectionStatus?.connected && (
+          <Card className="bg-gray-800/50 border-gray-700">
+            <CardContent className="p-6 text-center">
+              <AlertCircle className="w-12 h-12 text-amber-400 mx-auto mb-3" />
+              <h3 className="text-lg font-semibold text-white mb-2">Account Data Not Available</h3>
+              <p className="text-gray-400">
+                Download the latest version of the MT5 Chart Data EA to view your account balance breakdown here.
+              </p>
+            </CardContent>
+          </Card>
+        )}
 
         <div className="grid lg:grid-cols-2 gap-6">
           <Card className="bg-gray-800/50 border-gray-700">

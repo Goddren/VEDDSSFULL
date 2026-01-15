@@ -4676,7 +4676,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         return res.status(403).json({ error: "API key is disabled" });
       }
       
-      const { symbol, timeframe, broker, timestamp, candles, indicators } = req.body;
+      const { symbol, timeframe, broker, timestamp, candles, indicators, account } = req.body;
       
       // Validate required fields
       if (!symbol || typeof symbol !== 'string' || symbol.length > 20) {
@@ -4729,6 +4729,16 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         broker: broker || 'Unknown',
         candleCount: candles.length,
       };
+      
+      // Store account data if provided
+      if (account && typeof account === 'object') {
+        (global as any).mt5AccountData = (global as any).mt5AccountData || {};
+        (global as any).mt5AccountData[token.userId] = {
+          ...account,
+          lastUpdated: new Date().toISOString(),
+          broker: broker || 'Unknown',
+        };
+      }
       
       // Track ALL connected pairs per user
       if (!(global as any).mt5ConnectedPairs[token.userId]) {
@@ -5124,6 +5134,58 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       message: isActive 
         ? `Connected: ${status.symbol} ${status.timeframe} from ${status.broker}`
         : `Last seen ${Math.floor(secondsAgo / 60)} minutes ago`
+    });
+  });
+
+  // Get MT5 account balance and breakdown data
+  app.get("/api/mt5/account-data", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const userId = (req.user as User).id;
+    
+    const accountCache = (global as any).mt5AccountData || {};
+    const accountData = accountCache[userId];
+    
+    if (!accountData) {
+      return res.json({ 
+        connected: false, 
+        message: "No account data available. Make sure your MT5 Chart Data EA is running with the latest version." 
+      });
+    }
+    
+    // Check if data is recent (within last 5 minutes)
+    const lastUpdated = new Date(accountData.lastUpdated);
+    const now = new Date();
+    const secondsAgo = Math.floor((now.getTime() - lastUpdated.getTime()) / 1000);
+    const isActive = secondsAgo < 300;
+    
+    res.json({
+      connected: isActive,
+      lastUpdated: accountData.lastUpdated,
+      secondsAgo,
+      broker: accountData.broker,
+      balance: accountData.balance || 0,
+      equity: accountData.equity || 0,
+      margin: accountData.margin || 0,
+      freeMargin: accountData.freeMargin || 0,
+      profit: accountData.profit || 0,
+      credit: accountData.credit || 0,
+      currency: accountData.currency || 'USD',
+      accountNumber: accountData.accountNumber || 0,
+      accountName: accountData.accountName || '',
+      server: accountData.server || '',
+      leverage: accountData.leverage || 0,
+      marginLevel: accountData.marginLevel || 0,
+      dailyPnL: accountData.dailyPnL || 0,
+      dailyPnLPercent: accountData.dailyPnLPercent || 0,
+      openPositions: accountData.openPositions || 0,
+      pendingOrders: accountData.pendingOrders || 0,
+      buyPositions: accountData.buyPositions || 0,
+      sellPositions: accountData.sellPositions || 0,
+      totalBuyLots: accountData.totalBuyLots || 0,
+      totalSellLots: accountData.totalSellLots || 0,
+      unrealizedProfit: accountData.unrealizedProfit || 0,
     });
   });
 
