@@ -81,13 +81,13 @@ interface TrainingModule {
 
 // Weekly content schedule for ambassadors
 const weeklySchedule = [
-  { day: 'Monday', action: 'YouTube Tutorial', details: 'Deep dive into one charting feature', icon: Video },
-  { day: 'Tuesday', action: 'Quick Tip Reel', details: '30-60 sec chart hack using AI Trading Vault', icon: Camera },
-  { day: 'Wednesday', action: 'Live Session', details: 'Real-time chart analysis + Q&A', icon: Mic },
-  { day: 'Thursday', action: 'Community Spotlight', details: 'Share user success stories', icon: Users },
-  { day: 'Friday', action: 'Market Recap', details: 'Weekly chart analysis using the tool', icon: TrendingUp },
-  { day: 'Saturday', action: 'Twitter/X Space', details: 'Open dialogue on trading strategies', icon: MessageSquare },
-  { day: 'Sunday', action: 'Recap & CTA', details: 'Weekly summary + subscription push', icon: Megaphone }
+  { day: 'Monday', action: 'YouTube Tutorial', details: 'Deep dive: MT5 EA setup, account balance tracking, or mobile features', icon: Video },
+  { day: 'Tuesday', action: 'Quick Tip Reel', details: '30-60 sec tip: gestures, news sentiment, or Daily P&L tracking', icon: Camera },
+  { day: 'Wednesday', action: 'Live Session', details: 'Real-time chart analysis + demo account balance breakdown', icon: Mic },
+  { day: 'Thursday', action: 'News Trading Demo', details: 'Show extreme news sentiment trading on live events', icon: TrendingUp },
+  { day: 'Friday', action: 'Mobile App Showcase', details: 'Demo PWA install, gestures, push notifications', icon: Monitor },
+  { day: 'Saturday', action: 'Twitter/X Space', details: 'Q&A on new features + trading strategies', icon: MessageSquare },
+  { day: 'Sunday', action: 'Weekly Recap & CTA', details: 'Highlight account gains + subscription push', icon: Megaphone }
 ];
 
 // Success metrics for ambassadors
