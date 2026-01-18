@@ -97,7 +97,7 @@ export function MobileFAB() {
     {
       icon: <GraduationCap className="w-6 h-6" />,
       label: "Ambassador Training",
-      path: "/ambassador",
+      path: "/ambassador-training",
       color: "bg-amber-500/20 hover:bg-amber-500/30",
       testId: "fab-ambassador"
     },
