@@ -13,23 +13,23 @@ import chartAnalysisImg from '@assets/stock_images/trading_chart_analys_8f9ce15e
 import complianceImg from '@assets/stock_images/business_compliance__a162932c.jpg';
 import platformsImg from '@assets/stock_images/trading_platforms_mu_e4e1343a.jpg';
 
-// Import chart pattern images
-import headAndShouldersImg from '@assets/generated_images/head_and_shoulders_pattern.png';
-import doubleTopImg from '@assets/generated_images/double_top_pattern_chart.png';
-import hammerPatternImg from '@assets/generated_images/hammer_candlestick_pattern.png';
-import rsiIndicatorImg from '@assets/generated_images/rsi_indicator_example.png';
+// Import chart pattern images - improved accuracy versions
+import headAndShouldersImg from '@assets/generated_images/head_shoulders_diagram.png';
+import doubleTopImg from '@assets/generated_images/double_top_m_pattern.png';
+import hammerPatternImg from '@assets/generated_images/hammer_candle_diagram.png';
+import rsiIndicatorImg from '@assets/generated_images/rsi_indicator_zones.png';
 import supportResistanceImg from '@assets/generated_images/support_resistance_levels.png';
-import trianglePatternImg from '@assets/generated_images/triangle_pattern_chart.png';
-import dojiPatternImg from '@assets/generated_images/doji_candlestick_pattern.png';
-import engulfingPatternImg from '@assets/generated_images/engulfing_candlestick_pattern.png';
-import morningEveningStarImg from '@assets/generated_images/morning_evening_star_patterns.png';
-import flagPennantImg from '@assets/generated_images/flag_pennant_patterns.png';
-import cupHandleImg from '@assets/generated_images/cup_and_handle_pattern.png';
-import wedgePatternsImg from '@assets/generated_images/wedge_patterns_chart.png';
-import macdIndicatorImg from '@assets/generated_images/macd_indicator_example.png';
-import movingAveragesImg from '@assets/generated_images/moving_averages_crossovers.png';
-import bollingerBandsImg from '@assets/generated_images/bollinger_bands_indicator.png';
-import volumeIndicatorImg from '@assets/generated_images/volume_indicator_analysis.png';
+import trianglePatternImg from '@assets/generated_images/ascending_triangle_diagram.png';
+import dojiPatternImg from '@assets/generated_images/doji_candle_diagram.png';
+import engulfingPatternImg from '@assets/generated_images/engulfing_pattern_diagram.png';
+import morningEveningStarImg from '@assets/generated_images/morning_star_pattern.png';
+import flagPennantImg from '@assets/generated_images/bull_flag_pattern.png';
+import cupHandleImg from '@assets/generated_images/cup_handle_pattern.png';
+import wedgePatternsImg from '@assets/generated_images/rising_wedge_bearish.png';
+import macdIndicatorImg from '@assets/generated_images/macd_crossover_diagram.png';
+import movingAveragesImg from '@assets/generated_images/moving_average_crossover.png';
+import bollingerBandsImg from '@assets/generated_images/bollinger_bands_diagram.png';
+import volumeIndicatorImg from '@assets/generated_images/volume_breakout_diagram.png';
 import { 
   GraduationCap, 
   Video, 
