@@ -69,7 +69,8 @@ import {
   AlertCircle,
   Zap,
   ArrowRight,
-  BarChart2
+  BarChart2,
+  Calendar
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -1937,6 +1938,22 @@ export default function AmbassadorTrainingPage() {
             Complete this training to become a certified AI Trading Vault Ambassador. 
             Serve as the public educator and promoter of AI Trading Vault's chart analysis capabilities through live social presence and clear video tutorials.
           </p>
+
+          {/* Quick Access Shortcuts */}
+          <div className="flex flex-wrap justify-center gap-3 mt-6">
+            <Link href="/content-flow-calendar">
+              <Button className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white">
+                <Calendar className="w-4 h-4 mr-2" />
+                44-Day Content Journey
+              </Button>
+            </Link>
+            <Link href="/user-guide">
+              <Button variant="outline" className="border-amber-500/50 text-amber-400 hover:bg-amber-500/10">
+                <BookOpen className="w-4 h-4 mr-2" />
+                User Guide
+              </Button>
+            </Link>
+          </div>
         </div>
 
         {/* Position Overview Section */}
@@ -2031,6 +2048,27 @@ export default function AmbassadorTrainingPage() {
                   </CardContent>
                 </Card>
               ))}
+            </div>
+
+            {/* 44-Day Content Journey CTA */}
+            <div className="mt-6 p-4 bg-gradient-to-r from-amber-900/40 to-orange-900/20 border border-amber-500/30 rounded-xl">
+              <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-full bg-amber-500/20 flex items-center justify-center">
+                    <Calendar className="w-6 h-6 text-amber-400" />
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-white">44-Day Content Journey</h4>
+                    <p className="text-sm text-gray-400">Daily trading lessons combined with biblical wisdom and AI-generated social content</p>
+                  </div>
+                </div>
+                <Link href="/content-flow-calendar">
+                  <Button className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 whitespace-nowrap">
+                    Start Your Journey
+                    <ArrowRight className="w-4 h-4 ml-2" />
+                  </Button>
+                </Link>
+              </div>
             </div>
           </CardContent>
         </Card>
