@@ -53,6 +53,7 @@ import {
   BookOpen,
   Sparkles,
   ChevronRight,
+  ChevronLeft,
   Lock,
   Unlock,
   Trophy,
@@ -64,7 +65,10 @@ import {
   ExternalLink,
   Copy,
   Shield,
-  Download
+  Download,
+  AlertCircle,
+  Zap,
+  ArrowRight
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -74,6 +78,20 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import { Input } from '@/components/ui/input';
 import { Link } from 'wouter';
+import { motion, AnimatePresence } from 'framer-motion';
+
+interface KeyPoint {
+  title: string;
+  description: string;
+  icon?: typeof GraduationCap;
+}
+
+interface RealWorldExample {
+  scenario: string;
+  outcome: string;
+  lesson: string;
+  type: 'success' | 'warning' | 'insight';
+}
 
 interface TrainingModule {
   id: string;
@@ -90,6 +108,8 @@ interface TrainingModule {
     image?: string;
     imageAlt?: string;
     DiagramComponent?: React.ComponentType;
+    keyPoints?: KeyPoint[];
+    realWorldExamples?: RealWorldExample[];
     guideLink?: {
       text: string;
       section: string;
@@ -100,6 +120,173 @@ interface TrainingModule {
       correct: number;
     };
   }[];
+}
+
+// Interactive Key Point Carousel Component
+function KeyPointCarousel({ keyPoints }: { keyPoints: KeyPoint[] }) {
+  const [currentIndex, setCurrentIndex] = useState(0);
+
+  const nextPoint = () => setCurrentIndex((prev) => (prev + 1) % keyPoints.length);
+  const prevPoint = () => setCurrentIndex((prev) => (prev - 1 + keyPoints.length) % keyPoints.length);
+
+  if (!keyPoints || keyPoints.length === 0) return null;
+
+  return (
+    <div className="bg-gradient-to-br from-green-900/30 to-emerald-900/20 border border-green-500/30 rounded-xl p-5 relative overflow-hidden">
+      <div className="flex items-center justify-between mb-4">
+        <h4 className="font-semibold text-green-400 flex items-center gap-2">
+          <Zap className="w-4 h-4" />
+          Key Points ({currentIndex + 1}/{keyPoints.length})
+        </h4>
+        <div className="flex gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={prevPoint}
+            className="h-8 w-8 p-0 text-green-400 hover:bg-green-500/20"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={nextPoint}
+            className="h-8 w-8 p-0 text-green-400 hover:bg-green-500/20"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </Button>
+        </div>
+      </div>
+
+      <div className="relative h-32">
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={currentIndex}
+            initial={{ opacity: 0, x: 50 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -50 }}
+            transition={{ duration: 0.3 }}
+            className="absolute inset-0"
+          >
+            {(() => {
+              const currentPoint = keyPoints[currentIndex];
+              const IconComponent = currentPoint.icon || Target;
+              return (
+                <div className="flex items-start gap-4">
+                  <div className="bg-green-500/20 p-3 rounded-lg shrink-0">
+                    <IconComponent className="w-6 h-6 text-green-400" />
+                  </div>
+                  <div>
+                    <h5 className="font-medium text-white mb-2">{currentPoint.title}</h5>
+                    <p className="text-gray-300 text-sm leading-relaxed">{currentPoint.description}</p>
+                  </div>
+                </div>
+              );
+            })()}
+          </motion.div>
+        </AnimatePresence>
+      </div>
+
+      {/* Progress dots */}
+      <div className="flex justify-center gap-2 mt-4">
+        {keyPoints.map((_, idx) => (
+          <button
+            key={idx}
+            onClick={() => setCurrentIndex(idx)}
+            className={`w-2 h-2 rounded-full transition-all ${
+              idx === currentIndex ? 'bg-green-400 w-6' : 'bg-gray-600 hover:bg-gray-500'
+            }`}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Real World Example Card Component
+function RealWorldExampleCard({ example }: { example: RealWorldExample }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  
+  const typeStyles = {
+    success: {
+      bg: 'from-emerald-900/40 to-green-900/20',
+      border: 'border-emerald-500/40',
+      icon: CheckCircle2,
+      iconColor: 'text-emerald-400',
+      badge: 'bg-emerald-500/20 text-emerald-300'
+    },
+    warning: {
+      bg: 'from-amber-900/40 to-orange-900/20',
+      border: 'border-amber-500/40',
+      icon: AlertCircle,
+      iconColor: 'text-amber-400',
+      badge: 'bg-amber-500/20 text-amber-300'
+    },
+    insight: {
+      bg: 'from-blue-900/40 to-indigo-900/20',
+      border: 'border-blue-500/40',
+      icon: Lightbulb,
+      iconColor: 'text-blue-400',
+      badge: 'bg-blue-500/20 text-blue-300'
+    }
+  };
+
+  const style = typeStyles[example.type];
+  const Icon = style.icon;
+
+  return (
+    <motion.div
+      layout
+      className={`bg-gradient-to-br ${style.bg} border ${style.border} rounded-xl overflow-hidden cursor-pointer`}
+      onClick={() => setIsExpanded(!isExpanded)}
+    >
+      <div className="p-4">
+        <div className="flex items-start gap-3">
+          <div className={`p-2 rounded-lg ${style.badge}`}>
+            <Icon className={`w-5 h-5 ${style.iconColor}`} />
+          </div>
+          <div className="flex-1">
+            <div className="flex items-center gap-2 mb-1">
+              <Badge className={style.badge}>
+                {example.type === 'success' ? 'Success Story' : example.type === 'warning' ? 'Common Mistake' : 'Key Insight'}
+              </Badge>
+            </div>
+            <p className="text-white font-medium text-sm">{example.scenario}</p>
+          </div>
+          <motion.div
+            animate={{ rotate: isExpanded ? 90 : 0 }}
+            transition={{ duration: 0.2 }}
+          >
+            <ChevronRight className="w-5 h-5 text-gray-400" />
+          </motion.div>
+        </div>
+
+        <AnimatePresence>
+          {isExpanded && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.3 }}
+              className="mt-4 space-y-3"
+            >
+              <div className="bg-black/30 rounded-lg p-3">
+                <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">What Happened</p>
+                <p className="text-gray-200 text-sm">{example.outcome}</p>
+              </div>
+              <div className="bg-black/30 rounded-lg p-3">
+                <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">The Lesson</p>
+                <p className="text-gray-200 text-sm flex items-start gap-2">
+                  <ArrowRight className="w-4 h-4 text-green-400 shrink-0 mt-0.5" />
+                  {example.lesson}
+                </p>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    </motion.div>
+  );
 }
 
 // Weekly content schedule for ambassadors
