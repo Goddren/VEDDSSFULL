@@ -1941,7 +1941,7 @@ export default function AmbassadorTrainingPage() {
 
           {/* Quick Access Shortcuts */}
           <div className="flex flex-wrap justify-center gap-3 mt-6">
-            <Link href="/content-flow-calendar">
+            <Link href="/ambassador/content-flow">
               <Button className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white">
                 <Calendar className="w-4 h-4 mr-2" />
                 44-Day Content Journey
@@ -2062,7 +2062,7 @@ export default function AmbassadorTrainingPage() {
                     <p className="text-sm text-gray-400">Daily trading lessons combined with biblical wisdom and AI-generated social content</p>
                   </div>
                 </div>
-                <Link href="/content-flow-calendar">
+                <Link href="/ambassador/content-flow">
                   <Button className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 whitespace-nowrap">
                     Start Your Journey
                     <ArrowRight className="w-4 h-4 ml-2" />
