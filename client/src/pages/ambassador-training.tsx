@@ -227,6 +227,129 @@ const trainingModules: TrainingModule[] = [
     ]
   },
   {
+    id: 'platforms-intro',
+    title: 'Trading Platforms Explained',
+    description: 'Introduction to MT5, TradingView, and TradeLocker for first-time traders',
+    duration: '20 min',
+    icon: Monitor,
+    image: platformsImg,
+    lessons: [
+      {
+        id: 'platforms-1',
+        title: 'What are Trading Platforms?',
+        content: [
+          'Trading platforms are software applications that connect you to financial markets',
+          'They let you view price charts, place buy/sell orders, and manage your trades',
+          'Think of them like apps for trading - similar to how banking apps let you manage money',
+          'AI Trading Vault works with charts from any of these platforms for analysis',
+          'Each platform has unique features, but they all show the same market data'
+        ],
+        tips: [
+          'Use simple analogies like "trading app" or "market viewer"',
+          'Emphasize that AI Trading Vault accepts screenshots from any platform'
+        ]
+      },
+      {
+        id: 'platforms-2',
+        title: 'MetaTrader 5 (MT5)',
+        content: [
+          'MT5 is one of the most popular trading platforms worldwide, especially for Forex',
+          'Created by MetaQuotes and used by millions of traders globally',
+          'Offers advanced charting, multiple timeframes, and automated trading (Expert Advisors)',
+          'Available as desktop software (Windows/Mac) and mobile apps (iOS/Android)',
+          'Most Forex brokers provide free MT5 access when you open an account',
+          'AI Trading Vault can generate MT5 Expert Advisor (EA) code from your chart analysis'
+        ],
+        tips: [
+          'Mention that MT5 is free to download and use',
+          'Explain that our MT5 Chart Data EA can stream live data to AI Trading Vault'
+        ],
+        quiz: {
+          question: 'What is MetaTrader 5 (MT5) primarily used for?',
+          options: [
+            'Social media posting',
+            'Trading Forex and other financial markets',
+            'Video editing',
+            'Email management'
+          ],
+          correct: 1
+        }
+      },
+      {
+        id: 'platforms-3',
+        title: 'TradingView',
+        content: [
+          'TradingView is a web-based charting platform with powerful analysis tools',
+          'Known for its beautiful charts, social features, and huge community of traders',
+          'Works directly in your browser - no software download required',
+          'Offers free tier with basic features, and paid plans for advanced tools',
+          'Great for sharing chart ideas and learning from other traders',
+          'Supports stocks, crypto, Forex, futures, and more from many exchanges'
+        ],
+        tips: [
+          'Highlight that TradingView works on any device with a browser',
+          'Mention the active community where traders share analysis'
+        ]
+      },
+      {
+        id: 'platforms-4',
+        title: 'TradeLocker',
+        content: [
+          'TradeLocker is a modern trading platform designed for prop trading firms',
+          'Features a clean, intuitive interface optimized for quick execution',
+          'Popular with funded traders and prop firm participants',
+          'Offers integrated TradingView charts for advanced analysis',
+          'AI Trading Vault can send trading signals directly to TradeLocker via webhooks',
+          'Great choice for traders who want a streamlined, professional experience'
+        ],
+        tips: [
+          'Explain that prop firms give traders capital to trade with',
+          'Mention our webhook integration for automated signal delivery'
+        ]
+      },
+      {
+        id: 'platforms-5',
+        title: 'How AI Trading Vault Works With These Platforms',
+        content: [
+          'Upload: Take a screenshot of your chart from any platform and upload to AI Trading Vault',
+          'Analyze: Our AI examines patterns, trends, and key levels automatically',
+          'Generate: Create Expert Advisor code for MT5 or set up webhooks for TradeLocker',
+          'Stream: Use our MT5 EA to send live chart data for real-time AI analysis',
+          'Trade: Apply the AI insights on your preferred platform'
+        ],
+        tips: [
+          'Walk through the simple upload process step by step',
+          'Show how analysis works regardless of which platform they use'
+        ],
+        quiz: {
+          question: 'How does AI Trading Vault receive charts from these platforms?',
+          options: [
+            'It requires special software installation',
+            'Users upload screenshots or use our MT5 EA for live data',
+            'It only works with one specific platform',
+            'Charts are automatically synced without user action'
+          ],
+          correct: 1
+        }
+      },
+      {
+        id: 'platforms-6',
+        title: 'Choosing the Right Platform',
+        content: [
+          'MT5: Best for Forex traders who want automated trading (EAs) and broker integration',
+          'TradingView: Best for visual analysis, community learning, and multi-market coverage',
+          'TradeLocker: Best for prop traders and those wanting modern, streamlined execution',
+          'Many traders use multiple platforms - e.g., TradingView for analysis, MT5 for execution',
+          'AI Trading Vault supports all of them, so start with what feels comfortable'
+        ],
+        tips: [
+          'Reassure beginners that there is no wrong choice',
+          'Suggest starting with TradingView for learning since its browser-based'
+        ]
+      }
+    ]
+  },
+  {
     id: 'features',
     title: 'Core Features Deep Dive',
     description: 'Master all features to explain them confidently',
