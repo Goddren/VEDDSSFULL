@@ -6,7 +6,8 @@ import {
   ambassadorTrainingProgress, ambassadorCertifications, governanceProposals, governanceVotes,
   ambassadorContentProgress, ambassadorContentStats,
   ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants,
-  ambassadorEvents, ambassadorEventRegistrations,
+  ambassadorEvents, ambassadorEventRegistrations, ambassadorChallengeSessions,
+  ambassadorEventSchedules, ambassadorScheduleRegistrations, ambassadorCommunityComments,
   type User, type InsertUser, type ChartAnalysis, type InsertChartAnalysis,
   type Achievement, type InsertAchievement, type UserAchievement, type InsertUserAchievement,
   type UserProfile, type InsertUserProfile, type Follow, type InsertFollow,
@@ -27,7 +28,11 @@ import {
   type AmbassadorChallenge, type InsertAmbassadorChallenge,
   type AmbassadorChallengeParticipant, type InsertAmbassadorChallengeParticipant,
   type AmbassadorEvent, type InsertAmbassadorEvent,
-  type AmbassadorEventRegistration, type InsertAmbassadorEventRegistration
+  type AmbassadorEventRegistration, type InsertAmbassadorEventRegistration,
+  type AmbassadorChallengeSession, type InsertAmbassadorChallengeSession,
+  type AmbassadorEventSchedule, type InsertAmbassadorEventSchedule,
+  type AmbassadorScheduleRegistration, type InsertAmbassadorScheduleRegistration,
+  type AmbassadorCommunityComment, type InsertAmbassadorCommunityComment
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, sql, desc } from "drizzle-orm";
@@ -1724,6 +1729,149 @@ export class DatabaseStorage implements IStorage {
         eq(ambassadorEventRegistrations.userId, userId),
         eq(ambassadorEventRegistrations.eventId, eventId)
       ))
+      .returning();
+    return result;
+  }
+
+  // Challenge Sessions - for AI-guided challenge completion
+  async getChallengeSession(userId: number, challengeId: number): Promise<AmbassadorChallengeSession | undefined> {
+    const [result] = await db.select().from(ambassadorChallengeSessions)
+      .where(and(
+        eq(ambassadorChallengeSessions.userId, userId),
+        eq(ambassadorChallengeSessions.challengeId, challengeId)
+      ));
+    return result;
+  }
+
+  async createChallengeSession(data: InsertAmbassadorChallengeSession): Promise<AmbassadorChallengeSession> {
+    const [result] = await db.insert(ambassadorChallengeSessions).values(data).returning();
+    return result;
+  }
+
+  async updateChallengeSession(userId: number, challengeId: number, data: Partial<AmbassadorChallengeSession>): Promise<AmbassadorChallengeSession | undefined> {
+    const [result] = await db.update(ambassadorChallengeSessions)
+      .set(data)
+      .where(and(
+        eq(ambassadorChallengeSessions.userId, userId),
+        eq(ambassadorChallengeSessions.challengeId, challengeId)
+      ))
+      .returning();
+    return result;
+  }
+
+  async getUserChallengeSessions(userId: number): Promise<AmbassadorChallengeSession[]> {
+    return await db.select().from(ambassadorChallengeSessions)
+      .where(eq(ambassadorChallengeSessions.userId, userId));
+  }
+
+  // Event Schedules - for host-created sessions
+  async getEventSchedules(eventId: number): Promise<AmbassadorEventSchedule[]> {
+    return await db.select().from(ambassadorEventSchedules)
+      .where(eq(ambassadorEventSchedules.eventId, eventId))
+      .orderBy(ambassadorEventSchedules.startAt);
+  }
+
+  async getUpcomingSchedules(eventId: number): Promise<AmbassadorEventSchedule[]> {
+    return await db.select().from(ambassadorEventSchedules)
+      .where(and(
+        eq(ambassadorEventSchedules.eventId, eventId),
+        eq(ambassadorEventSchedules.status, 'scheduled')
+      ))
+      .orderBy(ambassadorEventSchedules.startAt);
+  }
+
+  async getSchedule(id: number): Promise<AmbassadorEventSchedule | undefined> {
+    const [result] = await db.select().from(ambassadorEventSchedules)
+      .where(eq(ambassadorEventSchedules.id, id));
+    return result;
+  }
+
+  async createEventSchedule(data: InsertAmbassadorEventSchedule): Promise<AmbassadorEventSchedule> {
+    const [result] = await db.insert(ambassadorEventSchedules).values(data).returning();
+    return result;
+  }
+
+  async updateEventSchedule(id: number, data: Partial<AmbassadorEventSchedule>): Promise<AmbassadorEventSchedule | undefined> {
+    const [result] = await db.update(ambassadorEventSchedules)
+      .set(data)
+      .where(eq(ambassadorEventSchedules.id, id))
+      .returning();
+    return result;
+  }
+
+  async getHostSchedules(hostId: number): Promise<AmbassadorEventSchedule[]> {
+    return await db.select().from(ambassadorEventSchedules)
+      .where(eq(ambassadorEventSchedules.hostId, hostId))
+      .orderBy(desc(ambassadorEventSchedules.createdAt));
+  }
+
+  // Schedule Registrations
+  async registerForSchedule(userId: number, scheduleId: number): Promise<AmbassadorScheduleRegistration> {
+    const [result] = await db.insert(ambassadorScheduleRegistrations)
+      .values({ userId, scheduleId })
+      .returning();
+    // Increment attendee count
+    await db.update(ambassadorEventSchedules)
+      .set({ currentAttendees: sql`${ambassadorEventSchedules.currentAttendees} + 1` })
+      .where(eq(ambassadorEventSchedules.id, scheduleId));
+    return result;
+  }
+
+  async getScheduleRegistration(userId: number, scheduleId: number): Promise<AmbassadorScheduleRegistration | undefined> {
+    const [result] = await db.select().from(ambassadorScheduleRegistrations)
+      .where(and(
+        eq(ambassadorScheduleRegistrations.userId, userId),
+        eq(ambassadorScheduleRegistrations.scheduleId, scheduleId)
+      ));
+    return result;
+  }
+
+  async getScheduleRegistrations(scheduleId: number): Promise<AmbassadorScheduleRegistration[]> {
+    return await db.select().from(ambassadorScheduleRegistrations)
+      .where(eq(ambassadorScheduleRegistrations.scheduleId, scheduleId));
+  }
+
+  // Community Comments
+  async getComments(targetType: string, targetId: number): Promise<(AmbassadorCommunityComment & { author?: User })[]> {
+    const comments = await db.select().from(ambassadorCommunityComments)
+      .where(and(
+        eq(ambassadorCommunityComments.targetType, targetType),
+        eq(ambassadorCommunityComments.targetId, targetId)
+      ))
+      .orderBy(ambassadorCommunityComments.createdAt);
+    
+    // Fetch author info for each comment
+    const commentsWithAuthors = await Promise.all(comments.map(async (comment) => {
+      const [author] = await db.select().from(users).where(eq(users.id, comment.authorId));
+      return { ...comment, author };
+    }));
+    
+    return commentsWithAuthors;
+  }
+
+  async createComment(data: InsertAmbassadorCommunityComment): Promise<AmbassadorCommunityComment> {
+    const [result] = await db.insert(ambassadorCommunityComments).values(data).returning();
+    return result;
+  }
+
+  async updateComment(id: number, content: string): Promise<AmbassadorCommunityComment | undefined> {
+    const [result] = await db.update(ambassadorCommunityComments)
+      .set({ content, updatedAt: new Date() })
+      .where(eq(ambassadorCommunityComments.id, id))
+      .returning();
+    return result;
+  }
+
+  async deleteComment(id: number): Promise<boolean> {
+    const result = await db.delete(ambassadorCommunityComments)
+      .where(eq(ambassadorCommunityComments.id, id));
+    return true;
+  }
+
+  async likeComment(id: number): Promise<AmbassadorCommunityComment | undefined> {
+    const [result] = await db.update(ambassadorCommunityComments)
+      .set({ likes: sql`${ambassadorCommunityComments.likes} + 1` })
+      .where(eq(ambassadorCommunityComments.id, id))
       .returning();
     return result;
   }

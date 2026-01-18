@@ -1021,6 +1021,111 @@ export const insertAmbassadorEventRegistrationSchema = createInsertSchema(ambass
   attendedAt: true,
 });
 
+// Challenge Sessions - tracks per-user challenge journey with AI guidance
+export const ambassadorChallengeSessions = pgTable("ambassador_challenge_sessions", {
+  id: serial("id").primaryKey(),
+  challengeId: integer("challenge_id").references(() => ambassadorChallenges.id).notNull(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  status: text("status").notNull().default('in_progress'), // 'in_progress', 'completed', 'abandoned'
+  currentStep: integer("current_step").notNull().default(1),
+  totalSteps: integer("total_steps").notNull().default(1),
+  aiContext: json("ai_context").$type<{
+    guidance: string;
+    tips: string[];
+    encouragement: string;
+  }>(),
+  aiSteps: json("ai_steps").$type<{
+    stepNumber: number;
+    title: string;
+    description: string;
+    tips: string[];
+    completed: boolean;
+  }[]>(),
+  evidenceUrl: text("evidence_url"),
+  evidenceNotes: text("evidence_notes"),
+  tokensClaimed: boolean("tokens_claimed").default(false),
+  startedAt: timestamp("started_at").defaultNow().notNull(),
+  completedAt: timestamp("completed_at"),
+}, (table) => {
+  return {
+    uniqueUserChallenge: unique().on(table.challengeId, table.userId),
+  };
+});
+
+// Event Schedules - host-created sessions for events
+export const ambassadorEventSchedules = pgTable("ambassador_event_schedules", {
+  id: serial("id").primaryKey(),
+  eventId: integer("event_id").references(() => ambassadorEvents.id).notNull(),
+  hostId: integer("host_id").references(() => users.id).notNull(),
+  title: text("title").notNull(),
+  description: text("description"),
+  startAt: timestamp("start_at").notNull(),
+  endAt: timestamp("end_at"),
+  timezone: text("timezone").default('UTC'),
+  capacity: integer("capacity").default(50),
+  currentAttendees: integer("current_attendees").default(0),
+  meetingLink: text("meeting_link"),
+  aiAgenda: json("ai_agenda").$type<{
+    overview: string;
+    agenda: { time: string; topic: string; description: string }[];
+    preparationTips: string[];
+    hostingTips: string[];
+  }>(),
+  status: text("status").notNull().default('scheduled'), // 'scheduled', 'live', 'completed', 'cancelled'
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// Schedule Registrations - users registered for specific schedules
+export const ambassadorScheduleRegistrations = pgTable("ambassador_schedule_registrations", {
+  id: serial("id").primaryKey(),
+  scheduleId: integer("schedule_id").references(() => ambassadorEventSchedules.id).notNull(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  status: text("status").notNull().default('registered'), // 'registered', 'attended', 'no_show'
+  registeredAt: timestamp("registered_at").defaultNow().notNull(),
+  attendedAt: timestamp("attended_at"),
+}, (table) => {
+  return {
+    uniqueUserSchedule: unique().on(table.scheduleId, table.userId),
+  };
+});
+
+// Community Comments - for challenges and events
+export const ambassadorCommunityComments = pgTable("ambassador_community_comments", {
+  id: serial("id").primaryKey(),
+  targetType: text("target_type").notNull(), // 'challenge', 'event', 'schedule'
+  targetId: integer("target_id").notNull(),
+  parentId: integer("parent_id"), // For threaded replies
+  authorId: integer("author_id").references(() => users.id).notNull(),
+  content: text("content").notNull(),
+  likes: integer("likes").default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at"),
+});
+
+// Insert schemas for new community features
+export const insertAmbassadorChallengeSessionSchema = createInsertSchema(ambassadorChallengeSessions).omit({
+  id: true,
+  startedAt: true,
+  completedAt: true,
+});
+
+export const insertAmbassadorEventScheduleSchema = createInsertSchema(ambassadorEventSchedules).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertAmbassadorScheduleRegistrationSchema = createInsertSchema(ambassadorScheduleRegistrations).omit({
+  id: true,
+  registeredAt: true,
+  attendedAt: true,
+});
+
+export const insertAmbassadorCommunityCommentSchema = createInsertSchema(ambassadorCommunityComments).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 // Types for community features
 export type AmbassadorSocialDirection = typeof ambassadorSocialDirections.$inferSelect;
 export type InsertAmbassadorSocialDirection = z.infer<typeof insertAmbassadorSocialDirectionSchema>;
@@ -1032,3 +1137,11 @@ export type AmbassadorEvent = typeof ambassadorEvents.$inferSelect;
 export type InsertAmbassadorEvent = z.infer<typeof insertAmbassadorEventSchema>;
 export type AmbassadorEventRegistration = typeof ambassadorEventRegistrations.$inferSelect;
 export type InsertAmbassadorEventRegistration = z.infer<typeof insertAmbassadorEventRegistrationSchema>;
+export type AmbassadorChallengeSession = typeof ambassadorChallengeSessions.$inferSelect;
+export type InsertAmbassadorChallengeSession = z.infer<typeof insertAmbassadorChallengeSessionSchema>;
+export type AmbassadorEventSchedule = typeof ambassadorEventSchedules.$inferSelect;
+export type InsertAmbassadorEventSchedule = z.infer<typeof insertAmbassadorEventScheduleSchema>;
+export type AmbassadorScheduleRegistration = typeof ambassadorScheduleRegistrations.$inferSelect;
+export type InsertAmbassadorScheduleRegistration = z.infer<typeof insertAmbassadorScheduleRegistrationSchema>;
+export type AmbassadorCommunityComment = typeof ambassadorCommunityComments.$inferSelect;
+export type InsertAmbassadorCommunityComment = z.infer<typeof insertAmbassadorCommunityCommentSchema>;
