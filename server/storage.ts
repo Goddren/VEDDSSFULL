@@ -5,6 +5,8 @@ import {
   webhookConfigs, webhookLogs, mt5ApiTokens, mt5SignalLogs, tradelockerConnections, tradelockerTradeLogs,
   ambassadorTrainingProgress, ambassadorCertifications, governanceProposals, governanceVotes,
   ambassadorContentProgress, ambassadorContentStats,
+  ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants,
+  ambassadorEvents, ambassadorEventRegistrations,
   type User, type InsertUser, type ChartAnalysis, type InsertChartAnalysis,
   type Achievement, type InsertAchievement, type UserAchievement, type InsertUserAchievement,
   type UserProfile, type InsertUserProfile, type Follow, type InsertFollow,
@@ -20,7 +22,12 @@ import {
   type AmbassadorCertification, type InsertAmbassadorCertification,
   type GovernanceProposal, type InsertGovernanceProposal, type GovernanceVote, type InsertGovernanceVote,
   type AmbassadorContentProgress, type InsertAmbassadorContentProgress,
-  type AmbassadorContentStats, type InsertAmbassadorContentStats
+  type AmbassadorContentStats, type InsertAmbassadorContentStats,
+  type AmbassadorSocialDirection, type InsertAmbassadorSocialDirection,
+  type AmbassadorChallenge, type InsertAmbassadorChallenge,
+  type AmbassadorChallengeParticipant, type InsertAmbassadorChallengeParticipant,
+  type AmbassadorEvent, type InsertAmbassadorEvent,
+  type AmbassadorEventRegistration, type InsertAmbassadorEventRegistration
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, sql, desc } from "drizzle-orm";
@@ -233,6 +240,32 @@ export interface IStorage {
   getAmbassadorDayProgress(userId: number, dayNumber: number): Promise<AmbassadorContentProgress | undefined>;
   upsertAmbassadorDayProgress(userId: number, dayNumber: number, data: Partial<AmbassadorContentProgress>): Promise<AmbassadorContentProgress>;
   updateUserStreak(userId: number, data: Partial<UserStreak>): Promise<UserStreak | undefined>;
+
+  // Community Features methods
+  getSocialDirectionsForDay(dayNumber: number): Promise<AmbassadorSocialDirection[]>;
+  createSocialDirection(data: InsertAmbassadorSocialDirection): Promise<AmbassadorSocialDirection>;
+  
+  getChallenges(status?: string): Promise<AmbassadorChallenge[]>;
+  getChallengesByWeek(weekNumber: number): Promise<AmbassadorChallenge[]>;
+  getChallenge(id: number): Promise<AmbassadorChallenge | undefined>;
+  createChallenge(data: InsertAmbassadorChallenge): Promise<AmbassadorChallenge>;
+  updateChallenge(id: number, data: Partial<AmbassadorChallenge>): Promise<AmbassadorChallenge | undefined>;
+  
+  joinChallenge(userId: number, challengeId: number): Promise<AmbassadorChallengeParticipant>;
+  getChallengeParticipation(userId: number, challengeId: number): Promise<AmbassadorChallengeParticipant | undefined>;
+  getUserChallenges(userId: number): Promise<(AmbassadorChallengeParticipant & { challenge: AmbassadorChallenge })[]>;
+  updateChallengeProgress(userId: number, challengeId: number, data: Partial<AmbassadorChallengeParticipant>): Promise<AmbassadorChallengeParticipant | undefined>;
+  
+  getEvents(status?: string): Promise<AmbassadorEvent[]>;
+  getEventsByWeek(weekNumber: number): Promise<AmbassadorEvent[]>;
+  getEvent(id: number): Promise<AmbassadorEvent | undefined>;
+  createEvent(data: InsertAmbassadorEvent): Promise<AmbassadorEvent>;
+  updateEvent(id: number, data: Partial<AmbassadorEvent>): Promise<AmbassadorEvent | undefined>;
+  
+  registerForEvent(userId: number, eventId: number, role?: string): Promise<AmbassadorEventRegistration>;
+  getEventRegistration(userId: number, eventId: number): Promise<AmbassadorEventRegistration | undefined>;
+  getUserEvents(userId: number): Promise<(AmbassadorEventRegistration & { event: AmbassadorEvent })[]>;
+  updateEventRegistration(userId: number, eventId: number, data: Partial<AmbassadorEventRegistration>): Promise<AmbassadorEventRegistration | undefined>;
 }
 
 // Create PostgreSQL session store
@@ -1530,6 +1563,167 @@ export class DatabaseStorage implements IStorage {
     const [result] = await db.update(userStreaks)
       .set({ ...data, updatedAt: new Date() })
       .where(eq(userStreaks.userId, userId))
+      .returning();
+    return result;
+  }
+
+  // Community Features implementations
+  async getSocialDirectionsForDay(dayNumber: number): Promise<AmbassadorSocialDirection[]> {
+    return await db.select().from(ambassadorSocialDirections)
+      .where(eq(ambassadorSocialDirections.dayNumber, dayNumber));
+  }
+
+  async createSocialDirection(data: InsertAmbassadorSocialDirection): Promise<AmbassadorSocialDirection> {
+    const [result] = await db.insert(ambassadorSocialDirections).values(data).returning();
+    return result;
+  }
+
+  async getChallenges(status?: string): Promise<AmbassadorChallenge[]> {
+    if (status) {
+      return await db.select().from(ambassadorChallenges)
+        .where(eq(ambassadorChallenges.status, status))
+        .orderBy(desc(ambassadorChallenges.startDate));
+    }
+    return await db.select().from(ambassadorChallenges)
+      .orderBy(desc(ambassadorChallenges.startDate));
+  }
+
+  async getChallengesByWeek(weekNumber: number): Promise<AmbassadorChallenge[]> {
+    return await db.select().from(ambassadorChallenges)
+      .where(eq(ambassadorChallenges.weekNumber, weekNumber));
+  }
+
+  async getChallenge(id: number): Promise<AmbassadorChallenge | undefined> {
+    const [result] = await db.select().from(ambassadorChallenges)
+      .where(eq(ambassadorChallenges.id, id));
+    return result;
+  }
+
+  async createChallenge(data: InsertAmbassadorChallenge): Promise<AmbassadorChallenge> {
+    const [result] = await db.insert(ambassadorChallenges).values(data).returning();
+    return result;
+  }
+
+  async updateChallenge(id: number, data: Partial<AmbassadorChallenge>): Promise<AmbassadorChallenge | undefined> {
+    const [result] = await db.update(ambassadorChallenges)
+      .set(data)
+      .where(eq(ambassadorChallenges.id, id))
+      .returning();
+    return result;
+  }
+
+  async joinChallenge(userId: number, challengeId: number): Promise<AmbassadorChallengeParticipant> {
+    const [result] = await db.insert(ambassadorChallengeParticipants)
+      .values({ userId, challengeId, status: 'joined' })
+      .returning();
+    return result;
+  }
+
+  async getChallengeParticipation(userId: number, challengeId: number): Promise<AmbassadorChallengeParticipant | undefined> {
+    const [result] = await db.select().from(ambassadorChallengeParticipants)
+      .where(and(
+        eq(ambassadorChallengeParticipants.userId, userId),
+        eq(ambassadorChallengeParticipants.challengeId, challengeId)
+      ));
+    return result;
+  }
+
+  async getUserChallenges(userId: number): Promise<(AmbassadorChallengeParticipant & { challenge: AmbassadorChallenge })[]> {
+    const participations = await db.select().from(ambassadorChallengeParticipants)
+      .where(eq(ambassadorChallengeParticipants.userId, userId));
+    
+    const result: (AmbassadorChallengeParticipant & { challenge: AmbassadorChallenge })[] = [];
+    for (const p of participations) {
+      const challenge = await this.getChallenge(p.challengeId);
+      if (challenge) {
+        result.push({ ...p, challenge });
+      }
+    }
+    return result;
+  }
+
+  async updateChallengeProgress(userId: number, challengeId: number, data: Partial<AmbassadorChallengeParticipant>): Promise<AmbassadorChallengeParticipant | undefined> {
+    const [result] = await db.update(ambassadorChallengeParticipants)
+      .set(data)
+      .where(and(
+        eq(ambassadorChallengeParticipants.userId, userId),
+        eq(ambassadorChallengeParticipants.challengeId, challengeId)
+      ))
+      .returning();
+    return result;
+  }
+
+  async getEvents(status?: string): Promise<AmbassadorEvent[]> {
+    if (status) {
+      return await db.select().from(ambassadorEvents)
+        .where(eq(ambassadorEvents.status, status))
+        .orderBy(desc(ambassadorEvents.scheduledDate));
+    }
+    return await db.select().from(ambassadorEvents)
+      .orderBy(desc(ambassadorEvents.scheduledDate));
+  }
+
+  async getEventsByWeek(weekNumber: number): Promise<AmbassadorEvent[]> {
+    return await db.select().from(ambassadorEvents)
+      .where(eq(ambassadorEvents.weekNumber, weekNumber));
+  }
+
+  async getEvent(id: number): Promise<AmbassadorEvent | undefined> {
+    const [result] = await db.select().from(ambassadorEvents)
+      .where(eq(ambassadorEvents.id, id));
+    return result;
+  }
+
+  async createEvent(data: InsertAmbassadorEvent): Promise<AmbassadorEvent> {
+    const [result] = await db.insert(ambassadorEvents).values(data).returning();
+    return result;
+  }
+
+  async updateEvent(id: number, data: Partial<AmbassadorEvent>): Promise<AmbassadorEvent | undefined> {
+    const [result] = await db.update(ambassadorEvents)
+      .set(data)
+      .where(eq(ambassadorEvents.id, id))
+      .returning();
+    return result;
+  }
+
+  async registerForEvent(userId: number, eventId: number, role: string = 'attendee'): Promise<AmbassadorEventRegistration> {
+    const [result] = await db.insert(ambassadorEventRegistrations)
+      .values({ userId, eventId, role, status: 'registered' })
+      .returning();
+    return result;
+  }
+
+  async getEventRegistration(userId: number, eventId: number): Promise<AmbassadorEventRegistration | undefined> {
+    const [result] = await db.select().from(ambassadorEventRegistrations)
+      .where(and(
+        eq(ambassadorEventRegistrations.userId, userId),
+        eq(ambassadorEventRegistrations.eventId, eventId)
+      ));
+    return result;
+  }
+
+  async getUserEvents(userId: number): Promise<(AmbassadorEventRegistration & { event: AmbassadorEvent })[]> {
+    const registrations = await db.select().from(ambassadorEventRegistrations)
+      .where(eq(ambassadorEventRegistrations.userId, userId));
+    
+    const result: (AmbassadorEventRegistration & { event: AmbassadorEvent })[] = [];
+    for (const r of registrations) {
+      const event = await this.getEvent(r.eventId);
+      if (event) {
+        result.push({ ...r, event });
+      }
+    }
+    return result;
+  }
+
+  async updateEventRegistration(userId: number, eventId: number, data: Partial<AmbassadorEventRegistration>): Promise<AmbassadorEventRegistration | undefined> {
+    const [result] = await db.update(ambassadorEventRegistrations)
+      .set(data)
+      .where(and(
+        eq(ambassadorEventRegistrations.userId, userId),
+        eq(ambassadorEventRegistrations.eventId, eventId)
+      ))
       .returning();
     return result;
   }
