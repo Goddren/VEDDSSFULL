@@ -13,23 +13,23 @@ import chartAnalysisImg from '@assets/stock_images/trading_chart_analys_8f9ce15e
 import complianceImg from '@assets/stock_images/business_compliance__a162932c.jpg';
 import platformsImg from '@assets/stock_images/trading_platforms_mu_e4e1343a.jpg';
 
-// Import chart pattern images - improved accuracy versions
-import headAndShouldersImg from '@assets/generated_images/head_shoulders_diagram.png';
-import doubleTopImg from '@assets/generated_images/double_top_m_pattern.png';
-import hammerPatternImg from '@assets/generated_images/hammer_candle_diagram.png';
-import rsiIndicatorImg from '@assets/generated_images/rsi_indicator_zones.png';
-import supportResistanceImg from '@assets/generated_images/support_resistance_levels.png';
-import trianglePatternImg from '@assets/generated_images/ascending_triangle_diagram.png';
-import dojiPatternImg from '@assets/generated_images/doji_candle_diagram.png';
-import engulfingPatternImg from '@assets/generated_images/engulfing_pattern_diagram.png';
-import morningEveningStarImg from '@assets/generated_images/morning_star_pattern.png';
-import flagPennantImg from '@assets/generated_images/bull_flag_pattern.png';
-import cupHandleImg from '@assets/generated_images/cup_handle_pattern.png';
-import wedgePatternsImg from '@assets/generated_images/rising_wedge_bearish.png';
-import macdIndicatorImg from '@assets/generated_images/macd_crossover_diagram.png';
-import movingAveragesImg from '@assets/generated_images/moving_average_crossover.png';
-import bollingerBandsImg from '@assets/generated_images/bollinger_bands_diagram.png';
-import volumeIndicatorImg from '@assets/generated_images/volume_breakout_diagram.png';
+// Import professional stock images for chart patterns and indicators
+import headAndShouldersImg from '@assets/stock_images/head_and_shoulders_c_a7f4aded.jpg';
+import doubleTopImg from '@assets/stock_images/double_top_double_bo_cdec64dc.jpg';
+import hammerPatternImg from '@assets/stock_images/hammer_candlestick_p_ceee138f.jpg';
+import rsiIndicatorImg from '@assets/stock_images/rsi_indicator_overbo_7678d699.jpg';
+import supportResistanceImg from '@assets/stock_images/support_resistance_l_b6401ae5.jpg';
+import trianglePatternImg from '@assets/stock_images/triangle_chart_patte_702e71b8.jpg';
+import dojiPatternImg from '@assets/stock_images/doji_candlestick_pat_16d5e0c5.jpg';
+import engulfingPatternImg from '@assets/stock_images/engulfing_candlestic_23e0cac2.jpg';
+import morningEveningStarImg from '@assets/stock_images/morning_star_evening_bea77580.jpg';
+import flagPennantImg from '@assets/stock_images/flag_pennant_chart_p_0263e22f.jpg';
+import cupHandleImg from '@assets/stock_images/cup_and_handle_chart_38a185cc.jpg';
+import wedgePatternsImg from '@assets/stock_images/wedge_pattern_rising_d84657be.jpg';
+import macdIndicatorImg from '@assets/stock_images/macd_indicator_cross_d8c11369.jpg';
+import movingAveragesImg from '@assets/stock_images/moving_average_golde_66b4129c.jpg';
+import bollingerBandsImg from '@assets/stock_images/bollinger_bands_trad_b1fd99d2.jpg';
+import volumeIndicatorImg from '@assets/stock_images/volume_trading_chart_473db698.jpg';
 import { 
   GraduationCap, 
   Video, 
