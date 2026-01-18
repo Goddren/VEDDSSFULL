@@ -648,6 +648,45 @@ const trainingModules: TrainingModule[] = [
         }
       },
       {
+        id: 'features-1b',
+        title: 'The Science Behind AI Confidence %',
+        content: [
+          'The AI confidence percentage reflects how strongly the analysis supports the trade recommendation',
+          'GPT-4o evaluates multiple technical factors and assigns Low, Medium, or High confidence',
+          'These labels are converted to percentages: Low (40-55%), Medium (56-74%), High (75-95%)',
+          'Multi-timeframe analysis can boost or reduce the final score based on timeframe agreement',
+          'Higher confidence = more technical factors aligning in the same direction'
+        ],
+        keyPoints: [
+          { title: 'Pattern Confluence', description: 'When multiple patterns appear together (e.g., double bottom + bullish engulfing), confidence increases. One pattern alone = lower confidence.', icon: TrendingUp },
+          { title: 'Indicator Agreement', description: 'RSI, MACD, and moving averages all pointing the same direction? Higher confidence. Mixed signals = lower confidence.', icon: Target },
+          { title: 'Support/Resistance Alignment', description: 'Entry points near strong support/resistance levels with good risk-reward ratios increase confidence. Random entry levels = lower.', icon: Shield },
+          { title: 'Volume Confirmation', description: 'Breakouts with high volume are more reliable. Price moves on low volume get lower confidence scores.', icon: TrendingUp },
+          { title: 'Timeframe Agreement (+10% Boost)', description: 'When 60%+ of analyzed timeframes agree on direction, AI adds a 10% confidence boost. Conflicting timeframes reduce the score.', icon: Zap }
+        ],
+        realWorldExamples: [
+          { scenario: 'EUR/USD shows Head & Shoulders on H4 with RSI divergence and MACD crossover', outcome: 'AI assigns 85% confidence - multiple strong signals align for a bearish reversal', lesson: 'Pattern + indicator confluence = high confidence. The more factors agree, the higher the score', type: 'success' },
+          { scenario: 'GBP/JPY has a hammer candle but RSI is neutral and no clear trend', outcome: 'AI assigns 52% confidence - one bullish signal but nothing else confirms', lesson: 'Single patterns without confirmation get low confidence. Wait for more alignment', type: 'warning' },
+          { scenario: 'Multi-timeframe analysis: M15 bullish, H1 bullish, H4 bullish, D1 neutral', outcome: '3 of 4 timeframes agree (75%) - AI adds +10% confidence boost to base score', lesson: 'Multi-timeframe alignment is powerful. When most timeframes agree, the trade has higher probability', type: 'insight' }
+        ],
+        tips: [
+          'Explain that confidence is NOT a prediction of profit - it measures signal quality',
+          'Higher confidence = more evidence, but risk management is still essential',
+          'Use the 70%+ threshold as a starting point for quality trade setups',
+          'Show how multi-timeframe analysis increases confidence when timeframes align'
+        ],
+        quiz: {
+          question: 'What happens to AI confidence when 60%+ of timeframes agree on direction?',
+          options: [
+            'Confidence stays the same',
+            'Confidence gets a +10% boost',
+            'Confidence is reduced by 10%',
+            'The analysis is rejected'
+          ],
+          correct: 1
+        }
+      },
+      {
         id: 'features-2',
         title: 'EA Generation',
         content: [
