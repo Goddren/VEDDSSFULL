@@ -2342,7 +2342,7 @@ export default function AmbassadorTrainingPage() {
 
         <Separator className="my-8" />
         
-        <h2 className="text-2xl font-bold mb-6 flex items-center gap-3">
+        <h2 id="training-modules" className="text-2xl font-bold mb-6 flex items-center gap-3">
           <GraduationCap className="w-7 h-7 text-amber-400" />
           Training Modules
         </h2>
