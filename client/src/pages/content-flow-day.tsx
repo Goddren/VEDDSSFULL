@@ -5,15 +5,72 @@ import { useDropzone } from "react-dropzone";
 import { motion } from "framer-motion";
 import { 
   ArrowLeft, BookOpen, Sparkles, Copy, Check, Upload, Image, 
-  Video, Star, Flame, Send, Loader2, CheckCircle, Clock
+  Video, Star, Flame, Send, Loader2, CheckCircle, Clock, Users,
+  Trophy, Calendar, Target, Zap, Twitter, Instagram, Linkedin, Hash,
+  Play, ExternalLink, Award
 } from "lucide-react";
+import { SiTiktok } from "react-icons/si";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+
+interface SocialDirection {
+  id: number;
+  dayNumber: number;
+  platform: string;
+  contentType: string;
+  postIdea: string;
+  captionTemplate: string;
+  hookLine: string;
+  callToAction: string;
+  hashtags: string[];
+  bestPostingTime: string | null;
+  engagementTips: string[];
+}
+
+interface Challenge {
+  id: number;
+  title: string;
+  description: string;
+  challengeType: string;
+  category: string;
+  difficulty: string;
+  objectives: string[];
+  successCriteria: string;
+  tokenReward: number;
+  bonusReward: number;
+  badgeReward: string | null;
+  startDate: string;
+  endDate: string;
+  status: string;
+}
+
+interface CommunityEvent {
+  id: number;
+  title: string;
+  description: string;
+  eventType: string;
+  format: string;
+  hostGuide: string;
+  talkingPoints: string[];
+  agenda: { time: string; topic: string; details: string }[];
+  suggestedDuration: number;
+  tokenReward: number;
+  hostTokenReward: number;
+  status: string;
+}
+
+interface CommunityData {
+  socialDirections: SocialDirection[];
+  challenges: Challenge[];
+  events: CommunityEvent[];
+  isEmpty: boolean;
+}
 
 interface DailyLesson {
   dayNumber: number;
@@ -70,6 +127,66 @@ export default function ContentFlowDay() {
     },
     enabled: !!dayNumber
   });
+
+  const weekNumber = Math.ceil(day / 7);
+  
+  const { data: communityData, isLoading: communityLoading, refetch: refetchCommunity } = useQuery<CommunityData>({
+    queryKey: ['/api/ambassador/community/hub', day],
+    queryFn: async () => {
+      const res = await fetch(`/api/ambassador/community/hub?day=${day}&week=${weekNumber}`, { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to load community data');
+      return res.json();
+    },
+    enabled: !!dayNumber
+  });
+
+  const joinChallengeMutation = useMutation({
+    mutationFn: async (challengeId: number) => {
+      const res = await apiRequest('POST', `/api/ambassador/community/challenges/${challengeId}/join`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/ambassador/community/hub', day] });
+      toast({ title: "Challenge Joined!", description: "Good luck with the challenge!" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    }
+  });
+
+  const registerEventMutation = useMutation({
+    mutationFn: async ({ eventId, role }: { eventId: number; role?: string }) => {
+      const res = await apiRequest('POST', `/api/ambassador/community/events/${eventId}/register`, { role });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/ambassador/community/hub', day] });
+      toast({ title: "Registered!", description: "You're signed up for this event." });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    }
+  });
+
+  const getPlatformIcon = (platform: string) => {
+    switch (platform) {
+      case 'twitter': return <Twitter className="w-5 h-5 text-blue-400" />;
+      case 'instagram': return <Instagram className="w-5 h-5 text-pink-400" />;
+      case 'linkedin': return <Linkedin className="w-5 h-5 text-blue-500" />;
+      case 'tiktok': return <SiTiktok className="w-5 h-5 text-white" />;
+      default: return <Hash className="w-5 h-5 text-gray-400" />;
+    }
+  };
+
+  const getDifficultyColor = (difficulty: string) => {
+    switch (difficulty) {
+      case 'easy': return 'bg-green-500/20 text-green-400 border-green-500/30';
+      case 'medium': return 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30';
+      case 'hard': return 'bg-orange-500/20 text-orange-400 border-orange-500/30';
+      case 'expert': return 'bg-red-500/20 text-red-400 border-red-500/30';
+      default: return 'bg-gray-500/20 text-gray-400 border-gray-500/30';
+    }
+  };
 
   const startMutation = useMutation({
     mutationFn: () => apiRequest('POST', `/api/ambassador/content-flow/day/${day}/start`),
@@ -266,7 +383,11 @@ export default function ContentFlowDay() {
             </TabsTrigger>
             <TabsTrigger value="content" className="flex-1 data-[state=active]:bg-green-500/20">
               <Sparkles className="w-4 h-4 mr-2" />
-              Create Content
+              Create
+            </TabsTrigger>
+            <TabsTrigger value="community" className="flex-1 data-[state=active]:bg-purple-500/20">
+              <Users className="w-4 h-4 mr-2" />
+              Community
             </TabsTrigger>
           </TabsList>
 
@@ -487,6 +608,325 @@ export default function ContentFlowDay() {
                 <p className="text-green-400 font-medium">Day Completed!</p>
                 <p className="text-gray-400">You earned {progress.tokensEarned} tokens</p>
               </div>
+            )}
+          </TabsContent>
+
+          {/* Community Tab - nas.io style features */}
+          <TabsContent value="community" className="mt-4 space-y-6">
+            {communityLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="w-8 h-8 animate-spin text-purple-400" />
+              </div>
+            ) : (
+              <>
+                {/* Social Content Directions */}
+                <Card className="bg-gradient-to-br from-purple-900/30 to-indigo-900/20 border-purple-500/30">
+                  <CardHeader>
+                    <CardTitle className="text-lg text-white flex items-center gap-2">
+                      <Target className="w-5 h-5 text-purple-400" />
+                      Social Content Directions
+                    </CardTitle>
+                    <CardDescription>
+                      Platform-specific post ideas to maximize your reach today
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {communityData?.socialDirections && communityData.socialDirections.length > 0 ? (
+                      <Accordion type="single" collapsible className="space-y-2">
+                        {communityData.socialDirections.map((direction) => (
+                          <AccordionItem 
+                            key={direction.id} 
+                            value={`direction-${direction.id}`}
+                            className="border border-gray-700 rounded-lg bg-gray-800/50"
+                          >
+                            <AccordionTrigger className="px-4 py-3 hover:no-underline">
+                              <div className="flex items-center gap-3">
+                                {getPlatformIcon(direction.platform)}
+                                <span className="text-white capitalize font-medium">{direction.platform}</span>
+                                <Badge variant="outline" className="text-xs">
+                                  {direction.contentType}
+                                </Badge>
+                              </div>
+                            </AccordionTrigger>
+                            <AccordionContent className="px-4 pb-4 space-y-4">
+                              <div>
+                                <p className="text-xs text-gray-500 mb-1">Hook Line</p>
+                                <p className="text-purple-300 font-medium">{direction.hookLine}</p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-gray-500 mb-1">Post Idea</p>
+                                <p className="text-gray-300">{direction.postIdea}</p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-gray-500 mb-1">Ready-to-Use Caption</p>
+                                <div className="bg-gray-700/50 p-3 rounded-lg relative">
+                                  <p className="text-gray-200 text-sm whitespace-pre-wrap">{direction.captionTemplate}</p>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="absolute top-2 right-2"
+                                    onClick={() => copyToClipboard(direction.captionTemplate, `caption-${direction.id}`)}
+                                  >
+                                    {copiedField === `caption-${direction.id}` ? (
+                                      <Check className="w-4 h-4 text-green-400" />
+                                    ) : (
+                                      <Copy className="w-4 h-4" />
+                                    )}
+                                  </Button>
+                                </div>
+                              </div>
+                              <div>
+                                <p className="text-xs text-gray-500 mb-1">Call to Action</p>
+                                <p className="text-amber-400">{direction.callToAction}</p>
+                              </div>
+                              {direction.hashtags && direction.hashtags.length > 0 && (
+                                <div className="flex flex-wrap gap-1">
+                                  {direction.hashtags.map((tag, idx) => (
+                                    <Badge 
+                                      key={idx}
+                                      variant="outline"
+                                      className="text-xs cursor-pointer hover:bg-purple-500/20"
+                                      onClick={() => copyToClipboard(tag, `hash-${direction.id}-${idx}`)}
+                                    >
+                                      {tag}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              )}
+                              {direction.bestPostingTime && (
+                                <div className="flex items-center gap-2 text-sm text-gray-400">
+                                  <Clock className="w-4 h-4" />
+                                  Best time: {direction.bestPostingTime}
+                                </div>
+                              )}
+                              {direction.engagementTips && direction.engagementTips.length > 0 && (
+                                <div className="bg-green-500/10 p-3 rounded-lg">
+                                  <p className="text-xs text-green-400 font-medium mb-2">Engagement Tips</p>
+                                  <ul className="space-y-1">
+                                    {direction.engagementTips.map((tip, idx) => (
+                                      <li key={idx} className="text-sm text-gray-300 flex items-start gap-2">
+                                        <Zap className="w-3 h-3 text-green-400 mt-1 flex-shrink-0" />
+                                        {tip}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                            </AccordionContent>
+                          </AccordionItem>
+                        ))}
+                      </Accordion>
+                    ) : (
+                      <div className="text-center py-6">
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            refetchCommunity();
+                            fetch(`/api/ambassador/community/social-directions/${day}`, { credentials: 'include' })
+                              .then(() => refetchCommunity());
+                          }}
+                          className="border-purple-500/30 text-purple-400 hover:bg-purple-500/10"
+                        >
+                          <Sparkles className="w-4 h-4 mr-2" />
+                          Generate Social Content Ideas
+                        </Button>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Weekly Challenges */}
+                <Card className="bg-gradient-to-br from-amber-900/30 to-orange-900/20 border-amber-500/30">
+                  <CardHeader>
+                    <CardTitle className="text-lg text-white flex items-center gap-2">
+                      <Trophy className="w-5 h-5 text-amber-400" />
+                      Week {weekNumber} Challenges
+                    </CardTitle>
+                    <CardDescription>
+                      Join challenges to earn bonus tokens and badges
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {communityData?.challenges && communityData.challenges.length > 0 ? (
+                      communityData.challenges.map((challenge) => (
+                        <div 
+                          key={challenge.id}
+                          className="bg-gray-800/70 border border-gray-700 rounded-lg p-4 space-y-3"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-1">
+                                <h4 className="font-semibold text-white">{challenge.title}</h4>
+                                <Badge className={getDifficultyColor(challenge.difficulty)}>
+                                  {challenge.difficulty}
+                                </Badge>
+                              </div>
+                              <p className="text-sm text-gray-400">{challenge.description}</p>
+                            </div>
+                            <div className="text-right">
+                              <div className="flex items-center gap-1 text-amber-400">
+                                <Star className="w-4 h-4" />
+                                <span className="font-bold">{challenge.tokenReward}</span>
+                              </div>
+                              {challenge.badgeReward && (
+                                <div className="flex items-center gap-1 text-xs text-purple-400 mt-1">
+                                  <Award className="w-3 h-3" />
+                                  Badge
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          
+                          {challenge.objectives && (
+                            <div className="space-y-1">
+                              <p className="text-xs text-gray-500">Objectives:</p>
+                              <ul className="space-y-1">
+                                {(challenge.objectives as string[]).slice(0, 3).map((obj, idx) => (
+                                  <li key={idx} className="text-sm text-gray-300 flex items-start gap-2">
+                                    <Target className="w-3 h-3 text-amber-400 mt-1 flex-shrink-0" />
+                                    {obj}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                          
+                          <Button
+                            size="sm"
+                            className="w-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600"
+                            onClick={() => joinChallengeMutation.mutate(challenge.id)}
+                            disabled={joinChallengeMutation.isPending}
+                          >
+                            {joinChallengeMutation.isPending ? (
+                              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            ) : (
+                              <Play className="w-4 h-4 mr-2" />
+                            )}
+                            Join Challenge
+                          </Button>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-center py-6">
+                        <p className="text-gray-400 mb-3">No challenges yet for Week {weekNumber}</p>
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            fetch(`/api/ambassador/community/challenges?week=${weekNumber}`, { credentials: 'include' })
+                              .then(() => refetchCommunity());
+                          }}
+                          className="border-amber-500/30 text-amber-400 hover:bg-amber-500/10"
+                        >
+                          <Trophy className="w-4 h-4 mr-2" />
+                          Generate Weekly Challenges
+                        </Button>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Community Events */}
+                <Card className="bg-gradient-to-br from-blue-900/30 to-cyan-900/20 border-blue-500/30">
+                  <CardHeader>
+                    <CardTitle className="text-lg text-white flex items-center gap-2">
+                      <Calendar className="w-5 h-5 text-blue-400" />
+                      Community Events
+                    </CardTitle>
+                    <CardDescription>
+                      Host or join virtual events to earn tokens and build community
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {communityData?.events && communityData.events.length > 0 ? (
+                      communityData.events.map((event) => (
+                        <div 
+                          key={event.id}
+                          className="bg-gray-800/70 border border-gray-700 rounded-lg p-4 space-y-3"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-1">
+                                <h4 className="font-semibold text-white">{event.title}</h4>
+                                <Badge variant="outline" className="text-blue-400 border-blue-500/30">
+                                  {event.eventType.replace('_', ' ')}
+                                </Badge>
+                              </div>
+                              <p className="text-sm text-gray-400">{event.description}</p>
+                            </div>
+                            <div className="text-right">
+                              <div className="flex items-center gap-1 text-blue-400 text-sm">
+                                <Clock className="w-4 h-4" />
+                                {event.suggestedDuration}m
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex gap-3 text-sm">
+                            <div className="flex items-center gap-1 text-green-400">
+                              <Star className="w-4 h-4" />
+                              <span>Attend: +{event.tokenReward}</span>
+                            </div>
+                            <div className="flex items-center gap-1 text-purple-400">
+                              <Trophy className="w-4 h-4" />
+                              <span>Host: +{event.hostTokenReward}</span>
+                            </div>
+                          </div>
+
+                          {event.talkingPoints && (
+                            <div className="bg-blue-500/10 p-3 rounded-lg">
+                              <p className="text-xs text-blue-400 font-medium mb-2">Key Topics</p>
+                              <div className="flex flex-wrap gap-1">
+                                {(event.talkingPoints as string[]).slice(0, 4).map((point, idx) => (
+                                  <Badge key={idx} variant="outline" className="text-xs">
+                                    {point.slice(0, 30)}{point.length > 30 ? '...' : ''}
+                                  </Badge>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="flex-1 border-blue-500/30 text-blue-400 hover:bg-blue-500/10"
+                              onClick={() => registerEventMutation.mutate({ eventId: event.id, role: 'attendee' })}
+                              disabled={registerEventMutation.isPending}
+                            >
+                              <Users className="w-4 h-4 mr-2" />
+                              Register
+                            </Button>
+                            <Button
+                              size="sm"
+                              className="flex-1 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600"
+                              onClick={() => registerEventMutation.mutate({ eventId: event.id, role: 'host' })}
+                              disabled={registerEventMutation.isPending}
+                            >
+                              <Play className="w-4 h-4 mr-2" />
+                              Host This
+                            </Button>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-center py-6">
+                        <p className="text-gray-400 mb-3">No events yet for Week {weekNumber}</p>
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            fetch(`/api/ambassador/community/events?week=${weekNumber}`, { credentials: 'include' })
+                              .then(() => refetchCommunity());
+                          }}
+                          className="border-blue-500/30 text-blue-400 hover:bg-blue-500/10"
+                        >
+                          <Calendar className="w-4 h-4 mr-2" />
+                          Generate Event Templates
+                        </Button>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </>
             )}
           </TabsContent>
         </Tabs>
