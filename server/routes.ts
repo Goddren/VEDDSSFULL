@@ -337,6 +337,76 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const analysis = await analyzeChartImage(cleanBase64);
       console.log('Analysis completed successfully');
       
+      // Fetch news sentiment for the detected symbol and adjust confidence
+      let newsImpact: { sentiment: string; adjustment: number; headlines: string[] } | null = null;
+      try {
+        if (analysis.symbol && analysis.symbol !== 'Unknown') {
+          const symbolNews = await newsService.fetchCompanyNews(analysis.symbol, 2);
+          if (symbolNews.length > 0) {
+            const sentiment = await newsService.analyzeNewsSentiment(symbolNews, analysis.symbol);
+            
+            // Determine if news aligns with the signal direction
+            // Explicitly check for bullish AND bearish signals - don't assume non-bullish = bearish
+            const dirUpper = (analysis.direction || '').toUpperCase();
+            const trendLower = (analysis.trend || '').toLowerCase();
+            const signalIsBullish = dirUpper.includes('BUY') || dirUpper.includes('LONG') || 
+                                    trendLower.includes('bullish');
+            const signalIsBearish = dirUpper.includes('SELL') || dirUpper.includes('SHORT') || 
+                                    trendLower.includes('bearish');
+            const newsIsBullish = sentiment.overallScore > 20;
+            const newsIsBearish = sentiment.overallScore < -20;
+            
+            // Only apply adjustments if we have a clear directional signal
+            // Skip adjustments for neutral/unknown signals
+            let newsAligns = false;
+            let newsConflicts = false;
+            
+            if (signalIsBullish) {
+              newsAligns = newsIsBullish;
+              newsConflicts = newsIsBearish;
+            } else if (signalIsBearish) {
+              newsAligns = newsIsBearish;
+              newsConflicts = newsIsBullish;
+            }
+            // If neither bullish nor bearish (neutral/unknown), newsAligns and newsConflicts stay false
+            
+            // Calculate confidence adjustment
+            let adjustment = 0;
+            if (newsAligns) {
+              adjustment = Math.abs(sentiment.overallScore) > 50 ? 10 : 5; // +5% or +10%
+            } else if (newsConflicts) {
+              adjustment = Math.abs(sentiment.overallScore) > 50 ? -10 : -5; // -5% or -10%
+            }
+            
+            // Apply adjustment to confidence level
+            if (adjustment !== 0) {
+              const confidenceMap: Record<string, number> = { 'Low': 45, 'Medium': 65, 'High': 85 };
+              const currentConfidence = confidenceMap[analysis.confidence || 'Medium'] || 65;
+              const newConfidence = Math.max(30, Math.min(95, currentConfidence + adjustment));
+              
+              // Update confidence level based on new score
+              if (newConfidence >= 75) {
+                analysis.confidence = 'High';
+              } else if (newConfidence >= 55) {
+                analysis.confidence = 'Medium';
+              } else {
+                analysis.confidence = 'Low';
+              }
+            }
+            
+            newsImpact = {
+              sentiment: sentiment.overallLabel || 'Neutral',
+              adjustment,
+              headlines: symbolNews.slice(0, 3).map(n => n.headline)
+            };
+            
+            console.log(`News analysis for ${analysis.symbol}: ${sentiment.overallLabel}, adjustment: ${adjustment}%`);
+          }
+        }
+      } catch (newsError) {
+        console.log('News fetch skipped (service unavailable or symbol not supported)');
+      }
+      
       // Create a filename for storage
       const extension = filename?.split('.').pop() || 'png';
       const generatedFilename = `${uuidv4()}.${extension}`;
@@ -418,7 +488,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({
         ...analysis,
         imageUrl,
-        annotatedImageUrl: annotatedImageUrl || undefined
+        annotatedImageUrl: annotatedImageUrl || undefined,
+        newsImpact: newsImpact || undefined
       });
     } catch (error: any) {
       console.error("Analysis error:", error);

@@ -412,6 +412,15 @@ input int MinTimeframesAgree = ${Math.max(1, Math.floor(sortedTimeframes.length 
 input int MaxOpenTrades = ${maxSimultaneousTrades};                    // Maximum concurrent trades
 input int MagicNumber = ${Math.floor(Math.random() * 90000) + 10000};                     // Unique identifier for this EA
 
+//--- News Filter Settings (VEDD AI Integration)
+input group "=== News Filter Settings ==="
+input bool UseNewsFilter = false;              // Enable news-based trading filter
+input bool RequireNewsAlignment = false;       // Only trade if news sentiment matches signal direction
+input int NewsConfidenceBoost = 5;             // Confidence boost (%) when news strongly aligns (+5 to +15)
+input int AvoidNewsMinutes = 30;               // Minutes before/after high-impact news to avoid trading
+input bool SkipHighImpactNews = true;          // Skip trading during NFP, FOMC, ECB announcements
+input string NewsAPIEndpoint = "";             // VEDD AI news endpoint (leave empty to use default)
+
 //--- Breakout Entry Strategy
 input group "=== Breakout Entry Strategy ==="
 input bool UseBreakoutEntry = ${useBreakoutEntry ? 'true' : 'false'};            // Enable breakout entry on custom timeframe

@@ -10,15 +10,23 @@ import {
   ChevronDown,
   CheckCircle2,
   AlertTriangle,
-  Zap
+  Zap,
+  Newspaper
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+
+interface NewsImpact {
+  sentiment: string;
+  adjustment: number;
+  headlines?: string[];
+}
 
 interface ConfidenceExplainerProps {
   confidence: string;
   confidencePercent?: number;
   compact?: boolean;
+  newsImpact?: NewsImpact;
 }
 
 const confidenceFactors = [
@@ -60,10 +68,22 @@ const confidenceLevels = [
   { level: 'High', range: '75-95%', color: 'text-green-400', bgColor: 'bg-green-500/20', description: 'Strong confluence, multiple confirmations' }
 ];
 
-export function ConfidenceExplainer({ confidence, confidencePercent, compact = false }: ConfidenceExplainerProps) {
+export function ConfidenceExplainer({ confidence, confidencePercent, compact = false, newsImpact }: ConfidenceExplainerProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   
   const currentLevel = confidenceLevels.find(l => l.level.toLowerCase() === confidence?.toLowerCase()) || confidenceLevels[1];
+  
+  const getNewsImpactColor = (adjustment: number) => {
+    if (adjustment > 0) return 'text-green-400';
+    if (adjustment < 0) return 'text-red-400';
+    return 'text-gray-400';
+  };
+  
+  const getNewsImpactBadge = (adjustment: number) => {
+    if (adjustment > 0) return 'bg-green-500/20 border-green-500/30';
+    if (adjustment < 0) return 'bg-red-500/20 border-red-500/30';
+    return 'bg-gray-500/20 border-gray-500/30';
+  };
   
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' || e.key === ' ') {
@@ -212,6 +232,34 @@ export function ConfidenceExplainer({ confidence, confidencePercent, compact = f
                   ))}
                 </div>
               </div>
+
+              {newsImpact && (
+                <div className={`rounded-lg p-3 border ${getNewsImpactBadge(newsImpact.adjustment)}`}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Newspaper className={`w-4 h-4 ${getNewsImpactColor(newsImpact.adjustment)}`} />
+                    <h4 className="text-sm font-semibold text-white">News Impact on Confidence</h4>
+                    <Badge 
+                      variant="outline" 
+                      className={`text-xs ${getNewsImpactBadge(newsImpact.adjustment)}`}
+                    >
+                      {newsImpact.adjustment > 0 ? '+' : ''}{newsImpact.adjustment}%
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-gray-300 mb-2">
+                    News sentiment: <strong className={getNewsImpactColor(newsImpact.adjustment)}>{newsImpact.sentiment}</strong>
+                    {newsImpact.adjustment > 0 && ' - News aligns with signal direction (boosted confidence)'}
+                    {newsImpact.adjustment < 0 && ' - News conflicts with signal direction (reduced confidence)'}
+                    {newsImpact.adjustment === 0 && ' - News is neutral or not applicable'}
+                  </p>
+                  {newsImpact.headlines && newsImpact.headlines.length > 0 && (
+                    <div className="text-xs text-gray-400 space-y-1">
+                      {newsImpact.headlines.slice(0, 2).map((headline, i) => (
+                        <p key={i} className="truncate">• {headline}</p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
                 <p className="text-xs text-amber-200">
