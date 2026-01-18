@@ -21,7 +21,8 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { ShareCardDialog } from '@/components/share-card-dialog';
-import { HelpCircle } from 'lucide-react';
+import { HelpCircle, Zap, TrendingUp, Target, Shield, BarChart2, Clock, Info } from 'lucide-react';
+import { ConfidenceExplainer } from '@/components/confidence-explainer';
 
 // Helper function to explain common AI Refresh errors
 function getRefreshErrorExplanation(errorMessage: string): { title: string; explanation: string; fix: string } | null {
@@ -275,6 +276,30 @@ export default function MyEAsPage() {
             Manage your saved Expert Advisors and share them with the community
           </p>
         </div>
+
+        {/* AI Confidence Info Banner */}
+        <Card className="bg-gradient-to-r from-green-900/20 to-emerald-900/10 border-green-500/30">
+          <CardContent className="p-4">
+            <div className="flex items-start gap-4">
+              <div className="p-2 rounded-lg bg-green-500/20">
+                <Zap className="w-5 h-5 text-green-400" />
+              </div>
+              <div className="flex-1">
+                <h3 className="font-semibold text-green-400 mb-1">Understanding AI Confidence %</h3>
+                <p className="text-sm text-gray-300 mb-3">
+                  Each EA shows a confidence percentage based on pattern confluence, indicator agreement, 
+                  support/resistance alignment, volume confirmation, and multi-timeframe agreement.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant="outline" className="bg-red-500/20 text-red-300 border-red-500/30">Low: 40-55%</Badge>
+                  <Badge variant="outline" className="bg-yellow-500/20 text-yellow-300 border-yellow-500/30">Medium: 56-74%</Badge>
+                  <Badge variant="outline" className="bg-green-500/20 text-green-300 border-green-500/30">High: 75-95%</Badge>
+                  <Badge variant="outline" className="bg-blue-500/20 text-blue-300 border-blue-500/30">+10% boost when 60%+ timeframes agree</Badge>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
         {eas.length === 0 ? (
           <Card>

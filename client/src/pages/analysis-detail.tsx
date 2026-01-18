@@ -19,6 +19,7 @@ import { InteractiveInsightTooltip } from '@/components/ui/interactive-insight-t
 import { ChartInsightsPanel } from '@/components/market-insights/chart-insights-panel';
 import { MarketMoodDisplay } from '@/components/market/market-mood-display';
 import { NewsSentimentWidget, NewsFeed } from '@/components/news/news-feed';
+import { ConfidenceExplainer } from '@/components/confidence-explainer';
 
 const AnalysisDetail: React.FC = () => {
   const { id } = useParams();
@@ -249,6 +250,11 @@ const AnalysisDetail: React.FC = () => {
           </Card>
           
           <div className="space-y-6">
+            {/* Prominent Confidence Explainer */}
+            <ConfidenceExplainer 
+              confidence={analysis.confidence || 'Medium'}
+            />
+            
             <MarketMoodDisplay
               trend={analysis.trend || ''}
               symbol={analysis.symbol || ''}
