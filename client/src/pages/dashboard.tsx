@@ -21,7 +21,9 @@ import {
   Lightbulb,
   Gamepad as GamepadIcon,
   Smile,
-  Zap
+  Zap,
+  CalendarCheck,
+  Users
 } from 'lucide-react';
 import { MarketCalendar } from '@/components/market/market-calendar';
 import { getUserLevel } from '@/lib/achievement-system';
@@ -83,6 +85,24 @@ const Dashboard: React.FC = () => {
     queryKey: ['/api/profile', user?.id],
     enabled: !!user?.id
   });
+  
+  // Get user's registered events
+  const { data: registeredEventsData } = useQuery<{ events: Array<{ event: { id: number; title: string; description: string; eventDate: string; eventTime: string; status: string } }> }>({
+    queryKey: ['/api/ambassador/community/my-events'],
+    enabled: !!user
+  });
+  
+  // Filter to only upcoming events
+  const upcomingEvents = React.useMemo(() => {
+    if (!registeredEventsData?.events) return [];
+    const now = new Date();
+    return registeredEventsData.events
+      .filter(reg => {
+        const eventDate = new Date(reg.event.eventDate);
+        return eventDate >= now && reg.event.status === 'scheduled';
+      })
+      .slice(0, 3);
+  }, [registeredEventsData]);
   
   // Calculate total achievement points (for UserLevel component)
   const totalAchievementPoints = React.useMemo(() => {
@@ -381,6 +401,59 @@ const Dashboard: React.FC = () => {
 
           {/* Dashboard Right Column */}
           <div className="space-y-6">
+            {/* Upcoming Registered Events */}
+            {upcomingEvents.length > 0 && (
+              <Card className="bg-gradient-to-br from-amber-900/30 to-gray-900 border-amber-500/30 shadow-xl">
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="h-8 w-8 rounded-full bg-amber-500/20 flex items-center justify-center">
+                        <CalendarCheck className="h-4 w-4 text-amber-400" />
+                      </div>
+                      <div>
+                        <CardTitle className="text-lg text-white">Your Upcoming Events</CardTitle>
+                        <CardDescription className="text-amber-400/80">Events you've registered for</CardDescription>
+                      </div>
+                    </div>
+                    <Link href="/ambassador-training">
+                      <Button variant="ghost" size="sm" className="text-amber-400 hover:text-amber-300 hover:bg-amber-500/10">
+                        View All
+                        <ChevronRight className="h-4 w-4 ml-1" />
+                      </Button>
+                    </Link>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {upcomingEvents.map((reg) => (
+                    <div 
+                      key={reg.event.id}
+                      className="bg-gray-900/60 border border-amber-500/20 rounded-lg p-3 hover:bg-gray-800/60 transition-colors"
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1 min-w-0">
+                          <h4 className="font-medium text-white truncate">{reg.event.title}</h4>
+                          <div className="flex items-center gap-3 mt-1 text-sm text-gray-400">
+                            <span className="flex items-center gap-1">
+                              <Calendar className="h-3 w-3" />
+                              {new Date(reg.event.eventDate).toLocaleDateString()}
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <Clock className="h-3 w-3" />
+                              {reg.event.eventTime}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1 text-xs bg-emerald-500/20 text-emerald-400 px-2 py-1 rounded-full">
+                          <Users className="h-3 w-3" />
+                          Registered
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            )}
+            
             {/* Economic Calendar */}
             <MarketCalendar />
             
