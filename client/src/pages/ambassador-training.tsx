@@ -2138,6 +2138,9 @@ export default function AmbassadorTrainingPage() {
                           onClick={() => {
                             setActiveModule(currentModuleData.id);
                             setExpandedLesson(nextLesson.id);
+                            setTimeout(() => {
+                              document.getElementById('training-modules')?.scrollIntoView({ behavior: 'smooth' });
+                            }, 100);
                           }}
                         >
                           <Play className="w-4 h-4 mr-1" />
