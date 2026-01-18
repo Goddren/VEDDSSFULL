@@ -120,7 +120,7 @@ export default function ContentFlowDay() {
   const [generatedContent, setGeneratedContent] = useState<GeneratedContent | null>(null);
   const [joinedChallenges, setJoinedChallenges] = useState<Set<number>>(new Set());
   const [registeredEvents, setRegisteredEvents] = useState<Set<number>>(new Set());
-  const [hostingEvent, setHostingEvent] = useState<Event | null>(null);
+  const [hostingEvent, setHostingEvent] = useState<CommunityEvent | null>(null);
   const [hostFormData, setHostFormData] = useState({
     title: '',
     description: '',
