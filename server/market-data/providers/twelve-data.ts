@@ -123,4 +123,110 @@ export class TwelveDataProvider implements MarketDataProvider {
       throw error;
     }
   }
+  
+  async fetchATR(symbol: string, assetType: AssetType, timeframe: string = '1d', period: number = 14): Promise<{
+    atr: number;
+    atrPercent: number;
+    currentPrice: number;
+    suggestedSL: {
+      conservative: number;
+      moderate: number;
+      aggressive: number;
+    };
+    suggestedSLPips?: {
+      conservative: number;
+      moderate: number;
+      aggressive: number;
+    };
+  }> {
+    await rateLimiter.waitForSlot(this.name);
+    
+    const normalizedSymbol = this.normalizeSymbol(symbol, assetType);
+    const interval = this.mapTimeframe(timeframe);
+    
+    // Fetch ATR indicator
+    const atrUrl = new URL(`${TWELVE_DATA_BASE_URL}/atr`);
+    atrUrl.searchParams.set('symbol', normalizedSymbol);
+    atrUrl.searchParams.set('interval', interval);
+    atrUrl.searchParams.set('time_period', period.toString());
+    atrUrl.searchParams.set('outputsize', '1');
+    atrUrl.searchParams.set('apikey', this.apiKey);
+    
+    // Fetch current price
+    const priceUrl = new URL(`${TWELVE_DATA_BASE_URL}/price`);
+    priceUrl.searchParams.set('symbol', normalizedSymbol);
+    priceUrl.searchParams.set('apikey', this.apiKey);
+    
+    try {
+      rateLimiter.recordRequest(this.name);
+      
+      const [atrResponse, priceResponse] = await Promise.all([
+        fetch(atrUrl.toString()),
+        fetch(priceUrl.toString())
+      ]);
+      
+      // Handle HTTP errors with specific messaging
+      if (atrResponse.status === 401 || priceResponse.status === 401) {
+        throw new Error('Twelve Data API key is invalid or expired. Please check your TWELVE_DATA_API_KEY in secrets.');
+      }
+      if (atrResponse.status === 429 || priceResponse.status === 429) {
+        throw new Error('Twelve Data rate limit exceeded. Free tier: 8 requests/minute. Wait a moment and try again.');
+      }
+      if (!atrResponse.ok || !priceResponse.ok) {
+        throw new Error(`Twelve Data API error: ATR ${atrResponse.status}, Price ${priceResponse.status}`);
+      }
+      
+      const atrData = await atrResponse.json();
+      const priceData = await priceResponse.json();
+      
+      if (atrData.status === 'error') {
+        throw new Error(atrData.message || 'ATR fetch failed');
+      }
+      
+      const atrValue = atrData.values && atrData.values[0] 
+        ? parseFloat(atrData.values[0].atr) 
+        : 0;
+      const currentPrice = parseFloat(priceData.price) || 0;
+      
+      // Calculate ATR as percentage of price
+      const atrPercent = currentPrice > 0 ? (atrValue / currentPrice) * 100 : 0;
+      
+      // Calculate suggested SL distances based on ATR multiples
+      // Conservative: 2x ATR (wider, fewer stop-outs)
+      // Moderate: 1.5x ATR (balanced)
+      // Aggressive: 1x ATR (tighter, higher risk)
+      const suggestedSL = {
+        conservative: atrValue * 2,
+        moderate: atrValue * 1.5,
+        aggressive: atrValue * 1
+      };
+      
+      // For forex pairs, convert to pips (assuming standard pip size)
+      let suggestedSLPips: { conservative: number; moderate: number; aggressive: number } | undefined;
+      
+      if (assetType === 'forex') {
+        // Most pairs: 1 pip = 0.0001, JPY pairs: 1 pip = 0.01
+        const isJPYPair = normalizedSymbol.includes('JPY');
+        const pipMultiplier = isJPYPair ? 100 : 10000;
+        
+        suggestedSLPips = {
+          conservative: Math.round(suggestedSL.conservative * pipMultiplier),
+          moderate: Math.round(suggestedSL.moderate * pipMultiplier),
+          aggressive: Math.round(suggestedSL.aggressive * pipMultiplier)
+        };
+      }
+      
+      return {
+        atr: atrValue,
+        atrPercent,
+        currentPrice,
+        suggestedSL,
+        suggestedSLPips
+      };
+      
+    } catch (error) {
+      console.error(`Twelve Data ATR fetch error for ${symbol}:`, error);
+      throw error;
+    }
+  }
 }

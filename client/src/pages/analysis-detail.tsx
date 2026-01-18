@@ -20,6 +20,7 @@ import { ChartInsightsPanel } from '@/components/market-insights/chart-insights-
 import { MarketMoodDisplay } from '@/components/market/market-mood-display';
 import { NewsSentimentWidget, NewsFeed } from '@/components/news/news-feed';
 import { ConfidenceExplainer } from '@/components/confidence-explainer';
+import { ATRStopLossSuggestion } from '@/components/atr-sl-suggestion';
 
 const AnalysisDetail: React.FC = () => {
   const { id } = useParams();
@@ -254,6 +255,22 @@ const AnalysisDetail: React.FC = () => {
             <ConfidenceExplainer 
               confidence={analysis.confidence || 'Medium'}
             />
+            
+            {/* ATR-Based Stop Loss Suggestions */}
+            {analysis.symbol && (
+              <ATRStopLossSuggestion
+                symbol={analysis.symbol}
+                timeframe={analysis.timeframe || '1h'}
+                aiSuggestedSL={analysis.stopLoss}
+                direction={(() => {
+                  const dir = (analysis.direction || '').toLowerCase();
+                  // Map bullish/long variations to buy, bearish/short to sell, default to buy
+                  if (dir.includes('buy') || dir.includes('bullish') || dir.includes('long')) return 'buy';
+                  if (dir.includes('sell') || dir.includes('bearish') || dir.includes('short')) return 'sell';
+                  return 'buy'; // Safe default
+                })()}
+              />
+            )}
             
             <MarketMoodDisplay
               trend={analysis.trend || ''}

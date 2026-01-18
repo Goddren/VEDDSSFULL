@@ -3177,6 +3177,57 @@ Return ONLY a JSON object with this structure:
     }
   });
 
+  // ATR-based stop loss suggestion endpoint
+  app.post("/api/market-data/atr", async (req: Request, res: Response) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+      
+      const { symbol, timeframe = '1d', assetType } = req.body;
+      if (!symbol) {
+        return res.status(400).json({ error: "Symbol is required" });
+      }
+      
+      const { TwelveDataProvider } = await import('./market-data/providers/twelve-data');
+      const apiKey = process.env.TWELVE_DATA_API_KEY;
+      
+      if (!apiKey) {
+        return res.status(503).json({ 
+          error: "Market data service not initialized. Please add TWELVE_DATA_API_KEY to secrets.",
+          fallback: true
+        });
+      }
+      
+      const provider = new TwelveDataProvider(apiKey);
+      // Simple asset type detection
+      const inferAssetType = (sym: string): 'forex' | 'crypto' | 'stock' | 'index' => {
+        const s = sym.toUpperCase();
+        const cryptoBases = ['BTC', 'ETH', 'XRP', 'LTC', 'ADA', 'DOT', 'DOGE', 'SOL', 'AVAX', 'MATIC', 'BNB'];
+        if (cryptoBases.some(c => s.includes(c))) return 'crypto';
+        const forexPairs = ['EUR', 'GBP', 'USD', 'JPY', 'CHF', 'AUD', 'NZD', 'CAD'];
+        const forexCount = forexPairs.filter(c => s.includes(c)).length;
+        if (forexCount >= 2 || s.length === 6) return 'forex';
+        return 'stock';
+      };
+      const detectedAssetType = assetType || inferAssetType(symbol);
+      
+      const atrData = await provider.fetchATR(symbol, detectedAssetType, timeframe);
+      
+      res.json({
+        success: true,
+        symbol,
+        timeframe,
+        assetType: detectedAssetType,
+        ...atrData
+      });
+    } catch (error) {
+      console.error('ATR fetch error:', error);
+      res.status(500).json({ 
+        error: error instanceof Error ? error.message : "Failed to fetch ATR data",
+        fallback: true
+      });
+    }
+  });
+
   app.post("/api/eas/:id/refresh", async (req: Request, res: Response) => {
     try {
       if (!req.user) return res.status(401).json({ error: "Unauthorized" });

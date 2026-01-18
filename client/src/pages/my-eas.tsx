@@ -23,6 +23,7 @@ import {
 import { ShareCardDialog } from '@/components/share-card-dialog';
 import { HelpCircle, Zap, TrendingUp, Target, Shield, BarChart2, Clock, Info } from 'lucide-react';
 import { ConfidenceExplainer } from '@/components/confidence-explainer';
+import { ATRIndicator } from '@/components/atr-indicator';
 
 // Helper function to explain common AI Refresh errors
 function getRefreshErrorExplanation(errorMessage: string): { title: string; explanation: string; fix: string } | null {
@@ -333,6 +334,10 @@ export default function MyEAsPage() {
                     <div>
                       <p className="text-muted-foreground">Strategy</p>
                       <p className="font-medium capitalize">{ea.strategyType || 'N/A'}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">ATR-Based SL</p>
+                      <ATRIndicator symbol={ea.symbol} />
                     </div>
                     {ea.isShared && (
                       <>
