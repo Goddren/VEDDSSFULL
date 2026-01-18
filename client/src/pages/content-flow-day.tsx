@@ -63,6 +63,11 @@ export default function ContentFlowDay() {
 
   const { data: dayData, isLoading } = useQuery<DayData>({
     queryKey: ['/api/ambassador/content-flow/day', day],
+    queryFn: async () => {
+      const res = await fetch(`/api/ambassador/content-flow/day/${day}`, { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to load day data');
+      return res.json();
+    },
     enabled: !!dayNumber
   });
 
