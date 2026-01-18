@@ -6757,6 +6757,375 @@ Generate a JSON object with:
   });
 
   // ==========================================
+  // CHALLENGE SESSION ROUTES (AI-Guided Completion)
+  // ==========================================
+
+  // Get or start a challenge session with AI guidance
+  app.get("/api/ambassador/community/challenges/:id/session", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: 'Not authenticated' });
+    try {
+      const challengeId = parseInt(req.params.id);
+      const userId = (req.user as any).id;
+      
+      // Get the challenge details
+      const challenge = await storage.getChallenge(challengeId);
+      if (!challenge) return res.status(404).json({ error: 'Challenge not found' });
+      
+      // Check for existing session
+      let session = await storage.getChallengeSession(userId, challengeId);
+      
+      if (!session) {
+        // Generate AI steps and guidance for this challenge
+        const OpenAI = (await import("openai")).default;
+        const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+        
+        const completion = await openai.chat.completions.create({
+          model: "gpt-4o",
+          messages: [
+            {
+              role: "system",
+              content: `You are a trading community coach helping ambassadors complete challenges. Generate step-by-step guidance for completing this challenge. Return JSON only.`
+            },
+            {
+              role: "user",
+              content: `Challenge: ${challenge.title}
+Description: ${challenge.description}
+Objectives: ${JSON.stringify(challenge.objectives)}
+Success Criteria: ${challenge.successCriteria}
+
+Generate a breakdown with 3-5 actionable steps. Return JSON: {
+  "guidance": "overall motivational guidance",
+  "tips": ["tip1", "tip2", "tip3"],
+  "encouragement": "encouraging message",
+  "steps": [
+    {"stepNumber": 1, "title": "Step Title", "description": "What to do", "tips": ["helpful tip"], "completed": false}
+  ]
+}`
+            }
+          ],
+          response_format: { type: "json_object" }
+        });
+        
+        const aiContent = JSON.parse(completion.choices[0].message.content || '{}');
+        
+        // Create the session
+        session = await storage.createChallengeSession({
+          challengeId,
+          userId,
+          status: 'in_progress',
+          currentStep: 1,
+          totalSteps: aiContent.steps?.length || 3,
+          aiContext: {
+            guidance: aiContent.guidance || '',
+            tips: aiContent.tips || [],
+            encouragement: aiContent.encouragement || ''
+          },
+          aiSteps: aiContent.steps || []
+        });
+      }
+      
+      res.json({ challenge, session });
+    } catch (err) {
+      console.error('Get challenge session error:', err);
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Update challenge session progress (complete a step)
+  app.post("/api/ambassador/community/challenges/:id/session/step", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: 'Not authenticated' });
+    try {
+      const challengeId = parseInt(req.params.id);
+      const userId = (req.user as any).id;
+      const { stepNumber } = req.body;
+      
+      const session = await storage.getChallengeSession(userId, challengeId);
+      if (!session) return res.status(404).json({ error: 'Session not found' });
+      
+      // Update the step as completed
+      const updatedSteps = (session.aiSteps as any[])?.map((step: any) => 
+        step.stepNumber === stepNumber ? { ...step, completed: true } : step
+      ) || [];
+      
+      const completedCount = updatedSteps.filter((s: any) => s.completed).length;
+      const allComplete = completedCount === session.totalSteps;
+      
+      const updated = await storage.updateChallengeSession(userId, challengeId, {
+        currentStep: Math.min(stepNumber + 1, session.totalSteps),
+        aiSteps: updatedSteps,
+        status: allComplete ? 'completed' : 'in_progress',
+        completedAt: allComplete ? new Date() : undefined
+      });
+      
+      res.json({ session: updated, allComplete });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Submit evidence for challenge completion
+  app.post("/api/ambassador/community/challenges/:id/session/evidence", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: 'Not authenticated' });
+    try {
+      const challengeId = parseInt(req.params.id);
+      const userId = (req.user as any).id;
+      const { evidenceUrl, evidenceNotes } = req.body;
+      
+      const session = await storage.getChallengeSession(userId, challengeId);
+      if (!session) return res.status(404).json({ error: 'Session not found' });
+      
+      const updated = await storage.updateChallengeSession(userId, challengeId, {
+        evidenceUrl,
+        evidenceNotes,
+        status: 'completed',
+        completedAt: new Date()
+      });
+      
+      res.json({ session: updated });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Claim tokens for completed challenge
+  app.post("/api/ambassador/community/challenges/:id/session/claim", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: 'Not authenticated' });
+    try {
+      const challengeId = parseInt(req.params.id);
+      const userId = (req.user as any).id;
+      
+      const session = await storage.getChallengeSession(userId, challengeId);
+      if (!session) return res.status(404).json({ error: 'Session not found' });
+      if (session.status !== 'completed') return res.status(400).json({ error: 'Challenge not completed' });
+      if (session.tokensClaimed) return res.status(400).json({ error: 'Tokens already claimed' });
+      
+      const challenge = await storage.getChallenge(challengeId);
+      if (!challenge) return res.status(404).json({ error: 'Challenge not found' });
+      
+      // Award tokens
+      await storage.updateChallengeProgress(userId, challengeId, {
+        status: 'completed',
+        tokensEarned: challenge.tokenReward,
+        completedAt: new Date()
+      });
+      
+      // Update ambassador stats
+      const stats = await storage.getAmbassadorContentStats(userId);
+      if (stats) {
+        await storage.updateAmbassadorContentStats(userId, {
+          totalTokensEarned: (stats.totalTokensEarned || 0) + challenge.tokenReward
+        });
+      }
+      
+      await storage.updateChallengeSession(userId, challengeId, { tokensClaimed: true });
+      
+      res.json({ success: true, tokensAwarded: challenge.tokenReward });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // ==========================================
+  // EVENT HOSTING ROUTES (AI-Generated Agenda)
+  // ==========================================
+
+  // Get event schedules
+  app.get("/api/ambassador/community/events/:id/schedules", async (req: Request, res: Response) => {
+    try {
+      const eventId = parseInt(req.params.id);
+      const schedules = await storage.getEventSchedules(eventId);
+      const event = await storage.getEvent(eventId);
+      
+      // Get host info for each schedule
+      const schedulesWithHosts = await Promise.all(schedules.map(async (schedule) => {
+        const host = await storage.getUser(schedule.hostId);
+        return { ...schedule, host: host ? { id: host.id, username: host.username, fullName: host.fullName } : null };
+      }));
+      
+      res.json({ event, schedules: schedulesWithHosts });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Get next upcoming schedule for an event
+  app.get("/api/ambassador/community/events/:id/next", async (req: Request, res: Response) => {
+    try {
+      const eventId = parseInt(req.params.id);
+      const schedules = await storage.getUpcomingSchedules(eventId);
+      const event = await storage.getEvent(eventId);
+      
+      if (schedules.length === 0) {
+        return res.json({ event, nextSchedule: null, message: 'No upcoming sessions scheduled. Be the first to host!' });
+      }
+      
+      const nextSchedule = schedules[0];
+      const host = await storage.getUser(nextSchedule.hostId);
+      
+      res.json({
+        event,
+        nextSchedule: {
+          ...nextSchedule,
+          host: host ? { id: host.id, username: host.username, fullName: host.fullName } : null
+        }
+      });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Create a new event schedule (become a host) with AI-generated agenda
+  app.post("/api/ambassador/community/events/:id/host", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: 'Not authenticated' });
+    try {
+      const eventId = parseInt(req.params.id);
+      const userId = (req.user as any).id;
+      const { title, description, startAt, endAt, capacity, meetingLink } = req.body;
+      
+      const event = await storage.getEvent(eventId);
+      if (!event) return res.status(404).json({ error: 'Event not found' });
+      
+      // Generate AI agenda
+      const OpenAI = (await import("openai")).default;
+      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+      
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "system",
+            content: `You are an event planning expert for a trading community. Generate a detailed agenda and hosting tips. Return JSON only.`
+          },
+          {
+            role: "user",
+            content: `Event Type: ${event.eventType}
+Event Title: ${event.title}
+Event Description: ${event.description}
+Host's Session Title: ${title || event.title}
+Host's Description: ${description || event.description}
+
+Generate an agenda with timing, topics, and hosting tips. Return JSON: {
+  "overview": "brief session overview",
+  "agenda": [
+    {"time": "0:00-5:00", "topic": "Welcome & Introductions", "description": "What to cover"}
+  ],
+  "preparationTips": ["tip for preparing"],
+  "hostingTips": ["tip for during the session"]
+}`
+          }
+        ],
+        response_format: { type: "json_object" }
+      });
+      
+      const aiAgenda = JSON.parse(completion.choices[0].message.content || '{}');
+      
+      const schedule = await storage.createEventSchedule({
+        eventId,
+        hostId: userId,
+        title: title || event.title,
+        description: description || event.description,
+        startAt: new Date(startAt),
+        endAt: endAt ? new Date(endAt) : undefined,
+        capacity: capacity || 50,
+        meetingLink,
+        aiAgenda,
+        status: 'scheduled'
+      });
+      
+      // Award hosting tokens
+      const stats = await storage.getAmbassadorContentStats(userId);
+      if (stats) {
+        await storage.updateAmbassadorContentStats(userId, {
+          totalTokensEarned: (stats.totalTokensEarned || 0) + (event.hostTokenReward || 50)
+        });
+      }
+      
+      res.json({ schedule, tokensAwarded: event.hostTokenReward || 50 });
+    } catch (err) {
+      console.error('Host event error:', err);
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Register for a specific schedule
+  app.post("/api/ambassador/community/schedules/:id/register", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: 'Not authenticated' });
+    try {
+      const scheduleId = parseInt(req.params.id);
+      const userId = (req.user as any).id;
+      
+      const existing = await storage.getScheduleRegistration(userId, scheduleId);
+      if (existing) return res.status(400).json({ error: 'Already registered' });
+      
+      const registration = await storage.registerForSchedule(userId, scheduleId);
+      res.json({ registration });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // ==========================================
+  // COMMUNITY COMMENTS ROUTES
+  // ==========================================
+
+  // Get comments for a target (challenge or event)
+  app.get("/api/ambassador/community/comments/:targetType/:targetId", async (req: Request, res: Response) => {
+    try {
+      const { targetType, targetId } = req.params;
+      const comments = await storage.getComments(targetType, parseInt(targetId));
+      
+      // Build threaded structure
+      const rootComments = comments.filter(c => !c.parentId);
+      const replies = comments.filter(c => c.parentId);
+      
+      const threaded = rootComments.map(comment => ({
+        ...comment,
+        replies: replies.filter(r => r.parentId === comment.id)
+      }));
+      
+      res.json({ comments: threaded });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Add a comment
+  app.post("/api/ambassador/community/comments", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: 'Not authenticated' });
+    try {
+      const { targetType, targetId, content, parentId } = req.body;
+      const userId = (req.user as any).id;
+      
+      const comment = await storage.createComment({
+        targetType,
+        targetId,
+        content,
+        parentId: parentId || null,
+        authorId: userId
+      });
+      
+      // Get author info
+      const author = await storage.getUser(userId);
+      
+      res.json({ comment: { ...comment, author } });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Like a comment
+  app.post("/api/ambassador/community/comments/:id/like", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: 'Not authenticated' });
+    try {
+      const commentId = parseInt(req.params.id);
+      const comment = await storage.likeComment(commentId);
+      res.json({ comment });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // ==========================================
   // WALLET AUTHENTICATION & GOVERNANCE ROUTES
   // ==========================================
 
