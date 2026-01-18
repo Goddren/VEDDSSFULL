@@ -402,29 +402,29 @@ const Dashboard: React.FC = () => {
           {/* Dashboard Right Column */}
           <div className="space-y-6">
             {/* Upcoming Registered Events */}
-            {upcomingEvents.length > 0 && (
-              <Card className="bg-gradient-to-br from-amber-900/30 to-gray-900 border-amber-500/30 shadow-xl">
-                <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="h-8 w-8 rounded-full bg-amber-500/20 flex items-center justify-center">
-                        <CalendarCheck className="h-4 w-4 text-amber-400" />
-                      </div>
-                      <div>
-                        <CardTitle className="text-lg text-white">Your Upcoming Events</CardTitle>
-                        <CardDescription className="text-amber-400/80">Events you've registered for</CardDescription>
-                      </div>
+            <Card className="bg-gradient-to-br from-amber-900/30 to-gray-900 border-amber-500/30 shadow-xl">
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="h-8 w-8 rounded-full bg-amber-500/20 flex items-center justify-center">
+                      <CalendarCheck className="h-4 w-4 text-amber-400" />
                     </div>
-                    <Link href="/ambassador-training">
-                      <Button variant="ghost" size="sm" className="text-amber-400 hover:text-amber-300 hover:bg-amber-500/10">
-                        View All
-                        <ChevronRight className="h-4 w-4 ml-1" />
-                      </Button>
-                    </Link>
+                    <div>
+                      <CardTitle className="text-lg text-white">Your Upcoming Events</CardTitle>
+                      <CardDescription className="text-amber-400/80">Events you've registered for</CardDescription>
+                    </div>
                   </div>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  {upcomingEvents.map((reg) => (
+                  <Link href="/ambassador-training">
+                    <Button variant="ghost" size="sm" className="text-amber-400 hover:text-amber-300 hover:bg-amber-500/10">
+                      Browse Events
+                      <ChevronRight className="h-4 w-4 ml-1" />
+                    </Button>
+                  </Link>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {upcomingEvents.length > 0 ? (
+                  upcomingEvents.map((reg) => (
                     <div 
                       key={reg.event.id}
                       className="bg-gray-900/60 border border-amber-500/20 rounded-lg p-3 hover:bg-gray-800/60 transition-colors"
@@ -449,10 +449,16 @@ const Dashboard: React.FC = () => {
                         </div>
                       </div>
                     </div>
-                  ))}
-                </CardContent>
-              </Card>
-            )}
+                  ))
+                ) : (
+                  <div className="text-center py-4 text-gray-400">
+                    <CalendarCheck className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                    <p className="text-sm">No upcoming events</p>
+                    <p className="text-xs text-gray-500 mt-1">Browse events in Ambassador Training to register</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
             
             {/* Economic Calendar */}
             <MarketCalendar />
