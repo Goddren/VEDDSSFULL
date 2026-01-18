@@ -16,6 +16,9 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
@@ -117,6 +120,14 @@ export default function ContentFlowDay() {
   const [generatedContent, setGeneratedContent] = useState<GeneratedContent | null>(null);
   const [joinedChallenges, setJoinedChallenges] = useState<Set<number>>(new Set());
   const [registeredEvents, setRegisteredEvents] = useState<Set<number>>(new Set());
+  const [hostingEvent, setHostingEvent] = useState<Event | null>(null);
+  const [hostFormData, setHostFormData] = useState({
+    title: '',
+    description: '',
+    startAt: '',
+    capacity: 50,
+    meetingLink: ''
+  });
 
   const day = parseInt(dayNumber || "1");
 
@@ -150,7 +161,8 @@ export default function ContentFlowDay() {
     onSuccess: ({ challengeId }) => {
       setJoinedChallenges(prev => new Set([...Array.from(prev), challengeId]));
       queryClient.invalidateQueries({ queryKey: ['/api/ambassador/community/hub', day] });
-      toast({ title: "Challenge Joined!", description: "Good luck with the challenge!" });
+      toast({ title: "Challenge Joined!", description: "Redirecting to challenge..." });
+      setLocation(`/ambassador/challenge/${challengeId}`);
     },
     onError: (err: any) => {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -166,6 +178,22 @@ export default function ContentFlowDay() {
       setRegisteredEvents(prev => new Set([...Array.from(prev), eventId]));
       queryClient.invalidateQueries({ queryKey: ['/api/ambassador/community/hub', day] });
       toast({ title: "Registered!", description: "You're signed up for this event." });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    }
+  });
+
+  const hostEventMutation = useMutation({
+    mutationFn: async ({ eventId, ...data }: { eventId: number; title: string; description: string; startAt: string; capacity: number; meetingLink: string }) => {
+      const res = await apiRequest('POST', `/api/ambassador/community/events/${eventId}/host`, data);
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setHostingEvent(null);
+      setHostFormData({ title: '', description: '', startAt: '', capacity: 50, meetingLink: '' });
+      queryClient.invalidateQueries({ queryKey: ['/api/ambassador/community/hub', day] });
+      toast({ title: "Event Created!", description: `You earned ${data.tokensAwarded} tokens for hosting!` });
     },
     onError: (err: any) => {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -799,10 +827,10 @@ export default function ContentFlowDay() {
                             <Button
                               size="sm"
                               className="w-full bg-green-600 hover:bg-green-700"
-                              disabled
+                              onClick={() => setLocation(`/ambassador/challenge/${challenge.id}`)}
                             >
                               <CheckCircle className="w-4 h-4 mr-2" />
-                              Joined - In Progress
+                              Continue Challenge
                             </Button>
                           ) : (
                             <Button
@@ -901,21 +929,41 @@ export default function ContentFlowDay() {
                           )}
 
                           <div className="flex gap-2">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="flex-1 border-blue-500/30 text-blue-400 hover:bg-blue-500/10"
-                              onClick={() => registerEventMutation.mutate({ eventId: event.id, role: 'attendee' })}
-                              disabled={registerEventMutation.isPending}
-                            >
-                              <Users className="w-4 h-4 mr-2" />
-                              Register
-                            </Button>
+                            {registeredEvents.has(event.id) ? (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="flex-1 bg-green-900/30 border-green-500/30 text-green-400"
+                                disabled
+                              >
+                                <CheckCircle className="w-4 h-4 mr-2" />
+                                Registered
+                              </Button>
+                            ) : (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="flex-1 border-blue-500/30 text-blue-400 hover:bg-blue-500/10"
+                                onClick={() => registerEventMutation.mutate({ eventId: event.id, role: 'attendee' })}
+                                disabled={registerEventMutation.isPending}
+                              >
+                                <Users className="w-4 h-4 mr-2" />
+                                Register
+                              </Button>
+                            )}
                             <Button
                               size="sm"
                               className="flex-1 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600"
-                              onClick={() => registerEventMutation.mutate({ eventId: event.id, role: 'host' })}
-                              disabled={registerEventMutation.isPending}
+                              onClick={() => {
+                                setHostingEvent(event);
+                                setHostFormData({
+                                  title: event.title,
+                                  description: event.description || '',
+                                  startAt: '',
+                                  capacity: 50,
+                                  meetingLink: ''
+                                });
+                              }}
                             >
                               <Play className="w-4 h-4 mr-2" />
                               Host This
@@ -946,6 +994,123 @@ export default function ContentFlowDay() {
           </TabsContent>
         </Tabs>
       </div>
+
+      {/* Event Hosting Modal */}
+      <Dialog open={!!hostingEvent} onOpenChange={() => setHostingEvent(null)}>
+        <DialogContent className="bg-gray-900 border-gray-700 max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-white flex items-center gap-2">
+              <Calendar className="w-5 h-5 text-blue-400" />
+              Host: {hostingEvent?.title}
+            </DialogTitle>
+            <DialogDescription>
+              Set up your session and AI will generate an agenda to help you host effectively.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 mt-4">
+            <div className="space-y-2">
+              <Label htmlFor="host-title">Session Title</Label>
+              <Input
+                id="host-title"
+                value={hostFormData.title}
+                onChange={(e) => setHostFormData(prev => ({ ...prev, title: e.target.value }))}
+                placeholder="Your session title"
+                className="bg-gray-800 border-gray-700"
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="host-description">Description</Label>
+              <Textarea
+                id="host-description"
+                value={hostFormData.description}
+                onChange={(e) => setHostFormData(prev => ({ ...prev, description: e.target.value }))}
+                placeholder="What will you cover in this session?"
+                className="bg-gray-800 border-gray-700"
+              />
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="host-date">Date & Time</Label>
+                <Input
+                  id="host-date"
+                  type="datetime-local"
+                  value={hostFormData.startAt}
+                  onChange={(e) => setHostFormData(prev => ({ ...prev, startAt: e.target.value }))}
+                  className="bg-gray-800 border-gray-700"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="host-capacity">Max Attendees</Label>
+                <Input
+                  id="host-capacity"
+                  type="number"
+                  value={hostFormData.capacity}
+                  onChange={(e) => setHostFormData(prev => ({ ...prev, capacity: parseInt(e.target.value) || 50 }))}
+                  className="bg-gray-800 border-gray-700"
+                />
+              </div>
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="host-link">Meeting Link (optional)</Label>
+              <Input
+                id="host-link"
+                value={hostFormData.meetingLink}
+                onChange={(e) => setHostFormData(prev => ({ ...prev, meetingLink: e.target.value }))}
+                placeholder="Zoom, Google Meet, or Discord link"
+                className="bg-gray-800 border-gray-700"
+              />
+            </div>
+            
+            <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4">
+              <div className="flex items-center gap-2 text-blue-400 mb-2">
+                <Sparkles className="w-4 h-4" />
+                <span className="text-sm font-medium">AI will generate:</span>
+              </div>
+              <ul className="text-sm text-gray-400 space-y-1">
+                <li>• Detailed session agenda with timing</li>
+                <li>• Preparation tips for hosting</li>
+                <li>• Talking points and engagement strategies</li>
+              </ul>
+            </div>
+            
+            <div className="flex items-center justify-between pt-4 border-t border-gray-700">
+              <div className="text-sm text-purple-400">
+                <Trophy className="w-4 h-4 inline mr-1" />
+                Earn +{hostingEvent?.hostTokenReward || 50} tokens
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => setHostingEvent(null)}>
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => hostingEvent && hostEventMutation.mutate({
+                    eventId: hostingEvent.id,
+                    ...hostFormData
+                  })}
+                  disabled={!hostFormData.startAt || hostEventMutation.isPending}
+                  className="bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600"
+                >
+                  {hostEventMutation.isPending ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Creating...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4 mr-2" />
+                      Create & Generate Agenda
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
