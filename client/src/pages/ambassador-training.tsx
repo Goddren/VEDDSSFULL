@@ -381,6 +381,15 @@ const trainingModules: TrainingModule[] = [
           'Features include AI-powered chart analysis, EA generation, marketplace, and social trading',
           'Available for Forex, Stocks, Crypto, and Indices traders on MT5, TradingView, and TradeLocker'
         ],
+        keyPoints: [
+          { title: 'AI-Powered Analysis', description: 'Upload any chart screenshot and get instant pattern recognition, trend analysis, and trading recommendations powered by GPT-4o.', icon: Sparkles },
+          { title: 'Expert Advisor Generation', description: 'Turn your chart analysis into automated trading strategies - no coding required. Generate MT5 EA code with one click.', icon: Target },
+          { title: 'Marketplace & Community', description: 'Share your strategies, subscribe to top performers, and earn passive income from your trading expertise.', icon: Users }
+        ],
+        realWorldExamples: [
+          { scenario: 'A beginner trader uploaded their first EUR/USD chart', outcome: 'The AI identified a hidden Head & Shoulders pattern they would have missed, saving them from a losing trade', lesson: 'AI analysis catches patterns that human eyes often overlook, especially for newer traders', type: 'success' },
+          { scenario: 'Trying to analyze charts manually during high volatility', outcome: 'Traders often make emotional decisions when markets move fast, leading to costly mistakes', lesson: 'AI provides objective analysis without emotional bias, helping you stay disciplined', type: 'insight' }
+        ],
         tips: [
           'Emphasize that AI Trading Vault makes professional-grade charting accessible to everyone',
           'Highlight the educational and community-driven aspects of the platform'
@@ -395,6 +404,15 @@ const trainingModules: TrainingModule[] = [
           'Earn passive income by sharing strategies in the marketplace',
           'Join a community of like-minded traders',
           'Access intuitive tools for technical market insights'
+        ],
+        keyPoints: [
+          { title: 'Time Savings', description: 'What used to take 30-60 minutes of manual analysis now happens in seconds. Upload your chart, get instant insights.', icon: Clock },
+          { title: 'No Coding Required', description: 'Generate professional MT5 Expert Advisors without writing a single line of code. AI does the heavy lifting.', icon: Zap },
+          { title: 'Passive Income', description: 'Publish your successful strategies in the marketplace. Earn recurring income when other traders subscribe.', icon: Coins }
+        ],
+        realWorldExamples: [
+          { scenario: 'A part-time trader with a full-time job', outcome: 'Used AI analysis during lunch breaks to identify setups, then placed trades after work. Saved 2+ hours daily.', lesson: 'AI Trading Vault fits around your schedule - analyze charts anytime, anywhere', type: 'success' },
+          { scenario: 'Trader paid $500 for a custom EA that didn\'t work', outcome: 'Many traders waste money on EAs that don\'t match their strategy', lesson: 'With AI Trading Vault, you generate EAs based on YOUR analysis - no wasted money on generic solutions', type: 'warning' }
         ],
         tips: [
           'Focus on time-saving benefits for busy traders',
@@ -431,6 +449,14 @@ const trainingModules: TrainingModule[] = [
           'AI Trading Vault works with charts from any of these platforms for analysis',
           'Each platform has unique features, but they all show the same market data'
         ],
+        keyPoints: [
+          { title: 'Your Window to Markets', description: 'Trading platforms show you real-time prices, charts, and allow you to execute trades - like a stock market dashboard.', icon: Monitor },
+          { title: 'Charts Are Universal', description: 'Whether you use MT5, TradingView, or TradeLocker - price charts look the same. AI Trading Vault analyzes them all.', icon: TrendingUp },
+          { title: 'Free to Start', description: 'All three major platforms offer free versions. You can start learning without any cost.', icon: Coins }
+        ],
+        realWorldExamples: [
+          { scenario: 'First-time trader confused by platform choice', outcome: 'Spent weeks researching instead of trading, felt paralyzed by options', lesson: 'Any platform works! Start with TradingView (browser-based) and upgrade later if needed', type: 'warning' }
+        ],
         tips: [
           'Use simple analogies like "trading app" or "market viewer"',
           'Emphasize that AI Trading Vault accepts screenshots from any platform'
@@ -446,6 +472,15 @@ const trainingModules: TrainingModule[] = [
           'Available as desktop software (Windows/Mac) and mobile apps (iOS/Android)',
           'Most Forex brokers provide free MT5 access when you open an account',
           'AI Trading Vault can generate MT5 Expert Advisor (EA) code from your chart analysis'
+        ],
+        keyPoints: [
+          { title: 'Industry Standard', description: 'MT5 is used by 80%+ of Forex brokers worldwide. Learning it opens doors to almost any broker.', icon: Globe },
+          { title: 'Automated Trading', description: 'Expert Advisors (EAs) can trade for you 24/7 based on your rules. AI Trading Vault generates these automatically.', icon: Zap },
+          { title: 'Live Data Streaming', description: 'Our MT5 Chart Data EA streams real-time prices directly to AI Trading Vault for continuous analysis.', icon: TrendingUp }
+        ],
+        realWorldExamples: [
+          { scenario: 'Trader wanted automated trading but couldn\'t code', outcome: 'Used AI Trading Vault to generate MT5 EA from chart analysis - trading within hours instead of weeks', lesson: 'You don\'t need programming skills to automate your trading with MT5 + AI Trading Vault', type: 'success' },
+          { scenario: 'Downloaded MT5 EA from unknown source', outcome: 'The EA made unauthorized trades and depleted the account', lesson: 'Always use trusted sources for EAs. AI Trading Vault generates transparent, reviewable code', type: 'warning' }
         ],
         tips: [
           'Mention that MT5 is free to download and use',
@@ -473,6 +508,15 @@ const trainingModules: TrainingModule[] = [
           'Great for sharing chart ideas and learning from other traders',
           'Supports stocks, crypto, Forex, futures, and more from many exchanges'
         ],
+        keyPoints: [
+          { title: 'No Download Needed', description: 'Access from any device with a browser - phone, tablet, laptop, or work computer.', icon: Globe },
+          { title: 'Community Learning', description: '50+ million users share chart ideas, strategies, and market commentary. Learn from the crowd.', icon: Users },
+          { title: 'Beautiful Charts', description: 'Intuitive interface with 100+ indicators. Screenshots work perfectly with AI Trading Vault analysis.', icon: Camera }
+        ],
+        realWorldExamples: [
+          { scenario: 'Beginner learned chart patterns by following experienced traders', outcome: 'Absorbed years of knowledge in months by studying public TradingView ideas', lesson: 'TradingView\'s social features accelerate your learning curve significantly', type: 'success' },
+          { scenario: 'Trader analyzed charts on work computer without installing software', outcome: 'Could check setups during lunch break without IT restrictions', lesson: 'Browser-based access means you can trade-ready analysis from anywhere', type: 'insight' }
+        ],
         tips: [
           'Highlight that TradingView works on any device with a browser',
           'Mention the active community where traders share analysis'
@@ -489,6 +533,15 @@ const trainingModules: TrainingModule[] = [
           'AI Trading Vault can send trading signals directly to TradeLocker via webhooks',
           'Great choice for traders who want a streamlined, professional experience'
         ],
+        keyPoints: [
+          { title: 'Prop Firm Ready', description: 'Designed specifically for funded traders. Many prop firms use TradeLocker as their execution platform.', icon: Award },
+          { title: 'Webhook Integration', description: 'AI Trading Vault sends signals directly to TradeLocker - automate your entries and exits.', icon: Zap },
+          { title: 'TradingView Built-In', description: 'Get TradingView charts integrated directly in TradeLocker for seamless analysis + execution.', icon: TrendingUp }
+        ],
+        realWorldExamples: [
+          { scenario: 'Prop trader needed fast execution during news events', outcome: 'TradeLocker\'s clean interface allowed rapid order placement without clutter', lesson: 'A streamlined platform can mean the difference between catching a move and missing it', type: 'success' },
+          { scenario: 'Trader passed prop firm challenge using AI Trading Vault + TradeLocker webhooks', outcome: 'Automated signal delivery ensured consistent execution of the strategy', lesson: 'Webhook integration removes emotion and delay from trade execution', type: 'insight' }
+        ],
         tips: [
           'Explain that prop firms give traders capital to trade with',
           'Mention our webhook integration for automated signal delivery'
@@ -503,6 +556,14 @@ const trainingModules: TrainingModule[] = [
           'Generate: Create Expert Advisor code for MT5 or set up webhooks for TradeLocker',
           'Stream: Use our MT5 EA to send live chart data for real-time AI analysis',
           'Trade: Apply the AI insights on your preferred platform'
+        ],
+        keyPoints: [
+          { title: 'Universal Compatibility', description: 'Any chart screenshot works. MT5, TradingView, TradeLocker, or even a phone photo of your screen.', icon: Camera },
+          { title: '4-Step Workflow', description: 'Upload → Analyze → Generate → Trade. Simple process that works the same regardless of your platform.', icon: Target },
+          { title: 'Live Streaming Option', description: 'For MT5 users: our EA streams chart data continuously for real-time AI analysis without manual uploads.', icon: Zap }
+        ],
+        realWorldExamples: [
+          { scenario: 'Trader switched from MT5 to TradingView mid-strategy', outcome: 'AI Trading Vault analyzed both platforms\' charts seamlessly - no learning curve', lesson: 'Platform-agnostic analysis means you can switch tools without retraining', type: 'success' }
         ],
         tips: [
           'Walk through the simple upload process step by step',
@@ -528,6 +589,14 @@ const trainingModules: TrainingModule[] = [
           'TradeLocker: Best for prop traders and those wanting modern, streamlined execution',
           'Many traders use multiple platforms - e.g., TradingView for analysis, MT5 for execution',
           'AI Trading Vault supports all of them, so start with what feels comfortable'
+        ],
+        keyPoints: [
+          { title: 'MT5 = Automation', description: 'Choose MT5 if you want Expert Advisors to trade for you automatically, or if your broker requires it.', icon: Zap },
+          { title: 'TradingView = Learning', description: 'Choose TradingView if you\'re learning, want community insights, or trade multiple markets.', icon: Users },
+          { title: 'TradeLocker = Prop Trading', description: 'Choose TradeLocker if you\'re trading with a prop firm or want webhook-based signal execution.', icon: Award }
+        ],
+        realWorldExamples: [
+          { scenario: 'Trader uses TradingView for analysis + MT5 for execution', outcome: 'Gets best of both worlds: social learning + automated trading', lesson: 'Many successful traders use multiple platforms for different purposes', type: 'insight' }
         ],
         tips: [
           'Reassure beginners that there is no wrong choice',
@@ -2102,6 +2171,22 @@ export default function AmbassadorTrainingPage() {
                                   ))}
                                 </ul>
                               </div>
+
+                              {lesson.keyPoints && lesson.keyPoints.length > 0 && (
+                                <KeyPointCarousel keyPoints={lesson.keyPoints} />
+                              )}
+
+                              {lesson.realWorldExamples && lesson.realWorldExamples.length > 0 && (
+                                <div className="space-y-3">
+                                  <h4 className="font-medium text-gray-300 flex items-center gap-2">
+                                    <Globe className="w-4 h-4 text-blue-400" />
+                                    Real-World Examples
+                                  </h4>
+                                  {lesson.realWorldExamples.map((example, eIdx) => (
+                                    <RealWorldExampleCard key={eIdx} example={example} />
+                                  ))}
+                                </div>
+                              )}
 
                               {(lesson.DiagramComponent || lesson.image) && (
                                 <div className="bg-gray-900/50 border border-gray-700 rounded-lg p-4">
