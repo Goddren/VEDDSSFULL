@@ -1786,6 +1786,12 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
+  async getScheduleBySlug(slug: string): Promise<AmbassadorEventSchedule | undefined> {
+    const [result] = await db.select().from(ambassadorEventSchedules)
+      .where(eq(ambassadorEventSchedules.shareSlug, slug));
+    return result;
+  }
+
   async createEventSchedule(data: InsertAmbassadorEventSchedule): Promise<AmbassadorEventSchedule> {
     const [result] = await db.insert(ambassadorEventSchedules).values(data).returning();
     return result;

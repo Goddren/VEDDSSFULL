@@ -1065,6 +1065,7 @@ export const ambassadorEventSchedules = pgTable("ambassador_event_schedules", {
   capacity: integer("capacity").default(50),
   currentAttendees: integer("current_attendees").default(0),
   meetingLink: text("meeting_link"),
+  shareSlug: text("share_slug").unique(), // Unique slug for public sharing
   aiAgenda: json("ai_agenda").$type<{
     overview: string;
     agenda: { time: string; topic: string; description: string }[];

@@ -7,7 +7,7 @@ import {
   ArrowLeft, BookOpen, Sparkles, Copy, Check, Upload, Image, 
   Video, Star, Flame, Send, Loader2, CheckCircle, Clock, Users,
   Trophy, Calendar, Target, Zap, Twitter, Instagram, Linkedin, Hash,
-  Play, ExternalLink, Award
+  Play, ExternalLink, Award, ChevronRight
 } from "lucide-react";
 import { SiTiktok } from "react-icons/si";
 import { Button } from "@/components/ui/button";
@@ -128,6 +128,7 @@ export default function ContentFlowDay() {
     capacity: 50,
     meetingLink: ''
   });
+  const [createdEventData, setCreatedEventData] = useState<{ shareUrl: string; shareSlug: string; tokensAwarded: number } | null>(null);
 
   const day = parseInt(dayNumber || "1");
 
@@ -193,7 +194,11 @@ export default function ContentFlowDay() {
       setHostingEvent(null);
       setHostFormData({ title: '', description: '', startAt: '', capacity: 50, meetingLink: '' });
       queryClient.invalidateQueries({ queryKey: ['/api/ambassador/community/hub', day] });
-      toast({ title: "Event Created!", description: `You earned ${data.tokensAwarded} tokens for hosting!` });
+      setCreatedEventData({
+        shareUrl: data.shareUrl,
+        shareSlug: data.shareSlug,
+        tokensAwarded: data.tokensAwarded
+      });
     },
     onError: (err: any) => {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -1107,6 +1112,90 @@ export default function ContentFlowDay() {
                   )}
                 </Button>
               </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Event Created Success Modal with Share Link */}
+      <Dialog open={!!createdEventData} onOpenChange={() => setCreatedEventData(null)}>
+        <DialogContent className="bg-gray-900 border-gray-700 max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-white flex items-center gap-2">
+              <CheckCircle className="w-6 h-6 text-green-400" />
+              Event Created Successfully!
+            </DialogTitle>
+            <DialogDescription>
+              You earned {createdEventData?.tokensAwarded || 0} tokens. Share this link to invite attendees.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 mt-4">
+            <div className="bg-gray-800 border border-gray-700 rounded-lg p-4">
+              <p className="text-xs text-gray-400 mb-2">Share Link</p>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 text-amber-400 text-sm break-all">
+                  {typeof window !== 'undefined' ? window.location.origin : ''}{createdEventData?.shareUrl}
+                </code>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    const url = `${window.location.origin}${createdEventData?.shareUrl}`;
+                    navigator.clipboard.writeText(url);
+                    toast({ title: "Copied!", description: "Share link copied to clipboard." });
+                  }}
+                >
+                  <Copy className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+            
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className="flex-1"
+                onClick={() => {
+                  const url = `${window.location.origin}${createdEventData?.shareUrl}`;
+                  const text = `Join my trading community event! ${url}`;
+                  window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`, '_blank');
+                }}
+              >
+                <Twitter className="w-4 h-4 mr-2" />
+                Twitter
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="flex-1"
+                onClick={() => {
+                  const url = `${window.location.origin}${createdEventData?.shareUrl}`;
+                  window.open(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(url)}`, '_blank');
+                }}
+              >
+                <Linkedin className="w-4 h-4 mr-2" />
+                LinkedIn
+              </Button>
+            </div>
+            
+            <div className="pt-4 border-t border-gray-700 flex justify-between">
+              <Button
+                variant="outline"
+                onClick={() => setCreatedEventData(null)}
+              >
+                Close
+              </Button>
+              <Button
+                className="bg-gradient-to-r from-amber-500 to-orange-500"
+                onClick={() => {
+                  setLocation(createdEventData?.shareUrl || '/');
+                  setCreatedEventData(null);
+                }}
+              >
+                View Event Page
+                <ChevronRight className="w-4 h-4 ml-2" />
+              </Button>
             </div>
           </div>
         </DialogContent>

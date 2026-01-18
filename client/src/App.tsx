@@ -47,6 +47,7 @@ import AmbassadorTrainingPage from "@/pages/ambassador-training";
 import ContentFlowCalendar from "@/pages/content-flow-calendar";
 import ContentFlowDay from "@/pages/content-flow-day";
 import ChallengeSession from "@/pages/challenge-session";
+import PublicEventPage from "@/pages/public-event";
 import StreakTrackerPage from "@/pages/streak-tracker";
 import WhatIfAnalysisPage from "@/pages/what-if-analysis";
 import WebhooksPage from "@/pages/webhooks";
@@ -113,6 +114,9 @@ function AppLayout() {
             <ProtectedRoute path="/ambassador/content-flow" component={ContentFlowCalendar} />
             <ProtectedRoute path="/ambassador/content-flow/day/:dayNumber" component={ContentFlowDay} />
             <ProtectedRoute path="/ambassador/challenge/:id" component={ChallengeSession} />
+            
+            {/* Public event page (no auth required) */}
+            <Route path="/event/:slug" component={PublicEventPage} />
             
             {/* Protected routes */}
             <ProtectedRoute path="/dashboard" component={Dashboard} />

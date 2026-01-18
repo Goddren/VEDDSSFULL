@@ -7019,6 +7019,15 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       
       const aiAgenda = JSON.parse(completion.choices[0].message.content || '{}');
       
+      // Generate unique share slug
+      const slugBase = (title || event.title)
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)/g, '')
+        .slice(0, 30);
+      const shortId = Math.random().toString(36).substring(2, 8);
+      const shareSlug = `${slugBase}-${shortId}`;
+      
       const schedule = await storage.createEventSchedule({
         eventId,
         hostId: userId,
@@ -7028,6 +7037,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         endAt: endAt ? new Date(endAt) : undefined,
         capacity: capacity || 50,
         meetingLink,
+        shareSlug,
         aiAgenda,
         status: 'scheduled'
       });
@@ -7040,7 +7050,8 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         });
       }
       
-      res.json({ schedule, tokensAwarded: event.hostTokenReward || 50 });
+      const shareUrl = `/event/${shareSlug}`;
+      res.json({ schedule, tokensAwarded: event.hostTokenReward || 50, shareSlug, shareUrl });
     } catch (err) {
       console.error('Host event error:', err);
       res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
@@ -7059,6 +7070,56 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       
       const registration = await storage.registerForSchedule(userId, scheduleId);
       res.json({ registration });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // ==========================================
+  // PUBLIC EVENT ROUTES (no auth required)
+  // ==========================================
+
+  // Get public event schedule by share slug
+  app.get("/api/public/events/:slug", async (req: Request, res: Response) => {
+    try {
+      const { slug } = req.params;
+      const schedule = await storage.getScheduleBySlug(slug);
+      
+      if (!schedule) {
+        return res.status(404).json({ error: 'Event not found' });
+      }
+      
+      // Get the parent event info
+      const event = await storage.getEvent(schedule.eventId);
+      
+      // Get host info (sanitized - no sensitive data)
+      const host = await storage.getUser(schedule.hostId);
+      
+      // Return public-safe data
+      res.json({
+        schedule: {
+          id: schedule.id,
+          title: schedule.title,
+          description: schedule.description,
+          startAt: schedule.startAt,
+          endAt: schedule.endAt,
+          capacity: schedule.capacity,
+          currentAttendees: schedule.currentAttendees,
+          status: schedule.status,
+          aiAgenda: schedule.aiAgenda,
+          shareSlug: schedule.shareSlug
+        },
+        event: event ? {
+          id: event.id,
+          title: event.title,
+          eventType: event.eventType,
+          tokenReward: event.tokenReward
+        } : null,
+        host: host ? {
+          username: host.username,
+          fullName: host.fullName
+        } : null
+      });
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
     }
