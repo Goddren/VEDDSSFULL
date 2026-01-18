@@ -61,6 +61,10 @@ export default function PublicEventPage() {
   const registerMutation = useMutation({
     mutationFn: async (scheduleId: number) => {
       const res = await apiRequest('POST', `/api/ambassador/community/schedules/${scheduleId}/register`, {});
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Registration failed');
+      }
       return res.json();
     },
     onSuccess: () => {
@@ -68,6 +72,10 @@ export default function PublicEventPage() {
       toast({ title: "Registered!", description: "You're signed up for this event." });
     },
     onError: (err: any) => {
+      if (err.message?.includes('Not authenticated')) {
+        setLocation(`/auth?redirect=/event/${slug}`);
+        return;
+      }
       toast({ title: "Error", description: err.message, variant: "destructive" });
     }
   });
