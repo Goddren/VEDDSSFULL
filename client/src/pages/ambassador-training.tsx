@@ -2078,8 +2078,103 @@ export default function AmbassadorTrainingPage() {
               ))}
             </div>
 
+            {/* Training Program Progress */}
+            <div className="mt-6 p-5 bg-gradient-to-r from-purple-900/40 via-indigo-900/30 to-gray-900/50 border border-purple-500/30 rounded-xl mb-4">
+              <div className="flex items-center gap-2 mb-4">
+                <GraduationCap className="w-5 h-5 text-purple-400" />
+                <h3 className="font-semibold text-white">Ambassador Training Program</h3>
+                <Badge className={`ml-auto ${isComplete ? 'bg-green-500/20 text-green-400 border-green-500/30' : 'bg-purple-500/20 text-purple-400 border-purple-500/30'}`}>
+                  {isComplete ? 'Completed' : `${Math.round(progress)}% Complete`}
+                </Badge>
+              </div>
+
+              {/* Training Progress Stats */}
+              <div className="grid grid-cols-3 gap-3 mb-4">
+                <div className="text-center p-2 bg-gray-800/50 rounded-lg">
+                  <p className="text-lg font-bold text-purple-400">{completedLessons.size}</p>
+                  <p className="text-xs text-gray-400">Lessons Done</p>
+                </div>
+                <div className="text-center p-2 bg-gray-800/50 rounded-lg">
+                  <p className="text-lg font-bold text-indigo-400">{totalLessons}</p>
+                  <p className="text-xs text-gray-400">Total Lessons</p>
+                </div>
+                <div className="text-center p-2 bg-gray-800/50 rounded-lg">
+                  <p className="text-lg font-bold text-green-400">{trainingModules.length}</p>
+                  <p className="text-xs text-gray-400">Modules</p>
+                </div>
+              </div>
+
+              {/* Progress Bar */}
+              <div className="mb-4">
+                <Progress value={progress} className="h-2 bg-gray-800" />
+              </div>
+
+              {/* Current Module Card */}
+              {(() => {
+                const currentModuleData = trainingModules.find(m => 
+                  m.lessons.some(l => !completedLessons.has(l.id))
+                ) || trainingModules[trainingModules.length - 1];
+                const nextLesson = currentModuleData?.lessons.find(l => !completedLessons.has(l.id));
+                
+                return currentModuleData && nextLesson ? (
+                  <Card className="bg-gray-800/70 border-purple-500/20 mb-4">
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Badge variant="outline" className="text-purple-400 border-purple-500/30 text-xs">
+                              Module {trainingModules.indexOf(currentModuleData) + 1}
+                            </Badge>
+                            <Badge className="bg-indigo-500/20 text-indigo-400 border-indigo-500/30 text-xs">
+                              {currentModuleData.title}
+                            </Badge>
+                          </div>
+                          <h4 className="font-semibold text-white mb-1">{nextLesson.title}</h4>
+                          <p className="text-sm text-gray-400">{nextLesson.content?.[0] || 'Continue your training'}</p>
+                        </div>
+                        <Button 
+                          size="sm" 
+                          className="bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600"
+                          onClick={() => {
+                            setActiveModule(currentModuleData.id);
+                            setExpandedLesson(nextLesson.id);
+                          }}
+                        >
+                          <Play className="w-4 h-4 mr-1" />
+                          Continue
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ) : isComplete ? (
+                  <Card className="bg-gray-800/70 border-green-500/20 mb-4">
+                    <CardContent className="p-4 text-center">
+                      <Trophy className="w-8 h-8 text-green-400 mx-auto mb-2" />
+                      <p className="text-green-400 font-semibold">Training Complete!</p>
+                      <p className="text-sm text-gray-400">You've finished all modules</p>
+                    </CardContent>
+                  </Card>
+                ) : null;
+              })()}
+
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-gray-400">
+                  6 comprehensive modules with quizzes & certification
+                </p>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="border-purple-500/30 text-purple-400 hover:bg-purple-500/10"
+                  onClick={() => document.getElementById('training-modules')?.scrollIntoView({ behavior: 'smooth' })}
+                >
+                  View Modules
+                  <ArrowRight className="w-4 h-4 ml-1" />
+                </Button>
+              </div>
+            </div>
+
             {/* 44-Day Content Journey - Today's Lesson */}
-            <div className="mt-6 p-5 bg-gradient-to-r from-amber-900/40 via-orange-900/30 to-gray-900/50 border border-amber-500/30 rounded-xl">
+            <div className="p-5 bg-gradient-to-r from-amber-900/40 via-orange-900/30 to-gray-900/50 border border-amber-500/30 rounded-xl">
               <div className="flex items-center gap-2 mb-4">
                 <Calendar className="w-5 h-5 text-amber-400" />
                 <h3 className="font-semibold text-white">44-Day Content Journey</h3>
