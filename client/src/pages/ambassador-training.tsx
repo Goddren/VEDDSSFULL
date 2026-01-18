@@ -188,12 +188,15 @@ function KeyPointCarousel({ keyPoints }: { keyPoints: KeyPoint[] }) {
       </div>
 
       {/* Progress dots */}
-      <div className="flex justify-center gap-2 mt-4">
-        {keyPoints.map((_, idx) => (
+      <div className="flex justify-center gap-2 mt-4" role="tablist" aria-label="Key points navigation">
+        {keyPoints.map((point, idx) => (
           <button
             key={idx}
+            role="tab"
+            aria-selected={idx === currentIndex}
+            aria-label={`Go to key point ${idx + 1}: ${point.title}`}
             onClick={() => setCurrentIndex(idx)}
-            className={`w-2 h-2 rounded-full transition-all ${
+            className={`w-2 h-2 rounded-full transition-all focus:outline-none focus:ring-2 focus:ring-green-500/50 ${
               idx === currentIndex ? 'bg-green-400 w-6' : 'bg-gray-600 hover:bg-gray-500'
             }`}
           />
@@ -234,11 +237,23 @@ function RealWorldExampleCard({ example }: { example: RealWorldExample }) {
   const style = typeStyles[example.type];
   const Icon = style.icon;
 
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      setIsExpanded(!isExpanded);
+    }
+  };
+
   return (
     <motion.div
       layout
-      className={`bg-gradient-to-br ${style.bg} border ${style.border} rounded-xl overflow-hidden cursor-pointer`}
+      role="button"
+      tabIndex={0}
+      aria-expanded={isExpanded}
+      aria-label={`${example.type === 'success' ? 'Success story' : example.type === 'warning' ? 'Common mistake' : 'Key insight'}: ${example.scenario}`}
+      className={`bg-gradient-to-br ${style.bg} border ${style.border} rounded-xl overflow-hidden cursor-pointer focus:outline-none focus:ring-2 focus:ring-green-500/50`}
       onClick={() => setIsExpanded(!isExpanded)}
+      onKeyDown={handleKeyDown}
     >
       <div className="p-4">
         <div className="flex items-start gap-3">
