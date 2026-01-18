@@ -6013,6 +6013,10 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         return res.status(404).json({ error: "Lesson not found" });
       }
       
+      // Initialize OpenAI client
+      const OpenAI = (await import("openai")).default;
+      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+      
       const prompt = `You are a social media content creator for VEDD AI, a faith-based trading platform. Create an engaging social media post based on the following:
 
 Day ${lesson.dayNumber}: ${lesson.title}
