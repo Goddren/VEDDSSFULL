@@ -12,6 +12,14 @@ import liveStreamImg from '@assets/stock_images/live_streaming_video_1e9c8eed.jp
 import chartAnalysisImg from '@assets/stock_images/trading_chart_analys_8f9ce15e.jpg';
 import complianceImg from '@assets/stock_images/business_compliance__a162932c.jpg';
 import platformsImg from '@assets/stock_images/trading_platforms_mu_e4e1343a.jpg';
+
+// Import chart pattern images
+import headAndShouldersImg from '@assets/generated_images/head_and_shoulders_pattern.png';
+import doubleTopImg from '@assets/generated_images/double_top_pattern_chart.png';
+import hammerPatternImg from '@assets/generated_images/hammer_candlestick_pattern.png';
+import rsiIndicatorImg from '@assets/generated_images/rsi_indicator_example.png';
+import supportResistanceImg from '@assets/generated_images/support_resistance_levels.png';
+import trianglePatternImg from '@assets/generated_images/triangle_pattern_chart.png';
 import { 
   GraduationCap, 
   Video, 
@@ -67,6 +75,8 @@ interface TrainingModule {
     title: string;
     content: string[];
     tips: string[];
+    image?: string;
+    imageAlt?: string;
     guideLink?: {
       text: string;
       section: string;
@@ -523,7 +533,9 @@ const trainingModules: TrainingModule[] = [
         tips: [
           'Always explain these patterns in simple terms for beginners',
           'Show real examples from AI Trading Vault analysis in your content'
-        ]
+        ],
+        image: hammerPatternImg,
+        imageAlt: 'Hammer candlestick pattern example'
       },
       {
         id: 'ta-2',
@@ -541,6 +553,8 @@ const trainingModules: TrainingModule[] = [
           'Use visual diagrams when explaining these patterns',
           'Emphasize that AI Trading Vault automatically identifies these for users'
         ],
+        image: headAndShouldersImg,
+        imageAlt: 'Head and Shoulders pattern example',
         quiz: {
           question: 'What does a Head and Shoulders pattern typically signal?',
           options: [
@@ -551,6 +565,40 @@ const trainingModules: TrainingModule[] = [
           ],
           correct: 2
         }
+      },
+      {
+        id: 'ta-2b',
+        title: 'More Chart Patterns',
+        content: [
+          'Double Top: Price reaches same resistance twice then reverses down - bearish reversal signal',
+          'Double Bottom: Price reaches same support twice then reverses up - bullish reversal signal',
+          'Ascending Triangle: Flat resistance with rising support - typically bullish breakout',
+          'Descending Triangle: Flat support with falling resistance - typically bearish breakdown',
+          'Symmetrical Triangle: Converging trendlines - direction depends on breakout'
+        ],
+        tips: [
+          'Show how these patterns appear on real charts',
+          'Explain that AI Trading Vault detects these automatically'
+        ],
+        image: doubleTopImg,
+        imageAlt: 'Double Top pattern example'
+      },
+      {
+        id: 'ta-2c',
+        title: 'Triangle Patterns',
+        content: [
+          'Ascending Triangle: Horizontal resistance with rising support trendline',
+          'Forms when buyers are getting more aggressive (higher lows)',
+          'Typically breaks out upward through resistance',
+          'Volume usually decreases during formation, increases on breakout',
+          'Measure the height of triangle and project from breakout point for target'
+        ],
+        tips: [
+          'Use this image to show triangle formation in your tutorials',
+          'Explain breakout confirmation with volume'
+        ],
+        image: trianglePatternImg,
+        imageAlt: 'Ascending Triangle pattern example'
       },
       {
         id: 'ta-3',
@@ -565,7 +613,9 @@ const trainingModules: TrainingModule[] = [
         tips: [
           'Show how AI Trading Vault identifies these levels automatically',
           'Explain why these levels matter for setting stop-loss and take-profit'
-        ]
+        ],
+        image: supportResistanceImg,
+        imageAlt: 'Support and Resistance levels example'
       },
       {
         id: 'ta-4',
@@ -582,6 +632,8 @@ const trainingModules: TrainingModule[] = [
           'Explain indicators in plain language without jargon',
           'Show how AI Trading Vault combines multiple indicators for better signals'
         ],
+        image: rsiIndicatorImg,
+        imageAlt: 'RSI indicator example with overbought and oversold zones',
         quiz: {
           question: 'What does an RSI reading above 70 typically indicate?',
           options: [
@@ -1560,6 +1612,23 @@ export default function AmbassadorTrainingPage() {
                                   ))}
                                 </ul>
                               </div>
+
+                              {lesson.image && (
+                                <div className="bg-gray-900/50 border border-gray-700 rounded-lg p-4">
+                                  <h4 className="font-medium mb-3 text-gray-300 flex items-center gap-2">
+                                    <Camera className="w-4 h-4 text-green-400" />
+                                    Pattern Example
+                                  </h4>
+                                  <img 
+                                    src={lesson.image} 
+                                    alt={lesson.imageAlt || 'Chart pattern example'} 
+                                    className="w-full rounded-lg border border-gray-600 shadow-lg"
+                                  />
+                                  {lesson.imageAlt && (
+                                    <p className="text-sm text-gray-500 mt-2 text-center italic">{lesson.imageAlt}</p>
+                                  )}
+                                </div>
+                              )}
 
                               <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4">
                                 <h4 className="font-medium mb-2 text-amber-400 flex items-center gap-2">
