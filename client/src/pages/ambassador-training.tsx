@@ -1762,6 +1762,34 @@ export default function AmbassadorTrainingPage() {
     enabled: !!user,
   });
 
+  // Fetch 44-Day Content Flow stats and lessons
+  const { data: contentFlowStats } = useQuery<{
+    currentDay: number;
+    completedDays: number;
+    totalTokensEarned: number;
+    currentStreak: number;
+  }>({
+    queryKey: ['/api/ambassador/content-flow/stats'],
+    enabled: !!user,
+  });
+
+  const { data: contentFlowLessons } = useQuery<Array<{
+    dayNumber: number;
+    title: string;
+    tradingTopic: string;
+    scriptureReference: string;
+    tokenReward: number;
+    weekNumber: number;
+  }>>({
+    queryKey: ['/api/ambassador/content-flow/lessons'],
+    enabled: !!user,
+  });
+
+  // Get today's lesson from the content flow
+  const todaysLesson = contentFlowLessons?.find(
+    lesson => lesson.dayNumber === (contentFlowStats?.currentDay || 1)
+  );
+
   // Save progress mutation
   const saveProgressMutation = useMutation({
     mutationFn: async (data: { completedLessons: string[]; quizScores: Record<string, number> }) => {
@@ -2050,22 +2078,83 @@ export default function AmbassadorTrainingPage() {
               ))}
             </div>
 
-            {/* 44-Day Content Journey CTA */}
-            <div className="mt-6 p-4 bg-gradient-to-r from-amber-900/40 to-orange-900/20 border border-amber-500/30 rounded-xl">
-              <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-full bg-amber-500/20 flex items-center justify-center">
-                    <Calendar className="w-6 h-6 text-amber-400" />
+            {/* 44-Day Content Journey - Today's Lesson */}
+            <div className="mt-6 p-5 bg-gradient-to-r from-amber-900/40 via-orange-900/30 to-gray-900/50 border border-amber-500/30 rounded-xl">
+              <div className="flex items-center gap-2 mb-4">
+                <Calendar className="w-5 h-5 text-amber-400" />
+                <h3 className="font-semibold text-white">44-Day Content Journey</h3>
+                {contentFlowStats && (
+                  <Badge className="bg-green-500/20 text-green-400 border-green-500/30 ml-auto">
+                    Day {contentFlowStats.currentDay} of 44
+                  </Badge>
+                )}
+              </div>
+
+              {/* Progress Stats */}
+              {contentFlowStats && (
+                <div className="grid grid-cols-4 gap-3 mb-4">
+                  <div className="text-center p-2 bg-gray-800/50 rounded-lg">
+                    <p className="text-lg font-bold text-amber-400">{contentFlowStats.completedDays}</p>
+                    <p className="text-xs text-gray-400">Completed</p>
                   </div>
-                  <div>
-                    <h4 className="font-semibold text-white">44-Day Content Journey</h4>
-                    <p className="text-sm text-gray-400">Daily trading lessons combined with biblical wisdom and AI-generated social content</p>
+                  <div className="text-center p-2 bg-gray-800/50 rounded-lg">
+                    <p className="text-lg font-bold text-green-400">{contentFlowStats.totalTokensEarned}</p>
+                    <p className="text-xs text-gray-400">Tokens</p>
+                  </div>
+                  <div className="text-center p-2 bg-gray-800/50 rounded-lg">
+                    <p className="text-lg font-bold text-orange-400">{contentFlowStats.currentStreak}</p>
+                    <p className="text-xs text-gray-400">Streak</p>
+                  </div>
+                  <div className="text-center p-2 bg-gray-800/50 rounded-lg">
+                    <p className="text-lg font-bold text-purple-400">{Math.round((contentFlowStats.completedDays / 44) * 100)}%</p>
+                    <p className="text-xs text-gray-400">Progress</p>
                   </div>
                 </div>
+              )}
+
+              {/* Today's Lesson Card */}
+              {todaysLesson ? (
+                <Card className="bg-gray-800/70 border-amber-500/20 mb-4">
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Badge variant="outline" className="text-amber-400 border-amber-500/30 text-xs">
+                            Day {todaysLesson.dayNumber}
+                          </Badge>
+                          <Badge className="bg-green-500/20 text-green-400 border-green-500/30 text-xs">
+                            +{todaysLesson.tokenReward} tokens
+                          </Badge>
+                        </div>
+                        <h4 className="font-semibold text-white mb-1">{todaysLesson.title}</h4>
+                        <p className="text-sm text-gray-400 mb-2">{todaysLesson.tradingTopic}</p>
+                        <p className="text-xs text-amber-400/80 italic">{todaysLesson.scriptureReference}</p>
+                      </div>
+                      <Link href={`/ambassador/content-flow/day/${todaysLesson.dayNumber}`}>
+                        <Button size="sm" className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600">
+                          <Sparkles className="w-4 h-4 mr-1" />
+                          Start
+                        </Button>
+                      </Link>
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : (
+                <Card className="bg-gray-800/70 border-gray-700 mb-4">
+                  <CardContent className="p-4 text-center">
+                    <p className="text-gray-400">Loading today's lesson...</p>
+                  </CardContent>
+                </Card>
+              )}
+
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-gray-400">
+                  AI-generated social content with trading + biblical wisdom
+                </p>
                 <Link href="/ambassador/content-flow">
-                  <Button className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 whitespace-nowrap">
-                    Start Your Journey
-                    <ArrowRight className="w-4 h-4 ml-2" />
+                  <Button variant="outline" size="sm" className="border-amber-500/30 text-amber-400 hover:bg-amber-500/10">
+                    View Full Calendar
+                    <ArrowRight className="w-4 h-4 ml-1" />
                   </Button>
                 </Link>
               </div>
