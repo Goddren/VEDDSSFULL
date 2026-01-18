@@ -20,6 +20,16 @@ import hammerPatternImg from '@assets/generated_images/hammer_candlestick_patter
 import rsiIndicatorImg from '@assets/generated_images/rsi_indicator_example.png';
 import supportResistanceImg from '@assets/generated_images/support_resistance_levels.png';
 import trianglePatternImg from '@assets/generated_images/triangle_pattern_chart.png';
+import dojiPatternImg from '@assets/generated_images/doji_candlestick_pattern.png';
+import engulfingPatternImg from '@assets/generated_images/engulfing_candlestick_pattern.png';
+import morningEveningStarImg from '@assets/generated_images/morning_evening_star_patterns.png';
+import flagPennantImg from '@assets/generated_images/flag_pennant_patterns.png';
+import cupHandleImg from '@assets/generated_images/cup_and_handle_pattern.png';
+import wedgePatternsImg from '@assets/generated_images/wedge_patterns_chart.png';
+import macdIndicatorImg from '@assets/generated_images/macd_indicator_example.png';
+import movingAveragesImg from '@assets/generated_images/moving_averages_crossovers.png';
+import bollingerBandsImg from '@assets/generated_images/bollinger_bands_indicator.png';
+import volumeIndicatorImg from '@assets/generated_images/volume_indicator_analysis.png';
 import { 
   GraduationCap, 
   Video, 
@@ -521,40 +531,89 @@ const trainingModules: TrainingModule[] = [
     image: chartAnalysisImg,
     lessons: [
       {
-        id: 'ta-1',
-        title: 'Candlestick Patterns',
+        id: 'ta-1a',
+        title: 'Doji Candlestick Pattern',
         content: [
-          'Doji: A candle with nearly equal open/close prices - signals indecision and potential reversal',
-          'Hammer/Hanging Man: Small body with long lower wick - hammer is bullish at bottoms, hanging man is bearish at tops',
-          'Engulfing: Large candle completely covers previous candle - bullish engulfing signals upward reversal, bearish signals downward',
-          'Morning/Evening Star: Three-candle reversal pattern - morning star is bullish, evening star is bearish',
-          'Spinning Top: Small body with wicks on both sides - indicates market indecision'
+          'A Doji forms when open and close prices are nearly equal',
+          'The pattern shows indecision between buyers and sellers',
+          'Long wicks indicate volatility but no clear winner',
+          'Often signals potential trend reversal when appearing at tops or bottoms',
+          'Confirmation from next candle is important before trading'
         ],
         tips: [
-          'Always explain these patterns in simple terms for beginners',
-          'Show real examples from AI Trading Vault analysis in your content'
+          'Explain that a Doji alone is not a trade signal - context matters',
+          'Show examples of Doji at market tops and bottoms'
         ],
-        image: hammerPatternImg,
-        imageAlt: 'Hammer candlestick pattern example'
+        image: dojiPatternImg,
+        imageAlt: 'Doji candlestick pattern showing market indecision'
       },
       {
-        id: 'ta-2',
-        title: 'Chart Patterns',
+        id: 'ta-1b',
+        title: 'Hammer & Hanging Man',
         content: [
-          'Head and Shoulders: Three peaks with middle highest - signals trend reversal from bullish to bearish',
-          'Inverse Head and Shoulders: Three troughs with middle lowest - signals reversal from bearish to bullish',
-          'Double Top/Bottom: Price hits same level twice then reverses - double top is bearish, double bottom is bullish',
-          'Triangle (Ascending/Descending/Symmetrical): Price consolidates before breakout - direction depends on pattern type',
-          'Flag/Pennant: Brief consolidation after strong move - typically signals continuation of the trend',
-          'Cup and Handle: Rounded bottom followed by small pullback - bullish continuation pattern',
-          'Wedge (Rising/Falling): Converging trendlines - rising wedge is bearish, falling wedge is bullish'
+          'Small body with long lower wick (shadow) - at least 2x the body length',
+          'Hammer appears at the bottom of a downtrend - bullish reversal signal',
+          'Hanging Man appears at the top of an uptrend - bearish warning',
+          'The long lower wick shows buyers stepping in (for hammer) or selling pressure building',
+          'Color of the body is less important than the pattern location'
         ],
         tips: [
-          'Use visual diagrams when explaining these patterns',
-          'Emphasize that AI Trading Vault automatically identifies these for users'
+          'Emphasize that location determines if its a hammer or hanging man',
+          'Show real chart examples from AI Trading Vault'
+        ],
+        image: hammerPatternImg,
+        imageAlt: 'Hammer candlestick pattern at market bottom'
+      },
+      {
+        id: 'ta-1c',
+        title: 'Engulfing Patterns',
+        content: [
+          'Bullish Engulfing: Large green candle completely covers previous red candle',
+          'Bearish Engulfing: Large red candle completely covers previous green candle',
+          'The second candle "engulfs" the entire body of the first',
+          'Shows strong momentum shift from one side to the other',
+          'More reliable at key support/resistance levels'
+        ],
+        tips: [
+          'Use side-by-side comparison of bullish vs bearish engulfing',
+          'Explain that the bigger the engulfing candle, the stronger the signal'
+        ],
+        image: engulfingPatternImg,
+        imageAlt: 'Bullish and bearish engulfing candlestick patterns'
+      },
+      {
+        id: 'ta-1d',
+        title: 'Morning & Evening Star',
+        content: [
+          'Three-candle reversal patterns at trend extremes',
+          'Morning Star: Large red candle → small body (any color) → large green candle',
+          'Evening Star: Large green candle → small body (any color) → large red candle',
+          'The middle candle often gaps away from the first (shows exhaustion)',
+          'Third candle confirms the reversal direction'
+        ],
+        tips: [
+          'Walk through each candle in the pattern step by step',
+          'Show how AI Trading Vault highlights these automatically'
+        ],
+        image: morningEveningStarImg,
+        imageAlt: 'Morning Star and Evening Star reversal patterns'
+      },
+      {
+        id: 'ta-2a',
+        title: 'Head and Shoulders Pattern',
+        content: [
+          'Three peaks with the middle peak (head) being the highest',
+          'Left and right peaks (shoulders) are roughly equal height',
+          'Neckline connects the lows between the peaks',
+          'Break below neckline confirms the bearish reversal',
+          'Inverse Head and Shoulders is the bullish version (three troughs)'
+        ],
+        tips: [
+          'Draw the neckline clearly when explaining',
+          'Mention that AI Trading Vault auto-detects this pattern'
         ],
         image: headAndShouldersImg,
-        imageAlt: 'Head and Shoulders pattern example',
+        imageAlt: 'Head and Shoulders reversal pattern',
         quiz: {
           question: 'What does a Head and Shoulders pattern typically signal?',
           options: [
@@ -568,37 +627,88 @@ const trainingModules: TrainingModule[] = [
       },
       {
         id: 'ta-2b',
-        title: 'More Chart Patterns',
+        title: 'Double Top & Double Bottom',
         content: [
-          'Double Top: Price reaches same resistance twice then reverses down - bearish reversal signal',
-          'Double Bottom: Price reaches same support twice then reverses up - bullish reversal signal',
-          'Ascending Triangle: Flat resistance with rising support - typically bullish breakout',
-          'Descending Triangle: Flat support with falling resistance - typically bearish breakdown',
-          'Symmetrical Triangle: Converging trendlines - direction depends on breakout'
+          'Double Top: Price hits resistance twice then reverses down',
+          'Forms an "M" shape - bearish reversal signal',
+          'Double Bottom: Price hits support twice then reverses up',
+          'Forms a "W" shape - bullish reversal signal',
+          'Break of the middle swing point confirms the pattern'
         ],
         tips: [
-          'Show how these patterns appear on real charts',
-          'Explain that AI Trading Vault detects these automatically'
+          'Compare the M and W shapes for easy recognition',
+          'Show entry points after confirmation'
         ],
         image: doubleTopImg,
-        imageAlt: 'Double Top pattern example'
+        imageAlt: 'Double Top and Double Bottom patterns'
       },
       {
         id: 'ta-2c',
         title: 'Triangle Patterns',
         content: [
-          'Ascending Triangle: Horizontal resistance with rising support trendline',
-          'Forms when buyers are getting more aggressive (higher lows)',
-          'Typically breaks out upward through resistance',
-          'Volume usually decreases during formation, increases on breakout',
-          'Measure the height of triangle and project from breakout point for target'
+          'Ascending Triangle: Flat resistance with rising support - bullish bias',
+          'Descending Triangle: Flat support with falling resistance - bearish bias',
+          'Symmetrical Triangle: Converging trendlines - breakout direction uncertain',
+          'Volume typically decreases during formation',
+          'Breakout often occurs 2/3 into the pattern'
         ],
         tips: [
-          'Use this image to show triangle formation in your tutorials',
-          'Explain breakout confirmation with volume'
+          'Draw both trendlines to show the triangle formation',
+          'Explain that breakout direction matters most'
         ],
         image: trianglePatternImg,
-        imageAlt: 'Ascending Triangle pattern example'
+        imageAlt: 'Triangle chart patterns'
+      },
+      {
+        id: 'ta-2d',
+        title: 'Flag & Pennant Patterns',
+        content: [
+          'Both are continuation patterns after strong moves',
+          'Flag: Rectangular consolidation against the trend',
+          'Pennant: Small symmetrical triangle after a strong move',
+          'The "pole" is the initial strong move before consolidation',
+          'Breakout continues in the direction of the original move'
+        ],
+        tips: [
+          'Show the pole + flag/pennant structure',
+          'Explain these are short-term consolidation patterns'
+        ],
+        image: flagPennantImg,
+        imageAlt: 'Flag and Pennant continuation patterns'
+      },
+      {
+        id: 'ta-2e',
+        title: 'Cup and Handle Pattern',
+        content: [
+          'Rounded bottom (cup) followed by small pullback (handle)',
+          'Cup should be U-shaped, not V-shaped for reliability',
+          'Handle forms in the upper third of the cup',
+          'Breakout above handle resistance is the buy signal',
+          'Target: Height of cup added to breakout point'
+        ],
+        tips: [
+          'Emphasize the rounded nature of the cup',
+          'Show how this is a bullish continuation pattern'
+        ],
+        image: cupHandleImg,
+        imageAlt: 'Cup and Handle bullish pattern'
+      },
+      {
+        id: 'ta-2f',
+        title: 'Wedge Patterns',
+        content: [
+          'Rising Wedge: Both trendlines slope up but converge - bearish',
+          'Falling Wedge: Both trendlines slope down but converge - bullish',
+          'Unlike triangles, wedges have both lines moving in same direction',
+          'Breakout typically goes opposite to the wedge direction',
+          'Often appear as continuation patterns in trends'
+        ],
+        tips: [
+          'Compare wedges to triangles to show the difference',
+          'Explain why rising wedge is bearish despite going up'
+        ],
+        image: wedgePatternsImg,
+        imageAlt: 'Rising and Falling Wedge patterns'
       },
       {
         id: 'ta-3',
@@ -618,22 +728,21 @@ const trainingModules: TrainingModule[] = [
         imageAlt: 'Support and Resistance levels example'
       },
       {
-        id: 'ta-4',
-        title: 'Technical Indicators',
+        id: 'ta-4a',
+        title: 'RSI Indicator',
         content: [
-          'RSI (Relative Strength Index): Measures momentum 0-100 - above 70 is overbought (potential sell), below 30 is oversold (potential buy)',
-          'MACD (Moving Average Convergence Divergence): Shows trend direction and momentum - crossovers signal potential trades',
-          'Moving Averages (SMA/EMA): Smooths price data to show trend - price above MA is bullish, below is bearish',
-          'Bollinger Bands: Volatility indicator - price touching upper band may be overbought, lower band may be oversold',
-          'Volume: Confirms price moves - high volume validates breakouts, low volume suggests weak moves',
-          'ATR (Average True Range): Measures volatility - helps set appropriate stop-loss distances'
+          'RSI measures momentum on a scale of 0 to 100',
+          'Above 70 is considered overbought - potential sell signal',
+          'Below 30 is considered oversold - potential buy signal',
+          'Divergence between price and RSI can signal reversals',
+          'Works best in ranging markets, less reliable in strong trends'
         ],
         tips: [
-          'Explain indicators in plain language without jargon',
-          'Show how AI Trading Vault combines multiple indicators for better signals'
+          'Show the 70/30 levels clearly on the indicator',
+          'Explain that overbought doesnt always mean sell immediately'
         ],
         image: rsiIndicatorImg,
-        imageAlt: 'RSI indicator example with overbought and oversold zones',
+        imageAlt: 'RSI indicator with overbought and oversold zones',
         quiz: {
           question: 'What does an RSI reading above 70 typically indicate?',
           options: [
@@ -644,6 +753,74 @@ const trainingModules: TrainingModule[] = [
           ],
           correct: 2
         }
+      },
+      {
+        id: 'ta-4b',
+        title: 'MACD Indicator',
+        content: [
+          'MACD = 12-period EMA minus 26-period EMA',
+          'Signal Line = 9-period EMA of MACD',
+          'Histogram shows the difference between MACD and Signal Line',
+          'Bullish signal: MACD crosses above Signal Line',
+          'Bearish signal: MACD crosses below Signal Line'
+        ],
+        tips: [
+          'Focus on the crossover signals for simplicity',
+          'Show histogram expansion as trend strength indicator'
+        ],
+        image: macdIndicatorImg,
+        imageAlt: 'MACD indicator with signal line crossovers'
+      },
+      {
+        id: 'ta-4c',
+        title: 'Moving Averages',
+        content: [
+          'SMA (Simple Moving Average): Average of closing prices over period',
+          'EMA (Exponential Moving Average): Gives more weight to recent prices',
+          'Price above MA = bullish, below = bearish',
+          'Golden Cross: Short MA crosses above long MA - bullish signal',
+          'Death Cross: Short MA crosses below long MA - bearish signal'
+        ],
+        tips: [
+          'Common periods: 20, 50, 100, 200 days',
+          'Show golden cross and death cross examples'
+        ],
+        image: movingAveragesImg,
+        imageAlt: 'Moving Averages with crossover signals'
+      },
+      {
+        id: 'ta-4d',
+        title: 'Bollinger Bands',
+        content: [
+          'Middle band = 20-period SMA',
+          'Upper band = Middle + 2 standard deviations',
+          'Lower band = Middle - 2 standard deviations',
+          'Price at upper band may be overbought, at lower may be oversold',
+          'Band squeeze indicates low volatility - breakout often follows'
+        ],
+        tips: [
+          'Explain bands expand in volatile markets, contract in quiet markets',
+          'Show the squeeze pattern before breakouts'
+        ],
+        image: bollingerBandsImg,
+        imageAlt: 'Bollinger Bands indicator with squeeze pattern'
+      },
+      {
+        id: 'ta-4e',
+        title: 'Volume Analysis',
+        content: [
+          'Volume confirms price moves - high volume = strong conviction',
+          'Breakouts with high volume are more reliable',
+          'Pullbacks on low volume suggest the trend remains intact',
+          'Volume divergence can warn of potential reversals',
+          'Always check volume when evaluating chart patterns'
+        ],
+        tips: [
+          'Show volume bars below price chart',
+          'Explain volume as the fuel behind price moves'
+        ],
+        image: volumeIndicatorImg,
+        imageAlt: 'Volume indicator confirming price breakouts'
       },
       {
         id: 'ta-5',
