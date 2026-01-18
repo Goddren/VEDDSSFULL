@@ -115,6 +115,8 @@ export default function ContentFlowDay() {
   const [customContext, setCustomContext] = useState("");
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [generatedContent, setGeneratedContent] = useState<GeneratedContent | null>(null);
+  const [joinedChallenges, setJoinedChallenges] = useState<Set<number>>(new Set());
+  const [registeredEvents, setRegisteredEvents] = useState<Set<number>>(new Set());
 
   const day = parseInt(dayNumber || "1");
 
@@ -143,9 +145,10 @@ export default function ContentFlowDay() {
   const joinChallengeMutation = useMutation({
     mutationFn: async (challengeId: number) => {
       const res = await apiRequest('POST', `/api/ambassador/community/challenges/${challengeId}/join`);
-      return res.json();
+      return { challengeId, data: await res.json() };
     },
-    onSuccess: () => {
+    onSuccess: ({ challengeId }) => {
+      setJoinedChallenges(prev => new Set([...Array.from(prev), challengeId]));
       queryClient.invalidateQueries({ queryKey: ['/api/ambassador/community/hub', day] });
       toast({ title: "Challenge Joined!", description: "Good luck with the challenge!" });
     },
@@ -157,9 +160,10 @@ export default function ContentFlowDay() {
   const registerEventMutation = useMutation({
     mutationFn: async ({ eventId, role }: { eventId: number; role?: string }) => {
       const res = await apiRequest('POST', `/api/ambassador/community/events/${eventId}/register`, { role });
-      return res.json();
+      return { eventId, data: await res.json() };
     },
-    onSuccess: () => {
+    onSuccess: ({ eventId }) => {
+      setRegisteredEvents(prev => new Set([...Array.from(prev), eventId]));
       queryClient.invalidateQueries({ queryKey: ['/api/ambassador/community/hub', day] });
       toast({ title: "Registered!", description: "You're signed up for this event." });
     },
@@ -791,19 +795,30 @@ export default function ContentFlowDay() {
                             </div>
                           )}
                           
-                          <Button
-                            size="sm"
-                            className="w-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600"
-                            onClick={() => joinChallengeMutation.mutate(challenge.id)}
-                            disabled={joinChallengeMutation.isPending}
-                          >
-                            {joinChallengeMutation.isPending ? (
-                              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                            ) : (
-                              <Play className="w-4 h-4 mr-2" />
-                            )}
-                            Join Challenge
-                          </Button>
+                          {joinedChallenges.has(challenge.id) ? (
+                            <Button
+                              size="sm"
+                              className="w-full bg-green-600 hover:bg-green-700"
+                              disabled
+                            >
+                              <CheckCircle className="w-4 h-4 mr-2" />
+                              Joined - In Progress
+                            </Button>
+                          ) : (
+                            <Button
+                              size="sm"
+                              className="w-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600"
+                              onClick={() => joinChallengeMutation.mutate(challenge.id)}
+                              disabled={joinChallengeMutation.isPending}
+                            >
+                              {joinChallengeMutation.isPending ? (
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              ) : (
+                                <Play className="w-4 h-4 mr-2" />
+                              )}
+                              Join Challenge
+                            </Button>
+                          )}
                         </div>
                       ))
                     ) : (
