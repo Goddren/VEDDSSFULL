@@ -13,23 +13,25 @@ import chartAnalysisImg from '@assets/stock_images/trading_chart_analys_8f9ce15e
 import complianceImg from '@assets/stock_images/business_compliance__a162932c.jpg';
 import platformsImg from '@assets/stock_images/trading_platforms_mu_e4e1343a.jpg';
 
-// Import professional stock images for chart patterns and indicators
-import headAndShouldersImg from '@assets/stock_images/head_and_shoulders_c_a7f4aded.jpg';
-import doubleTopImg from '@assets/stock_images/double_top_double_bo_cdec64dc.jpg';
-import hammerPatternImg from '@assets/stock_images/hammer_candlestick_p_ceee138f.jpg';
-import rsiIndicatorImg from '@assets/stock_images/rsi_indicator_overbo_7678d699.jpg';
-import supportResistanceImg from '@assets/stock_images/support_resistance_l_b6401ae5.jpg';
-import trianglePatternImg from '@assets/stock_images/triangle_chart_patte_702e71b8.jpg';
-import dojiPatternImg from '@assets/stock_images/doji_candlestick_pat_16d5e0c5.jpg';
-import engulfingPatternImg from '@assets/stock_images/engulfing_candlestic_23e0cac2.jpg';
-import morningEveningStarImg from '@assets/stock_images/morning_star_evening_bea77580.jpg';
-import flagPennantImg from '@assets/stock_images/flag_pennant_chart_p_0263e22f.jpg';
-import cupHandleImg from '@assets/stock_images/cup_and_handle_chart_38a185cc.jpg';
-import wedgePatternsImg from '@assets/stock_images/wedge_pattern_rising_d84657be.jpg';
-import macdIndicatorImg from '@assets/stock_images/macd_indicator_cross_d8c11369.jpg';
-import movingAveragesImg from '@assets/stock_images/moving_average_golde_66b4129c.jpg';
-import bollingerBandsImg from '@assets/stock_images/bollinger_bands_trad_b1fd99d2.jpg';
-import volumeIndicatorImg from '@assets/stock_images/volume_trading_chart_473db698.jpg';
+// Import SVG diagram components for accurate pattern education
+import {
+  DojiDiagram,
+  HammerDiagram,
+  EngulfingDiagram,
+  MorningStarDiagram,
+  HeadShouldersDiagram,
+  DoubleTopDiagram,
+  TriangleDiagram,
+  FlagPennantDiagram,
+  CupHandleDiagram,
+  WedgeDiagram,
+  SupportResistanceDiagram,
+  RSIDiagram,
+  MACDDiagram,
+  MovingAveragesDiagram,
+  BollingerBandsDiagram,
+  VolumeDiagram,
+} from '@/components/candlestick-diagrams';
 import { 
   GraduationCap, 
   Video, 
@@ -87,6 +89,7 @@ interface TrainingModule {
     tips: string[];
     image?: string;
     imageAlt?: string;
+    DiagramComponent?: React.ComponentType;
     guideLink?: {
       text: string;
       section: string;
@@ -544,7 +547,7 @@ const trainingModules: TrainingModule[] = [
           'Explain that a Doji alone is not a trade signal - context matters',
           'Show examples of Doji at market tops and bottoms'
         ],
-        image: dojiPatternImg,
+        DiagramComponent: DojiDiagram,
         imageAlt: 'Doji candlestick pattern showing market indecision'
       },
       {
@@ -561,7 +564,7 @@ const trainingModules: TrainingModule[] = [
           'Emphasize that location determines if its a hammer or hanging man',
           'Show real chart examples from AI Trading Vault'
         ],
-        image: hammerPatternImg,
+        DiagramComponent: HammerDiagram,
         imageAlt: 'Hammer candlestick pattern at market bottom'
       },
       {
@@ -578,7 +581,7 @@ const trainingModules: TrainingModule[] = [
           'Use side-by-side comparison of bullish vs bearish engulfing',
           'Explain that the bigger the engulfing candle, the stronger the signal'
         ],
-        image: engulfingPatternImg,
+        DiagramComponent: EngulfingDiagram,
         imageAlt: 'Bullish and bearish engulfing candlestick patterns'
       },
       {
@@ -595,7 +598,7 @@ const trainingModules: TrainingModule[] = [
           'Walk through each candle in the pattern step by step',
           'Show how AI Trading Vault highlights these automatically'
         ],
-        image: morningEveningStarImg,
+        DiagramComponent: MorningStarDiagram,
         imageAlt: 'Morning Star and Evening Star reversal patterns'
       },
       {
@@ -612,7 +615,7 @@ const trainingModules: TrainingModule[] = [
           'Draw the neckline clearly when explaining',
           'Mention that AI Trading Vault auto-detects this pattern'
         ],
-        image: headAndShouldersImg,
+        DiagramComponent: HeadShouldersDiagram,
         imageAlt: 'Head and Shoulders reversal pattern',
         quiz: {
           question: 'What does a Head and Shoulders pattern typically signal?',
@@ -639,7 +642,7 @@ const trainingModules: TrainingModule[] = [
           'Compare the M and W shapes for easy recognition',
           'Show entry points after confirmation'
         ],
-        image: doubleTopImg,
+        DiagramComponent: DoubleTopDiagram,
         imageAlt: 'Double Top and Double Bottom patterns'
       },
       {
@@ -656,7 +659,7 @@ const trainingModules: TrainingModule[] = [
           'Draw both trendlines to show the triangle formation',
           'Explain that breakout direction matters most'
         ],
-        image: trianglePatternImg,
+        DiagramComponent: TriangleDiagram,
         imageAlt: 'Triangle chart patterns'
       },
       {
@@ -673,7 +676,7 @@ const trainingModules: TrainingModule[] = [
           'Show the pole + flag/pennant structure',
           'Explain these are short-term consolidation patterns'
         ],
-        image: flagPennantImg,
+        DiagramComponent: FlagPennantDiagram,
         imageAlt: 'Flag and Pennant continuation patterns'
       },
       {
@@ -690,7 +693,7 @@ const trainingModules: TrainingModule[] = [
           'Emphasize the rounded nature of the cup',
           'Show how this is a bullish continuation pattern'
         ],
-        image: cupHandleImg,
+        DiagramComponent: CupHandleDiagram,
         imageAlt: 'Cup and Handle bullish pattern'
       },
       {
@@ -707,7 +710,7 @@ const trainingModules: TrainingModule[] = [
           'Compare wedges to triangles to show the difference',
           'Explain why rising wedge is bearish despite going up'
         ],
-        image: wedgePatternsImg,
+        DiagramComponent: WedgeDiagram,
         imageAlt: 'Rising and Falling Wedge patterns'
       },
       {
@@ -724,7 +727,7 @@ const trainingModules: TrainingModule[] = [
           'Show how AI Trading Vault identifies these levels automatically',
           'Explain why these levels matter for setting stop-loss and take-profit'
         ],
-        image: supportResistanceImg,
+        DiagramComponent: SupportResistanceDiagram,
         imageAlt: 'Support and Resistance levels example'
       },
       {
@@ -741,7 +744,7 @@ const trainingModules: TrainingModule[] = [
           'Show the 70/30 levels clearly on the indicator',
           'Explain that overbought doesnt always mean sell immediately'
         ],
-        image: rsiIndicatorImg,
+        DiagramComponent: RSIDiagram,
         imageAlt: 'RSI indicator with overbought and oversold zones',
         quiz: {
           question: 'What does an RSI reading above 70 typically indicate?',
@@ -768,7 +771,7 @@ const trainingModules: TrainingModule[] = [
           'Focus on the crossover signals for simplicity',
           'Show histogram expansion as trend strength indicator'
         ],
-        image: macdIndicatorImg,
+        DiagramComponent: MACDDiagram,
         imageAlt: 'MACD indicator with signal line crossovers'
       },
       {
@@ -785,7 +788,7 @@ const trainingModules: TrainingModule[] = [
           'Common periods: 20, 50, 100, 200 days',
           'Show golden cross and death cross examples'
         ],
-        image: movingAveragesImg,
+        DiagramComponent: MovingAveragesDiagram,
         imageAlt: 'Moving Averages with crossover signals'
       },
       {
@@ -802,7 +805,7 @@ const trainingModules: TrainingModule[] = [
           'Explain bands expand in volatile markets, contract in quiet markets',
           'Show the squeeze pattern before breakouts'
         ],
-        image: bollingerBandsImg,
+        DiagramComponent: BollingerBandsDiagram,
         imageAlt: 'Bollinger Bands indicator with squeeze pattern'
       },
       {
@@ -819,7 +822,7 @@ const trainingModules: TrainingModule[] = [
           'Show volume bars below price chart',
           'Explain volume as the fuel behind price moves'
         ],
-        image: volumeIndicatorImg,
+        DiagramComponent: VolumeDiagram,
         imageAlt: 'Volume indicator confirming price breakouts'
       },
       {
@@ -1790,17 +1793,23 @@ export default function AmbassadorTrainingPage() {
                                 </ul>
                               </div>
 
-                              {lesson.image && (
+                              {(lesson.DiagramComponent || lesson.image) && (
                                 <div className="bg-gray-900/50 border border-gray-700 rounded-lg p-4">
                                   <h4 className="font-medium mb-3 text-gray-300 flex items-center gap-2">
                                     <Camera className="w-4 h-4 text-green-400" />
                                     Pattern Example
                                   </h4>
-                                  <img 
-                                    src={lesson.image} 
-                                    alt={lesson.imageAlt || 'Chart pattern example'} 
-                                    className="w-full rounded-lg border border-gray-600 shadow-lg"
-                                  />
+                                  {lesson.DiagramComponent ? (
+                                    <div className="w-full rounded-lg border border-gray-600 shadow-lg overflow-hidden">
+                                      <lesson.DiagramComponent />
+                                    </div>
+                                  ) : lesson.image ? (
+                                    <img 
+                                      src={lesson.image} 
+                                      alt={lesson.imageAlt || 'Chart pattern example'} 
+                                      className="w-full rounded-lg border border-gray-600 shadow-lg"
+                                    />
+                                  ) : null}
                                   {lesson.imageAlt && (
                                     <p className="text-sm text-gray-500 mt-2 text-center italic">{lesson.imageAlt}</p>
                                   )}
