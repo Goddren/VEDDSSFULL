@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
-import { Camera, Briefcase, Plus, X, TrendingUp, BarChart3, Bell, Settings } from "lucide-react";
+import { Camera, Briefcase, Plus, X, TrendingUp, BarChart3, Bell, Settings, GraduationCap } from "lucide-react";
 import { useLocation } from "wouter";
 import { isMobileDevice } from "@/lib/pwa";
 import { triggerHaptic, useLongPress } from "@/hooks/use-gestures";
@@ -93,6 +93,13 @@ export function MobileFAB() {
       path: "/mt5-chart-data",
       color: "bg-yellow-500/20 hover:bg-yellow-500/30",
       testId: "fab-mt5-chart-data"
+    },
+    {
+      icon: <GraduationCap className="w-6 h-6" />,
+      label: "Ambassador Training",
+      path: "/ambassador",
+      color: "bg-amber-500/20 hover:bg-amber-500/30",
+      testId: "fab-ambassador"
     },
     {
       icon: <Bell className="w-6 h-6" />,
