@@ -6666,17 +6666,81 @@ Generate a JSON object with:
   });
 
   // Get community hub data (aggregated view for a day/week)
+  // Auto-generates content when empty for seamless user experience
   app.get("/api/ambassador/community/hub", async (req: Request, res: Response) => {
     try {
-      const { day, week } = req.query;
+      const { day, week, generate } = req.query;
       const dayNumber = day ? parseInt(day as string) : 1;
       const weekNumber = week ? parseInt(week as string) : Math.ceil(dayNumber / 7);
+      const shouldGenerate = generate === 'true';
       
-      const [socialDirections, challenges, events] = await Promise.all([
+      let [socialDirections, challenges, events] = await Promise.all([
         storage.getSocialDirectionsForDay(dayNumber),
         storage.getChallengesByWeek(weekNumber),
         storage.getEventsByWeek(weekNumber)
       ]);
+      
+      // Auto-generate content if requested and data is empty
+      if (shouldGenerate) {
+        if (socialDirections.length === 0) {
+          // Generate social directions for this day
+          const { ambassadorContentCurriculum } = await import('./ambassador-content-data');
+          const lesson = ambassadorContentCurriculum.find((l: any) => l.dayNumber === dayNumber);
+          
+          if (lesson) {
+            const OpenAI = (await import("openai")).default;
+            const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+            const platforms = ['twitter', 'instagram', 'tiktok', 'linkedin'];
+            
+            for (const platform of platforms) {
+              try {
+                const completion = await openai.chat.completions.create({
+                  model: "gpt-4o",
+                  messages: [
+                    {
+                      role: "system",
+                      content: `You are a social media content strategist. Generate platform-specific content for ${platform.toUpperCase()}. Return JSON only.`
+                    },
+                    {
+                      role: "user",
+                      content: `Create a social post for: ${lesson.tradingTopic}. Return JSON: {contentType, postIdea, captionTemplate, hookLine, callToAction, hashtags:[], bestPostingTime, engagementTips:[]}`
+                    }
+                  ],
+                  response_format: { type: "json_object" }
+                });
+                
+                const content = JSON.parse(completion.choices[0].message.content || '{}');
+                await storage.createSocialDirection({
+                  dayNumber,
+                  platform,
+                  contentType: content.contentType || 'post',
+                  postIdea: content.postIdea || '',
+                  captionTemplate: content.captionTemplate || '',
+                  hookLine: content.hookLine || '',
+                  callToAction: content.callToAction || '',
+                  hashtags: content.hashtags || [],
+                  bestPostingTime: content.bestPostingTime || null,
+                  engagementTips: content.engagementTips || [],
+                  aiGenerated: true
+                });
+              } catch (e) {
+                console.error(`Failed to generate ${platform} content:`, e);
+              }
+            }
+            socialDirections = await storage.getSocialDirectionsForDay(dayNumber);
+          }
+        }
+        
+        if (challenges.length === 0) {
+          await generateWeeklyChallenges(weekNumber);
+          challenges = await storage.getChallengesByWeek(weekNumber);
+        }
+        
+        if (events.length === 0) {
+          await generateWeeklyEvents(weekNumber);
+          events = await storage.getEventsByWeek(weekNumber);
+        }
+      }
       
       res.json({
         dayNumber,
@@ -6687,6 +6751,7 @@ Generate a JSON object with:
         isEmpty: socialDirections.length === 0 && challenges.length === 0 && events.length === 0
       });
     } catch (err) {
+      console.error('Community hub error:', err);
       res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
     }
   });
