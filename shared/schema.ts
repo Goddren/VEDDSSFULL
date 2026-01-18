@@ -810,3 +810,82 @@ export type GovernanceProposal = typeof governanceProposals.$inferSelect;
 export type InsertGovernanceProposal = z.infer<typeof insertGovernanceProposalSchema>;
 export type GovernanceVote = typeof governanceVotes.$inferSelect;
 export type InsertGovernanceVote = z.infer<typeof insertGovernanceVoteSchema>;
+
+// 44-Day Ambassador Content Flow
+export const ambassadorDailyLessons = pgTable("ambassador_daily_lessons", {
+  id: serial("id").primaryKey(),
+  dayNumber: integer("day_number").notNull().unique(), // 1-44
+  title: text("title").notNull(),
+  tradingTopic: text("trading_topic").notNull(), // Main trading focus for the day
+  tradingLesson: text("trading_lesson").notNull(), // Detailed trading lesson content
+  scriptureReference: text("scripture_reference").notNull(), // e.g., "Proverbs 21:5"
+  scriptureText: text("scripture_text").notNull(), // Full scripture text
+  devotionalMessage: text("devotional_message").notNull(), // Trading + faith connection
+  contentPrompt: text("content_prompt").notNull(), // AI prompt template for generating posts
+  suggestedHashtags: text("suggested_hashtags").array(), // Array of suggested hashtags
+  mediaType: text("media_type").notNull().default('image'), // 'image', 'video', 'carousel'
+  tokenReward: integer("token_reward").notNull().default(15), // Tokens earned for completion
+  bonusTokens: integer("bonus_tokens").notNull().default(5), // Extra for uploading media
+  weekNumber: integer("week_number").notNull(), // 1-7 (44 days = ~6.3 weeks)
+  category: text("category").notNull(), // 'foundation', 'strategy', 'mindset', 'execution', 'review'
+});
+
+export const ambassadorContentProgress = pgTable("ambassador_content_progress", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  dayNumber: integer("day_number").notNull(),
+  status: text("status").notNull().default('locked'), // 'locked', 'available', 'in_progress', 'completed'
+  aiGeneratedContent: text("ai_generated_content"), // AI-generated post text
+  userMediaUrl: text("user_media_url"), // Uploaded image/video URL
+  userMediaType: text("user_media_type"), // 'image', 'video'
+  customContent: text("custom_content"), // User's custom additions
+  tokensEarned: integer("tokens_earned").notNull().default(0),
+  completedAt: timestamp("completed_at"),
+  startedAt: timestamp("started_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => {
+  return {
+    uniqueUserDay: unique().on(table.userId, table.dayNumber),
+  };
+});
+
+export const ambassadorContentStats = pgTable("ambassador_content_stats", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull().unique(),
+  currentDay: integer("current_day").notNull().default(1), // Current unlocked day
+  completedDays: integer("completed_days").notNull().default(0),
+  totalTokensEarned: integer("total_tokens_earned").notNull().default(0),
+  currentStreak: integer("current_streak").notNull().default(0), // Consecutive days completed
+  longestStreak: integer("longest_streak").notNull().default(0),
+  lastCompletedAt: timestamp("last_completed_at"),
+  journeyStartedAt: timestamp("journey_started_at"),
+  journeyCompletedAt: timestamp("journey_completed_at"), // When all 44 days done
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertAmbassadorDailyLessonSchema = createInsertSchema(ambassadorDailyLessons).omit({
+  id: true,
+});
+
+export const insertAmbassadorContentProgressSchema = createInsertSchema(ambassadorContentProgress).omit({
+  id: true,
+  completedAt: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertAmbassadorContentStatsSchema = createInsertSchema(ambassadorContentStats).omit({
+  id: true,
+  journeyCompletedAt: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type AmbassadorDailyLesson = typeof ambassadorDailyLessons.$inferSelect;
+export type InsertAmbassadorDailyLesson = z.infer<typeof insertAmbassadorDailyLessonSchema>;
+export type AmbassadorContentProgress = typeof ambassadorContentProgress.$inferSelect;
+export type InsertAmbassadorContentProgress = z.infer<typeof insertAmbassadorContentProgressSchema>;
+export type AmbassadorContentStats = typeof ambassadorContentStats.$inferSelect;
+export type InsertAmbassadorContentStats = z.infer<typeof insertAmbassadorContentStatsSchema>;

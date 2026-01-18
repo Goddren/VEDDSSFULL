@@ -64,6 +64,23 @@ const videoUpload = multer({
   }
 });
 
+// Configure multer for combined media uploads (images + videos)
+const mediaUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 50 * 1024 * 1024, // 50MB limit
+  },
+  fileFilter: (_req, file, cb) => {
+    const allowedImageTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif'];
+    const allowedVideoTypes = ['video/mp4', 'video/quicktime', 'video/webm', 'video/x-msvideo'];
+    const allowedTypes = [...allowedImageTypes, ...allowedVideoTypes];
+    if (!allowedTypes.includes(file.mimetype)) {
+      return cb(new Error('Only JPEG, PNG, GIF images and MP4, MOV, WebM videos are allowed'));
+    }
+    cb(null, true);
+  }
+});
+
 // Ensure uploads directory exists
 const uploadsDir = path.join(process.cwd(), 'uploads');
 if (!fs.existsSync(uploadsDir)) {
@@ -5830,6 +5847,338 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         modulesCompleted: certification.modulesCompleted,
         hasNFT: !!certification.nftMintAddress,
         nftMintAddress: certification.nftMintAddress
+      });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // ==========================================
+  // 44-DAY AMBASSADOR CONTENT FLOW ROUTES
+  // ==========================================
+
+  // Get all daily lessons (curriculum)
+  app.get("/api/ambassador/content-flow/lessons", async (req: Request, res: Response) => {
+    try {
+      const { ambassadorContentCurriculum } = await import('./ambassador-content-data');
+      res.json(ambassadorContentCurriculum);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Get user's content flow stats
+  app.get("/api/ambassador/content-flow/stats", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+    
+    try {
+      const userId = req.user!.id;
+      let stats = await storage.getAmbassadorContentStats(userId);
+      
+      if (!stats) {
+        stats = await storage.createAmbassadorContentStats({
+          userId,
+          currentDay: 1,
+          completedDays: 0,
+          totalTokensEarned: 0,
+          currentStreak: 0,
+          longestStreak: 0,
+          lastCompletedAt: null,
+          journeyStartedAt: null
+        });
+      }
+      
+      res.json(stats);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Get user's progress for all days
+  app.get("/api/ambassador/content-flow/progress", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+    
+    try {
+      const userId = req.user!.id;
+      const progress = await storage.getAmbassadorContentProgress(userId);
+      res.json(progress);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Get specific day's lesson and user progress
+  app.get("/api/ambassador/content-flow/day/:dayNumber", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+    
+    try {
+      const dayNumber = parseInt(req.params.dayNumber);
+      const userId = req.user!.id;
+      
+      if (isNaN(dayNumber) || dayNumber < 1 || dayNumber > 44) {
+        return res.status(400).json({ error: "Invalid day number (1-44)" });
+      }
+      
+      const { ambassadorContentCurriculum } = await import('./ambassador-content-data');
+      const lesson = ambassadorContentCurriculum.find(l => l.dayNumber === dayNumber);
+      
+      if (!lesson) {
+        return res.status(404).json({ error: "Lesson not found" });
+      }
+      
+      const userProgress = await storage.getAmbassadorDayProgress(userId, dayNumber);
+      const stats = await storage.getAmbassadorContentStats(userId);
+      
+      const isUnlocked = !stats || dayNumber <= stats.currentDay;
+      
+      res.json({
+        lesson,
+        progress: userProgress || { status: isUnlocked ? 'available' : 'locked' },
+        isUnlocked
+      });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Start a day (mark as in_progress)
+  app.post("/api/ambassador/content-flow/day/:dayNumber/start", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+    
+    try {
+      const dayNumber = parseInt(req.params.dayNumber);
+      const userId = req.user!.id;
+      
+      if (isNaN(dayNumber) || dayNumber < 1 || dayNumber > 44) {
+        return res.status(400).json({ error: "Invalid day number (1-44)" });
+      }
+      
+      let stats = await storage.getAmbassadorContentStats(userId);
+      
+      if (!stats) {
+        stats = await storage.createAmbassadorContentStats({
+          userId,
+          currentDay: 1,
+          completedDays: 0,
+          totalTokensEarned: 0,
+          currentStreak: 0,
+          longestStreak: 0,
+          lastCompletedAt: null,
+          journeyStartedAt: new Date()
+        });
+      }
+      
+      if (dayNumber > stats.currentDay) {
+        return res.status(403).json({ error: "Day not yet unlocked" });
+      }
+      
+      const progress = await storage.upsertAmbassadorDayProgress(userId, dayNumber, {
+        status: 'in_progress',
+        startedAt: new Date()
+      });
+      
+      res.json({ success: true, progress });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Generate AI content for a day
+  app.post("/api/ambassador/content-flow/day/:dayNumber/generate", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+    
+    try {
+      const dayNumber = parseInt(req.params.dayNumber);
+      const userId = req.user!.id;
+      const { customContext } = req.body;
+      
+      if (isNaN(dayNumber) || dayNumber < 1 || dayNumber > 44) {
+        return res.status(400).json({ error: "Invalid day number (1-44)" });
+      }
+      
+      const { ambassadorContentCurriculum } = await import('./ambassador-content-data');
+      const lesson = ambassadorContentCurriculum.find(l => l.dayNumber === dayNumber);
+      
+      if (!lesson) {
+        return res.status(404).json({ error: "Lesson not found" });
+      }
+      
+      const prompt = `You are a social media content creator for VEDD AI, a faith-based trading platform. Create an engaging social media post based on the following:
+
+Day ${lesson.dayNumber}: ${lesson.title}
+
+Trading Topic: ${lesson.tradingTopic}
+Trading Lesson: ${lesson.tradingLesson}
+
+Scripture: ${lesson.scriptureReference} - "${lesson.scriptureText}"
+
+Devotional Message: ${lesson.devotionalMessage}
+
+Content Guidance: ${lesson.contentPrompt}
+
+${customContext ? `User's additional context: ${customContext}` : ''}
+
+Create a compelling, authentic social media post that:
+1. Educates about trading in an accessible way
+2. Weaves in the faith message naturally
+3. Encourages engagement
+4. Is appropriate for platforms like Twitter/X, Instagram, and LinkedIn
+5. Keeps it concise but impactful (under 280 characters for Twitter compatibility)
+
+Also provide a longer-form version (2-3 paragraphs) suitable for Instagram caption or LinkedIn.
+
+Format your response as JSON:
+{
+  "shortPost": "Twitter-length post here",
+  "longPost": "Longer Instagram/LinkedIn post here",
+  "suggestedHashtags": ["hashtag1", "hashtag2"]
+}`;
+
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [{ role: "user", content: prompt }],
+        response_format: { type: "json_object" }
+      });
+      
+      const content = completion.choices[0].message.content;
+      const generatedContent = JSON.parse(content || '{}');
+      
+      const progress = await storage.upsertAmbassadorDayProgress(userId, dayNumber, {
+        aiGeneratedContent: JSON.stringify(generatedContent),
+        status: 'in_progress'
+      });
+      
+      res.json({ 
+        success: true, 
+        content: generatedContent,
+        suggestedHashtags: lesson.suggestedHashtags,
+        progress 
+      });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Complete a day (with optional media upload - accepts both images and videos)
+  app.post("/api/ambassador/content-flow/day/:dayNumber/complete", mediaUpload.single('media'), async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+    
+    try {
+      const dayNumber = parseInt(req.params.dayNumber);
+      const userId = req.user!.id;
+      const { customContent } = req.body;
+      
+      if (isNaN(dayNumber) || dayNumber < 1 || dayNumber > 44) {
+        return res.status(400).json({ error: "Invalid day number (1-44)" });
+      }
+      
+      const { ambassadorContentCurriculum } = await import('./ambassador-content-data');
+      const lesson = ambassadorContentCurriculum.find(l => l.dayNumber === dayNumber);
+      
+      if (!lesson) {
+        return res.status(404).json({ error: "Lesson not found" });
+      }
+      
+      let stats = await storage.getAmbassadorContentStats(userId);
+      if (!stats) {
+        stats = await storage.createAmbassadorContentStats({
+          userId,
+          currentDay: 1,
+          completedDays: 0,
+          totalTokensEarned: 0,
+          currentStreak: 0,
+          longestStreak: 0,
+          lastCompletedAt: null,
+          journeyStartedAt: new Date()
+        });
+      }
+      
+      if (dayNumber > stats.currentDay) {
+        return res.status(403).json({ error: "Day not yet unlocked" });
+      }
+      
+      // Check if already completed - prevent double completion
+      const existingProgress = await storage.getAmbassadorDayProgress(userId, dayNumber);
+      if (existingProgress?.status === 'completed') {
+        return res.status(400).json({ 
+          error: "Day already completed", 
+          tokensEarned: existingProgress.tokensEarned,
+          completedAt: existingProgress.completedAt
+        });
+      }
+      
+      let mediaUrl = null;
+      let mediaType = null;
+      // Handle file upload if present (using memory storage, save to disk)
+      if (req.file && req.file.buffer) {
+        const fs = await import('fs/promises');
+        const path = await import('path');
+        const filename = `content-${userId}-day${dayNumber}-${Date.now()}${path.extname(req.file.originalname)}`;
+        const uploadPath = path.join(process.cwd(), 'uploads', filename);
+        await fs.writeFile(uploadPath, req.file.buffer);
+        mediaUrl = `/uploads/${filename}`;
+        mediaType = req.file.mimetype.startsWith('video/') ? 'video' : 'image';
+      }
+      
+      let tokensEarned = lesson.tokenReward;
+      if (mediaUrl) {
+        tokensEarned += lesson.bonusTokens;
+      }
+      
+      const progress = await storage.upsertAmbassadorDayProgress(userId, dayNumber, {
+        status: 'completed',
+        completedAt: new Date(),
+        userMediaUrl: mediaUrl,
+        userMediaType: mediaType,
+        customContent: customContent || null,
+        tokensEarned
+      });
+      
+      const isConsecutive = stats.lastCompletedAt 
+        ? (new Date().getTime() - new Date(stats.lastCompletedAt).getTime()) < 48 * 60 * 60 * 1000
+        : true;
+      
+      const newStreak = isConsecutive ? stats.currentStreak + 1 : 1;
+      const newLongestStreak = Math.max(newStreak, stats.longestStreak);
+      const newCurrentDay = Math.min(dayNumber + 1, 44);
+      
+      const updatedStats = await storage.updateAmbassadorContentStats(userId, {
+        currentDay: newCurrentDay,
+        completedDays: stats.completedDays + 1,
+        totalTokensEarned: stats.totalTokensEarned + tokensEarned,
+        currentStreak: newStreak,
+        longestStreak: newLongestStreak,
+        lastCompletedAt: new Date(),
+        journeyCompletedAt: dayNumber === 44 ? new Date() : null
+      });
+      
+      const userStreak = await storage.getUserStreak(userId);
+      if (userStreak) {
+        await storage.updateUserStreak(userId, {
+          xpPoints: userStreak.xpPoints + tokensEarned
+        });
+      }
+      
+      res.json({
+        success: true,
+        tokensEarned,
+        bonusEarned: mediaUrl ? lesson.bonusTokens : 0,
+        newStreak,
+        progress,
+        stats: updatedStats,
+        isJourneyComplete: dayNumber === 44
       });
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });

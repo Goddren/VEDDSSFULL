@@ -44,6 +44,8 @@ import EAMarketplacePage from "@/pages/ea-marketplace";
 import SocialHub from "@/pages/social-hub";
 import UserGuidePage from "@/pages/user-guide";
 import AmbassadorTrainingPage from "@/pages/ambassador-training";
+import ContentFlowCalendar from "@/pages/content-flow-calendar";
+import ContentFlowDay from "@/pages/content-flow-day";
 import StreakTrackerPage from "@/pages/streak-tracker";
 import WhatIfAnalysisPage from "@/pages/what-if-analysis";
 import WebhooksPage from "@/pages/webhooks";
@@ -105,6 +107,10 @@ function AppLayout() {
             <Route path="/user-guide" component={UserGuidePage} />
             <Route path="/ambassador-training" component={AmbassadorTrainingPage} />
             <Route path="/streak" component={StreakTrackerPage} />
+            
+            {/* Ambassador Content Flow (Protected) */}
+            <ProtectedRoute path="/ambassador/content-flow" component={ContentFlowCalendar} />
+            <ProtectedRoute path="/ambassador/content-flow/day/:dayNumber" component={ContentFlowDay} />
             
             {/* Protected routes */}
             <ProtectedRoute path="/dashboard" component={Dashboard} />

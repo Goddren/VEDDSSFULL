@@ -4,6 +4,7 @@ import {
   savedEAs, eaSubscriptions, marketDataSnapshots, marketDataRefreshJobs, eaShareAssets, userStreaks, scenarioAnalyses,
   webhookConfigs, webhookLogs, mt5ApiTokens, mt5SignalLogs, tradelockerConnections, tradelockerTradeLogs,
   ambassadorTrainingProgress, ambassadorCertifications, governanceProposals, governanceVotes,
+  ambassadorContentProgress, ambassadorContentStats,
   type User, type InsertUser, type ChartAnalysis, type InsertChartAnalysis,
   type Achievement, type InsertAchievement, type UserAchievement, type InsertUserAchievement,
   type UserProfile, type InsertUserProfile, type Follow, type InsertFollow,
@@ -17,7 +18,9 @@ import {
   type TradelockerConnection, type InsertTradelockerConnection, type TradelockerTradeLog, type InsertTradelockerTradeLog,
   type AmbassadorTrainingProgress, type InsertAmbassadorTrainingProgress,
   type AmbassadorCertification, type InsertAmbassadorCertification,
-  type GovernanceProposal, type InsertGovernanceProposal, type GovernanceVote, type InsertGovernanceVote
+  type GovernanceProposal, type InsertGovernanceProposal, type GovernanceVote, type InsertGovernanceVote,
+  type AmbassadorContentProgress, type InsertAmbassadorContentProgress,
+  type AmbassadorContentStats, type InsertAmbassadorContentStats
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, sql, desc } from "drizzle-orm";
@@ -221,6 +224,15 @@ export interface IStorage {
   updateGovernanceProposal(id: number, data: Partial<GovernanceProposal>): Promise<GovernanceProposal | undefined>;
   createGovernanceVote(vote: InsertGovernanceVote): Promise<GovernanceVote>;
   getUserVote(proposalId: number, userId: number): Promise<GovernanceVote | undefined>;
+  
+  // 44-Day Ambassador Content Flow methods
+  getAmbassadorContentStats(userId: number): Promise<AmbassadorContentStats | undefined>;
+  createAmbassadorContentStats(data: InsertAmbassadorContentStats): Promise<AmbassadorContentStats>;
+  updateAmbassadorContentStats(userId: number, data: Partial<AmbassadorContentStats>): Promise<AmbassadorContentStats | undefined>;
+  getAmbassadorContentProgress(userId: number): Promise<AmbassadorContentProgress[]>;
+  getAmbassadorDayProgress(userId: number, dayNumber: number): Promise<AmbassadorContentProgress | undefined>;
+  upsertAmbassadorDayProgress(userId: number, dayNumber: number, data: Partial<AmbassadorContentProgress>): Promise<AmbassadorContentProgress>;
+  updateUserStreak(userId: number, data: Partial<UserStreak>): Promise<UserStreak | undefined>;
 }
 
 // Create PostgreSQL session store
@@ -1451,6 +1463,74 @@ export class DatabaseStorage implements IStorage {
         eq(governanceVotes.proposalId, proposalId),
         eq(governanceVotes.userId, userId)
       ));
+    return result;
+  }
+
+  // 44-Day Ambassador Content Flow methods
+  async getAmbassadorContentStats(userId: number): Promise<AmbassadorContentStats | undefined> {
+    const [result] = await db.select().from(ambassadorContentStats)
+      .where(eq(ambassadorContentStats.userId, userId));
+    return result;
+  }
+
+  async createAmbassadorContentStats(data: InsertAmbassadorContentStats): Promise<AmbassadorContentStats> {
+    const [result] = await db.insert(ambassadorContentStats).values(data).returning();
+    return result;
+  }
+
+  async updateAmbassadorContentStats(userId: number, data: Partial<AmbassadorContentStats>): Promise<AmbassadorContentStats | undefined> {
+    const [result] = await db.update(ambassadorContentStats)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(ambassadorContentStats.userId, userId))
+      .returning();
+    return result;
+  }
+
+  async getAmbassadorContentProgress(userId: number): Promise<AmbassadorContentProgress[]> {
+    return await db.select().from(ambassadorContentProgress)
+      .where(eq(ambassadorContentProgress.userId, userId))
+      .orderBy(ambassadorContentProgress.dayNumber);
+  }
+
+  async getAmbassadorDayProgress(userId: number, dayNumber: number): Promise<AmbassadorContentProgress | undefined> {
+    const [result] = await db.select().from(ambassadorContentProgress)
+      .where(and(
+        eq(ambassadorContentProgress.userId, userId),
+        eq(ambassadorContentProgress.dayNumber, dayNumber)
+      ));
+    return result;
+  }
+
+  async upsertAmbassadorDayProgress(userId: number, dayNumber: number, data: Partial<AmbassadorContentProgress>): Promise<AmbassadorContentProgress> {
+    const existing = await this.getAmbassadorDayProgress(userId, dayNumber);
+    
+    if (existing) {
+      const [result] = await db.update(ambassadorContentProgress)
+        .set({ ...data, updatedAt: new Date() })
+        .where(and(
+          eq(ambassadorContentProgress.userId, userId),
+          eq(ambassadorContentProgress.dayNumber, dayNumber)
+        ))
+        .returning();
+      return result;
+    } else {
+      const [result] = await db.insert(ambassadorContentProgress)
+        .values({
+          userId,
+          dayNumber,
+          status: data.status || 'available',
+          ...data
+        })
+        .returning();
+      return result;
+    }
+  }
+
+  async updateUserStreak(userId: number, data: Partial<UserStreak>): Promise<UserStreak | undefined> {
+    const [result] = await db.update(userStreaks)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(userStreaks.userId, userId))
+      .returning();
     return result;
   }
 }
