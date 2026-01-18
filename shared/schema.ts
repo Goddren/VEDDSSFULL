@@ -889,3 +889,146 @@ export type AmbassadorContentProgress = typeof ambassadorContentProgress.$inferS
 export type InsertAmbassadorContentProgress = z.infer<typeof insertAmbassadorContentProgressSchema>;
 export type AmbassadorContentStats = typeof ambassadorContentStats.$inferSelect;
 export type InsertAmbassadorContentStats = z.infer<typeof insertAmbassadorContentStatsSchema>;
+
+// ==========================================
+// COMMUNITY FEATURES (nas.io style)
+// ==========================================
+
+// Social Content Directions - Platform-specific post suggestions per day
+export const ambassadorSocialDirections = pgTable("ambassador_social_directions", {
+  id: serial("id").primaryKey(),
+  dayNumber: integer("day_number").notNull(),
+  platform: text("platform").notNull(), // 'twitter', 'instagram', 'tiktok', 'linkedin', 'facebook', 'youtube'
+  contentType: text("content_type").notNull(), // 'post', 'story', 'reel', 'thread', 'carousel', 'video'
+  postIdea: text("post_idea").notNull(), // Main content idea
+  captionTemplate: text("caption_template").notNull(), // Ready-to-use caption
+  hookLine: text("hook_line").notNull(), // Attention-grabbing first line
+  callToAction: text("call_to_action").notNull(), // CTA to include
+  hashtags: text("hashtags").array(), // Platform-optimized hashtags
+  bestPostingTime: text("best_posting_time"), // e.g., "9am-11am EST"
+  engagementTips: text("engagement_tips").array(), // Tips to boost engagement
+  aiGenerated: boolean("ai_generated").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => {
+  return {
+    uniqueDayPlatform: unique().on(table.dayNumber, table.platform),
+  };
+});
+
+// Community Challenges - Weekly/Monthly challenges for ambassadors
+export const ambassadorChallenges = pgTable("ambassador_challenges", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  challengeType: text("challenge_type").notNull(), // 'daily', 'weekly', 'monthly', 'special'
+  category: text("category").notNull(), // 'content', 'engagement', 'trading', 'community', 'learning'
+  difficulty: text("difficulty").notNull().default('medium'), // 'easy', 'medium', 'hard', 'expert'
+  objectives: jsonb("objectives").notNull(), // Array of tasks to complete
+  successCriteria: text("success_criteria").notNull(), // How to verify completion
+  tokenReward: integer("token_reward").notNull().default(50),
+  bonusReward: integer("bonus_reward").default(0), // Extra for top performers
+  badgeReward: text("badge_reward"), // Special badge earned
+  maxParticipants: integer("max_participants"), // null = unlimited
+  startDate: timestamp("start_date").notNull(),
+  endDate: timestamp("end_date").notNull(),
+  weekNumber: integer("week_number"), // Links to content journey week
+  status: text("status").notNull().default('upcoming'), // 'upcoming', 'active', 'completed', 'cancelled'
+  aiGenerated: boolean("ai_generated").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// Challenge Participants - Tracks who joined which challenges
+export const ambassadorChallengeParticipants = pgTable("ambassador_challenge_participants", {
+  id: serial("id").primaryKey(),
+  challengeId: integer("challenge_id").references(() => ambassadorChallenges.id).notNull(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  status: text("status").notNull().default('joined'), // 'joined', 'in_progress', 'completed', 'failed'
+  progress: jsonb("progress"), // Track individual objective completion
+  proofUrl: text("proof_url"), // Screenshot/link as proof
+  tokensEarned: integer("tokens_earned").default(0),
+  completedAt: timestamp("completed_at"),
+  joinedAt: timestamp("joined_at").defaultNow().notNull(),
+}, (table) => {
+  return {
+    uniqueUserChallenge: unique().on(table.challengeId, table.userId),
+  };
+});
+
+// Community Events - Hostable events for ambassadors
+export const ambassadorEvents = pgTable("ambassador_events", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  eventType: text("event_type").notNull(), // 'live_session', 'ama', 'workshop', 'webinar', 'meetup', 'challenge_kickoff'
+  format: text("format").notNull(), // 'virtual', 'in_person', 'hybrid'
+  hostGuide: text("host_guide").notNull(), // Detailed guide on how to host
+  talkingPoints: jsonb("talking_points"), // Key points to cover
+  agenda: jsonb("agenda"), // Timed agenda items
+  resourceLinks: jsonb("resource_links"), // Helpful materials
+  suggestedDuration: integer("suggested_duration").notNull().default(60), // Minutes
+  tokenReward: integer("token_reward").notNull().default(25), // For attendees
+  hostTokenReward: integer("host_token_reward").notNull().default(100), // For hosts
+  scheduledDate: timestamp("scheduled_date"),
+  weekNumber: integer("week_number"), // Links to content journey week
+  status: text("status").notNull().default('template'), // 'template', 'scheduled', 'live', 'completed', 'cancelled'
+  aiGenerated: boolean("ai_generated").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// Event Registrations - Tracks event attendance
+export const ambassadorEventRegistrations = pgTable("ambassador_event_registrations", {
+  id: serial("id").primaryKey(),
+  eventId: integer("event_id").references(() => ambassadorEvents.id).notNull(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  role: text("role").notNull().default('attendee'), // 'attendee', 'host', 'co_host', 'speaker'
+  status: text("status").notNull().default('registered'), // 'registered', 'attended', 'no_show'
+  tokensEarned: integer("tokens_earned").default(0),
+  feedback: text("feedback"), // Post-event feedback
+  rating: integer("rating"), // 1-5 stars
+  registeredAt: timestamp("registered_at").defaultNow().notNull(),
+  attendedAt: timestamp("attended_at"),
+}, (table) => {
+  return {
+    uniqueUserEvent: unique().on(table.eventId, table.userId),
+  };
+});
+
+// Insert schemas for community features
+export const insertAmbassadorSocialDirectionSchema = createInsertSchema(ambassadorSocialDirections).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertAmbassadorChallengeSchema = createInsertSchema(ambassadorChallenges).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertAmbassadorChallengeParticipantSchema = createInsertSchema(ambassadorChallengeParticipants).omit({
+  id: true,
+  completedAt: true,
+  joinedAt: true,
+});
+
+export const insertAmbassadorEventSchema = createInsertSchema(ambassadorEvents).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertAmbassadorEventRegistrationSchema = createInsertSchema(ambassadorEventRegistrations).omit({
+  id: true,
+  registeredAt: true,
+  attendedAt: true,
+});
+
+// Types for community features
+export type AmbassadorSocialDirection = typeof ambassadorSocialDirections.$inferSelect;
+export type InsertAmbassadorSocialDirection = z.infer<typeof insertAmbassadorSocialDirectionSchema>;
+export type AmbassadorChallenge = typeof ambassadorChallenges.$inferSelect;
+export type InsertAmbassadorChallenge = z.infer<typeof insertAmbassadorChallengeSchema>;
+export type AmbassadorChallengeParticipant = typeof ambassadorChallengeParticipants.$inferSelect;
+export type InsertAmbassadorChallengeParticipant = z.infer<typeof insertAmbassadorChallengeParticipantSchema>;
+export type AmbassadorEvent = typeof ambassadorEvents.$inferSelect;
+export type InsertAmbassadorEvent = z.infer<typeof insertAmbassadorEventSchema>;
+export type AmbassadorEventRegistration = typeof ambassadorEventRegistrations.$inferSelect;
+export type InsertAmbassadorEventRegistration = z.infer<typeof insertAmbassadorEventRegistrationSchema>;
