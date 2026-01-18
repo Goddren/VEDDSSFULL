@@ -6190,6 +6190,508 @@ Format your response as JSON:
   });
 
   // ==========================================
+  // COMMUNITY FEATURES (nas.io style)
+  // ==========================================
+
+  // Get social content directions for a specific day
+  app.get("/api/ambassador/community/social-directions/:dayNumber", async (req: Request, res: Response) => {
+    try {
+      const dayNumber = parseInt(req.params.dayNumber);
+      if (isNaN(dayNumber) || dayNumber < 1 || dayNumber > 44) {
+        return res.status(400).json({ error: 'Invalid day number' });
+      }
+
+      let directions = await storage.getSocialDirectionsForDay(dayNumber);
+      
+      // If no directions exist, generate them with AI
+      if (directions.length === 0) {
+        const { ambassadorContentCurriculum } = await import('./ambassador-content-data');
+        const lesson = ambassadorContentCurriculum.find(l => l.dayNumber === dayNumber);
+        
+        if (!lesson) {
+          return res.status(404).json({ error: 'Lesson not found' });
+        }
+
+        const OpenAI = (await import("openai")).default;
+        const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+        const platforms = ['twitter', 'instagram', 'tiktok', 'linkedin'];
+        
+        for (const platform of platforms) {
+          const completion = await openai.chat.completions.create({
+            model: "gpt-4o",
+            messages: [
+              {
+                role: "system",
+                content: `You are a social media content strategist for VEDD AI Trading Vault ambassadors. Generate platform-specific content for ${platform.toUpperCase()}. Be specific, actionable, and engaging. Return JSON only.`
+              },
+              {
+                role: "user",
+                content: `Create a social media post strategy for Day ${dayNumber} of the ambassador journey.
+                
+Topic: ${lesson.tradingTopic}
+Lesson: ${lesson.tradingLesson}
+Scripture: ${lesson.scriptureReference} - "${lesson.scriptureText}"
+Devotional: ${lesson.devotionalMessage}
+
+Generate a JSON object with these fields:
+- contentType: best content type for ${platform} (post/story/reel/thread/carousel/video)
+- postIdea: specific content idea (2-3 sentences)
+- captionTemplate: ready-to-use caption with emojis (150-280 chars for twitter, longer for others)
+- hookLine: attention-grabbing first line
+- callToAction: specific CTA
+- hashtags: array of 5-8 relevant hashtags
+- bestPostingTime: optimal posting time
+- engagementTips: array of 3 tips to boost engagement`
+              }
+            ],
+            response_format: { type: "json_object" }
+          });
+
+          const content = JSON.parse(completion.choices[0].message.content || '{}');
+          
+          await storage.createSocialDirection({
+            dayNumber,
+            platform,
+            contentType: content.contentType || 'post',
+            postIdea: content.postIdea || '',
+            captionTemplate: content.captionTemplate || '',
+            hookLine: content.hookLine || '',
+            callToAction: content.callToAction || '',
+            hashtags: content.hashtags || [],
+            bestPostingTime: content.bestPostingTime || null,
+            engagementTips: content.engagementTips || [],
+            aiGenerated: true
+          });
+        }
+        
+        directions = await storage.getSocialDirectionsForDay(dayNumber);
+      }
+
+      res.json({ directions });
+    } catch (err) {
+      console.error('Social directions error:', err);
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Get challenges for current week or all active
+  app.get("/api/ambassador/community/challenges", async (req: Request, res: Response) => {
+    try {
+      const { week, status } = req.query;
+      let challenges;
+      
+      if (week) {
+        challenges = await storage.getChallengesByWeek(parseInt(week as string));
+      } else {
+        challenges = await storage.getChallenges(status as string);
+      }
+      
+      // If no challenges exist, generate weekly challenges with AI
+      if (challenges.length === 0 && !status) {
+        const currentWeek = week ? parseInt(week as string) : 1;
+        await generateWeeklyChallenges(currentWeek);
+        challenges = await storage.getChallengesByWeek(currentWeek);
+      }
+      
+      // Get participant counts for each challenge
+      const challengesWithStats = await Promise.all(challenges.map(async (c) => {
+        const participants = await storage.getChallenges(); // Would need a count method
+        return { ...c, participantCount: 0 };
+      }));
+      
+      res.json({ challenges: challengesWithStats });
+    } catch (err) {
+      console.error('Challenges error:', err);
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Generate weekly challenges helper function
+  async function generateWeeklyChallenges(weekNumber: number) {
+    const OpenAI = (await import("openai")).default;
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    
+    const challengeTypes = [
+      { type: 'content', title: 'Content Creator Challenge' },
+      { type: 'engagement', title: 'Community Engagement Challenge' },
+      { type: 'learning', title: 'Trading Knowledge Challenge' }
+    ];
+    
+    const now = new Date();
+    const weekStart = new Date(now);
+    weekStart.setDate(weekStart.getDate() - weekStart.getDay()); // Start of week
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekEnd.getDate() + 7);
+
+    for (const ct of challengeTypes) {
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "system",
+            content: `You are a community manager for VEDD AI Trading Vault. Create engaging weekly challenges that help ambassadors grow. Return JSON only.`
+          },
+          {
+            role: "user",
+            content: `Create a ${ct.type} challenge for Week ${weekNumber} of the ambassador program.
+            
+Generate a JSON object with:
+- title: catchy challenge title
+- description: detailed description (2-3 sentences)
+- difficulty: easy/medium/hard
+- objectives: array of 3-5 specific tasks to complete
+- successCriteria: how completion is verified
+- tokenReward: suggested tokens (30-100)
+- bonusReward: bonus for top 3 performers (0-50)
+- badgeReward: name of badge earned (e.g., "Content Champion Week ${weekNumber}")`
+          }
+        ],
+        response_format: { type: "json_object" }
+      });
+
+      const content = JSON.parse(completion.choices[0].message.content || '{}');
+      
+      await storage.createChallenge({
+        title: content.title || `${ct.title} Week ${weekNumber}`,
+        description: content.description || '',
+        challengeType: 'weekly',
+        category: ct.type,
+        difficulty: content.difficulty || 'medium',
+        objectives: content.objectives || [],
+        successCriteria: content.successCriteria || '',
+        tokenReward: content.tokenReward || 50,
+        bonusReward: content.bonusReward || 0,
+        badgeReward: content.badgeReward || null,
+        startDate: weekStart,
+        endDate: weekEnd,
+        weekNumber,
+        status: 'active',
+        aiGenerated: true
+      });
+    }
+  }
+
+  // Join a challenge
+  app.post("/api/ambassador/community/challenges/:id/join", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    
+    try {
+      const challengeId = parseInt(req.params.id);
+      const userId = (req.user as any).id;
+      
+      const challenge = await storage.getChallenge(challengeId);
+      if (!challenge) {
+        return res.status(404).json({ error: 'Challenge not found' });
+      }
+      
+      const existing = await storage.getChallengeParticipation(userId, challengeId);
+      if (existing) {
+        return res.status(400).json({ error: 'Already joined this challenge' });
+      }
+      
+      const participation = await storage.joinChallenge(userId, challengeId);
+      res.json({ success: true, participation });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Complete a challenge
+  app.post("/api/ambassador/community/challenges/:id/complete", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    
+    try {
+      const challengeId = parseInt(req.params.id);
+      const userId = (req.user as any).id;
+      const { proofUrl } = req.body;
+      
+      const challenge = await storage.getChallenge(challengeId);
+      if (!challenge) {
+        return res.status(404).json({ error: 'Challenge not found' });
+      }
+      
+      const participation = await storage.getChallengeParticipation(userId, challengeId);
+      if (!participation) {
+        return res.status(400).json({ error: 'Must join challenge first' });
+      }
+      
+      if (participation.status === 'completed') {
+        return res.status(400).json({ error: 'Challenge already completed' });
+      }
+      
+      const updated = await storage.updateChallengeProgress(userId, challengeId, {
+        status: 'completed',
+        completedAt: new Date(),
+        proofUrl,
+        tokensEarned: challenge.tokenReward
+      });
+      
+      // Award tokens to content stats
+      const stats = await storage.getAmbassadorContentStats(userId);
+      if (stats) {
+        await storage.updateAmbassadorContentStats(userId, {
+          totalTokensEarned: stats.totalTokensEarned + challenge.tokenReward
+        });
+      }
+      
+      res.json({ success: true, tokensEarned: challenge.tokenReward, participation: updated });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Get user's challenge participation
+  app.get("/api/ambassador/community/my-challenges", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    
+    try {
+      const userId = (req.user as any).id;
+      const challenges = await storage.getUserChallenges(userId);
+      res.json({ challenges });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Get events
+  app.get("/api/ambassador/community/events", async (req: Request, res: Response) => {
+    try {
+      const { week, status } = req.query;
+      let events;
+      
+      if (week) {
+        events = await storage.getEventsByWeek(parseInt(week as string));
+      } else {
+        events = await storage.getEvents(status as string);
+      }
+      
+      // If no events exist, generate event templates with AI
+      if (events.length === 0 && !status) {
+        const currentWeek = week ? parseInt(week as string) : 1;
+        await generateWeeklyEvents(currentWeek);
+        events = await storage.getEventsByWeek(currentWeek);
+      }
+      
+      res.json({ events });
+    } catch (err) {
+      console.error('Events error:', err);
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Generate weekly events helper function
+  async function generateWeeklyEvents(weekNumber: number) {
+    const OpenAI = (await import("openai")).default;
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    
+    const eventTypes = [
+      { type: 'live_session', title: 'Weekly Live Trading Session' },
+      { type: 'ama', title: 'Ask Me Anything Session' },
+      { type: 'workshop', title: 'Ambassador Workshop' }
+    ];
+
+    for (const et of eventTypes) {
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "system",
+            content: `You are an event coordinator for VEDD AI Trading Vault. Create engaging virtual events that help ambassadors learn and grow. Return JSON only.`
+          },
+          {
+            role: "user",
+            content: `Create a ${et.type} event template for Week ${weekNumber} of the ambassador program.
+            
+Generate a JSON object with:
+- title: engaging event title
+- description: detailed description (2-3 sentences)
+- hostGuide: step-by-step guide for hosting (300-500 words)
+- talkingPoints: array of 5-7 key points to cover
+- agenda: array of objects with {time: "0-5 min", topic: "Introduction", details: "..."}
+- resourceLinks: array of {title, url, description} for helpful resources
+- suggestedDuration: duration in minutes (30-90)
+- tokenReward: tokens for attendees (15-30)
+- hostTokenReward: tokens for hosts (50-100)`
+          }
+        ],
+        response_format: { type: "json_object" }
+      });
+
+      const content = JSON.parse(completion.choices[0].message.content || '{}');
+      
+      await storage.createEvent({
+        title: content.title || `${et.title} Week ${weekNumber}`,
+        description: content.description || '',
+        eventType: et.type,
+        format: 'virtual',
+        hostGuide: content.hostGuide || '',
+        talkingPoints: content.talkingPoints || [],
+        agenda: content.agenda || [],
+        resourceLinks: content.resourceLinks || [],
+        suggestedDuration: content.suggestedDuration || 60,
+        tokenReward: content.tokenReward || 25,
+        hostTokenReward: content.hostTokenReward || 100,
+        weekNumber,
+        status: 'template',
+        aiGenerated: true
+      });
+    }
+  }
+
+  // Register for an event
+  app.post("/api/ambassador/community/events/:id/register", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    
+    try {
+      const eventId = parseInt(req.params.id);
+      const userId = (req.user as any).id;
+      const { role } = req.body;
+      
+      const event = await storage.getEvent(eventId);
+      if (!event) {
+        return res.status(404).json({ error: 'Event not found' });
+      }
+      
+      const existing = await storage.getEventRegistration(userId, eventId);
+      if (existing) {
+        return res.status(400).json({ error: 'Already registered for this event' });
+      }
+      
+      const registration = await storage.registerForEvent(userId, eventId, role || 'attendee');
+      res.json({ success: true, registration });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Host an event (schedule it)
+  app.post("/api/ambassador/community/events/:id/host", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    
+    try {
+      const eventId = parseInt(req.params.id);
+      const userId = (req.user as any).id;
+      const { scheduledDate } = req.body;
+      
+      const event = await storage.getEvent(eventId);
+      if (!event) {
+        return res.status(404).json({ error: 'Event not found' });
+      }
+      
+      // Update event to scheduled
+      await storage.updateEvent(eventId, {
+        status: 'scheduled',
+        scheduledDate: new Date(scheduledDate)
+      });
+      
+      // Register user as host
+      const registration = await storage.registerForEvent(userId, eventId, 'host');
+      
+      res.json({ success: true, registration });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Mark event attendance and award tokens
+  app.post("/api/ambassador/community/events/:id/attend", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    
+    try {
+      const eventId = parseInt(req.params.id);
+      const userId = (req.user as any).id;
+      
+      const event = await storage.getEvent(eventId);
+      if (!event) {
+        return res.status(404).json({ error: 'Event not found' });
+      }
+      
+      const registration = await storage.getEventRegistration(userId, eventId);
+      if (!registration) {
+        return res.status(400).json({ error: 'Must register first' });
+      }
+      
+      if (registration.status === 'attended') {
+        return res.status(400).json({ error: 'Already marked as attended' });
+      }
+      
+      const tokensEarned = registration.role === 'host' ? event.hostTokenReward : event.tokenReward;
+      
+      await storage.updateEventRegistration(userId, eventId, {
+        status: 'attended',
+        attendedAt: new Date(),
+        tokensEarned
+      });
+      
+      // Award tokens
+      const stats = await storage.getAmbassadorContentStats(userId);
+      if (stats) {
+        await storage.updateAmbassadorContentStats(userId, {
+          totalTokensEarned: stats.totalTokensEarned + tokensEarned
+        });
+      }
+      
+      res.json({ success: true, tokensEarned });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Get user's event registrations
+  app.get("/api/ambassador/community/my-events", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    
+    try {
+      const userId = (req.user as any).id;
+      const events = await storage.getUserEvents(userId);
+      res.json({ events });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Get community hub data (aggregated view for a day/week)
+  app.get("/api/ambassador/community/hub", async (req: Request, res: Response) => {
+    try {
+      const { day, week } = req.query;
+      const dayNumber = day ? parseInt(day as string) : 1;
+      const weekNumber = week ? parseInt(week as string) : Math.ceil(dayNumber / 7);
+      
+      const [socialDirections, challenges, events] = await Promise.all([
+        storage.getSocialDirectionsForDay(dayNumber),
+        storage.getChallengesByWeek(weekNumber),
+        storage.getEventsByWeek(weekNumber)
+      ]);
+      
+      res.json({
+        dayNumber,
+        weekNumber,
+        socialDirections,
+        challenges,
+        events,
+        isEmpty: socialDirections.length === 0 && challenges.length === 0 && events.length === 0
+      });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // ==========================================
   // WALLET AUTHENTICATION & GOVERNANCE ROUTES
   // ==========================================
 
