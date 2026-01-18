@@ -68,7 +68,8 @@ import {
   Download,
   AlertCircle,
   Zap,
-  ArrowRight
+  ArrowRight,
+  BarChart2
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -682,6 +683,45 @@ const trainingModules: TrainingModule[] = [
             'Confidence gets a +10% boost',
             'Confidence is reduced by 10%',
             'The analysis is rejected'
+          ],
+          correct: 1
+        }
+      },
+      {
+        id: 'features-1c',
+        title: 'How Stop Loss (SL) Is Determined',
+        content: [
+          'The AI analyzes the chart to suggest Stop Loss levels based on visible technical structure',
+          'SL placement considers: recent swing highs/lows, support/resistance levels, and pattern boundaries',
+          'For multi-timeframe analysis, the dominant timeframe (highest confidence) influences SL distance',
+          'Longer timeframes (H4, D1) typically have wider SLs to account for normal price fluctuation',
+          'Shorter timeframes (M15, H1) have tighter SLs for scalping and intraday trades'
+        ],
+        keyPoints: [
+          { title: 'Pattern-Based SL', description: 'For a Head & Shoulders, SL goes above the right shoulder. For Double Bottom, SL goes below the second low. Pattern structure defines logical invalidation points.', icon: TrendingUp },
+          { title: 'Timeframe-Appropriate', description: 'H4/D1 signals have wider stops (50-150 pips) to avoid noise. M15/H1 signals have tighter stops (20-50 pips) for faster trades.', icon: Clock },
+          { title: 'Support/Resistance Placement', description: 'AI places SL just beyond key S/R levels - a few pips past support for longs, past resistance for shorts. This protects against false breakouts.', icon: Shield },
+          { title: 'ATR Consideration', description: 'When ATR (Average True Range) data is available from live MT5 feed, the AI factors in current volatility to avoid stops that are too tight.', icon: BarChart2 },
+          { title: 'Risk-Reward Alignment', description: 'SL is balanced against Take Profit to maintain at least 1:2 risk-reward ratio. If SL would be too wide, the AI may suggest waiting for better entry.', icon: Target }
+        ],
+        realWorldExamples: [
+          { scenario: 'H4 EUR/USD bullish signal during high volatility week', outcome: 'AI suggests 80-pip SL below recent swing low, wider than usual due to increased ATR', lesson: 'Volatile markets need wider stops. Tight SLs get stopped out by normal price noise.', type: 'insight' },
+          { scenario: 'M15 scalp trade with 15-pip stop loss', outcome: 'Trade stopped out by a brief spike before reversing in the expected direction', lesson: 'Very tight SLs on short timeframes are risky. Consider the timeframe\'s typical range before trading.', type: 'warning' },
+          { scenario: 'Multi-timeframe analysis with H1 as dominant bullish signal', outcome: 'SL placed 35 pips below H1 support, matching the H1 timeframe\'s average range', lesson: 'The dominant timeframe determines SL distance. This ensures the SL matches the signal\'s expected holding period.', type: 'success' }
+        ],
+        tips: [
+          'Explain that SL is AI-suggested, not guaranteed - always verify with your own analysis',
+          'Show how dominant timeframe affects SL distance in multi-timeframe analysis',
+          'Remind users that wider SLs need smaller position sizes to maintain proper risk',
+          'Emphasize: never trade without a stop loss, and never move it further away from entry'
+        ],
+        quiz: {
+          question: 'Why do longer timeframes (H4, D1) typically have wider stop losses?',
+          options: [
+            'Because the AI makes mistakes on higher timeframes',
+            'To account for normal price fluctuation and avoid getting stopped out by noise',
+            'Because higher timeframes are more profitable',
+            'Stop loss distance is always the same regardless of timeframe'
           ],
           correct: 1
         }
