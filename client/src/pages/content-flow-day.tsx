@@ -154,14 +154,21 @@ export default function ContentFlowDay() {
     enabled: !!dayNumber
   });
 
+  const [pendingChallengeId, setPendingChallengeId] = useState<number | null>(null);
+  
   const joinChallengeMutation = useMutation({
     mutationFn: async (challengeId: number) => {
-      const res = await apiRequest('POST', `/api/ambassador/community/challenges/${challengeId}/join`);
+      setPendingChallengeId(challengeId);
+      const res = await fetch(`/api/ambassador/community/challenges/${challengeId}/join`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await res.json();
       if (!res.ok) {
-        const errorData = await res.json();
-        throw { message: errorData.error, challengeId };
+        throw new Error(data.error || 'Failed to join');
       }
-      return { challengeId, data: await res.json() };
+      return { challengeId, data };
     },
     onSuccess: ({ challengeId }) => {
       setJoinedChallenges(prev => new Set([...Array.from(prev), challengeId]));
@@ -169,11 +176,12 @@ export default function ContentFlowDay() {
       toast({ title: "Challenge Joined!", description: "Redirecting to challenge..." });
       setLocation(`/ambassador/challenge/${challengeId}`);
     },
-    onError: (err: any) => {
-      if (err.message?.includes('Already joined')) {
-        setJoinedChallenges(prev => new Set([...Array.from(prev), err.challengeId]));
+    onError: (err: Error) => {
+      const challengeId = pendingChallengeId;
+      if (err.message?.includes('Already joined') && challengeId) {
+        setJoinedChallenges(prev => new Set([...Array.from(prev), challengeId]));
         toast({ title: "Already Joined", description: "Taking you to your challenge..." });
-        setLocation(`/ambassador/challenge/${err.challengeId}`);
+        setLocation(`/ambassador/challenge/${challengeId}`);
       } else {
         toast({ title: "Error", description: err.message, variant: "destructive" });
       }
