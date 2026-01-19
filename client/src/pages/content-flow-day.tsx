@@ -157,6 +157,10 @@ export default function ContentFlowDay() {
   const joinChallengeMutation = useMutation({
     mutationFn: async (challengeId: number) => {
       const res = await apiRequest('POST', `/api/ambassador/community/challenges/${challengeId}/join`);
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw { message: errorData.error, challengeId };
+      }
       return { challengeId, data: await res.json() };
     },
     onSuccess: ({ challengeId }) => {
@@ -166,7 +170,13 @@ export default function ContentFlowDay() {
       setLocation(`/ambassador/challenge/${challengeId}`);
     },
     onError: (err: any) => {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
+      if (err.message?.includes('Already joined')) {
+        setJoinedChallenges(prev => new Set([...Array.from(prev), err.challengeId]));
+        toast({ title: "Already Joined", description: "Taking you to your challenge..." });
+        setLocation(`/ambassador/challenge/${err.challengeId}`);
+      } else {
+        toast({ title: "Error", description: err.message, variant: "destructive" });
+      }
     }
   });
 
