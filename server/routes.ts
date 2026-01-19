@@ -6573,37 +6573,6 @@ Generate a JSON object with:
     }
   });
 
-  // Host an event (schedule it)
-  app.post("/api/ambassador/community/events/:id/host", async (req: Request, res: Response) => {
-    if (!req.isAuthenticated()) {
-      return res.status(401).json({ error: 'Not authenticated' });
-    }
-    
-    try {
-      const eventId = parseInt(req.params.id);
-      const userId = (req.user as any).id;
-      const { scheduledDate } = req.body;
-      
-      const event = await storage.getEvent(eventId);
-      if (!event) {
-        return res.status(404).json({ error: 'Event not found' });
-      }
-      
-      // Update event to scheduled
-      await storage.updateEvent(eventId, {
-        status: 'scheduled',
-        scheduledDate: new Date(scheduledDate)
-      });
-      
-      // Register user as host
-      const registration = await storage.registerForEvent(userId, eventId, 'host');
-      
-      res.json({ success: true, registration });
-    } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
-    }
-  });
-
   // Mark event attendance and award tokens
   app.post("/api/ambassador/community/events/:id/attend", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) {
