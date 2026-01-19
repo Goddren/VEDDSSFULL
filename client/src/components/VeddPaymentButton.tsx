@@ -4,9 +4,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { apiRequest, queryClient } from '@/lib/queryClient';
-import { Loader2, Copy, CheckCircle2, ExternalLink, Coins } from 'lucide-react';
+import { Loader2, Copy, CheckCircle2, ExternalLink, Coins, LogIn } from 'lucide-react';
+import { Link } from 'wouter';
 
 interface VeddPaymentButtonProps {
   planId: number;
@@ -26,9 +27,14 @@ interface PaymentSession {
 export default function VeddPaymentButton({ planId, planName, priceUsd, disabled }: VeddPaymentButtonProps) {
   const { toast } = useToast();
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [showLoginPrompt, setShowLoginPrompt] = useState(false);
   const [paymentSession, setPaymentSession] = useState<PaymentSession | null>(null);
   const [transactionSignature, setTransactionSignature] = useState('');
   const [copied, setCopied] = useState(false);
+
+  const { data: user } = useQuery<{ id: number } | null>({
+    queryKey: ['/api/user'],
+  });
 
   const createSessionMutation = useMutation({
     mutationFn: async () => {
@@ -40,11 +46,15 @@ export default function VeddPaymentButton({ planId, planName, priceUsd, disabled
       setDialogOpen(true);
     },
     onError: (error: Error) => {
-      toast({
-        title: 'Error',
-        description: error.message || 'Failed to create payment session',
-        variant: 'destructive',
-      });
+      if (error.message?.includes('Authentication') || error.message?.includes('401')) {
+        setShowLoginPrompt(true);
+      } else {
+        toast({
+          title: 'Error',
+          description: error.message || 'Failed to create payment session',
+          variant: 'destructive',
+        });
+      }
     },
   });
 
@@ -92,10 +102,18 @@ export default function VeddPaymentButton({ planId, planName, priceUsd, disabled
     toast({ title: 'Copied!', description: 'Wallet address copied to clipboard' });
   };
 
+  const handlePayClick = () => {
+    if (!user) {
+      setShowLoginPrompt(true);
+    } else {
+      createSessionMutation.mutate();
+    }
+  };
+
   return (
     <>
       <Button
-        onClick={() => createSessionMutation.mutate()}
+        onClick={handlePayClick}
         disabled={disabled || createSessionMutation.isPending}
         className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
         data-testid={`button-vedd-pay-${planName}`}
@@ -108,6 +126,38 @@ export default function VeddPaymentButton({ planId, planName, priceUsd, disabled
         Pay with VEDD Token
       </Button>
 
+      {/* Login Required Dialog */}
+      <Dialog open={showLoginPrompt} onOpenChange={setShowLoginPrompt}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <LogIn className="w-5 h-5 text-purple-500" />
+              Login Required
+            </DialogTitle>
+            <DialogDescription>
+              Please log in or create an account to purchase a subscription with VEDD tokens.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 pt-4">
+            <p className="text-sm text-muted-foreground">
+              You need an account to manage your subscription and access premium features.
+            </p>
+            <div className="flex gap-3">
+              <Link href="/auth" className="flex-1">
+                <Button className="w-full" onClick={() => setShowLoginPrompt(false)}>
+                  <LogIn className="w-4 h-4 mr-2" />
+                  Login / Sign Up
+                </Button>
+              </Link>
+              <Button variant="outline" onClick={() => setShowLoginPrompt(false)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Payment Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
