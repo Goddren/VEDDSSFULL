@@ -38,9 +38,9 @@ export async function seedSubscriptionPlans() {
       isActive: true,
     },
     {
-      name: "Standard",
+      name: "Starter",
       description: "Advanced features for serious traders with unified signal synthesis",
-      price: 3995, // $39.95
+      price: 4995, // $49.95
       interval: "month",
       features: [
         "Everything in Free",
@@ -64,10 +64,10 @@ export async function seedSubscriptionPlans() {
     {
       name: "Premium",
       description: "Unlimited power for professional traders with advanced AI synthesis",
-      price: 6995, // $69.95
+      price: 14999, // $149.99
       interval: "month",
       features: [
-        "Everything in Standard",
+        "Everything in Starter",
         "Advanced Unified Trade Signal with confidence scoring",
         "Immersive processing with animated pipelines",
         "Timeframe convergence analysis & alignment strength",
@@ -87,9 +87,9 @@ export async function seedSubscriptionPlans() {
       isActive: true,
     },
     {
-      name: "Lifetime",
-      description: "LIMITED TIME: Pay once, trade forever - Includes all AI features & unified signal",
-      price: 24995, // $249.95 one-time
+      name: "Yearly",
+      description: "LIMITED TIME: Pay once for the year - Includes all AI features & unified signal",
+      price: 99999, // $999.99 yearly
       interval: "lifetime",
       features: [
         "Everything in Premium",
