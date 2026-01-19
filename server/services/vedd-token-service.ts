@@ -163,7 +163,7 @@ export class VeddTokenService {
     actionType: string,
     actionId?: number,
     metadata?: any
-  ): Promise<{ rewardId: number; transferJobId?: number; pendingWallet?: boolean } | null> {
+  ): Promise<{ rewardId: number; transferJobId?: number; pendingWallet?: boolean; pendingVerification?: boolean } | null> {
     const [user] = await db.select()
       .from(users)
       .where(eq(users.id, userId))
@@ -201,39 +201,13 @@ export class VeddTokenService {
         baseReward: rewardCalc.baseReward,
         bonusReward: rewardCalc.bonusReward,
         totalReward: rewardCalc.totalReward,
-        verificationStatus: config.requiresVerification ? 'pending' : 'verified',
-        verifiedAt: config.requiresVerification ? null : new Date(),
-        notes: hasWallet ? undefined : 'Pending wallet connection - tokens will transfer when user connects Solana wallet'
+        verificationStatus: 'pending',
+        verifiedAt: null,
+        notes: hasWallet ? 'Pending admin verification' : 'Pending admin verification and wallet connection'
       })
       .returning();
 
-    if (!config.requiresVerification && hasWallet) {
-      const [transferJob] = await db.insert(veddTransferJobs)
-        .values({
-          userId,
-          sourceWalletId: poolWallet.id,
-          destinationWallet: user.walletAddress!,
-          amount: rewardCalc.totalReward,
-          actionType,
-          actionId,
-          status: 'pending',
-          idempotencyKey,
-          metadata: metadata || {}
-        })
-        .returning();
-
-      await db.update(ambassadorActionRewards)
-        .set({ transferJobId: transferJob.id })
-        .where(eq(ambassadorActionRewards.id, reward.id));
-
-      this.processTransfer(transferJob.id).catch(err => 
-        console.error('Background transfer processing error:', err)
-      );
-
-      return { rewardId: reward.id, transferJobId: transferJob.id };
-    }
-
-    return { rewardId: reward.id, pendingWallet: !hasWallet };
+    return { rewardId: reward.id, pendingVerification: true, pendingWallet: !hasWallet };
   }
 
   async processTransfer(jobId: number): Promise<TransferResult> {

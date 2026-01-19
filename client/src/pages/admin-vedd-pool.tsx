@@ -16,8 +16,18 @@ import {
   Clock,
   ArrowLeft,
   Plus,
-  TrendingUp
+  TrendingUp,
+  BookOpen,
+  Key,
+  Coins,
+  Shield,
+  ChevronDown,
+  ChevronUp,
+  Eye
 } from "lucide-react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { Link } from "wouter";
 import { formatDistanceToNow } from "date-fns";
 
@@ -62,6 +72,9 @@ interface Transfer {
 export default function AdminVeddPool() {
   const { toast } = useToast();
   const [newWallet, setNewWallet] = useState({ label: '', publicKey: '', walletType: 'rewards' });
+  const [showSetupGuide, setShowSetupGuide] = useState(true);
+  const [verificationNotes, setVerificationNotes] = useState<Record<number, string>>({});
+  const [selectedReward, setSelectedReward] = useState<number | null>(null);
 
   const { data: overview, isLoading, refetch } = useQuery<PoolOverview>({
     queryKey: ['/api/vedd/admin/overview']
@@ -152,6 +165,70 @@ export default function AdminVeddPool() {
             Refresh
           </Button>
         </div>
+
+        <Collapsible open={showSetupGuide} onOpenChange={setShowSetupGuide}>
+          <Card className="bg-gradient-to-br from-amber-900/20 to-zinc-900 border-amber-700/30">
+            <CardHeader className="pb-2">
+              <CollapsibleTrigger className="flex items-center justify-between w-full">
+                <CardTitle className="flex items-center gap-2 text-amber-400">
+                  <BookOpen className="w-5 h-5" />
+                  Pool Setup Guide
+                </CardTitle>
+                {showSetupGuide ? <ChevronUp className="w-5 h-5 text-zinc-400" /> : <ChevronDown className="w-5 h-5 text-zinc-400" />}
+              </CollapsibleTrigger>
+            </CardHeader>
+            <CollapsibleContent>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="bg-zinc-800/50 rounded-lg p-4 space-y-2">
+                    <div className="flex items-center gap-2 text-amber-400 font-medium">
+                      <div className="w-6 h-6 rounded-full bg-amber-500/20 flex items-center justify-center text-sm">1</div>
+                      <Wallet className="w-4 h-4" />
+                      Create Pool Wallet
+                    </div>
+                    <p className="text-sm text-zinc-400">
+                      Create a new Solana wallet using Phantom, Solflare, or any Solana wallet. This wallet will hold your VEDD tokens for distribution.
+                    </p>
+                  </div>
+                  
+                  <div className="bg-zinc-800/50 rounded-lg p-4 space-y-2">
+                    <div className="flex items-center gap-2 text-amber-400 font-medium">
+                      <div className="w-6 h-6 rounded-full bg-amber-500/20 flex items-center justify-center text-sm">2</div>
+                      <Key className="w-4 h-4" />
+                      Add Secrets to Replit
+                    </div>
+                    <p className="text-sm text-zinc-400">
+                      Go to <span className="text-amber-300">Secrets</span> tab in Replit and add:
+                    </p>
+                    <ul className="text-xs text-zinc-500 space-y-1 mt-2">
+                      <li><code className="bg-zinc-700 px-1 rounded">VEDD_TOKEN_MINT</code> - Your VEDD token mint address</li>
+                      <li><code className="bg-zinc-700 px-1 rounded">POOL_WALLET_PRIVATE_KEY</code> - Private key as JSON array</li>
+                    </ul>
+                  </div>
+                  
+                  <div className="bg-zinc-800/50 rounded-lg p-4 space-y-2">
+                    <div className="flex items-center gap-2 text-amber-400 font-medium">
+                      <div className="w-6 h-6 rounded-full bg-amber-500/20 flex items-center justify-center text-sm">3</div>
+                      <Coins className="w-4 h-4" />
+                      Fund & Register
+                    </div>
+                    <p className="text-sm text-zinc-400">
+                      Transfer VEDD tokens to your pool wallet, then register it below with the public key. Tokens will be sent automatically after admin verification.
+                    </p>
+                  </div>
+                </div>
+                
+                <div className="mt-4 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg flex items-start gap-3">
+                  <Shield className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
+                  <div className="text-sm">
+                    <p className="text-amber-300 font-medium">Verification Required</p>
+                    <p className="text-zinc-400">All ambassador rewards require admin verification before tokens are transferred. This ensures only legitimate actions are rewarded.</p>
+                  </div>
+                </div>
+              </CardContent>
+            </CollapsibleContent>
+          </Card>
+        </Collapsible>
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <Card className="bg-zinc-900 border-zinc-800">
@@ -273,51 +350,121 @@ export default function AdminVeddPool() {
           <Card className="bg-zinc-900 border-zinc-800">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-yellow-400">
-                <Clock className="w-5 h-5" />
-                Pending Verifications ({pendingRewards.length})
+                <Shield className="w-5 h-5" />
+                Verification Queue ({pendingRewards.length})
               </CardTitle>
-              <CardDescription>Rewards awaiting admin approval</CardDescription>
+              <CardDescription>Review and approve ambassador rewards before tokens are sent</CardDescription>
             </CardHeader>
             <CardContent>
               {pendingRewards.length > 0 ? (
-                <div className="space-y-3 max-h-80 overflow-y-auto">
-                  {pendingRewards.slice(0, 10).map((reward) => (
-                    <div key={reward.id} className="bg-zinc-800/50 rounded-lg p-3 space-y-2">
+                <div className="space-y-3 max-h-96 overflow-y-auto">
+                  {pendingRewards.slice(0, 15).map((reward) => (
+                    <div 
+                      key={reward.id} 
+                      className={`rounded-lg p-4 space-y-3 transition-all ${
+                        selectedReward === reward.id 
+                          ? 'bg-amber-900/20 border border-amber-500/30' 
+                          : 'bg-zinc-800/50 border border-transparent hover:border-zinc-700'
+                      }`}
+                    >
                       <div className="flex items-center justify-between">
-                        <span className="font-medium">{reward.actionType}</span>
-                        <span className="text-amber-400 font-semibold">{reward.totalReward} VEDD</span>
-                      </div>
-                      <div className="text-xs text-zinc-500">
-                        User #{reward.userId} - {formatDistanceToNow(new Date(reward.createdAt), { addSuffix: true })}
-                      </div>
-                      <div className="flex gap-2">
-                        <Button 
-                          size="sm" 
-                          className="flex-1 bg-green-600 hover:bg-green-700"
-                          onClick={() => verifyRewardMutation.mutate({ rewardId: reward.id, approved: true })}
-                          disabled={verifyRewardMutation.isPending}
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <Badge className="bg-blue-500/20 text-blue-400">{reward.actionType}</Badge>
+                            <span className="text-amber-400 font-bold">{reward.totalReward} VEDD</span>
+                          </div>
+                          <div className="text-xs text-zinc-500 mt-1">
+                            User #{reward.userId} - {formatDistanceToNow(new Date(reward.createdAt), { addSuffix: true })}
+                          </div>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setSelectedReward(selectedReward === reward.id ? null : reward.id)}
                         >
-                          <CheckCircle className="w-3 h-3 mr-1" />
-                          Approve
-                        </Button>
-                        <Button 
-                          size="sm" 
-                          variant="destructive"
-                          className="flex-1"
-                          onClick={() => verifyRewardMutation.mutate({ rewardId: reward.id, approved: false })}
-                          disabled={verifyRewardMutation.isPending}
-                        >
-                          <XCircle className="w-3 h-3 mr-1" />
-                          Reject
+                          <Eye className="w-4 h-4" />
                         </Button>
                       </div>
+                      
+                      {selectedReward === reward.id && (
+                        <div className="space-y-3 pt-2 border-t border-zinc-700">
+                          <div>
+                            <Label className="text-zinc-400 text-xs">Verification Notes (optional)</Label>
+                            <Textarea
+                              value={verificationNotes[reward.id] || ''}
+                              onChange={(e) => setVerificationNotes(prev => ({ ...prev, [reward.id]: e.target.value }))}
+                              placeholder="Add notes about this verification..."
+                              className="bg-zinc-800 border-zinc-700 mt-1 text-sm"
+                              rows={2}
+                            />
+                          </div>
+                          <div className="flex gap-2">
+                            <Button 
+                              size="sm" 
+                              className="flex-1 bg-green-600 hover:bg-green-700"
+                              onClick={() => {
+                                verifyRewardMutation.mutate({ 
+                                  rewardId: reward.id, 
+                                  approved: true, 
+                                  notes: verificationNotes[reward.id] 
+                                });
+                                setSelectedReward(null);
+                              }}
+                              disabled={verifyRewardMutation.isPending}
+                            >
+                              <CheckCircle className="w-4 h-4 mr-2" />
+                              Approve & Send Tokens
+                            </Button>
+                            <Button 
+                              size="sm" 
+                              variant="destructive"
+                              className="flex-1"
+                              onClick={() => {
+                                verifyRewardMutation.mutate({ 
+                                  rewardId: reward.id, 
+                                  approved: false,
+                                  notes: verificationNotes[reward.id]
+                                });
+                                setSelectedReward(null);
+                              }}
+                              disabled={verifyRewardMutation.isPending}
+                            >
+                              <XCircle className="w-4 h-4 mr-2" />
+                              Reject
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                      
+                      {selectedReward !== reward.id && (
+                        <div className="flex gap-2">
+                          <Button 
+                            size="sm" 
+                            className="flex-1 bg-green-600/80 hover:bg-green-600"
+                            onClick={() => verifyRewardMutation.mutate({ rewardId: reward.id, approved: true })}
+                            disabled={verifyRewardMutation.isPending}
+                          >
+                            <CheckCircle className="w-3 h-3 mr-1" />
+                            Quick Approve
+                          </Button>
+                          <Button 
+                            size="sm" 
+                            variant="outline"
+                            className="border-zinc-600"
+                            onClick={() => setSelectedReward(reward.id)}
+                          >
+                            Review
+                          </Button>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
               ) : (
-                <div className="text-center py-6 text-zinc-500">
-                  <CheckCircle className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                  <p>No pending verifications</p>
+                <div className="text-center py-8 text-zinc-500">
+                  <CheckCircle className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                  <p className="font-medium">All caught up!</p>
+                  <p className="text-sm">No pending verifications</p>
                 </div>
               )}
             </CardContent>
