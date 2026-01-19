@@ -28,7 +28,18 @@ import {
   Layers,
   Pause,
   Lock,
-  ChevronUp
+  ChevronUp,
+  Bot,
+  Coins,
+  GraduationCap,
+  Users,
+  Flame,
+  Brain,
+  Wallet,
+  Calendar,
+  MessageSquare,
+  Trophy,
+  Gift
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -404,6 +415,200 @@ export default function LandingPage() {
               <p className="text-theme-muted flex-grow">
                 Interactive countdown timer to major trading sessions, helping you prepare for market opens and closes.
               </p>
+            </motion.div>
+          </motion.div>
+        </div>
+      </motion.section>
+
+      {/* Unique Platform Features Section */}
+      <motion.section 
+        initial="hidden"
+        whileInView="visible"
+        viewport={{ once: true }}
+        variants={staggerContainer}
+        className="py-20 bg-gradient-to-b from-gray-900 to-black border-t border-gray-800"
+      >
+        <div className="max-w-7xl mx-auto px-6 lg:px-8">
+          <motion.div variants={fadeIn} className="text-center mb-16">
+            <div className="inline-flex items-center px-4 py-2 rounded-full bg-red-500/20 text-red-400 text-sm font-medium mb-6">
+              <Bot className="h-4 w-4 mr-2" />
+              Exclusive Features
+            </div>
+            <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl lg:text-5xl">
+              <span className="text-red-500">Automated Trading</span> Revolution
+            </h2>
+            <p className="mt-4 text-lg text-gray-400 max-w-3xl mx-auto">
+              Experience the future of trading with AI-powered Expert Advisors, automated rewards, and a thriving community ecosystem.
+            </p>
+          </motion.div>
+
+          {/* EA Automated Trading Hero */}
+          <motion.div variants={fadeIn} className="mb-16">
+            <div className="relative bg-gradient-to-r from-red-600/20 via-red-500/10 to-orange-600/20 rounded-3xl p-8 md:p-12 border border-red-500/30 overflow-hidden">
+              <div className="absolute top-0 right-0 w-64 h-64 bg-red-500/10 rounded-full blur-3xl"></div>
+              <div className="absolute bottom-0 left-0 w-48 h-48 bg-orange-500/10 rounded-full blur-3xl"></div>
+              
+              <div className="relative z-10 grid md:grid-cols-2 gap-8 items-center">
+                <div>
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="p-3 bg-red-500/20 rounded-xl">
+                      <Bot className="h-8 w-8 text-red-400" />
+                    </div>
+                    <span className="text-red-400 font-semibold">EA AI ANALYSIS</span>
+                  </div>
+                  <h3 className="text-3xl md:text-4xl font-bold text-white mb-4">
+                    Expert Advisor with <span className="text-red-400">AI Brain</span>
+                  </h3>
+                  <p className="text-gray-300 text-lg mb-6">
+                    Create automated trading strategies powered by AI analysis. Our EAs combine multi-timeframe analysis with real-time technical indicators for precise entry and exit signals.
+                  </p>
+                  <ul className="space-y-3">
+                    <li className="flex items-center text-gray-300">
+                      <Zap className="h-5 w-5 text-red-400 mr-3 flex-shrink-0" />
+                      Multi-timeframe synthesis (4H + 1H + 15M + 5M)
+                    </li>
+                    <li className="flex items-center text-gray-300">
+                      <Brain className="h-5 w-5 text-red-400 mr-3 flex-shrink-0" />
+                      AI pattern recognition baked into EA logic
+                    </li>
+                    <li className="flex items-center text-gray-300">
+                      <Target className="h-5 w-5 text-red-400 mr-3 flex-shrink-0" />
+                      ATR-based stop loss & dynamic take profit
+                    </li>
+                    <li className="flex items-center text-gray-300">
+                      <Bell className="h-5 w-5 text-red-400 mr-3 flex-shrink-0" />
+                      News-aware trading with confidence filtering
+                    </li>
+                  </ul>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-gray-800/60 rounded-xl p-6 border border-gray-700">
+                    <Layers className="h-8 w-8 text-blue-400 mb-3" />
+                    <h4 className="font-semibold text-white mb-2">4-Stage Entry</h4>
+                    <p className="text-sm text-gray-400">HTF trend → Pattern scoring → LTF timing → Order type</p>
+                  </div>
+                  <div className="bg-gray-800/60 rounded-xl p-6 border border-gray-700">
+                    <Pause className="h-8 w-8 text-yellow-400 mb-3" />
+                    <h4 className="font-semibold text-white mb-2">Choppy Filter</h4>
+                    <p className="text-sm text-gray-400">Auto-pause in ranging markets with ADX/ATR</p>
+                  </div>
+                  <div className="bg-gray-800/60 rounded-xl p-6 border border-gray-700">
+                    <Share2 className="h-8 w-8 text-green-400 mb-3" />
+                    <h4 className="font-semibold text-white mb-2">Signal Relay</h4>
+                    <p className="text-sm text-gray-400">Copy to TradeLocker, TradingView via webhooks</p>
+                  </div>
+                  <div className="bg-gray-800/60 rounded-xl p-6 border border-gray-700">
+                    <LineChart className="h-8 w-8 text-purple-400 mb-3" />
+                    <h4 className="font-semibold text-white mb-2">Live Refresh</h4>
+                    <p className="text-sm text-gray-400">Real-time market data for EA re-analysis</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+
+          {/* Feature Grid */}
+          <motion.div variants={staggerContainer} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {/* VEDD Token Rewards */}
+            <motion.div variants={fadeIn} className="bg-gradient-to-br from-amber-900/30 to-yellow-900/20 rounded-2xl p-6 border border-amber-500/30 group hover:border-amber-400/50 transition-all duration-300">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 bg-amber-500/20 rounded-lg group-hover:bg-amber-500/30 transition-all">
+                  <Coins className="h-6 w-6 text-amber-400" />
+                </div>
+                <h3 className="text-xl font-bold text-white">VEDD Token Rewards</h3>
+              </div>
+              <p className="text-gray-300 mb-4">
+                Earn VEDD tokens for chart analyses, EA creations, and community contributions. Automatic Solana wallet transfers with admin-verified security.
+              </p>
+              <div className="flex items-center gap-2 text-amber-400 text-sm">
+                <Wallet className="h-4 w-4" />
+                <span>Connect wallet to claim rewards</span>
+              </div>
+            </motion.div>
+
+            {/* Ambassador Training */}
+            <motion.div variants={fadeIn} className="bg-gradient-to-br from-purple-900/30 to-violet-900/20 rounded-2xl p-6 border border-purple-500/30 group hover:border-purple-400/50 transition-all duration-300">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 bg-purple-500/20 rounded-lg group-hover:bg-purple-500/30 transition-all">
+                  <GraduationCap className="h-6 w-6 text-purple-400" />
+                </div>
+                <h3 className="text-xl font-bold text-white">44-Day Ambassador Training</h3>
+              </div>
+              <p className="text-gray-300 mb-4">
+                Complete interactive training combining trading education with biblical wisdom. Earn certifications and unlock exclusive ambassador rewards.
+              </p>
+              <div className="flex items-center gap-2 text-purple-400 text-sm">
+                <Calendar className="h-4 w-4" />
+                <span>Daily content journey with quizzes</span>
+              </div>
+            </motion.div>
+
+            {/* Gamification */}
+            <motion.div variants={fadeIn} className="bg-gradient-to-br from-orange-900/30 to-red-900/20 rounded-2xl p-6 border border-orange-500/30 group hover:border-orange-400/50 transition-all duration-300">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 bg-orange-500/20 rounded-lg group-hover:bg-orange-500/30 transition-all">
+                  <Flame className="h-6 w-6 text-orange-400" />
+                </div>
+                <h3 className="text-xl font-bold text-white">XP & Streak System</h3>
+              </div>
+              <p className="text-gray-300 mb-4">
+                Level up from YG to OG through five tiers. Earn XP for analyses and EA creations. Track your streak and compete on leaderboards.
+              </p>
+              <div className="flex items-center gap-2 text-orange-400 text-sm">
+                <Trophy className="h-4 w-4" />
+                <span>YG → Apprentice → Journeyman → Expert → OG</span>
+              </div>
+            </motion.div>
+
+            {/* Community Features */}
+            <motion.div variants={fadeIn} className="bg-gradient-to-br from-blue-900/30 to-cyan-900/20 rounded-2xl p-6 border border-blue-500/30 group hover:border-blue-400/50 transition-all duration-300">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 bg-blue-500/20 rounded-lg group-hover:bg-blue-500/30 transition-all">
+                  <Users className="h-6 w-6 text-blue-400" />
+                </div>
+                <h3 className="text-xl font-bold text-white">Community Hub</h3>
+              </div>
+              <p className="text-gray-300 mb-4">
+                AI-generated challenges, shareable events with auto-agendas, discussion threads, and social media content directions for promotion.
+              </p>
+              <div className="flex items-center gap-2 text-blue-400 text-sm">
+                <MessageSquare className="h-4 w-4" />
+                <span>nas.io-style community experience</span>
+              </div>
+            </motion.div>
+
+            {/* What-If Scenarios */}
+            <motion.div variants={fadeIn} className="bg-gradient-to-br from-green-900/30 to-emerald-900/20 rounded-2xl p-6 border border-green-500/30 group hover:border-green-400/50 transition-all duration-300">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 bg-green-500/20 rounded-lg group-hover:bg-green-500/30 transition-all">
+                  <Brain className="h-6 w-6 text-green-400" />
+                </div>
+                <h3 className="text-xl font-bold text-white">What-If Scenarios</h3>
+              </div>
+              <p className="text-gray-300 mb-4">
+                Explore different trading outcomes with AI-powered scenario analysis. Test price targets, stop losses, and market conditions before trading.
+              </p>
+              <div className="flex items-center gap-2 text-green-400 text-sm">
+                <Target className="h-4 w-4" />
+                <span>Probability & risk assessments</span>
+              </div>
+            </motion.div>
+
+            {/* EA Marketplace */}
+            <motion.div variants={fadeIn} className="bg-gradient-to-br from-teal-900/30 to-cyan-900/20 rounded-2xl p-6 border border-teal-500/30 group hover:border-teal-400/50 transition-all duration-300">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 bg-teal-500/20 rounded-lg group-hover:bg-teal-500/30 transition-all">
+                  <Gift className="h-6 w-6 text-teal-400" />
+                </div>
+                <h3 className="text-xl font-bold text-white">EA Marketplace</h3>
+              </div>
+              <p className="text-gray-300 mb-4">
+                Publish your Expert Advisors for others to subscribe. Earn passive income from your trading strategies while helping the community.
+              </p>
+              <div className="flex items-center gap-2 text-teal-400 text-sm">
+                <Coins className="h-4 w-4" />
+                <span>Monetize your trading expertise</span>
+              </div>
             </motion.div>
           </motion.div>
         </div>
