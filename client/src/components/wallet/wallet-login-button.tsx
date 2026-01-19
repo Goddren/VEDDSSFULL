@@ -120,14 +120,19 @@ export function WalletLoginButton({ onWalletLogin, className }: WalletLoginButto
               <Wallet className="h-5 w-5" />
               Phantom Wallet
             </Button>
-            <Button
-              onClick={() => handleConnect('pumpfun')}
-              disabled={connecting}
-              className="w-full bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white font-semibold py-4 rounded-xl shadow-lg shadow-green-500/30 flex items-center justify-center gap-3"
+            <a 
+              href="https://pump.fun/coin/Ch7WbPBy5XjL1UULwWYwh75DsVdXhFUVXtiNvNGopump" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="block"
             >
-              <Coins className="h-5 w-5" />
-              pump.fun Wallet
-            </Button>
+              <Button
+                className="w-full bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white font-semibold py-4 rounded-xl shadow-lg shadow-green-500/30 flex items-center justify-center gap-3"
+              >
+                <ExternalLink className="h-5 w-5" />
+                Buy VEDD on Pump.fun
+              </Button>
+            </a>
             <button 
               onClick={() => setShowWalletOptions(false)}
               className="w-full text-gray-400 text-sm hover:text-white transition-colors py-2"

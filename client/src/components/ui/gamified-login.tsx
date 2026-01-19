@@ -540,9 +540,9 @@ export function GamifiedLogin({ isOpen, onClose }: GamifiedLoginProps) {
                             <Coins className="h-4 w-4 text-purple-400" />
                             <span className="text-purple-300 text-sm font-medium">VEDD Token Holders</span>
                           </div>
-                          <h3 className="text-white text-lg font-semibold mb-2">Connect with Pump.fun Wallet</h3>
+                          <h3 className="text-white text-lg font-semibold mb-2">Connect Your Solana Wallet</h3>
                           <p className="text-gray-400 text-sm">
-                            Connect your Solana wallet to verify VEDD tokens and ambassador NFT
+                            Connect with Phantom or buy VEDD tokens on Pump.fun
                           </p>
                         </div>
 
