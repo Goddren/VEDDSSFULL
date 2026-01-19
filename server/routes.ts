@@ -33,6 +33,8 @@ import { newsService, type NewsItem, type NewsSentiment } from "./news-service";
 import { extractFramesFromVideo, cleanupFrames } from "./video-processor";
 import { getGoldSentiment, getMockGoldSentiment, isTelegramConfigured } from "./telegram-sentiment";
 import { encryptPassword, executeMT5SignalOnTradeLocker, TradeLockerService, decryptPassword } from "./tradelocker";
+import veddTokenRouter from "./routes/vedd-token";
+import { veddTokenService } from "./services/vedd-token-service";
 
 // Configure multer for file uploads (images)
 const upload = multer({
@@ -186,6 +188,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Initialize news service
   newsService.initialize(process.env.FINNHUB_API_KEY, process.env.OPENAI_API_KEY);
+  
+  // Register VEDD token routes
+  app.use('/api/vedd', veddTokenRouter);
 
   // Health check endpoint for keeping the app awake and verifying connectivity
   app.get("/api/health", (_req: Request, res: Response) => {
@@ -6439,7 +6444,25 @@ Generate a JSON object with:
         });
       }
       
-      res.json({ success: true, tokensEarned: challenge.tokenReward, participation: updated });
+      // Enqueue VEDD token reward for challenge completion
+      let veddRewardResult = null;
+      try {
+        veddRewardResult = await veddTokenService.enqueueReward(
+          userId,
+          'challenge_completion',
+          challengeId,
+          { challengeTitle: challenge.title, challengeType: challenge.type }
+        );
+      } catch (rewardErr) {
+        console.error('Failed to enqueue VEDD reward:', rewardErr);
+      }
+      
+      res.json({ 
+        success: true, 
+        tokensEarned: challenge.tokenReward, 
+        participation: updated,
+        veddReward: veddRewardResult
+      });
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
     }
@@ -7019,8 +7042,27 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         });
       }
       
+      // Enqueue VEDD token reward for event hosting
+      let veddRewardResult = null;
+      try {
+        veddRewardResult = await veddTokenService.enqueueReward(
+          userId,
+          'event_hosting',
+          schedule.id,
+          { eventTitle: event.title, scheduleTitle: schedule.title }
+        );
+      } catch (rewardErr) {
+        console.error('Failed to enqueue VEDD reward for event hosting:', rewardErr);
+      }
+      
       const shareUrl = `/event/${shareSlug}`;
-      res.json({ schedule, tokensAwarded: event.hostTokenReward || 50, shareSlug, shareUrl });
+      res.json({ 
+        schedule, 
+        tokensAwarded: event.hostTokenReward || 50, 
+        shareSlug, 
+        shareUrl,
+        veddReward: veddRewardResult
+      });
     } catch (err) {
       console.error('Host event error:', err);
       res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });

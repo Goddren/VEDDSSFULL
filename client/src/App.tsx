@@ -50,6 +50,7 @@ import ChallengeSession from "@/pages/challenge-session";
 import PublicEventPage from "@/pages/public-event";
 import StreakTrackerPage from "@/pages/streak-tracker";
 import WhatIfAnalysisPage from "@/pages/what-if-analysis";
+import AdminVeddPool from "@/pages/admin-vedd-pool";
 import WebhooksPage from "@/pages/webhooks";
 import MT5ChartDataPage from "@/pages/mt5-chart-data";
 import NotificationSettings from "@/pages/notification-settings";
@@ -144,6 +145,9 @@ function AppLayout() {
             <ProtectedRoute path="/webhooks" component={WebhooksPage} />
             <ProtectedRoute path="/mt5-chart-data" component={MT5ChartDataPage} />
             <ProtectedRoute path="/notification-settings" component={NotificationSettings} />
+            
+            {/* Admin routes */}
+            <ProtectedRoute path="/admin/vedd-pool" component={AdminVeddPool} />
             
             <Route component={NotFound} />
           </Switch>

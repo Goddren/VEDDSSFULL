@@ -31,6 +31,7 @@ import TradingCoach from '@/components/trading-coach/trading-coach';
 import { DailyWisdom } from '@/components/scripture/daily-wisdom';
 import { NewsFeed } from '@/components/news/news-feed';
 import { ConnectedPairs } from '@/components/mt5/connected-pairs';
+import { VeddRewardsPanel } from '@/components/vedd-rewards/vedd-rewards-panel';
 
 interface Analysis {
   id: number;
@@ -459,6 +460,11 @@ const Dashboard: React.FC = () => {
                 )}
               </CardContent>
             </Card>
+            
+            {/* VEDD Token Rewards Panel */}
+            <div className="mb-6">
+              <VeddRewardsPanel />
+            </div>
             
             {/* Economic Calendar */}
             <MarketCalendar />

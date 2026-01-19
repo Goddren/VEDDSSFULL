@@ -41,6 +41,8 @@ export const users = pgTable("users", {
   ambassadorNftMint: text("ambassador_nft_mint"), // Ambassador NFT mint address
   tokenGatedSubscriptionEnd: timestamp("token_gated_subscription_end"), // 3-month free sub for token holders
   lastWalletSync: timestamp("last_wallet_sync"), // Last time wallet data was synced
+  walletVerified: boolean("wallet_verified").default(false), // Has user signed message to verify wallet ownership
+  isAdmin: boolean("is_admin").default(false), // Admin privileges for token pool management
   // faithBasedContent field temporarily removed due to database issues
   // Using localStorage instead of database column for faith-based content preferences
   // referralCode field temporarily removed due to database issues
@@ -1126,6 +1128,134 @@ export const insertAmbassadorCommunityCommentSchema = createInsertSchema(ambassa
   createdAt: true,
   updatedAt: true,
 });
+
+// ============================================
+// VEDD Token Pool Wallet System
+// ============================================
+
+// Pool Wallets - Central wallets holding VEDD tokens for distribution
+export const veddPoolWallets = pgTable("vedd_pool_wallets", {
+  id: serial("id").primaryKey(),
+  label: text("label").notNull(), // e.g., "Ambassador Rewards Pool", "Subscription Refunds Pool"
+  publicKey: text("public_key").notNull().unique(), // Solana public key
+  walletType: text("wallet_type").notNull().default('rewards'), // 'rewards', 'subscriptions', 'marketing'
+  status: text("status").notNull().default('active'), // 'active', 'paused', 'depleted'
+  tokenBalance: real("token_balance").default(0), // Cached balance (synced periodically)
+  lowBalanceThreshold: real("low_balance_threshold").default(1000), // Alert when below this
+  lastSyncAt: timestamp("last_sync_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// Transfer Jobs - Queue of pending/completed token transfers
+export const veddTransferJobs = pgTable("vedd_transfer_jobs", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  sourceWalletId: integer("source_wallet_id").references(() => veddPoolWallets.id).notNull(),
+  destinationWallet: text("destination_wallet").notNull(), // User's Solana wallet address
+  amount: real("amount").notNull(), // VEDD tokens to transfer
+  actionType: text("action_type").notNull(), // 'challenge_completion', 'event_hosting', 'content_share', 'referral', 'subscription_refund'
+  actionId: integer("action_id"), // Reference to the specific action (challenge ID, event ID, etc.)
+  status: text("status").notNull().default('pending'), // 'pending', 'processing', 'completed', 'failed', 'cancelled'
+  solanaTransactionSig: text("solana_transaction_sig"), // Solana transaction signature when completed
+  errorMessage: text("error_message"), // Error details if failed
+  retryCount: integer("retry_count").default(0),
+  idempotencyKey: text("idempotency_key").unique(), // Prevent duplicate transfers
+  metadata: jsonb("metadata"), // Additional context (challenge name, event title, etc.)
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  processedAt: timestamp("processed_at"),
+});
+
+// Ambassador Action Rewards - Track rewards for verified ambassador actions
+export const ambassadorActionRewards = pgTable("ambassador_action_rewards", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  actionType: text("action_type").notNull(), // 'challenge_completion', 'event_hosting', 'content_share', 'referral', 'streak_bonus'
+  actionId: integer("action_id"), // Reference to specific challenge/event/etc.
+  baseReward: real("base_reward").notNull(), // Base VEDD tokens earned
+  bonusReward: real("bonus_reward").default(0), // Bonus tokens (streak, early completion, etc.)
+  totalReward: real("total_reward").notNull(), // baseReward + bonusReward
+  verificationStatus: text("verification_status").notNull().default('pending'), // 'pending', 'verified', 'rejected'
+  verifiedBy: integer("verified_by").references(() => users.id), // Admin who verified (null for auto-verified)
+  verifiedAt: timestamp("verified_at"),
+  transferJobId: integer("transfer_job_id").references(() => veddTransferJobs.id), // Link to transfer when processed
+  notes: text("notes"), // Admin notes or rejection reason
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// Subscription Token Payments - Token redemptions for subscription payments
+export const subscriptionTokenPayments = pgTable("subscription_token_payments", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  subscriptionPlanId: integer("subscription_plan_id").references(() => subscriptionPlans.id).notNull(),
+  tokenAmount: real("token_amount").notNull(), // VEDD tokens used
+  usdEquivalent: real("usd_equivalent").notNull(), // USD value at time of redemption
+  exchangeRate: real("exchange_rate").notNull(), // VEDD/USD rate used
+  periodStart: timestamp("period_start").notNull(),
+  periodEnd: timestamp("period_end").notNull(),
+  status: text("status").notNull().default('pending'), // 'pending', 'applied', 'refunded'
+  stripeInvoiceId: text("stripe_invoice_id"), // If partially paid with Stripe
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// Reward Configuration - Define reward amounts for different actions
+export const veddRewardConfig = pgTable("vedd_reward_config", {
+  id: serial("id").primaryKey(),
+  actionType: text("action_type").notNull().unique(), // 'challenge_completion', 'event_hosting', etc.
+  baseAmount: real("base_amount").notNull(), // Base VEDD tokens for this action
+  streakMultiplier: real("streak_multiplier").default(1.0), // Multiplier per streak level
+  maxDailyRewards: integer("max_daily_rewards").default(5), // Rate limit per user per day
+  requiresVerification: boolean("requires_verification").default(false), // If true, admin must verify
+  isActive: boolean("is_active").default(true),
+  description: text("description"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Insert schemas for VEDD token system
+export const insertVeddPoolWalletSchema = createInsertSchema(veddPoolWallets).omit({
+  id: true,
+  tokenBalance: true,
+  lastSyncAt: true,
+  createdAt: true,
+});
+
+export const insertVeddTransferJobSchema = createInsertSchema(veddTransferJobs).omit({
+  id: true,
+  solanaTransactionSig: true,
+  errorMessage: true,
+  retryCount: true,
+  createdAt: true,
+  processedAt: true,
+});
+
+export const insertAmbassadorActionRewardSchema = createInsertSchema(ambassadorActionRewards).omit({
+  id: true,
+  verifiedBy: true,
+  verifiedAt: true,
+  transferJobId: true,
+  createdAt: true,
+});
+
+export const insertSubscriptionTokenPaymentSchema = createInsertSchema(subscriptionTokenPayments).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertVeddRewardConfigSchema = createInsertSchema(veddRewardConfig).omit({
+  id: true,
+  updatedAt: true,
+});
+
+// Types for VEDD token system
+export type VeddPoolWallet = typeof veddPoolWallets.$inferSelect;
+export type InsertVeddPoolWallet = z.infer<typeof insertVeddPoolWalletSchema>;
+export type VeddTransferJob = typeof veddTransferJobs.$inferSelect;
+export type InsertVeddTransferJob = z.infer<typeof insertVeddTransferJobSchema>;
+export type AmbassadorActionReward = typeof ambassadorActionRewards.$inferSelect;
+export type InsertAmbassadorActionReward = z.infer<typeof insertAmbassadorActionRewardSchema>;
+export type SubscriptionTokenPayment = typeof subscriptionTokenPayments.$inferSelect;
+export type InsertSubscriptionTokenPayment = z.infer<typeof insertSubscriptionTokenPaymentSchema>;
+export type VeddRewardConfig = typeof veddRewardConfig.$inferSelect;
+export type InsertVeddRewardConfig = z.infer<typeof insertVeddRewardConfigSchema>;
 
 // Types for community features
 export type AmbassadorSocialDirection = typeof ambassadorSocialDirections.$inferSelect;
