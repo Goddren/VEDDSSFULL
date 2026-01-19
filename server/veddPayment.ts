@@ -9,14 +9,14 @@ const SOLANA_RPC = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solan
 // 1 USD = ~277,778 VEDD
 const VEDD_PER_USD = 277778;
 
-// Plan prices in USD (cents converted to dollars for calculation)
-// Standard: $39.95, Premium: $69.95, Lifetime: $249.95
+// Plan prices in USD - All monthly plans $149.99, Lifetime $999
+// VEDD amounts calculated to match exact USD equivalent
 // Rounded to nearest 100 VEDD for cleaner amounts
 const PLAN_PRICES_VEDD: Record<string, number> = {
-  'starter': Math.round((39.95 * VEDD_PER_USD) / 100) * 100,   // ~11,097,200 VEDD
-  'standard': Math.round((39.95 * VEDD_PER_USD) / 100) * 100,  // ~11,097,200 VEDD
-  'premium': Math.round((69.95 * VEDD_PER_USD) / 100) * 100,   // ~19,430,800 VEDD
-  'lifetime': Math.round((249.95 * VEDD_PER_USD) / 100) * 100, // ~69,430,000 VEDD
+  'starter': Math.round((149.99 * VEDD_PER_USD) / 100) * 100,   // ~41,663,700 VEDD ($149.99)
+  'standard': Math.round((149.99 * VEDD_PER_USD) / 100) * 100,  // ~41,663,700 VEDD ($149.99)
+  'premium': Math.round((149.99 * VEDD_PER_USD) / 100) * 100,   // ~41,663,700 VEDD ($149.99)
+  'lifetime': Math.round((999 * VEDD_PER_USD) / 100) * 100,     // ~277,500,200 VEDD ($999)
 };
 
 interface PaymentSession {

@@ -769,9 +769,9 @@ export default function LandingPage() {
             <div className="flex items-center justify-center gap-4 mb-4">
               <span className="text-4xl font-bold line-through opacity-60">$315-713/mo</span>
               <ArrowRight className="h-8 w-8" />
-              <span className="text-5xl font-bold">$39.95/mo</span>
+              <span className="text-5xl font-bold">$149.99/mo</span>
             </div>
-            <p className="text-lg opacity-90 mb-6">Save up to $8,000 per year with AI Trading Vault Pro</p>
+            <p className="text-lg opacity-90 mb-6">Save up to $12,700 per year with AI Trading Vault Pro</p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <Link href="/subscription">
                 <Button size="lg" variant="secondary" className="bg-white text-green-600 hover:bg-gray-100">
