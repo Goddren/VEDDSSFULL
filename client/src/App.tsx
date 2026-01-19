@@ -54,6 +54,7 @@ import AdminVeddPool from "@/pages/admin-vedd-pool";
 import WebhooksPage from "@/pages/webhooks";
 import MT5ChartDataPage from "@/pages/mt5-chart-data";
 import NotificationSettings from "@/pages/notification-settings";
+import VeddWalletPage from "@/pages/vedd-wallet";
 import StreakBanner from "@/components/StreakBanner";
 import { MobileFAB } from "@/components/mobile-fab";
 import { NetworkStatus } from "@/components/network-status";
@@ -148,6 +149,7 @@ function AppLayout() {
             
             {/* Admin routes */}
             <ProtectedRoute path="/admin/vedd-pool" component={AdminVeddPool} />
+            <ProtectedRoute path="/vedd-wallet" component={VeddWalletPage} />
             
             <Route component={NotFound} />
           </Switch>

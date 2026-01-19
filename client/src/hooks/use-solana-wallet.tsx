@@ -37,7 +37,7 @@ interface WalletContextType {
 
 const WalletContext = createContext<WalletContextType | null>(null);
 
-const VEDD_TOKEN_MINT = 'VEDDxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
+const VEDD_TOKEN_MINT = 'Ch7WbPBy5XjL1UULwWYwh75DsVdXhFUVXtiNvNGopump';
 const AMBASSADOR_NFT_COLLECTION = 'VEDDAMBxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
 const SOLANA_RPC = 'https://api.mainnet-beta.solana.com';
 

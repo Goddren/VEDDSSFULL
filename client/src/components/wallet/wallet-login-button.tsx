@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { Wallet, Check, X, Coins, Award, RefreshCw, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useSolanaWallet } from '@/hooks/use-solana-wallet';
-import { apiRequest } from '@/lib/queryClient';
+import { apiRequest, queryClient } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
+import { useLocation } from 'wouter';
 
 interface WalletLoginButtonProps {
   onWalletLogin?: (walletData: { address: string; veddBalance: number; isAmbassador: boolean }) => void;
@@ -12,10 +13,11 @@ interface WalletLoginButtonProps {
 }
 
 export function WalletLoginButton({ onWalletLogin, className }: WalletLoginButtonProps) {
-  const { connected, connecting, walletData, walletType, connect, disconnect, signMessage, refreshWalletData, error, availableWallets } = useSolanaWallet();
+  const { connected, connecting, walletData, connect, disconnect, signMessage, refreshWalletData, error } = useSolanaWallet();
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [showWalletOptions, setShowWalletOptions] = useState(false);
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
 
   const handleConnect = async (type: 'phantom' | 'pumpfun') => {
     setShowWalletOptions(false);
@@ -40,24 +42,27 @@ export function WalletLoginButton({ onWalletLogin, className }: WalletLoginButto
         return;
       }
 
-      const response = await apiRequest('/api/wallet/authenticate', {
-        method: 'POST',
-        body: JSON.stringify({
-          walletAddress: walletData.address,
-          signature,
-          message,
-          veddBalance: walletData.veddBalance,
-          isAmbassador: walletData.isAmbassador,
-          ambassadorNftMint: walletData.ambassadorNftMint,
-        }),
+      const response = await apiRequest('POST', '/api/wallet/authenticate', {
+        walletAddress: walletData.address,
+        signature,
+        message,
+        veddBalance: walletData.veddBalance,
+        isAmbassador: walletData.isAmbassador,
+        ambassadorNftMint: walletData.ambassadorNftMint,
       });
 
-      if (response.success) {
+      const data = await response.json();
+
+      if (data.success) {
+        // Refresh user data to reflect logged in state
+        await queryClient.invalidateQueries({ queryKey: ['/api/user'] });
+        await queryClient.invalidateQueries({ queryKey: ['/api/subscription'] });
+        
         toast({
-          title: "Wallet Connected",
+          title: data.isNewUser ? "Account Created!" : "Wallet Connected",
           description: walletData.veddBalance > 0 
             ? `Welcome! You have ${walletData.veddBalance.toLocaleString()} VEDD tokens`
-            : "Wallet authenticated successfully",
+            : data.isNewUser ? "Your account has been created using your wallet" : "Wallet authenticated successfully",
         });
 
         if (onWalletLogin) {
@@ -67,6 +72,11 @@ export function WalletLoginButton({ onWalletLogin, className }: WalletLoginButto
             isAmbassador: walletData.isAmbassador,
           });
         }
+
+        // Redirect to dashboard after successful login
+        setLocation('/dashboard');
+      } else {
+        throw new Error(data.error || 'Authentication failed');
       }
     } catch (err: any) {
       console.error('Authentication error:', err);

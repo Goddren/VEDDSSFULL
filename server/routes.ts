@@ -2,6 +2,16 @@ import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { User } from "@shared/schema";
+import { scrypt, randomBytes } from "crypto";
+import { promisify } from "util";
+
+const scryptAsync = promisify(scrypt);
+
+async function hashPasswordForWallet(password: string) {
+  const salt = randomBytes(16).toString("hex");
+  const buf = (await scryptAsync(password, salt, 64)) as Buffer;
+  return `${buf.toString("hex")}.${salt}`;
+}
 import { analyzeChartImage, testOpenAIApiKey, generateTradingTip, generateMarketTrendPredictions } from "./openai";
 import { setupTwilio, sendTradingSignal } from "./twilio";
 import { checkUserAchievements } from "./achievement-tracker";
@@ -7265,7 +7275,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     isAmbassador: boolean;
     ambassadorNftMint: string | null;
   }> {
-    const VEDD_TOKEN_MINT = 'VEDDxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
+    const VEDD_TOKEN_MINT = 'Ch7WbPBy5XjL1UULwWYwh75DsVdXhFUVXtiNvNGopump';
     const SOLANA_RPC = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
     
     try {
@@ -7345,6 +7355,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
 
       // Find or create user by wallet address
       let user = await storage.getUserByWalletAddress(walletAddress);
+      let isNewUser = false;
       
       if (!user) {
         // Check if user is authenticated and wants to link wallet
@@ -7356,13 +7367,29 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
             isAmbassador,
             ambassadorNftMint,
             lastWalletSync: new Date(),
+            walletVerified: true,
           });
           user = await storage.getUser(currentUser.id);
         } else {
-          return res.status(400).json({ 
-            error: "Wallet not linked to any account. Please log in first to link your wallet.",
-            needsAccount: true 
+          // Create new user from wallet address (wallet-only login)
+          const shortAddress = `${walletAddress.slice(0, 4)}...${walletAddress.slice(-4)}`;
+          const username = `wallet_${walletAddress.slice(0, 8)}`;
+          const randomPassword = Math.random().toString(36).slice(-12) + Math.random().toString(36).slice(-12);
+          const hashedPassword = await hashPasswordForWallet(randomPassword);
+          
+          user = await storage.createUser({
+            username,
+            password: hashedPassword, // Hashed random password - user logs in via wallet
+            email: `${walletAddress.slice(0, 12)}@wallet.veddai.com`,
+            fullName: `Wallet User ${shortAddress}`,
+            walletAddress,
+            veddTokenBalance: veddBalance,
+            isAmbassador,
+            ambassadorNftMint,
+            lastWalletSync: new Date(),
+            walletVerified: true,
           });
+          isNewUser = true;
         }
       } else {
         // Update token balances from server verification
@@ -7383,11 +7410,22 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
           });
         }
       }
+
+      // Log the user in via session (wallet-based login)
+      if (user) {
+        await new Promise<void>((resolve, reject) => {
+          req.login(user, (err) => {
+            if (err) reject(err);
+            else resolve();
+          });
+        });
+      }
       
       res.json({ 
         success: true,
         user: user ? { id: user.id, username: user.username, walletAddress, veddBalance, isAmbassador } : null,
         tokenGatedAccess: veddBalance > 0,
+        isNewUser,
       });
     } catch (err) {
       console.error('Wallet authentication error:', err);
@@ -7495,6 +7533,98 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
 
       res.json({ success: true });
     } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // ===== VEDD Wallet Endpoints for User =====
+
+  // Get user's ambassador rewards
+  app.get("/api/ambassador/my-rewards", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const user = req.user as User;
+    
+    try {
+      const rewards = await storage.getAmbassadorRewardsByUser(user.id);
+      res.json(rewards);
+    } catch (err) {
+      console.error('Error fetching rewards:', err);
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Get user's transfer history
+  app.get("/api/vedd/my-transfers", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const user = req.user as User;
+    
+    try {
+      const transfers = await storage.getVeddTransfersByUser(user.id);
+      res.json(transfers);
+    } catch (err) {
+      console.error('Error fetching transfers:', err);
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Request withdrawal of verified rewards
+  app.post("/api/vedd/request-withdrawal", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const user = req.user as User;
+    
+    if (!user.walletAddress) {
+      return res.status(400).json({ error: "No wallet connected. Please connect your Solana wallet first." });
+    }
+
+    try {
+      // Get all verified rewards that haven't been transferred yet
+      const verifiedRewards = await storage.getVerifiedUnprocessedRewards(user.id);
+      
+      if (verifiedRewards.length === 0) {
+        return res.status(400).json({ error: "No verified rewards available for withdrawal." });
+      }
+
+      const totalAmount = verifiedRewards.reduce((sum, r) => sum + r.totalReward, 0);
+      
+      // Get the rewards pool wallet
+      const poolWallets = await storage.getVeddPoolWallets();
+      const rewardsPool = poolWallets.find(w => w.walletType === 'rewards' && w.status === 'active');
+      
+      if (!rewardsPool) {
+        return res.status(500).json({ error: "Rewards pool not configured. Please contact support." });
+      }
+
+      // Create a transfer job
+      const transferJob = await storage.createVeddTransferJob({
+        userId: user.id,
+        sourceWalletId: rewardsPool.id,
+        destinationWallet: user.walletAddress,
+        amount: totalAmount,
+        actionType: 'ambassador_withdrawal',
+        status: 'pending',
+        idempotencyKey: `withdrawal_${user.id}_${Date.now()}`,
+        metadata: { rewardIds: verifiedRewards.map(r => r.id) },
+      });
+
+      // Link the rewards to the transfer job
+      for (const reward of verifiedRewards) {
+        await storage.updateAmbassadorReward(reward.id, { transferJobId: transferJob.id });
+      }
+
+      res.json({ 
+        success: true, 
+        transferId: transferJob.id,
+        amount: totalAmount,
+        message: "Withdrawal request created. Admin will process it shortly."
+      });
+    } catch (err) {
+      console.error('Error requesting withdrawal:', err);
       res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
     }
   });

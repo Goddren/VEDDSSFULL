@@ -13,7 +13,7 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
-import { Menu, Bell, User, LogOut, Settings, History, LineChart, CreditCard, Award, Users, Newspaper, Wand2, Clock, Briefcase, Zap, HelpCircle, BookOpen, GraduationCap, FileText, Lightbulb, ChevronDown, MoreHorizontal, BarChart3, Webhook } from 'lucide-react';
+import { Menu, Bell, User, LogOut, Settings, History, LineChart, CreditCard, Award, Users, Newspaper, Wand2, Clock, Briefcase, Zap, HelpCircle, BookOpen, GraduationCap, FileText, Lightbulb, ChevronDown, MoreHorizontal, BarChart3, Webhook, Wallet } from 'lucide-react';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 
 const Header: React.FC = () => {
@@ -169,6 +169,14 @@ const Header: React.FC = () => {
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuItem className="cursor-pointer" asChild>
+                <Link href="/vedd-wallet">
+                  <div className="flex items-center w-full">
+                    <Wallet className="mr-2 h-4 w-4" />
+                    <span>VEDD Wallet</span>
+                  </div>
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem className="cursor-pointer" asChild>
                 <Link href="/achievements">
                   <div className="flex items-center w-full">
                     <Award className="mr-2 h-4 w-4" />
@@ -242,6 +250,15 @@ const Header: React.FC = () => {
                 >
                   <User className="h-4 w-4 mr-2" />
                   Profile
+                </Link>
+                <Link 
+                  href="/vedd-wallet"
+                  onClick={handleMobileNavClick}
+                  className={`text-lg font-medium transition-colors flex items-center ${location === '/vedd-wallet' ? 'text-purple-500' : 'text-purple-400 hover:text-purple-300'}`}
+                  data-testid="mobile-nav-vedd-wallet"
+                >
+                  <Wallet className="h-4 w-4 mr-2" />
+                  VEDD Wallet
                 </Link>
                 <div className="border-t border-gray-700 my-2 pt-2">
                   <Link 

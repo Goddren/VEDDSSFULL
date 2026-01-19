@@ -32,10 +32,14 @@ import {
   type AmbassadorChallengeSession, type InsertAmbassadorChallengeSession,
   type AmbassadorEventSchedule, type InsertAmbassadorEventSchedule,
   type AmbassadorScheduleRegistration, type InsertAmbassadorScheduleRegistration,
-  type AmbassadorCommunityComment, type InsertAmbassadorCommunityComment
+  type AmbassadorCommunityComment, type InsertAmbassadorCommunityComment,
+  type VeddPoolWallet, type InsertVeddPoolWallet,
+  type VeddTransferJob, type InsertVeddTransferJob,
+  type AmbassadorActionReward, type InsertAmbassadorActionReward,
+  veddPoolWallets, veddTransferJobs, ambassadorActionRewards
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, sql, desc } from "drizzle-orm";
+import { eq, and, sql, desc, isNull } from "drizzle-orm";
 import session from "express-session";
 import createMemoryStore from "memorystore";
 import crypto from "crypto";
@@ -271,6 +275,14 @@ export interface IStorage {
   getEventRegistration(userId: number, eventId: number): Promise<AmbassadorEventRegistration | undefined>;
   getUserEvents(userId: number): Promise<(AmbassadorEventRegistration & { event: AmbassadorEvent })[]>;
   updateEventRegistration(userId: number, eventId: number, data: Partial<AmbassadorEventRegistration>): Promise<AmbassadorEventRegistration | undefined>;
+
+  // VEDD Token System methods
+  getVeddPoolWallets(): Promise<VeddPoolWallet[]>;
+  getAmbassadorRewardsByUser(userId: number): Promise<AmbassadorActionReward[]>;
+  getVeddTransfersByUser(userId: number): Promise<VeddTransferJob[]>;
+  getVerifiedUnprocessedRewards(userId: number): Promise<AmbassadorActionReward[]>;
+  createVeddTransferJob(job: InsertVeddTransferJob): Promise<VeddTransferJob>;
+  updateAmbassadorReward(id: number, data: Partial<AmbassadorActionReward>): Promise<AmbassadorActionReward | undefined>;
 }
 
 // Create PostgreSQL session store
@@ -1878,6 +1890,45 @@ export class DatabaseStorage implements IStorage {
     const [result] = await db.update(ambassadorCommunityComments)
       .set({ likes: sql`${ambassadorCommunityComments.likes} + 1` })
       .where(eq(ambassadorCommunityComments.id, id))
+      .returning();
+    return result;
+  }
+
+  // VEDD Token System implementations
+  async getVeddPoolWallets(): Promise<VeddPoolWallet[]> {
+    return await db.select().from(veddPoolWallets);
+  }
+
+  async getAmbassadorRewardsByUser(userId: number): Promise<AmbassadorActionReward[]> {
+    return await db.select().from(ambassadorActionRewards)
+      .where(eq(ambassadorActionRewards.userId, userId))
+      .orderBy(desc(ambassadorActionRewards.createdAt));
+  }
+
+  async getVeddTransfersByUser(userId: number): Promise<VeddTransferJob[]> {
+    return await db.select().from(veddTransferJobs)
+      .where(eq(veddTransferJobs.userId, userId))
+      .orderBy(desc(veddTransferJobs.createdAt));
+  }
+
+  async getVerifiedUnprocessedRewards(userId: number): Promise<AmbassadorActionReward[]> {
+    return await db.select().from(ambassadorActionRewards)
+      .where(and(
+        eq(ambassadorActionRewards.userId, userId),
+        eq(ambassadorActionRewards.verificationStatus, 'verified'),
+        isNull(ambassadorActionRewards.transferJobId)
+      ));
+  }
+
+  async createVeddTransferJob(job: InsertVeddTransferJob): Promise<VeddTransferJob> {
+    const [result] = await db.insert(veddTransferJobs).values(job).returning();
+    return result;
+  }
+
+  async updateAmbassadorReward(id: number, data: Partial<AmbassadorActionReward>): Promise<AmbassadorActionReward | undefined> {
+    const [result] = await db.update(ambassadorActionRewards)
+      .set(data)
+      .where(eq(ambassadorActionRewards.id, id))
       .returning();
     return result;
   }
