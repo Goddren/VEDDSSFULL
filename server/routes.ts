@@ -6596,7 +6596,7 @@ Generate a JSON object with:
       
       const existing = await storage.getEventRegistration(userId, eventId);
       if (existing) {
-        return res.status(400).json({ error: 'Already registered for this event' });
+        return res.status(400).json({ error: "You're already registered! Check your upcoming events to view details." });
       }
       
       const registration = await storage.registerForEvent(userId, eventId, role || 'attendee');
