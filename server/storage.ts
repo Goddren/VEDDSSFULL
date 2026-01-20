@@ -273,8 +273,12 @@ export interface IStorage {
   
   registerForEvent(userId: number, eventId: number, role?: string): Promise<AmbassadorEventRegistration>;
   getEventRegistration(userId: number, eventId: number): Promise<AmbassadorEventRegistration | undefined>;
+  getEventRegistrations(eventId: number): Promise<AmbassadorEventRegistration[]>;
+  getUserEventRegistrations(userId: number): Promise<AmbassadorEventRegistration[]>;
   getUserEvents(userId: number): Promise<(AmbassadorEventRegistration & { event: AmbassadorEvent })[]>;
   updateEventRegistration(userId: number, eventId: number, data: Partial<AmbassadorEventRegistration>): Promise<AmbassadorEventRegistration | undefined>;
+  getAmbassadorEvent(id: number): Promise<AmbassadorEvent | undefined>;
+  updateAmbassadorEventRecording(eventId: number, recordingUrl: string, uploadedBy: number): Promise<AmbassadorEvent | undefined>;
 
   // VEDD Token System methods
   getVeddPoolWallets(): Promise<VeddPoolWallet[]>;
@@ -1741,6 +1745,33 @@ export class DatabaseStorage implements IStorage {
         eq(ambassadorEventRegistrations.userId, userId),
         eq(ambassadorEventRegistrations.eventId, eventId)
       ))
+      .returning();
+    return result;
+  }
+
+  async getEventRegistrations(eventId: number): Promise<AmbassadorEventRegistration[]> {
+    return await db.select().from(ambassadorEventRegistrations)
+      .where(eq(ambassadorEventRegistrations.eventId, eventId));
+  }
+
+  async getUserEventRegistrations(userId: number): Promise<AmbassadorEventRegistration[]> {
+    return await db.select().from(ambassadorEventRegistrations)
+      .where(eq(ambassadorEventRegistrations.userId, userId));
+  }
+
+  async getAmbassadorEvent(id: number): Promise<AmbassadorEvent | undefined> {
+    const [result] = await db.select().from(ambassadorEvents).where(eq(ambassadorEvents.id, id));
+    return result;
+  }
+
+  async updateAmbassadorEventRecording(eventId: number, recordingUrl: string, uploadedBy: number): Promise<AmbassadorEvent | undefined> {
+    const [result] = await db.update(ambassadorEvents)
+      .set({
+        recordingUrl,
+        recordingUploadedAt: new Date(),
+        recordingUploadedBy: uploadedBy,
+      })
+      .where(eq(ambassadorEvents.id, eventId))
       .returning();
     return result;
   }

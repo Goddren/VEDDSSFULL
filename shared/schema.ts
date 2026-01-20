@@ -974,6 +974,9 @@ export const ambassadorEvents = pgTable("ambassador_events", {
   weekNumber: integer("week_number"), // Links to content journey week
   status: text("status").notNull().default('template'), // 'template', 'scheduled', 'live', 'completed', 'cancelled'
   aiGenerated: boolean("ai_generated").notNull().default(true),
+  recordingUrl: text("recording_url"), // URL to event recording for replay
+  recordingUploadedAt: timestamp("recording_uploaded_at"),
+  recordingUploadedBy: integer("recording_uploaded_by").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

@@ -6667,6 +6667,145 @@ Generate a JSON object with:
     }
   });
 
+  // Get events user is hosting (as host, co_host, or speaker)
+  app.get("/api/ambassador/host/my-events", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    
+    try {
+      const userId = (req.user as any).id;
+      const registrations = await storage.getUserEventRegistrations(userId);
+      
+      // Filter to only host/co_host/speaker roles
+      const hostRegistrations = registrations.filter(r => 
+        ['host', 'co_host', 'speaker'].includes(r.role)
+      );
+      
+      // Get full event details for each
+      const hostedEvents = await Promise.all(
+        hostRegistrations.map(async (reg) => {
+          const event = await storage.getAmbassadorEvent(reg.eventId);
+          if (!event) return null;
+          
+          // Get attendee count
+          const allRegs = await storage.getEventRegistrations(event.id);
+          const attendeeCount = allRegs.filter(r => r.status === 'registered' || r.status === 'attended').length;
+          
+          return {
+            ...event,
+            role: reg.role,
+            attendeeCount,
+            talkingPoints: event.talkingPoints || [],
+            agenda: event.agenda || [],
+            resourceLinks: event.resourceLinks || [],
+          };
+        })
+      );
+      
+      res.json(hostedEvents.filter(Boolean));
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Get host stats
+  app.get("/api/ambassador/host/stats", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    
+    try {
+      const userId = (req.user as any).id;
+      const registrations = await storage.getUserEventRegistrations(userId);
+      
+      // Filter to host roles
+      const hostRegs = registrations.filter(r => 
+        ['host', 'co_host', 'speaker'].includes(r.role)
+      );
+      
+      // Calculate stats
+      let totalEventsHosted = 0;
+      let upcomingEvents = 0;
+      let totalAttendees = 0;
+      let totalRatings = 0;
+      let ratingCount = 0;
+      let tokensEarned = 0;
+      
+      for (const reg of hostRegs) {
+        const event = await storage.getAmbassadorEvent(reg.eventId);
+        if (!event) continue;
+        
+        if (event.status === 'completed') {
+          totalEventsHosted++;
+          tokensEarned += reg.tokensEarned || 0;
+          
+          // Get attendee count and ratings
+          const eventRegs = await storage.getEventRegistrations(event.id);
+          totalAttendees += eventRegs.filter(r => r.status === 'attended').length;
+          
+          for (const r of eventRegs) {
+            if (r.rating) {
+              totalRatings += r.rating;
+              ratingCount++;
+            }
+          }
+        } else if (event.status === 'scheduled') {
+          upcomingEvents++;
+        }
+      }
+      
+      const averageRating = ratingCount > 0 ? totalRatings / ratingCount : 0;
+      
+      // Determine host tier
+      let hostTier = "Bronze Host";
+      if (totalEventsHosted >= 20) hostTier = "Platinum Host";
+      else if (totalEventsHosted >= 10) hostTier = "Gold Host";
+      else if (totalEventsHosted >= 5) hostTier = "Silver Host";
+      
+      res.json({
+        totalEventsHosted,
+        upcomingEvents,
+        totalAttendees,
+        averageRating: Math.round(averageRating * 10) / 10,
+        tokensEarned,
+        hostTier,
+      });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Upload event recording
+  app.post("/api/ambassador/events/:eventId/recording", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    
+    try {
+      const userId = (req.user as any).id;
+      const eventId = parseInt(req.params.eventId);
+      const { recordingUrl } = req.body;
+      
+      if (!recordingUrl) {
+        return res.status(400).json({ error: 'Recording URL is required' });
+      }
+      
+      // Verify user is a host for this event
+      const registration = await storage.getEventRegistration(userId, eventId);
+      if (!registration || !['host', 'co_host', 'speaker'].includes(registration.role)) {
+        return res.status(403).json({ error: 'Only hosts can upload recordings' });
+      }
+      
+      // Update event with recording
+      await storage.updateAmbassadorEventRecording(eventId, recordingUrl, userId);
+      
+      res.json({ success: true, message: 'Recording uploaded successfully' });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
   // Get community hub data (aggregated view for a day/week)
   // Auto-generates content when empty for seamless user experience
   app.get("/api/ambassador/community/hub", async (req: Request, res: Response) => {
