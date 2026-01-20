@@ -6341,7 +6341,8 @@ Generate a JSON object with these fields:
       await storage.createChallenge({
         title: challenge.title,
         description: challenge.description,
-        type: challenge.type,
+        challengeType: 'weekly',
+        category: challenge.type,
         difficulty: challenge.totalTokenReward > 200 ? 'hard' : challenge.totalTokenReward > 100 ? 'medium' : 'easy',
         objectives: challenge.objectives.map(o => o.description),
         successCriteria: challenge.objectives.map(o => o.verification).join('; '),
