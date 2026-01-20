@@ -6322,16 +6322,50 @@ Generate a JSON object with these fields:
     }
   });
 
-  // Generate weekly challenges helper function
+  // Generate weekly challenges helper function - uses strategic challenges data
   async function generateWeeklyChallenges(weekNumber: number) {
-    const OpenAI = (await import("openai")).default;
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const { strategicChallenges } = await import("./strategic-community-data");
     
-    const challengeTypes = [
-      { type: 'content', title: 'Content Creator Challenge' },
-      { type: 'engagement', title: 'Community Engagement Challenge' },
-      { type: 'learning', title: 'Trading Knowledge Challenge' }
-    ];
+    // Get strategic challenges for this week (or repeatable ones)
+    const weekChallenges = strategicChallenges.filter(c => 
+      c.weekNumber === weekNumber || c.weekNumber === 0
+    );
+    
+    const now = new Date();
+    const weekStart = new Date(now);
+    weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekEnd.getDate() + 7);
+    
+    for (const challenge of weekChallenges) {
+      await storage.createChallenge({
+        title: challenge.title,
+        description: challenge.description,
+        type: challenge.type,
+        difficulty: challenge.totalTokenReward > 200 ? 'hard' : challenge.totalTokenReward > 100 ? 'medium' : 'easy',
+        objectives: challenge.objectives.map(o => o.description),
+        successCriteria: challenge.objectives.map(o => o.verification).join('; '),
+        tokenReward: challenge.totalTokenReward,
+        bonusReward: challenge.bonusTokens,
+        badgeReward: `${challenge.title} Champion`,
+        startDate: weekStart,
+        endDate: weekEnd,
+        weekNumber: weekNumber,
+        status: 'active',
+        aiGenerated: false,
+      });
+    }
+    
+    // Fallback to AI generation if no strategic challenges for this week
+    if (weekChallenges.length === 0) {
+      const OpenAI = (await import("openai")).default;
+      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+      
+      const challengeTypes = [
+        { type: 'content', title: 'Content Creator Challenge' },
+        { type: 'engagement', title: 'Community Engagement Challenge' },
+        { type: 'learning', title: 'Trading Knowledge Challenge' }
+      ];
     
     const now = new Date();
     const weekStart = new Date(now);
@@ -6384,6 +6418,7 @@ Generate a JSON object with:
         status: 'active',
         aiGenerated: true
       });
+    }
     }
   }
 
@@ -6519,18 +6554,56 @@ Generate a JSON object with:
     }
   });
 
-  // Generate weekly events helper function
+  // Generate weekly events helper function - uses strategic events data
   async function generateWeeklyEvents(weekNumber: number) {
-    const OpenAI = (await import("openai")).default;
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const { strategicEvents } = await import("./strategic-community-data");
     
-    const eventTypes = [
-      { type: 'live_session', title: 'Weekly Live Trading Session' },
-      { type: 'ama', title: 'Ask Me Anything Session' },
-      { type: 'workshop', title: 'Ambassador Workshop' }
-    ];
+    // Get strategic events for this week (or repeatable ones like weekly graduation)
+    const weekEvents = strategicEvents.filter(e => 
+      e.weekNumber === weekNumber || e.weekNumber === 0
+    );
+    
+    // Calculate event dates based on week number
+    const now = new Date();
+    const weekStart = new Date(now);
+    weekStart.setDate(weekStart.getDate() - weekStart.getDay() + (weekNumber - 1) * 7);
+    
+    for (const event of weekEvents) {
+      const eventDate = new Date(weekStart);
+      eventDate.setDate(eventDate.getDate() + (event.dayNumber % 7));
+      eventDate.setHours(19, 0, 0, 0); // Default 7 PM
+      
+      await storage.createEvent({
+        title: event.title,
+        description: event.description,
+        eventType: event.eventType,
+        format: event.format,
+        hostGuide: event.hostGuide,
+        talkingPoints: event.talkingPoints,
+        agenda: event.agenda,
+        resourceLinks: event.resourceLinks,
+        suggestedDuration: event.suggestedDuration,
+        tokenReward: event.tokenReward,
+        hostTokenReward: event.hostTokenReward,
+        scheduledDate: eventDate,
+        weekNumber: weekNumber,
+        status: 'scheduled',
+        aiGenerated: false,
+      });
+    }
+    
+    // Fallback to AI generation if no strategic events for this week
+    if (weekEvents.length === 0) {
+      const OpenAI = (await import("openai")).default;
+      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+      
+      const eventTypes = [
+        { type: 'live_session', title: 'Weekly Live Trading Session' },
+        { type: 'ama', title: 'Ask Me Anything Session' },
+        { type: 'workshop', title: 'Ambassador Workshop' }
+      ];
 
-    for (const et of eventTypes) {
+      for (const et of eventTypes) {
       const completion = await openai.chat.completions.create({
         model: "gpt-4o",
         messages: [
@@ -6575,6 +6648,7 @@ Generate a JSON object with:
         status: 'template',
         aiGenerated: true
       });
+      }
     }
   }
 
