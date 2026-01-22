@@ -1969,14 +1969,26 @@ export default function AmbassadorTrainingPage() {
 
           {/* Quick Access Shortcuts */}
           <div className="flex flex-wrap justify-center gap-3 mt-6">
-            <Link href="/ambassador/content-flow">
+            <Link href="/training-calendar">
               <Button className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white">
+                <Calendar className="w-4 h-4 mr-2" />
+                Training Calendar
+              </Button>
+            </Link>
+            <Link href="/ambassador/content-flow">
+              <Button variant="outline" className="border-amber-500/50 text-amber-400 hover:bg-amber-500/10">
                 <Calendar className="w-4 h-4 mr-2" />
                 44-Day Content Journey
               </Button>
             </Link>
+            <Link href="/host-dashboard">
+              <Button variant="outline" className="border-green-500/50 text-green-400 hover:bg-green-500/10">
+                <Users className="w-4 h-4 mr-2" />
+                Host Dashboard
+              </Button>
+            </Link>
             <Link href="/user-guide">
-              <Button variant="outline" className="border-amber-500/50 text-amber-400 hover:bg-amber-500/10">
+              <Button variant="outline" className="border-blue-500/50 text-blue-400 hover:bg-blue-500/10">
                 <BookOpen className="w-4 h-4 mr-2" />
                 User Guide
               </Button>
