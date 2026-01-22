@@ -45,6 +45,7 @@ import SocialHub from "@/pages/social-hub";
 import UserGuidePage from "@/pages/user-guide";
 import AmbassadorTrainingPage from "@/pages/ambassador-training";
 import TrainingCalendar from "@/pages/training-calendar";
+import TrainingDay from "@/pages/training-day";
 import ContentFlowCalendar from "@/pages/content-flow-calendar";
 import ContentFlowDay from "@/pages/content-flow-day";
 import ChallengeSession from "@/pages/challenge-session";
@@ -114,6 +115,7 @@ function AppLayout() {
             <Route path="/user-guide" component={UserGuidePage} />
             <Route path="/ambassador-training" component={AmbassadorTrainingPage} />
             <Route path="/training-calendar" component={TrainingCalendar} />
+            <Route path="/training-calendar/day/:dayNumber" component={TrainingDay} />
             <Route path="/streak" component={StreakTrackerPage} />
             
             {/* Ambassador Content Flow (Protected) */}

@@ -127,10 +127,7 @@ export default function TrainingCalendar() {
   const handleDayClick = (dayNumber: number) => {
     const status = getDayStatus(dayNumber);
     if (status !== 'locked') {
-      const dayData = trainingDays.find(d => d.day === dayNumber);
-      if (dayData) {
-        setLocation(`/ambassador-training?module=${dayData.module}&day=${dayNumber}`);
-      }
+      setLocation(`/training-calendar/day/${dayNumber}`);
     }
   };
 
