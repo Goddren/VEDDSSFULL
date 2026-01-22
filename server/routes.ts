@@ -5954,7 +5954,11 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       const userProgress = await storage.getAmbassadorDayProgress(userId, dayNumber);
       const stats = await storage.getAmbassadorContentStats(userId);
       
-      const isUnlocked = !stats || dayNumber <= stats.currentDay;
+      // Day 1 is always unlocked, subsequent days require progression
+      // If no stats exist, user is new - unlock Day 1 only
+      // If stats exist, unlock days up to and including currentDay
+      const currentDay = stats?.currentDay || 1;
+      const isUnlocked = dayNumber === 1 || dayNumber <= currentDay;
       
       res.json({
         lesson,
