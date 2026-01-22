@@ -1734,6 +1734,18 @@ export default function AmbassadorTrainingPage() {
   const [walletAddress, setWalletAddress] = useState('');
   const [showNFTSection, setShowNFTSection] = useState(false);
 
+  // Handle URL parameters for deep linking from training calendar
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const moduleParam = urlParams.get('module');
+    if (moduleParam) {
+      const moduleExists = trainingModules.find(m => m.id === moduleParam);
+      if (moduleExists) {
+        setActiveModule(moduleParam);
+      }
+    }
+  }, []);
+
   const totalLessons = trainingModules.reduce((acc, m) => acc + m.lessons.length, 0);
   const progress = (completedLessons.size / totalLessons) * 100;
   const isComplete = completedLessons.size === totalLessons;
