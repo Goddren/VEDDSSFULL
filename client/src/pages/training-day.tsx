@@ -14,6 +14,26 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
 
+import chartAnalysisImg from '@assets/stock_images/trading_chart_analys_8f9ce15e.jpg';
+import platformsImg from '@assets/stock_images/trading_platforms_mu_e4e1343a.jpg';
+import dojiImg from '@assets/stock_images/doji_candlestick_pat_16d5e0c5.jpg';
+import hammerImg from '@assets/stock_images/hammer_candlestick_p_ad947b56.jpg';
+import engulfingImg from '@assets/stock_images/engulfing_candlestic_23e0cac2.jpg';
+import morningStarImg from '@assets/stock_images/morning_star_evening_bea77580.jpg';
+import headShouldersImg from '@assets/stock_images/head_and_shoulders_c_a7f4aded.jpg';
+import doubleTopImg from '@assets/stock_images/double_top_double_bo_0f93e9e9.jpg';
+import movingAvgImg from '@assets/stock_images/moving_average_golde_66b4129c.jpg';
+import rsiImg from '@assets/stock_images/rsi_indicator_overbo_7678d699.jpg';
+import macdImg from '@assets/stock_images/macd_indicator_cross_c6747c8e.jpg';
+import bollingerImg from '@assets/stock_images/bollinger_bands_trad_2069a801.jpg';
+import volumeImg from '@assets/stock_images/volume_trading_chart_473db698.jpg';
+import socialMediaImg from '@assets/stock_images/social_media_marketi_1d2f1efd.jpg';
+import videoCreationImg from '@assets/stock_images/professional_video_r_aada2fa4.jpg';
+import liveStreamImg from '@assets/stock_images/live_streaming_video_1e9c8eed.jpg';
+import complianceImg from '@assets/stock_images/business_compliance__a162932c.jpg';
+import supportResistanceImg from '@assets/stock_images/support_resistance_l_2c9b9a2d.jpg';
+import triangleImg from '@assets/stock_images/triangle_chart_patte_702e71b8.jpg';
+
 interface TrainingProgress {
   id: number;
   userId: number;
@@ -29,6 +49,7 @@ interface TrainingProgress {
 
 const trainingDays = [
   { day: 1, module: "intro", lessonId: "intro-1", title: "What is AI Trading Vault?", icon: BookOpen, category: "foundation",
+    image: chartAnalysisImg, imageAlt: "AI Trading Vault chart analysis",
     content: [
       "AI Trading Vault is a cutting-edge chart analysis platform designed to empower traders with AI-powered insights",
       "Our mission is to make professional-grade charting accessible, educational, and community-driven",
@@ -38,6 +59,7 @@ const trainingDays = [
     tips: ["Focus on the AI-powered analysis capabilities", "Emphasize time savings for busy traders"]
   },
   { day: 2, module: "intro", lessonId: "intro-2", title: "Key Value Propositions", icon: Target, category: "foundation",
+    image: chartAnalysisImg, imageAlt: "Trading chart analysis overview",
     content: [
       "Save hours of manual chart analysis with AI automation",
       "Generate professional EA code without programming knowledge",
@@ -47,6 +69,7 @@ const trainingDays = [
     tips: ["Highlight the earning potential", "Mention the no-coding-required EA generation"]
   },
   { day: 3, module: "platforms-intro", lessonId: "platforms-1", title: "What are Trading Platforms?", icon: Monitor, category: "foundation",
+    image: platformsImg, imageAlt: "Multiple trading platforms",
     content: [
       "Trading platforms are software applications that connect you to financial markets",
       "They let you view price charts, place buy/sell orders, and manage your trades",
@@ -56,6 +79,7 @@ const trainingDays = [
     tips: ["Use simple analogies", "Emphasize platform compatibility"]
   },
   { day: 4, module: "platforms-intro", lessonId: "platforms-2", title: "MetaTrader 5 (MT5)", icon: Monitor, category: "foundation",
+    image: platformsImg, imageAlt: "MetaTrader 5 platform interface",
     content: [
       "MT5 is one of the most popular trading platforms worldwide, especially for Forex",
       "Created by MetaQuotes and used by millions of traders globally",
@@ -65,6 +89,7 @@ const trainingDays = [
     tips: ["Explain that MT5 is free to download", "Mention our MT5 Chart Data EA integration"]
   },
   { day: 5, module: "platforms-intro", lessonId: "platforms-3", title: "TradingView", icon: Monitor, category: "foundation",
+    image: platformsImg, imageAlt: "TradingView charting platform",
     content: [
       "TradingView is a web-based charting platform with powerful analysis tools",
       "Works directly in your browser - no software download required",
@@ -74,6 +99,7 @@ const trainingDays = [
     tips: ["Highlight browser-based accessibility", "Mention the learning community"]
   },
   { day: 6, module: "platforms-intro", lessonId: "platforms-4", title: "TradeLocker", icon: Monitor, category: "foundation",
+    image: platformsImg, imageAlt: "TradeLocker trading platform",
     content: [
       "TradeLocker is a modern trading platform designed for prop trading firms",
       "Features a clean, intuitive interface optimized for quick execution",
@@ -83,6 +109,7 @@ const trainingDays = [
     tips: ["Explain what prop trading firms are", "Mention webhook integration"]
   },
   { day: 7, module: "platforms-intro", lessonId: "platforms-5", title: "Platform Integration", icon: Zap, category: "foundation",
+    image: platformsImg, imageAlt: "Platform integration workflow",
     content: [
       "Upload: Take a screenshot of your chart from any platform",
       "Analyze: Our AI examines patterns, trends, and key levels automatically",
@@ -92,6 +119,7 @@ const trainingDays = [
     tips: ["Show the simple 4-step workflow", "Emphasize universal compatibility"]
   },
   { day: 8, module: "chart-patterns", lessonId: "patterns-1", title: "Candlestick Basics", icon: Target, category: "strategy",
+    image: dojiImg, imageAlt: "Basic candlestick patterns",
     content: [
       "Candlesticks show price movement over a specific time period",
       "Each candle has a body (open to close) and wicks (high and low)",
@@ -101,6 +129,7 @@ const trainingDays = [
     tips: ["Use visual examples", "Start with the basics before complex patterns"]
   },
   { day: 9, module: "chart-patterns", lessonId: "patterns-2", title: "Doji Patterns", icon: Target, category: "strategy",
+    image: dojiImg, imageAlt: "Doji candlestick patterns",
     content: [
       "A Doji forms when open and close prices are nearly equal",
       "Indicates indecision in the market - neither buyers nor sellers won",
@@ -110,6 +139,7 @@ const trainingDays = [
     tips: ["Explain market psychology behind the pattern", "Show real chart examples"]
   },
   { day: 10, module: "chart-patterns", lessonId: "patterns-3", title: "Hammer & Hanging Man", icon: Target, category: "strategy",
+    image: hammerImg, imageAlt: "Hammer and Hanging Man patterns",
     content: [
       "Hammer: Bullish reversal pattern found at the bottom of downtrends",
       "Hanging Man: Bearish reversal pattern found at the top of uptrends",
@@ -119,6 +149,7 @@ const trainingDays = [
     tips: ["Focus on the importance of context", "Use before/after examples"]
   },
   { day: 11, module: "chart-patterns", lessonId: "patterns-4", title: "Engulfing Patterns", icon: Target, category: "strategy",
+    image: engulfingImg, imageAlt: "Bullish and bearish engulfing patterns",
     content: [
       "Bullish Engulfing: Large green candle completely engulfs previous red candle",
       "Bearish Engulfing: Large red candle completely engulfs previous green candle",
@@ -128,6 +159,7 @@ const trainingDays = [
     tips: ["Show the size comparison between candles", "Explain why engulfing matters"]
   },
   { day: 12, module: "chart-patterns", lessonId: "patterns-5", title: "Morning/Evening Star", icon: Star, category: "strategy",
+    image: morningStarImg, imageAlt: "Morning star and evening star patterns",
     content: [
       "Morning Star: Three-candle bullish reversal (red, small, green)",
       "Evening Star: Three-candle bearish reversal (green, small, red)",
@@ -137,6 +169,7 @@ const trainingDays = [
     tips: ["Break down each candle's meaning", "Explain the psychology of the three stages"]
   },
   { day: 13, module: "chart-patterns", lessonId: "patterns-6", title: "Head & Shoulders", icon: Target, category: "strategy",
+    image: headShouldersImg, imageAlt: "Head and shoulders chart pattern",
     content: [
       "Classic reversal pattern with three peaks - left shoulder, head, right shoulder",
       "Neckline connects the lows between the shoulders",
@@ -146,6 +179,7 @@ const trainingDays = [
     tips: ["Draw the pattern clearly", "Explain entry and target calculation"]
   },
   { day: 14, module: "chart-patterns", lessonId: "patterns-7", title: "Double Top/Bottom", icon: Target, category: "strategy",
+    image: doubleTopImg, imageAlt: "Double top and double bottom patterns",
     content: [
       "Double Top: Two peaks at similar price level - bearish reversal",
       "Double Bottom: Two valleys at similar price level - bullish reversal",
@@ -155,6 +189,7 @@ const trainingDays = [
     tips: ["Show the W and M shapes", "Explain why two tests matter"]
   },
   { day: 15, module: "indicators", lessonId: "indicators-1", title: "Moving Averages", icon: Brain, category: "strategy",
+    image: movingAvgImg, imageAlt: "Moving averages on chart",
     content: [
       "Moving averages smooth out price data to show the trend direction",
       "Simple Moving Average (SMA) vs Exponential Moving Average (EMA)",
@@ -164,6 +199,7 @@ const trainingDays = [
     tips: ["Explain the difference between SMA and EMA", "Show golden cross and death cross"]
   },
   { day: 16, module: "indicators", lessonId: "indicators-2", title: "RSI Indicator", icon: Brain, category: "strategy",
+    image: rsiImg, imageAlt: "RSI indicator overbought oversold zones",
     content: [
       "Relative Strength Index measures momentum on a 0-100 scale",
       "Above 70 = overbought (potential sell), Below 30 = oversold (potential buy)",
@@ -173,6 +209,7 @@ const trainingDays = [
     tips: ["Show overbought/oversold zones", "Explain RSI divergence with examples"]
   },
   { day: 17, module: "indicators", lessonId: "indicators-3", title: "MACD Explained", icon: Brain, category: "strategy",
+    image: macdImg, imageAlt: "MACD indicator crossovers",
     content: [
       "MACD = Moving Average Convergence Divergence",
       "Consists of MACD line, Signal line, and Histogram",
@@ -182,6 +219,7 @@ const trainingDays = [
     tips: ["Break down each component", "Show bullish and bearish crossovers"]
   },
   { day: 18, module: "indicators", lessonId: "indicators-4", title: "Bollinger Bands", icon: Brain, category: "strategy",
+    image: bollingerImg, imageAlt: "Bollinger Bands trading chart",
     content: [
       "Bollinger Bands consist of a middle SMA with upper and lower bands",
       "Bands expand during high volatility, contract during low volatility",
@@ -191,6 +229,7 @@ const trainingDays = [
     tips: ["Show band expansion and contraction", "Explain the squeeze setup"]
   },
   { day: 19, module: "indicators", lessonId: "indicators-5", title: "Volume Analysis", icon: Brain, category: "strategy",
+    image: volumeImg, imageAlt: "Volume analysis on trading chart",
     content: [
       "Volume shows how much trading activity occurred",
       "High volume confirms price moves, low volume suggests weakness",
@@ -200,6 +239,7 @@ const trainingDays = [
     tips: ["Show volume confirmation examples", "Explain smart money concepts"]
   },
   { day: 20, module: "indicators", lessonId: "indicators-6", title: "Combining Indicators", icon: Zap, category: "strategy",
+    image: chartAnalysisImg, imageAlt: "Multiple indicators combined",
     content: [
       "No single indicator is perfect - combine for confirmation",
       "Popular combos: RSI + MACD, Moving Averages + Volume",
@@ -209,6 +249,7 @@ const trainingDays = [
     tips: ["Show a multi-indicator setup", "Explain when indicators agree"]
   },
   { day: 21, module: "indicators", lessonId: "indicators-7", title: "Week 3 Review", icon: Award, category: "review",
+    image: chartAnalysisImg, imageAlt: "Week 3 review chart patterns",
     content: [
       "Review all indicator concepts learned this week",
       "Practice identifying signals on live charts",
@@ -218,6 +259,7 @@ const trainingDays = [
     tips: ["Quiz yourself on indicator basics", "Practice with real charts"]
   },
   { day: 22, module: "social", lessonId: "social-1", title: "Social Media Basics", icon: Share2, category: "execution",
+    image: socialMediaImg, imageAlt: "Social media marketing for traders",
     content: [
       "Choose your primary platforms: Twitter/X, Instagram, TikTok, YouTube",
       "Consistency is key - post regularly to build audience",
@@ -227,6 +269,7 @@ const trainingDays = [
     tips: ["Start with 1-2 platforms", "Quality over quantity for engagement"]
   },
   { day: 23, module: "social", lessonId: "social-2", title: "Creating Engaging Content", icon: Camera, category: "execution",
+    image: socialMediaImg, imageAlt: "Creating engaging trading content",
     content: [
       "Hook viewers in the first 3 seconds",
       "Show results and transformations - before/after trading success",
@@ -236,6 +279,7 @@ const trainingDays = [
     tips: ["Study viral trading content", "Test different content formats"]
   },
   { day: 24, module: "social", lessonId: "social-3", title: "Building Your Audience", icon: Users, category: "execution",
+    image: socialMediaImg, imageAlt: "Building trading audience",
     content: [
       "Define your niche - what makes you unique?",
       "Collaborate with other trading content creators",
@@ -245,6 +289,7 @@ const trainingDays = [
     tips: ["Focus on a specific trading niche", "Network with other creators"]
   },
   { day: 25, module: "social", lessonId: "social-4", title: "Hashtag Strategy", icon: Target, category: "execution",
+    image: socialMediaImg, imageAlt: "Hashtag strategy for trading content",
     content: [
       "Use a mix of popular and niche hashtags",
       "Research what's working in the trading space",
@@ -254,6 +299,7 @@ const trainingDays = [
     tips: ["Keep a hashtag library", "Test different combinations"]
   },
   { day: 26, module: "social", lessonId: "social-5", title: "Engagement Techniques", icon: Zap, category: "execution",
+    image: socialMediaImg, imageAlt: "Social media engagement techniques",
     content: [
       "Ask questions in your posts to drive comments",
       "Run polls and interactive content",
@@ -263,6 +309,7 @@ const trainingDays = [
     tips: ["Respond to every comment", "Create community challenges"]
   },
   { day: 27, module: "social", lessonId: "social-6", title: "Going Viral", icon: Flame, category: "execution",
+    image: socialMediaImg, imageAlt: "Viral content strategies",
     content: [
       "Study viral trading content - what made it work?",
       "Ride trending topics when relevant",
@@ -272,6 +319,7 @@ const trainingDays = [
     tips: ["Don't chase virality at the expense of value", "Stay authentic"]
   },
   { day: 28, module: "social", lessonId: "social-7", title: "Week 4 Review", icon: Award, category: "review",
+    image: socialMediaImg, imageAlt: "Week 4 social media review",
     content: [
       "Review your social media strategy",
       "Analyze what content performed best",
@@ -281,6 +329,7 @@ const trainingDays = [
     tips: ["Track your metrics", "Iterate based on data"]
   },
   { day: 29, module: "video", lessonId: "video-1", title: "Video Content Basics", icon: Video, category: "mindset",
+    image: videoCreationImg, imageAlt: "Video content creation basics",
     content: [
       "Video is the most engaging content format",
       "Start with simple setup - phone + ring light + good audio",
@@ -290,6 +339,7 @@ const trainingDays = [
     tips: ["Good audio is more important than video quality", "Practice your delivery"]
   },
   { day: 30, module: "video", lessonId: "video-2", title: "Screen Recording Tips", icon: Monitor, category: "mindset",
+    image: videoCreationImg, imageAlt: "Screen recording for tutorials",
     content: [
       "Use screen recording software (OBS, Loom, etc.)",
       "Clean up your desktop before recording",
@@ -299,6 +349,7 @@ const trainingDays = [
     tips: ["Record in HD quality", "Edit out mistakes and pauses"]
   },
   { day: 31, module: "video", lessonId: "video-3", title: "Live Streaming Setup", icon: Video, category: "mindset",
+    image: liveStreamImg, imageAlt: "Live streaming setup for traders",
     content: [
       "Test your setup before going live",
       "Have a backup plan for technical issues",
@@ -308,6 +359,7 @@ const trainingDays = [
     tips: ["Start with shorter streams", "Build a streaming schedule"]
   },
   { day: 32, module: "video", lessonId: "video-4", title: "YouTube Optimization", icon: Video, category: "mindset",
+    image: videoCreationImg, imageAlt: "YouTube video optimization",
     content: [
       "Create compelling thumbnails that stand out",
       "Write SEO-optimized titles and descriptions",
@@ -317,6 +369,7 @@ const trainingDays = [
     tips: ["Study successful trading channels", "A/B test thumbnails"]
   },
   { day: 33, module: "video", lessonId: "video-5", title: "TikTok & Reels", icon: Video, category: "mindset",
+    image: videoCreationImg, imageAlt: "TikTok and Reels for traders",
     content: [
       "Short-form content requires different approach",
       "Hook viewers immediately - first frame matters",
@@ -326,6 +379,7 @@ const trainingDays = [
     tips: ["Study trending trading content", "Post consistently"]
   },
   { day: 34, module: "video", lessonId: "video-6", title: "Video Editing Basics", icon: Video, category: "mindset",
+    image: videoCreationImg, imageAlt: "Video editing for beginners",
     content: [
       "Cut out dead air and mistakes",
       "Add captions for accessibility and engagement",
@@ -335,6 +389,7 @@ const trainingDays = [
     tips: ["Learn keyboard shortcuts", "Develop your editing style"]
   },
   { day: 35, module: "video", lessonId: "video-7", title: "Week 5 Review", icon: Award, category: "review",
+    image: videoCreationImg, imageAlt: "Week 5 video content review",
     content: [
       "Review your video content skills",
       "Plan your content production schedule",
@@ -344,6 +399,7 @@ const trainingDays = [
     tips: ["Get feedback on your videos", "Keep improving"]
   },
   { day: 36, module: "compliance", lessonId: "compliance-1", title: "Financial Disclaimers", icon: Shield, category: "foundation",
+    image: complianceImg, imageAlt: "Financial compliance disclaimers",
     content: [
       "Always include 'not financial advice' disclaimers",
       "Never guarantee profits or returns",
@@ -353,6 +409,7 @@ const trainingDays = [
     tips: ["Create disclaimer templates", "Stay updated on regulations"]
   },
   { day: 37, module: "compliance", lessonId: "compliance-2", title: "FTC Guidelines", icon: Shield, category: "foundation",
+    image: complianceImg, imageAlt: "FTC guidelines for content creators",
     content: [
       "Disclose paid partnerships and sponsorships",
       "Use #ad or #sponsored when required",
@@ -362,6 +419,7 @@ const trainingDays = [
     tips: ["When in doubt, disclose", "Check FTC guidelines regularly"]
   },
   { day: 38, module: "compliance", lessonId: "compliance-3", title: "Social Media Policies", icon: Shield, category: "foundation",
+    image: complianceImg, imageAlt: "Social media platform policies",
     content: [
       "Follow each platform's community guidelines",
       "Avoid making income claims without proof",
@@ -371,6 +429,7 @@ const trainingDays = [
     tips: ["Read platform ToS", "Keep content clean and professional"]
   },
   { day: 39, module: "advanced", lessonId: "advanced-1", title: "Advanced EA Strategies", icon: Zap, category: "strategy",
+    image: chartAnalysisImg, imageAlt: "Advanced EA trading strategies",
     content: [
       "Multi-timeframe EA analysis for better accuracy",
       "Combining AI analysis with technical confirmation",
@@ -380,6 +439,7 @@ const trainingDays = [
     tips: ["Test on demo first", "Start with conservative settings"]
   },
   { day: 40, module: "advanced", lessonId: "advanced-2", title: "Multi-Timeframe Analysis", icon: Brain, category: "strategy",
+    image: chartAnalysisImg, imageAlt: "Multi-timeframe chart analysis",
     content: [
       "Higher timeframes show the trend, lower timeframes show entries",
       "Common combo: 4H for trend, 1H for confirmation, 15M for entry",
@@ -389,6 +449,7 @@ const trainingDays = [
     tips: ["Practice on different timeframe combos", "Start with higher TFs"]
   },
   { day: 41, module: "advanced", lessonId: "advanced-3", title: "Risk Management", icon: Shield, category: "strategy",
+    image: supportResistanceImg, imageAlt: "Risk management with support resistance",
     content: [
       "Never risk more than 1-2% per trade",
       "Use stop losses on every trade",
@@ -398,6 +459,7 @@ const trainingDays = [
     tips: ["Risk management is the #1 skill", "Protect your capital"]
   },
   { day: 42, module: "advanced", lessonId: "advanced-4", title: "Building Your Brand", icon: Star, category: "execution",
+    image: socialMediaImg, imageAlt: "Building your trading brand",
     content: [
       "Define your unique value proposition",
       "Create consistent branding across platforms",
@@ -407,6 +469,7 @@ const trainingDays = [
     tips: ["Be authentic", "Consistency builds recognition"]
   },
   { day: 43, module: "graduation", lessonId: "graduation-1", title: "Final Assessment", icon: Award, category: "review",
+    image: chartAnalysisImg, imageAlt: "Final assessment review",
     content: [
       "Review all modules completed",
       "Demonstrate understanding of key concepts",
@@ -416,6 +479,7 @@ const trainingDays = [
     tips: ["Review your notes", "Ask questions if unsure"]
   },
   { day: 44, module: "graduation", lessonId: "graduation-2", title: "Certification Day", icon: GraduationCap, category: "review",
+    image: chartAnalysisImg, imageAlt: "Ambassador certification",
     content: [
       "Congratulations on completing the 44-day training!",
       "You are now a certified AI Trading Vault Ambassador",
@@ -545,6 +609,22 @@ export default function TrainingDay() {
               </div>
             </CardHeader>
           </Card>
+
+          {dayData.image && (
+            <Card className="bg-gray-800/50 border-gray-700 overflow-hidden">
+              <div className="relative">
+                <img 
+                  src={dayData.image} 
+                  alt={dayData.imageAlt || dayData.title}
+                  className="w-full h-64 object-cover"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-gray-900/80 to-transparent" />
+                <div className="absolute bottom-4 left-4 right-4">
+                  <p className="text-white text-sm font-medium">{dayData.imageAlt || "Visual Guide"}</p>
+                </div>
+              </div>
+            </Card>
+          )}
 
           <Card className="bg-gray-800/50 border-gray-700">
             <CardHeader>
