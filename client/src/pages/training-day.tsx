@@ -14,25 +14,25 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
 
-import chartAnalysisImg from '@assets/stock_images/trading_chart_analys_8f9ce15e.jpg';
-import platformsImg from '@assets/stock_images/trading_platforms_mu_e4e1343a.jpg';
-import dojiImg from '@assets/stock_images/doji_candlestick_pat_16d5e0c5.jpg';
-import hammerImg from '@assets/stock_images/hammer_candlestick_p_ad947b56.jpg';
-import engulfingImg from '@assets/stock_images/engulfing_candlestic_23e0cac2.jpg';
-import morningStarImg from '@assets/stock_images/morning_star_evening_bea77580.jpg';
-import headShouldersImg from '@assets/stock_images/head_and_shoulders_c_a7f4aded.jpg';
-import doubleTopImg from '@assets/stock_images/double_top_double_bo_0f93e9e9.jpg';
-import movingAvgImg from '@assets/stock_images/moving_average_golde_66b4129c.jpg';
-import rsiImg from '@assets/stock_images/rsi_indicator_overbo_7678d699.jpg';
-import macdImg from '@assets/stock_images/macd_indicator_cross_c6747c8e.jpg';
-import bollingerImg from '@assets/stock_images/bollinger_bands_trad_2069a801.jpg';
-import volumeImg from '@assets/stock_images/volume_trading_chart_473db698.jpg';
-import socialMediaImg from '@assets/stock_images/social_media_marketi_1d2f1efd.jpg';
-import videoCreationImg from '@assets/stock_images/professional_video_r_aada2fa4.jpg';
-import liveStreamImg from '@assets/stock_images/live_streaming_video_1e9c8eed.jpg';
-import complianceImg from '@assets/stock_images/business_compliance__a162932c.jpg';
-import supportResistanceImg from '@assets/stock_images/support_resistance_l_2c9b9a2d.jpg';
-import triangleImg from '@assets/stock_images/triangle_chart_patte_702e71b8.jpg';
+import dojiImg from '@assets/training_images/doji_patterns_explained.png';
+import hammerImg from '@assets/training_images/hammer_patterns_explained.png';
+import engulfingImg from '@assets/training_images/engulfing_patterns_explained.png';
+import morningStarImg from '@assets/training_images/morning_evening_star_explained.png';
+import headShouldersImg from '@assets/training_images/head_shoulders_explained.png';
+import doubleTopImg from '@assets/training_images/double_top_bottom_explained.png';
+import movingAvgImg from '@assets/training_images/moving_averages_explained.png';
+import rsiImg from '@assets/training_images/rsi_indicator_explained.png';
+import macdImg from '@assets/training_images/macd_indicator_explained.png';
+import bollingerImg from '@assets/training_images/bollinger_bands_explained.png';
+import volumeImg from '@assets/training_images/volume_analysis_explained.png';
+import platformsImg from '@assets/training_images/trading_platforms_overview.png';
+import chartAnalysisImg from '@assets/training_images/ai_trading_vault_workflow.png';
+import socialMediaImg from '@assets/training_images/social_media_trading.png';
+import videoCreationImg from '@assets/training_images/video_content_creation.png';
+import complianceImg from '@assets/training_images/trading_compliance.png';
+import liveStreamImg from '@assets/training_images/video_content_creation.png';
+import supportResistanceImg from '@assets/training_images/double_top_bottom_explained.png';
+import triangleImg from '@assets/training_images/triangle_patterns_explained.png';
 
 interface TrainingProgress {
   id: number;
