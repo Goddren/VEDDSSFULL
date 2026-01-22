@@ -6559,6 +6559,89 @@ Generate a JSON object with:
     }
   });
 
+  // Weekly Content Calendar API - returns content flow with YouTube tutorials, reels, etc.
+  app.get("/api/content-calendar", async (req, res) => {
+    try {
+      const { week } = req.query;
+      const { weeklyContentFlow } = await import("./strategic-community-data");
+      
+      if (week) {
+        const weekNumber = parseInt(week as string);
+        const weekContent = weeklyContentFlow.find(w => w.weekNumber === weekNumber);
+        if (!weekContent) {
+          return res.status(404).json({ error: `No content calendar found for week ${weekNumber}` });
+        }
+        return res.json({ 
+          week: weekNumber,
+          theme: weekContent.theme,
+          focusArea: weekContent.focusArea,
+          contentItems: weekContent.contentItems,
+          totalTokenRewards: weekContent.contentItems.reduce((sum, item) => sum + item.tokenReward, 0)
+        });
+      }
+      
+      // Return full 6-week content calendar
+      const fullCalendar = weeklyContentFlow.map(week => ({
+        week: week.weekNumber,
+        theme: week.theme,
+        focusArea: week.focusArea,
+        contentCount: week.contentItems.length,
+        totalTokenRewards: week.contentItems.reduce((sum, item) => sum + item.tokenReward, 0),
+        contentTypes: [...new Set(week.contentItems.map(item => item.contentType))]
+      }));
+      
+      res.json({ 
+        totalWeeks: weeklyContentFlow.length,
+        calendar: fullCalendar,
+        contentTypes: {
+          youtube_tutorial: 'YouTube Tutorial (10+ min deep dive)',
+          quick_tip_reel: 'Quick Tip Reel (60 sec TikTok/Reels)',
+          carousel_post: 'Carousel Post (Swipeable Instagram/LinkedIn)',
+          live_stream: 'Live Stream (Interactive session)',
+          story_series: 'Story Series (24hr Instagram/Facebook stories)',
+          meme_post: 'Meme Post (Engagement driver)',
+          testimonial: 'Testimonial (Success stories)',
+          behind_scenes: 'Behind The Scenes (Authentic content)',
+          chart_breakdown: 'Chart Breakdown (Technical analysis)',
+          community_highlight: 'Community Highlight (Member shoutouts)'
+        }
+      });
+    } catch (err) {
+      console.error('Content calendar error:', err);
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Get specific day's content for today or a given day
+  app.get("/api/content-calendar/today", async (req, res) => {
+    try {
+      const { weeklyContentFlow } = await import("./strategic-community-data");
+      const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const;
+      const today = days[new Date().getDay()];
+      
+      // Get week parameter or default to week 1
+      const weekNumber = parseInt(req.query.week as string) || 1;
+      const weekContent = weeklyContentFlow.find(w => w.weekNumber === weekNumber);
+      
+      if (!weekContent) {
+        return res.status(404).json({ error: `No content found for week ${weekNumber}` });
+      }
+      
+      const todaysContent = weekContent.contentItems.find(item => item.day === today);
+      
+      res.json({
+        day: today,
+        week: weekNumber,
+        theme: weekContent.theme,
+        content: todaysContent || null,
+        message: todaysContent ? `Today's content: ${todaysContent.title}` : `No specific content scheduled for ${today}`
+      });
+    } catch (err) {
+      console.error('Today content error:', err);
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
   // Generate weekly events helper function - uses strategic events data
   async function generateWeeklyEvents(weekNumber: number) {
     const { strategicEvents } = await import("./strategic-community-data");

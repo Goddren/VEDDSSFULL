@@ -33,6 +33,532 @@ export interface StrategicChallenge {
   hashtags: string[];
 }
 
+export interface WeeklyContentItem {
+  day: 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday' | 'Sunday';
+  contentType: 'youtube_tutorial' | 'quick_tip_reel' | 'carousel_post' | 'live_stream' | 'story_series' | 'meme_post' | 'testimonial' | 'behind_scenes' | 'chart_breakdown' | 'community_highlight';
+  title: string;
+  description: string;
+  platform: ('YouTube' | 'Instagram' | 'TikTok' | 'Twitter' | 'LinkedIn' | 'Facebook')[];
+  suggestedTime: string;
+  hashtags: string[];
+  callToAction: string;
+  tokenReward: number;
+}
+
+export interface WeeklyContentFlow {
+  weekNumber: number;
+  theme: string;
+  focusArea: string;
+  contentItems: WeeklyContentItem[];
+}
+
+export const weeklyContentFlow: WeeklyContentFlow[] = [
+  {
+    weekNumber: 1,
+    theme: 'Getting Started - Welcome to the Fam',
+    focusArea: 'Platform introduction and first chart analysis',
+    contentItems: [
+      {
+        day: 'Monday',
+        contentType: 'youtube_tutorial',
+        title: 'VEDD AI Complete Walkthrough - From Zero to Hero',
+        description: 'Full tutorial showing how to sign up, upload your first chart, and read AI analysis. Keep it beginner friendly, no cap.',
+        platform: ['YouTube', 'Facebook'],
+        suggestedTime: '10:00 AM',
+        hashtags: ['#VEDDAi', '#TradingTutorial', '#ForexBeginner', '#LearnToTrade'],
+        callToAction: 'Drop a comment with your trading goals for 2025!',
+        tokenReward: 50
+      },
+      {
+        day: 'Tuesday',
+        contentType: 'quick_tip_reel',
+        title: '60 Second Chart Reading Hack',
+        description: 'Quick tip showing one thing to look for on any chart before trading. Make it snappy and valuable.',
+        platform: ['Instagram', 'TikTok', 'YouTube'],
+        suggestedTime: '12:00 PM',
+        hashtags: ['#TradingTips', '#ChartReading', '#QuickTip', '#VEDDAi'],
+        callToAction: 'Save this for later and follow for more tips!',
+        tokenReward: 25
+      },
+      {
+        day: 'Wednesday',
+        contentType: 'carousel_post',
+        title: '5 Mistakes New Traders Make (And How AI Fixes Them)',
+        description: 'Swipeable carousel breaking down common trading mistakes with solutions using VEDD AI.',
+        platform: ['Instagram', 'LinkedIn'],
+        suggestedTime: '2:00 PM',
+        hashtags: ['#TradingMistakes', '#TraderEducation', '#AITrading', '#VEDDAi'],
+        callToAction: 'Which mistake have you made? Drop a number in the comments!',
+        tokenReward: 30
+      },
+      {
+        day: 'Thursday',
+        contentType: 'live_stream',
+        title: 'Live Chart Analysis Session - We Analyzing Together',
+        description: 'Go live and analyze real charts with the community. Show VEDD AI in action, answer questions.',
+        platform: ['YouTube', 'Instagram', 'TikTok'],
+        suggestedTime: '7:00 PM',
+        hashtags: ['#LiveTrading', '#ChartAnalysis', '#TradingCommunity', '#VEDDAi'],
+        callToAction: 'Drop your chart in the comments and we might analyze it live!',
+        tokenReward: 75
+      },
+      {
+        day: 'Friday',
+        contentType: 'meme_post',
+        title: 'Trading Meme Friday - When The AI Says SELL But You Hold',
+        description: 'Relatable trading meme that gets engagement. Keep it funny but educational.',
+        platform: ['Instagram', 'Twitter', 'TikTok'],
+        suggestedTime: '11:00 AM',
+        hashtags: ['#TradingMemes', '#ForexMemes', '#TraderLife', '#VEDDAi'],
+        callToAction: 'Tag a friend who does this!',
+        tokenReward: 15
+      },
+      {
+        day: 'Saturday',
+        contentType: 'testimonial',
+        title: 'Ambassador Spotlight - Real Results Real Talk',
+        description: 'Share a community members success story or testimonial. Keep it authentic.',
+        platform: ['Instagram', 'Facebook', 'Twitter'],
+        suggestedTime: '10:00 AM',
+        hashtags: ['#SuccessStory', '#TradingResults', '#CommunityLove', '#VEDDAi'],
+        callToAction: 'Want to be featured? DM us your VEDD AI journey!',
+        tokenReward: 20
+      },
+      {
+        day: 'Sunday',
+        contentType: 'story_series',
+        title: 'Sunday Scripture & Strategy - Faith Meets Trading',
+        description: 'Share the daily devotional with a trading mindset lesson. Connect faith and discipline.',
+        platform: ['Instagram', 'Facebook'],
+        suggestedTime: '9:00 AM',
+        hashtags: ['#SundayMotivation', '#TradingMindset', '#FaithAndFinance', '#VEDDAi'],
+        callToAction: 'Share this to your story if it blessed you!',
+        tokenReward: 20
+      }
+    ]
+  },
+  {
+    weekNumber: 2,
+    theme: 'Level Up - Advanced Chart Game',
+    focusArea: 'Multi-timeframe analysis and EA strategies',
+    contentItems: [
+      {
+        day: 'Monday',
+        contentType: 'youtube_tutorial',
+        title: 'Multi-Timeframe Analysis Masterclass - See The Bigger Picture',
+        description: 'Deep dive into using 4H, 1H, 15M, 5M timeframes together. Show how VEDD AI synthesizes them all.',
+        platform: ['YouTube', 'Facebook'],
+        suggestedTime: '10:00 AM',
+        hashtags: ['#MultiTimeframe', '#TechnicalAnalysis', '#TradingMasterclass', '#VEDDAi'],
+        callToAction: 'Subscribe and hit the bell for more advanced trading content!',
+        tokenReward: 50
+      },
+      {
+        day: 'Tuesday',
+        contentType: 'quick_tip_reel',
+        title: 'The 4H-1H Confirmation Trick That Changed My Trading',
+        description: 'Show how higher timeframe direction + lower timeframe entry = better trades.',
+        platform: ['Instagram', 'TikTok', 'YouTube'],
+        suggestedTime: '12:00 PM',
+        hashtags: ['#TradingStrategy', '#TimeframeAnalysis', '#ProTraderTips', '#VEDDAi'],
+        callToAction: 'Try this on your next trade and let me know!',
+        tokenReward: 25
+      },
+      {
+        day: 'Wednesday',
+        contentType: 'chart_breakdown',
+        title: 'Gold (XAU/USD) Weekly Breakdown - Where The Money At',
+        description: 'Full chart breakdown of Gold showing key levels, AI analysis, and what to watch.',
+        platform: ['Instagram', 'Twitter', 'YouTube'],
+        suggestedTime: '3:00 PM',
+        hashtags: ['#GoldTrading', '#XAUUSD', '#ChartBreakdown', '#VEDDAi'],
+        callToAction: 'Are you bullish or bearish on Gold? Comment below!',
+        tokenReward: 35
+      },
+      {
+        day: 'Thursday',
+        contentType: 'live_stream',
+        title: 'EA Building Workshop - Create Your Bot Live',
+        description: 'Live session showing how to generate an EA from multi-timeframe analysis. Interactive and hands-on.',
+        platform: ['YouTube', 'Instagram'],
+        suggestedTime: '7:00 PM',
+        hashtags: ['#ExpertAdvisor', '#TradingBot', '#AutoTrading', '#VEDDAi'],
+        callToAction: 'Join us live and build your first EA together!',
+        tokenReward: 75
+      },
+      {
+        day: 'Friday',
+        contentType: 'behind_scenes',
+        title: 'A Day In The Life of a VEDD AI Trader',
+        description: 'Behind the scenes of morning routine, chart check, and using the platform. Keep it real.',
+        platform: ['Instagram', 'TikTok'],
+        suggestedTime: '11:00 AM',
+        hashtags: ['#TraderLife', '#BehindTheScenes', '#DayInTheLife', '#VEDDAi'],
+        callToAction: 'What does your trading morning look like?',
+        tokenReward: 20
+      },
+      {
+        day: 'Saturday',
+        contentType: 'community_highlight',
+        title: 'Top Ambassadors This Week - Shoutout Time',
+        description: 'Highlight the most active community members. Show their stats, wins, and contributions.',
+        platform: ['Instagram', 'Twitter', 'Facebook'],
+        suggestedTime: '10:00 AM',
+        hashtags: ['#CommunityLove', '#TopAmbassadors', '#SquadGoals', '#VEDDAi'],
+        callToAction: 'Congrats to our top performers! Keep grinding!',
+        tokenReward: 25
+      },
+      {
+        day: 'Sunday',
+        contentType: 'story_series',
+        title: 'Week 2 Wins - Celebrate The Journey',
+        description: 'Recap the weeks content, share wins from the community, preview next week.',
+        platform: ['Instagram', 'Facebook'],
+        suggestedTime: '6:00 PM',
+        hashtags: ['#WeeklyWins', '#TradingJourney', '#Progress', '#VEDDAi'],
+        callToAction: 'Share your biggest win from this week!',
+        tokenReward: 15
+      }
+    ]
+  },
+  {
+    weekNumber: 3,
+    theme: 'Squad Up - Referral & Growth Week',
+    focusArea: 'Bringing in new members and viral content',
+    contentItems: [
+      {
+        day: 'Monday',
+        contentType: 'youtube_tutorial',
+        title: 'How To Earn Passive Income With VEDD AI Referrals',
+        description: 'Complete guide on the referral program, how tokens work, and maximizing earnings.',
+        platform: ['YouTube', 'Facebook'],
+        suggestedTime: '10:00 AM',
+        hashtags: ['#PassiveIncome', '#ReferralProgram', '#EarnMoney', '#VEDDAi'],
+        callToAction: 'Get your referral link and start earning today!',
+        tokenReward: 50
+      },
+      {
+        day: 'Tuesday',
+        contentType: 'quick_tip_reel',
+        title: '3 Ways To Share VEDD AI Without Being Spammy',
+        description: 'Quick tips on authentic promotion that converts without annoying your followers.',
+        platform: ['Instagram', 'TikTok', 'YouTube'],
+        suggestedTime: '12:00 PM',
+        hashtags: ['#MarketingTips', '#AuthenticPromotion', '#GrowthHacks', '#VEDDAi'],
+        callToAction: 'Which method are you trying first?',
+        tokenReward: 25
+      },
+      {
+        day: 'Wednesday',
+        contentType: 'carousel_post',
+        title: 'Before & After - My Trading Journey With AI',
+        description: 'Visual carousel showing transformation from confused trader to confident analyst.',
+        platform: ['Instagram', 'LinkedIn'],
+        suggestedTime: '2:00 PM',
+        hashtags: ['#Transformation', '#TradingJourney', '#BeforeAfter', '#VEDDAi'],
+        callToAction: 'Share your before and after story!',
+        tokenReward: 30
+      },
+      {
+        day: 'Thursday',
+        contentType: 'live_stream',
+        title: 'AMA With Top Ambassadors - Get Your Questions Answered',
+        description: 'Live Q&A with successful ambassadors. Share strategies, answer questions, build connections.',
+        platform: ['YouTube', 'Instagram', 'TikTok'],
+        suggestedTime: '7:00 PM',
+        hashtags: ['#AMA', '#AskMeAnything', '#TradingQA', '#VEDDAi'],
+        callToAction: 'Drop your questions in the chat!',
+        tokenReward: 75
+      },
+      {
+        day: 'Friday',
+        contentType: 'meme_post',
+        title: 'When You Put Your Friend On To VEDD AI And They Win',
+        description: 'Celebratory meme about successful referrals. Make it shareable.',
+        platform: ['Instagram', 'Twitter', 'TikTok'],
+        suggestedTime: '11:00 AM',
+        hashtags: ['#ReferralWins', '#SquadGoals', '#TradingMemes', '#VEDDAi'],
+        callToAction: 'Tag your friend who needs this!',
+        tokenReward: 15
+      },
+      {
+        day: 'Saturday',
+        contentType: 'testimonial',
+        title: 'From Skeptic To Believer - Real Member Story',
+        description: 'Authentic testimonial from someone who was doubtful but became a success.',
+        platform: ['Instagram', 'Facebook', 'YouTube'],
+        suggestedTime: '10:00 AM',
+        hashtags: ['#RealResults', '#Testimonial', '#SuccessStory', '#VEDDAi'],
+        callToAction: 'Were you skeptical at first too? Share your story!',
+        tokenReward: 25
+      },
+      {
+        day: 'Sunday',
+        contentType: 'story_series',
+        title: 'Sunday Sermon - Patience In Trading & Life',
+        description: 'Connect biblical patience with trading discipline. Inspirational and practical.',
+        platform: ['Instagram', 'Facebook'],
+        suggestedTime: '9:00 AM',
+        hashtags: ['#SundayWisdom', '#TradingPatience', '#FaithJourney', '#VEDDAi'],
+        callToAction: 'Share if this message spoke to you!',
+        tokenReward: 20
+      }
+    ]
+  },
+  {
+    weekNumber: 4,
+    theme: 'Gold & Crypto Focus - High Volatility Mastery',
+    focusArea: 'Trading Gold and Bitcoin with enhanced AI accuracy',
+    contentItems: [
+      {
+        day: 'Monday',
+        contentType: 'youtube_tutorial',
+        title: 'Trading Gold Like A Pro - XAU/USD Masterclass',
+        description: 'Complete guide to trading Gold with VEDD AI. Cover volatility, correlations with DXY, and our enhanced accuracy.',
+        platform: ['YouTube', 'Facebook'],
+        suggestedTime: '10:00 AM',
+        hashtags: ['#GoldTrading', '#XAUUSD', '#GoldMasterclass', '#VEDDAi'],
+        callToAction: 'Gold gang, drop a comment if you trade XAU!',
+        tokenReward: 50
+      },
+      {
+        day: 'Tuesday',
+        contentType: 'quick_tip_reel',
+        title: 'Why Gold Needs Wider Stop Losses - 60 Second Lesson',
+        description: 'Quick explanation of why volatile assets need different risk management.',
+        platform: ['Instagram', 'TikTok', 'YouTube'],
+        suggestedTime: '12:00 PM',
+        hashtags: ['#GoldTrading', '#RiskManagement', '#StopLoss', '#VEDDAi'],
+        callToAction: 'What stop loss do you use on Gold?',
+        tokenReward: 25
+      },
+      {
+        day: 'Wednesday',
+        contentType: 'chart_breakdown',
+        title: 'Bitcoin Weekly Outlook - Bull or Bear?',
+        description: 'Full BTC analysis with AI insights, key levels, and what the charts are telling us.',
+        platform: ['Instagram', 'Twitter', 'YouTube'],
+        suggestedTime: '3:00 PM',
+        hashtags: ['#Bitcoin', '#CryptoAnalysis', '#BTCTrading', '#VEDDAi'],
+        callToAction: 'Bullish or bearish? Drop your prediction!',
+        tokenReward: 35
+      },
+      {
+        day: 'Thursday',
+        contentType: 'live_stream',
+        title: 'Live Gold & Crypto Trading Session',
+        description: 'Real-time analysis of Gold and BTC. Show how VEDD AI handles high volatility assets.',
+        platform: ['YouTube', 'Instagram'],
+        suggestedTime: '7:00 PM',
+        hashtags: ['#LiveTrading', '#GoldBTC', '#CryptoLive', '#VEDDAi'],
+        callToAction: 'Join us for live analysis - drop your questions!',
+        tokenReward: 75
+      },
+      {
+        day: 'Friday',
+        contentType: 'meme_post',
+        title: 'Gold Traders When Volatility Hits Different',
+        description: 'Relatable Gold trading meme about the wild swings.',
+        platform: ['Instagram', 'Twitter', 'TikTok'],
+        suggestedTime: '11:00 AM',
+        hashtags: ['#GoldMemes', '#TraderProblems', '#Volatility', '#VEDDAi'],
+        callToAction: 'Gold traders know the struggle - tag one!',
+        tokenReward: 15
+      },
+      {
+        day: 'Saturday',
+        contentType: 'testimonial',
+        title: 'How AI Improved My Gold Win Rate',
+        description: 'Success story specifically about Gold trading improvements with VEDD AI.',
+        platform: ['Instagram', 'Facebook', 'Twitter'],
+        suggestedTime: '10:00 AM',
+        hashtags: ['#GoldWins', '#TradingSuccess', '#AITrading', '#VEDDAi'],
+        callToAction: 'Share your best Gold trade this week!',
+        tokenReward: 25
+      },
+      {
+        day: 'Sunday',
+        contentType: 'story_series',
+        title: 'Sunday Strategy Session - Planning The Week Ahead',
+        description: 'Share key levels to watch, upcoming events, and weekly game plan.',
+        platform: ['Instagram', 'Facebook'],
+        suggestedTime: '6:00 PM',
+        hashtags: ['#WeeklyPlanning', '#TradingStrategy', '#PrepWork', '#VEDDAi'],
+        callToAction: 'Whats on your watchlist this week?',
+        tokenReward: 20
+      }
+    ]
+  },
+  {
+    weekNumber: 5,
+    theme: 'Content Creator Week - Build Your Brand',
+    focusArea: 'Creating viral content and building personal brand',
+    contentItems: [
+      {
+        day: 'Monday',
+        contentType: 'youtube_tutorial',
+        title: 'How To Create Fire Trading Content That Gets Views',
+        description: 'Complete content creation guide - hooks, editing tips, what performs best on each platform.',
+        platform: ['YouTube', 'Facebook'],
+        suggestedTime: '10:00 AM',
+        hashtags: ['#ContentCreation', '#TradingContent', '#CreatorTips', '#VEDDAi'],
+        callToAction: 'What content do you want to create? Comment below!',
+        tokenReward: 50
+      },
+      {
+        day: 'Tuesday',
+        contentType: 'quick_tip_reel',
+        title: 'Hook Your Audience In 3 Seconds - The Secret Formula',
+        description: 'Quick tip on creating attention-grabbing content openings.',
+        platform: ['Instagram', 'TikTok', 'YouTube'],
+        suggestedTime: '12:00 PM',
+        hashtags: ['#ContentHooks', '#ViralContent', '#CreatorHacks', '#VEDDAi'],
+        callToAction: 'Save this for your next video!',
+        tokenReward: 25
+      },
+      {
+        day: 'Wednesday',
+        contentType: 'carousel_post',
+        title: '10 Trading Post Ideas That Always Perform',
+        description: 'Swipeable list of proven content ideas for trading creators.',
+        platform: ['Instagram', 'LinkedIn'],
+        suggestedTime: '2:00 PM',
+        hashtags: ['#ContentIdeas', '#TradingCreator', '#PostInspiration', '#VEDDAi'],
+        callToAction: 'Screenshot this for later!',
+        tokenReward: 30
+      },
+      {
+        day: 'Thursday',
+        contentType: 'live_stream',
+        title: 'Content Creation Workshop - Edit With Me Live',
+        description: 'Live editing session showing how to create trading content from screen recordings.',
+        platform: ['YouTube', 'Instagram'],
+        suggestedTime: '7:00 PM',
+        hashtags: ['#ContentWorkshop', '#LiveEditing', '#CreatorCommunity', '#VEDDAi'],
+        callToAction: 'Bring your questions and lets create together!',
+        tokenReward: 75
+      },
+      {
+        day: 'Friday',
+        contentType: 'behind_scenes',
+        title: 'My Content Setup - Tools I Use Daily',
+        description: 'Show your content creation setup, tools, and workflow.',
+        platform: ['Instagram', 'TikTok'],
+        suggestedTime: '11:00 AM',
+        hashtags: ['#CreatorSetup', '#ToolsOfTrade', '#BTS', '#VEDDAi'],
+        callToAction: 'Whats your go-to content tool?',
+        tokenReward: 20
+      },
+      {
+        day: 'Saturday',
+        contentType: 'community_highlight',
+        title: 'Best Content This Week - Creator Shoutouts',
+        description: 'Highlight the best content from community members. Encourage more creation.',
+        platform: ['Instagram', 'Twitter', 'Facebook'],
+        suggestedTime: '10:00 AM',
+        hashtags: ['#CreatorShoutout', '#CommunityContent', '#Inspiration', '#VEDDAi'],
+        callToAction: 'Tag your content and we might feature you next!',
+        tokenReward: 25
+      },
+      {
+        day: 'Sunday',
+        contentType: 'story_series',
+        title: 'Sunday Reset - Content Planning For The Week',
+        description: 'Share content planning process and inspire others to plan ahead.',
+        platform: ['Instagram', 'Facebook'],
+        suggestedTime: '6:00 PM',
+        hashtags: ['#ContentPlanning', '#SundayReset', '#CreatorLife', '#VEDDAi'],
+        callToAction: 'Plan your week with us!',
+        tokenReward: 15
+      }
+    ]
+  },
+  {
+    weekNumber: 6,
+    theme: 'Graduation & Certification Week',
+    focusArea: 'Ambassador certification and celebrating achievements',
+    contentItems: [
+      {
+        day: 'Monday',
+        contentType: 'youtube_tutorial',
+        title: 'Ambassador Certification Guide - Everything You Need To Know',
+        description: 'Complete walkthrough of the certification process, requirements, and benefits.',
+        platform: ['YouTube', 'Facebook'],
+        suggestedTime: '10:00 AM',
+        hashtags: ['#Certification', '#AmbassadorProgram', '#LevelUp', '#VEDDAi'],
+        callToAction: 'Ready to get certified? Start today!',
+        tokenReward: 50
+      },
+      {
+        day: 'Tuesday',
+        contentType: 'quick_tip_reel',
+        title: 'Top 3 Things That Got Me Certified',
+        description: 'Quick tips from certified ambassadors on what helped them succeed.',
+        platform: ['Instagram', 'TikTok', 'YouTube'],
+        suggestedTime: '12:00 PM',
+        hashtags: ['#CertificationTips', '#SuccessSecrets', '#AmbassadorLife', '#VEDDAi'],
+        callToAction: 'Which tip resonates with you?',
+        tokenReward: 25
+      },
+      {
+        day: 'Wednesday',
+        contentType: 'carousel_post',
+        title: 'Your 6 Week Journey - From Newbie To Certified',
+        description: 'Visual timeline showing the transformation and milestones.',
+        platform: ['Instagram', 'LinkedIn'],
+        suggestedTime: '2:00 PM',
+        hashtags: ['#JourneyRecap', '#Transformation', '#6WeekChallenge', '#VEDDAi'],
+        callToAction: 'Share your favorite moment from the journey!',
+        tokenReward: 30
+      },
+      {
+        day: 'Thursday',
+        contentType: 'live_stream',
+        title: 'Graduation Ceremony - Celebrating Our Certified Ambassadors',
+        description: 'Live celebration for those who completed the program. Awards, recognition, next steps.',
+        platform: ['YouTube', 'Instagram', 'Facebook'],
+        suggestedTime: '7:00 PM',
+        hashtags: ['#Graduation', '#Celebration', '#Ambassadors', '#VEDDAi'],
+        callToAction: 'Congratulations to all our graduates!',
+        tokenReward: 100
+      },
+      {
+        day: 'Friday',
+        contentType: 'testimonial',
+        title: 'How VEDD AI Changed My Trading Career - Graduate Story',
+        description: 'Powerful testimonial from a graduating ambassador.',
+        platform: ['Instagram', 'Facebook', 'YouTube'],
+        suggestedTime: '11:00 AM',
+        hashtags: ['#GraduateStory', '#CareerChange', '#Success', '#VEDDAi'],
+        callToAction: 'Your journey could inspire someone - share yours!',
+        tokenReward: 30
+      },
+      {
+        day: 'Saturday',
+        contentType: 'community_highlight',
+        title: 'Hall of Fame - Our Top Ambassadors',
+        description: 'Permanent recognition for top performers. Stats, achievements, and impact.',
+        platform: ['Instagram', 'Twitter', 'Facebook'],
+        suggestedTime: '10:00 AM',
+        hashtags: ['#HallOfFame', '#TopAmbassadors', '#Legends', '#VEDDAi'],
+        callToAction: 'Aspire to be here? Start your journey today!',
+        tokenReward: 25
+      },
+      {
+        day: 'Sunday',
+        contentType: 'story_series',
+        title: 'Whats Next - Advanced Training Preview',
+        description: 'Tease upcoming advanced content and keep graduates engaged.',
+        platform: ['Instagram', 'Facebook'],
+        suggestedTime: '6:00 PM',
+        hashtags: ['#WhatsNext', '#AdvancedTraining', '#KeepGrowing', '#VEDDAi'],
+        callToAction: 'Ready for the next level?',
+        tokenReward: 20
+      }
+    ]
+  }
+];
+
 export const strategicEvents: StrategicEvent[] = [
   // Week 1: Foundation & Welcome
   {
@@ -658,4 +1184,4 @@ export const strategicChallenges: StrategicChallenge[] = [
   }
 ];
 
-export default { strategicEvents, strategicChallenges };
+export default { strategicEvents, strategicChallenges, weeklyContentFlow };
