@@ -717,6 +717,12 @@ const Dashboard: React.FC = () => {
                       My Wallet
                     </Button>
                   </Link>
+                  <Link href="/training-calendar">
+                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-orange-600 hover:border-orange-600 transition-all duration-500 ease-out hover:scale-105 animate-in fade-in-0 slide-in-from-bottom-2 duration-500" style={{ animationDelay: "300ms" }}>
+                      <Calendar className="h-4 w-4 mr-2 text-orange-400" />
+                      Training Calendar
+                    </Button>
+                  </Link>
                   <Link href="/subscription" className="col-span-2">
                     <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-rose-600 hover:border-rose-600 transition-all duration-500 ease-out hover:scale-105 animate-in fade-in-0 slide-in-from-bottom-2 duration-500" style={{ animationDelay: "300ms" }}>
                       Upgrade Account
