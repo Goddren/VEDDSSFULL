@@ -37,28 +37,28 @@ export const strategicEvents: StrategicEvent[] = [
   // Week 1: Foundation & Welcome
   {
     id: 'week1-welcome',
-    title: 'Welcome to VEDD AI - Ambassador Kickoff',
-    description: 'Official welcome session for new ambassadors. Learn the vision, meet the community, and understand your path to earning VEDD tokens.',
+    title: 'Welcome to the Fam - Lets Get This Bag',
+    description: 'Yo, welcome to the squad! Pull up, meet the crew, and learn how to stack them VEDD tokens. We bout to show you the vision fr fr.',
     eventType: 'live_session',
     format: 'virtual',
     weekNumber: 1,
     dayNumber: 1,
-    hostGuide: 'Start with energy! Welcome everyone by name if possible. Share your own trading journey and why VEDD AI matters. Make newcomers feel like they belong to something special.',
+    hostGuide: 'Bring the energy! Make everyone feel like they just joined something lit. Share your story, show love to the newcomers, and get everyone hyped about stacking tokens.',
     talkingPoints: [
-      'The VEDD AI vision: AI-powered trading for everyone',
-      'How the Ambassador program works and token earning potential',
-      'Community culture: faith, wisdom, and trading excellence',
-      'Quick tour of the platform features',
-      'This weeks learning focus: Trading Foundations',
-      'How to get help and connect with other ambassadors'
+      'What VEDD AI is all about - AI doing the heavy lifting on charts',
+      'How you get paid - tokens for putting in work',
+      'The vibe here - faith, smart moves, and leveling up together',
+      'Quick tour - where everything is at',
+      'This weeks focus - learning the basics, no cap',
+      'How to link up with the squad for help'
     ],
     agenda: [
-      { time: '0:00', topic: 'Welcome & Energy Check', notes: 'Get everyone hyped!' },
-      { time: '0:05', topic: 'Host Introduction & Story', notes: 'Share your journey' },
-      { time: '0:15', topic: 'Platform Walkthrough', notes: 'Show key features' },
-      { time: '0:25', topic: 'Token Earning Explained', notes: 'Motivate with examples' },
-      { time: '0:35', topic: 'This Week Preview', notes: 'Set expectations' },
-      { time: '0:45', topic: 'Q&A + Social Connections', notes: 'Build community' }
+      { time: '0:00', topic: 'Whats Good Everybody!', notes: 'Get the energy right' },
+      { time: '0:05', topic: 'Host Intro - My Story', notes: 'Keep it real' },
+      { time: '0:15', topic: 'Platform Tour - The Rundown', notes: 'Show em around' },
+      { time: '0:25', topic: 'How You Get Paid', notes: 'This is the money talk' },
+      { time: '0:35', topic: 'This Week Game Plan', notes: 'What to expect' },
+      { time: '0:45', topic: 'Q&A - Holla At Us', notes: 'Answer questions, build connections' }
     ],
     resourceLinks: [
       { title: 'Getting Started Guide', url: '/user-guide' },
@@ -70,32 +70,32 @@ export const strategicEvents: StrategicEvent[] = [
     hostTokenReward: 150,
     growthGoal: 'Convert 80% of new signups into active ambassadors',
     expectedAttendees: 25,
-    socialAmplification: ['Post event selfie', 'Tag 3 friends who trade', 'Share top takeaway']
+    socialAmplification: ['Drop that event selfie', 'Tag 3 homies who trade', 'Share your biggest takeaway']
   },
   {
     id: 'week1-chart-basics',
-    title: 'Chart Reading 101 - Live Workshop',
-    description: 'Hands-on workshop teaching candlestick basics, support/resistance, and trend identification with real charts.',
+    title: 'Chart Game 101 - Learn To Read The Market',
+    description: 'We breaking down charts so you can see what the market is really saying. Candlesticks, support levels, trends - all that. Hands on, no fluff.',
     eventType: 'workshop',
     format: 'virtual',
     weekNumber: 1,
     dayNumber: 3,
-    hostGuide: 'This is educational - screen share real charts! Use VEDD AI to analyze charts live and show the AI insights. Encourage questions. Make trading education accessible and exciting.',
+    hostGuide: 'This is teaching time - share your screen with real charts! Use VEDD AI live to show how the AI breaks it down. Keep it simple, answer questions, make trading feel doable for everyone.',
     talkingPoints: [
-      'Candlestick anatomy: open, high, low, close',
-      'Reading bullish vs bearish candles',
-      'Identifying support and resistance levels',
-      'How trends form and why they matter',
-      'Using VEDD AI to confirm your analysis',
-      'Practice exercise: analyze 3 charts together'
+      'Candlesticks - what the green and red really mean',
+      'Bulls vs Bears - whos winning the fight',
+      'Support & Resistance - where price bounces',
+      'Trends - knowing which way the money flowing',
+      'Let VEDD AI do the hard work for you',
+      'Practice time - we analyzing charts together'
     ],
     agenda: [
-      { time: '0:00', topic: 'Quick Review - Week 1 Progress', notes: 'Celebrate wins' },
-      { time: '0:10', topic: 'Candlestick Basics', notes: 'Use visual examples' },
-      { time: '0:25', topic: 'Support & Resistance Demo', notes: 'Draw live on charts' },
-      { time: '0:40', topic: 'VEDD AI Analysis Demo', notes: 'Upload chart live' },
-      { time: '0:50', topic: 'Group Practice', notes: 'Everyone analyzes together' },
-      { time: '0:55', topic: 'Homework & Social Task', notes: 'Post your analysis' }
+      { time: '0:00', topic: 'Week 1 Check-In - Whos Winning', notes: 'Shout out the grinders' },
+      { time: '0:10', topic: 'Candlestick Breakdown', notes: 'Keep it visual' },
+      { time: '0:25', topic: 'Support & Resistance - The Zones', notes: 'Draw it out live' },
+      { time: '0:40', topic: 'VEDD AI In Action', notes: 'Upload a chart, show the magic' },
+      { time: '0:50', topic: 'Yall Turn - Practice', notes: 'Everyone gets hands on' },
+      { time: '0:55', topic: 'Homework - Post Your Analysis', notes: 'Social media time' }
     ],
     resourceLinks: [
       { title: 'Candlestick Cheat Sheet', url: '/user-guide#patterns' },
@@ -106,33 +106,33 @@ export const strategicEvents: StrategicEvent[] = [
     hostTokenReward: 120,
     growthGoal: 'Each attendee posts 1 chart analysis on social media',
     expectedAttendees: 30,
-    socialAmplification: ['Share your practice chart', 'Tag VEDD AI', 'Use #ChartAnalysis101']
+    socialAmplification: ['Drop your chart breakdown', 'Tag VEDD AI', 'Use #ChartGame101']
   },
   {
     id: 'week1-friday-wins',
-    title: 'Friday Wins Celebration',
-    description: 'Weekly celebration of ambassador achievements, top performers, and community highlights.',
+    title: 'Friday Flex - Celebrating The Grind',
+    description: 'Its Friday and we celebrating! Showing love to the top performers, highlighting the best posts, and getting ready to go crazy this weekend.',
     eventType: 'live_session',
     format: 'virtual',
     weekNumber: 1,
     dayNumber: 5,
-    hostGuide: 'This is a PARTY! Celebrate everyone. Read out names of people who completed lessons, made posts, referred friends. Create FOMO for those not attending. End with a challenge for the weekend.',
+    hostGuide: 'This is a CELEBRATION! Call out names, show the wins, make people feel seen. Create FOMO for anyone not in the room. End strong with a weekend challenge to keep the momentum.',
     talkingPoints: [
-      'Top earners this week - recognition',
-      'Best social posts - showcase and celebrate',
-      'Referral leaders - acknowledge growth drivers',
-      'Faith moment - weekly scripture reflection',
-      'Weekend challenge announcement',
-      'Next week preview and motivation'
+      'Top earners - who put in that work this week',
+      'Best posts - showing love to the content creators',
+      'Referral MVPs - who brought the crew',
+      'Faith moment - that weekly word to keep us grounded',
+      'Weekend challenge - lets go even harder',
+      'Next week preview - what we cooking up'
     ],
     agenda: [
-      { time: '0:00', topic: 'Hype Intro + Music', notes: 'Set celebration mood' },
-      { time: '0:05', topic: 'Leaderboard Showcase', notes: 'Call out top 10' },
-      { time: '0:15', topic: 'Best Content Highlights', notes: 'Show social posts' },
-      { time: '0:25', topic: 'Referral Heroes', notes: 'Recognize growth drivers' },
-      { time: '0:35', topic: 'Faith Moment', notes: 'Scripture reflection' },
-      { time: '0:40', topic: 'Weekend Challenge', notes: 'Drive engagement' },
-      { time: '0:45', topic: 'Group Photo + Socials', notes: 'Everyone posts' }
+      { time: '0:00', topic: 'Lets Gooo! Hype Intro', notes: 'Music, energy, vibes' },
+      { time: '0:05', topic: 'Leaderboard - Top 10 Flexin', notes: 'Call out the winners' },
+      { time: '0:15', topic: 'Best Content - Fire Posts', notes: 'Show the social wins' },
+      { time: '0:25', topic: 'Referral Heroes - Who Brought The Crew', notes: 'Shout out the recruiters' },
+      { time: '0:35', topic: 'Faith Moment - Stay Grounded', notes: 'Scripture check' },
+      { time: '0:40', topic: 'Weekend Challenge Drop', notes: 'Get them motivated' },
+      { time: '0:45', topic: 'Squad Photo + Post Up', notes: 'Everyone screenshot and post' }
     ],
     resourceLinks: [],
     suggestedDuration: 50,
@@ -140,34 +140,34 @@ export const strategicEvents: StrategicEvent[] = [
     hostTokenReward: 100,
     growthGoal: '100% of attendees post about the event',
     expectedAttendees: 40,
-    socialAmplification: ['Event screenshot', 'Thank your accountability partner', 'Share weekend challenge']
+    socialAmplification: ['Screenshot the moment', 'Shout out your accountability partner', 'Drop the weekend challenge']
   },
   
   // Week 2: Strategy & Growth Momentum
   {
     id: 'week2-indicator-mastery',
-    title: 'Indicator Mastery - RSI, MACD, Moving Averages',
-    description: 'Deep dive into technical indicators. Learn to combine multiple indicators for high-probability trade setups.',
+    title: 'Level Up - Master The Indicators',
+    description: 'Time to go deeper! RSI, MACD, Moving Averages - these tools help you spot moves before they happen. Stack these together and you gonna be reading charts like a pro.',
     eventType: 'workshop',
     format: 'virtual',
     weekNumber: 2,
     dayNumber: 8,
-    hostGuide: 'Go deeper on indicators. Show real examples of RSI overbought/oversold, MACD crossovers, and MA support. Use VEDD AI to show how the platform identifies these automatically.',
+    hostGuide: 'Break down indicators step by step. Show real chart examples - when RSI is too high, when MACD is crossing, how moving averages act like magnets. Let VEDD AI show them how it spots all this automatically.',
     talkingPoints: [
-      'RSI: Identifying momentum exhaustion',
-      'MACD: Trend direction and strength',
-      'Moving Averages: Dynamic support/resistance',
-      'Combining indicators for confirmation',
-      'How VEDD AI reads these automatically',
-      'Setting up indicator-based EAs'
+      'RSI - when the market is exhausted and about to flip',
+      'MACD - which way the trend going and how strong',
+      'Moving Averages - lines that show where price likes to bounce',
+      'Stacking indicators - getting that confirmation',
+      'VEDD AI reading these for you automatically',
+      'Building your own EA with these indicators'
     ],
     agenda: [
-      { time: '0:00', topic: 'Week 1 Wins Recap', notes: 'Build on momentum' },
-      { time: '0:10', topic: 'RSI Deep Dive', notes: 'Live examples' },
-      { time: '0:25', topic: 'MACD Mastery', notes: 'Crossover strategies' },
-      { time: '0:40', topic: 'Moving Average Magic', notes: 'EMA vs SMA' },
-      { time: '0:50', topic: 'VEDD AI Indicator Reading', notes: 'Demo the AI' },
-      { time: '0:55', topic: 'Create Your Indicator Setup', notes: 'Homework' }
+      { time: '0:00', topic: 'Week 1 Recap - Who Leveled Up', notes: 'Keep the momentum' },
+      { time: '0:10', topic: 'RSI Breakdown - The Exhaustion Meter', notes: 'Real examples' },
+      { time: '0:25', topic: 'MACD - Reading The Cross', notes: 'Crossover setups' },
+      { time: '0:40', topic: 'Moving Averages - The Price Magnet', notes: 'EMA vs SMA' },
+      { time: '0:50', topic: 'VEDD AI Demo - Auto Detection', notes: 'Show the magic' },
+      { time: '0:55', topic: 'Your Turn - Build Your Setup', notes: 'Homework assignment' }
     ],
     resourceLinks: [
       { title: 'Indicator Guide', url: '/user-guide#indicators' },
@@ -178,11 +178,11 @@ export const strategicEvents: StrategicEvent[] = [
     hostTokenReward: 150,
     growthGoal: 'Each attendee creates their first indicator-based EA',
     expectedAttendees: 35,
-    socialAmplification: ['Share your indicator setup', 'Post before/after of AI analysis', 'Tag a trading buddy']
+    socialAmplification: ['Drop your indicator setup', 'Show the before/after AI analysis', 'Tag your trading homie']
   },
   {
     id: 'week2-referral-race',
-    title: 'Referral Race Kickoff - Bring Your Crew!',
+    title: 'Bring The Crew - Referral Race Kickoff',
     description: 'Special event launching a 48-hour referral competition. Top referrers win bonus VEDD tokens and exclusive recognition.',
     eventType: 'challenge_kickoff',
     format: 'virtual',
@@ -435,36 +435,36 @@ export const strategicChallenges: StrategicChallenge[] = [
   // Week 1 Challenges
   {
     id: 'week1-foundation',
-    title: 'Foundation Week Challenge',
-    description: 'Complete all Week 1 lessons and share your first chart analysis on social media.',
+    title: 'Week 1 Grind - Lock In Challenge',
+    description: 'Finish all Week 1 lessons and drop your first chart analysis on socials. This your foundation - dont skip it!',
     type: 'skill_building',
     weekNumber: 1,
     duration: 7,
     objectives: [
-      { id: 'w1-1', description: 'Complete Day 1-7 lessons', verification: 'System tracks completion', tokenReward: 50 },
-      { id: 'w1-2', description: 'Upload and analyze 3 charts using VEDD AI', verification: 'Analysis count in profile', tokenReward: 30 },
-      { id: 'w1-3', description: 'Post your analysis on social media with #VEDDAi', verification: 'Submit post link', tokenReward: 25 },
-      { id: 'w1-4', description: 'Attend at least 2 community events', verification: 'Attendance tracking', tokenReward: 20 }
+      { id: 'w1-1', description: 'Complete all Day 1-7 lessons - no skipping', verification: 'System tracks completion', tokenReward: 50 },
+      { id: 'w1-2', description: 'Upload 3 charts and let VEDD AI break em down', verification: 'Analysis count in profile', tokenReward: 30 },
+      { id: 'w1-3', description: 'Post your analysis on socials with #VEDDAi', verification: 'Submit post link', tokenReward: 25 },
+      { id: 'w1-4', description: 'Pull up to at least 2 community events', verification: 'Attendance tracking', tokenReward: 20 }
     ],
     totalTokenReward: 125,
     bonusTokens: 50,
     growthMetric: 'Active users completing first week',
     targetGrowth: '85% completion rate',
-    hashtags: ['#VEDDWeek1', '#ChartAnalysis101', '#TradingJourney', '#VEDDAi']
+    hashtags: ['#VEDDWeek1', '#ChartGame', '#TradingJourney', '#VEDDAi']
   },
   {
     id: 'week1-social-starter',
-    title: 'Social Starter Sprint',
-    description: '48-hour challenge to make your first 5 trading-related social media posts.',
+    title: 'Social Sprint - Get On The Timeline',
+    description: '48 hours to drop 5 fire trading posts. Get active on socials and start building your presence!',
     type: 'content_creation',
     weekNumber: 1,
     duration: 2,
     objectives: [
-      { id: 'ss-1', description: 'Post chart analysis screenshot', verification: 'Submit post link', tokenReward: 15 },
-      { id: 'ss-2', description: 'Share a trading tip you learned', verification: 'Submit post link', tokenReward: 15 },
-      { id: 'ss-3', description: 'Post about why you joined VEDD AI', verification: 'Submit post link', tokenReward: 15 },
+      { id: 'ss-1', description: 'Drop a chart analysis screenshot', verification: 'Submit post link', tokenReward: 15 },
+      { id: 'ss-2', description: 'Share a trading tip you just learned', verification: 'Submit post link', tokenReward: 15 },
+      { id: 'ss-3', description: 'Tell people why you joined VEDD AI', verification: 'Submit post link', tokenReward: 15 },
       { id: 'ss-4', description: 'Share the daily scripture wisdom', verification: 'Submit post link', tokenReward: 15 },
-      { id: 'ss-5', description: 'Engage with 10 other ambassador posts', verification: 'Screenshot engagement', tokenReward: 20 }
+      { id: 'ss-5', description: 'Show love to 10 other ambassador posts', verification: 'Screenshot engagement', tokenReward: 20 }
     ],
     totalTokenReward: 80,
     bonusTokens: 30,
@@ -476,73 +476,73 @@ export const strategicChallenges: StrategicChallenge[] = [
   // Week 2 Challenges
   {
     id: 'week2-referral-rush',
-    title: 'Referral Rush - Bring Your Crew',
-    description: 'Invite 5 friends to join VEDD AI and help them complete their first analysis.',
+    title: 'Squad Up - Bring Your People',
+    description: 'Put your homies on to VEDD AI! Invite 5 friends and help them get their first analysis done.',
     type: 'referral',
     weekNumber: 2,
     duration: 7,
     objectives: [
-      { id: 'rr-1', description: 'Refer 3 new members', verification: 'Referral tracking', tokenReward: 75 },
-      { id: 'rr-2', description: 'Refer 5 new members (BONUS)', verification: 'Referral tracking', tokenReward: 100 },
-      { id: 'rr-3', description: 'Help 2 referrals complete their first analysis', verification: 'Referral activity', tokenReward: 50 },
-      { id: 'rr-4', description: 'Post about why your friends should join', verification: 'Submit post link', tokenReward: 25 }
+      { id: 'rr-1', description: 'Bring in 3 new members', verification: 'Referral tracking', tokenReward: 75 },
+      { id: 'rr-2', description: 'Bring in 5 new members (BONUS bag)', verification: 'Referral tracking', tokenReward: 100 },
+      { id: 'rr-3', description: 'Help 2 of your referrals finish their first analysis', verification: 'Referral activity', tokenReward: 50 },
+      { id: 'rr-4', description: 'Post about why your friends need to join', verification: 'Submit post link', tokenReward: 25 }
     ],
     totalTokenReward: 250,
     bonusTokens: 100,
     growthMetric: 'New user signups',
     targetGrowth: '500 new users this week',
-    hashtags: ['#ReferralRush', '#GrowWithVEDD', '#TradingCrew', '#VEDDAi']
+    hashtags: ['#SquadUp', '#GrowWithVEDD', '#TradingCrew', '#VEDDAi']
   },
   {
     id: 'week2-indicator-mastery',
-    title: 'Indicator Mastery Challenge',
-    description: 'Create and share educational content about RSI, MACD, or Moving Averages.',
+    title: 'Indicator Boss - Teach What You Learn',
+    description: 'Create content breaking down RSI, MACD, or Moving Averages. Share knowledge, get tokens.',
     type: 'content_creation',
     weekNumber: 2,
     duration: 7,
     objectives: [
-      { id: 'im-1', description: 'Create a carousel explaining one indicator', verification: 'Submit post link', tokenReward: 40 },
-      { id: 'im-2', description: 'Post a video explaining indicator signals', verification: 'Submit post link', tokenReward: 50 },
-      { id: 'im-3', description: 'Share 3 real chart examples with indicator analysis', verification: 'Submit post links', tokenReward: 35 },
-      { id: 'im-4', description: 'Get 50+ total engagements on your content', verification: 'Screenshot metrics', tokenReward: 25 }
+      { id: 'im-1', description: 'Make a carousel explaining one indicator', verification: 'Submit post link', tokenReward: 40 },
+      { id: 'im-2', description: 'Drop a video explaining how indicators work', verification: 'Submit post link', tokenReward: 50 },
+      { id: 'im-3', description: 'Share 3 real chart examples with your breakdown', verification: 'Submit post links', tokenReward: 35 },
+      { id: 'im-4', description: 'Get 50+ likes/comments on your content', verification: 'Screenshot metrics', tokenReward: 25 }
     ],
     totalTokenReward: 150,
     bonusTokens: 75,
     growthMetric: 'Educational content views',
     targetGrowth: '10,000 views on indicator content',
-    hashtags: ['#IndicatorMaster', '#TradingEducation', '#RSI', '#MACD', '#VEDDAi']
+    hashtags: ['#IndicatorBoss', '#TradingEducation', '#RSI', '#MACD', '#VEDDAi']
   },
   
   // Week 3 Challenges
   {
     id: 'week3-engagement-king',
-    title: 'Engagement King/Queen Challenge',
-    description: 'Build genuine connections by engaging with community members and trading content.',
+    title: 'Engagement King/Queen - Be Everywhere',
+    description: 'Build real connections by showing up and showing love to the community. Comment, DM, engage!',
     type: 'engagement',
     weekNumber: 3,
     duration: 7,
     objectives: [
-      { id: 'ek-1', description: 'Comment meaningfully on 50 community posts', verification: 'Screenshot comments', tokenReward: 30 },
+      { id: 'ek-1', description: 'Drop real comments on 50 community posts', verification: 'Screenshot comments', tokenReward: 30 },
       { id: 'ek-2', description: 'Welcome 10 new ambassadors personally', verification: 'Screenshot DMs', tokenReward: 25 },
-      { id: 'ek-3', description: 'Start 5 valuable discussions in trading communities', verification: 'Submit thread links', tokenReward: 40 },
+      { id: 'ek-3', description: 'Start 5 good convos in trading communities', verification: 'Submit thread links', tokenReward: 40 },
       { id: 'ek-4', description: 'Get featured in community highlights', verification: 'Host verification', tokenReward: 50 }
     ],
     totalTokenReward: 145,
     bonusTokens: 60,
     growthMetric: 'Community engagement rate',
     targetGrowth: '3x engagement on community content',
-    hashtags: ['#EngagementKing', '#CommunityFirst', '#TradingFamily', '#VEDDAi']
+    hashtags: ['#EngagementKing', '#CommunityFirst', '#TradingFam', '#VEDDAi']
   },
   {
     id: 'week3-viral-video',
-    title: 'Viral Video Challenge',
-    description: 'Create a short-form video about VEDD AI or trading that gets maximum reach.',
+    title: 'Go Viral - Video Challenge',
+    description: 'Create a short video about VEDD AI or trading that gets numbers. Time to blow up!',
     type: 'content_creation',
     weekNumber: 3,
     duration: 7,
     objectives: [
-      { id: 'vv-1', description: 'Create a 60-second trading tip video', verification: 'Submit video link', tokenReward: 50 },
-      { id: 'vv-2', description: 'Get 1,000+ views', verification: 'Screenshot metrics', tokenReward: 50 },
+      { id: 'vv-1', description: 'Drop a 60-second trading tip video', verification: 'Submit video link', tokenReward: 50 },
+      { id: 'vv-2', description: 'Hit 1,000+ views', verification: 'Screenshot metrics', tokenReward: 50 },
       { id: 'vv-3', description: 'Get 100+ likes', verification: 'Screenshot metrics', tokenReward: 30 },
       { id: 'vv-4', description: 'Get 10+ shares/saves', verification: 'Screenshot metrics', tokenReward: 40 }
     ],
@@ -556,15 +556,15 @@ export const strategicChallenges: StrategicChallenge[] = [
   // Week 4 Challenges
   {
     id: 'week4-ea-creator',
-    title: 'EA Creator Challenge',
-    description: 'Create, publish, and market your Expert Advisor on the marketplace.',
+    title: 'EA Creator - Build Your Bot',
+    description: 'Create your own Expert Advisor, publish it on the marketplace, and start getting subscribers. This is how you build passive income!',
     type: 'skill_building',
     weekNumber: 4,
     duration: 7,
     objectives: [
-      { id: 'ec-1', description: 'Complete multi-timeframe analysis for EA creation', verification: 'EA generated', tokenReward: 40 },
-      { id: 'ec-2', description: 'Publish EA on marketplace', verification: 'Published EA visible', tokenReward: 60 },
-      { id: 'ec-3', description: 'Create promotional content for your EA', verification: 'Submit 3 post links', tokenReward: 35 },
+      { id: 'ec-1', description: 'Run multi-timeframe analysis to build your EA', verification: 'EA generated', tokenReward: 40 },
+      { id: 'ec-2', description: 'Publish your EA on the marketplace', verification: 'Published EA visible', tokenReward: 60 },
+      { id: 'ec-3', description: 'Create promo content for your EA (3 posts)', verification: 'Submit 3 post links', tokenReward: 35 },
       { id: 'ec-4', description: 'Get your first subscriber', verification: 'Subscription notification', tokenReward: 100 }
     ],
     totalTokenReward: 235,
@@ -577,8 +577,8 @@ export const strategicChallenges: StrategicChallenge[] = [
   // Week 5 Challenges
   {
     id: 'week5-mentor',
-    title: 'Mentor Challenge - Pay It Forward',
-    description: 'Become a mentor to new ambassadors and help them succeed in their first week.',
+    title: 'OG Mode - Mentor The New Ones',
+    description: 'You been here a minute now. Time to put the new ambassadors on game and help them win their first week.',
     type: 'community_bonding',
     weekNumber: 5,
     duration: 7,
@@ -598,63 +598,63 @@ export const strategicChallenges: StrategicChallenge[] = [
   // Week 6 Challenges
   {
     id: 'week6-ai-champion',
-    title: 'AI Champion Challenge',
-    description: 'Master all AI features and create content showcasing AI-powered trading.',
+    title: 'AI Master - Use Every Feature',
+    description: 'Time to go all in on AI! Master every AI feature and show people how its done. This is next level stuff.',
     type: 'skill_building',
     weekNumber: 6,
     duration: 7,
     objectives: [
-      { id: 'ac-1', description: 'Complete 10 AI chart analyses', verification: 'Analysis count', tokenReward: 30 },
-      { id: 'ac-2', description: 'Generate multi-timeframe EA', verification: 'EA created', tokenReward: 40 },
-      { id: 'ac-3', description: 'Set up webhook signals', verification: 'Webhook configured', tokenReward: 35 },
-      { id: 'ac-4', description: 'Create AI feature tutorial content', verification: 'Submit 5 posts', tokenReward: 50 },
-      { id: 'ac-5', description: 'Get 500+ engagements on AI content', verification: 'Screenshot metrics', tokenReward: 50 }
+      { id: 'ac-1', description: 'Run 10 AI chart analyses', verification: 'Analysis count', tokenReward: 30 },
+      { id: 'ac-2', description: 'Build a multi-timeframe EA', verification: 'EA created', tokenReward: 40 },
+      { id: 'ac-3', description: 'Set up webhook signals for trade alerts', verification: 'Webhook configured', tokenReward: 35 },
+      { id: 'ac-4', description: 'Make tutorial content on AI features (5 posts)', verification: 'Submit 5 posts', tokenReward: 50 },
+      { id: 'ac-5', description: 'Get 500+ engagements on your AI content', verification: 'Screenshot metrics', tokenReward: 50 }
     ],
     totalTokenReward: 205,
     bonusTokens: 100,
     growthMetric: 'AI feature adoption',
     targetGrowth: '80% of active users using AI features',
-    hashtags: ['#AIChampion', '#AITrading', '#FutureOfTrading', '#VEDDAi']
+    hashtags: ['#AIMaster', '#AITrading', '#FutureOfTrading', '#VEDDAi']
   },
   
   // Ongoing/Repeatable Challenges
   {
     id: 'weekly-streak',
-    title: 'Weekly Streak Challenge',
-    description: 'Maintain a 7-day streak of daily engagement and content creation.',
+    title: 'No Days Off - 7 Day Streak',
+    description: 'Show up every single day for a week. Engage, post, learn. Consistency is how you win.',
     type: 'engagement',
     weekNumber: 0,
     duration: 7,
     objectives: [
-      { id: 'ws-1', description: 'Log in and engage every day for 7 days', verification: 'Streak tracker', tokenReward: 35 },
+      { id: 'ws-1', description: 'Log in and do something every day for 7 days', verification: 'Streak tracker', tokenReward: 35 },
       { id: 'ws-2', description: 'Post trading content 5 out of 7 days', verification: 'Submit post links', tokenReward: 40 },
-      { id: 'ws-3', description: 'Attend 2 community events', verification: 'Attendance tracking', tokenReward: 25 },
-      { id: 'ws-4', description: 'Complete daily lesson content', verification: 'Progress tracker', tokenReward: 25 }
+      { id: 'ws-3', description: 'Pull up to 2 community events', verification: 'Attendance tracking', tokenReward: 25 },
+      { id: 'ws-4', description: 'Finish your daily lessons', verification: 'Progress tracker', tokenReward: 25 }
     ],
     totalTokenReward: 125,
     bonusTokens: 50,
     growthMetric: 'Daily active users',
     targetGrowth: 'Maintain 70% weekly retention',
-    hashtags: ['#VEDDStreak', '#ConsistencyWins', '#DailyTrader', '#VEDDAi']
+    hashtags: ['#NoDaysOff', '#ConsistencyWins', '#DailyGrind', '#VEDDAi']
   },
   {
     id: 'monthly-ambassador',
-    title: 'Ambassador of the Month',
-    description: 'Compete for the top ambassador spot with highest engagement, referrals, and community impact.',
+    title: 'Ambassador MVP - Monthly Crown',
+    description: 'Go for the top spot! Highest engagement, most referrals, biggest impact. The MVP gets the bag.',
     type: 'social_growth',
     weekNumber: 0,
     duration: 30,
     objectives: [
-      { id: 'am-1', description: 'Earn most tokens this month', verification: 'Leaderboard position', tokenReward: 500 },
-      { id: 'am-2', description: 'Most referrals this month', verification: 'Referral tracking', tokenReward: 300 },
-      { id: 'am-3', description: 'Highest content engagement', verification: 'Engagement metrics', tokenReward: 200 },
+      { id: 'am-1', description: 'Stack the most tokens this month', verification: 'Leaderboard position', tokenReward: 500 },
+      { id: 'am-2', description: 'Bring in the most referrals', verification: 'Referral tracking', tokenReward: 300 },
+      { id: 'am-3', description: 'Get the highest content engagement', verification: 'Engagement metrics', tokenReward: 200 },
       { id: 'am-4', description: 'Host 4+ community events', verification: 'Host tracking', tokenReward: 250 }
     ],
     totalTokenReward: 1250,
     bonusTokens: 500,
     growthMetric: 'Overall community growth',
     targetGrowth: '1000+ new active users monthly',
-    hashtags: ['#AmbassadorOfTheMonth', '#VEDDLeader', '#TopAmbassador', '#VEDDAi']
+    hashtags: ['#AmbassadorMVP', '#VEDDLeader', '#TopAmbassador', '#VEDDAi']
   }
 ];
 
