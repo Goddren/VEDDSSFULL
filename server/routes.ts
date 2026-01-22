@@ -8006,6 +8006,173 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     }
   });
 
+  // ============================================
+  // Internal Wallet API Routes
+  // ============================================
+  
+  // Get user's internal wallet balance
+  app.get("/api/wallet/balance", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const user = req.user as User;
+    
+    try {
+      let wallet = await storage.getInternalWallet(user.id);
+      if (!wallet) {
+        wallet = await storage.createOrUpdateInternalWallet(user.id, {
+          veddBalance: 0,
+          pendingBalance: 0,
+          totalEarned: 0,
+          totalWithdrawn: 0
+        });
+      }
+      res.json(wallet);
+    } catch (err) {
+      console.error('Error fetching wallet:', err);
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Request withdrawal to pump.fun wallet
+  app.post("/api/wallet/withdraw", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const user = req.user as User;
+    const { amount, destinationWallet } = req.body;
+    
+    if (!amount || amount <= 0) {
+      return res.status(400).json({ error: "Invalid withdrawal amount" });
+    }
+    
+    if (!destinationWallet || !destinationWallet.match(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/)) {
+      return res.status(400).json({ error: "Invalid Solana wallet address" });
+    }
+    
+    try {
+      const wallet = await storage.getInternalWallet(user.id);
+      if (!wallet || wallet.veddBalance < amount) {
+        return res.status(400).json({ error: "Insufficient balance" });
+      }
+      
+      // Move funds from available to pending (atomic operation)
+      // Funds stay in pendingBalance until admin approves/rejects
+      await storage.createOrUpdateInternalWallet(user.id, {
+        veddBalance: wallet.veddBalance - amount,
+        pendingBalance: (wallet.pendingBalance || 0) + amount
+      });
+      
+      // Create withdrawal request
+      const request = await storage.createWithdrawalRequest(user.id, amount, destinationWallet);
+      
+      res.json({ 
+        success: true, 
+        requestId: request.id,
+        amount,
+        message: "Withdrawal request submitted! Admin will review and process it shortly. Tokens will be sent to your pump.fun wallet."
+      });
+    } catch (err) {
+      console.error('Error requesting withdrawal:', err);
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Get user's withdrawal history
+  app.get("/api/wallet/withdrawals", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const user = req.user as User;
+    
+    try {
+      const requests = await storage.getWithdrawalRequests(user.id);
+      res.json(requests);
+    } catch (err) {
+      console.error('Error fetching withdrawals:', err);
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Admin: Get all pending withdrawal requests
+  app.get("/api/admin/wallet/withdrawals", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const user = req.user as User;
+    if (!user.isAdmin) {
+      return res.status(403).json({ error: "Admin access required" });
+    }
+    
+    try {
+      const requests = await storage.getAllWithdrawalRequests();
+      res.json(requests);
+    } catch (err) {
+      console.error('Error fetching withdrawals:', err);
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Admin: Process withdrawal request
+  app.post("/api/admin/wallet/withdrawals/:id/process", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const user = req.user as User;
+    if (!user.isAdmin) {
+      return res.status(403).json({ error: "Admin access required" });
+    }
+    
+    const { id } = req.params;
+    const { status, adminNotes, solanaTransactionSig } = req.body;
+    
+    if (!['approved', 'processing', 'completed', 'rejected'].includes(status)) {
+      return res.status(400).json({ error: "Invalid status" });
+    }
+    
+    try {
+      // Get the withdrawal request to know the user and amount
+      const requests = await storage.getAllWithdrawalRequests();
+      const request = requests.find(r => r.id === parseInt(id));
+      
+      if (!request) {
+        return res.status(404).json({ error: "Withdrawal request not found" });
+      }
+      
+      // Handle wallet balance updates based on status
+      const wallet = await storage.getInternalWallet(request.userId);
+      
+      if (wallet) {
+        if (status === 'completed') {
+          // Move from pending to totalWithdrawn (finalize withdrawal)
+          await storage.createOrUpdateInternalWallet(request.userId, {
+            pendingBalance: Math.max(0, (wallet.pendingBalance || 0) - request.amount),
+            totalWithdrawn: (wallet.totalWithdrawn || 0) + request.amount
+          });
+        } else if (status === 'rejected') {
+          // Refund: move from pending back to available balance
+          await storage.createOrUpdateInternalWallet(request.userId, {
+            pendingBalance: Math.max(0, (wallet.pendingBalance || 0) - request.amount),
+            veddBalance: (wallet.veddBalance || 0) + request.amount
+          });
+        }
+      }
+      
+      const updated = await storage.updateWithdrawalRequest(parseInt(id), {
+        status,
+        adminId: user.id,
+        adminNotes,
+        solanaTransactionSig,
+        processedAt: new Date()
+      });
+      
+      res.json({ success: true, request: updated });
+    } catch (err) {
+      console.error('Error processing withdrawal:', err);
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

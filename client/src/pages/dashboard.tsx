@@ -23,7 +23,8 @@ import {
   Smile,
   Zap,
   CalendarCheck,
-  Users
+  Users,
+  Coins
 } from 'lucide-react';
 import { MarketCalendar } from '@/components/market/market-calendar';
 import { getUserLevel } from '@/lib/achievement-system';
@@ -704,8 +705,20 @@ const Dashboard: React.FC = () => {
                       Sentiment Cloud
                     </Button>
                   </Link>
+                  <Link href="/host-dashboard">
+                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-green-600 hover:border-green-600 transition-all duration-500 ease-out hover:scale-105 animate-in fade-in-0 slide-in-from-bottom-2 duration-500" style={{ animationDelay: "250ms" }}>
+                      <Users className="h-4 w-4 mr-2 text-green-400" />
+                      Host Dashboard
+                    </Button>
+                  </Link>
+                  <Link href="/my-wallet">
+                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-amber-600 hover:border-amber-600 transition-all duration-500 ease-out hover:scale-105 animate-in fade-in-0 slide-in-from-bottom-2 duration-500" style={{ animationDelay: "275ms" }}>
+                      <Coins className="h-4 w-4 mr-2 text-amber-400" />
+                      My Wallet
+                    </Button>
+                  </Link>
                   <Link href="/subscription" className="col-span-2">
-                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-rose-600 hover:border-rose-600 transition-all duration-500 ease-out hover:scale-105 animate-in fade-in-0 slide-in-from-bottom-2 duration-500" style={{ animationDelay: "250ms" }}>
+                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-rose-600 hover:border-rose-600 transition-all duration-500 ease-out hover:scale-105 animate-in fade-in-0 slide-in-from-bottom-2 duration-500" style={{ animationDelay: "300ms" }}>
                       Upgrade Account
                     </Button>
                   </Link>

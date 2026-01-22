@@ -1260,6 +1260,56 @@ export type InsertSubscriptionTokenPayment = z.infer<typeof insertSubscriptionTo
 export type VeddRewardConfig = typeof veddRewardConfig.$inferSelect;
 export type InsertVeddRewardConfig = z.infer<typeof insertVeddRewardConfigSchema>;
 
+// Internal Wallet System - Holds tokens until user withdraws to pump.fun wallet
+export const internalWallets = pgTable("internal_wallets", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull().unique(),
+  veddBalance: real("vedd_balance").notNull().default(0), // Tokens held in app
+  pendingBalance: real("pending_balance").notNull().default(0), // Tokens awaiting admin verification
+  totalEarned: real("total_earned").notNull().default(0), // Lifetime earnings
+  totalWithdrawn: real("total_withdrawn").notNull().default(0), // Lifetime withdrawals
+  lastActivityAt: timestamp("last_activity_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// Withdrawal Requests - User requests to transfer tokens to their pump.fun wallet
+export const withdrawalRequests = pgTable("withdrawal_requests", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  amount: real("amount").notNull(), // VEDD tokens to withdraw
+  destinationWallet: text("destination_wallet").notNull(), // User's pump.fun Solana wallet
+  status: text("status").notNull().default('pending'), // 'pending', 'approved', 'processing', 'completed', 'rejected'
+  adminId: integer("admin_id").references(() => users.id), // Admin who processed
+  adminNotes: text("admin_notes"),
+  solanaTransactionSig: text("solana_transaction_sig"), // Tx signature when completed
+  errorMessage: text("error_message"),
+  requestedAt: timestamp("requested_at").defaultNow().notNull(),
+  processedAt: timestamp("processed_at"),
+});
+
+// Insert schemas for internal wallet system
+export const insertInternalWalletSchema = createInsertSchema(internalWallets).omit({
+  id: true,
+  lastActivityAt: true,
+  createdAt: true,
+});
+
+export const insertWithdrawalRequestSchema = createInsertSchema(withdrawalRequests).omit({
+  id: true,
+  adminId: true,
+  adminNotes: true,
+  solanaTransactionSig: true,
+  errorMessage: true,
+  requestedAt: true,
+  processedAt: true,
+});
+
+// Types for internal wallet system
+export type InternalWallet = typeof internalWallets.$inferSelect;
+export type InsertInternalWallet = z.infer<typeof insertInternalWalletSchema>;
+export type WithdrawalRequest = typeof withdrawalRequests.$inferSelect;
+export type InsertWithdrawalRequest = z.infer<typeof insertWithdrawalRequestSchema>;
+
 // Types for community features
 export type AmbassadorSocialDirection = typeof ambassadorSocialDirections.$inferSelect;
 export type InsertAmbassadorSocialDirection = z.infer<typeof insertAmbassadorSocialDirectionSchema>;

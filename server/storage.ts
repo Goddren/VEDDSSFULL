@@ -36,7 +36,10 @@ import {
   type VeddPoolWallet, type InsertVeddPoolWallet,
   type VeddTransferJob, type InsertVeddTransferJob,
   type AmbassadorActionReward, type InsertAmbassadorActionReward,
-  veddPoolWallets, veddTransferJobs, ambassadorActionRewards
+  type InternalWallet, type InsertInternalWallet,
+  type WithdrawalRequest, type InsertWithdrawalRequest,
+  veddPoolWallets, veddTransferJobs, ambassadorActionRewards,
+  internalWallets, withdrawalRequests
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, sql, desc, isNull } from "drizzle-orm";
@@ -288,6 +291,17 @@ export interface IStorage {
   getVerifiedUnprocessedRewards(userId: number): Promise<AmbassadorActionReward[]>;
   createVeddTransferJob(job: InsertVeddTransferJob): Promise<VeddTransferJob>;
   updateAmbassadorReward(id: number, data: Partial<AmbassadorActionReward>): Promise<AmbassadorActionReward | undefined>;
+  
+  // Internal Wallet methods
+  getInternalWallet(userId: number): Promise<InternalWallet | undefined>;
+  createOrUpdateInternalWallet(userId: number, data: Partial<InternalWallet>): Promise<InternalWallet>;
+  addToWalletBalance(userId: number, amount: number, isPending?: boolean): Promise<InternalWallet>;
+  
+  // Withdrawal Request methods
+  createWithdrawalRequest(userId: number, amount: number, destinationWallet: string): Promise<WithdrawalRequest>;
+  getWithdrawalRequests(userId: number): Promise<WithdrawalRequest[]>;
+  getAllWithdrawalRequests(): Promise<WithdrawalRequest[]>;
+  updateWithdrawalRequest(id: number, data: Partial<WithdrawalRequest>): Promise<WithdrawalRequest | undefined>;
 }
 
 // Create PostgreSQL session store
@@ -1969,6 +1983,78 @@ export class DatabaseStorage implements IStorage {
     const [result] = await db.update(ambassadorActionRewards)
       .set(data)
       .where(eq(ambassadorActionRewards.id, id))
+      .returning();
+    return result;
+  }
+
+  // Internal Wallet methods
+  async getInternalWallet(userId: number): Promise<InternalWallet | undefined> {
+    const [result] = await db.select().from(internalWallets)
+      .where(eq(internalWallets.userId, userId));
+    return result;
+  }
+
+  async createOrUpdateInternalWallet(userId: number, data: Partial<InternalWallet>): Promise<InternalWallet> {
+    const existing = await this.getInternalWallet(userId);
+    if (existing) {
+      const [result] = await db.update(internalWallets)
+        .set({ ...data, lastActivityAt: new Date() })
+        .where(eq(internalWallets.userId, userId))
+        .returning();
+      return result;
+    } else {
+      const [result] = await db.insert(internalWallets)
+        .values({ userId, ...data })
+        .returning();
+      return result;
+    }
+  }
+
+  async addToWalletBalance(userId: number, amount: number, isPending: boolean = false): Promise<InternalWallet> {
+    const existing = await this.getInternalWallet(userId);
+    if (existing) {
+      const updateData = isPending 
+        ? { pendingBalance: (existing.pendingBalance || 0) + amount }
+        : { veddBalance: (existing.veddBalance || 0) + amount, totalEarned: (existing.totalEarned || 0) + amount };
+      const [result] = await db.update(internalWallets)
+        .set({ ...updateData, lastActivityAt: new Date() })
+        .where(eq(internalWallets.userId, userId))
+        .returning();
+      return result;
+    } else {
+      const newWallet = isPending
+        ? { userId, pendingBalance: amount }
+        : { userId, veddBalance: amount, totalEarned: amount };
+      const [result] = await db.insert(internalWallets)
+        .values(newWallet)
+        .returning();
+      return result;
+    }
+  }
+
+  // Withdrawal Request methods
+  async createWithdrawalRequest(userId: number, amount: number, destinationWallet: string): Promise<WithdrawalRequest> {
+    const [result] = await db.insert(withdrawalRequests)
+      .values({ userId, amount, destinationWallet, status: 'pending' })
+      .returning();
+    return result;
+  }
+
+  async getWithdrawalRequests(userId: number): Promise<WithdrawalRequest[]> {
+    return await db.select().from(withdrawalRequests)
+      .where(eq(withdrawalRequests.userId, userId))
+      .orderBy(desc(withdrawalRequests.requestedAt));
+  }
+
+  async getAllWithdrawalRequests(): Promise<WithdrawalRequest[]> {
+    return await db.select().from(withdrawalRequests)
+      .orderBy(desc(withdrawalRequests.requestedAt));
+  }
+
+  async updateWithdrawalRequest(id: number, data: Partial<WithdrawalRequest>): Promise<WithdrawalRequest | undefined> {
+    const [result] = await db.update(withdrawalRequests)
+      .set(data)
+      .where(eq(withdrawalRequests.id, id))
       .returning();
     return result;
   }
