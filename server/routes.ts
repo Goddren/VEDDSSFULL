@@ -6942,6 +6942,78 @@ Generate a JSON object with:
     }
   });
 
+  // Get event attendees (for hosts)
+  app.get("/api/ambassador/events/:eventId/attendees", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    
+    try {
+      const userId = (req.user as any).id;
+      const eventId = parseInt(req.params.eventId);
+      
+      // Verify user is a host for this event
+      const registration = await storage.getEventRegistration(userId, eventId);
+      if (!registration || !['host', 'co_host', 'speaker'].includes(registration.role)) {
+        return res.status(403).json({ error: 'Only hosts can view attendees' });
+      }
+      
+      // Get all registrations for this event
+      const registrations = await storage.getEventRegistrations(eventId);
+      
+      // Get user details for each registration
+      const attendees = await Promise.all(
+        registrations.map(async (reg) => {
+          const user = await storage.getUser(reg.userId);
+          return {
+            id: reg.id,
+            userId: reg.userId,
+            username: user?.username || 'Unknown',
+            fullName: user?.fullName || user?.username || 'Unknown',
+            role: reg.role,
+            status: reg.status,
+            registeredAt: reg.registeredAt,
+            attendedAt: reg.attendedAt,
+          };
+        })
+      );
+      
+      res.json(attendees);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Update event status (for hosts to mark live/completed)
+  app.patch("/api/ambassador/events/:eventId/status", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    
+    try {
+      const userId = (req.user as any).id;
+      const eventId = parseInt(req.params.eventId);
+      const { status } = req.body;
+      
+      if (!['scheduled', 'live', 'completed', 'cancelled'].includes(status)) {
+        return res.status(400).json({ error: 'Invalid status' });
+      }
+      
+      // Verify user is a host for this event
+      const registration = await storage.getEventRegistration(userId, eventId);
+      if (!registration || !['host', 'co_host'].includes(registration.role)) {
+        return res.status(403).json({ error: 'Only hosts can update event status' });
+      }
+      
+      // Update event status
+      const updated = await storage.updateAmbassadorEventStatus(eventId, status);
+      
+      res.json({ success: true, event: updated });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
   // Upload event recording
   app.post("/api/ambassador/events/:eventId/recording", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) {

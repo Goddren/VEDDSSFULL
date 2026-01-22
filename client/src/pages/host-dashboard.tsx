@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -30,7 +30,12 @@ import {
   ChevronRight,
   Award,
   Sparkles,
-  Crown
+  Crown,
+  Radio,
+  StopCircle,
+  Timer,
+  ArrowLeft,
+  User
 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -64,10 +69,24 @@ interface HostStats {
   hostTier: string;
 }
 
+interface Attendee {
+  id: number;
+  userId: number;
+  username: string;
+  fullName: string;
+  role: string;
+  status: string;
+  registeredAt: string;
+  attendedAt: string | null;
+}
+
 export default function HostDashboardPage() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [selectedEvent, setSelectedEvent] = useState<HostedEvent | null>(null);
+  const [presenterEvent, setPresenterEvent] = useState<HostedEvent | null>(null);
+  const [elapsedTime, setElapsedTime] = useState(0);
+  const [isLive, setIsLive] = useState(false);
   const [recordingUrl, setRecordingUrl] = useState("");
 
   const { data: hostedEvents, isLoading: eventsLoading } = useQuery<HostedEvent[]>({
@@ -77,6 +96,25 @@ export default function HostDashboardPage() {
   const { data: hostStats } = useQuery<HostStats>({
     queryKey: ["/api/ambassador/host/stats"],
   });
+
+  // Query attendees for presenter mode
+  const { data: attendees = [], refetch: refetchAttendees } = useQuery<Attendee[]>({
+    queryKey: [`/api/ambassador/events/${presenterEvent?.id}/attendees`],
+    enabled: !!presenterEvent,
+  });
+
+  // Timer effect for presenter mode
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (isLive && presenterEvent) {
+      interval = setInterval(() => {
+        setElapsedTime(prev => prev + 1);
+      }, 1000);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isLive, presenterEvent]);
 
   const uploadRecordingMutation = useMutation({
     mutationFn: async ({ eventId, url }: { eventId: number; url: string }) => {
@@ -91,6 +129,43 @@ export default function HostDashboardPage() {
       toast({ title: "Upload failed", description: "Please try again.", variant: "destructive" });
     },
   });
+
+  const updateStatusMutation = useMutation({
+    mutationFn: async ({ eventId, status }: { eventId: number; status: string }) => {
+      return apiRequest("PATCH", `/api/ambassador/events/${eventId}/status`, { status });
+    },
+    onSuccess: (_, variables) => {
+      if (variables.status === 'live') {
+        toast({ title: "You're Live!", description: "Event is now in progress." });
+        setIsLive(true);
+        setElapsedTime(0);
+      } else if (variables.status === 'completed') {
+        toast({ title: "Event Completed!", description: "Great job hosting!" });
+        setIsLive(false);
+        setPresenterEvent(null);
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/ambassador/host/my-events"] });
+    },
+    onError: () => {
+      toast({ title: "Status update failed", description: "Please try again.", variant: "destructive" });
+    },
+  });
+
+  const formatTime = (seconds: number) => {
+    const hrs = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    if (hrs > 0) {
+      return `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const startPresenterMode = (event: HostedEvent) => {
+    setPresenterEvent(event);
+    setElapsedTime(0);
+    setIsLive(event.status === 'live');
+  };
 
   const getHostTierBadge = (tier: string) => {
     const tiers: Record<string, { color: string; icon: React.ReactNode }> = {
@@ -225,9 +300,19 @@ export default function HostDashboardPage() {
                           </div>
                         )}
                       </div>
-                      <Button variant="outline" size="sm" className="flex items-center gap-1">
-                        View Details <ChevronRight className="h-4 w-4" />
-                      </Button>
+                      <div className="flex flex-col gap-2">
+                        <Button 
+                          variant="default" 
+                          size="sm" 
+                          className="flex items-center gap-1 bg-green-600 hover:bg-green-500"
+                          onClick={(e) => { e.stopPropagation(); startPresenterMode(event); }}
+                        >
+                          <Radio className="h-4 w-4" /> Start Presenting
+                        </Button>
+                        <Button variant="outline" size="sm" className="flex items-center gap-1">
+                          View Details <ChevronRight className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
                   </CardContent>
                 </Card>
@@ -488,6 +573,217 @@ export default function HostDashboardPage() {
       {/* Backdrop for modal */}
       {selectedEvent && (
         <div className="fixed inset-0 bg-black/50 z-40" onClick={() => setSelectedEvent(null)} />
+      )}
+
+      {/* Presenter Mode Full-Screen View */}
+      {presenterEvent && (
+        <div className="fixed inset-0 z-50 bg-gray-950 overflow-hidden">
+          {/* Top Bar */}
+          <div className="h-16 bg-gray-900 border-b border-gray-800 flex items-center justify-between px-6">
+            <div className="flex items-center gap-4">
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={() => { setPresenterEvent(null); setIsLive(false); }}
+                className="text-gray-400 hover:text-white"
+              >
+                <ArrowLeft className="h-4 w-4 mr-2" /> Exit Presenter Mode
+              </Button>
+              <Separator orientation="vertical" className="h-8" />
+              <div>
+                <h2 className="font-semibold text-white">{presenterEvent.title}</h2>
+                <p className="text-xs text-gray-400">{getEventTypeBadge(presenterEvent.eventType)}</p>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-6">
+              {/* Timer */}
+              <div className="flex items-center gap-2 bg-gray-800 px-4 py-2 rounded-lg">
+                <Timer className="h-4 w-4 text-gray-400" />
+                <span className="font-mono text-lg text-white">{formatTime(elapsedTime)}</span>
+                <span className="text-xs text-gray-500">/ {presenterEvent.suggestedDuration}min</span>
+              </div>
+              
+              {/* Live Status */}
+              {isLive ? (
+                <div className="flex items-center gap-2">
+                  <div className="h-3 w-3 rounded-full bg-red-500 animate-pulse" />
+                  <span className="text-red-400 font-semibold">LIVE</span>
+                </div>
+              ) : (
+                <Badge variant="outline" className="text-gray-400">Not Started</Badge>
+              )}
+              
+              {/* Controls */}
+              <div className="flex gap-2">
+                {!isLive ? (
+                  <Button 
+                    className="bg-green-600 hover:bg-green-500"
+                    onClick={() => updateStatusMutation.mutate({ eventId: presenterEvent.id, status: 'live' })}
+                    disabled={updateStatusMutation.isPending}
+                  >
+                    <Radio className="h-4 w-4 mr-2" /> Go Live
+                  </Button>
+                ) : (
+                  <Button 
+                    variant="destructive"
+                    onClick={() => updateStatusMutation.mutate({ eventId: presenterEvent.id, status: 'completed' })}
+                    disabled={updateStatusMutation.isPending}
+                  >
+                    <StopCircle className="h-4 w-4 mr-2" /> End Event
+                  </Button>
+                )}
+              </div>
+            </div>
+          </div>
+          
+          {/* Main Content */}
+          <div className="flex h-[calc(100vh-4rem)]">
+            {/* Left Panel - Agenda & Notes */}
+            <div className="w-1/2 border-r border-gray-800 overflow-auto p-6">
+              <div className="space-y-6">
+                {/* Host Guide */}
+                <Card className="bg-gray-900 border-gray-800">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <FileText className="h-5 w-5 text-blue-400" /> Host Guide
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-gray-300 text-sm leading-relaxed">{presenterEvent.hostGuide}</p>
+                  </CardContent>
+                </Card>
+
+                {/* Talking Points */}
+                {presenterEvent.talkingPoints && presenterEvent.talkingPoints.length > 0 && (
+                  <Card className="bg-gray-900 border-gray-800">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-lg flex items-center gap-2">
+                        <MessageSquare className="h-5 w-5 text-green-400" /> Key Talking Points
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      {presenterEvent.talkingPoints.map((point, i) => (
+                        <div key={i} className="flex items-start gap-3 bg-gray-800/50 p-3 rounded-lg">
+                          <span className="bg-green-500 text-white text-xs font-bold px-2 py-1 rounded min-w-[28px] text-center">{i + 1}</span>
+                          <p className="text-gray-200 text-sm flex-1">{point}</p>
+                        </div>
+                      ))}
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Agenda Timeline */}
+                {presenterEvent.agenda && presenterEvent.agenda.length > 0 && (
+                  <Card className="bg-gray-900 border-gray-800">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-lg flex items-center gap-2">
+                        <Clock className="h-5 w-5 text-purple-400" /> Agenda
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-2">
+                      {presenterEvent.agenda.map((item, i) => (
+                        <div key={i} className="flex gap-4 items-start border-l-2 border-purple-500 pl-4 py-2">
+                          <span className="font-mono text-purple-400 text-sm min-w-[60px]">{item.time}</span>
+                          <div>
+                            <p className="font-medium text-white">{item.topic}</p>
+                            {item.notes && <p className="text-xs text-gray-400 mt-1">{item.notes}</p>}
+                          </div>
+                        </div>
+                      ))}
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Resources */}
+                {presenterEvent.resourceLinks && presenterEvent.resourceLinks.length > 0 && (
+                  <Card className="bg-gray-900 border-gray-800">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-lg flex items-center gap-2">
+                        <Lightbulb className="h-5 w-5 text-yellow-400" /> Resources
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="flex flex-wrap gap-2">
+                        {presenterEvent.resourceLinks.map((link, i) => (
+                          <Button key={i} variant="outline" size="sm" asChild className="border-gray-700">
+                            <a href={link.url} target="_blank" rel="noopener noreferrer">
+                              {link.title}
+                            </a>
+                          </Button>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            </div>
+            
+            {/* Right Panel - Attendees */}
+            <div className="w-1/2 overflow-auto p-6">
+              <Card className="bg-gray-900 border-gray-800 h-full">
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <Users className="h-5 w-5 text-amber-400" /> 
+                      Attendees ({attendees.length})
+                    </CardTitle>
+                    <Button variant="ghost" size="sm" onClick={() => refetchAttendees()} className="text-gray-400">
+                      Refresh
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <ScrollArea className="h-[calc(100vh-16rem)]">
+                    {attendees.length === 0 ? (
+                      <div className="text-center py-12 text-gray-500">
+                        <Users className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                        <p>No attendees registered yet</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {attendees.map((attendee) => (
+                          <div 
+                            key={attendee.id} 
+                            className="flex items-center justify-between bg-gray-800/50 rounded-lg p-3"
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="h-10 w-10 rounded-full bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center">
+                                <User className="h-5 w-5 text-white" />
+                              </div>
+                              <div>
+                                <p className="font-medium text-white">{attendee.fullName}</p>
+                                <p className="text-xs text-gray-400">@{attendee.username}</p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {attendee.role !== 'attendee' && (
+                                <Badge variant="secondary" className="text-xs">{attendee.role}</Badge>
+                              )}
+                              <Badge 
+                                variant="outline" 
+                                className={attendee.status === 'attended' 
+                                  ? 'text-green-400 border-green-500/50' 
+                                  : 'text-gray-400 border-gray-600'
+                                }
+                              >
+                                {attendee.status === 'attended' ? (
+                                  <><CheckCircle2 className="h-3 w-3 mr-1" /> Present</>
+                                ) : (
+                                  'Registered'
+                                )}
+                              </Badge>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </ScrollArea>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

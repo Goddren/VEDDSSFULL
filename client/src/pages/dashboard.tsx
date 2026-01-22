@@ -88,7 +88,7 @@ const Dashboard: React.FC = () => {
   });
   
   // Get user's registered events
-  const { data: registeredEventsData } = useQuery<{ events: Array<{ event: { id: number; title: string; description: string; eventDate: string; eventTime: string; status: string } }> }>({
+  const { data: registeredEventsData } = useQuery<{ events: Array<{ event: { id: number; title: string; description: string; scheduledDate: string | null; status: string } }> }>({
     queryKey: ['/api/ambassador/community/my-events'],
     enabled: !!user
   });
@@ -99,17 +99,37 @@ const Dashboard: React.FC = () => {
     enabled: !!user
   });
   
-  // Filter to only upcoming events
+  // Get events user is hosting
+  const { data: hostedEventsData } = useQuery<Array<{ id: number; title: string; description: string; scheduledDate: string | null; status: string; attendeeCount?: number }>>({
+    queryKey: ['/api/ambassador/host/my-events'],
+    enabled: !!user
+  });
+  
+  // Filter to only upcoming registered events
   const upcomingEvents = React.useMemo(() => {
     if (!registeredEventsData?.events) return [];
     const now = new Date();
     return registeredEventsData.events
       .filter(reg => {
-        const eventDate = new Date(reg.event.eventDate);
+        if (!reg.event.scheduledDate) return false;
+        const eventDate = new Date(reg.event.scheduledDate);
         return eventDate >= now && reg.event.status === 'scheduled';
       })
       .slice(0, 3);
   }, [registeredEventsData]);
+  
+  // Filter to only upcoming hosted events
+  const upcomingHostedEvents = React.useMemo(() => {
+    if (!hostedEventsData) return [];
+    const now = new Date();
+    return hostedEventsData
+      .filter(event => {
+        if (!event.scheduledDate) return false;
+        const eventDate = new Date(event.scheduledDate);
+        return eventDate >= now && event.status === 'scheduled';
+      })
+      .slice(0, 3);
+  }, [hostedEventsData]);
   
   // Calculate total achievement points (for UserLevel component)
   const totalAchievementPoints = React.useMemo(() => {
@@ -452,6 +472,68 @@ const Dashboard: React.FC = () => {
               </Card>
             )}
             
+            {/* Events You're Hosting */}
+            {upcomingHostedEvents.length > 0 && (
+              <Card className="bg-gradient-to-br from-purple-900/40 to-gray-900 border-purple-500/40 shadow-xl">
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="h-8 w-8 rounded-full bg-purple-500/30 flex items-center justify-center">
+                        <Trophy className="h-4 w-4 text-purple-400" />
+                      </div>
+                      <div>
+                        <CardTitle className="text-lg text-white">You're Hosting</CardTitle>
+                        <CardDescription className="text-purple-400/80">Events you're presenting</CardDescription>
+                      </div>
+                    </div>
+                    <Link href="/host-dashboard">
+                      <Button variant="ghost" size="sm" className="text-purple-400 hover:text-purple-300 hover:bg-purple-500/10">
+                        Host Dashboard
+                        <ChevronRight className="h-4 w-4 ml-1" />
+                      </Button>
+                    </Link>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {upcomingHostedEvents.map((event) => (
+                    <Link key={event.id} href="/host-dashboard">
+                      <div className="bg-gray-900/60 border border-purple-500/30 rounded-lg p-3 hover:bg-gray-800/60 transition-colors cursor-pointer">
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1 min-w-0">
+                            <h4 className="font-medium text-white truncate">{event.title}</h4>
+                            <div className="flex items-center gap-3 mt-1 text-sm text-gray-400">
+                              {event.scheduledDate && (
+                                <>
+                                  <span className="flex items-center gap-1">
+                                    <Calendar className="h-3 w-3" />
+                                    {new Date(event.scheduledDate).toLocaleDateString()}
+                                  </span>
+                                  <span className="flex items-center gap-1">
+                                    <Clock className="h-3 w-3" />
+                                    {new Date(event.scheduledDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                  </span>
+                                </>
+                              )}
+                              {event.attendeeCount !== undefined && (
+                                <span className="flex items-center gap-1">
+                                  <Users className="h-3 w-3" />
+                                  {event.attendeeCount} registered
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1 text-xs bg-purple-500/30 text-purple-300 px-2 py-1 rounded-full">
+                            <Trophy className="h-3 w-3" />
+                            Host
+                          </div>
+                        </div>
+                      </div>
+                    </Link>
+                  ))}
+                </CardContent>
+              </Card>
+            )}
+            
             {/* Upcoming Registered Events */}
             <Card className="bg-gradient-to-br from-amber-900/30 to-gray-900 border-amber-500/30 shadow-xl">
               <CardHeader className="pb-3">
@@ -484,14 +566,18 @@ const Dashboard: React.FC = () => {
                         <div className="flex-1 min-w-0">
                           <h4 className="font-medium text-white truncate">{reg.event.title}</h4>
                           <div className="flex items-center gap-3 mt-1 text-sm text-gray-400">
-                            <span className="flex items-center gap-1">
-                              <Calendar className="h-3 w-3" />
-                              {new Date(reg.event.eventDate).toLocaleDateString()}
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <Clock className="h-3 w-3" />
-                              {reg.event.eventTime}
-                            </span>
+                            {reg.event.scheduledDate && (
+                              <>
+                                <span className="flex items-center gap-1">
+                                  <Calendar className="h-3 w-3" />
+                                  {new Date(reg.event.scheduledDate).toLocaleDateString()}
+                                </span>
+                                <span className="flex items-center gap-1">
+                                  <Clock className="h-3 w-3" />
+                                  {new Date(reg.event.scheduledDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                              </>
+                            )}
                           </div>
                         </div>
                         <div className="flex items-center gap-1 text-xs bg-emerald-500/20 text-emerald-400 px-2 py-1 rounded-full">

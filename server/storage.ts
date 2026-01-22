@@ -279,6 +279,7 @@ export interface IStorage {
   updateEventRegistration(userId: number, eventId: number, data: Partial<AmbassadorEventRegistration>): Promise<AmbassadorEventRegistration | undefined>;
   getAmbassadorEvent(id: number): Promise<AmbassadorEvent | undefined>;
   updateAmbassadorEventRecording(eventId: number, recordingUrl: string, uploadedBy: number): Promise<AmbassadorEvent | undefined>;
+  updateAmbassadorEventStatus(eventId: number, status: string): Promise<AmbassadorEvent | undefined>;
 
   // VEDD Token System methods
   getVeddPoolWallets(): Promise<VeddPoolWallet[]>;
@@ -1771,6 +1772,14 @@ export class DatabaseStorage implements IStorage {
         recordingUploadedAt: new Date(),
         recordingUploadedBy: uploadedBy,
       })
+      .where(eq(ambassadorEvents.id, eventId))
+      .returning();
+    return result;
+  }
+
+  async updateAmbassadorEventStatus(eventId: number, status: string): Promise<AmbassadorEvent | undefined> {
+    const [result] = await db.update(ambassadorEvents)
+      .set({ status })
       .where(eq(ambassadorEvents.id, eventId))
       .returning();
     return result;
