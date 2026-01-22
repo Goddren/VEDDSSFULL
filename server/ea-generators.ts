@@ -1,8 +1,49 @@
 import { ChartAnalysisResponse } from "@shared/types";
+import { getAssetSpecificConfig } from "./openai";
 
 interface TimeframeAnalysisData {
   timeframe: string;
   analysis: ChartAnalysisResponse;
+}
+
+// Asset-specific volatility adjustments for EA generation
+function getVolatilityAdjustments(symbol: string): {
+  stopLossMultiplier: number;
+  takeProfitMultiplier: number;
+  minConfirmations: number;
+  trailingStopMultiplier: number;
+  riskWarning: string;
+} {
+  const config = getAssetSpecificConfig(symbol);
+  
+  if (config.assetType === 'gold') {
+    return {
+      stopLossMultiplier: 1.5,
+      takeProfitMultiplier: 1.3,
+      minConfirmations: 3,
+      trailingStopMultiplier: 1.5,
+      riskWarning: 'GOLD/XAU: High volatility asset - using widened stop losses (1.5x) and requiring 3+ confirmations'
+    };
+  }
+  
+  if (config.assetType === 'crypto') {
+    return {
+      stopLossMultiplier: 2.0,
+      takeProfitMultiplier: 1.5,
+      minConfirmations: 4,
+      trailingStopMultiplier: 2.0,
+      riskWarning: 'BITCOIN/CRYPTO: Extreme volatility - using 2x widened stop losses and requiring 4+ confirmations'
+    };
+  }
+  
+  // Standard forex
+  return {
+    stopLossMultiplier: 1.0,
+    takeProfitMultiplier: 1.0,
+    minConfirmations: 2,
+    trailingStopMultiplier: 1.0,
+    riskWarning: ''
+  };
 }
 
 /**
@@ -71,20 +112,26 @@ interface EAConfig {
 
 /**
  * Generate MT5 EA (Expert Advisor) code based on multi-timeframe analysis
+ * Enhanced with asset-specific adjustments for Gold and Bitcoin
  */
 export function generateMT5EACode(
   symbol: string,
   timeframes: TimeframeAnalysisData[],
   config?: EAConfig
 ): string {
+  // Get asset-specific volatility adjustments for Gold/BTC
+  const volatilityAdj = getVolatilityAdjustments(symbol);
+  const assetConfig = getAssetSpecificConfig(symbol);
+  
   const eaName = config?.eaName || 'Multi-Timeframe Strategy';
   const strategyType = config?.strategyType || 'day_trading';
   const tradeDuration = config?.tradeDuration || 'Variable';
   const validityDays = config?.validityDays || 30;
   const chartDate = config?.chartDate || new Date().toISOString().split('T')[0];
   const useTrailingStop = config?.useTrailingStop !== false;
-  const trailingStopDistance = config?.trailingStopDistance || 50;
-  const trailingStopStep = config?.trailingStopStep || 10;
+  // Apply volatility multiplier to trailing stop
+  const trailingStopDistance = Math.round((config?.trailingStopDistance || 50) * volatilityAdj.trailingStopMultiplier);
+  const trailingStopStep = Math.round((config?.trailingStopStep || 10) * volatilityAdj.trailingStopMultiplier);
   const multiTradeStrategy = config?.multiTradeStrategy || 'single';
   const maxSimultaneousTrades = config?.maxSimultaneousTrades || 1;
   const pyramidingRatio = config?.pyramidingRatio || 0.5;
@@ -136,10 +183,26 @@ export function generateMT5EACode(
   });
 
   // Get ATR-based stop loss if available - ensure they're valid strings
+  // Apply volatility multiplier for Gold/BTC to widen stop losses
   const atrStopLossRaw = primaryTF.analysis.atrStopLoss?.recommended || primaryTF.analysis.stopLoss;
-  const atrStopLoss = typeof atrStopLossRaw === 'string' ? atrStopLossRaw : String(atrStopLossRaw || 'Unknown');
+  let atrStopLoss = typeof atrStopLossRaw === 'string' ? atrStopLossRaw : String(atrStopLossRaw || 'Unknown');
   const takeProfitRaw = primaryTF.analysis.takeProfit;
-  const takeProfit = typeof takeProfitRaw === 'string' ? takeProfitRaw : String(takeProfitRaw || 'Unknown');
+  let takeProfit = typeof takeProfitRaw === 'string' ? takeProfitRaw : String(takeProfitRaw || 'Unknown');
+  
+  // Apply volatility multipliers for Gold/BTC if we have numeric values
+  if (volatilityAdj.stopLossMultiplier > 1) {
+    const numericSL = parseFloat(atrStopLoss.replace(/[^0-9.]/g, ''));
+    const numericTP = parseFloat(takeProfit.replace(/[^0-9.]/g, ''));
+    
+    if (!isNaN(numericSL) && numericSL > 0) {
+      const adjustedSL = numericSL * volatilityAdj.stopLossMultiplier;
+      atrStopLoss = `${adjustedSL.toFixed(getDecimalPlacesForSymbol(symbol))} (${volatilityAdj.stopLossMultiplier}x adjusted for ${assetConfig.assetType})`;
+    }
+    if (!isNaN(numericTP) && numericTP > 0) {
+      const adjustedTP = numericTP * volatilityAdj.takeProfitMultiplier;
+      takeProfit = `${adjustedTP.toFixed(getDecimalPlacesForSymbol(symbol))} (${volatilityAdj.takeProfitMultiplier}x adjusted for ${assetConfig.assetType})`;
+    }
+  }
   
   // Extract patterns and indicators from analysis - ensure they're valid strings
   const detectedPatterns = sortedTimeframes
@@ -235,6 +298,12 @@ export function generateMT5EACode(
       atrMultiplierNum = atrMultiplierBase;
       riskRewardRatio = 2.0;
   }
+  
+  // Apply asset-specific volatility multiplier for Gold/BTC (wider stops for high volatility)
+  atrMultiplierNum = atrMultiplierNum * volatilityAdj.stopLossMultiplier;
+  
+  // Increase minimum confirmation bars for Gold/BTC to require more signals
+  minConfirmationBars = Math.max(minConfirmationBars, volatilityAdj.minConfirmations);
 
   // Extract support/resistance levels
   const supportLevels = primaryTF.analysis.supportResistance?.filter((sr: any) => sr.type === 'Support') || [];
@@ -297,7 +366,17 @@ enum ENUM_MULTI_TRADE_MODE
 // Stop Loss (AI): ${atrStopLoss}
 // Take Profit (AI): ${takeProfit}
 // Risk/Reward Ratio: ${primaryTF.analysis.riskRewardRatio || '1:2'}
-//
+//${volatilityAdj.riskWarning ? `
+// ASSET-SPECIFIC VOLATILITY ADJUSTMENT
+//========================================================================
+// ${volatilityAdj.riskWarning}
+// Stop Loss Multiplier: ${volatilityAdj.stopLossMultiplier}x
+// Minimum Confirmations Required: ${volatilityAdj.minConfirmations}
+// Trailing Stop Multiplier: ${volatilityAdj.trailingStopMultiplier}x
+// Asset Type: ${assetConfig.assetType.toUpperCase()}
+// Session Bias: ${assetConfig.sessionBias.join(', ')}
+// Correlated Assets: ${assetConfig.correlationAssets.join(', ')}
+//` : ''}
 // CANDLESTICK SIGNIFICANCE ANALYSIS
 //========================================================================
 // Overall Signal: ${candlestickSignal} (${candlestickReliability} Reliability)
@@ -406,9 +485,9 @@ input bool AllowBuyTrades = true;               // Allow BUY trades
 input bool AllowSellTrades = true;              // Allow SELL trades
 input bool BidirectionalTrading = true;         // Trade BOTH directions based on real-time signals (recommended)
 input bool RequireAIConfirmation = false;       // Require AI direction match (restricts to one direction)
-input bool UseVolumeFilter = ${strategyType === 'scalping' ? 'true' : 'false'};             // Require volume confirmation (stricter for scalping)
-input bool UseMultiTimeframeConfirmation = ${strategyType === 'position_trading' ? 'true' : 'false'};  // Use multiple timeframes for confirmation
-input int MinTimeframesAgree = ${Math.max(1, Math.floor(sortedTimeframes.length / 2))};                     // Minimum timeframes that must agree
+input bool UseVolumeFilter = ${strategyType === 'scalping' || assetConfig.assetType === 'gold' || assetConfig.assetType === 'crypto' ? 'true' : 'false'};             // Require volume confirmation (stricter for scalping, Gold, BTC)
+input bool UseMultiTimeframeConfirmation = ${strategyType === 'position_trading' || assetConfig.assetType === 'gold' || assetConfig.assetType === 'crypto' ? 'true' : 'false'};  // Use multiple timeframes for confirmation
+input int MinTimeframesAgree = ${Math.max(volatilityAdj.minConfirmations, Math.floor(sortedTimeframes.length / 2))};                     // Minimum timeframes that must agree (${assetConfig.assetType === 'gold' ? 'Gold requires 3+' : assetConfig.assetType === 'crypto' ? 'BTC requires 4+' : 'standard'})
 input int MaxOpenTrades = ${maxSimultaneousTrades};                    // Maximum concurrent trades
 input int MagicNumber = ${Math.floor(Math.random() * 90000) + 10000};                     // Unique identifier for this EA
 

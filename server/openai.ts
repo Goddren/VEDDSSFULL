@@ -2,6 +2,172 @@ import OpenAI from "openai";
 import { ChartAnalysisResponse, TrendCell } from "@shared/types";
 import fs from "fs";
 
+// Asset-specific analysis configurations for improved accuracy
+interface AssetSpecificConfig {
+  assetType: 'forex' | 'gold' | 'crypto' | 'indices';
+  volatilityMultiplier: number;
+  atrMultiplier: number;
+  minimumConfirmations: number;
+  sessionBias: string[];
+  correlationAssets: string[];
+  specialConsiderations: string[];
+}
+
+function getAssetSpecificConfig(symbol: string): AssetSpecificConfig {
+  const cleanSymbol = symbol.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  
+  // Gold/Precious Metals Configuration
+  if (cleanSymbol.includes('XAU') || cleanSymbol.includes('GOLD')) {
+    return {
+      assetType: 'gold',
+      volatilityMultiplier: 1.5,
+      atrMultiplier: 2.0,
+      minimumConfirmations: 3,
+      sessionBias: ['London Session', 'New York Session'],
+      correlationAssets: ['DXY (inverse)', 'US Treasury Yields (inverse)', 'Silver XAG'],
+      specialConsiderations: [
+        'Gold is a safe-haven asset - analyze risk sentiment',
+        'Strong inverse correlation with USD strength (DXY)',
+        'Reacts sharply to Fed rate decisions and inflation data',
+        'Higher volatility during London/NY session overlap',
+        'Consider geopolitical tensions as bullish catalyst',
+        'Widen stop losses by 1.5-2x due to higher pip value volatility',
+        'Look for exhaustion patterns at psychological levels ($1900, $2000, $2100)',
+        'Volume spikes often precede major reversals'
+      ]
+    };
+  }
+  
+  // Bitcoin/Crypto Configuration  
+  if (cleanSymbol.includes('BTC') || cleanSymbol.includes('BITCOIN') || 
+      cleanSymbol.includes('ETH') || cleanSymbol.includes('CRYPTO')) {
+    return {
+      assetType: 'crypto',
+      volatilityMultiplier: 2.0,
+      atrMultiplier: 2.5,
+      minimumConfirmations: 4,
+      sessionBias: ['24/7 - Focus on high volume periods'],
+      correlationAssets: ['NASDAQ/Tech stocks', 'Ethereum ETH', 'Total Crypto Market Cap'],
+      specialConsiderations: [
+        'BTC trades 24/7 - volatility can spike any time',
+        'Weekend volatility often higher with lower liquidity',
+        'Whale wallet movements can cause sudden price swings',
+        'ETF inflows/outflows significantly impact price',
+        'Halving cycles create long-term bullish bias every 4 years',
+        'Regulatory news causes extreme volatility - widen stops by 2x minimum',
+        'Key psychological levels: $30k, $40k, $50k, $60k, $70k, $100k',
+        'Look for CME gap fills as potential targets',
+        'Funding rates indicate market sentiment (high = potential reversal)',
+        'On-chain metrics (active addresses, exchange flows) provide context',
+        'Correlation with risk assets during macro uncertainty'
+      ]
+    };
+  }
+  
+  // Default Forex Configuration
+  return {
+    assetType: 'forex',
+    volatilityMultiplier: 1.0,
+    atrMultiplier: 1.5,
+    minimumConfirmations: 2,
+    sessionBias: ['Session depends on pair'],
+    correlationAssets: ['Related pairs'],
+    specialConsiderations: ['Standard forex analysis applies']
+  };
+}
+
+// Generate asset-specific prompt additions for AI analysis
+function getAssetSpecificPrompt(symbol: string): string {
+  const config = getAssetSpecificConfig(symbol);
+  
+  if (config.assetType === 'gold') {
+    return `
+    
+    GOLD/XAU SPECIFIC ANALYSIS (CRITICAL FOR ACCURACY):
+    
+    Gold is a HIGH-VOLATILITY precious metal with unique characteristics:
+    
+    1. VOLATILITY ADJUSTMENT:
+       - Gold moves in larger pip increments than forex
+       - Standard stop losses often get hit prematurely
+       - MANDATORY: Widen all stop losses by 1.5-2x compared to forex
+       - Use ATR 2x minimum for stop loss calculations
+       
+    2. CORRELATION CHECK (Must analyze):
+       - Check USD strength context (strong USD = bearish gold)
+       - Consider Treasury yield direction (rising yields = bearish gold)
+       - Evaluate overall risk sentiment (risk-off = bullish gold)
+       
+    3. SESSION TIMING:
+       - Best trading: London-NY overlap (13:00-17:00 GMT)
+       - Avoid: Low liquidity Asian session for entries
+       - News: Fed speeches, CPI data cause extreme moves
+       
+    4. PATTERN RELIABILITY:
+       - Candlestick patterns need STRONGER confirmation on gold
+       - Wait for volume confirmation before entry
+       - Psychological levels ($1900, $2000, $2100) act as magnets
+       
+    5. SIGNAL REQUIREMENTS:
+       - Require minimum 3 confirmations before signaling BUY/SELL
+       - Single indicator signals are NOT sufficient for gold
+       - If unsure, signal should be NEUTRAL with reduced confidence
+       
+    6. STOP LOSS RULES FOR GOLD:
+       - Minimum 200-300 pips from entry (gold pips are 0.01)
+       - Place below/above significant swing points
+       - Never use tight stops on gold - they will get hunted`;
+  }
+  
+  if (config.assetType === 'crypto') {
+    return `
+    
+    BITCOIN/CRYPTO SPECIFIC ANALYSIS (CRITICAL FOR ACCURACY):
+    
+    Bitcoin is an EXTREMELY HIGH-VOLATILITY asset with unique characteristics:
+    
+    1. VOLATILITY ADJUSTMENT:
+       - BTC can move 2-5% in hours, 10%+ on volatile days
+       - Standard forex stop losses are COMPLETELY INADEQUATE
+       - MANDATORY: Use ATR 2.5x minimum for stop loss calculations
+       - Accept wider stops to avoid premature stop-outs
+       
+    2. MARKET STRUCTURE:
+       - 24/7 trading means no session gaps (except CME futures)
+       - Weekend often sees lower liquidity + higher volatility
+       - Whale movements create sudden wicks - plan for them
+       
+    3. CONFIRMATION REQUIREMENTS:
+       - Require minimum 4 confirmations for BTC signals
+       - Single timeframe analysis is INSUFFICIENT
+       - Volume must strongly confirm the direction
+       - RSI extremes (>80, <20) more reliable than mid-range
+       
+    4. KEY LEVELS:
+       - Psychological: $30k, $40k, $50k, $60k, $70k, $100k
+       - CME gap levels often get filled
+       - Previous all-time highs become strong support/resistance
+       
+    5. SENTIMENT FACTORS:
+       - ETF flows (Blackrock, Fidelity) significantly move price
+       - Funding rates: High positive = potential short squeeze, high negative = potential long squeeze
+       - Fear & Greed Index provides context
+       
+    6. STOP LOSS RULES FOR BTC:
+       - Minimum $1,000-$2,000 from entry point
+       - Place below/above significant swing points
+       - Use percentage-based stops (2-5% from entry)
+       - Factor in potential wick hunting before major moves
+       
+    7. SIGNAL CONFIDENCE:
+       - Be MORE CONSERVATIVE with confidence ratings
+       - "High" confidence requires 4+ confirmations
+       - Single indicator signals should be "Low" confidence maximum`;
+  }
+  
+  return ''; // Standard forex - no additional prompt needed
+}
+
 // This is using Replit's AI Integrations service, which provides OpenAI-compatible API access without requiring your own OpenAI API key.
 // The AI integration uses Replit credits and is billed to your Replit account.
 export const openai = new OpenAI({
@@ -34,9 +200,18 @@ export async function testOpenAIApiKey(): Promise<boolean> {
   }
 }
 
-export async function analyzeChartImage(base64Image: string): Promise<ChartAnalysisResponse> {
+// Export the config functions for use in EA generators
+export { getAssetSpecificConfig, getAssetSpecificPrompt };
+
+// Enhanced chart analysis with optional symbol for asset-specific analysis
+export async function analyzeChartImage(base64Image: string, knownSymbol?: string): Promise<ChartAnalysisResponse> {
   try {
     const openai = getOpenAIInstance();
+    
+    // Get asset-specific prompt if symbol is provided
+    const assetSpecificAddition = knownSymbol ? getAssetSpecificPrompt(knownSymbol) : '';
+    const assetConfig = knownSymbol ? getAssetSpecificConfig(knownSymbol) : null;
+    
     const visionResponse = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
@@ -50,7 +225,7 @@ export async function analyzeChartImage(base64Image: string): Promise<ChartAnaly
              - Analyze volume bars visible on the chart to assess buying/selling pressure
              - Look for volume divergences that could signal trend reversals
              - Identify momentum indicators (RSI, MACD, Stochastic if visible)
-             - Assess whether volume confirms or contradicts price action
+             - Assess whether volume confirms or contradicts price action${assetSpecificAddition}
              - Higher volume on breakouts increases signal reliability
              - Low volume in trends suggests potential reversal
           

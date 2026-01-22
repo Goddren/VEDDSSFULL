@@ -365,8 +365,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       console.log('Received base64 image data, calling OpenAI');
 
-      // Call OpenAI for analysis
-      const analysis = await analyzeChartImage(cleanBase64);
+      // Call OpenAI for analysis with optional known symbol for enhanced Gold/BTC analysis
+      const knownSymbol = req.body.symbol || undefined;
+      const analysis = await analyzeChartImage(cleanBase64, knownSymbol);
       console.log('Analysis completed successfully');
       
       // Fetch news sentiment for the detected symbol and adjust confidence
@@ -593,7 +594,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       for (let i = 0; i < frames.length; i++) {
         const frame = frames[i];
         try {
-          const analysis = await analyzeChartImage(frame.base64);
+          // Pass symbol if detected from previous frame for enhanced Gold/BTC analysis
+          const detectedSymbol = analyses.length > 0 ? analyses[analyses.length - 1].symbol : undefined;
+          const analysis = await analyzeChartImage(frame.base64, detectedSymbol);
           
           // Save frame to uploads
           const frameFileName = `video_frame_${groupId}_${i + 1}.jpg`;
@@ -1083,8 +1086,9 @@ Respond ONLY in valid JSON format with these exact keys:
       const imageBuffer = await fs.promises.readFile(filePath);
       const base64Image = imageBuffer.toString('base64');
 
-      // Call OpenAI for analysis
-      const analysis = await analyzeChartImage(base64Image);
+      // Call OpenAI for analysis with optional known symbol for enhanced Gold/BTC analysis
+      const knownSymbol = req.body.symbol || undefined;
+      const analysis = await analyzeChartImage(base64Image, knownSymbol);
       
       console.log("Analysis result from OpenAI:", JSON.stringify(analysis, null, 2));
 
