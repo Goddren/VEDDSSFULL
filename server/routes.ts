@@ -6942,6 +6942,45 @@ Generate a JSON object with:
     }
   });
 
+  // Get host's event schedules with event details and AI-generated guides
+  app.get("/api/ambassador/host/schedules", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    
+    try {
+      const userId = (req.user as any).id;
+      const schedules = await storage.getHostSchedules(userId);
+      
+      // Get full event details for each schedule
+      const schedulesWithEvents = await Promise.all(
+        schedules.map(async (schedule) => {
+          const event = await storage.getAmbassadorEvent(schedule.eventId);
+          return {
+            ...schedule,
+            event: event ? {
+              id: event.id,
+              title: event.title,
+              description: event.description,
+              eventType: event.eventType,
+              format: event.format,
+              hostGuide: event.hostGuide,
+              talkingPoints: event.talkingPoints || [],
+              agenda: event.agenda || [],
+              resourceLinks: event.resourceLinks || [],
+              tokenReward: event.tokenReward,
+              hostTokenReward: event.hostTokenReward,
+            } : null,
+          };
+        })
+      );
+      
+      res.json(schedulesWithEvents);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
   // Get event attendees (for hosts)
   app.get("/api/ambassador/events/:eventId/attendees", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) {
@@ -7420,6 +7459,15 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         aiAgenda,
         status: 'scheduled'
       });
+      
+      // Register user as host in ambassadorEventRegistrations so it shows in Host Dashboard
+      const existingReg = await storage.getEventRegistration(userId, eventId);
+      if (!existingReg) {
+        await storage.registerForEvent(userId, eventId, 'host');
+      } else if (existingReg.role === 'attendee') {
+        // Upgrade from attendee to host
+        await storage.updateEventRegistration(userId, eventId, { role: 'host' });
+      }
       
       // Award hosting tokens
       const stats = await storage.getAmbassadorContentStats(userId);

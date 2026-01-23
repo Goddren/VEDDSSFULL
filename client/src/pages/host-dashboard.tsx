@@ -60,6 +60,40 @@ interface HostedEvent {
   role: string;
 }
 
+interface HostSchedule {
+  id: number;
+  eventId: number;
+  title: string;
+  description: string | null;
+  startAt: string;
+  endAt: string | null;
+  capacity: number;
+  currentAttendees: number;
+  meetingLink: string | null;
+  shareSlug: string | null;
+  aiAgenda: {
+    overview: string;
+    agenda: { time: string; topic: string; description: string }[];
+    preparationTips: string[];
+    hostingTips: string[];
+  } | null;
+  status: string;
+  createdAt: string;
+  event: {
+    id: number;
+    title: string;
+    description: string | null;
+    eventType: string;
+    format: string;
+    hostGuide: string | null;
+    talkingPoints: string[];
+    agenda: { time: string; topic: string; notes?: string }[];
+    resourceLinks: { title: string; url: string }[];
+    tokenReward: number;
+    hostTokenReward: number;
+  } | null;
+}
+
 interface HostStats {
   totalEventsHosted: number;
   upcomingEvents: number;
@@ -84,6 +118,7 @@ export default function HostDashboardPage() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [selectedEvent, setSelectedEvent] = useState<HostedEvent | null>(null);
+  const [selectedSchedule, setSelectedSchedule] = useState<HostSchedule | null>(null);
   const [presenterEvent, setPresenterEvent] = useState<HostedEvent | null>(null);
   const [elapsedTime, setElapsedTime] = useState(0);
   const [isLive, setIsLive] = useState(false);
@@ -91,6 +126,10 @@ export default function HostDashboardPage() {
 
   const { data: hostedEvents, isLoading: eventsLoading } = useQuery<HostedEvent[]>({
     queryKey: ["/api/ambassador/host/my-events"],
+  });
+
+  const { data: hostSchedules, isLoading: schedulesLoading } = useQuery<HostSchedule[]>({
+    queryKey: ["/api/ambassador/host/schedules"],
   });
 
   const { data: hostStats } = useQuery<HostStats>({
@@ -196,8 +235,35 @@ export default function HostDashboardPage() {
 
   const upcomingEvents = hostedEvents?.filter(e => e.status === "scheduled" && e.scheduledDate) || [];
   const completedEvents = hostedEvents?.filter(e => e.status === "completed") || [];
+  
+  const upcomingSchedules = hostSchedules?.filter(s => s.status === "scheduled") || [];
+  const completedSchedules = hostSchedules?.filter(s => s.status === "completed") || [];
+  const allUpcoming = [...upcomingEvents.map(e => ({ ...e, eventId: e.id, scheduleId: null })), ...upcomingSchedules.map(s => ({
+    id: s.eventId,
+    eventId: s.eventId,
+    title: s.title,
+    description: s.description || s.event?.description || '',
+    eventType: s.event?.eventType || 'live_session',
+    format: s.event?.format || 'virtual',
+    hostGuide: s.event?.hostGuide || '',
+    talkingPoints: s.event?.talkingPoints || [],
+    agenda: s.aiAgenda?.agenda?.map(a => ({ time: a.time, topic: a.topic, notes: a.description })) || s.event?.agenda || [],
+    resourceLinks: s.event?.resourceLinks || [],
+    suggestedDuration: 60,
+    tokenReward: s.event?.tokenReward || 0,
+    hostTokenReward: s.event?.hostTokenReward || 0,
+    scheduledDate: s.startAt,
+    status: s.status,
+    recordingUrl: null,
+    recordingUploadedAt: null,
+    attendeeCount: s.currentAttendees,
+    role: 'host',
+    aiAgenda: s.aiAgenda,
+    scheduleId: s.id,
+    shareSlug: s.shareSlug,
+  }))];
 
-  if (eventsLoading) {
+  if (eventsLoading || schedulesLoading) {
     return (
       <div className="container mx-auto p-6 flex items-center justify-center min-h-[400px]">
         <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
@@ -249,10 +315,10 @@ export default function HostDashboardPage() {
       <Tabs defaultValue="upcoming" className="space-y-4">
         <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="upcoming" className="flex items-center gap-2">
-            <Calendar className="h-4 w-4" /> Upcoming ({upcomingEvents.length})
+            <Calendar className="h-4 w-4" /> Upcoming ({allUpcoming.length})
           </TabsTrigger>
           <TabsTrigger value="completed" className="flex items-center gap-2">
-            <CheckCircle2 className="h-4 w-4" /> Completed ({completedEvents.length})
+            <CheckCircle2 className="h-4 w-4" /> Completed ({completedEvents.length + completedSchedules.length})
           </TabsTrigger>
           <TabsTrigger value="guide" className="flex items-center gap-2">
             <Lightbulb className="h-4 w-4" /> Host Guide
@@ -261,7 +327,7 @@ export default function HostDashboardPage() {
 
         {/* Upcoming Events */}
         <TabsContent value="upcoming" className="space-y-4">
-          {upcomingEvents.length === 0 ? (
+          {allUpcoming.length === 0 ? (
             <Card>
               <CardContent className="p-8 text-center">
                 <Calendar className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
@@ -271,8 +337,8 @@ export default function HostDashboardPage() {
             </Card>
           ) : (
             <div className="grid gap-4">
-              {upcomingEvents.map((event) => (
-                <Card key={event.id} className="hover:border-primary/50 transition-colors cursor-pointer" onClick={() => setSelectedEvent(event)}>
+              {allUpcoming.map((event: any, index: number) => (
+                <Card key={`upcoming-${event.scheduleId || event.eventId}-${index}`} className="hover:border-primary/50 transition-colors cursor-pointer" onClick={() => setSelectedEvent(event)}>
                   <CardContent className="p-4">
                     <div className="flex items-start justify-between">
                       <div className="space-y-2">
@@ -280,6 +346,9 @@ export default function HostDashboardPage() {
                           {getEventTypeBadge(event.eventType)}
                           <Badge variant="outline">{event.format}</Badge>
                           <Badge variant="secondary">{event.role}</Badge>
+                          {event.shareSlug && (
+                            <Badge className="bg-purple-600">Shareable</Badge>
+                          )}
                         </div>
                         <h3 className="text-lg font-semibold">{event.title}</h3>
                         <p className="text-sm text-muted-foreground line-clamp-2">{event.description}</p>
@@ -299,6 +368,11 @@ export default function HostDashboardPage() {
                             </span>
                           </div>
                         )}
+                        {event.aiAgenda && (
+                          <div className="mt-2 p-2 bg-blue-900/20 border border-blue-500/30 rounded-lg">
+                            <p className="text-xs text-blue-400 font-medium">AI-Generated Agenda Available</p>
+                          </div>
+                        )}
                       </div>
                       <div className="flex flex-col gap-2">
                         <Button 
@@ -310,7 +384,7 @@ export default function HostDashboardPage() {
                           <Radio className="h-4 w-4" /> Start Presenting
                         </Button>
                         <Button variant="outline" size="sm" className="flex items-center gap-1">
-                          View Details <ChevronRight className="h-4 w-4" />
+                          View Guide <ChevronRight className="h-4 w-4" />
                         </Button>
                       </div>
                     </div>
@@ -390,13 +464,129 @@ export default function HostDashboardPage() {
 
         {/* Host Guide */}
         <TabsContent value="guide" className="space-y-4">
+          {/* Event-Specific Guides */}
+          {allUpcoming.length > 0 && (
+            <div className="space-y-4">
+              <h2 className="text-lg font-semibold flex items-center gap-2">
+                <FileText className="h-5 w-5 text-blue-500" />
+                Your Event-Specific Guides
+              </h2>
+              {allUpcoming.map((event: any, index: number) => (
+                <Card key={`guide-${event.scheduleId || event.eventId}-${index}`} className="border-blue-500/30">
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        {getEventTypeBadge(event.eventType)}
+                        <CardTitle className="text-base">{event.title}</CardTitle>
+                      </div>
+                      {event.scheduledDate && (
+                        <Badge variant="outline" className="text-xs">
+                          {format(new Date(event.scheduledDate), "MMM d, h:mm a")}
+                        </Badge>
+                      )}
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {/* AI-Generated Agenda */}
+                    {event.aiAgenda && (
+                      <div className="space-y-3">
+                        <div className="p-3 bg-gradient-to-r from-blue-900/30 to-purple-900/30 rounded-lg border border-blue-500/30">
+                          <h4 className="font-medium text-blue-400 flex items-center gap-2 mb-2">
+                            <Sparkles className="h-4 w-4" /> AI-Generated Session Guide
+                          </h4>
+                          <p className="text-sm text-gray-300 mb-3">{event.aiAgenda.overview}</p>
+                          
+                          {/* Agenda Timeline */}
+                          <div className="space-y-2 mb-4">
+                            <h5 className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Session Agenda</h5>
+                            {event.aiAgenda.agenda?.map((item: any, i: number) => (
+                              <div key={i} className="flex gap-3 text-sm">
+                                <span className="text-blue-400 font-mono min-w-[80px]">{item.time}</span>
+                                <div>
+                                  <span className="font-medium text-white">{item.topic}</span>
+                                  {item.description && (
+                                    <p className="text-gray-400 text-xs mt-0.5">{item.description}</p>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                          
+                          {/* Preparation Tips */}
+                          {event.aiAgenda.preparationTips?.length > 0 && (
+                            <div className="mb-3">
+                              <h5 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Preparation Tips</h5>
+                              <div className="grid gap-1">
+                                {event.aiAgenda.preparationTips.map((tip: string, i: number) => (
+                                  <div key={i} className="flex items-start gap-2 text-sm">
+                                    <Target className="h-3 w-3 text-green-400 mt-1 flex-shrink-0" />
+                                    <span className="text-gray-300">{tip}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          
+                          {/* Hosting Tips */}
+                          {event.aiAgenda.hostingTips?.length > 0 && (
+                            <div>
+                              <h5 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">During Your Session</h5>
+                              <div className="grid gap-1">
+                                {event.aiAgenda.hostingTips.map((tip: string, i: number) => (
+                                  <div key={i} className="flex items-start gap-2 text-sm">
+                                    <Mic className="h-3 w-3 text-yellow-400 mt-1 flex-shrink-0" />
+                                    <span className="text-gray-300">{tip}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Fallback to Event Talking Points if no AI agenda */}
+                    {!event.aiAgenda && event.talkingPoints?.length > 0 && (
+                      <div className="space-y-2">
+                        <h4 className="font-medium flex items-center gap-2">
+                          <MessageSquare className="h-4 w-4 text-green-500" /> Key Talking Points
+                        </h4>
+                        <div className="grid gap-1 pl-2">
+                          {event.talkingPoints.map((point: string, i: number) => (
+                            <div key={i} className="flex items-start gap-2 text-sm">
+                              <ChevronRight className="h-4 w-4 text-primary mt-0.5" />
+                              <span>{point}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Share Link */}
+                    {event.shareSlug && (
+                      <div className="p-2 bg-purple-900/20 border border-purple-500/30 rounded-lg">
+                        <p className="text-xs text-purple-400 mb-1">Share this event:</p>
+                        <code className="text-xs text-purple-300 bg-black/30 px-2 py-1 rounded">
+                          {window.location.origin}/event/{event.shareSlug}
+                        </code>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+          
+          <Separator className="my-6" />
+          
+          {/* General Host Guide */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Sparkles className="h-5 w-5 text-yellow-500" />
-                Host Success Guide
+                General Host Success Guide
               </CardTitle>
-              <CardDescription>Tips and best practices for hosting successful community events</CardDescription>
+              <CardDescription>Universal tips for hosting successful community events that can be duplicated</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               {/* Pre-Event Checklist */}
@@ -406,12 +596,12 @@ export default function HostDashboardPage() {
                 </h3>
                 <div className="grid gap-2 pl-6">
                   {[
-                    "Review the event talking points and agenda",
-                    "Test your audio and video equipment",
+                    "Review your AI-generated event agenda above",
+                    "Test your audio and video equipment 15 mins before",
                     "Prepare any slides or visual materials",
                     "Set up a quiet, well-lit space",
                     "Have backup internet connection ready",
-                    "Send reminder notifications to attendees",
+                    "Share your event link with potential attendees",
                   ].map((item, i) => (
                     <div key={i} className="flex items-center gap-2 text-sm">
                       <CheckCircle2 className="h-4 w-4 text-green-500" />
@@ -432,13 +622,37 @@ export default function HostDashboardPage() {
                   {[
                     "Start on time - respect everyone's schedule",
                     "Introduce yourself and set expectations",
+                    "Follow your AI-generated agenda timeline",
                     "Encourage questions and participation",
-                    "Keep track of time for each agenda item",
                     "Use screen sharing for demonstrations",
                     "Save 5-10 minutes for Q&A at the end",
                   ].map((item, i) => (
                     <div key={i} className="flex items-center gap-2 text-sm">
                       <ChevronRight className="h-4 w-4 text-primary" />
+                      {item}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Making Events Duplicatable */}
+              <div>
+                <h3 className="font-semibold flex items-center gap-2 mb-3">
+                  <Award className="h-4 w-4 text-orange-500" /> Make Events Duplicatable
+                </h3>
+                <div className="grid gap-2 pl-6">
+                  {[
+                    "Record your session for others to learn from",
+                    "Document what worked well and what didn't",
+                    "Create a template from your successful events",
+                    "Share your hosting tips with other ambassadors",
+                    "Build a library of reusable content and slides",
+                    "Mentor new hosts to replicate your success",
+                  ].map((item, i) => (
+                    <div key={i} className="flex items-center gap-2 text-sm">
+                      <Sparkles className="h-4 w-4 text-orange-400" />
                       {item}
                     </div>
                   ))}
