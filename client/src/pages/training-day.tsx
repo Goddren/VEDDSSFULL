@@ -611,17 +611,15 @@ export default function TrainingDay() {
           </Card>
 
           {dayData.image && (
-            <Card className="bg-gray-800/50 border-gray-700 overflow-hidden">
-              <div className="relative">
+            <Card className="bg-gray-900 border-gray-700 p-4">
+              <div className="flex flex-col items-center">
                 <img 
                   src={dayData.image} 
                   alt={dayData.imageAlt || dayData.title}
-                  className="w-full h-64 object-cover"
+                  className="w-full max-w-2xl object-contain rounded-lg"
+                  style={{ maxHeight: '400px' }}
                 />
-                <div className="absolute inset-0 bg-gradient-to-t from-gray-900/80 to-transparent" />
-                <div className="absolute bottom-4 left-4 right-4">
-                  <p className="text-white text-sm font-medium">{dayData.imageAlt || "Visual Guide"}</p>
-                </div>
+                <p className="text-gray-400 text-sm mt-3 text-center">{dayData.imageAlt || "Visual Guide"}</p>
               </div>
             </Card>
           )}
