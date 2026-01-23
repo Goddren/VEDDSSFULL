@@ -14,25 +14,26 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
 
-import dojiImg from '@assets/training_images/doji_patterns_explained.png';
-import hammerImg from '@assets/training_images/hammer_patterns_explained.png';
-import engulfingImg from '@assets/training_images/engulfing_patterns_explained.png';
-import morningStarImg from '@assets/training_images/morning_evening_star_explained.png';
-import headShouldersImg from '@assets/training_images/head_shoulders_explained.png';
-import doubleTopImg from '@assets/training_images/double_top_bottom_explained.png';
-import movingAvgImg from '@assets/training_images/moving_averages_explained.png';
-import rsiImg from '@assets/training_images/rsi_indicator_explained.png';
-import macdImg from '@assets/training_images/macd_indicator_explained.png';
-import bollingerImg from '@assets/training_images/bollinger_bands_explained.png';
-import volumeImg from '@assets/training_images/volume_analysis_explained.png';
-import platformsImg from '@assets/training_images/trading_platforms_overview.png';
-import chartAnalysisImg from '@assets/training_images/ai_trading_vault_workflow.png';
-import socialMediaImg from '@assets/training_images/social_media_trading.png';
-import videoCreationImg from '@assets/training_images/video_content_creation.png';
-import complianceImg from '@assets/training_images/trading_compliance.png';
-import liveStreamImg from '@assets/training_images/video_content_creation.png';
-import supportResistanceImg from '@assets/training_images/double_top_bottom_explained.png';
-import triangleImg from '@assets/training_images/triangle_patterns_explained.png';
+import {
+  DojiDiagram,
+  HammerDiagram,
+  EngulfingDiagram,
+  MorningStarDiagram,
+  HeadShouldersDiagram,
+  DoubleTopDiagram,
+  TriangleDiagram,
+  RSIDiagram,
+  MACDDiagram,
+  MovingAveragesDiagram,
+  BollingerBandsDiagram,
+  VolumeDiagram,
+} from '@/components/candlestick-diagrams';
+
+import socialMediaImg from '@assets/stock_images/social_media_marketi_1d2f1efd.jpg';
+import videoCreationImg from '@assets/stock_images/professional_video_r_aada2fa4.jpg';
+import chartAnalysisImg from '@assets/stock_images/trading_chart_analys_8f9ce15e.jpg';
+import complianceImg from '@assets/stock_images/business_compliance__a162932c.jpg';
+import platformsImg from '@assets/stock_images/trading_platforms_mu_e4e1343a.jpg';
 
 interface TrainingProgress {
   id: number;
@@ -47,7 +48,21 @@ interface TrainingProgress {
   certificationEarned: boolean;
 }
 
-const trainingDays = [
+interface TrainingDay {
+  day: number;
+  module: string;
+  lessonId: string;
+  title: string;
+  icon: typeof BookOpen;
+  category: string;
+  image?: string;
+  imageAlt?: string;
+  DiagramComponent?: React.ComponentType;
+  content: string[];
+  tips: string[];
+}
+
+const trainingDays: TrainingDay[] = [
   { day: 1, module: "intro", lessonId: "intro-1", title: "What is AI Trading Vault?", icon: BookOpen, category: "foundation",
     image: chartAnalysisImg, imageAlt: "AI Trading Vault chart analysis",
     content: [
@@ -119,7 +134,7 @@ const trainingDays = [
     tips: ["Show the simple 4-step workflow", "Emphasize universal compatibility"]
   },
   { day: 8, module: "chart-patterns", lessonId: "patterns-1", title: "Candlestick Basics", icon: Target, category: "strategy",
-    image: dojiImg, imageAlt: "Basic candlestick patterns",
+    DiagramComponent: DojiDiagram, imageAlt: "Basic candlestick patterns",
     content: [
       "Candlesticks show price movement over a specific time period",
       "Each candle has a body (open to close) and wicks (high and low)",
@@ -129,7 +144,7 @@ const trainingDays = [
     tips: ["Use visual examples", "Start with the basics before complex patterns"]
   },
   { day: 9, module: "chart-patterns", lessonId: "patterns-2", title: "Doji Patterns", icon: Target, category: "strategy",
-    image: dojiImg, imageAlt: "Doji candlestick patterns",
+    DiagramComponent: DojiDiagram, imageAlt: "Doji candlestick patterns",
     content: [
       "A Doji forms when open and close prices are nearly equal",
       "Indicates indecision in the market - neither buyers nor sellers won",
@@ -139,7 +154,7 @@ const trainingDays = [
     tips: ["Explain market psychology behind the pattern", "Show real chart examples"]
   },
   { day: 10, module: "chart-patterns", lessonId: "patterns-3", title: "Hammer & Hanging Man", icon: Target, category: "strategy",
-    image: hammerImg, imageAlt: "Hammer and Hanging Man patterns",
+    DiagramComponent: HammerDiagram, imageAlt: "Hammer and Hanging Man patterns",
     content: [
       "Hammer: Bullish reversal pattern found at the bottom of downtrends",
       "Hanging Man: Bearish reversal pattern found at the top of uptrends",
@@ -149,7 +164,7 @@ const trainingDays = [
     tips: ["Focus on the importance of context", "Use before/after examples"]
   },
   { day: 11, module: "chart-patterns", lessonId: "patterns-4", title: "Engulfing Patterns", icon: Target, category: "strategy",
-    image: engulfingImg, imageAlt: "Bullish and bearish engulfing patterns",
+    DiagramComponent: EngulfingDiagram, imageAlt: "Bullish and bearish engulfing patterns",
     content: [
       "Bullish Engulfing: Large green candle completely engulfs previous red candle",
       "Bearish Engulfing: Large red candle completely engulfs previous green candle",
@@ -159,7 +174,7 @@ const trainingDays = [
     tips: ["Show the size comparison between candles", "Explain why engulfing matters"]
   },
   { day: 12, module: "chart-patterns", lessonId: "patterns-5", title: "Morning/Evening Star", icon: Star, category: "strategy",
-    image: morningStarImg, imageAlt: "Morning star and evening star patterns",
+    DiagramComponent: MorningStarDiagram, imageAlt: "Morning star and evening star patterns",
     content: [
       "Morning Star: Three-candle bullish reversal (red, small, green)",
       "Evening Star: Three-candle bearish reversal (green, small, red)",
@@ -169,7 +184,7 @@ const trainingDays = [
     tips: ["Break down each candle's meaning", "Explain the psychology of the three stages"]
   },
   { day: 13, module: "chart-patterns", lessonId: "patterns-6", title: "Head & Shoulders", icon: Target, category: "strategy",
-    image: headShouldersImg, imageAlt: "Head and shoulders chart pattern",
+    DiagramComponent: HeadShouldersDiagram, imageAlt: "Head and shoulders chart pattern",
     content: [
       "Classic reversal pattern with three peaks - left shoulder, head, right shoulder",
       "Neckline connects the lows between the shoulders",
@@ -179,7 +194,7 @@ const trainingDays = [
     tips: ["Draw the pattern clearly", "Explain entry and target calculation"]
   },
   { day: 14, module: "chart-patterns", lessonId: "patterns-7", title: "Double Top/Bottom", icon: Target, category: "strategy",
-    image: doubleTopImg, imageAlt: "Double top and double bottom patterns",
+    DiagramComponent: DoubleTopDiagram, imageAlt: "Double top and double bottom patterns",
     content: [
       "Double Top: Two peaks at similar price level - bearish reversal",
       "Double Bottom: Two valleys at similar price level - bullish reversal",
@@ -189,7 +204,7 @@ const trainingDays = [
     tips: ["Show the W and M shapes", "Explain why two tests matter"]
   },
   { day: 15, module: "indicators", lessonId: "indicators-1", title: "Moving Averages", icon: Brain, category: "strategy",
-    image: movingAvgImg, imageAlt: "Moving averages on chart",
+    DiagramComponent: MovingAveragesDiagram, imageAlt: "Moving averages on chart",
     content: [
       "Moving averages smooth out price data to show the trend direction",
       "Simple Moving Average (SMA) vs Exponential Moving Average (EMA)",
@@ -199,7 +214,7 @@ const trainingDays = [
     tips: ["Explain the difference between SMA and EMA", "Show golden cross and death cross"]
   },
   { day: 16, module: "indicators", lessonId: "indicators-2", title: "RSI Indicator", icon: Brain, category: "strategy",
-    image: rsiImg, imageAlt: "RSI indicator overbought oversold zones",
+    DiagramComponent: RSIDiagram, imageAlt: "RSI indicator overbought oversold zones",
     content: [
       "Relative Strength Index measures momentum on a 0-100 scale",
       "Above 70 = overbought (potential sell), Below 30 = oversold (potential buy)",
@@ -209,7 +224,7 @@ const trainingDays = [
     tips: ["Show overbought/oversold zones", "Explain RSI divergence with examples"]
   },
   { day: 17, module: "indicators", lessonId: "indicators-3", title: "MACD Explained", icon: Brain, category: "strategy",
-    image: macdImg, imageAlt: "MACD indicator crossovers",
+    DiagramComponent: MACDDiagram, imageAlt: "MACD indicator crossovers",
     content: [
       "MACD = Moving Average Convergence Divergence",
       "Consists of MACD line, Signal line, and Histogram",
@@ -219,7 +234,7 @@ const trainingDays = [
     tips: ["Break down each component", "Show bullish and bearish crossovers"]
   },
   { day: 18, module: "indicators", lessonId: "indicators-4", title: "Bollinger Bands", icon: Brain, category: "strategy",
-    image: bollingerImg, imageAlt: "Bollinger Bands trading chart",
+    DiagramComponent: BollingerBandsDiagram, imageAlt: "Bollinger Bands trading chart",
     content: [
       "Bollinger Bands consist of a middle SMA with upper and lower bands",
       "Bands expand during high volatility, contract during low volatility",
@@ -229,7 +244,7 @@ const trainingDays = [
     tips: ["Show band expansion and contraction", "Explain the squeeze setup"]
   },
   { day: 19, module: "indicators", lessonId: "indicators-5", title: "Volume Analysis", icon: Brain, category: "strategy",
-    image: volumeImg, imageAlt: "Volume analysis on trading chart",
+    DiagramComponent: VolumeDiagram, imageAlt: "Volume analysis on trading chart",
     content: [
       "Volume shows how much trading activity occurred",
       "High volume confirms price moves, low volume suggests weakness",
@@ -239,7 +254,7 @@ const trainingDays = [
     tips: ["Show volume confirmation examples", "Explain smart money concepts"]
   },
   { day: 20, module: "indicators", lessonId: "indicators-6", title: "Combining Indicators", icon: Zap, category: "strategy",
-    image: chartAnalysisImg, imageAlt: "Multiple indicators combined",
+    DiagramComponent: MACDDiagram, imageAlt: "Multiple indicators combined",
     content: [
       "No single indicator is perfect - combine for confirmation",
       "Popular combos: RSI + MACD, Moving Averages + Volume",
@@ -349,7 +364,7 @@ const trainingDays = [
     tips: ["Record in HD quality", "Edit out mistakes and pauses"]
   },
   { day: 31, module: "video", lessonId: "video-3", title: "Live Streaming Setup", icon: Video, category: "mindset",
-    image: liveStreamImg, imageAlt: "Live streaming setup for traders",
+    image: videoCreationImg, imageAlt: "Live streaming setup for traders",
     content: [
       "Test your setup before going live",
       "Have a backup plan for technical issues",
@@ -429,7 +444,7 @@ const trainingDays = [
     tips: ["Read platform ToS", "Keep content clean and professional"]
   },
   { day: 39, module: "advanced", lessonId: "advanced-1", title: "Advanced EA Strategies", icon: Zap, category: "strategy",
-    image: chartAnalysisImg, imageAlt: "Advanced EA trading strategies",
+    DiagramComponent: TriangleDiagram, imageAlt: "Advanced EA trading strategies",
     content: [
       "Multi-timeframe EA analysis for better accuracy",
       "Combining AI analysis with technical confirmation",
@@ -439,7 +454,7 @@ const trainingDays = [
     tips: ["Test on demo first", "Start with conservative settings"]
   },
   { day: 40, module: "advanced", lessonId: "advanced-2", title: "Multi-Timeframe Analysis", icon: Brain, category: "strategy",
-    image: chartAnalysisImg, imageAlt: "Multi-timeframe chart analysis",
+    DiagramComponent: MACDDiagram, imageAlt: "Multi-timeframe chart analysis",
     content: [
       "Higher timeframes show the trend, lower timeframes show entries",
       "Common combo: 4H for trend, 1H for confirmation, 15M for entry",
@@ -449,7 +464,7 @@ const trainingDays = [
     tips: ["Practice on different timeframe combos", "Start with higher TFs"]
   },
   { day: 41, module: "advanced", lessonId: "advanced-3", title: "Risk Management", icon: Shield, category: "strategy",
-    image: supportResistanceImg, imageAlt: "Risk management with support resistance",
+    DiagramComponent: DoubleTopDiagram, imageAlt: "Risk management with support resistance",
     content: [
       "Never risk more than 1-2% per trade",
       "Use stop losses on every trade",
@@ -610,16 +625,22 @@ export default function TrainingDay() {
             </CardHeader>
           </Card>
 
-          {dayData.image && (
+          {(dayData.DiagramComponent || dayData.image) && (
             <Card className="bg-gray-900 border-gray-700 p-4">
               <div className="flex flex-col items-center">
-                <img 
-                  src={dayData.image} 
-                  alt={dayData.imageAlt || dayData.title}
-                  className="w-full max-w-2xl object-contain rounded-lg"
-                  style={{ maxHeight: '400px' }}
-                />
-                <p className="text-gray-400 text-sm mt-3 text-center">{dayData.imageAlt || "Visual Guide"}</p>
+                {dayData.DiagramComponent ? (
+                  <div className="w-full max-w-2xl rounded-lg overflow-hidden bg-gray-800 border border-gray-700">
+                    <dayData.DiagramComponent />
+                  </div>
+                ) : (
+                  <img 
+                    src={dayData.image} 
+                    alt={dayData.imageAlt || dayData.title}
+                    className="w-full max-w-2xl object-contain rounded-lg"
+                    style={{ maxHeight: '400px' }}
+                  />
+                )}
+                <p className="text-gray-400 text-sm mt-3 text-center">{dayData.imageAlt || "Pattern Example"}</p>
               </div>
             </Card>
           )}
