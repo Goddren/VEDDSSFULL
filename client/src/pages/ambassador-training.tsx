@@ -1720,6 +1720,185 @@ const trainingModules: TrainingModule[] = [
         }
       }
     ]
+  },
+  {
+    id: 'community-building',
+    title: 'Building Your VEDD Community',
+    description: 'Learn how to build, grow, and nurture a thriving trading community around VEDD AI',
+    duration: '35 min',
+    icon: Users,
+    image: socialMediaImg,
+    lessons: [
+      {
+        id: 'community-1',
+        title: 'The Power of Community in Trading',
+        content: [
+          'Trading can be isolating - community provides support, accountability, and shared learning',
+          'VEDD AI is more than a tool - it\'s an Online University-style community experience',
+          'Successful traders often credit their community for helping them stay disciplined and motivated',
+          'Your role as an ambassador is to foster this sense of belonging and mutual growth',
+          'Community members who feel connected stay longer and refer more people'
+        ],
+        keyPoints: [
+          { title: 'Shared Learning', description: 'When one trader learns something new, the whole community benefits. Share insights, strategies, and lessons learned - especially from losses.', icon: BookOpen },
+          { title: 'Accountability Partners', description: 'Trading buddies help you stick to your rules. Encourage members to partner up and check in with each other on trading discipline.', icon: Target },
+          { title: 'Emotional Support', description: 'Drawdowns hit different when you have people who understand. Create space for traders to share struggles without judgment.', icon: Heart }
+        ],
+        realWorldExamples: [
+          { scenario: 'A new trader was about to revenge trade after a loss', outcome: 'Posted in the community first, received support and talked out of it, saved their account', lesson: 'Community accountability can literally save accounts. Encourage posting before impulsive decisions.', type: 'success' },
+          { scenario: 'Trader felt alone and about to quit after a losing month', outcome: 'Saw others sharing similar struggles in the community chat, realized losses are part of the journey', lesson: 'Knowing you\'re not alone keeps traders in the game. Normalize the struggle while encouraging persistence.', type: 'insight' }
+        ],
+        tips: [
+          'Emphasize that VEDD is building a supportive trading family, not just users',
+          'Share your own trading struggles to normalize the learning process',
+          'Create welcoming spaces where beginners feel safe to ask "dumb" questions'
+        ]
+      },
+      {
+        id: 'community-2',
+        title: 'What Makes VEDD Community Special',
+        content: [
+          'VEDD AI combines cutting-edge AI technology with faith-based principles',
+          'Our community values: Integrity, Continuous Learning, Generosity, and Excellence',
+          'Host Dashboard enables live events, training sessions, and community gatherings',
+          'EA Marketplace allows members to share and monetize their strategies',
+          'Ambassador program creates leaders who mentor the next generation',
+          'Token rewards and gamification keep engagement high and progress visible'
+        ],
+        keyPoints: [
+          { title: 'Online University Experience', description: 'VEDD is structured like an online university with courses, certifications, live classes, and a campus community feel.', icon: GraduationCap },
+          { title: 'Faith & Finance', description: 'We uniquely blend trading education with biblical wisdom. This attracts traders seeking purpose beyond profits.', icon: Star },
+          { title: 'Leader Development', description: 'VEDD doesn\'t just create users - we develop ambassadors and leaders who can host their own events and train others.', icon: Award }
+        ],
+        realWorldExamples: [
+          { scenario: 'Ambassador hosted their first live trading session', outcome: 'Had 25 attendees, generated 8 new sign-ups, earned bonus tokens', lesson: 'The Host Dashboard empowers members to become leaders. Encourage aspiring ambassadors to use these tools.', type: 'success' }
+        ],
+        tips: [
+          'Highlight the unique faith-based aspect when talking to spiritually-minded traders',
+          'Show how the platform creates multiple income opportunities',
+          'Emphasize the path from member to ambassador to leader'
+        ],
+        quiz: {
+          question: 'What makes VEDD AI community different from other trading platforms?',
+          options: [
+            'Just another trading signals group',
+            'Online University-style experience with faith-based principles and leader development',
+            'Only for professional traders',
+            'No community features at all'
+          ],
+          correct: 1
+        }
+      },
+      {
+        id: 'community-3',
+        title: 'Growing Your Local VEDD Tribe',
+        content: [
+          'Start with your existing network - friends, family, colleagues interested in trading or investing',
+          'Create a WhatsApp or Telegram group for your local VEDD members',
+          'Host weekly virtual meetups to discuss charts, share wins, and support through losses',
+          'Find your niche: crypto traders, forex folks, swing traders, or day traders',
+          'Partner with other ambassadors to cross-promote and grow faster together'
+        ],
+        keyPoints: [
+          { title: 'Start Small, Think Big', description: 'Begin with 5-10 committed members. Quality over quantity builds a stronger foundation for growth.', icon: Target },
+          { title: 'Consistent Touchpoints', description: 'Weekly check-ins, daily chart shares, and monthly celebrations keep your tribe engaged and growing.', icon: Calendar },
+          { title: 'Collaborative Growth', description: 'Partner with other ambassadors for joint events. Two audiences coming together creates explosive growth.', icon: Users }
+        ],
+        realWorldExamples: [
+          { scenario: 'Ambassador started with just 5 friends learning VEDD together', outcome: 'Each friend referred 3 more people, group grew to 50+ within 3 months', lesson: 'Small focused groups become referral machines. Quality members refer quality members.', type: 'success' },
+          { scenario: 'Two ambassadors in different time zones partnered up', outcome: 'Created 24/7 coverage for their combined community, doubled engagement', lesson: 'Collaboration beats competition. Find partner ambassadors to grow together.', type: 'insight' }
+        ],
+        tips: [
+          'Create a simple onboarding process for new members in your group',
+          'Assign roles: chart analyzer, motivation poster, question answerer',
+          'Celebrate every win, no matter how small - this builds momentum'
+        ]
+      },
+      {
+        id: 'community-4',
+        title: 'Hosting Engaging Community Events',
+        content: [
+          'Use VEDD\'s Host Dashboard to create and manage live events',
+          'Event types: Live Chart Analysis, Q&A Sessions, Strategy Deep-Dives, Beginner Bootcamps',
+          'AI-powered presentation slides help you look professional without hours of prep',
+          'Record events for replay - content that keeps working while you sleep',
+          'Promote events across social media, email, and community groups'
+        ],
+        keyPoints: [
+          { title: 'Event Planning', description: 'Schedule events at least 1 week ahead. Promote consistently. Send reminders 24 hours and 1 hour before.', icon: Calendar },
+          { title: 'Professional Delivery', description: 'Use the AI presentation generator to create branded slides. Practice your talking points. Test your audio/video.', icon: Monitor },
+          { title: 'Follow-Up Magic', description: 'Post-event follow-up converts attendees to active members. Share recordings, answer questions, invite to next event.', icon: MessageSquare }
+        ],
+        realWorldExamples: [
+          { scenario: 'Ambassador hosted weekly "Chart Review Friday" sessions', outcome: 'Built a loyal audience of 100+ regular attendees, became known as the go-to chart expert in their niche', lesson: 'Consistency creates authority. Pick a regular time slot and stick to it.', type: 'success' }
+        ],
+        tips: [
+          'Start with biweekly events and increase frequency as you get comfortable',
+          'Always have a clear call-to-action: sign up, try a feature, refer a friend',
+          'Engage with chat during live events - make people feel seen'
+        ],
+        guideLink: {
+          text: 'See User Guide: Host Dashboard',
+          section: 'host-dashboard'
+        }
+      },
+      {
+        id: 'community-5',
+        title: 'Creating Community Content',
+        content: [
+          'Share member success stories (with permission) - testimonials build trust',
+          'Create "Day in the Life" content showing VEDD community activities',
+          'Spotlight different members each week to make people feel valued',
+          'Document community events, wins, and milestones',
+          'Encourage user-generated content - members sharing their VEDD experiences'
+        ],
+        keyPoints: [
+          { title: 'Testimonial Power', description: 'Real member stories are your best marketing. Ask happy members if they\'ll share their experience on video or text.', icon: Star },
+          { title: 'Behind-the-Scenes', description: 'Show the community vibe: screenshots of helpful chats, clips from live events, celebration posts. Make people want to be part of it.', icon: Camera },
+          { title: 'User-Generated Content', description: 'Encourage members to share their own wins and tag VEDD. Reshare their content to make them feel like stars.', icon: Share2 }
+        ],
+        tips: [
+          'Create a simple template for member spotlights',
+          'Always ask permission before sharing someone\'s story or results',
+          'Celebrate the process, not just the profits - learning is a win too'
+        ]
+      },
+      {
+        id: 'community-6',
+        title: 'Nurturing and Retaining Members',
+        content: [
+          'Welcome new members personally - a simple DM goes a long way',
+          'Create a clear path: New Member → Active Learner → Contributor → Ambassador',
+          'Recognize milestones: first chart analysis, first EA, 30-day streak, certification',
+          'Address issues quickly - unhappy members talk louder than happy ones',
+          'Create exclusive perks for long-term members to reward loyalty'
+        ],
+        keyPoints: [
+          { title: 'Personal Touch', description: 'Send a personal welcome message to every new member. Ask about their trading goals. This simple act creates lasting loyalty.', icon: Heart },
+          { title: 'Clear Progression', description: 'Show members the path from beginner to ambassador. People stay when they see a journey ahead, not just a destination.', icon: TrendingUp },
+          { title: 'Quick Response', description: 'When someone has a problem, solve it fast. Turn complaints into opportunities to show you care.', icon: Zap }
+        ],
+        realWorldExamples: [
+          { scenario: 'New member felt lost and was about to cancel', outcome: 'Ambassador reached out, offered a 1-on-1 walkthrough, member became one of the most active contributors', lesson: 'Personal attention saves members. That 15-minute call can create a lifelong advocate.', type: 'success' },
+          { scenario: 'Member complained publicly about a feature', outcome: 'Ambassador responded quickly, escalated the issue, and the feature was improved', lesson: 'Feedback is a gift. Handle complaints well and critics become champions.', type: 'insight' }
+        ],
+        tips: [
+          'Set aside 30 minutes daily for community engagement and DMs',
+          'Create a recognition program for top contributors',
+          'Ask for feedback regularly - people feel valued when you ask their opinion'
+        ],
+        quiz: {
+          question: 'What is the most effective way to retain new community members?',
+          options: [
+            'Send automated emails only',
+            'Wait for them to figure things out',
+            'Send a personal welcome message and check in on their goals',
+            'Ignore them until they complain'
+          ],
+          correct: 2
+        }
+      }
+    ]
   }
 ];
 

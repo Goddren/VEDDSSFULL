@@ -64,7 +64,7 @@ const weekLabels = [
   "Trading Mindset",
   "Execution Excellence",
   "Advanced Techniques",
-  "AI-Powered Trading",
+  "Community Building & Growth",
   "Integration & Graduation"
 ];
 
