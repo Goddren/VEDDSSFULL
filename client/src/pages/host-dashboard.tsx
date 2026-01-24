@@ -42,7 +42,11 @@ import {
   Timer,
   ArrowLeft,
   User,
-  Square
+  Square,
+  Copy,
+  Link,
+  Share2,
+  ExternalLink
 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -416,51 +420,125 @@ export default function HostDashboardPage() {
 
         {/* Completed Events */}
         <TabsContent value="completed" className="space-y-4">
-          {completedEvents.length === 0 ? (
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-lg font-semibold flex items-center gap-2">
+                <Trophy className="h-5 w-5 text-yellow-500" />
+                Completed & Recorded Events
+              </h2>
+              <p className="text-sm text-muted-foreground">Share your recorded sessions with your community</p>
+            </div>
+          </div>
+
+          {completedEvents.length === 0 && completedSchedules.length === 0 ? (
             <Card>
               <CardContent className="p-8 text-center">
                 <Trophy className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
                 <p className="text-muted-foreground">No completed events yet.</p>
+                <p className="text-sm text-muted-foreground mt-2">Host your first event to see it here!</p>
               </CardContent>
             </Card>
           ) : (
             <div className="grid gap-4">
-              {completedEvents.map((event) => (
-                <Card key={event.id}>
-                  <CardContent className="p-4">
-                    <div className="flex items-start justify-between">
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-2">
-                          {getEventTypeBadge(event.eventType)}
-                          <Badge variant="outline" className="text-green-500 border-green-500">Completed</Badge>
+              {/* Events with recordings first */}
+              {completedEvents.filter(e => e.recordingUrl).length > 0 && (
+                <div className="space-y-3">
+                  <h3 className="text-sm font-medium text-green-500 flex items-center gap-2">
+                    <Play className="h-4 w-4" /> With Recordings - Ready to Share
+                  </h3>
+                  {completedEvents.filter(e => e.recordingUrl).map((event) => (
+                    <Card key={event.id} className="border-green-500/30 bg-green-500/5">
+                      <CardContent className="p-4">
+                        <div className="flex items-start justify-between">
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-2">
+                              {getEventTypeBadge(event.eventType)}
+                              <Badge variant="outline" className="text-green-500 border-green-500">Recorded</Badge>
+                            </div>
+                            <h3 className="text-lg font-semibold">{event.title}</h3>
+                            <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                              <span className="flex items-center gap-1">
+                                <Users className="h-4 w-4" />
+                                {event.attendeeCount || 0} attended
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <Trophy className="h-4 w-4 text-yellow-500" />
+                                +{event.hostTokenReward} VEDD earned
+                              </span>
+                              {event.recordingUploadedAt && (
+                                <span className="flex items-center gap-1">
+                                  <Calendar className="h-4 w-4" />
+                                  Recorded {format(new Date(event.recordingUploadedAt), 'MMM d, yyyy')}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          
+                          <div className="flex flex-col gap-2">
+                            <Button variant="outline" size="sm" asChild>
+                              <a href={event.recordingUrl!} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1">
+                                <Play className="h-4 w-4" /> Watch
+                              </a>
+                            </Button>
+                            <Button 
+                              variant="secondary" 
+                              size="sm"
+                              onClick={() => {
+                                const shareLink = event.shareSlug 
+                                  ? `${window.location.origin}/event/${event.shareSlug}`
+                                  : event.recordingUrl!;
+                                navigator.clipboard.writeText(shareLink);
+                                toast({ 
+                                  title: "Link Copied!", 
+                                  description: "Share this link with your community" 
+                                });
+                              }}
+                              className="flex items-center gap-1"
+                            >
+                              <Share2 className="h-4 w-4" /> Copy Link
+                            </Button>
+                          </div>
                         </div>
-                        <h3 className="text-lg font-semibold">{event.title}</h3>
-                        <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                          <span className="flex items-center gap-1">
-                            <Users className="h-4 w-4" />
-                            {event.attendeeCount || 0} attended
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <Trophy className="h-4 w-4 text-yellow-500" />
-                            +{event.hostTokenReward} VEDD earned
-                          </span>
-                        </div>
-                      </div>
-                      
-                      <div className="space-y-2">
-                        {event.recordingUrl ? (
-                          <Button variant="outline" size="sm" asChild>
-                            <a href={event.recordingUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1">
-                              <Play className="h-4 w-4" /> Watch Recording
-                            </a>
-                          </Button>
-                        ) : (
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
+
+              {/* Events without recordings */}
+              {completedEvents.filter(e => !e.recordingUrl).length > 0 && (
+                <div className="space-y-3 mt-4">
+                  <h3 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                    <Upload className="h-4 w-4" /> Awaiting Recording Upload
+                  </h3>
+                  {completedEvents.filter(e => !e.recordingUrl).map((event) => (
+                    <Card key={event.id}>
+                      <CardContent className="p-4">
+                        <div className="flex items-start justify-between">
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-2">
+                              {getEventTypeBadge(event.eventType)}
+                              <Badge variant="outline" className="text-yellow-500 border-yellow-500">Needs Recording</Badge>
+                            </div>
+                            <h3 className="text-lg font-semibold">{event.title}</h3>
+                            <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                              <span className="flex items-center gap-1">
+                                <Users className="h-4 w-4" />
+                                {event.attendeeCount || 0} attended
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <Trophy className="h-4 w-4 text-yellow-500" />
+                                +{event.hostTokenReward} VEDD earned
+                              </span>
+                            </div>
+                          </div>
+                          
                           <div className="space-y-2">
                             <Input
                               placeholder="Paste recording URL..."
                               value={recordingUrl}
                               onChange={(e) => setRecordingUrl(e.target.value)}
-                              className="w-48"
+                              className="w-56"
                             />
                             <Button 
                               size="sm" 
@@ -471,12 +549,12 @@ export default function HostDashboardPage() {
                               <Upload className="h-4 w-4 mr-1" /> Upload Recording
                             </Button>
                           </div>
-                        )}
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </TabsContent>
