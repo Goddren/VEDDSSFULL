@@ -705,6 +705,7 @@ export interface PresentationSlide {
   slideNumber: number;
   title: string;
   bulletPoints: string[];
+  explainerExample?: string;
   realWorldExample?: string;
   notableIncident?: string;
   keyReasons?: string[];
@@ -746,14 +747,17 @@ Create a visually engaging presentation outline with ${Math.max(3, Math.min(10, 
 Each slide MUST have:
 1. A compelling title (short, impactful)
 2. 2-4 bullet points (concise, action-oriented)
-3. A REAL-WORLD EXAMPLE - a specific, concrete scenario with names/numbers (e.g., "When Bitcoin dropped 40% in May 2021, traders using 3% stop losses preserved 97% of capital")
-4. A NOTABLE INCIDENT - a famous trading story or market event (e.g., "Nick Leeson lost $1.3B and collapsed Barings Bank by hiding losses")
-5. KEY REASONS - 2-3 specific reasons WHY this matters with data (e.g., "Studies show 90% of day traders lose money due to emotional trading")
-6. Brief speaker notes
-7. Visual suggestion (icon/graphic idea)
-8. Approximate duration
+3. An EXPLAINER EXAMPLE - a simple analogy or everyday comparison that makes the concept click (e.g., "A stop loss is like a safety net for a trapeze artist - you hope you never need it, but it saves you when things go wrong")
+4. A REAL-WORLD EXAMPLE - a specific, concrete scenario with names/numbers (e.g., "When Bitcoin dropped 40% in May 2021, traders using 3% stop losses preserved 97% of capital")
+5. A NOTABLE INCIDENT - a famous trading story or market event (e.g., "Nick Leeson lost $1.3B and collapsed Barings Bank by hiding losses")
+6. KEY REASONS - 2-3 specific reasons WHY this matters with data (e.g., "Studies show 90% of day traders lose money due to emotional trading")
+7. Brief speaker notes
+8. Visual suggestion (icon/graphic idea)
+9. Approximate duration
 
-CRITICAL: Make examples, incidents, and reasons SPECIFIC and MEMORABLE. Use real trader names, real numbers, real market events. Avoid generic statements.
+CRITICAL: 
+- Explainer examples should use everyday analogies (cooking, sports, driving, etc.) to make complex trading concepts easy to understand
+- Real-world examples, incidents, and reasons must be SPECIFIC and MEMORABLE with real names, numbers, and events
 
 Style guidelines:
 - Professional trading/finance theme
@@ -771,6 +775,7 @@ Return a JSON object with this exact structure:
       "slideNumber": 1,
       "title": "string",
       "bulletPoints": ["point1", "point2", "point3"],
+      "explainerExample": "Simple analogy using everyday concepts to explain the topic",
       "realWorldExample": "Specific example with names and numbers",
       "notableIncident": "Famous trading story or market event",
       "keyReasons": ["Reason 1 with data", "Reason 2 with statistics"],

@@ -17,7 +17,8 @@ import {
   Minimize,
   Lightbulb,
   AlertTriangle,
-  CheckCircle
+  CheckCircle,
+  HelpCircle
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import VeddLogo from '@/components/ui/vedd-logo';
@@ -26,6 +27,7 @@ interface PresentationSlide {
   slideNumber: number;
   title: string;
   bulletPoints: string[];
+  explainerExample?: string;
   realWorldExample?: string;
   notableIncident?: string;
   keyReasons?: string[];
@@ -227,6 +229,18 @@ export function PresentationSlides({
                 </li>
               ))}
             </ul>
+
+            {currentSlideData?.explainerExample && (
+              <div className={`bg-purple-900/30 rounded-lg p-3 border border-purple-500/30 mb-3 ${isFullscreen ? 'p-4' : ''}`}>
+                <div className="flex items-start gap-2">
+                  <HelpCircle className={`text-purple-400 flex-shrink-0 ${isFullscreen ? 'h-5 w-5' : 'h-4 w-4'}`} />
+                  <div>
+                    <p className={`text-purple-300 font-medium mb-1 ${isFullscreen ? 'text-lg' : 'text-sm'}`}>Think of it like this...</p>
+                    <p className={`text-gray-300 ${isFullscreen ? 'text-base' : 'text-sm'}`}>{currentSlideData.explainerExample}</p>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {currentSlideData?.realWorldExample && (
               <div className={`bg-green-900/30 rounded-lg p-3 border border-green-500/30 mb-3 ${isFullscreen ? 'p-4' : ''}`}>
