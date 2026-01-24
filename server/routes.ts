@@ -45,6 +45,7 @@ import { getGoldSentiment, getMockGoldSentiment, isTelegramConfigured } from "./
 import { encryptPassword, executeMT5SignalOnTradeLocker, TradeLockerService, decryptPassword } from "./tradelocker";
 import veddTokenRouter from "./routes/vedd-token";
 import { veddTokenService } from "./services/vedd-token-service";
+import { streamingService } from "./streaming";
 
 // Configure multer for file uploads (images)
 const upload = multer({
@@ -7132,6 +7133,72 @@ Generate a JSON object with:
     }
   });
 
+  // Upload stream recording (file upload from browser recording)
+  app.post("/api/stream/recording", videoUpload.single('recording'), async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    
+    try {
+      const userId = (req.user as any).id;
+      const file = req.file;
+      const { streamType, streamId } = req.body;
+      
+      if (!file) {
+        return res.status(400).json({ error: 'No recording file uploaded' });
+      }
+      
+      if (!streamType || !streamId) {
+        return res.status(400).json({ error: 'Stream type and ID are required' });
+      }
+      
+      const id = parseInt(streamId);
+      
+      // Save file to uploads directory
+      const filename = `stream-recording-${streamType}-${id}-${Date.now()}.webm`;
+      const filePath = path.join(uploadsDir, filename);
+      fs.writeFileSync(filePath, file.buffer);
+      
+      const recordingUrl = `/uploads/${filename}`;
+      
+      // Update the appropriate record
+      if (streamType === 'schedule') {
+        const schedule = await storage.getSchedule(id);
+        if (!schedule) {
+          return res.status(404).json({ error: 'Schedule not found' });
+        }
+        if (schedule.hostId !== userId) {
+          return res.status(403).json({ error: 'Only the host can upload recordings' });
+        }
+        await storage.updateEventSchedule(id, {
+          recordingUrl,
+          recordingUploadedAt: new Date(),
+          recordingUploadedBy: userId
+        });
+      } else {
+        const event = await storage.getEvent(id);
+        if (!event) {
+          return res.status(404).json({ error: 'Event not found' });
+        }
+        // Verify user is a host for this event (check registrations)
+        const registration = await storage.getEventRegistration(id, undefined, userId);
+        const isHost = registration && (registration.role === 'host' || registration.role === 'co-host');
+        if (!isHost) {
+          return res.status(403).json({ error: 'Only the host can upload recordings' });
+        }
+        await storage.updateEvent(id, {
+          recordingUrl,
+          recordingUploadedAt: new Date(),
+          recordingUploadedBy: userId
+        });
+      }
+      
+      res.json({ success: true, message: 'Recording saved', recordingUrl });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
   // Get live event/schedule stream info (exclusive for registered attendees)
   app.get("/api/ambassador/events/:eventId/stream", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) {
@@ -8457,5 +8524,8 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   });
 
   const httpServer = createServer(app);
+  
+  streamingService.initialize(httpServer);
+  
   return httpServer;
 }

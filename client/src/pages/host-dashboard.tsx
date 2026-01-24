@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,9 +12,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { LiveStreamHost } from "@/components/live-stream-host";
 import { 
   Mic, 
   Video, 
+  VideoOff,
+  MicOff,
+  Camera,
+  Monitor,
   Users, 
   Calendar, 
   Clock, 
@@ -35,7 +40,8 @@ import {
   StopCircle,
   Timer,
   ArrowLeft,
-  User
+  User,
+  Square
 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -945,9 +951,46 @@ export default function HostDashboardPage() {
               </div>
             </div>
             
-            {/* Right Panel - Attendees */}
-            <div className="w-1/2 overflow-auto p-6">
-              <Card className="bg-gray-900 border-gray-800 h-full">
+            {/* Right Panel - Streaming & Attendees */}
+            <div className="w-1/2 overflow-auto p-6 space-y-4">
+              {/* Live Streaming Panel */}
+              <LiveStreamHost
+                roomId={`${presenterEvent.scheduleId ? 'schedule' : 'event'}-${presenterEvent.scheduleId || presenterEvent.eventId || presenterEvent.id}`}
+                userId={user?.id || 0}
+                streamType={presenterEvent.scheduleId ? 'schedule' : 'event'}
+                streamId={presenterEvent.scheduleId || presenterEvent.eventId || presenterEvent.id}
+                eventTitle={presenterEvent.title}
+                onStreamEnd={() => {
+                  updateStatusMutation.mutate({ 
+                    eventId: presenterEvent.eventId || presenterEvent.id, 
+                    scheduleId: presenterEvent.scheduleId, 
+                    status: 'completed' 
+                  });
+                }}
+                onRecordingSaved={async (blob) => {
+                  const formData = new FormData();
+                  formData.append('recording', blob, `recording-${Date.now()}.webm`);
+                  formData.append('streamType', presenterEvent.scheduleId ? 'schedule' : 'event');
+                  formData.append('streamId', String(presenterEvent.scheduleId || presenterEvent.eventId || presenterEvent.id));
+                  
+                  try {
+                    await fetch('/api/stream/recording', {
+                      method: 'POST',
+                      body: formData,
+                      credentials: 'include'
+                    });
+                    toast({
+                      title: 'Recording Uploaded',
+                      description: 'Your stream recording has been saved for attendees to watch later.'
+                    });
+                  } catch (error) {
+                    console.error('Failed to upload recording:', error);
+                  }
+                }}
+              />
+              
+              {/* Attendees Panel */}
+              <Card className="bg-gray-900 border-gray-800">
                 <CardHeader className="pb-3">
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-lg flex items-center gap-2">
@@ -960,44 +1003,40 @@ export default function HostDashboardPage() {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <ScrollArea className="h-[calc(100vh-16rem)]">
+                  <ScrollArea className="h-48">
                     {attendees.length === 0 ? (
-                      <div className="text-center py-12 text-gray-500">
-                        <Users className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                        <p>No attendees registered yet</p>
+                      <div className="text-center py-6 text-gray-500">
+                        <Users className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                        <p className="text-sm">No attendees registered yet</p>
                       </div>
                     ) : (
                       <div className="space-y-2">
                         {attendees.map((attendee) => (
                           <div 
                             key={attendee.id} 
-                            className="flex items-center justify-between bg-gray-800/50 rounded-lg p-3"
+                            className="flex items-center justify-between bg-gray-800/50 rounded-lg p-2"
                           >
-                            <div className="flex items-center gap-3">
-                              <div className="h-10 w-10 rounded-full bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center">
-                                <User className="h-5 w-5 text-white" />
+                            <div className="flex items-center gap-2">
+                              <div className="h-8 w-8 rounded-full bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center">
+                                <User className="h-4 w-4 text-white" />
                               </div>
                               <div>
-                                <p className="font-medium text-white">{attendee.fullName}</p>
+                                <p className="font-medium text-white text-sm">{attendee.fullName}</p>
                                 <p className="text-xs text-gray-400">@{attendee.username}</p>
                               </div>
                             </div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-1">
                               {attendee.role !== 'attendee' && (
                                 <Badge variant="secondary" className="text-xs">{attendee.role}</Badge>
                               )}
                               <Badge 
                                 variant="outline" 
-                                className={attendee.status === 'attended' 
+                                className={`text-xs ${attendee.status === 'attended' 
                                   ? 'text-green-400 border-green-500/50' 
                                   : 'text-gray-400 border-gray-600'
-                                }
+                                }`}
                               >
-                                {attendee.status === 'attended' ? (
-                                  <><CheckCircle2 className="h-3 w-3 mr-1" /> Present</>
-                                ) : (
-                                  'Registered'
-                                )}
+                                {attendee.status === 'attended' ? 'Present' : 'Registered'}
                               </Badge>
                             </div>
                           </div>

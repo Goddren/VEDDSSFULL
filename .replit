@@ -94,4 +94,4 @@ task = "shell.exec"
 args = "npm run dev"
 
 [agent]
-integrations = ["javascript_openai_ai_integrations:1.0.0", "stripe:2.0.0"]
+integrations = ["javascript_openai_ai_integrations:1.0.0", "stripe:2.0.0", "javascript_websocket:1.0.0"]
