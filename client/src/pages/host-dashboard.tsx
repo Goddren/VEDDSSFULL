@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { LiveStreamHost } from "@/components/live-stream-host";
+import { PresentationSlides } from "@/components/presentation-slides";
 import { 
   Mic, 
   Video, 
@@ -874,6 +875,17 @@ export default function HostDashboardPage() {
             {/* Left Panel - Agenda & Notes */}
             <div className="w-1/2 border-r border-gray-800 overflow-auto p-6">
               <div className="space-y-6">
+                {/* AI Presentation Outline */}
+                <PresentationSlides
+                  eventId={presenterEvent.eventId || presenterEvent.id}
+                  scheduleId={presenterEvent.scheduleId || undefined}
+                  eventTitle={presenterEvent.title}
+                  eventDescription={presenterEvent.hostGuide}
+                  talkingPoints={presenterEvent.talkingPoints || []}
+                  agenda={presenterEvent.agenda || []}
+                  duration={presenterEvent.suggestedDuration || 30}
+                />
+
                 {/* Host Guide */}
                 <Card className="bg-gray-900 border-gray-800">
                   <CardHeader className="pb-3">

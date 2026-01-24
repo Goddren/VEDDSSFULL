@@ -12,7 +12,7 @@ async function hashPasswordForWallet(password: string) {
   const buf = (await scryptAsync(password, salt, 64)) as Buffer;
   return `${buf.toString("hex")}.${salt}`;
 }
-import { analyzeChartImage, testOpenAIApiKey, generateTradingTip, generateMarketTrendPredictions } from "./openai";
+import { analyzeChartImage, testOpenAIApiKey, generateTradingTip, generateMarketTrendPredictions, generatePresentationOutline } from "./openai";
 import { setupTwilio, sendTradingSignal } from "./twilio";
 import { checkUserAchievements } from "./achievement-tracker";
 import { generateMT5EACode, generateTradingViewCode, generateTradeLockerCode } from './ea-generators';
@@ -7196,6 +7196,34 @@ Generate a JSON object with:
       res.json({ success: true, message: 'Recording saved', recordingUrl });
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Generate AI presentation outline for an event
+  app.post("/api/presentation/generate", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    
+    try {
+      const { eventId, scheduleId, eventTitle, eventDescription, talkingPoints, agenda, duration } = req.body;
+      
+      if (!eventTitle) {
+        return res.status(400).json({ error: 'Event title is required' });
+      }
+      
+      const presentation = await generatePresentationOutline(
+        eventTitle,
+        eventDescription || '',
+        talkingPoints || [],
+        agenda || [],
+        duration || 30
+      );
+      
+      res.json(presentation);
+    } catch (err) {
+      console.error('Error generating presentation:', err);
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to generate presentation' });
     }
   });
 

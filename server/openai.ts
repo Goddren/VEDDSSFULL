@@ -699,3 +699,133 @@ function generateFallbackTrendData(mainSymbol: string): TrendCell[] {
     };
   });
 }
+
+// Presentation slide structure
+export interface PresentationSlide {
+  slideNumber: number;
+  title: string;
+  bulletPoints: string[];
+  speakerNotes?: string;
+  visualSuggestion?: string;
+  duration?: string;
+}
+
+export interface PresentationOutline {
+  eventTitle: string;
+  totalSlides: number;
+  estimatedDuration: string;
+  slides: PresentationSlide[];
+}
+
+// Generate AI presentation outline for an event
+export async function generatePresentationOutline(
+  eventTitle: string,
+  eventDescription: string,
+  talkingPoints: string[],
+  agenda: { time: string; topic: string; notes?: string }[],
+  duration: number
+): Promise<PresentationOutline> {
+  if (!openai) {
+    throw new Error("OpenAI API key is not configured");
+  }
+
+  const prompt = `You are creating a professional presentation outline for a live trading/educational event. 
+  
+EVENT DETAILS:
+- Title: ${eventTitle}
+- Description: ${eventDescription}
+- Duration: ${duration} minutes
+- Key Talking Points: ${talkingPoints.join(', ')}
+- Agenda: ${agenda.map(a => `${a.time}: ${a.topic}`).join('; ')}
+
+Create a visually engaging presentation outline with ${Math.max(3, Math.min(10, Math.floor(duration / 5)))} slides.
+
+Each slide should have:
+1. A compelling title (short, impactful)
+2. 2-4 bullet points (concise, action-oriented)
+3. Brief speaker notes
+4. Visual suggestion (icon/graphic idea)
+5. Approximate duration
+
+Style guidelines:
+- Professional trading/finance theme
+- Clear, educational tone
+- Actionable insights
+- Engaging transitions between topics
+
+Return a JSON object with this exact structure:
+{
+  "eventTitle": "string",
+  "totalSlides": number,
+  "estimatedDuration": "string",
+  "slides": [
+    {
+      "slideNumber": 1,
+      "title": "string",
+      "bulletPoints": ["point1", "point2", "point3"],
+      "speakerNotes": "string",
+      "visualSuggestion": "string",
+      "duration": "2 min"
+    }
+  ]
+}`;
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "system",
+          content: "You are an expert presentation designer for trading and financial education. Create compelling, professional slide outlines. Always return valid JSON."
+        },
+        { role: "user", content: prompt }
+      ],
+      response_format: { type: "json_object" },
+      max_tokens: 2000,
+      temperature: 0.7
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) {
+      throw new Error("No response from OpenAI");
+    }
+
+    const result = JSON.parse(content) as PresentationOutline;
+    return result;
+  } catch (error) {
+    console.error("Error generating presentation outline:", error);
+    
+    // Return fallback outline
+    return {
+      eventTitle: eventTitle,
+      totalSlides: 3,
+      estimatedDuration: `${duration} minutes`,
+      slides: [
+        {
+          slideNumber: 1,
+          title: "Welcome & Overview",
+          bulletPoints: ["Session objectives", "What you'll learn today", "Key takeaways"],
+          speakerNotes: "Introduce yourself and set expectations",
+          visualSuggestion: "Welcome graphic with logo",
+          duration: "3 min"
+        },
+        {
+          slideNumber: 2,
+          title: eventTitle,
+          bulletPoints: talkingPoints.slice(0, 4),
+          speakerNotes: "Cover the main content",
+          visualSuggestion: "Chart or diagram",
+          duration: `${Math.floor(duration * 0.7)} min`
+        },
+        {
+          slideNumber: 3,
+          title: "Summary & Next Steps",
+          bulletPoints: ["Key points recap", "Action items", "Questions?"],
+          speakerNotes: "Wrap up and take questions",
+          visualSuggestion: "Checklist graphic",
+          duration: "5 min"
+        }
+      ]
+    };
+  }
+}
