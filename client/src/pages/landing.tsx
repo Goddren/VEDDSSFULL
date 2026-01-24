@@ -352,7 +352,7 @@ export default function LandingPage() {
               </p>
               <div className="flex items-center gap-2 text-blue-400 text-sm">
                 <MessageSquare className="h-4 w-4" />
-                <span>nas.io-style community experience</span>
+                <span>Online University-style community experience</span>
               </div>
             </motion.div>
 

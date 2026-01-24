@@ -666,7 +666,7 @@ export default function ContentFlowDay() {
             )}
           </TabsContent>
 
-          {/* Community Tab - nas.io style features */}
+          {/* Community Tab - Online University style features */}
           <TabsContent value="community" className="mt-4 space-y-6">
             {communityLoading ? (
               <div className="flex items-center justify-center py-12">
