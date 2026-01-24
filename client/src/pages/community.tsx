@@ -36,6 +36,10 @@ import {
   ArrowUp,
   ArrowLeft,
   Info,
+  Play,
+  Video,
+  ExternalLink,
+  Trophy,
 } from 'lucide-react';
 import { 
   Dialog, 
@@ -98,10 +102,29 @@ interface User {
   isFollowing?: boolean;
 }
 
+interface RecordedEvent {
+  id: number;
+  title: string;
+  description?: string;
+  eventType: string;
+  recordingUrl: string;
+  recordingUploadedAt?: string;
+  shareSlug?: string;
+  startAt?: string;
+  attendeeCount: number;
+  tokenReward: number;
+  host?: {
+    id: number;
+    username: string;
+    fullName?: string;
+    profileImageUrl?: string;
+  };
+}
+
 export default function Community() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState<'discover' | 'following' | 'popular'>('discover');
+  const [activeTab, setActiveTab] = useState<'discover' | 'following' | 'popular' | 'recordings'>('discover');
   const [filter, setFilter] = useState<'all' | 'buy' | 'sell'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedAnalysis, setSelectedAnalysis] = useState<Analysis | null>(null);
@@ -126,6 +149,14 @@ export default function Community() {
     queryFn: getQueryFn({ on401: "throw" }),
     enabled: activeTab === 'following',
   });
+
+  // Get recorded community events
+  const { data: recordedEventsData, isLoading: isLoadingRecordings } = useQuery<{ recordings: RecordedEvent[] }>({
+    queryKey: ['/api/community/recorded-events'],
+    queryFn: getQueryFn({ on401: "returnNull" }),
+    enabled: activeTab === 'recordings',
+  });
+  const recordedEvents = recordedEventsData?.recordings || [];
 
   // Filter and search analyses
   const filteredAnalyses = React.useMemo(() => {
@@ -330,6 +361,10 @@ export default function Community() {
             <TrendingUp className="h-4 w-4" />
             <span>Popular</span>
           </TabsTrigger>
+          <TabsTrigger value="recordings" className="flex items-center gap-2">
+            <Video className="h-4 w-4" />
+            <span>Recordings</span>
+          </TabsTrigger>
         </TabsList>
         
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
@@ -447,6 +482,107 @@ export default function Community() {
                   <Button onClick={() => setActiveTab('discover')} variant="outline" className="mt-4">
                     Discover Analyses
                   </Button>
+                </div>
+              )}
+            </TabsContent>
+
+            <TabsContent value="recordings" className="mt-0">
+              {isLoadingRecordings ? (
+                <div className="grid grid-cols-1 gap-4">
+                  {[1, 2, 3].map(i => (
+                    <Card key={i} className="animate-pulse">
+                      <CardContent className="p-6">
+                        <div className="h-24 bg-gray-200 dark:bg-gray-800 rounded mb-4" />
+                        <div className="h-6 bg-gray-200 dark:bg-gray-800 rounded mb-2 w-1/3" />
+                        <div className="h-4 bg-gray-200 dark:bg-gray-800 rounded w-1/2" />
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              ) : recordedEvents.length > 0 ? (
+                <div className="grid grid-cols-1 gap-4">
+                  {recordedEvents.map(event => (
+                    <Card key={event.id} className="border-purple-500/30 bg-purple-500/5 hover:border-purple-500/50 transition-colors">
+                      <CardContent className="p-4">
+                        <div className="flex items-start justify-between">
+                          <div className="space-y-2 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <Badge variant="outline" className="text-purple-500 border-purple-500">
+                                <Video className="h-3 w-3 mr-1" /> Recording
+                              </Badge>
+                              <Badge variant="secondary" className="capitalize">
+                                {event.eventType}
+                              </Badge>
+                            </div>
+                            <h3 className="text-lg font-semibold">{event.title}</h3>
+                            {event.description && (
+                              <p className="text-sm text-muted-foreground line-clamp-2">{event.description}</p>
+                            )}
+                            <div className="flex items-center gap-4 text-sm text-muted-foreground flex-wrap">
+                              {event.host && (
+                                <span className="flex items-center gap-1">
+                                  <Avatar className="h-5 w-5">
+                                    <AvatarImage src={event.host.profileImageUrl} />
+                                    <AvatarFallback className="text-xs">
+                                      {event.host.username?.charAt(0).toUpperCase()}
+                                    </AvatarFallback>
+                                  </Avatar>
+                                  <span>Hosted by {event.host.fullName || event.host.username}</span>
+                                </span>
+                              )}
+                              <span className="flex items-center gap-1">
+                                <Users className="h-4 w-4" />
+                                {event.attendeeCount} attended
+                              </span>
+                              {event.tokenReward > 0 && (
+                                <span className="flex items-center gap-1">
+                                  <Trophy className="h-4 w-4 text-yellow-500" />
+                                  {event.tokenReward} VEDD reward
+                                </span>
+                              )}
+                              {event.recordingUploadedAt && (
+                                <span className="flex items-center gap-1">
+                                  <Calendar className="h-4 w-4" />
+                                  {formatDistanceToNow(new Date(event.recordingUploadedAt), { addSuffix: true })}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          
+                          <div className="flex flex-col gap-2 ml-4">
+                            <Button variant="default" size="sm" asChild className="bg-purple-600 hover:bg-purple-700">
+                              <a href={event.recordingUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1">
+                                <Play className="h-4 w-4" /> Watch
+                              </a>
+                            </Button>
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              onClick={() => {
+                                const shareLink = event.shareSlug 
+                                  ? `${window.location.origin}/event/${event.shareSlug}`
+                                  : event.recordingUrl;
+                                navigator.clipboard.writeText(shareLink);
+                                toast({ 
+                                  title: "Link Copied!", 
+                                  description: "Share this recording with others" 
+                                });
+                              }}
+                              className="flex items-center gap-1"
+                            >
+                              <Share2 className="h-4 w-4" /> Share
+                            </Button>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-10">
+                  <Video className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+                  <p className="text-muted-foreground">No recorded events yet.</p>
+                  <p className="text-sm text-muted-foreground mt-2">Community hosts will share their recorded sessions here.</p>
                 </div>
               )}
             </TabsContent>

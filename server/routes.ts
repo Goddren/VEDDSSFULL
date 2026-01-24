@@ -7902,6 +7902,55 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   });
 
   // ==========================================
+  // COMMUNITY RECORDED EVENTS
+  // ==========================================
+
+  // Get all recorded events for community viewing
+  app.get("/api/community/recorded-events", async (req: Request, res: Response) => {
+    try {
+      // Get all ambassador event schedules with recordings
+      const allSchedules = await storage.getAllAmbassadorSchedules();
+      const recordedSchedules = allSchedules.filter((s: any) => s.recordingUrl && s.status === 'completed');
+      
+      // Get host info for each schedule
+      const recordedEvents = await Promise.all(recordedSchedules.map(async (schedule: any) => {
+        const host = await storage.getUser(schedule.hostId);
+        const event = await storage.getEvent(schedule.eventId);
+        return {
+          id: schedule.id,
+          title: schedule.title || event?.title || 'Community Event',
+          description: schedule.description || event?.description,
+          eventType: event?.eventType || 'session',
+          recordingUrl: schedule.recordingUrl,
+          recordingUploadedAt: schedule.recordingUploadedAt,
+          shareSlug: schedule.shareSlug,
+          startAt: schedule.startAt,
+          attendeeCount: schedule.currentAttendees || 0,
+          tokenReward: event?.tokenReward || 0,
+          host: host ? {
+            id: host.id,
+            username: host.username,
+            fullName: host.fullName,
+            profileImageUrl: host.profileImageUrl
+          } : null
+        };
+      }));
+      
+      // Sort by most recent recording first
+      recordedEvents.sort((a, b) => {
+        const dateA = a.recordingUploadedAt ? new Date(a.recordingUploadedAt).getTime() : 0;
+        const dateB = b.recordingUploadedAt ? new Date(b.recordingUploadedAt).getTime() : 0;
+        return dateB - dateA;
+      });
+      
+      res.json({ recordings: recordedEvents });
+    } catch (err) {
+      console.error('Error fetching recorded events:', err);
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // ==========================================
   // COMMUNITY COMMENTS ROUTES
   // ==========================================
 

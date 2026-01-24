@@ -1877,6 +1877,11 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(ambassadorEventSchedules.createdAt));
   }
 
+  async getAllAmbassadorSchedules(): Promise<AmbassadorEventSchedule[]> {
+    return await db.select().from(ambassadorEventSchedules)
+      .orderBy(desc(ambassadorEventSchedules.createdAt));
+  }
+
   // Schedule Registrations
   async registerForSchedule(userId: number, scheduleId: number): Promise<AmbassadorScheduleRegistration> {
     const [result] = await db.insert(ambassadorScheduleRegistrations)
