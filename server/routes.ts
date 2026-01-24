@@ -7053,6 +7053,241 @@ Generate a JSON object with:
     }
   });
 
+  // Update schedule status (for hosts to mark live/completed)
+  app.patch("/api/ambassador/schedules/:scheduleId/status", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    
+    try {
+      const userId = (req.user as any).id;
+      const scheduleId = parseInt(req.params.scheduleId);
+      const { status } = req.body;
+      
+      if (!['scheduled', 'live', 'completed', 'cancelled'].includes(status)) {
+        return res.status(400).json({ error: 'Invalid status' });
+      }
+      
+      // Get the schedule to verify ownership
+      const schedule = await storage.getEventSchedule(scheduleId);
+      if (!schedule) {
+        return res.status(404).json({ error: 'Schedule not found' });
+      }
+      
+      if (schedule.hostId !== userId) {
+        return res.status(403).json({ error: 'Only the host can update schedule status' });
+      }
+      
+      // Update schedule status with live/end times
+      const updateData: any = { status };
+      if (status === 'live') {
+        updateData.liveStartedAt = new Date();
+      } else if (status === 'completed') {
+        updateData.liveEndedAt = new Date();
+      }
+      
+      const updated = await storage.updateEventSchedule(scheduleId, updateData);
+      
+      res.json({ success: true, schedule: updated });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Upload schedule recording
+  app.post("/api/ambassador/schedules/:scheduleId/recording", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    
+    try {
+      const userId = (req.user as any).id;
+      const scheduleId = parseInt(req.params.scheduleId);
+      const { recordingUrl } = req.body;
+      
+      if (!recordingUrl) {
+        return res.status(400).json({ error: 'Recording URL is required' });
+      }
+      
+      // Verify user is the host
+      const schedule = await storage.getEventSchedule(scheduleId);
+      if (!schedule) {
+        return res.status(404).json({ error: 'Schedule not found' });
+      }
+      
+      if (schedule.hostId !== userId) {
+        return res.status(403).json({ error: 'Only the host can upload recordings' });
+      }
+      
+      // Update schedule with recording
+      const updated = await storage.updateEventSchedule(scheduleId, {
+        recordingUrl,
+        recordingUploadedAt: new Date(),
+        recordingUploadedBy: userId
+      });
+      
+      res.json({ success: true, message: 'Recording uploaded successfully', schedule: updated });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Get live event/schedule stream info (exclusive for registered attendees)
+  app.get("/api/ambassador/events/:eventId/stream", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    
+    try {
+      const userId = (req.user as any).id;
+      const eventId = parseInt(req.params.eventId);
+      
+      // Verify user is registered for this event
+      const registration = await storage.getEventRegistration(userId, eventId);
+      if (!registration) {
+        return res.status(403).json({ error: 'You must be registered to access the stream' });
+      }
+      
+      // Get event details
+      const event = await storage.getAmbassadorEvent(eventId);
+      if (!event) {
+        return res.status(404).json({ error: 'Event not found' });
+      }
+      
+      // Check if event is live
+      if (event.status !== 'live') {
+        return res.status(400).json({ error: 'Event is not currently live', status: event.status });
+      }
+      
+      // Return meeting link for registered attendees
+      res.json({
+        eventId,
+        title: event.title,
+        status: 'live',
+        meetingLink: event.meetingLink,
+        isHost: registration.role === 'host' || registration.role === 'co_host'
+      });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Get schedule stream info (exclusive for registered attendees)
+  app.get("/api/ambassador/schedules/:scheduleId/stream", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    
+    try {
+      const userId = (req.user as any).id;
+      const scheduleId = parseInt(req.params.scheduleId);
+      
+      // Get schedule details
+      const schedule = await storage.getEventSchedule(scheduleId);
+      if (!schedule) {
+        return res.status(404).json({ error: 'Schedule not found' });
+      }
+      
+      // Verify user is registered for the parent event
+      const registration = await storage.getEventRegistration(userId, schedule.eventId);
+      if (!registration) {
+        return res.status(403).json({ error: 'You must be registered to access the stream' });
+      }
+      
+      // Check if schedule is live
+      if (schedule.status !== 'live') {
+        return res.status(400).json({ error: 'This session is not currently live', status: schedule.status });
+      }
+      
+      // Return meeting link for registered attendees
+      res.json({
+        scheduleId,
+        eventId: schedule.eventId,
+        title: schedule.title,
+        status: 'live',
+        meetingLink: schedule.meetingLink,
+        isHost: schedule.hostId === userId
+      });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Get event/schedule recording (exclusive for registered attendees)
+  app.get("/api/ambassador/events/:eventId/recording", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    
+    try {
+      const userId = (req.user as any).id;
+      const eventId = parseInt(req.params.eventId);
+      
+      // Verify user is registered for this event
+      const registration = await storage.getEventRegistration(userId, eventId);
+      if (!registration) {
+        return res.status(403).json({ error: 'You must be registered to access the recording' });
+      }
+      
+      // Get event details
+      const event = await storage.getAmbassadorEvent(eventId);
+      if (!event) {
+        return res.status(404).json({ error: 'Event not found' });
+      }
+      
+      if (!event.recordingUrl) {
+        return res.status(404).json({ error: 'No recording available for this event' });
+      }
+      
+      res.json({
+        eventId,
+        title: event.title,
+        recordingUrl: event.recordingUrl,
+        recordingUploadedAt: event.recordingUploadedAt
+      });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Get schedule recording (exclusive for registered attendees)
+  app.get("/api/ambassador/schedules/:scheduleId/recording", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    
+    try {
+      const userId = (req.user as any).id;
+      const scheduleId = parseInt(req.params.scheduleId);
+      
+      // Get schedule details
+      const schedule = await storage.getEventSchedule(scheduleId);
+      if (!schedule) {
+        return res.status(404).json({ error: 'Schedule not found' });
+      }
+      
+      // Verify user is registered for the parent event
+      const registration = await storage.getEventRegistration(userId, schedule.eventId);
+      if (!registration) {
+        return res.status(403).json({ error: 'You must be registered to access the recording' });
+      }
+      
+      if (!schedule.recordingUrl) {
+        return res.status(404).json({ error: 'No recording available for this session' });
+      }
+      
+      res.json({
+        scheduleId,
+        eventId: schedule.eventId,
+        title: schedule.title,
+        recordingUrl: schedule.recordingUrl,
+        recordingUploadedAt: schedule.recordingUploadedAt
+      });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
   // Upload event recording
   app.post("/api/ambassador/events/:eventId/recording", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) {

@@ -24,7 +24,8 @@ import {
   Zap,
   CalendarCheck,
   Users,
-  Coins
+  Coins,
+  Video
 } from 'lucide-react';
 import { MarketCalendar } from '@/components/market/market-calendar';
 import { getUserLevel } from '@/lib/achievement-system';
@@ -106,17 +107,25 @@ const Dashboard: React.FC = () => {
     enabled: !!user
   });
   
-  // Filter to only upcoming registered events
+  // Filter to only upcoming and live registered events
   const upcomingEvents = React.useMemo(() => {
     if (!registeredEventsData?.events) return [];
     const now = new Date();
     return registeredEventsData.events
       .filter(reg => {
+        // Always show live events
+        if (reg.event.status === 'live') return true;
         if (!reg.event.scheduledDate) return false;
         const eventDate = new Date(reg.event.scheduledDate);
         return eventDate >= now && reg.event.status === 'scheduled';
       })
-      .slice(0, 3);
+      .sort((a, b) => {
+        // Live events first
+        if (a.event.status === 'live' && b.event.status !== 'live') return -1;
+        if (b.event.status === 'live' && a.event.status !== 'live') return 1;
+        return 0;
+      })
+      .slice(0, 5);
   }, [registeredEventsData]);
   
   // Filter to only upcoming hosted events
@@ -561,11 +570,19 @@ const Dashboard: React.FC = () => {
                   upcomingEvents.map((reg) => (
                     <div 
                       key={reg.event.id}
-                      className="bg-gray-900/60 border border-amber-500/20 rounded-lg p-3 hover:bg-gray-800/60 transition-colors"
+                      className={`bg-gray-900/60 border rounded-lg p-3 hover:bg-gray-800/60 transition-colors ${reg.event.status === 'live' ? 'border-red-500/50 bg-red-950/30' : 'border-amber-500/20'}`}
                     >
-                      <div className="flex items-start justify-between">
+                      <div className="flex items-start justify-between gap-2">
                         <div className="flex-1 min-w-0">
-                          <h4 className="font-medium text-white truncate">{reg.event.title}</h4>
+                          <div className="flex items-center gap-2">
+                            {reg.event.status === 'live' && (
+                              <span className="flex items-center gap-1 text-xs bg-red-500 text-white px-2 py-0.5 rounded-full animate-pulse">
+                                <span className="h-2 w-2 rounded-full bg-white"></span>
+                                LIVE
+                              </span>
+                            )}
+                            <h4 className="font-medium text-white truncate">{reg.event.title}</h4>
+                          </div>
                           <div className="flex items-center gap-3 mt-1 text-sm text-gray-400">
                             {reg.event.scheduledDate && (
                               <>
@@ -581,10 +598,33 @@ const Dashboard: React.FC = () => {
                             )}
                           </div>
                         </div>
-                        <div className="flex items-center gap-1 text-xs bg-emerald-500/20 text-emerald-400 px-2 py-1 rounded-full">
-                          <Users className="h-3 w-3" />
-                          Registered
-                        </div>
+                        {reg.event.status === 'live' ? (
+                          <Button 
+                            size="sm" 
+                            className="bg-red-600 hover:bg-red-500 text-white shrink-0"
+                            onClick={async () => {
+                              try {
+                                const res = await fetch(`/api/ambassador/events/${reg.event.id}/stream`, { credentials: 'include' });
+                                const data = await res.json();
+                                if (data.meetingLink) {
+                                  window.open(data.meetingLink, '_blank');
+                                } else {
+                                  alert('Meeting link not available yet. Please try again.');
+                                }
+                              } catch (err) {
+                                alert('Failed to get stream link. Please try again.');
+                              }
+                            }}
+                          >
+                            <Video className="h-3 w-3 mr-1" />
+                            Join Live
+                          </Button>
+                        ) : (
+                          <div className="flex items-center gap-1 text-xs bg-emerald-500/20 text-emerald-400 px-2 py-1 rounded-full shrink-0">
+                            <Users className="h-3 w-3" />
+                            Registered
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))
@@ -597,6 +637,62 @@ const Dashboard: React.FC = () => {
                 )}
               </CardContent>
             </Card>
+            
+            {/* Completed Events with Recordings */}
+            {registeredEventsData?.events?.some(reg => reg.event.status === 'completed') && (
+              <Card className="bg-gradient-to-br from-purple-900/30 to-gray-900 border-purple-500/30 shadow-xl">
+                <CardHeader className="pb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="h-8 w-8 rounded-full bg-purple-500/20 flex items-center justify-center">
+                      <Video className="h-4 w-4 text-purple-400" />
+                    </div>
+                    <div>
+                      <CardTitle className="text-lg text-white">Event Recordings</CardTitle>
+                      <CardDescription className="text-purple-400/80">Watch past events you attended</CardDescription>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {registeredEventsData?.events
+                    ?.filter(reg => reg.event.status === 'completed')
+                    .slice(0, 3)
+                    .map((reg) => (
+                      <div 
+                        key={`recording-${reg.event.id}`}
+                        className="bg-gray-900/60 border border-purple-500/20 rounded-lg p-3"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <h4 className="font-medium text-white truncate">{reg.event.title}</h4>
+                            <p className="text-xs text-gray-400 mt-1">Completed event</p>
+                          </div>
+                          <Button 
+                            size="sm" 
+                            variant="outline"
+                            className="border-purple-500/50 text-purple-300 hover:bg-purple-500/20 shrink-0"
+                            onClick={async () => {
+                              try {
+                                const res = await fetch(`/api/ambassador/events/${reg.event.id}/recording`, { credentials: 'include' });
+                                const data = await res.json();
+                                if (data.recordingUrl) {
+                                  window.open(data.recordingUrl, '_blank');
+                                } else {
+                                  alert('Recording not available yet. The host may still be uploading it.');
+                                }
+                              } catch (err) {
+                                alert('Recording not available yet.');
+                              }
+                            }}
+                          >
+                            <Video className="h-3 w-3 mr-1" />
+                            Watch
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                </CardContent>
+              </Card>
+            )}
             
             {/* VEDD Token Rewards Panel */}
             <div className="mb-6">

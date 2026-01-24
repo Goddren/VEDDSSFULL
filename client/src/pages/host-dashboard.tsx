@@ -41,6 +41,8 @@ import { format } from "date-fns";
 
 interface HostedEvent {
   id: number;
+  eventId?: number;
+  scheduleId?: number | null;
   title: string;
   description: string;
   eventType: string;
@@ -58,6 +60,8 @@ interface HostedEvent {
   recordingUploadedAt: string | null;
   attendeeCount?: number;
   role: string;
+  aiAgenda?: any;
+  shareSlug?: string;
 }
 
 interface HostSchedule {
@@ -156,12 +160,16 @@ export default function HostDashboardPage() {
   }, [isLive, presenterEvent]);
 
   const uploadRecordingMutation = useMutation({
-    mutationFn: async ({ eventId, url }: { eventId: number; url: string }) => {
+    mutationFn: async ({ eventId, scheduleId, url }: { eventId: number; scheduleId?: number | null; url: string }) => {
+      if (scheduleId) {
+        return apiRequest("POST", `/api/ambassador/schedules/${scheduleId}/recording`, { recordingUrl: url });
+      }
       return apiRequest("POST", `/api/ambassador/events/${eventId}/recording`, { recordingUrl: url });
     },
     onSuccess: () => {
-      toast({ title: "Recording uploaded!", description: "Attendees can now replay the event." });
+      toast({ title: "Recording uploaded!", description: "Registered attendees can now replay the event." });
       queryClient.invalidateQueries({ queryKey: ["/api/ambassador/host/my-events"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/ambassador/host/schedules"] });
       setRecordingUrl("");
     },
     onError: () => {
@@ -170,20 +178,24 @@ export default function HostDashboardPage() {
   });
 
   const updateStatusMutation = useMutation({
-    mutationFn: async ({ eventId, status }: { eventId: number; status: string }) => {
+    mutationFn: async ({ eventId, scheduleId, status }: { eventId: number; scheduleId?: number | null; status: string }) => {
+      if (scheduleId) {
+        return apiRequest("PATCH", `/api/ambassador/schedules/${scheduleId}/status`, { status });
+      }
       return apiRequest("PATCH", `/api/ambassador/events/${eventId}/status`, { status });
     },
     onSuccess: (_, variables) => {
       if (variables.status === 'live') {
-        toast({ title: "You're Live!", description: "Event is now in progress." });
+        toast({ title: "You're Live!", description: "Event is now in progress. Registered attendees can now join." });
         setIsLive(true);
         setElapsedTime(0);
       } else if (variables.status === 'completed') {
-        toast({ title: "Event Completed!", description: "Great job hosting!" });
+        toast({ title: "Event Completed!", description: "Great job hosting! You can now upload the recording." });
         setIsLive(false);
         setPresenterEvent(null);
       }
       queryClient.invalidateQueries({ queryKey: ["/api/ambassador/host/my-events"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/ambassador/host/schedules"] });
     },
     onError: () => {
       toast({ title: "Status update failed", description: "Please try again.", variant: "destructive" });
@@ -445,7 +457,7 @@ export default function HostDashboardPage() {
                             />
                             <Button 
                               size="sm" 
-                              onClick={() => uploadRecordingMutation.mutate({ eventId: event.id, url: recordingUrl })}
+                              onClick={() => uploadRecordingMutation.mutate({ eventId: event.eventId || event.id, scheduleId: event.scheduleId, url: recordingUrl })}
                               disabled={!recordingUrl || uploadRecordingMutation.isPending}
                               className="w-full"
                             >
@@ -833,7 +845,7 @@ export default function HostDashboardPage() {
                 {!isLive ? (
                   <Button 
                     className="bg-green-600 hover:bg-green-500"
-                    onClick={() => updateStatusMutation.mutate({ eventId: presenterEvent.id, status: 'live' })}
+                    onClick={() => updateStatusMutation.mutate({ eventId: presenterEvent.eventId || presenterEvent.id, scheduleId: presenterEvent.scheduleId, status: 'live' })}
                     disabled={updateStatusMutation.isPending}
                   >
                     <Radio className="h-4 w-4 mr-2" /> Go Live
@@ -841,7 +853,7 @@ export default function HostDashboardPage() {
                 ) : (
                   <Button 
                     variant="destructive"
-                    onClick={() => updateStatusMutation.mutate({ eventId: presenterEvent.id, status: 'completed' })}
+                    onClick={() => updateStatusMutation.mutate({ eventId: presenterEvent.eventId || presenterEvent.id, scheduleId: presenterEvent.scheduleId, status: 'completed' })}
                     disabled={updateStatusMutation.isPending}
                   >
                     <StopCircle className="h-4 w-4 mr-2" /> End Event
