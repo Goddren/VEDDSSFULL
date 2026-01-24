@@ -705,6 +705,9 @@ export interface PresentationSlide {
   slideNumber: number;
   title: string;
   bulletPoints: string[];
+  realWorldExample?: string;
+  notableIncident?: string;
+  keyReasons?: string[];
   speakerNotes?: string;
   visualSuggestion?: string;
   duration?: string;
@@ -740,18 +743,23 @@ EVENT DETAILS:
 
 Create a visually engaging presentation outline with ${Math.max(3, Math.min(10, Math.floor(duration / 5)))} slides.
 
-Each slide should have:
+Each slide MUST have:
 1. A compelling title (short, impactful)
 2. 2-4 bullet points (concise, action-oriented)
-3. Brief speaker notes
-4. Visual suggestion (icon/graphic idea)
-5. Approximate duration
+3. A REAL-WORLD EXAMPLE - a specific, concrete scenario with names/numbers (e.g., "When Bitcoin dropped 40% in May 2021, traders using 3% stop losses preserved 97% of capital")
+4. A NOTABLE INCIDENT - a famous trading story or market event (e.g., "Nick Leeson lost $1.3B and collapsed Barings Bank by hiding losses")
+5. KEY REASONS - 2-3 specific reasons WHY this matters with data (e.g., "Studies show 90% of day traders lose money due to emotional trading")
+6. Brief speaker notes
+7. Visual suggestion (icon/graphic idea)
+8. Approximate duration
+
+CRITICAL: Make examples, incidents, and reasons SPECIFIC and MEMORABLE. Use real trader names, real numbers, real market events. Avoid generic statements.
 
 Style guidelines:
 - Professional trading/finance theme
 - Clear, educational tone
-- Actionable insights
-- Engaging transitions between topics
+- Actionable insights with proof
+- Memorable stories that stick
 
 Return a JSON object with this exact structure:
 {
@@ -763,6 +771,9 @@ Return a JSON object with this exact structure:
       "slideNumber": 1,
       "title": "string",
       "bulletPoints": ["point1", "point2", "point3"],
+      "realWorldExample": "Specific example with names and numbers",
+      "notableIncident": "Famous trading story or market event",
+      "keyReasons": ["Reason 1 with data", "Reason 2 with statistics"],
       "speakerNotes": "string",
       "visualSuggestion": "string",
       "duration": "2 min"
@@ -781,7 +792,7 @@ Return a JSON object with this exact structure:
         { role: "user", content: prompt }
       ],
       response_format: { type: "json_object" },
-      max_tokens: 2000,
+      max_tokens: 4000,
       temperature: 0.7
     });
 

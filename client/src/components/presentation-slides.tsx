@@ -14,7 +14,10 @@ import {
   Eye,
   EyeOff,
   Maximize,
-  Minimize
+  Minimize,
+  Lightbulb,
+  AlertTriangle,
+  CheckCircle
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import VeddLogo from '@/components/ui/vedd-logo';
@@ -23,6 +26,9 @@ interface PresentationSlide {
   slideNumber: number;
   title: string;
   bulletPoints: string[];
+  realWorldExample?: string;
+  notableIncident?: string;
+  keyReasons?: string[];
   speakerNotes?: string;
   visualSuggestion?: string;
   duration?: string;
@@ -221,6 +227,48 @@ export function PresentationSlides({
                 </li>
               ))}
             </ul>
+
+            {currentSlideData?.realWorldExample && (
+              <div className={`bg-green-900/30 rounded-lg p-3 border border-green-500/30 mb-3 ${isFullscreen ? 'p-4' : ''}`}>
+                <div className="flex items-start gap-2">
+                  <Lightbulb className={`text-green-400 flex-shrink-0 ${isFullscreen ? 'h-5 w-5' : 'h-4 w-4'}`} />
+                  <div>
+                    <p className={`text-green-300 font-medium mb-1 ${isFullscreen ? 'text-lg' : 'text-sm'}`}>Real-World Example</p>
+                    <p className={`text-gray-300 ${isFullscreen ? 'text-base' : 'text-sm'}`}>{currentSlideData.realWorldExample}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {currentSlideData?.notableIncident && (
+              <div className={`bg-amber-900/30 rounded-lg p-3 border border-amber-500/30 mb-3 ${isFullscreen ? 'p-4' : ''}`}>
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className={`text-amber-400 flex-shrink-0 ${isFullscreen ? 'h-5 w-5' : 'h-4 w-4'}`} />
+                  <div>
+                    <p className={`text-amber-300 font-medium mb-1 ${isFullscreen ? 'text-lg' : 'text-sm'}`}>Notable Incident</p>
+                    <p className={`text-gray-300 ${isFullscreen ? 'text-base' : 'text-sm'}`}>{currentSlideData.notableIncident}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {currentSlideData?.keyReasons && currentSlideData.keyReasons.length > 0 && (
+              <div className={`bg-blue-900/30 rounded-lg p-3 border border-blue-500/30 mb-3 ${isFullscreen ? 'p-4' : ''}`}>
+                <div className="flex items-start gap-2">
+                  <CheckCircle className={`text-blue-400 flex-shrink-0 ${isFullscreen ? 'h-5 w-5' : 'h-4 w-4'}`} />
+                  <div>
+                    <p className={`text-blue-300 font-medium mb-1 ${isFullscreen ? 'text-lg' : 'text-sm'}`}>Key Reasons</p>
+                    <ul className="space-y-1">
+                      {currentSlideData.keyReasons.map((reason, i) => (
+                        <li key={i} className={`text-gray-300 ${isFullscreen ? 'text-base' : 'text-sm'}`}>
+                          • {reason}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {currentSlideData?.visualSuggestion && (
               <div className="text-xs text-gray-500 italic flex items-center gap-1">
