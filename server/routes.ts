@@ -7069,7 +7069,7 @@ Generate a JSON object with:
       }
       
       // Get the schedule to verify ownership
-      const schedule = await storage.getEventSchedule(scheduleId);
+      const schedule = await storage.getSchedule(scheduleId);
       if (!schedule) {
         return res.status(404).json({ error: 'Schedule not found' });
       }
@@ -7110,7 +7110,7 @@ Generate a JSON object with:
       }
       
       // Verify user is the host
-      const schedule = await storage.getEventSchedule(scheduleId);
+      const schedule = await storage.getSchedule(scheduleId);
       if (!schedule) {
         return res.status(404).json({ error: 'Schedule not found' });
       }
@@ -7183,7 +7183,7 @@ Generate a JSON object with:
       const scheduleId = parseInt(req.params.scheduleId);
       
       // Get schedule details
-      const schedule = await storage.getEventSchedule(scheduleId);
+      const schedule = await storage.getSchedule(scheduleId);
       if (!schedule) {
         return res.status(404).json({ error: 'Schedule not found' });
       }
@@ -7261,7 +7261,7 @@ Generate a JSON object with:
       const scheduleId = parseInt(req.params.scheduleId);
       
       // Get schedule details
-      const schedule = await storage.getEventSchedule(scheduleId);
+      const schedule = await storage.getSchedule(scheduleId);
       if (!schedule) {
         return res.status(404).json({ error: 'Schedule not found' });
       }

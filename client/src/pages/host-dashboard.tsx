@@ -700,8 +700,8 @@ export default function HostDashboardPage() {
 
       {/* Event Details Modal */}
       {selectedEvent && (
-        <Card className="fixed inset-4 md:inset-auto md:fixed md:top-1/2 md:left-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:w-[800px] md:max-h-[80vh] z-50 overflow-hidden">
-          <CardHeader className="border-b">
+        <Card className="fixed inset-2 md:inset-auto md:fixed md:top-1/2 md:left-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:w-[800px] md:max-h-[90vh] z-50 flex flex-col">
+          <CardHeader className="border-b flex-shrink-0">
             <div className="flex items-center justify-between">
               <div>
                 <div className="flex items-center gap-2 mb-2">
@@ -713,7 +713,7 @@ export default function HostDashboardPage() {
               <Button variant="ghost" size="sm" onClick={() => setSelectedEvent(null)}>×</Button>
             </div>
           </CardHeader>
-          <ScrollArea className="max-h-[60vh]">
+          <div className="flex-1 overflow-y-auto overscroll-contain touch-pan-y">
             <CardContent className="p-6 space-y-6">
               {/* Event Info */}
               <div className="grid grid-cols-2 gap-4">
@@ -792,7 +792,7 @@ export default function HostDashboardPage() {
                 </div>
               )}
             </CardContent>
-          </ScrollArea>
+          </div>
         </Card>
       )}
       
