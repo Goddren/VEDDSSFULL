@@ -90,9 +90,19 @@ function AppLayout() {
   
   return (
     <div className="flex flex-col min-h-screen bg-background text-foreground">
-      {showHeaderFooter && <Header />}
-      {showStreakBanner && <StreakBanner />}
-      {showSubscriptionBar && <SubscriptionUsageHeader />}
+      {showHeaderFooter && (
+        <div className="sticky top-0 z-50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+          <Header />
+          {(showStreakBanner || showSubscriptionBar) && (
+            <div className="border-b bg-muted/30">
+              <div className="container mx-auto px-4 flex items-center justify-between gap-4 py-1.5">
+                {showStreakBanner && <StreakBanner compact />}
+                {showSubscriptionBar && <SubscriptionUsageHeader compact />}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
       <main className="flex-grow">
         <PageTransition>
           <Switch>

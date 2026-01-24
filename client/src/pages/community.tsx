@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Link, useLocation } from 'wouter';
 import { useQuery } from '@tanstack/react-query';
 import { getQueryFn } from '@/lib/queryClient';
@@ -40,7 +40,13 @@ import {
   Video,
   ExternalLink,
   Trophy,
+  Sparkles,
+  Flame,
+  BarChart3,
+  Globe,
+  Zap,
 } from 'lucide-react';
+import { motion } from 'framer-motion';
 import { 
   Dialog, 
   DialogContent, 
@@ -159,7 +165,7 @@ export default function Community() {
   const recordedEvents = recordedEventsData?.recordings || [];
 
   // Filter and search analyses
-  const filteredAnalyses = React.useMemo(() => {
+  const filteredAnalyses = useMemo(() => {
     if (!analyses) return [];
     
     return analyses
@@ -289,124 +295,198 @@ export default function Community() {
 
   const [_, navigate] = useLocation();
 
+  const stats = {
+    totalAnalyses: analyses?.length || 0,
+    totalTraders: popularUsers?.length || 0,
+    totalRecordings: recordedEvents.length,
+  };
+
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="flex flex-col md:flex-row justify-between items-start gap-6 mb-8">
-        <div className="flex items-center gap-3">
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            onClick={() => navigate('/')}
-            className="rounded-full hover:bg-card transition-colors"
-            aria-label="Back to home"
-          >
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-          <div>
-            <h1 className="text-3xl font-bold">VEDDAI Community</h1>
-            <p className="text-muted-foreground mt-1">Share and discover trading analyses from the community</p>
-          </div>
-        </div>
+    <div className="min-h-screen bg-gradient-to-b from-background via-background to-purple-950/10">
+      <motion.div 
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        className="relative overflow-hidden"
+      >
+        <div className="absolute inset-0 bg-gradient-to-r from-purple-500/5 via-transparent to-blue-500/5" />
+        <div className="absolute top-0 left-1/4 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl" />
+        <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl" />
         
-        <div className="flex items-center gap-3">
-          <div className="relative">
-            <Input
-              placeholder="Search by symbol, trader or pattern..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full md:w-64 pl-9"
-            />
-            <Search className="h-4 w-4 text-muted-foreground absolute left-3 top-1/2 transform -translate-y-1/2" />
-          </div>
-          
-          <div className="flex items-center gap-2">
-            <Button 
-              variant={filter === 'all' ? "default" : "outline"} 
-              size="sm"
-              onClick={() => setFilter('all')}
-            >
-              All
-            </Button>
-            <Button 
-              variant={filter === 'buy' ? "default" : "outline"} 
-              size="sm"
-              onClick={() => setFilter('buy')}
-              className={filter === 'buy' ? "bg-emerald-600 hover:bg-emerald-700" : ""}
-            >
-              <TrendingUp className="h-3 w-3 mr-1" /> Buy
-            </Button>
-            <Button 
-              variant={filter === 'sell' ? "default" : "outline"} 
-              size="sm"
-              onClick={() => setFilter('sell')}
-              className={filter === 'sell' ? "bg-rose-600 hover:bg-rose-700" : ""}
-            >
-              <TrendingDown className="h-3 w-3 mr-1" /> Sell
-            </Button>
-          </div>
+        <div className="container mx-auto px-4 py-8 relative z-10">
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+            className="text-center mb-8"
+          >
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-purple-500/10 border border-purple-500/20 mb-4">
+              <Sparkles className="h-4 w-4 text-purple-400" />
+              <span className="text-sm text-purple-300">VEDD Trading Community</span>
+            </div>
+            <h1 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-white via-purple-200 to-blue-200 bg-clip-text text-transparent mb-4">
+              Connect. Learn. Trade.
+            </h1>
+            <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
+              Join thousands of traders sharing insights, strategies, and real-time market analyses
+            </p>
+          </motion.div>
+
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 }}
+            className="grid grid-cols-3 gap-4 max-w-xl mx-auto mb-8"
+          >
+            <div className="bg-card/50 backdrop-blur-sm border border-border/50 rounded-xl p-4 text-center hover:border-purple-500/30 transition-colors">
+              <div className="flex items-center justify-center gap-2 mb-1">
+                <BarChart3 className="h-4 w-4 text-purple-400" />
+                <span className="text-2xl font-bold">{stats.totalAnalyses}</span>
+              </div>
+              <span className="text-xs text-muted-foreground">Analyses</span>
+            </div>
+            <div className="bg-card/50 backdrop-blur-sm border border-border/50 rounded-xl p-4 text-center hover:border-blue-500/30 transition-colors">
+              <div className="flex items-center justify-center gap-2 mb-1">
+                <Users className="h-4 w-4 text-blue-400" />
+                <span className="text-2xl font-bold">{stats.totalTraders}</span>
+              </div>
+              <span className="text-xs text-muted-foreground">Traders</span>
+            </div>
+            <div className="bg-card/50 backdrop-blur-sm border border-border/50 rounded-xl p-4 text-center hover:border-green-500/30 transition-colors">
+              <div className="flex items-center justify-center gap-2 mb-1">
+                <Video className="h-4 w-4 text-green-400" />
+                <span className="text-2xl font-bold">{stats.totalRecordings}</span>
+              </div>
+              <span className="text-xs text-muted-foreground">Recordings</span>
+            </div>
+          </motion.div>
+
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3 }}
+            className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-8"
+          >
+            <div className="relative w-full sm:w-80">
+              <Input
+                placeholder="Search symbols, traders, patterns..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10 bg-card/50 backdrop-blur-sm border-border/50 focus:border-purple-500/50 h-11"
+              />
+              <Search className="h-4 w-4 text-muted-foreground absolute left-3 top-1/2 transform -translate-y-1/2" />
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <Button 
+                variant={filter === 'all' ? "default" : "outline"} 
+                size="sm"
+                onClick={() => setFilter('all')}
+                className={filter === 'all' ? "bg-purple-600 hover:bg-purple-700" : "bg-card/50 backdrop-blur-sm border-border/50"}
+              >
+                <Globe className="h-3 w-3 mr-1" /> All
+              </Button>
+              <Button 
+                variant={filter === 'buy' ? "default" : "outline"} 
+                size="sm"
+                onClick={() => setFilter('buy')}
+                className={filter === 'buy' ? "bg-emerald-600 hover:bg-emerald-700" : "bg-card/50 backdrop-blur-sm border-border/50"}
+              >
+                <TrendingUp className="h-3 w-3 mr-1" /> Buy
+              </Button>
+              <Button 
+                variant={filter === 'sell' ? "default" : "outline"} 
+                size="sm"
+                onClick={() => setFilter('sell')}
+                className={filter === 'sell' ? "bg-rose-600 hover:bg-rose-700" : "bg-card/50 backdrop-blur-sm border-border/50"}
+              >
+                <TrendingDown className="h-3 w-3 mr-1" /> Sell
+              </Button>
+            </div>
+          </motion.div>
         </div>
-      </div>
+      </motion.div>
       
-      <Tabs defaultValue="discover" value={activeTab} onValueChange={(value) => setActiveTab(value as any)}>
-        <TabsList className="mb-6">
-          <TabsTrigger value="discover" className="flex items-center gap-2">
-            <Lightbulb className="h-4 w-4" />
-            <span>Discover</span>
-          </TabsTrigger>
-          <TabsTrigger value="following" className="flex items-center gap-2">
-            <Users className="h-4 w-4" />
-            <span>Following</span>
-          </TabsTrigger>
-          <TabsTrigger value="popular" className="flex items-center gap-2">
-            <TrendingUp className="h-4 w-4" />
-            <span>Popular</span>
-          </TabsTrigger>
-          <TabsTrigger value="recordings" className="flex items-center gap-2">
-            <Video className="h-4 w-4" />
-            <span>Recordings</span>
-          </TabsTrigger>
-        </TabsList>
+      <div className="container mx-auto px-4 pb-12">
+        <Tabs defaultValue="discover" value={activeTab} onValueChange={(value) => setActiveTab(value as any)}>
+          <div className="flex justify-center mb-8">
+            <TabsList className="bg-card/50 backdrop-blur-sm border border-border/50 p-1 rounded-xl">
+              <TabsTrigger value="discover" className="flex items-center gap-2 data-[state=active]:bg-purple-600 data-[state=active]:text-white rounded-lg px-4">
+                <Lightbulb className="h-4 w-4" />
+                <span>Discover</span>
+              </TabsTrigger>
+              <TabsTrigger value="following" className="flex items-center gap-2 data-[state=active]:bg-purple-600 data-[state=active]:text-white rounded-lg px-4">
+                <Users className="h-4 w-4" />
+                <span>Following</span>
+              </TabsTrigger>
+              <TabsTrigger value="popular" className="flex items-center gap-2 data-[state=active]:bg-purple-600 data-[state=active]:text-white rounded-lg px-4">
+                <Flame className="h-4 w-4" />
+                <span>Popular</span>
+              </TabsTrigger>
+              <TabsTrigger value="recordings" className="flex items-center gap-2 data-[state=active]:bg-purple-600 data-[state=active]:text-white rounded-lg px-4">
+                <Video className="h-4 w-4" />
+                <span>Recordings</span>
+              </TabsTrigger>
+            </TabsList>
+          </div>
         
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-          <div className="lg:col-span-3">
+          <div className="lg:col-span-3 space-y-6">
             <TabsContent value="discover" className="mt-0">
               {isLoading ? (
-                <div className="grid grid-cols-1 gap-4">
-                  {[1, 2, 3].map(i => (
-                    <Card key={i} className="animate-pulse">
-                      <CardContent className="p-6">
-                        <div className="h-40 bg-gray-200 dark:bg-gray-800 rounded mb-4" />
-                        <div className="h-6 bg-gray-200 dark:bg-gray-800 rounded mb-2 w-1/3" />
-                        <div className="h-4 bg-gray-200 dark:bg-gray-800 rounded mb-1 w-1/2" />
-                        <div className="h-4 bg-gray-200 dark:bg-gray-800 rounded w-1/4" />
-                      </CardContent>
-                    </Card>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {[1, 2, 3, 4].map(i => (
+                    <motion.div
+                      key={i}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: i * 0.1 }}
+                    >
+                      <Card className="animate-pulse bg-card/50 backdrop-blur-sm border-border/50">
+                        <CardContent className="p-6">
+                          <div className="h-40 bg-muted/50 rounded-lg mb-4" />
+                          <div className="h-6 bg-muted/50 rounded mb-2 w-1/3" />
+                          <div className="h-4 bg-muted/50 rounded mb-1 w-1/2" />
+                          <div className="h-4 bg-muted/50 rounded w-1/4" />
+                        </CardContent>
+                      </Card>
+                    </motion.div>
                   ))}
                 </div>
               ) : filteredAnalyses.length > 0 ? (
-                <div className="grid grid-cols-1 gap-4">
-                  {filteredAnalyses.map(analysis => (
-                    <AnalysisCard 
-                      key={analysis.id} 
-                      analysis={analysis} 
-                      onSelect={(analysis) => {
-                        setSelectedAnalysis(analysis);
-                        setIsDetailModalOpen(true);
-                      }}
-                      onFeedback={handleFeedback}
-                    />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {filteredAnalyses.map((analysis, index) => (
+                    <motion.div
+                      key={analysis.id}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.05 }}
+                    >
+                      <AnalysisCard 
+                        analysis={analysis} 
+                        onSelect={(analysis) => {
+                          setSelectedAnalysis(analysis);
+                          setIsDetailModalOpen(true);
+                        }}
+                        onFeedback={handleFeedback}
+                      />
+                    </motion.div>
                   ))}
                 </div>
               ) : (
-                <div className="text-center py-10">
-                  <p className="text-muted-foreground">No analyses found matching your filters.</p>
+                <motion.div 
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="text-center py-16 bg-card/30 backdrop-blur-sm border border-border/30 rounded-2xl"
+                >
+                  <Lightbulb className="h-12 w-12 mx-auto mb-4 text-muted-foreground/50" />
+                  <p className="text-muted-foreground mb-4">No analyses found matching your filters.</p>
                   <Button onClick={() => {
                     setFilter('all');
                     setSearchQuery('');
-                  }} variant="outline" className="mt-4">
-                    Clear Filters
+                  }} variant="outline" className="bg-card/50">
+                    <Zap className="h-4 w-4 mr-2" /> Clear Filters
                   </Button>
-                </div>
+                </motion.div>
               )}
             </TabsContent>
             
@@ -588,41 +668,44 @@ export default function Community() {
             </TabsContent>
           </div>
           
-          <div className="lg:col-span-1">
-            <Card>
-              <CardHeader>
+          <div className="lg:col-span-1 space-y-6">
+            <Card className="bg-card/50 backdrop-blur-sm border-border/50 sticky top-24">
+              <CardHeader className="pb-3">
                 <CardTitle className="text-lg flex items-center gap-2">
-                  <Users className="h-4 w-4" /> Popular Traders
+                  <Users className="h-4 w-4 text-purple-400" /> Popular Traders
                 </CardTitle>
-                <CardDescription>Traders to follow in the community</CardDescription>
+                <CardDescription>Top traders in the community</CardDescription>
               </CardHeader>
               <CardContent>
                 {isLoadingUsers ? (
                   <div className="space-y-4">
                     {[1, 2, 3].map(i => (
                       <div key={i} className="flex items-center gap-3 animate-pulse">
-                        <div className="h-10 w-10 rounded-full bg-gray-200 dark:bg-gray-800" />
-                        <div>
-                          <div className="h-4 bg-gray-200 dark:bg-gray-800 rounded w-24 mb-1" />
-                          <div className="h-3 bg-gray-200 dark:bg-gray-800 rounded w-16" />
+                        <div className="h-10 w-10 rounded-full bg-muted/50" />
+                        <div className="flex-1">
+                          <div className="h-4 bg-muted/50 rounded w-24 mb-1" />
+                          <div className="h-3 bg-muted/50 rounded w-16" />
                         </div>
                       </div>
                     ))}
                   </div>
                 ) : popularUsers && popularUsers.length > 0 ? (
-                  <div className="space-y-4">
+                  <div className="space-y-3">
                     {popularUsers.map(trader => (
-                      <div key={trader.id} className="flex items-center justify-between gap-3">
+                      <div key={trader.id} className="flex items-center justify-between gap-3 p-2 rounded-lg hover:bg-purple-500/5 transition-colors">
                         <div className="flex items-center gap-3">
-                          <Avatar>
+                          <Avatar className="ring-2 ring-purple-500/20">
                             <AvatarImage src={trader.profileImageUrl} />
-                            <AvatarFallback>{trader.username.substring(0, 2).toUpperCase()}</AvatarFallback>
+                            <AvatarFallback className="bg-purple-500/20 text-purple-300">
+                              {trader.username.substring(0, 2).toUpperCase()}
+                            </AvatarFallback>
                           </Avatar>
                           <div>
-                            <Link to={`/profile/${trader.id}`} className="font-medium hover:underline">
+                            <Link to={`/profile/${trader.id}`} className="font-medium hover:text-purple-400 transition-colors">
                               {trader.username}
                             </Link>
-                            <div className="text-xs text-muted-foreground">
+                            <div className="text-xs text-muted-foreground flex items-center gap-1">
+                              <BarChart3 className="h-3 w-3" />
                               {trader.analysisCount} {trader.analysisCount === 1 ? 'analysis' : 'analyses'}
                             </div>
                           </div>
@@ -633,6 +716,7 @@ export default function Community() {
                             variant={trader.isFollowing ? "outline" : "default"}
                             size="sm"
                             onClick={() => handleFollowToggle(trader.id, !!trader.isFollowing)}
+                            className={trader.isFollowing ? "border-purple-500/30" : "bg-purple-600 hover:bg-purple-700"}
                           >
                             {trader.isFollowing ? 'Unfollow' : 'Follow'}
                           </Button>
@@ -642,40 +726,44 @@ export default function Community() {
                   </div>
                 ) : (
                   <div className="text-center py-4">
-                    <p className="text-muted-foreground">No popular traders found</p>
+                    <Users className="h-8 w-8 mx-auto mb-2 text-muted-foreground/50" />
+                    <p className="text-muted-foreground text-sm">No popular traders found</p>
                   </div>
                 )}
               </CardContent>
-              <CardFooter className="flex justify-center">
-                <Button variant="outline" size="sm" asChild>
+              <CardFooter className="flex justify-center pt-2">
+                <Button variant="ghost" size="sm" asChild className="text-purple-400 hover:text-purple-300 hover:bg-purple-500/10">
                   <Link href="/profile">View Your Profile</Link>
                 </Button>
               </CardFooter>
             </Card>
             
-            <Card className="mt-6">
-              <CardHeader>
+            <Card className="bg-card/50 backdrop-blur-sm border-border/50">
+              <CardHeader className="pb-3">
                 <CardTitle className="text-lg flex items-center gap-2">
-                  <Calendar className="h-4 w-4" /> Recent Activity
+                  <Zap className="h-4 w-4 text-amber-400" /> Recent Activity
                 </CardTitle>
-                <CardDescription>Recent community activity</CardDescription>
+                <CardDescription>Latest community activity</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
+                <div className="space-y-3">
                   {Array.isArray(analyses) && analyses.slice(0, 5).map(analysis => (
-                    <div key={analysis.id} className="flex items-start gap-3">
-                      <div className="h-2 w-2 rounded-full bg-primary mt-2" />
+                    <div key={analysis.id} className="flex items-start gap-3 p-2 rounded-lg hover:bg-purple-500/5 transition-colors">
+                      <div className={cn(
+                        "h-2 w-2 rounded-full mt-2",
+                        analysis.direction?.toLowerCase() === 'buy' ? "bg-emerald-500" : "bg-rose-500"
+                      )} />
                       <div>
                         <div className="text-sm">
                           <span className="font-medium">{analysis.user?.username || "Anonymous"}</span>{' '}
                           shared a{' '}
                           <span className={cn(
                             "font-medium",
-                            analysis.direction?.toLowerCase() === 'buy' ? "text-emerald-500" : "text-rose-500"
+                            analysis.direction?.toLowerCase() === 'buy' ? "text-emerald-400" : "text-rose-400"
                           )}>
                             {analysis.direction?.toLowerCase() === 'buy' ? 'buy' : 'sell'}
                           </span>{' '}
-                          signal for {analysis.symbol || "Unknown"}
+                          signal for <span className="font-medium">{analysis.symbol || "Unknown"}</span>
                         </div>
                         <div className="text-xs text-muted-foreground">
                           {formatDistanceToNow(new Date(analysis.createdAt), { addSuffix: true })}
@@ -687,25 +775,41 @@ export default function Community() {
               </CardContent>
             </Card>
             
-            <Card className="mt-6">
-              <CardHeader>
+            <Card className="bg-gradient-to-br from-purple-500/10 to-blue-500/10 border-purple-500/20">
+              <CardHeader className="pb-3">
                 <CardTitle className="text-lg flex items-center gap-2">
-                  <Info className="h-4 w-4" /> Community Guidelines
+                  <Info className="h-4 w-4 text-blue-400" /> Community Guidelines
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <ul className="text-sm space-y-2 text-muted-foreground list-disc pl-4">
-                  <li>Be respectful to fellow traders</li>
-                  <li>Don't share misleading analysis</li>
-                  <li>Give constructive feedback</li>
-                  <li>Respect others' trading opinions</li>
-                  <li>Don't share personal financial information</li>
+                <ul className="text-sm space-y-2 text-muted-foreground">
+                  <li className="flex items-start gap-2">
+                    <span className="text-purple-400">•</span>
+                    Be respectful to fellow traders
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-purple-400">•</span>
+                    Don't share misleading analysis
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-purple-400">•</span>
+                    Give constructive feedback
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-purple-400">•</span>
+                    Respect others' trading opinions
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-purple-400">•</span>
+                    Keep personal info private
+                  </li>
                 </ul>
               </CardContent>
             </Card>
           </div>
         </div>
-      </Tabs>
+        </Tabs>
+      </div>
       
       {/* Analysis Detail Modal */}
       {selectedAnalysis && (
@@ -876,7 +980,7 @@ export default function Community() {
   );
 }
 
-// Analysis Card Component
+// Analysis Card Component with modern glassmorphism design
 function AnalysisCard({ 
   analysis, 
   onSelect, 
@@ -886,35 +990,56 @@ function AnalysisCard({
   onSelect: (analysis: Analysis) => void; 
   onFeedback: (id: number, type: 'like' | 'dislike' | 'heart') => void;
 }) {
+  const isBuy = analysis.direction?.toLowerCase() === 'buy';
+  
   return (
-    <Card className="overflow-hidden">
+    <Card className="overflow-hidden bg-card/50 backdrop-blur-sm border-border/50 hover:border-purple-500/30 transition-all duration-300 group hover:shadow-lg hover:shadow-purple-500/5">
       <CardContent className="p-0">
-        <div className="flex flex-col md:flex-row">
-          <div className="w-full md:w-48 h-48 relative cursor-pointer" onClick={() => onSelect(analysis)}>
-            <ChartImage 
-              imageUrl={analysis.imageUrl} 
-              sharedImageUrl={analysis.sharedImageUrl}
-              altText={`${analysis.symbol} Chart Analysis`}
-              className="w-full h-full object-cover"
-              showWatermark={true}
-            />
-            <div className="absolute top-2 right-2">
-              <Badge variant={analysis.direction?.toLowerCase() === 'buy' ? 'success' : 'destructive'}>
-                {analysis.direction}
-              </Badge>
-            </div>
+        <div className="relative h-40 cursor-pointer overflow-hidden" onClick={() => onSelect(analysis)}>
+          <ChartImage 
+            imageUrl={analysis.imageUrl} 
+            sharedImageUrl={analysis.sharedImageUrl}
+            altText={`${analysis.symbol} Chart Analysis`}
+            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+            showWatermark={true}
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
+          <div className="absolute top-3 left-3">
+            <Badge 
+              className={cn(
+                "font-semibold shadow-lg",
+                isBuy 
+                  ? "bg-emerald-500/90 hover:bg-emerald-600 text-white" 
+                  : "bg-rose-500/90 hover:bg-rose-600 text-white"
+              )}
+            >
+              {isBuy ? <TrendingUp className="h-3 w-3 mr-1" /> : <TrendingDown className="h-3 w-3 mr-1" />}
+              {analysis.direction}
+            </Badge>
           </div>
-          
-          <div className="p-4 flex-1">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <Avatar className="h-6 w-6">
-                  <AvatarImage src={analysis.user?.profileImageUrl} />
-                  <AvatarFallback>{analysis.user?.username?.substring(0, 2).toUpperCase() || 'UN'}</AvatarFallback>
-                </Avatar>
+          <div className="absolute bottom-3 left-3 right-3">
+            <h3 className="font-bold text-white text-lg flex items-center gap-2">
+              {analysis.symbol || "Unknown Symbol"}
+              <Badge variant="outline" className="bg-white/20 border-white/30 text-white text-xs">
+                {analysis.timeframe}
+              </Badge>
+            </h3>
+          </div>
+        </div>
+        
+        <div className="p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Avatar className="h-7 w-7 ring-2 ring-purple-500/20">
+                <AvatarImage src={analysis.user?.profileImageUrl} />
+                <AvatarFallback className="bg-purple-500/20 text-purple-300 text-xs">
+                  {analysis.user?.username?.substring(0, 2).toUpperCase() || 'UN'}
+                </AvatarFallback>
+              </Avatar>
+              <div className="flex flex-col">
                 <Link 
                   to={`/profile/${analysis.userId}`} 
-                  className="text-sm font-medium hover:underline"
+                  className="text-sm font-medium hover:text-purple-400 transition-colors"
                 >
                   {analysis.user?.username || "Anonymous"}
                 </Link>
@@ -922,70 +1047,58 @@ function AnalysisCard({
                   {formatDistanceToNow(new Date(analysis.createdAt), { addSuffix: true })}
                 </span>
               </div>
-              <Button variant="ghost" size="sm" onClick={() => onSelect(analysis)}>
-                <MessageSquare className="h-4 w-4 mr-1" />
-                Details
-              </Button>
             </div>
-            
-            <div className="mb-3">
-              <h3 className="font-bold mb-1 flex items-center gap-2">
-                {analysis.symbol || "Unknown Symbol"}
-                <Badge variant="outline">{analysis.timeframe}</Badge>
-                <Badge 
-                  variant={analysis.trend?.toLowerCase() === 'bullish' ? 'success' : 'destructive'}
-                  className="text-xs"
-                >
-                  {analysis.trend}
-                </Badge>
-              </h3>
-              
-              {analysis.notes ? (
-                <p className="text-sm text-muted-foreground line-clamp-2">{analysis.notes}</p>
-              ) : (
-                <p className="text-sm text-muted-foreground italic">No additional notes</p>
+            <Badge 
+              variant="outline" 
+              className={cn(
+                "text-xs",
+                analysis.trend?.toLowerCase() === 'bullish' 
+                  ? "border-emerald-500/50 text-emerald-400" 
+                  : "border-rose-500/50 text-rose-400"
               )}
+            >
+              {analysis.trend}
+            </Badge>
+          </div>
+          
+          {analysis.notes && (
+            <p className="text-sm text-muted-foreground line-clamp-2 mb-3">{analysis.notes}</p>
+          )}
+          
+          <div className="flex items-center justify-between pt-2 border-t border-border/50">
+            <div className="flex items-center gap-1">
+              <button 
+                className="flex items-center gap-1 px-2 py-1 text-sm text-muted-foreground hover:text-emerald-400 hover:bg-emerald-500/10 rounded-md transition-all"
+                onClick={() => onFeedback(analysis.id, 'like')}
+              >
+                <ThumbsUp className="h-4 w-4" />
+                <span>{analysis.feedbackCount?.likes || 0}</span>
+              </button>
+              <button 
+                className="flex items-center gap-1 px-2 py-1 text-sm text-muted-foreground hover:text-rose-400 hover:bg-rose-500/10 rounded-md transition-all"
+                onClick={() => onFeedback(analysis.id, 'dislike')}
+              >
+                <ThumbsDown className="h-4 w-4" />
+                <span>{analysis.feedbackCount?.dislikes || 0}</span>
+              </button>
+              <button 
+                className="flex items-center gap-1 px-2 py-1 text-sm text-muted-foreground hover:text-pink-400 hover:bg-pink-500/10 rounded-md transition-all"
+                onClick={() => onFeedback(analysis.id, 'heart')}
+              >
+                <Heart className="h-4 w-4" />
+                <span>{analysis.feedbackCount?.hearts || 0}</span>
+              </button>
             </div>
             
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <button 
-                  className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
-                  onClick={() => onFeedback(analysis.id, 'like')}
-                >
-                  <ThumbsUp className="h-4 w-4" />
-                  <span>{analysis.feedbackCount?.likes || 0}</span>
-                </button>
-                <button 
-                  className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
-                  onClick={() => onFeedback(analysis.id, 'dislike')}
-                >
-                  <ThumbsDown className="h-4 w-4" />
-                  <span>{analysis.feedbackCount?.dislikes || 0}</span>
-                </button>
-                <button 
-                  className="flex items-center gap-1 text-sm text-muted-foreground hover:text-rose-500 transition-colors"
-                  onClick={() => onFeedback(analysis.id, 'heart')}
-                >
-                  <Heart className="h-4 w-4" />
-                  <span>{analysis.feedbackCount?.hearts || 0}</span>
-                </button>
-              </div>
-              
-              <div className="flex items-center gap-2">
-                {analysis.patterns && analysis.patterns.length > 0 && (
-                  <Badge variant="outline" className="text-xs">
-                    {analysis.patterns.length} {analysis.patterns.length === 1 ? 'pattern' : 'patterns'}
-                  </Badge>
-                )}
-                {analysis.comments && analysis.comments.length > 0 && (
-                  <Badge variant="outline" className="text-xs flex items-center gap-1">
-                    <MessageSquare className="h-3 w-3" />
-                    {analysis.comments.length}
-                  </Badge>
-                )}
-              </div>
-            </div>
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              onClick={() => onSelect(analysis)}
+              className="text-purple-400 hover:text-purple-300 hover:bg-purple-500/10"
+            >
+              <MessageSquare className="h-4 w-4 mr-1" />
+              {analysis.comments?.length || 0}
+            </Button>
           </div>
         </div>
       </CardContent>

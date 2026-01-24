@@ -36,7 +36,11 @@ interface UserSubscription {
   socialShareLimit: number;
 }
 
-export function SubscriptionUsageHeader() {
+interface SubscriptionUsageHeaderProps {
+  compact?: boolean;
+}
+
+export function SubscriptionUsageHeader({ compact = false }: SubscriptionUsageHeaderProps) {
   const [isExpanded, setIsExpanded] = React.useState(false);
   
   // Fetch the user's subscription data
@@ -50,7 +54,7 @@ export function SubscriptionUsageHeader() {
   });
   
   if (isLoadingSubscription || isLoadingPlans || !subscription) {
-    return null; // Don't show anything while loading
+    return null;
   }
   
   const { 
@@ -64,17 +68,41 @@ export function SubscriptionUsageHeader() {
     currentPeriodEnd,
   } = subscription;
   
-  // Get current plan and next tier if available
   const currentPlan = plans?.find((p) => p.id === planId);
   const nextTier = plans?.find((p) => p.id > planId);
   
-  // Format the price from cents to dollars
   const formatPrice = (cents: number) => {
     return `$${(cents / 100).toFixed(2)}`;
   };
   
+  const analysisPercent = Math.round((monthlyAnalysisCount / analysisLimit) * 100);
+  const isLow = analysisPercent >= 80;
+  
+  if (compact) {
+    return (
+      <div className="flex items-center gap-3 ml-auto">
+        <Link href="/subscription" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
+          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs bg-primary/10 text-primary">
+            <Crown className="w-3 h-3" />
+            <span className="font-medium hidden sm:inline">{planName}</span>
+          </div>
+          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+            <span className={isLow ? 'text-amber-500' : ''}>{monthlyAnalysisCount}/{analysisLimit}</span>
+            <span className="hidden md:inline">analyses</span>
+          </div>
+        </Link>
+        {(status === 'none' || planId === 1) && (
+          <Link href="/subscription">
+            <Button size="sm" variant="ghost" className="h-6 px-2 text-xs text-rose-400 hover:text-rose-300 hover:bg-rose-500/10">
+              Upgrade
+            </Button>
+          </Link>
+        )}
+      </div>
+    );
+  }
+  
   if (status === 'none' || planId === 1) {
-    // For free plan users, always show the compact view with upgrade button
     return (
       <div className="bg-gray-900/60 backdrop-blur-sm border-b border-gray-800 py-1.5">
         <div className="container mx-auto px-4 flex justify-between items-center">
