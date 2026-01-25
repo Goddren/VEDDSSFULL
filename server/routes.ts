@@ -4691,8 +4691,17 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       
       const { action, symbol, direction, volume, entryPrice, stopLoss, takeProfit, ticket, magic, comment, openTime, platform } = req.body;
       
+      // Validate with detailed error messages
       if (!action || !symbol || !direction) {
-        return res.status(400).json({ error: "Missing required fields: action, symbol, direction" });
+        const missing = [];
+        if (!action) missing.push('action');
+        if (!symbol) missing.push('symbol');
+        if (!direction) missing.push('direction');
+        return res.status(400).json({ 
+          error: `Missing required fields: ${missing.join(', ')}`,
+          received: { action, symbol, direction },
+          fix: "Ensure your EA sends action (OPEN/CLOSE), symbol (e.g., EURUSD), and direction (BUY/SELL)"
+        });
       }
       
       // Log the incoming signal
@@ -4838,26 +4847,70 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       
       const { symbol, timeframe, broker, timestamp, candles, indicators, account } = req.body;
       
-      // Validate required fields
-      if (!symbol || typeof symbol !== 'string' || symbol.length > 20) {
-        return res.status(400).json({ error: "Invalid or missing symbol" });
+      // Validate required fields with detailed error messages for debugging
+      if (!symbol || typeof symbol !== 'string') {
+        return res.status(400).json({ 
+          error: "Invalid or missing symbol",
+          details: `Received: ${JSON.stringify(symbol)}. Expected: string like 'EURUSD' or 'XAUUSD'`,
+          fix: "Make sure your EA is sending the Symbol() value correctly"
+        });
       }
-      if (!timeframe || typeof timeframe !== 'string' || timeframe.length > 10) {
-        return res.status(400).json({ error: "Invalid or missing timeframe" });
+      if (symbol.length > 50) {
+        return res.status(400).json({ 
+          error: "Symbol too long",
+          details: `Symbol length: ${symbol.length}. Maximum: 50`,
+          received: symbol.substring(0, 50) + '...'
+        });
       }
-      if (!candles || !Array.isArray(candles) || candles.length === 0 || candles.length > 200) {
-        return res.status(400).json({ error: "Candles must be an array with 1-200 items" });
+      if (!timeframe || typeof timeframe !== 'string') {
+        return res.status(400).json({ 
+          error: "Invalid or missing timeframe",
+          details: `Received: ${JSON.stringify(timeframe)}. Expected: string like 'H1', 'M15', 'D1'`,
+          fix: "Make sure your EA is sending the Period() value correctly"
+        });
+      }
+      if (timeframe.length > 20) {
+        return res.status(400).json({ 
+          error: "Timeframe too long",
+          details: `Timeframe length: ${timeframe.length}. Maximum: 20`
+        });
+      }
+      if (!candles || !Array.isArray(candles)) {
+        return res.status(400).json({ 
+          error: "Candles must be an array",
+          details: `Received type: ${typeof candles}. Expected: array of OHLC data`,
+          fix: "Make sure your EA is building the candles array correctly with CopyRates()"
+        });
+      }
+      if (candles.length === 0) {
+        return res.status(400).json({ 
+          error: "Candles array is empty",
+          details: "At least 1 candle is required for analysis",
+          fix: "Check that CopyRates() is returning data. New broker accounts may need chart history loaded first."
+        });
+      }
+      if (candles.length > 500) {
+        return res.status(400).json({ 
+          error: "Too many candles",
+          details: `Received: ${candles.length}. Maximum: 500`,
+          fix: "Limit candle history to 100-200 for best performance"
+        });
       }
       
-      // Validate candle structure (check first candle)
+      // Validate candle structure (check first candle) - be flexible about field names
       const firstCandle = candles[0];
       if (typeof firstCandle !== 'object' || firstCandle === null) {
-        return res.status(400).json({ error: "Invalid candle format" });
+        return res.status(400).json({ 
+          error: "Invalid candle format",
+          details: "First candle must be an object with OHLC data",
+          received: JSON.stringify(firstCandle)
+        });
       }
       
-      // Sanitize symbol and timeframe
-      const sanitizedSymbol = symbol.replace(/[^A-Za-z0-9/]/g, '').toUpperCase();
-      const sanitizedTimeframe = timeframe.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+      // Sanitize symbol - allow more characters for different broker formats
+      // Accept: EURUSD, XAUUSD.raw, GOLD.c, BTC/USD, EURUSD.i, EURUSD#, etc.
+      const sanitizedSymbol = symbol.replace(/[^A-Za-z0-9/_.-]/g, '').toUpperCase();
+      const sanitizedTimeframe = timeframe.replace(/[^A-Za-z0-9_]/g, '').toUpperCase();
       
       // Store the chart data for later use in AI refresh
       const chartDataKey = `mt5_chart_${token.userId}_${sanitizedSymbol}_${sanitizedTimeframe}`;
