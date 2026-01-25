@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "AI Powered Trading Vault"
 #property link      "https://aipoweredtradingvault.com"
-#property version   "3.61"
+#property version   "3.62"
 #property description "Sends chart data to AI Trading Vault with news-aware analysis, smart auto-trading, and active trade management"
 #property strict
 
@@ -1811,17 +1811,29 @@ string ExtractJsonNumber(string json, string startTag)
 //+------------------------------------------------------------------+
 //| Escape JSON string (handle special characters)                   |
 //+------------------------------------------------------------------+
-string EscapeJsonString(string input)
+string EscapeJsonString(string inputStr)
 {
-   string result = input;
-   // Escape backslashes first (must be first!)
-   StringReplace(result, "\\", "\\\\");
-   // Escape quotes
-   StringReplace(result, "\"", "\\\"");
-   // Escape newlines and tabs
-   StringReplace(result, "\n", "\\n");
-   StringReplace(result, "\r", "\\r");
-   StringReplace(result, "\t", "\\t");
+   string result = "";
+   int len = StringLen(inputStr);
+   
+   for(int i = 0; i < len; i++)
+   {
+      ushort ch = StringGetCharacter(inputStr, i);
+      
+      if(ch == '\\')
+         result += "\\\\";
+      else if(ch == '"')
+         result += "\\\"";
+      else if(ch == '\n')
+         result += "\\n";
+      else if(ch == '\r')
+         result += "\\r";
+      else if(ch == '\t')
+         result += "\\t";
+      else
+         result += CharToString((uchar)ch);
+   }
+   
    return result;
 }
 

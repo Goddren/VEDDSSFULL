@@ -161,7 +161,7 @@ export default function MT5ChartDataPage() {
           <div className="inline-flex items-center gap-3 px-6 py-3 rounded-full bg-gradient-to-r from-green-500/20 to-teal-500/20 border border-green-500/30">
             <BarChart3 className="w-8 h-8 text-green-400" />
             <h1 className="text-3xl font-bold text-white">MT5 Chart Data EA</h1>
-            <Badge className="bg-green-500/20 text-green-400">v3.60</Badge>
+            <Badge className="bg-green-500/20 text-green-400">v3.62</Badge>
           </div>
           <p className="text-gray-400 text-lg max-w-2xl mx-auto">
             Stream live chart data from MetaTrader 5 to VEDD AI for real-time analysis with multi-timeframe support
