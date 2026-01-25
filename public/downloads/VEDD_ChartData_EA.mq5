@@ -5,11 +5,30 @@
 //+------------------------------------------------------------------+
 #property copyright "AI Powered Trading Vault"
 #property link      "https://aipoweredtradingvault.com"
-#property version   "3.62"
+#property version   "3.63"
 #property description "Sends chart data to AI Trading Vault with news-aware analysis, smart auto-trading, and active trade management"
 #property strict
 
 #include <Trade\Trade.mqh>
+
+//+------------------------------------------------------------------+
+//| Escape JSON string (handle special characters)                   |
+//+------------------------------------------------------------------+
+string EscapeJsonString(string str)
+{
+   string out = "";
+   for(int i = 0; i < StringLen(str); i++)
+   {
+      ushort c = StringGetCharacter(str, i);
+      if(c == 92) out += "\\\\";       // backslash
+      else if(c == 34) out += "\\\"";  // quote
+      else if(c == 10) out += "\\n";   // newline
+      else if(c == 13) out += "\\r";   // carriage return
+      else if(c == 9) out += "\\t";    // tab
+      else out += ShortToString(c);
+   }
+   return out;
+}
 
 //+------------------------------------------------------------------+
 //|                    *** CONNECTION SETTINGS ***                   |
@@ -1806,35 +1825,6 @@ string ExtractJsonNumber(string json, string startTag)
    StringTrimRight(numStr);
    
    return numStr;
-}
-
-//+------------------------------------------------------------------+
-//| Escape JSON string (handle special characters)                   |
-//+------------------------------------------------------------------+
-string EscapeJsonString(string inputStr)
-{
-   string result = "";
-   int len = StringLen(inputStr);
-   
-   for(int i = 0; i < len; i++)
-   {
-      ushort ch = StringGetCharacter(inputStr, i);
-      
-      if(ch == '\\')
-         result += "\\\\";
-      else if(ch == '"')
-         result += "\\\"";
-      else if(ch == '\n')
-         result += "\\n";
-      else if(ch == '\r')
-         result += "\\r";
-      else if(ch == '\t')
-         result += "\\t";
-      else
-         result += CharToString((uchar)ch);
-   }
-   
-   return result;
 }
 
 //+------------------------------------------------------------------+
