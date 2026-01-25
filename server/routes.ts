@@ -6180,7 +6180,10 @@ Format your response as JSON:
       
       const newStreak = isConsecutive ? stats.currentStreak + 1 : 1;
       const newLongestStreak = Math.max(newStreak, stats.longestStreak);
-      const newCurrentDay = Math.min(dayNumber + 1, 44);
+      // Only advance currentDay if completing the current day (not a previous day)
+      const newCurrentDay = dayNumber === stats.currentDay 
+        ? Math.min(dayNumber + 1, 44) 
+        : Math.max(stats.currentDay, dayNumber + 1);
       
       const updatedStats = await storage.updateAmbassadorContentStats(userId, {
         currentDay: newCurrentDay,
