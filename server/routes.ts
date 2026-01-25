@@ -6863,6 +6863,10 @@ Generate a JSON object with:
           const allRegs = await storage.getEventRegistrations(event.id);
           const attendeeCount = allRegs.filter(r => r.status === 'registered' || r.status === 'attended').length;
           
+          // Get the schedule for this event to get the shareSlug
+          const schedules = await storage.getEventSchedules(event.id);
+          const schedule = schedules.length > 0 ? schedules[0] : null;
+          
           return {
             ...event,
             role: reg.role,
@@ -6870,6 +6874,8 @@ Generate a JSON object with:
             talkingPoints: event.talkingPoints || [],
             agenda: event.agenda || [],
             resourceLinks: event.resourceLinks || [],
+            shareSlug: schedule?.shareSlug || null,
+            scheduleId: schedule?.id || null,
           };
         })
       );

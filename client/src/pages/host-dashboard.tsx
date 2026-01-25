@@ -406,6 +406,20 @@ export default function HostDashboardPage() {
                         >
                           <Radio className="h-4 w-4" /> Start Presenting
                         </Button>
+                        {event.shareSlug && (
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="flex items-center gap-1 border-purple-500/50 text-purple-400 hover:bg-purple-500/10"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigator.clipboard.writeText(`${window.location.origin}/event/${event.shareSlug}?action=register`);
+                              toast({ title: "Event Link Copied!", description: "Share this link to invite attendees" });
+                            }}
+                          >
+                            <Share2 className="h-4 w-4" /> Share Event
+                          </Button>
+                        )}
                         <Button variant="outline" size="sm" className="flex items-center gap-1">
                           View Guide <ChevronRight className="h-4 w-4" />
                         </Button>
