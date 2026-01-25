@@ -485,17 +485,17 @@ export default function HostDashboardPage() {
                               size="sm"
                               onClick={() => {
                                 const shareLink = event.shareSlug 
-                                  ? `${window.location.origin}/event/${event.shareSlug}`
+                                  ? `${window.location.origin}/event/${event.shareSlug}?action=register`
                                   : event.recordingUrl!;
                                 navigator.clipboard.writeText(shareLink);
                                 toast({ 
                                   title: "Link Copied!", 
-                                  description: "Share this link with your community" 
+                                  description: "Share this link - recipients can register directly!" 
                                 });
                               }}
                               className="flex items-center gap-1"
                             >
-                              <Share2 className="h-4 w-4" /> Copy Link
+                              <Share2 className="h-4 w-4" /> Share Event
                             </Button>
                           </div>
                         </div>
@@ -661,10 +661,26 @@ export default function HostDashboardPage() {
                     
                     {/* Share Link */}
                     {event.shareSlug && (
-                      <div className="p-2 bg-purple-900/20 border border-purple-500/30 rounded-lg">
-                        <p className="text-xs text-purple-400 mb-1">Share this event:</p>
-                        <code className="text-xs text-purple-300 bg-black/30 px-2 py-1 rounded">
-                          {window.location.origin}/event/{event.shareSlug}
+                      <div className="p-3 bg-purple-900/20 border border-purple-500/30 rounded-lg">
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-xs text-purple-400">Share this event (register link):</p>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 text-purple-400 hover:text-purple-300 hover:bg-purple-500/10"
+                            onClick={() => {
+                              navigator.clipboard.writeText(`${window.location.origin}/event/${event.shareSlug}?action=register`);
+                              toast({ 
+                                title: "Link Copied!", 
+                                description: "Recipients can register directly from this link" 
+                              });
+                            }}
+                          >
+                            <Copy className="h-3 w-3 mr-1" /> Copy
+                          </Button>
+                        </div>
+                        <code className="text-xs text-purple-300 bg-black/30 px-2 py-1 rounded block truncate">
+                          {window.location.origin}/event/{event.shareSlug}?action=register
                         </code>
                       </div>
                     )}
@@ -923,6 +939,25 @@ export default function HostDashboardPage() {
                 </div>
               ) : (
                 <Badge variant="outline" className="text-gray-400">Not Started</Badge>
+              )}
+              
+              {/* Share Event Link */}
+              {presenterEvent.shareSlug && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-purple-500/50 text-purple-400 hover:bg-purple-500/10"
+                  onClick={() => {
+                    const shareLink = `${window.location.origin}/event/${presenterEvent.shareSlug}?action=register`;
+                    navigator.clipboard.writeText(shareLink);
+                    toast({ 
+                      title: "Event Link Copied!", 
+                      description: "Share this link so attendees can register" 
+                    });
+                  }}
+                >
+                  <Share2 className="h-4 w-4 mr-2" /> Share Event
+                </Button>
               )}
               
               {/* Controls */}
