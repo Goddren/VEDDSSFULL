@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "AI Powered Trading Vault"
 #property link      "https://aipoweredtradingvault.com"
-#property version   "3.60"
+#property version   "3.61"
 #property description "Sends chart data to AI Trading Vault with news-aware analysis, smart auto-trading, and active trade management"
 #property strict
 
@@ -426,11 +426,15 @@ bool SendChartData()
    // Build account data for balance tracking
    string accountJson = BuildAccountJson();
    
+   // Escape broker name to handle special characters in broker names
+   string brokerName = EscapeJsonString(AccountInfoString(ACCOUNT_COMPANY));
+   string symbolName = EscapeJsonString(_Symbol);
+   
    string jsonPayload = StringFormat(
       "{\"symbol\":\"%s\",\"timeframe\":\"%s\",\"broker\":\"%s\",\"timestamp\":%d,\"candles\":%s%s%s,\"multiTimeframe\":%s,\"account\":%s}",
-      _Symbol,
+      symbolName,
       GetTimeframeString(),
-      AccountInfoString(ACCOUNT_COMPANY),
+      brokerName,
       TimeCurrent(),
       candlesJson,
       INCLUDE_INDICATORS ? ",\"indicators\":" + indicatorsJson : "",
@@ -1805,6 +1809,23 @@ string ExtractJsonNumber(string json, string startTag)
 }
 
 //+------------------------------------------------------------------+
+//| Escape JSON string (handle special characters)                   |
+//+------------------------------------------------------------------+
+string EscapeJsonString(string input)
+{
+   string result = input;
+   // Escape backslashes first (must be first!)
+   StringReplace(result, "\\", "\\\\");
+   // Escape quotes
+   StringReplace(result, "\"", "\\\"");
+   // Escape newlines and tabs
+   StringReplace(result, "\n", "\\n");
+   StringReplace(result, "\r", "\\r");
+   StringReplace(result, "\t", "\\t");
+   return result;
+}
+
+//+------------------------------------------------------------------+
 //| Build JSON object with account data                              |
 //+------------------------------------------------------------------+
 string BuildAccountJson()
@@ -1815,10 +1836,10 @@ string BuildAccountJson()
    double freeMargin = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
    double profit = AccountInfoDouble(ACCOUNT_PROFIT);
    double credit = AccountInfoDouble(ACCOUNT_CREDIT);
-   string currency = AccountInfoString(ACCOUNT_CURRENCY);
+   string currency = EscapeJsonString(AccountInfoString(ACCOUNT_CURRENCY));
    long accountNumber = AccountInfoInteger(ACCOUNT_LOGIN);
-   string accountName = AccountInfoString(ACCOUNT_NAME);
-   string server = AccountInfoString(ACCOUNT_SERVER);
+   string accountName = EscapeJsonString(AccountInfoString(ACCOUNT_NAME));
+   string server = EscapeJsonString(AccountInfoString(ACCOUNT_SERVER));
    int leverage = (int)AccountInfoInteger(ACCOUNT_LEVERAGE);
    
    // Calculate margin level
