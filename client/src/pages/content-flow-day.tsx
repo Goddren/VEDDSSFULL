@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation, useParams } from "wouter";
 import { useDropzone } from "react-dropzone";
@@ -7,7 +7,7 @@ import {
   ArrowLeft, BookOpen, Sparkles, Copy, Check, Upload, Image, 
   Video, Star, Flame, Send, Loader2, CheckCircle, Clock, Users,
   Trophy, Calendar, Target, Zap, Twitter, Instagram, Linkedin, Hash,
-  Play, ExternalLink, Award, ChevronRight
+  Play, ExternalLink, Award, ChevronRight, X, Share2
 } from "lucide-react";
 import { SiTiktok } from "react-icons/si";
 import { Button } from "@/components/ui/button";
@@ -130,6 +130,34 @@ export default function ContentFlowDay() {
     meetingLink: ''
   });
   const [createdEventData, setCreatedEventData] = useState<{ shareUrl: string; shareSlug: string; tokensAwarded: number } | null>(null);
+  const [carouselImages, setCarouselImages] = useState<Record<number, File[]>>({});
+  const [carouselPreviews, setCarouselPreviews] = useState<Record<number, string[]>>({});
+  const previewUrlsRef = useRef<string[]>([]);
+
+  // Update previews when images change and track URLs for cleanup
+  useEffect(() => {
+    // Revoke old URLs
+    previewUrlsRef.current.forEach(url => URL.revokeObjectURL(url));
+    
+    // Create new previews
+    const newPreviews: Record<number, string[]> = {};
+    const allNewUrls: string[] = [];
+    Object.entries(carouselImages).forEach(([dirId, files]) => {
+      const urls = files.map(file => URL.createObjectURL(file));
+      newPreviews[parseInt(dirId)] = urls;
+      allNewUrls.push(...urls);
+    });
+    
+    previewUrlsRef.current = allNewUrls;
+    setCarouselPreviews(newPreviews);
+  }, [carouselImages]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      previewUrlsRef.current.forEach(url => URL.revokeObjectURL(url));
+    };
+  }, []);
 
   const day = parseInt(dayNumber || "1");
 
@@ -590,6 +618,32 @@ export default function ContentFlowDay() {
                     </Badge>
                   ))}
                 </div>
+                
+                {/* Share Generated Content */}
+                {(displayContent.shortPost || displayContent.longPost) && (
+                  <Card className="bg-gradient-to-br from-purple-900/30 to-pink-900/20 border-purple-500/30">
+                    <CardContent className="p-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 rounded-lg bg-purple-500/20">
+                            <Share2 className="w-5 h-5 text-purple-400" />
+                          </div>
+                          <div>
+                            <p className="font-medium text-white">Share Your Content</p>
+                            <p className="text-sm text-gray-400">Post to your social media accounts</p>
+                          </div>
+                        </div>
+                        <SocialShareButton
+                          caption={displayContent.shortPost || displayContent.longPost}
+                          hashtags={displayContent.suggestedHashtags || lesson.suggestedHashtags || []}
+                          mediaType={lesson.mediaType}
+                          sourceType="content_journey"
+                          sourceId={lesson.dayNumber}
+                        />
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
               </motion.div>
             )}
 
@@ -819,6 +873,77 @@ export default function ContentFlowDay() {
                                 </div>
                               )}
                               
+                              {/* Carousel Image Upload */}
+                              {direction.contentType === 'carousel' && (
+                                <div className="bg-purple-900/20 border border-purple-500/30 rounded-lg p-4 space-y-3">
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                      <Image className="w-4 h-4 text-purple-400" />
+                                      <p className="text-sm font-medium text-purple-300">
+                                        Upload Carousel Images ({carouselImages[direction.id]?.length || 0}/10)
+                                      </p>
+                                    </div>
+                                    <label className="cursor-pointer">
+                                      <input
+                                        type="file"
+                                        accept="image/*"
+                                        multiple
+                                        className="hidden"
+                                        onChange={(e) => {
+                                          if (e.target.files) {
+                                            const newFiles = Array.from(e.target.files);
+                                            setCarouselImages(prev => ({
+                                              ...prev,
+                                              [direction.id]: [...(prev[direction.id] || []), ...newFiles].slice(0, 10)
+                                            }));
+                                            toast({
+                                              title: "Images Added",
+                                              description: `${newFiles.length} image(s) added to carousel`
+                                            });
+                                          }
+                                        }}
+                                      />
+                                      <span className="inline-flex items-center gap-1 px-3 py-1.5 bg-purple-500/20 hover:bg-purple-500/30 rounded-lg text-purple-300 text-sm transition-colors">
+                                        <Upload className="w-3 h-3" />
+                                        Add Images
+                                      </span>
+                                    </label>
+                                  </div>
+                                  
+                                  {carouselPreviews[direction.id] && carouselPreviews[direction.id].length > 0 && (
+                                    <div className="grid grid-cols-5 gap-2">
+                                      {carouselPreviews[direction.id].map((previewUrl, idx) => (
+                                        <div key={idx} className="relative group">
+                                          <img
+                                            src={previewUrl}
+                                            alt={`Carousel ${idx + 1}`}
+                                            className="w-full aspect-square object-cover rounded-lg border border-purple-500/30"
+                                          />
+                                          <button
+                                            onClick={() => {
+                                              setCarouselImages(prev => ({
+                                                ...prev,
+                                                [direction.id]: prev[direction.id].filter((_, i) => i !== idx)
+                                              }));
+                                            }}
+                                            className="absolute -top-1 -right-1 p-1 bg-red-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                                          >
+                                            <X className="w-3 h-3 text-white" />
+                                          </button>
+                                          <span className="absolute bottom-1 left-1 text-xs bg-black/70 px-1 rounded">
+                                            {idx + 1}
+                                          </span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                  
+                                  <p className="text-xs text-gray-400">
+                                    Stage 3-10 images for your carousel. When sharing, save these images to your device first for manual upload to {direction.platform}.
+                                  </p>
+                                </div>
+                              )}
+                              
                               <div className="pt-3 border-t border-gray-700">
                                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                                   <p className="text-sm text-gray-400">Share this content to {direction.platform}</p>
@@ -826,10 +951,12 @@ export default function ContentFlowDay() {
                                     caption={direction.captionTemplate}
                                     hashtags={direction.hashtags || []}
                                     mediaType={direction.contentType === 'carousel' ? 'carousel' : direction.contentType === 'video' || direction.contentType === 'reel' ? 'video' : direction.contentType === 'thread' ? 'thread' : 'image'}
+                                    carouselFiles={direction.contentType === 'carousel' ? carouselImages[direction.id] : undefined}
                                     sourceType="content_journey"
                                     sourceId={lesson.dayNumber}
                                     platform={direction.platform}
                                     size="sm"
+                                    disabled={!direction.captionTemplate}
                                   />
                                 </div>
                               </div>

@@ -28,6 +28,7 @@ interface SocialShareButtonProps {
   hashtags?: string[];
   mediaUrl?: string;
   mediaType?: 'image' | 'video' | 'carousel' | 'thread';
+  carouselFiles?: File[];
   sourceType: 'content_journey' | 'analysis' | 'ea_share' | 'manual';
   sourceId?: number;
   platform?: string;
@@ -36,6 +37,7 @@ interface SocialShareButtonProps {
   size?: 'default' | 'sm' | 'lg' | 'icon';
   className?: string;
   showLabel?: boolean;
+  disabled?: boolean;
 }
 
 const platformConfig: Record<string, { icon: typeof Twitter; name: string; color: string; bgColor: string }> = {
@@ -51,6 +53,7 @@ export function SocialShareButton({
   hashtags = [],
   mediaUrl,
   mediaType = 'image',
+  carouselFiles = [],
   sourceType,
   sourceId,
   platform,
@@ -58,7 +61,8 @@ export function SocialShareButton({
   variant = 'default',
   size = 'default',
   className,
-  showLabel = true
+  showLabel = true,
+  disabled = false
 }: SocialShareButtonProps) {
   const { toast } = useToast();
   const [isOpen, setIsOpen] = useState(false);
@@ -235,6 +239,7 @@ export function SocialShareButton({
           className
         )}
         onClick={() => setIsOpen(true)}
+        disabled={disabled}
       >
         <Share2 className="w-4 h-4" />
         {showLabel && "Share to Social"}
