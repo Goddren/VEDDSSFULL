@@ -4,6 +4,7 @@ import { storage } from "./storage";
 import { User } from "@shared/schema";
 import { scrypt, randomBytes } from "crypto";
 import { promisify } from "util";
+import { z } from "zod";
 
 const scryptAsync = promisify(scrypt);
 
@@ -8599,6 +8600,153 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       res.json({ success: true, request: updated });
     } catch (err) {
       console.error('Error processing withdrawal:', err);
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // ==========================================
+  // SOCIAL ACCOUNTS & SHARING
+  // ==========================================
+
+  // Get connected social accounts
+  app.get("/api/social/accounts", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+    const user = req.user as User;
+    try {
+      const accounts = await storage.getConnectedSocialAccounts(user.id);
+      res.json(accounts.map(a => ({
+        id: a.id,
+        platform: a.platform,
+        platformUsername: a.platformUsername,
+        isActive: a.isActive
+      })));
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Zod schemas for social API validation
+  const socialPlatformEnum = z.enum(['twitter', 'facebook', 'instagram', 'linkedin', 'tiktok']);
+  const socialContentTypeEnum = z.enum(['image', 'video', 'carousel', 'thread', 'story', 'post', 'reel']);
+  const socialSourceTypeEnum = z.enum(['content_journey', 'analysis', 'ea_share', 'manual']);
+
+  const connectSocialAccountSchema = z.object({
+    platform: socialPlatformEnum,
+    platformUsername: z.string().optional()
+  });
+
+  const shareSocialContentSchema = z.object({
+    platform: socialPlatformEnum,
+    contentType: socialContentTypeEnum,
+    caption: z.string().optional(),
+    mediaUrls: z.array(z.string()).optional(),
+    hashtags: z.array(z.string()).optional(),
+    sourceType: socialSourceTypeEnum,
+    sourceId: z.number().optional()
+  });
+
+  // Connect a social account (simulate - would be OAuth in production)
+  app.post("/api/social/accounts/connect", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+    const user = req.user as User;
+    
+    const validation = connectSocialAccountSchema.safeParse(req.body);
+    if (!validation.success) {
+      return res.status(400).json({ error: "Invalid request", details: validation.error.flatten() });
+    }
+    
+    const { platform, platformUsername } = validation.data;
+    
+    try {
+      const account = await storage.connectSocialAccount({
+        userId: user.id,
+        platform,
+        platformUsername: platformUsername || `@user_${user.id}`,
+        isActive: true
+      });
+      res.json({ success: true, account });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Disconnect a social account
+  app.delete("/api/social/accounts/:platform", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+    const user = req.user as User;
+    const { platform } = req.params;
+    
+    try {
+      await storage.disconnectSocialAccount(user.id, platform);
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Share content to social media
+  app.post("/api/social/share", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+    const user = req.user as User;
+    
+    const validation = shareSocialContentSchema.safeParse(req.body);
+    if (!validation.success) {
+      return res.status(400).json({ error: "Invalid request", details: validation.error.flatten() });
+    }
+    
+    const { platform, contentType, caption, mediaUrls, hashtags, sourceType, sourceId } = validation.data;
+    
+    try {
+      // Check if account is connected
+      const account = await storage.getConnectedSocialAccount(user.id, platform);
+      
+      // Create the post record
+      const post = await storage.createSocialPost({
+        userId: user.id,
+        platform,
+        contentType,
+        caption,
+        mediaUrls: mediaUrls || [],
+        hashtags: hashtags || [],
+        sourceType,
+        sourceId,
+        status: account?.isActive ? 'published' : 'pending'
+      });
+      
+      // In production, this would call the platform's API to actually post
+      // For now, we'll mark it as published if the account is connected
+      if (account?.isActive) {
+        await storage.updateSocialPost(post.id, {
+          status: 'published',
+          publishedAt: new Date(),
+          platformPostUrl: `https://${platform}.com/post/${post.id}`
+        });
+      }
+      
+      res.json({ success: true, post });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // Get user's social posts
+  app.get("/api/social/posts", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+    const user = req.user as User;
+    try {
+      const posts = await storage.getSocialPosts(user.id);
+      res.json(posts);
+    } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
     }
   });

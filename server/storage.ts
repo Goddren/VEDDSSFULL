@@ -8,6 +8,7 @@ import {
   ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants,
   ambassadorEvents, ambassadorEventRegistrations, ambassadorChallengeSessions,
   ambassadorEventSchedules, ambassadorScheduleRegistrations, ambassadorCommunityComments,
+  connectedSocialAccounts, socialPosts,
   type User, type InsertUser, type ChartAnalysis, type InsertChartAnalysis,
   type Achievement, type InsertAchievement, type UserAchievement, type InsertUserAchievement,
   type UserProfile, type InsertUserProfile, type Follow, type InsertFollow,
@@ -38,6 +39,8 @@ import {
   type AmbassadorActionReward, type InsertAmbassadorActionReward,
   type InternalWallet, type InsertInternalWallet,
   type WithdrawalRequest, type InsertWithdrawalRequest,
+  type ConnectedSocialAccount, type InsertConnectedSocialAccount,
+  type SocialPost, type InsertSocialPost,
   veddPoolWallets, veddTransferJobs, ambassadorActionRewards,
   internalWallets, withdrawalRequests
 } from "@shared/schema";
@@ -302,6 +305,18 @@ export interface IStorage {
   getWithdrawalRequests(userId: number): Promise<WithdrawalRequest[]>;
   getAllWithdrawalRequests(): Promise<WithdrawalRequest[]>;
   updateWithdrawalRequest(id: number, data: Partial<WithdrawalRequest>): Promise<WithdrawalRequest | undefined>;
+  
+  // Connected Social Accounts methods
+  getConnectedSocialAccounts(userId: number): Promise<ConnectedSocialAccount[]>;
+  getConnectedSocialAccount(userId: number, platform: string): Promise<ConnectedSocialAccount | undefined>;
+  connectSocialAccount(data: InsertConnectedSocialAccount): Promise<ConnectedSocialAccount>;
+  disconnectSocialAccount(userId: number, platform: string): Promise<void>;
+  updateSocialAccount(userId: number, platform: string, data: Partial<ConnectedSocialAccount>): Promise<ConnectedSocialAccount | undefined>;
+  
+  // Social Posts methods
+  createSocialPost(data: InsertSocialPost): Promise<SocialPost>;
+  getSocialPosts(userId: number): Promise<SocialPost[]>;
+  updateSocialPost(id: number, data: Partial<SocialPost>): Promise<SocialPost | undefined>;
 }
 
 // Create PostgreSQL session store
@@ -2060,6 +2075,81 @@ export class DatabaseStorage implements IStorage {
     const [result] = await db.update(withdrawalRequests)
       .set(data)
       .where(eq(withdrawalRequests.id, id))
+      .returning();
+    return result;
+  }
+
+  // Connected Social Accounts methods
+  async getConnectedSocialAccounts(userId: number): Promise<ConnectedSocialAccount[]> {
+    return await db.select().from(connectedSocialAccounts)
+      .where(eq(connectedSocialAccounts.userId, userId));
+  }
+
+  async getConnectedSocialAccount(userId: number, platform: string): Promise<ConnectedSocialAccount | undefined> {
+    const [result] = await db.select().from(connectedSocialAccounts)
+      .where(and(
+        eq(connectedSocialAccounts.userId, userId),
+        eq(connectedSocialAccounts.platform, platform)
+      ));
+    return result;
+  }
+
+  async connectSocialAccount(data: InsertConnectedSocialAccount): Promise<ConnectedSocialAccount> {
+    const [result] = await db.insert(connectedSocialAccounts)
+      .values(data)
+      .onConflictDoUpdate({
+        target: [connectedSocialAccounts.userId, connectedSocialAccounts.platform],
+        set: {
+          platformUserId: data.platformUserId,
+          platformUsername: data.platformUsername,
+          accessToken: data.accessToken,
+          refreshToken: data.refreshToken,
+          tokenExpiresAt: data.tokenExpiresAt,
+          isActive: true,
+          updatedAt: new Date()
+        }
+      })
+      .returning();
+    return result;
+  }
+
+  async disconnectSocialAccount(userId: number, platform: string): Promise<void> {
+    await db.delete(connectedSocialAccounts)
+      .where(and(
+        eq(connectedSocialAccounts.userId, userId),
+        eq(connectedSocialAccounts.platform, platform)
+      ));
+  }
+
+  async updateSocialAccount(userId: number, platform: string, data: Partial<ConnectedSocialAccount>): Promise<ConnectedSocialAccount | undefined> {
+    const [result] = await db.update(connectedSocialAccounts)
+      .set({ ...data, updatedAt: new Date() })
+      .where(and(
+        eq(connectedSocialAccounts.userId, userId),
+        eq(connectedSocialAccounts.platform, platform)
+      ))
+      .returning();
+    return result;
+  }
+
+  // Social Posts methods
+  async createSocialPost(data: InsertSocialPost): Promise<SocialPost> {
+    const [result] = await db.insert(socialPosts)
+      .values(data)
+      .returning();
+    return result;
+  }
+
+  async getSocialPosts(userId: number): Promise<SocialPost[]> {
+    return await db.select().from(socialPosts)
+      .where(eq(socialPosts.userId, userId))
+      .orderBy(desc(socialPosts.createdAt));
+  }
+
+  async updateSocialPost(id: number, data: Partial<SocialPost>): Promise<SocialPost | undefined> {
+    const [result] = await db.update(socialPosts)
+      .set(data)
+      .where(eq(socialPosts.id, id))
       .returning();
     return result;
   }

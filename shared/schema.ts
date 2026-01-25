@@ -1310,6 +1310,79 @@ export type InsertInternalWallet = z.infer<typeof insertInternalWalletSchema>;
 export type WithdrawalRequest = typeof withdrawalRequests.$inferSelect;
 export type InsertWithdrawalRequest = z.infer<typeof insertWithdrawalRequestSchema>;
 
+// ============================================
+// Connected Social Accounts for Auto-Sharing
+// ============================================
+
+// User Connected Social Accounts - Store OAuth tokens for each platform
+export const connectedSocialAccounts = pgTable("connected_social_accounts", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  platform: text("platform").notNull(), // 'twitter', 'facebook', 'instagram', 'linkedin', 'tiktok'
+  platformUserId: text("platform_user_id"), // User ID on the platform
+  platformUsername: text("platform_username"), // Username/handle on platform
+  accessToken: text("access_token"), // OAuth access token (encrypted)
+  refreshToken: text("refresh_token"), // OAuth refresh token (encrypted)
+  tokenExpiresAt: timestamp("token_expires_at"),
+  isActive: boolean("is_active").notNull().default(true),
+  lastSyncAt: timestamp("last_sync_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at"),
+}, (table) => {
+  return {
+    uniqueUserPlatform: unique().on(table.userId, table.platform),
+  };
+});
+
+// Social Posts - Track posts shared to platforms
+export const socialPosts = pgTable("social_posts", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  platform: text("platform").notNull(), // 'twitter', 'facebook', 'instagram', 'linkedin', 'tiktok'
+  contentType: text("content_type").notNull(), // 'image', 'video', 'carousel', 'thread', 'story'
+  caption: text("caption"),
+  mediaUrls: text("media_urls").array(), // Array of media file URLs
+  hashtags: text("hashtags").array(),
+  sourceType: text("source_type").notNull(), // 'content_journey', 'analysis', 'ea_share', 'manual'
+  sourceId: integer("source_id"), // Reference to content journey day, analysis ID, etc.
+  platformPostId: text("platform_post_id"), // ID of the post on the platform
+  platformPostUrl: text("platform_post_url"), // URL to view the post
+  status: text("status").notNull().default('pending'), // 'pending', 'published', 'failed', 'scheduled'
+  scheduledFor: timestamp("scheduled_for"),
+  publishedAt: timestamp("published_at"),
+  errorMessage: text("error_message"),
+  engagement: jsonb("engagement").$type<{
+    likes?: number;
+    comments?: number;
+    shares?: number;
+    views?: number;
+  }>(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// Insert schemas for social accounts
+export const insertConnectedSocialAccountSchema = createInsertSchema(connectedSocialAccounts).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertSocialPostSchema = createInsertSchema(socialPosts).omit({
+  id: true,
+  platformPostId: true,
+  platformPostUrl: true,
+  publishedAt: true,
+  errorMessage: true,
+  engagement: true,
+  createdAt: true,
+});
+
+// Types for social accounts
+export type ConnectedSocialAccount = typeof connectedSocialAccounts.$inferSelect;
+export type InsertConnectedSocialAccount = z.infer<typeof insertConnectedSocialAccountSchema>;
+export type SocialPost = typeof socialPosts.$inferSelect;
+export type InsertSocialPost = z.infer<typeof insertSocialPostSchema>;
+
 // Types for community features
 export type AmbassadorSocialDirection = typeof ambassadorSocialDirections.$inferSelect;
 export type InsertAmbassadorSocialDirection = z.infer<typeof insertAmbassadorSocialDirectionSchema>;

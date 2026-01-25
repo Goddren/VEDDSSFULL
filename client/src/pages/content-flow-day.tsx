@@ -21,6 +21,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { SocialShareButton, QuickShareButtons } from "@/components/social-share-button";
 
 interface SocialDirection {
   id: number;
@@ -642,6 +643,31 @@ export default function ContentFlowDay() {
               </CardContent>
             </Card>
 
+            {uploadedFile && (
+              <Card className="bg-gradient-to-br from-purple-900/30 to-pink-900/20 border-purple-500/30">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-lg bg-purple-500/20">
+                        <Sparkles className="w-5 h-5 text-purple-400" />
+                      </div>
+                      <div>
+                        <p className="font-medium text-white">Ready to share?</p>
+                        <p className="text-sm text-gray-400">Post your content to social media</p>
+                      </div>
+                    </div>
+                    <SocialShareButton
+                      caption={displayContent || lesson.contentPrompt}
+                      hashtags={lesson.suggestedHashtags}
+                      mediaType={lesson.mediaType}
+                      sourceType="content_journey"
+                      sourceId={lesson.dayNumber}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             {!isCompleted && (isInProgress || displayContent) && (
               <Button 
                 className="w-full bg-gradient-to-r from-green-500 to-emerald-600 py-6 text-lg"
@@ -658,10 +684,35 @@ export default function ContentFlowDay() {
             )}
 
             {isCompleted && (
-              <div className="text-center p-6 bg-green-500/10 rounded-xl border border-green-500/30">
-                <CheckCircle className="w-12 h-12 text-green-400 mx-auto mb-3" />
-                <p className="text-green-400 font-medium">Day Completed!</p>
-                <p className="text-gray-400">You earned {progress.tokensEarned} tokens</p>
+              <div className="space-y-4">
+                <div className="text-center p-6 bg-green-500/10 rounded-xl border border-green-500/30">
+                  <CheckCircle className="w-12 h-12 text-green-400 mx-auto mb-3" />
+                  <p className="text-green-400 font-medium">Day Completed!</p>
+                  <p className="text-gray-400">You earned {progress.tokensEarned} tokens</p>
+                </div>
+                <Card className="bg-gradient-to-br from-purple-900/30 to-pink-900/20 border-purple-500/30">
+                  <CardContent className="p-4">
+                    <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 rounded-lg bg-purple-500/20">
+                          <Sparkles className="w-5 h-5 text-purple-400" />
+                        </div>
+                        <div>
+                          <p className="font-medium text-white">Share your achievement!</p>
+                          <p className="text-sm text-gray-400">Let others know about your progress</p>
+                        </div>
+                      </div>
+                      <SocialShareButton
+                        caption={`Just completed Day ${lesson.dayNumber} of the 44-Day Content Journey! ${lesson.title}`}
+                        hashtags={['#VEDD', '#TradingVault', '#ContentCreator', ...lesson.suggestedHashtags.slice(0, 3)]}
+                        mediaUrl={progress.userMediaUrl || undefined}
+                        mediaType={lesson.mediaType}
+                        sourceType="content_journey"
+                        sourceId={lesson.dayNumber}
+                      />
+                    </div>
+                  </CardContent>
+                </Card>
               </div>
             )}
           </TabsContent>
@@ -767,6 +818,21 @@ export default function ContentFlowDay() {
                                   </ul>
                                 </div>
                               )}
+                              
+                              <div className="pt-3 border-t border-gray-700">
+                                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                                  <p className="text-sm text-gray-400">Share this content to {direction.platform}</p>
+                                  <SocialShareButton
+                                    caption={direction.captionTemplate}
+                                    hashtags={direction.hashtags || []}
+                                    mediaType={direction.contentType === 'carousel' ? 'carousel' : direction.contentType === 'video' || direction.contentType === 'reel' ? 'video' : direction.contentType === 'thread' ? 'thread' : 'image'}
+                                    sourceType="content_journey"
+                                    sourceId={lesson.dayNumber}
+                                    platform={direction.platform}
+                                    size="sm"
+                                  />
+                                </div>
+                              </div>
                             </AccordionContent>
                           </AccordionItem>
                         ))}
