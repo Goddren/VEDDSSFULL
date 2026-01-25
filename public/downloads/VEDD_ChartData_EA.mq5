@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "AI Powered Trading Vault"
 #property link      "https://aipoweredtradingvault.com"
-#property version   "3.63"
+#property version   "3.64"
 #property description "Sends chart data to AI Trading Vault with news-aware analysis, smart auto-trading, and active trade management"
 #property strict
 
@@ -28,6 +28,17 @@ string EscapeJsonString(string str)
       else out += ShortToString(c);
    }
    return out;
+}
+
+//+------------------------------------------------------------------+
+//| Sanitize double value (handle NaN, Infinity, empty values)       |
+//+------------------------------------------------------------------+
+double SafeDouble(double val)
+{
+   if(!MathIsValidNumber(val)) return 0.0;
+   if(val == EMPTY_VALUE) return 0.0;
+   if(val > 1e15 || val < -1e15) return 0.0;
+   return val;
 }
 
 //+------------------------------------------------------------------+
@@ -1909,11 +1920,11 @@ string BuildAccountJson()
       "\"marginLevel\":%.2f,\"dailyPnL\":%.2f,\"dailyPnLPercent\":%.2f,"
       "\"openPositions\":%d,\"pendingOrders\":%d,\"buyPositions\":%d,\"sellPositions\":%d,"
       "\"totalBuyLots\":%.2f,\"totalSellLots\":%.2f,\"unrealizedProfit\":%.2f}",
-      balance, equity, margin, freeMargin, profit, credit,
+      SafeDouble(balance), SafeDouble(equity), SafeDouble(margin), SafeDouble(freeMargin), SafeDouble(profit), SafeDouble(credit),
       currency, accountNumber, accountName, server, leverage,
-      marginLevel, dailyPnL, dailyPnLPercent,
+      SafeDouble(marginLevel), SafeDouble(dailyPnL), SafeDouble(dailyPnLPercent),
       openPositions, openOrders, buyPositions, sellPositions,
-      totalBuyLots, totalSellLots, unrealizedProfit
+      SafeDouble(totalBuyLots), SafeDouble(totalSellLots), SafeDouble(unrealizedProfit)
    );
    
    return json;
@@ -1937,7 +1948,7 @@ string BuildCandlesJson()
       
       json += StringFormat(
          "{\"t\":%d,\"o\":%.5f,\"h\":%.5f,\"l\":%.5f,\"c\":%.5f,\"v\":%d}",
-         time, open, high, low, close, volume
+         time, SafeDouble(open), SafeDouble(high), SafeDouble(low), SafeDouble(close), volume
       );
       
       if(i < CANDLES_TO_SEND - 1) json += ",";
@@ -2044,12 +2055,12 @@ string BuildIndicatorsJson()
    
    string json = StringFormat(
       "{\"rsi\":%.2f,\"macd\":{\"main\":%.5f,\"signal\":%.5f,\"histogram\":%.5f},\"atr\":%.5f,\"ema20\":%.5f,\"ema50\":%.5f,\"sma200\":%.5f,\"bollingerBands\":{\"upper\":%.5f,\"middle\":%.5f,\"lower\":%.5f},\"price\":{\"bid\":%.5f,\"ask\":%.5f,\"spread\":%.1f}}",
-      rsi,
-      macdMain, macdSignal, macdHist,
-      atr,
-      ema20, ema50, sma200,
-      bbUpper, bbMiddle, bbLower,
-      bid, ask, spread
+      SafeDouble(rsi),
+      SafeDouble(macdMain), SafeDouble(macdSignal), SafeDouble(macdHist),
+      SafeDouble(atr),
+      SafeDouble(ema20), SafeDouble(ema50), SafeDouble(sma200),
+      SafeDouble(bbUpper), SafeDouble(bbMiddle), SafeDouble(bbLower),
+      SafeDouble(bid), SafeDouble(ask), SafeDouble(spread)
    );
    
    return json;
@@ -2130,7 +2141,7 @@ string BuildTimeframeData(ENUM_TIMEFRAMES tf)
       
       candlesJson += StringFormat(
          "{\"t\":%d,\"o\":%.5f,\"h\":%.5f,\"l\":%.5f,\"c\":%.5f,\"v\":%d}",
-         time, open, high, low, close, volume
+         time, SafeDouble(open), SafeDouble(high), SafeDouble(low), SafeDouble(close), volume
       );
       
       if(i < candleCount - 1) candlesJson += ",";
@@ -2211,11 +2222,11 @@ string BuildTimeframeData(ENUM_TIMEFRAMES tf)
    string json = StringFormat(
       "{\"candles\":%s,\"indicators\":{\"rsi\":%.2f,\"macdMain\":%.5f,\"macdSignal\":%.5f,\"ema20\":%.5f,\"ema50\":%.5f,\"sma200\":%.5f},\"trend\":\"%s\",\"close\":%.5f}",
       candlesJson,
-      rsi,
-      macdMain, macdSignal,
-      ema20, ema50, sma200,
+      SafeDouble(rsi),
+      SafeDouble(macdMain), SafeDouble(macdSignal),
+      SafeDouble(ema20), SafeDouble(ema50), SafeDouble(sma200),
       trend,
-      currentClose
+      SafeDouble(currentClose)
    );
    
    return json;
