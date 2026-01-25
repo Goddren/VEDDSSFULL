@@ -1,10 +1,13 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRoute, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Calendar, Clock, Users, User, ChevronRight, Sparkles, CheckCircle, LogIn, Copy, Share2 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Calendar, Clock, Users, User, ChevronRight, Sparkles, CheckCircle, LogIn, Copy, Share2, UserPlus, Play, Video, Eye } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
@@ -21,6 +24,7 @@ interface PublicEventData {
     currentAttendees: number;
     status: string;
     shareSlug: string;
+    recordingUrl?: string;
     aiAgenda?: {
       overview: string;
       agenda: { time: string; topic: string; description: string }[];
@@ -33,6 +37,7 @@ interface PublicEventData {
     title: string;
     eventType: string;
     tokenReward: number;
+    recordingUrl?: string;
   } | null;
   host: {
     username: string;
@@ -44,9 +49,34 @@ export default function PublicEventPage() {
   const [, params] = useRoute("/event/:slug");
   const [, setLocation] = useLocation();
   const { toast } = useToast();
-  const { user } = useAuth();
+  const { user, loginMutation, registerMutation: authRegisterMutation } = useAuth();
   const [copied, setCopied] = useState(false);
+  const [showAuthForm, setShowAuthForm] = useState(false);
+  const [authTab, setAuthTab] = useState<"login" | "register">("register");
+  const [authForm, setAuthForm] = useState({ username: "", password: "", confirmPassword: "" });
+  const [autoRegisterAfterAuth, setAutoRegisterAfterAuth] = useState(false);
   const slug = params?.slug;
+
+  // Check for action=register query param - only show auth form if not logged in
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('action') === 'register') {
+      if (!user) {
+        setShowAuthForm(true);
+        setAutoRegisterAfterAuth(true);
+      } else {
+        // User is already logged in, just set auto-register flag
+        setAutoRegisterAfterAuth(true);
+      }
+    }
+  }, []);
+  
+  // Close auth form when user logs in
+  useEffect(() => {
+    if (user && showAuthForm) {
+      setShowAuthForm(false);
+    }
+  }, [user, showAuthForm]);
 
   const { data, isLoading, error } = useQuery<PublicEventData>({
     queryKey: ['/api/public/events', slug],
@@ -58,7 +88,7 @@ export default function PublicEventPage() {
     enabled: !!slug
   });
 
-  const registerMutation = useMutation({
+  const eventRegisterMutation = useMutation({
     mutationFn: async (scheduleId: number) => {
       const res = await apiRequest('POST', `/api/ambassador/community/schedules/${scheduleId}/register`, {});
       if (!res.ok) {
@@ -70,22 +100,55 @@ export default function PublicEventPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/public/events', slug] });
       toast({ title: "Registered!", description: "You're signed up for this event." });
+      setAutoRegisterAfterAuth(false);
     },
     onError: (err: any) => {
       if (err.message?.includes('Not authenticated')) {
-        setLocation(`/auth?redirect=/event/${slug}`);
+        setShowAuthForm(true);
+        setAutoRegisterAfterAuth(true);
         return;
       }
       toast({ title: "Error", description: err.message, variant: "destructive" });
     }
   });
 
+  // Auto-register after successful auth
+  useEffect(() => {
+    if (user && autoRegisterAfterAuth && data?.schedule?.id) {
+      eventRegisterMutation.mutate(data.schedule.id);
+    }
+  }, [user, autoRegisterAfterAuth, data?.schedule?.id]);
+
+  const handleAuthSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (authTab === "register") {
+      if (authForm.password !== authForm.confirmPassword) {
+        toast({ title: "Error", description: "Passwords don't match", variant: "destructive" });
+        return;
+      }
+      if (authForm.password.length < 6) {
+        toast({ title: "Error", description: "Password must be at least 6 characters", variant: "destructive" });
+        return;
+      }
+      authRegisterMutation.mutate({ 
+        username: authForm.username, 
+        password: authForm.password 
+      });
+    } else {
+      loginMutation.mutate({ 
+        username: authForm.username, 
+        password: authForm.password 
+      });
+    }
+  };
+
   const copyShareLink = () => {
-    const url = window.location.href;
+    const url = `${window.location.origin}/event/${slug}?action=register`;
     navigator.clipboard.writeText(url);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-    toast({ title: "Link Copied!", description: "Share this link to invite attendees." });
+    toast({ title: "Link Copied!", description: "Share this link - recipients can register directly!" });
   };
 
   if (isLoading) {
@@ -221,15 +284,120 @@ export default function PublicEventPage() {
           </Card>
         )}
 
+        {/* Recording Section */}
+        {(schedule.recordingUrl || event?.recordingUrl) && (
+          <Card className="bg-gradient-to-br from-purple-900/30 to-pink-900/20 border-purple-500/30 mb-6">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg text-white flex items-center gap-2">
+                <Video className="w-5 h-5 text-purple-400" />
+                Watch Recording
+              </CardTitle>
+              <CardDescription>This event has a recording available</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button 
+                className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
+                asChild
+              >
+                <a href={schedule.recordingUrl || event?.recordingUrl} target="_blank" rel="noopener noreferrer">
+                  <Play className="w-5 h-5 mr-2" />
+                  Watch Now
+                </a>
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Inline Auth Form */}
+        {showAuthForm && !user && (
+          <Card className="bg-gradient-to-br from-gray-800/90 to-gray-900/90 border-amber-500/30 mb-6">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg text-white flex items-center gap-2">
+                <UserPlus className="w-5 h-5 text-amber-400" />
+                Join & Register for This Event
+              </CardTitle>
+              <CardDescription>Create an account or sign in to register for this event</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Tabs value={authTab} onValueChange={(v) => setAuthTab(v as "login" | "register")}>
+                <TabsList className="grid w-full grid-cols-2 mb-4">
+                  <TabsTrigger value="register">Create Account</TabsTrigger>
+                  <TabsTrigger value="login">Sign In</TabsTrigger>
+                </TabsList>
+                
+                <form onSubmit={handleAuthSubmit} className="space-y-4">
+                  <div>
+                    <Label htmlFor="username">Username</Label>
+                    <Input
+                      id="username"
+                      value={authForm.username}
+                      onChange={(e) => setAuthForm(prev => ({ ...prev, username: e.target.value }))}
+                      placeholder="Choose a username"
+                      className="mt-1.5"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="password">Password</Label>
+                    <Input
+                      id="password"
+                      type="password"
+                      value={authForm.password}
+                      onChange={(e) => setAuthForm(prev => ({ ...prev, password: e.target.value }))}
+                      placeholder="Enter your password"
+                      className="mt-1.5"
+                      required
+                    />
+                  </div>
+                  {authTab === "register" && (
+                    <div>
+                      <Label htmlFor="confirmPassword">Confirm Password</Label>
+                      <Input
+                        id="confirmPassword"
+                        type="password"
+                        value={authForm.confirmPassword}
+                        onChange={(e) => setAuthForm(prev => ({ ...prev, confirmPassword: e.target.value }))}
+                        placeholder="Confirm your password"
+                        className="mt-1.5"
+                        required
+                      />
+                    </div>
+                  )}
+                  <Button
+                    type="submit"
+                    className="w-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600"
+                    disabled={authRegisterMutation.isPending || loginMutation.isPending}
+                  >
+                    {(authRegisterMutation.isPending || loginMutation.isPending) ? (
+                      "Processing..."
+                    ) : authTab === "register" ? (
+                      <>
+                        <UserPlus className="w-4 h-4 mr-2" />
+                        Create Account & Register
+                      </>
+                    ) : (
+                      <>
+                        <LogIn className="w-4 h-4 mr-2" />
+                        Sign In & Register
+                      </>
+                    )}
+                  </Button>
+                </form>
+              </Tabs>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Fixed Bottom Bar */}
         <div className="fixed bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-gray-900 to-transparent">
-          <div className="max-w-4xl mx-auto">
+          <div className="max-w-4xl mx-auto flex gap-3">
             {user ? (
               <Button
-                className="w-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-lg py-6"
-                onClick={() => registerMutation.mutate(schedule.id)}
-                disabled={isFull || registerMutation.isPending}
+                className="flex-1 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-lg py-6"
+                onClick={() => eventRegisterMutation.mutate(schedule.id)}
+                disabled={isFull || eventRegisterMutation.isPending}
               >
-                {registerMutation.isPending ? (
+                {eventRegisterMutation.isPending ? (
                   "Registering..."
                 ) : isFull ? (
                   "Event Full"
@@ -242,17 +410,29 @@ export default function PublicEventPage() {
               </Button>
             ) : (
               <Button
-                className="w-full bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-lg py-6"
-                onClick={() => setLocation(`/auth?redirect=/event/${slug}`)}
+                className="flex-1 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-lg py-6"
+                onClick={() => setShowAuthForm(true)}
               >
-                <LogIn className="w-5 h-5 mr-2" />
-                Sign In to Register
+                <UserPlus className="w-5 h-5 mr-2" />
+                Join & Register
+              </Button>
+            )}
+            {(schedule.recordingUrl || event?.recordingUrl) && (
+              <Button
+                variant="outline"
+                className="py-6 border-purple-500/50 text-purple-400 hover:bg-purple-500/10"
+                asChild
+              >
+                <a href={schedule.recordingUrl || event?.recordingUrl} target="_blank" rel="noopener noreferrer">
+                  <Eye className="w-5 h-5 mr-2" />
+                  Watch
+                </a>
               </Button>
             )}
           </div>
         </div>
 
-        <div className="h-24" />
+        <div className="h-28" />
       </div>
     </div>
   );

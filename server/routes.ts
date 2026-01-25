@@ -7887,13 +7887,15 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
           currentAttendees: schedule.currentAttendees,
           status: schedule.status,
           aiAgenda: schedule.aiAgenda,
-          shareSlug: schedule.shareSlug
+          shareSlug: schedule.shareSlug,
+          recordingUrl: schedule.recordingUrl
         },
         event: event ? {
           id: event.id,
           title: event.title,
           eventType: event.eventType,
-          tokenReward: event.tokenReward
+          tokenReward: event.tokenReward,
+          recordingUrl: event.recordingUrl
         } : null,
         host: host ? {
           username: host.username,

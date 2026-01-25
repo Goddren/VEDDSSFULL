@@ -630,22 +630,30 @@ export default function Community() {
                           </div>
                           
                           <div className="flex flex-col gap-2 ml-4">
-                            <Button variant="default" size="sm" asChild className="bg-purple-600 hover:bg-purple-700">
-                              <a href={event.recordingUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1">
-                                <Play className="h-4 w-4" /> Watch
-                              </a>
-                            </Button>
+                            {event.shareSlug ? (
+                              <Button variant="default" size="sm" asChild className="bg-purple-600 hover:bg-purple-700">
+                                <a href={`/event/${event.shareSlug}`} className="flex items-center gap-1">
+                                  <Play className="h-4 w-4" /> Watch
+                                </a>
+                              </Button>
+                            ) : event.recordingUrl ? (
+                              <Button variant="default" size="sm" asChild className="bg-purple-600 hover:bg-purple-700">
+                                <a href={event.recordingUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1">
+                                  <Play className="h-4 w-4" /> Watch
+                                </a>
+                              </Button>
+                            ) : null}
                             <Button 
                               variant="outline" 
                               size="sm"
                               onClick={() => {
                                 const shareLink = event.shareSlug 
-                                  ? `${window.location.origin}/event/${event.shareSlug}`
+                                  ? `${window.location.origin}/event/${event.shareSlug}?action=register`
                                   : event.recordingUrl;
                                 navigator.clipboard.writeText(shareLink);
                                 toast({ 
                                   title: "Link Copied!", 
-                                  description: "Share this recording with others" 
+                                  description: "Share this link - recipients can register/login directly!" 
                                 });
                               }}
                               className="flex items-center gap-1"
