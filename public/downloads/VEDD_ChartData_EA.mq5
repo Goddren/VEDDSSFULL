@@ -5,17 +5,18 @@
 //+------------------------------------------------------------------+
 #property copyright "AI Powered Trading Vault"
 #property link      "https://aipoweredtradingvault.com"
-#property version   "3.66"
+#property version   "3.70"
 #property description "Sends chart data to AI Trading Vault with news-aware analysis, smart auto-trading, and active trade management"
 #property strict
 
 #include <Trade\Trade.mqh>
 
 //+------------------------------------------------------------------+
-//| Escape JSON string (handle special characters)                   |
+//| Escape JSON string (handle ALL special/control characters)       |
 //+------------------------------------------------------------------+
 string EscapeJsonString(string str)
 {
+   if(StringLen(str) == 0) return "";
    string out = "";
    for(int i = 0; i < StringLen(str); i++)
    {
@@ -25,6 +26,13 @@ string EscapeJsonString(string str)
       else if(c == 10) out += "\\n";   // newline
       else if(c == 13) out += "\\r";   // carriage return
       else if(c == 9) out += "\\t";    // tab
+      else if(c == 8) out += "\\b";    // backspace
+      else if(c == 12) out += "\\f";   // form feed
+      else if(c < 32) out += "";       // skip other control chars
+      else if(c > 127)                 // non-ASCII: use unicode escape
+      {
+         out += StringFormat("\\u%04x", c);
+      }
       else out += ShortToString(c);
    }
    return out;
@@ -468,7 +476,7 @@ bool SendChartData()
    string symbolName = EscapeJsonString(_Symbol);
    
    string jsonPayload = StringFormat(
-      "{\"eaVersion\":\"3.66\",\"symbol\":\"%s\",\"timeframe\":\"%s\",\"broker\":\"%s\",\"timestamp\":%d,\"candles\":%s%s%s,\"multiTimeframe\":%s,\"account\":%s}",
+      "{\"eaVersion\":\"3.70\",\"symbol\":\"%s\",\"timeframe\":\"%s\",\"broker\":\"%s\",\"timestamp\":%d,\"candles\":%s%s%s,\"multiTimeframe\":%s,\"account\":%s}",
       symbolName,
       GetTimeframeString(),
       brokerName,
@@ -1943,22 +1951,30 @@ string BuildAccountJson()
 string BuildCandlesJson()
 {
    string json = "[";
+   bool first = true;
    
    for(int i = 0; i < CANDLES_TO_SEND; i++)
    {
       datetime time = iTime(_Symbol, PERIOD_CURRENT, i);
+      // Skip invalid candles (no data)
+      if(time == 0) continue;
+      
       double open = iOpen(_Symbol, PERIOD_CURRENT, i);
       double high = iHigh(_Symbol, PERIOD_CURRENT, i);
       double low = iLow(_Symbol, PERIOD_CURRENT, i);
       double close = iClose(_Symbol, PERIOD_CURRENT, i);
       long volume = iVolume(_Symbol, PERIOD_CURRENT, i);
       
+      // Skip candles with no price data
+      if(open == 0 && high == 0 && low == 0 && close == 0) continue;
+      
+      if(!first) json += ",";
+      first = false;
+      
       json += StringFormat(
          "{\"t\":%d,\"o\":%.5f,\"h\":%.5f,\"l\":%.5f,\"c\":%.5f,\"v\":%d}",
          time, SafeDouble(open), SafeDouble(high), SafeDouble(low), SafeDouble(close), volume
       );
-      
-      if(i < CANDLES_TO_SEND - 1) json += ",";
    }
    
    json += "]";
@@ -2135,23 +2151,31 @@ string BuildTimeframeData(ENUM_TIMEFRAMES tf)
 {
    int candleCount = 30; // Fewer candles for additional timeframes
    
-   // Get candles
+   // Get candles - skip invalid ones
    string candlesJson = "[";
+   bool first = true;
    for(int i = 0; i < candleCount; i++)
    {
       datetime time = iTime(_Symbol, tf, i);
+      // Skip if no data for this timeframe
+      if(time == 0) continue;
+      
       double open = iOpen(_Symbol, tf, i);
       double high = iHigh(_Symbol, tf, i);
       double low = iLow(_Symbol, tf, i);
       double close = iClose(_Symbol, tf, i);
       long volume = iVolume(_Symbol, tf, i);
       
+      // Skip candles with no price data
+      if(open == 0 && high == 0 && low == 0 && close == 0) continue;
+      
+      if(!first) candlesJson += ",";
+      first = false;
+      
       candlesJson += StringFormat(
          "{\"t\":%d,\"o\":%.5f,\"h\":%.5f,\"l\":%.5f,\"c\":%.5f,\"v\":%d}",
          time, SafeDouble(open), SafeDouble(high), SafeDouble(low), SafeDouble(close), volume
       );
-      
-      if(i < candleCount - 1) candlesJson += ",";
    }
    candlesJson += "]";
    
