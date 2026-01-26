@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "AI Powered Trading Vault"
 #property link      "https://aipoweredtradingvault.com"
-#property version   "3.64"
+#property version   "3.65"
 #property description "Sends chart data to AI Trading Vault with news-aware analysis, smart auto-trading, and active trade management"
 #property strict
 
@@ -461,7 +461,7 @@ bool SendChartData()
    string symbolName = EscapeJsonString(_Symbol);
    
    string jsonPayload = StringFormat(
-      "{\"symbol\":\"%s\",\"timeframe\":\"%s\",\"broker\":\"%s\",\"timestamp\":%d,\"candles\":%s%s%s,\"multiTimeframe\":%s,\"account\":%s}",
+      "{\"eaVersion\":\"3.65\",\"symbol\":\"%s\",\"timeframe\":\"%s\",\"broker\":\"%s\",\"timestamp\":%d,\"candles\":%s%s%s,\"multiTimeframe\":%s,\"account\":%s}",
       symbolName,
       GetTimeframeString(),
       brokerName,

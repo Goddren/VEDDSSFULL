@@ -71,7 +71,18 @@ app.use((req, res, next) => {
   
   const server = await registerRoutes(app);
 
-  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+  app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
+    // Handle JSON parsing errors from MT5 EA with helpful message
+    if (err instanceof SyntaxError && 'body' in err && req.path.includes('/mt5/')) {
+      console.error('MT5 JSON Parse Error:', err.message);
+      return res.status(400).json({ 
+        error: "Invalid JSON format from EA",
+        message: err.message,
+        fix: "Download the latest EA (v3.65) from VEDD, recompile it in MetaEditor (F7), and restart MT5. Your EA may be sending invalid characters or numbers.",
+        help: "Check MT5 View > Experts tab for errors. Make sure you have chart history loaded."
+      });
+    }
+    
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
 
