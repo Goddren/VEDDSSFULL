@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "AI Powered Trading Vault"
 #property link      "https://aipoweredtradingvault.com"
-#property version   "3.65"
+#property version   "3.66"
 #property description "Sends chart data to AI Trading Vault with news-aware analysis, smart auto-trading, and active trade management"
 #property strict
 
@@ -35,9 +35,16 @@ string EscapeJsonString(string str)
 //+------------------------------------------------------------------+
 double SafeDouble(double val)
 {
+   // Check for invalid numeric values that would break JSON
    if(!MathIsValidNumber(val)) return 0.0;
    if(val == EMPTY_VALUE) return 0.0;
+   if(val == DBL_MAX || val == -DBL_MAX) return 0.0;
+   if(val == DBL_MIN) return 0.0;
    if(val > 1e15 || val < -1e15) return 0.0;
+   // Check for potential NaN/Inf representations
+   string test = DoubleToString(val, 5);
+   if(StringFind(test, "nan") >= 0 || StringFind(test, "inf") >= 0 || StringFind(test, "#") >= 0)
+      return 0.0;
    return val;
 }
 
@@ -461,7 +468,7 @@ bool SendChartData()
    string symbolName = EscapeJsonString(_Symbol);
    
    string jsonPayload = StringFormat(
-      "{\"eaVersion\":\"3.65\",\"symbol\":\"%s\",\"timeframe\":\"%s\",\"broker\":\"%s\",\"timestamp\":%d,\"candles\":%s%s%s,\"multiTimeframe\":%s,\"account\":%s}",
+      "{\"eaVersion\":\"3.66\",\"symbol\":\"%s\",\"timeframe\":\"%s\",\"broker\":\"%s\",\"timestamp\":%d,\"candles\":%s%s%s,\"multiTimeframe\":%s,\"account\":%s}",
       symbolName,
       GetTimeframeString(),
       brokerName,
