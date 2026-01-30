@@ -693,6 +693,36 @@ export const insertTradelockerTradeLogSchema = createInsertSchema(tradelockerTra
 export type TradelockerTradeLog = typeof tradelockerTradeLogs.$inferSelect;
 export type InsertTradelockerTradeLog = z.infer<typeof insertTradelockerTradeLogSchema>;
 
+// AI Trade Results - tracks accuracy of AI signals
+export const aiTradeResults = pgTable("ai_trade_results", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  analysisId: integer("analysis_id").references(() => chartAnalyses.id),
+  symbol: text("symbol").notNull(),
+  timeframe: text("timeframe"),
+  direction: text("direction").notNull(), // 'BUY' or 'SELL'
+  entryPrice: real("entry_price").notNull(),
+  exitPrice: real("exit_price"),
+  stopLoss: real("stop_loss"),
+  takeProfit: real("take_profit"),
+  aiConfidence: integer("ai_confidence"), // AI confidence when signal was given
+  result: text("result"), // 'WIN', 'LOSS', 'BREAKEVEN', 'PENDING'
+  profitLoss: real("profit_loss"), // Actual P/L in account currency
+  profitLossPips: real("profit_loss_pips"), // P/L in pips
+  closedAt: timestamp("closed_at"), // When trade was closed
+  source: text("source").default('manual'), // 'manual', 'auto', 'mt5_copier'
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertAiTradeResultSchema = createInsertSchema(aiTradeResults).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type AiTradeResult = typeof aiTradeResults.$inferSelect;
+export type InsertAiTradeResult = z.infer<typeof insertAiTradeResultSchema>;
+
 // Tier thresholds configuration
 export const TIER_CONFIG = {
   YG: { name: 'Young Gun', minXP: 0, icon: '🔫', color: 'green', nextTier: 'Rising', xpNeeded: 500 },

@@ -41,8 +41,9 @@ import {
   type WithdrawalRequest, type InsertWithdrawalRequest,
   type ConnectedSocialAccount, type InsertConnectedSocialAccount,
   type SocialPost, type InsertSocialPost,
+  type AiTradeResult, type InsertAiTradeResult,
   veddPoolWallets, veddTransferJobs, ambassadorActionRewards,
-  internalWallets, withdrawalRequests
+  internalWallets, withdrawalRequests, aiTradeResults
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, sql, desc, isNull } from "drizzle-orm";
@@ -223,6 +224,12 @@ export interface IStorage {
   // TradeLocker Trade Log methods
   createTradelockerTradeLog(log: InsertTradelockerTradeLog): Promise<TradelockerTradeLog>;
   getTradelockerTradeLogs(userId: number, limit?: number): Promise<TradelockerTradeLog[]>;
+  
+  // AI Trade Results methods
+  createAiTradeResult(result: InsertAiTradeResult): Promise<AiTradeResult>;
+  updateAiTradeResult(id: number, data: Partial<AiTradeResult>): Promise<AiTradeResult | undefined>;
+  getAiTradeResults(userId: number, limit?: number): Promise<AiTradeResult[]>;
+  getAiTradeAccuracy(userId: number): Promise<{ daily: number; weekly: number; monthly: number; yearly: number; allTime: number; totalTrades: number; wins: number; losses: number }>;
   
   // Ambassador Training Progress methods
   getAmbassadorTrainingProgress(userId: number): Promise<AmbassadorTrainingProgress | undefined>;
@@ -1451,6 +1458,64 @@ export class DatabaseStorage implements IStorage {
       .where(eq(tradelockerTradeLogs.userId, userId))
       .orderBy(desc(tradelockerTradeLogs.createdAt))
       .limit(limit);
+  }
+
+  // AI Trade Results methods
+  async createAiTradeResult(result: InsertAiTradeResult): Promise<AiTradeResult> {
+    const [created] = await db.insert(aiTradeResults).values(result).returning();
+    return created;
+  }
+
+  async updateAiTradeResult(id: number, data: Partial<AiTradeResult>): Promise<AiTradeResult | undefined> {
+    const [updated] = await db.update(aiTradeResults)
+      .set(data)
+      .where(eq(aiTradeResults.id, id))
+      .returning();
+    return updated;
+  }
+
+  async getAiTradeResults(userId: number, limit: number = 100): Promise<AiTradeResult[]> {
+    return await db.select().from(aiTradeResults)
+      .where(eq(aiTradeResults.userId, userId))
+      .orderBy(desc(aiTradeResults.createdAt))
+      .limit(limit);
+  }
+
+  async getAiTradeAccuracy(userId: number): Promise<{ daily: number; weekly: number; monthly: number; yearly: number; allTime: number; totalTrades: number; wins: number; losses: number }> {
+    const now = new Date();
+    const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const weekStart = new Date(now.setDate(now.getDate() - now.getDay()));
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const yearStart = new Date(now.getFullYear(), 0, 1);
+
+    // Get all completed trades for user
+    const allTrades = await db.select().from(aiTradeResults)
+      .where(and(
+        eq(aiTradeResults.userId, userId),
+        sql`${aiTradeResults.result} IN ('WIN', 'LOSS', 'BREAKEVEN')`
+      ));
+
+    const calculateAccuracy = (trades: typeof allTrades) => {
+      if (trades.length === 0) return 0;
+      const wins = trades.filter(t => t.result === 'WIN').length;
+      return Math.round((wins / trades.length) * 100);
+    };
+
+    const dailyTrades = allTrades.filter(t => t.closedAt && new Date(t.closedAt) >= dayStart);
+    const weeklyTrades = allTrades.filter(t => t.closedAt && new Date(t.closedAt) >= weekStart);
+    const monthlyTrades = allTrades.filter(t => t.closedAt && new Date(t.closedAt) >= monthStart);
+    const yearlyTrades = allTrades.filter(t => t.closedAt && new Date(t.closedAt) >= yearStart);
+
+    return {
+      daily: calculateAccuracy(dailyTrades),
+      weekly: calculateAccuracy(weeklyTrades),
+      monthly: calculateAccuracy(monthlyTrades),
+      yearly: calculateAccuracy(yearlyTrades),
+      allTime: calculateAccuracy(allTrades),
+      totalTrades: allTrades.length,
+      wins: allTrades.filter(t => t.result === 'WIN').length,
+      losses: allTrades.filter(t => t.result === 'LOSS').length
+    };
   }
 
   // Ambassador Training Progress methods
