@@ -198,11 +198,24 @@ type TradeHistoryAnalysis = {
   message?: string;
 };
 
+type EASettings = {
+  symbol: string;
+  directionBias: 'BOTH' | 'BUY_ONLY' | 'SELL_ONLY';
+  hoursToAvoid: number[];
+  daysToAvoid: string[];
+  recommendedTimeframes: string[];
+  tradeOnNewCandle: boolean;
+  maxTradesPerDay: number;
+  minConfidenceLevel: number;
+  notes: string;
+};
+
 type StrategyImprovement = {
   symbol: string;
   winRate: number;
   totalTrades: number;
   recommendations: string[];
+  eaSettings?: EASettings;
   rawAnalysis?: string;
 };
 
@@ -400,6 +413,98 @@ function TradeHistoryLearning() {
                         </div>
                       ))}
                     </div>
+                    
+                    {improveMutation.data.eaSettings && (
+                      <div className="mt-4 pt-4 border-t border-gold/20">
+                        <h4 className="text-sm font-medium text-white flex items-center gap-2 mb-3">
+                          <Target className="w-4 h-4 text-amber-400" />
+                          Recommended EA Settings for {improveMutation.data.symbol}
+                        </h4>
+                        <div className="grid grid-cols-2 gap-3 text-sm">
+                          <div className="bg-gray-800/50 rounded p-2">
+                            <div className="text-gray-500 text-xs">Direction Bias</div>
+                            <div className={`font-medium ${
+                              improveMutation.data.eaSettings.directionBias === 'BUY_ONLY' ? 'text-green-400' :
+                              improveMutation.data.eaSettings.directionBias === 'SELL_ONLY' ? 'text-red-400' : 'text-white'
+                            }`}>
+                              {improveMutation.data.eaSettings.directionBias.replace('_', ' ')}
+                            </div>
+                          </div>
+                          <div className="bg-gray-800/50 rounded p-2">
+                            <div className="text-gray-500 text-xs">Min Confidence</div>
+                            <div className="font-medium text-white">{improveMutation.data.eaSettings.minConfidenceLevel}%</div>
+                          </div>
+                          <div className="bg-gray-800/50 rounded p-2">
+                            <div className="text-gray-500 text-xs">Max Trades/Day</div>
+                            <div className="font-medium text-white">{improveMutation.data.eaSettings.maxTradesPerDay}</div>
+                          </div>
+                          <div className="bg-gray-800/50 rounded p-2">
+                            <div className="text-gray-500 text-xs">Trade on New Candle</div>
+                            <div className="font-medium text-green-400">
+                              {improveMutation.data.eaSettings.tradeOnNewCandle ? 'Yes' : 'No'}
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {improveMutation.data.eaSettings.hoursToAvoid.length > 0 && (
+                          <div className="mt-3 bg-red-900/20 border border-red-500/30 rounded p-2">
+                            <div className="text-xs text-red-400 flex items-center gap-1 mb-1">
+                              <AlertCircle className="w-3 h-3" />
+                              Avoid Trading at These Hours
+                            </div>
+                            <div className="text-white text-sm font-medium">
+                              {improveMutation.data.eaSettings.hoursToAvoid.map(h => `${h}:00`).join(', ')}
+                            </div>
+                          </div>
+                        )}
+                        
+                        {improveMutation.data.eaSettings.daysToAvoid.length > 0 && (
+                          <div className="mt-2 bg-orange-900/20 border border-orange-500/30 rounded p-2">
+                            <div className="text-xs text-orange-400 flex items-center gap-1 mb-1">
+                              <Calendar className="w-3 h-3" />
+                              Avoid Trading on These Days
+                            </div>
+                            <div className="text-white text-sm font-medium">
+                              {improveMutation.data.eaSettings.daysToAvoid.join(', ')}
+                            </div>
+                          </div>
+                        )}
+                        
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="w-full mt-3 border-gold/50 text-gold hover:bg-gold/10"
+                          onClick={() => {
+                            const settings = improveMutation.data?.eaSettings;
+                            if (!settings) return;
+                            const text = `// VEDD AI Recommended EA Settings for ${settings.symbol}
+// Generated from ${improveMutation.data?.totalTrades} trades (${improveMutation.data?.winRate}% win rate)
+
+input string Symbol = "${settings.symbol}";
+input ENUM_DIRECTION DirectionBias = ${settings.directionBias}; // ${settings.directionBias === 'BOTH' ? 'Trade both directions' : settings.directionBias === 'BUY_ONLY' ? 'Only BUY trades' : 'Only SELL trades'}
+input int MinConfidenceLevel = ${settings.minConfidenceLevel}; // Minimum AI confidence to enter trade
+input int MaxTradesPerDay = ${settings.maxTradesPerDay}; // Maximum trades per day
+input bool TradeOnNewCandle = ${settings.tradeOnNewCandle ? 'true' : 'false'}; // Wait for new candle to enter
+
+// Hours to avoid trading (based on loss patterns)
+input string HoursToAvoid = "${settings.hoursToAvoid.join(',')}"; // Comma-separated hours (0-23)
+
+// Days to avoid trading (0=Sunday, 1=Monday, etc.)
+input string DaysToAvoid = "${settings.daysToAvoid.join(',')}";
+
+// ${settings.notes}`;
+                            navigator.clipboard.writeText(text);
+                            toast({
+                              title: "EA Settings Copied!",
+                              description: "Paste these settings into your MT5 EA configuration.",
+                            });
+                          }}
+                        >
+                          <Copy className="w-4 h-4 mr-2" />
+                          Copy EA Settings
+                        </Button>
+                      </div>
+                    )}
                   </motion.div>
                 )}
               </>

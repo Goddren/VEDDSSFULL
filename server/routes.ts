@@ -5910,6 +5910,36 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       const recentAnalyses = await storage.getChartAnalysesByUserId(userId);
       const symbolAnalyses = recentAnalyses.filter(a => a.symbol?.toUpperCase().includes(symbol)).slice(0, 5);
       
+      // Calculate recommended EA settings based on patterns
+      const worstHoursSet = new Set(lossHours);
+      const worstDaysSet = new Set(lossDays);
+      const buyLosses = lossDirections.filter(d => d === 'BUY').length;
+      const sellLosses = lossDirections.filter(d => d === 'SELL').length;
+      
+      // Determine direction bias recommendation
+      let directionBias = 'BOTH';
+      if (buyLosses > sellLosses * 2) directionBias = 'SELL_ONLY';
+      else if (sellLosses > buyLosses * 2) directionBias = 'BUY_ONLY';
+      
+      // Calculate hours to avoid (most loss-prone hours)
+      const hourCounts: { [key: number]: number } = {};
+      lossHours.forEach((h: number | null) => { if (h !== null) hourCounts[h] = (hourCounts[h] || 0) + 1; });
+      const hoursToAvoid = Object.entries(hourCounts)
+        .filter(([_, count]) => count >= 2)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([hour]) => parseInt(hour));
+      
+      // Calculate days to avoid
+      const dayMap: { [key: string]: number } = { 'Sun': 0, 'Mon': 1, 'Tue': 2, 'Wed': 3, 'Thu': 4, 'Fri': 5, 'Sat': 6 };
+      const dayCounts: { [key: string]: number } = {};
+      lossDays.forEach((d: string | null) => { if (d) dayCounts[d] = (dayCounts[d] || 0) + 1; });
+      const daysToAvoid = Object.entries(dayCounts)
+        .filter(([_, count]) => count >= 2)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 2)
+        .map(([day]) => day);
+      
       const prompt = `You are an expert trading strategy advisor. Analyze this trader's performance on ${symbol} and provide specific, actionable recommendations to improve their strategy.
 
 TRADE STATISTICS:
@@ -5921,7 +5951,7 @@ TRADE STATISTICS:
 LOSS PATTERNS:
 - Hours when losses occurred: ${lossHours.join(', ') || 'N/A'}
 - Days when losses occurred: ${lossDays.join(', ') || 'N/A'}
-- Directions of losses: ${lossDirections.join(', ') || 'N/A'}
+- Directions of losses: BUY: ${buyLosses}, SELL: ${sellLosses}
 
 RECENT TRADE NOTES:
 ${trades.slice(0, 5).map(t => `- ${t.direction} at ${t.entryPrice}: ${t.result} | ${t.notes || 'No notes'}`).join('\n')}
@@ -5952,6 +5982,19 @@ Format each recommendation as a clear, concise action item.`;
         .filter(line => line.length > 10)
         .slice(0, 6);
       
+      // Generate EA settings recommendation
+      const eaSettings = {
+        symbol,
+        directionBias,
+        hoursToAvoid,
+        daysToAvoid,
+        recommendedTimeframes: ['H1', 'H4'], // Default based on general best practices
+        tradeOnNewCandle: true,
+        maxTradesPerDay: Math.max(1, Math.floor(3 * (parseFloat(winRate) / 100))), // Scale with win rate
+        minConfidenceLevel: parseFloat(winRate) < 50 ? 75 : 65, // Higher threshold if losing
+        notes: `Generated based on ${completed} trades with ${winRate}% win rate`,
+      };
+      
       res.json({
         symbol,
         winRate: parseFloat(winRate),
@@ -5961,6 +6004,7 @@ Format each recommendation as a clear, concise action item.`;
           "Review your entry timing to ensure alignment with market momentum.",
           "Consider adding confirmation signals before entering trades.",
         ],
+        eaSettings,
         rawAnalysis: aiResponse,
       });
     } catch (error: any) {
