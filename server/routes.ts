@@ -5589,6 +5589,70 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
     res.json(trades);
   });
 
+  // AI Trade Results & Accuracy Tracking
+  app.get("/api/ai-trade-accuracy", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    try {
+      const userId = (req.user as User).id;
+      const accuracy = await storage.getAiTradeAccuracy(userId);
+      res.json(accuracy);
+    } catch (error: any) {
+      console.error("Error fetching AI trade accuracy:", error);
+      res.status(500).json({ error: "Failed to fetch accuracy data" });
+    }
+  });
+
+  app.get("/api/ai-trade-results", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    try {
+      const userId = (req.user as User).id;
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 100;
+      const results = await storage.getAiTradeResults(userId, limit);
+      res.json(results);
+    } catch (error: any) {
+      console.error("Error fetching AI trade results:", error);
+      res.status(500).json({ error: "Failed to fetch trade results" });
+    }
+  });
+
+  app.post("/api/ai-trade-results", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    try {
+      const userId = (req.user as User).id;
+      const result = await storage.createAiTradeResult({
+        ...req.body,
+        userId,
+      });
+      res.json(result);
+    } catch (error: any) {
+      console.error("Error creating AI trade result:", error);
+      res.status(500).json({ error: "Failed to create trade result" });
+    }
+  });
+
+  app.patch("/api/ai-trade-results/:id", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    try {
+      const id = parseInt(req.params.id);
+      const updated = await storage.updateAiTradeResult(id, req.body);
+      if (!updated) {
+        return res.status(404).json({ error: "Trade result not found" });
+      }
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error updating AI trade result:", error);
+      res.status(500).json({ error: "Failed to update trade result" });
+    }
+  });
+
   app.get("/api/tradelocker/debug-accounts", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) {
       return res.status(401).json({ error: "Authentication required" });
