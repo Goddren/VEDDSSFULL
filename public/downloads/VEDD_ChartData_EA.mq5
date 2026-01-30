@@ -5,8 +5,8 @@
 //+------------------------------------------------------------------+
 #property copyright "AI Powered Trading Vault"
 #property link      "https://aipoweredtradingvault.com"
-#property version   "3.71"
-#property description "Sends chart data to AI Trading Vault with news-aware analysis, smart auto-trading, and active trade management"
+#property version   "3.80"
+#property description "Sends chart data to AI Trading Vault with news-aware analysis, smart auto-trading, prop firm compliance, and active trade management"
 #property strict
 
 #include <Trade\Trade.mqh>
@@ -91,6 +91,22 @@ input int      MAX_OPEN_TRADES = 1;               // Max Positions Open at Once
 input double   DAILY_LOSS_LIMIT = 100.0;          // Daily Loss Limit ($) - 0=Disable
 input int      SLIPPAGE_POINTS = 30;              // Max Slippage (points)
 input int      MAGIC_NUMBER = 202501;             // Magic Number (Trade ID)
+
+//+------------------------------------------------------------------+
+//|                *** PROP FIRM COMPLIANCE ***                      |
+//+------------------------------------------------------------------+
+input string   _prop_header = "========== PROP FIRM COMPLIANCE =========="; // *** PROP FIRM ***
+input bool     PROP_FIRM_MODE = false;            // Enable Prop Firm Mode
+input double   PROP_DAILY_DD_LIMIT = 5.0;         // Daily Drawdown Limit (%)
+input double   PROP_MAX_DD_LIMIT = 10.0;          // Max Total Drawdown Limit (%)
+input double   PROP_DAILY_LOSS_LIMIT = 4.0;       // Daily Loss Limit (% of Balance)
+input double   PROP_MAX_LOT_SIZE = 0.5;           // Max Lot Size Allowed
+input int      PROP_MAX_OPEN_TRADES = 3;          // Max Simultaneous Positions
+input bool     PROP_REQUIRE_SL = true;            // Require Stop Loss on All Trades
+input double   PROP_MIN_RR_RATIO = 1.5;           // Min Risk:Reward Ratio
+input bool     PROP_NO_NEWS_TRADING = true;       // Block Trading During News
+input bool     PROP_NO_WEEKEND_HOLDING = true;    // Close All Before Weekend
+input int      PROP_FRIDAY_CLOSE_HOUR = 20;       // Friday Close Hour (UTC)
 
 //+------------------------------------------------------------------+
 //|                    *** ENTRY SETTINGS ***                        |
@@ -258,6 +274,14 @@ double dailyLossAccumulated = 0;
 datetime dailyLossResetDate = 0;
 CTrade trade;
 
+//--- Prop Firm state
+double propStartingBalance = 0;
+double propDailyHighBalance = 0;
+double propMaxEquityReached = 0;
+datetime propDailyResetTime = 0;
+bool propTradingBlocked = false;
+string propBlockReason = "";
+
 //--- Pyramiding state
 int pyramidPositionCount = 0;
 double pyramidLastAddPrice = 0;
@@ -403,8 +427,34 @@ int OnInit()
          Print("  Multiplier: ", MARTINGALE_MULTIPLIER, "x | Max Level: ", MARTINGALE_MAX_LEVEL);
       }
    }
+   Print("----------------------------------------");
+   Print("PROP FIRM MODE: ", PROP_FIRM_MODE ? "ACTIVE - Trading within limits" : "OFF");
+   if(PROP_FIRM_MODE)
+   {
+      Print("  Daily Drawdown Limit: ", PROP_DAILY_DD_LIMIT, "%");
+      Print("  Max Total Drawdown: ", PROP_MAX_DD_LIMIT, "%");
+      Print("  Daily Loss Limit: ", PROP_DAILY_LOSS_LIMIT, "%");
+      Print("  Max Lot Size: ", PROP_MAX_LOT_SIZE);
+      Print("  Max Open Trades: ", PROP_MAX_OPEN_TRADES);
+      Print("  Require Stop Loss: ", PROP_REQUIRE_SL ? "YES" : "NO");
+      Print("  Min R:R Ratio: 1:", PROP_MIN_RR_RATIO);
+      Print("  No News Trading: ", PROP_NO_NEWS_TRADING ? "YES" : "NO");
+      Print("  Close Before Weekend: ", PROP_NO_WEEKEND_HOLDING ? "YES at " + IntegerToString(PROP_FRIDAY_CLOSE_HOUR) + ":00 UTC" : "NO");
+   }
    Print("========================================");
    Print("Word is Bond. Now Let's Build!");
+   
+   // Initialize Prop Firm tracking
+   if(PROP_FIRM_MODE)
+   {
+      propStartingBalance = AccountInfoDouble(ACCOUNT_BALANCE);
+      propDailyHighBalance = propStartingBalance;
+      propMaxEquityReached = propStartingBalance;
+      propDailyResetTime = TimeCurrent();
+      propTradingBlocked = false;
+      propBlockReason = "";
+      Print("Prop Firm Mode: Starting balance = ", DoubleToString(propStartingBalance, 2));
+   }
    
    SendChartData();
    
@@ -434,6 +484,15 @@ void OnTick()
    else
    {
       newCandleOpened = false;
+   }
+   
+   // Prop Firm: Check for weekend close
+   PropFirmWeekendClose();
+   
+   // Prop Firm: Continuous compliance monitoring
+   if(PROP_FIRM_MODE)
+   {
+      CheckPropFirmCompliance();
    }
    
    if(TimeCurrent() - lastSendTime >= SEND_INTERVAL_SECONDS)
@@ -921,6 +980,26 @@ void ProcessAutoTrade()
       return;
    }
    
+   // Prop Firm compliance checks
+   if(!CheckPropFirmCompliance())
+   {
+      Print("[BUILD] PROP FIRM BLOCKED: ", propBlockReason);
+      return;
+   }
+   
+   if(!CheckMinRiskReward())
+   {
+      Print("[BUILD] PROP FIRM: Trade skipped - R:R ratio too low for prop firm rules.");
+      return;
+   }
+   
+   // Prop Firm: Check if SL is required
+   if(PROP_FIRM_MODE && PROP_REQUIRE_SL && lastSL <= 0)
+   {
+      Print("[BUILD] PROP FIRM: Stop Loss REQUIRED but not set. Skipping trade.");
+      return;
+   }
+   
    if(!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) || !MQLInfoInteger(MQL_TRADE_ALLOWED))
    {
       Print("[BUILD] Trading not ALLOWED. Check your PERMISSIONS, G.");
@@ -936,6 +1015,132 @@ void ProcessAutoTrade()
    else
    {
       PlaceMarketOrder(lotSize);
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Check Prop Firm compliance - returns true if trading allowed     |
+//+------------------------------------------------------------------+
+bool CheckPropFirmCompliance()
+{
+   if(!PROP_FIRM_MODE) return true;
+   
+   double balance = AccountInfoDouble(ACCOUNT_BALANCE);
+   double equity = AccountInfoDouble(ACCOUNT_EQUITY);
+   MqlDateTime dt;
+   TimeCurrent(dt);
+   
+   // Reset daily tracking at midnight
+   if(dt.day_of_year != MqlDateTime(propDailyResetTime).day_of_year)
+   {
+      propDailyHighBalance = balance;
+      propDailyResetTime = TimeCurrent();
+      propTradingBlocked = false;
+      propBlockReason = "";
+      Print("[PROP FIRM] New day - Daily limits reset. High balance: ", DoubleToString(propDailyHighBalance, 2));
+   }
+   
+   // Update high water marks
+   if(equity > propMaxEquityReached) propMaxEquityReached = equity;
+   if(balance > propDailyHighBalance) propDailyHighBalance = balance;
+   
+   // Check daily drawdown (from daily high)
+   double dailyDD = ((propDailyHighBalance - equity) / propDailyHighBalance) * 100.0;
+   if(dailyDD >= PROP_DAILY_DD_LIMIT)
+   {
+      propTradingBlocked = true;
+      propBlockReason = StringFormat("Daily DD %.2f%% >= %.1f%% limit", dailyDD, PROP_DAILY_DD_LIMIT);
+      Print("[PROP FIRM] BLOCKED: ", propBlockReason);
+      return false;
+   }
+   
+   // Check max drawdown (from starting balance)
+   double maxDD = ((propStartingBalance - equity) / propStartingBalance) * 100.0;
+   if(maxDD >= PROP_MAX_DD_LIMIT)
+   {
+      propTradingBlocked = true;
+      propBlockReason = StringFormat("Max DD %.2f%% >= %.1f%% limit", maxDD, PROP_MAX_DD_LIMIT);
+      Print("[PROP FIRM] BLOCKED: ", propBlockReason);
+      return false;
+   }
+   
+   // Check daily loss limit
+   double dailyLoss = ((propDailyHighBalance - balance) / propDailyHighBalance) * 100.0;
+   if(dailyLoss >= PROP_DAILY_LOSS_LIMIT)
+   {
+      propTradingBlocked = true;
+      propBlockReason = StringFormat("Daily Loss %.2f%% >= %.1f%% limit", dailyLoss, PROP_DAILY_LOSS_LIMIT);
+      Print("[PROP FIRM] BLOCKED: ", propBlockReason);
+      return false;
+   }
+   
+   // Check max open trades
+   int openTrades = CountOpenTrades();
+   if(openTrades >= PROP_MAX_OPEN_TRADES)
+   {
+      propBlockReason = StringFormat("Max trades %d reached", PROP_MAX_OPEN_TRADES);
+      return false;
+   }
+   
+   // Check Friday close (weekend holding restriction)
+   if(PROP_NO_WEEKEND_HOLDING && dt.day_of_week == 5 && dt.hour >= PROP_FRIDAY_CLOSE_HOUR)
+   {
+      propBlockReason = "Friday close time - no new trades before weekend";
+      return false;
+   }
+   
+   propTradingBlocked = false;
+   propBlockReason = "";
+   return true;
+}
+
+//+------------------------------------------------------------------+
+//| Check if trade has valid Risk:Reward ratio                       |
+//+------------------------------------------------------------------+
+bool CheckMinRiskReward()
+{
+   if(!PROP_FIRM_MODE || PROP_MIN_RR_RATIO <= 0) return true;
+   if(lastEntry <= 0 || lastSL <= 0 || lastTP <= 0) return true; // Can't check without levels
+   
+   double risk = MathAbs(lastEntry - lastSL);
+   double reward = MathAbs(lastTP - lastEntry);
+   
+   if(risk <= 0) return true;
+   
+   double rr = reward / risk;
+   if(rr < PROP_MIN_RR_RATIO)
+   {
+      Print("[PROP FIRM] R:R ratio ", DoubleToString(rr, 2), " < min ", DoubleToString(PROP_MIN_RR_RATIO, 2));
+      return false;
+   }
+   return true;
+}
+
+//+------------------------------------------------------------------+
+//| Close all trades before weekend (Prop Firm)                      |
+//+------------------------------------------------------------------+
+void PropFirmWeekendClose()
+{
+   if(!PROP_FIRM_MODE || !PROP_NO_WEEKEND_HOLDING) return;
+   
+   MqlDateTime dt;
+   TimeCurrent(dt);
+   
+   if(dt.day_of_week == 5 && dt.hour >= PROP_FRIDAY_CLOSE_HOUR)
+   {
+      int total = PositionsTotal();
+      for(int i = total - 1; i >= 0; i--)
+      {
+         ulong ticket = PositionGetTicket(i);
+         if(PositionSelectByTicket(ticket))
+         {
+            if(PositionGetInteger(POSITION_MAGIC) == MAGIC_NUMBER)
+            {
+               Print("[PROP FIRM] Closing position before weekend: ", PositionGetString(POSITION_SYMBOL));
+               trade.PositionClose(ticket);
+            }
+         }
+      }
    }
 }
 
@@ -965,6 +1170,13 @@ double CalculateLotSize()
    if(ENABLE_MARTINGALE)
    {
       lots = GetMartingaleLotSize(lots);
+   }
+   
+   // Apply Prop Firm max lot size limit
+   if(PROP_FIRM_MODE && lots > PROP_MAX_LOT_SIZE)
+   {
+      Print("[PROP FIRM] Lot size ", DoubleToString(lots, 2), " capped to ", DoubleToString(PROP_MAX_LOT_SIZE, 2));
+      lots = PROP_MAX_LOT_SIZE;
    }
    
    double minLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
@@ -1822,6 +2034,24 @@ void UpdateChartComment()
    else
    {
       commentText += "AUTO-TRADE: OFF\n";
+   }
+   
+   // Prop Firm Status
+   if(PROP_FIRM_MODE)
+   {
+      double balance = AccountInfoDouble(ACCOUNT_BALANCE);
+      double equity = AccountInfoDouble(ACCOUNT_EQUITY);
+      double dailyDD = propDailyHighBalance > 0 ? ((propDailyHighBalance - equity) / propDailyHighBalance) * 100.0 : 0;
+      double maxDD = propStartingBalance > 0 ? ((propStartingBalance - equity) / propStartingBalance) * 100.0 : 0;
+      
+      commentText += "------------------------------\n";
+      commentText += "PROP FIRM MODE: " + (propTradingBlocked ? "BLOCKED" : "ACTIVE") + "\n";
+      commentText += "Daily DD: " + DoubleToString(dailyDD, 2) + "% / " + DoubleToString(PROP_DAILY_DD_LIMIT, 1) + "%\n";
+      commentText += "Max DD: " + DoubleToString(maxDD, 2) + "% / " + DoubleToString(PROP_MAX_DD_LIMIT, 1) + "%\n";
+      if(propTradingBlocked && StringLen(propBlockReason) > 0)
+      {
+         commentText += "!! " + propBlockReason + " !!\n";
+      }
    }
    
    commentText += TimeToString(TimeCurrent(), TIME_MINUTES);
