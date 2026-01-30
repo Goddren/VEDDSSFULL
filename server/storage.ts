@@ -231,6 +231,7 @@ export interface IStorage {
   getAiTradeResultById(id: number): Promise<AiTradeResult | undefined>;
   getAiTradeResults(userId: number, limit?: number): Promise<AiTradeResult[]>;
   getAiTradeResultsBySymbol(userId: number, symbol: string, limit?: number): Promise<AiTradeResult[]>;
+  getAiTradeResultByTicket(userId: number, ticket: string): Promise<AiTradeResult | undefined>;
   getAiTradeAccuracy(userId: number): Promise<{ daily: number; weekly: number; monthly: number; yearly: number; allTime: number; totalTrades: number; wins: number; losses: number }>;
   
   // Ambassador Training Progress methods
@@ -1498,6 +1499,16 @@ export class DatabaseStorage implements IStorage {
       ))
       .orderBy(desc(aiTradeResults.createdAt))
       .limit(limit);
+  }
+
+  async getAiTradeResultByTicket(userId: number, ticket: string): Promise<AiTradeResult | undefined> {
+    const results = await db.select().from(aiTradeResults)
+      .where(and(
+        eq(aiTradeResults.userId, userId),
+        eq(aiTradeResults.mt5Ticket, ticket)
+      ))
+      .limit(1);
+    return results[0];
   }
 
   async getAiTradeAccuracy(userId: number): Promise<{ daily: number; weekly: number; monthly: number; yearly: number; allTime: number; totalTrades: number; wins: number; losses: number }> {

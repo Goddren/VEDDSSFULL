@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "AI Powered Trading Vault"
 #property link      "https://aipoweredtradingvault.com"
-#property version   "3.86"
+#property version   "3.87"
 #property description "Sends chart data to AI Trading Vault with news-aware analysis, smart auto-trading, prop firm compliance, and active trade management"
 #property strict
 
@@ -601,12 +601,15 @@ bool SendChartData()
    // Build account data for balance tracking
    string accountJson = BuildAccountJson();
    
+   // Build open positions data for trade sync
+   string openPositionsJson = BuildOpenPositionsJson();
+   
    // Escape broker name to handle special characters in broker names
    string brokerName = EscapeJsonString(AccountInfoString(ACCOUNT_COMPANY));
    string symbolName = EscapeJsonString(_Symbol);
    
    string jsonPayload = StringFormat(
-      "{\"eaVersion\":\"3.86\",\"symbol\":\"%s\",\"timeframe\":\"%s\",\"broker\":\"%s\",\"timestamp\":%d,\"candles\":%s%s%s,\"multiTimeframe\":%s,\"account\":%s}",
+      "{\"eaVersion\":\"3.87\",\"symbol\":\"%s\",\"timeframe\":\"%s\",\"broker\":\"%s\",\"timestamp\":%d,\"candles\":%s%s%s,\"multiTimeframe\":%s,\"account\":%s,\"openPositions\":%s}",
       symbolName,
       GetTimeframeString(),
       brokerName,
@@ -615,7 +618,8 @@ bool SendChartData()
       INCLUDE_INDICATORS ? ",\"indicators\":" + indicatorsJson : "",
       ENABLE_MULTI_TIMEFRAME ? ",\"multiTimeframeEnabled\":true" : "",
       ENABLE_MULTI_TIMEFRAME ? multiTimeframeJson : "null",
-      accountJson
+      accountJson,
+      openPositionsJson
    );
    
    uchar jsonData[];
@@ -2405,6 +2409,60 @@ string BuildAccountJson()
       SafeDouble(totalBuyLots), SafeDouble(totalSellLots), SafeDouble(unrealizedProfit)
    );
    
+   return json;
+}
+
+//+------------------------------------------------------------------+
+//| Build JSON array of open positions for trade sync                 |
+//+------------------------------------------------------------------+
+string BuildOpenPositionsJson()
+{
+   string json = "[";
+   bool first = true;
+   int total = PositionsTotal();
+   
+   for(int i = 0; i < total; i++)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket <= 0) continue;
+      
+      string posSymbol = PositionGetString(POSITION_SYMBOL);
+      ENUM_POSITION_TYPE posType = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+      double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+      double volume = PositionGetDouble(POSITION_VOLUME);
+      double sl = PositionGetDouble(POSITION_SL);
+      double tp = PositionGetDouble(POSITION_TP);
+      double profit = PositionGetDouble(POSITION_PROFIT);
+      datetime openTime = (datetime)PositionGetInteger(POSITION_TIME);
+      long magic = PositionGetInteger(POSITION_MAGIC);
+      string comment = PositionGetString(POSITION_COMMENT);
+      double currentPrice = (posType == POSITION_TYPE_BUY) ? 
+                            SymbolInfoDouble(posSymbol, SYMBOL_BID) : 
+                            SymbolInfoDouble(posSymbol, SYMBOL_ASK);
+      
+      if(!first) json += ",";
+      first = false;
+      
+      json += StringFormat(
+         "{\"ticket\":%d,\"symbol\":\"%s\",\"direction\":\"%s\",\"volume\":%.2f,"
+         "\"openPrice\":%.5f,\"currentPrice\":%.5f,\"sl\":%.5f,\"tp\":%.5f,"
+         "\"profit\":%.2f,\"openTime\":%d,\"magic\":%d,\"comment\":\"%s\"}",
+         ticket,
+         EscapeJsonString(posSymbol),
+         posType == POSITION_TYPE_BUY ? "BUY" : "SELL",
+         SafeDouble(volume),
+         SafeDouble(openPrice),
+         SafeDouble(currentPrice),
+         SafeDouble(sl),
+         SafeDouble(tp),
+         SafeDouble(profit),
+         openTime,
+         magic,
+         EscapeJsonString(comment)
+      );
+   }
+   
+   json += "]";
    return json;
 }
 

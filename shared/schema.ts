@@ -711,6 +711,7 @@ export const aiTradeResults = pgTable("ai_trade_results", {
   profitLossPips: real("profit_loss_pips"), // P/L in pips
   closedAt: timestamp("closed_at"), // When trade was closed
   source: text("source").default('manual'), // 'manual', 'auto', 'mt5_copier'
+  mt5Ticket: text("mt5_ticket"), // MT5 trade ticket number for sync
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

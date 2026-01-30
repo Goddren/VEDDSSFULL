@@ -4953,6 +4953,50 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         };
       }
       
+      // Store open positions for reversal detection and trade sync
+      const { openPositions } = req.body;
+      if (openPositions && Array.isArray(openPositions)) {
+        (global as any).mt5OpenPositions = (global as any).mt5OpenPositions || {};
+        (global as any).mt5OpenPositions[token.userId] = {
+          positions: openPositions,
+          lastUpdated: new Date().toISOString(),
+          broker: broker || 'Unknown',
+        };
+        
+        // Auto-sync positions to AI trade results for reversal detection
+        for (const pos of openPositions) {
+          if (pos.symbol && pos.direction && pos.ticket) {
+            const ticketStr = pos.ticket.toString();
+            // Check if this trade already exists by ticket
+            const existingTrade = await storage.getAiTradeResultByTicket(token.userId, ticketStr);
+            
+            if (!existingTrade) {
+              // Create new pending trade record for reversal detection
+              await storage.createAiTradeResult({
+                userId: token.userId,
+                symbol: pos.symbol.toUpperCase(),
+                direction: pos.direction,
+                entryPrice: pos.openPrice || 0,
+                stopLoss: pos.sl > 0 ? pos.sl : null,
+                takeProfit: pos.tp > 0 ? pos.tp : null,
+                aiConfidence: 0,
+                result: 'PENDING',
+                source: 'mt5_copier',
+                mt5Ticket: ticketStr,
+                notes: `Synced from MT5 EA`,
+              });
+            } else {
+              // Update profit/loss on existing trade (don't overwrite notes or ticket)
+              await storage.updateAiTradeResult(existingTrade.id, token.userId, {
+                profitLoss: pos.profit || 0,
+                stopLoss: pos.sl > 0 ? pos.sl : existingTrade.stopLoss,
+                takeProfit: pos.tp > 0 ? pos.tp : existingTrade.takeProfit,
+              });
+            }
+          }
+        }
+      }
+      
       // Track ALL connected pairs per user
       if (!(global as any).mt5ConnectedPairs[token.userId]) {
         (global as any).mt5ConnectedPairs[token.userId] = {};
