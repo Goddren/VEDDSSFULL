@@ -180,9 +180,33 @@ type ReversalData = {
 };
 
 function ReversalAlertPanel() {
+  const { toast } = useToast();
   const { data: reversalData, isLoading, refetch } = useQuery<ReversalData>({
     queryKey: ['/api/reversal-alerts'],
     refetchInterval: 30000,
+  });
+
+  const flipTradeMutation = useMutation({
+    mutationFn: async (data: { tradeId: number; symbol: string; currentDirection: string; newDirection: string }) => {
+      const res = await apiRequest('POST', '/api/flip-trade', data);
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Flip Trade Executed!",
+        description: data.message,
+      });
+      refetch();
+      queryClient.invalidateQueries({ queryKey: ['/api/ai-trade-accuracy'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/ai-trade-results'] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Flip Trade Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
   });
 
   const getStrengthColor = (strength: string) => {
@@ -273,6 +297,29 @@ function ReversalAlertPanel() {
                         {alert.reversalStrength} REVERSAL
                       </Badge>
                     </div>
+                  </div>
+                  <div className="mt-3 pt-3 border-t border-gray-700/50 flex items-center justify-between">
+                    <p className="text-xs text-gray-500">
+                      Flip to catch reversal & recover losses
+                    </p>
+                    <Button
+                      size="sm"
+                      className={`${alert.newSignal === 'BUY' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'}`}
+                      onClick={() => flipTradeMutation.mutate({
+                        tradeId: alert.tradeId,
+                        symbol: alert.symbol,
+                        currentDirection: alert.tradeDirection,
+                        newDirection: alert.newSignal
+                      })}
+                      disabled={flipTradeMutation.isPending}
+                    >
+                      {flipTradeMutation.isPending ? (
+                        <RefreshCw className="w-4 h-4 animate-spin mr-1" />
+                      ) : (
+                        <Zap className="w-4 h-4 mr-1" />
+                      )}
+                      Flip to {alert.newSignal}
+                    </Button>
                   </div>
                 </motion.div>
               ))}

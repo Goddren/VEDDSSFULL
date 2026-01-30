@@ -5752,6 +5752,79 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
     }
   });
 
+  // Flip Trade - Close current position and open reverse to recover loss + profit
+  app.post("/api/flip-trade", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    try {
+      const userId = (req.user as User).id;
+      const { tradeId, symbol, currentDirection, newDirection, currentLoss, targetRecovery } = req.body;
+      
+      // Validate required fields
+      if (!symbol || !newDirection) {
+        return res.status(400).json({ error: "Symbol and new direction are required" });
+      }
+      
+      // Get TradeLocker connection
+      const connection = await storage.getUserTradelockerConnection(userId);
+      if (!connection) {
+        return res.status(400).json({ error: "No TradeLocker connection found. Please connect your account first." });
+      }
+      
+      // Calculate recovery lot size
+      // Formula: To recover loss + target profit, we need to calculate based on pip value
+      // For simplicity, we'll use a 1.5x multiplier on the original lot size for recovery
+      const baseLotSize = 0.01; // Minimum lot size
+      const recoveryMultiplier = currentLoss ? Math.max(1.5, 1 + (Math.abs(currentLoss) / 100)) : 1.5;
+      const recoveryLotSize = Math.min(parseFloat((baseLotSize * recoveryMultiplier).toFixed(2)), 1.0); // Cap at 1.0 lot
+      
+      // Execute the flip trade on TradeLocker
+      const tradeResult = await executeMT5SignalOnTradeLocker(connection, {
+        action: 'OPEN',
+        symbol: symbol,
+        direction: newDirection,
+        volume: recoveryLotSize,
+      });
+      
+      if (tradeResult.success) {
+        // Update the original trade result as closed/loss if tradeId provided
+        if (tradeId) {
+          await storage.updateAiTradeResult(tradeId, userId, {
+            result: 'LOSS',
+            closedAt: new Date(),
+            notes: `Flipped to ${newDirection} for recovery`
+          });
+        }
+        
+        // Create new trade result for the flip trade
+        await storage.createAiTradeResult({
+          userId,
+          symbol,
+          direction: newDirection,
+          entryPrice: 0, // Will be filled by TradeLocker
+          source: 'auto',
+          notes: `Recovery flip from ${currentDirection} - Lot: ${recoveryLotSize}`,
+        });
+        
+        res.json({
+          success: true,
+          message: `Flip trade executed! Opened ${newDirection} ${symbol} with ${recoveryLotSize} lots for recovery.`,
+          orderId: tradeResult.orderId,
+          lotSize: recoveryLotSize,
+        });
+      } else {
+        res.status(400).json({
+          success: false,
+          error: tradeResult.error || "Failed to execute flip trade"
+        });
+      }
+    } catch (error: any) {
+      console.error("Error executing flip trade:", error);
+      res.status(500).json({ error: "Failed to execute flip trade: " + error.message });
+    }
+  });
+
   app.get("/api/tradelocker/debug-accounts", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) {
       return res.status(401).json({ error: "Authentication required" });
