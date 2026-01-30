@@ -5993,6 +5993,18 @@ Format each recommendation as a clear, concise action item.`;
         maxTradesPerDay: Math.max(1, Math.floor(3 * (parseFloat(winRate) / 100))), // Scale with win rate
         minConfidenceLevel: parseFloat(winRate) < 50 ? 75 : 65, // Higher threshold if losing
         notes: `Generated based on ${completed} trades with ${winRate}% win rate`,
+        propFirmSettings: {
+          enabled: true,
+          dailyDrawdownLimit: 5.0,
+          maxDrawdownLimit: 10.0,
+          dailyLossLimit: 4.0,
+          maxLotSize: 0.5,
+          maxOpenTrades: 3,
+          noTradingDuringNews: true,
+          stopLossRequired: true,
+          minRiskRewardRatio: 1.5,
+          notes: 'Conservative settings for prop firm challenges and funded accounts.',
+        },
       };
       
       res.json({

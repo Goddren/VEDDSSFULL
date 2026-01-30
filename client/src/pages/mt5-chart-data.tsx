@@ -479,6 +479,7 @@ function TradeHistoryLearning() {
                             if (!settings) return;
                             const dayMap: { [key: string]: number } = { 'Sun': 0, 'Mon': 1, 'Tue': 2, 'Wed': 3, 'Thu': 4, 'Fri': 5, 'Sat': 6 };
                             const daysNumeric = settings.daysToAvoid.map(d => dayMap[d] ?? d).join(', ');
+                            const propFirm = settings.propFirmSettings;
                             const text = `VEDD AI Recommended EA Settings for ${settings.symbol}
 ================================================
 Generated from ${improveMutation.data?.totalTrades} trades (${improveMutation.data?.winRate}% win rate)
@@ -497,12 +498,23 @@ RISK SETTINGS:
 • Maximum Trades Per Day: ${settings.maxTradesPerDay}
 • Trade on New Candle: ${settings.tradeOnNewCandle ? 'Yes (recommended)' : 'No'}
 
+${propFirm ? `PROP FIRM COMPLIANCE:
+• Daily Drawdown Limit: ${propFirm.dailyDrawdownLimit}%
+• Max Total Drawdown: ${propFirm.maxDrawdownLimit}%
+• Daily Loss Limit: ${propFirm.dailyLossLimit}%
+• Max Lot Size: ${propFirm.maxLotSize}
+• Max Open Trades: ${propFirm.maxOpenTrades}
+• Avoid News Trading: ${propFirm.noTradingDuringNews ? 'Yes' : 'No'}
+• Stop Loss Required: ${propFirm.stopLossRequired ? 'Yes' : 'No'}
+• Min Risk:Reward: 1:${propFirm.minRiskRewardRatio}` : ''}
+
 APPLY THESE SETTINGS:
 1. Open your MT5 Chart Data EA settings
 2. Set direction filter based on recommendation above
 3. Avoid trading during the hours/days listed
 4. Set minimum confidence to ${settings.minConfidenceLevel}%
 5. Limit daily trades to ${settings.maxTradesPerDay}
+${propFirm ? '6. Enable prop firm mode and set drawdown limits' : ''}
 
 ${settings.notes}`;
                             navigator.clipboard.writeText(text);
@@ -515,6 +527,72 @@ ${settings.notes}`;
                           <Copy className="w-4 h-4 mr-2" />
                           Copy EA Settings Summary
                         </Button>
+                        
+                        {improveMutation.data.eaSettings.propFirmSettings && (
+                          <div className="mt-4 pt-4 border-t border-blue-500/30">
+                            <h4 className="text-sm font-medium text-blue-400 flex items-center gap-2 mb-3">
+                              <Shield className="w-4 h-4" />
+                              Prop Firm Compliance Settings
+                            </h4>
+                            <p className="text-xs text-gray-400 mb-3">
+                              Conservative settings designed for FTMO, MyForexFunds, and similar prop firm challenges.
+                            </p>
+                            <div className="grid grid-cols-2 gap-2 text-sm">
+                              <div className="bg-blue-900/20 border border-blue-500/20 rounded p-2">
+                                <div className="text-gray-500 text-xs">Daily Drawdown Limit</div>
+                                <div className="font-medium text-blue-400">
+                                  {improveMutation.data.eaSettings.propFirmSettings.dailyDrawdownLimit}%
+                                </div>
+                              </div>
+                              <div className="bg-blue-900/20 border border-blue-500/20 rounded p-2">
+                                <div className="text-gray-500 text-xs">Max Total Drawdown</div>
+                                <div className="font-medium text-blue-400">
+                                  {improveMutation.data.eaSettings.propFirmSettings.maxDrawdownLimit}%
+                                </div>
+                              </div>
+                              <div className="bg-blue-900/20 border border-blue-500/20 rounded p-2">
+                                <div className="text-gray-500 text-xs">Daily Loss Limit</div>
+                                <div className="font-medium text-orange-400">
+                                  {improveMutation.data.eaSettings.propFirmSettings.dailyLossLimit}%
+                                </div>
+                              </div>
+                              <div className="bg-blue-900/20 border border-blue-500/20 rounded p-2">
+                                <div className="text-gray-500 text-xs">Max Lot Size</div>
+                                <div className="font-medium text-white">
+                                  {improveMutation.data.eaSettings.propFirmSettings.maxLotSize}
+                                </div>
+                              </div>
+                              <div className="bg-blue-900/20 border border-blue-500/20 rounded p-2">
+                                <div className="text-gray-500 text-xs">Max Open Trades</div>
+                                <div className="font-medium text-white">
+                                  {improveMutation.data.eaSettings.propFirmSettings.maxOpenTrades}
+                                </div>
+                              </div>
+                              <div className="bg-blue-900/20 border border-blue-500/20 rounded p-2">
+                                <div className="text-gray-500 text-xs">Min Risk:Reward</div>
+                                <div className="font-medium text-green-400">
+                                  1:{improveMutation.data.eaSettings.propFirmSettings.minRiskRewardRatio}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="mt-2 flex gap-2">
+                              <div className={`flex-1 text-center py-1.5 rounded text-xs ${
+                                improveMutation.data.eaSettings.propFirmSettings.noTradingDuringNews 
+                                  ? 'bg-green-900/30 border border-green-500/30 text-green-400' 
+                                  : 'bg-gray-800/50 text-gray-500'
+                              }`}>
+                                {improveMutation.data.eaSettings.propFirmSettings.noTradingDuringNews ? '✓' : '✗'} No News Trading
+                              </div>
+                              <div className={`flex-1 text-center py-1.5 rounded text-xs ${
+                                improveMutation.data.eaSettings.propFirmSettings.stopLossRequired 
+                                  ? 'bg-green-900/30 border border-green-500/30 text-green-400' 
+                                  : 'bg-gray-800/50 text-gray-500'
+                              }`}>
+                                {improveMutation.data.eaSettings.propFirmSettings.stopLossRequired ? '✓' : '✗'} Stop Loss Required
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                   </motion.div>
