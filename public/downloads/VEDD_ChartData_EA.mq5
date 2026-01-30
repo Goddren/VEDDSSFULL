@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "AI Powered Trading Vault"
 #property link      "https://aipoweredtradingvault.com"
-#property version   "3.80"
+#property version   "3.86"
 #property description "Sends chart data to AI Trading Vault with news-aware analysis, smart auto-trading, prop firm compliance, and active trade management"
 #property strict
 
@@ -107,6 +107,43 @@ input double   PROP_MIN_RR_RATIO = 1.5;           // Min Risk:Reward Ratio
 input bool     PROP_NO_NEWS_TRADING = true;       // Block Trading During News
 input bool     PROP_NO_WEEKEND_HOLDING = true;    // Close All Before Weekend
 input int      PROP_FRIDAY_CLOSE_HOUR = 20;       // Friday Close Hour (UTC)
+
+//+------------------------------------------------------------------+
+//|            *** TRADE HISTORY LEARNING ***                        |
+//+------------------------------------------------------------------+
+input string   _learning_header = "========== TRADE HISTORY LEARNING =========="; // *** HISTORY LEARNING ***
+input bool     ENABLE_LEARNING_FILTER = false;    // Apply AI-Learned Filters
+input int      DIRECTION_BIAS = 0;                // Direction Bias: 0=Both, 1=BUY Only, 2=SELL Only
+input bool     AVOID_HOUR_0 = false;              // Avoid Hour 00:00
+input bool     AVOID_HOUR_1 = false;              // Avoid Hour 01:00
+input bool     AVOID_HOUR_2 = false;              // Avoid Hour 02:00
+input bool     AVOID_HOUR_3 = false;              // Avoid Hour 03:00
+input bool     AVOID_HOUR_4 = false;              // Avoid Hour 04:00
+input bool     AVOID_HOUR_5 = false;              // Avoid Hour 05:00
+input bool     AVOID_HOUR_6 = false;              // Avoid Hour 06:00
+input bool     AVOID_HOUR_7 = false;              // Avoid Hour 07:00
+input bool     AVOID_HOUR_8 = false;              // Avoid Hour 08:00
+input bool     AVOID_HOUR_9 = false;              // Avoid Hour 09:00
+input bool     AVOID_HOUR_10 = false;             // Avoid Hour 10:00
+input bool     AVOID_HOUR_11 = false;             // Avoid Hour 11:00
+input bool     AVOID_HOUR_12 = false;             // Avoid Hour 12:00
+input bool     AVOID_HOUR_13 = false;             // Avoid Hour 13:00
+input bool     AVOID_HOUR_14 = false;             // Avoid Hour 14:00
+input bool     AVOID_HOUR_15 = false;             // Avoid Hour 15:00
+input bool     AVOID_HOUR_16 = false;             // Avoid Hour 16:00
+input bool     AVOID_HOUR_17 = false;             // Avoid Hour 17:00
+input bool     AVOID_HOUR_18 = false;             // Avoid Hour 18:00
+input bool     AVOID_HOUR_19 = false;             // Avoid Hour 19:00
+input bool     AVOID_HOUR_20 = false;             // Avoid Hour 20:00
+input bool     AVOID_HOUR_21 = false;             // Avoid Hour 21:00
+input bool     AVOID_HOUR_22 = false;             // Avoid Hour 22:00
+input bool     AVOID_HOUR_23 = false;             // Avoid Hour 23:00
+input bool     AVOID_MONDAY = false;              // Avoid Monday
+input bool     AVOID_TUESDAY = false;             // Avoid Tuesday
+input bool     AVOID_WEDNESDAY = false;           // Avoid Wednesday
+input bool     AVOID_THURSDAY = false;            // Avoid Thursday
+input bool     AVOID_FRIDAY = false;              // Avoid Friday
+input int      MAX_TRADES_PER_DAY = 10;           // Max Trades Per Day (0=Unlimited)
 
 //+------------------------------------------------------------------+
 //|                    *** ENTRY SETTINGS ***                        |
@@ -282,6 +319,10 @@ datetime propDailyResetTime = 0;
 bool propTradingBlocked = false;
 string propBlockReason = "";
 
+//--- Trade History Learning state
+int dailyTradeCount = 0;
+datetime learningDailyResetTime = 0;
+
 //--- Pyramiding state
 int pyramidPositionCount = 0;
 double pyramidLastAddPrice = 0;
@@ -441,6 +482,14 @@ int OnInit()
       Print("  No News Trading: ", PROP_NO_NEWS_TRADING ? "YES" : "NO");
       Print("  Close Before Weekend: ", PROP_NO_WEEKEND_HOLDING ? "YES at " + IntegerToString(PROP_FRIDAY_CLOSE_HOUR) + ":00 UTC" : "NO");
    }
+   Print("----------------------------------------");
+   Print("HISTORY LEARNING: ", ENABLE_LEARNING_FILTER ? "ACTIVE" : "OFF");
+   if(ENABLE_LEARNING_FILTER)
+   {
+      string dirBias = DIRECTION_BIAS == 0 ? "Both" : (DIRECTION_BIAS == 1 ? "BUY Only" : "SELL Only");
+      Print("  Direction Bias: ", dirBias);
+      Print("  Max Trades/Day: ", MAX_TRADES_PER_DAY == 0 ? "Unlimited" : IntegerToString(MAX_TRADES_PER_DAY));
+   }
    Print("========================================");
    Print("Word is Bond. Now Let's Build!");
    
@@ -454,6 +503,13 @@ int OnInit()
       propTradingBlocked = false;
       propBlockReason = "";
       Print("Prop Firm Mode: Starting balance = ", DoubleToString(propStartingBalance, 2));
+   }
+   
+   // Initialize Learning Filter tracking
+   if(ENABLE_LEARNING_FILTER)
+   {
+      learningDailyResetTime = TimeCurrent();
+      dailyTradeCount = 0;
    }
    
    SendChartData();
@@ -550,7 +606,7 @@ bool SendChartData()
    string symbolName = EscapeJsonString(_Symbol);
    
    string jsonPayload = StringFormat(
-      "{\"eaVersion\":\"3.80\",\"symbol\":\"%s\",\"timeframe\":\"%s\",\"broker\":\"%s\",\"timestamp\":%d,\"candles\":%s%s%s,\"multiTimeframe\":%s,\"account\":%s}",
+      "{\"eaVersion\":\"3.86\",\"symbol\":\"%s\",\"timeframe\":\"%s\",\"broker\":\"%s\",\"timestamp\":%d,\"candles\":%s%s%s,\"multiTimeframe\":%s,\"account\":%s}",
       symbolName,
       GetTimeframeString(),
       brokerName,
@@ -1010,6 +1066,14 @@ void ProcessAutoTrade()
       return;
    }
    
+   // Trade History Learning filter check
+   string learningBlockReason = "";
+   if(!CheckLearningFilters(learningBlockReason))
+   {
+      Print("[BUILD] ", learningBlockReason);
+      return;
+   }
+   
    if(!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) || !MQLInfoInteger(MQL_TRADE_ALLOWED))
    {
       Print("[BUILD] Trading not ALLOWED. Check your PERMISSIONS, G.");
@@ -1128,6 +1192,114 @@ bool CheckMinRiskReward()
 }
 
 //+------------------------------------------------------------------+
+//| Check Trade History Learning filters                              |
+//+------------------------------------------------------------------+
+bool CheckLearningFilters(string &blockReason)
+{
+   if(!ENABLE_LEARNING_FILTER) return true;
+   
+   MqlDateTime dt;
+   TimeToStruct(TimeCurrent(), dt);
+   
+   // Reset daily trade count at midnight
+   MqlDateTime resetDt;
+   TimeToStruct(learningDailyResetTime, resetDt);
+   if(dt.day_of_year != resetDt.day_of_year)
+   {
+      dailyTradeCount = 0;
+      learningDailyResetTime = TimeCurrent();
+      Print("[LEARNING] New day - Daily trade count reset");
+   }
+   
+   // Check direction bias
+   if(DIRECTION_BIAS == 1 && lastSignal == "SELL")
+   {
+      blockReason = "Learning Filter: BUY Only mode - SELL signal blocked";
+      return false;
+   }
+   if(DIRECTION_BIAS == 2 && lastSignal == "BUY")
+   {
+      blockReason = "Learning Filter: SELL Only mode - BUY signal blocked";
+      return false;
+   }
+   
+   // Check max trades per day
+   if(MAX_TRADES_PER_DAY > 0 && dailyTradeCount >= MAX_TRADES_PER_DAY)
+   {
+      blockReason = "Learning Filter: Max trades per day (" + IntegerToString(MAX_TRADES_PER_DAY) + ") reached";
+      return false;
+   }
+   
+   // Check avoided hours
+   int hour = dt.hour;
+   bool hourBlocked = false;
+   switch(hour)
+   {
+      case 0: hourBlocked = AVOID_HOUR_0; break;
+      case 1: hourBlocked = AVOID_HOUR_1; break;
+      case 2: hourBlocked = AVOID_HOUR_2; break;
+      case 3: hourBlocked = AVOID_HOUR_3; break;
+      case 4: hourBlocked = AVOID_HOUR_4; break;
+      case 5: hourBlocked = AVOID_HOUR_5; break;
+      case 6: hourBlocked = AVOID_HOUR_6; break;
+      case 7: hourBlocked = AVOID_HOUR_7; break;
+      case 8: hourBlocked = AVOID_HOUR_8; break;
+      case 9: hourBlocked = AVOID_HOUR_9; break;
+      case 10: hourBlocked = AVOID_HOUR_10; break;
+      case 11: hourBlocked = AVOID_HOUR_11; break;
+      case 12: hourBlocked = AVOID_HOUR_12; break;
+      case 13: hourBlocked = AVOID_HOUR_13; break;
+      case 14: hourBlocked = AVOID_HOUR_14; break;
+      case 15: hourBlocked = AVOID_HOUR_15; break;
+      case 16: hourBlocked = AVOID_HOUR_16; break;
+      case 17: hourBlocked = AVOID_HOUR_17; break;
+      case 18: hourBlocked = AVOID_HOUR_18; break;
+      case 19: hourBlocked = AVOID_HOUR_19; break;
+      case 20: hourBlocked = AVOID_HOUR_20; break;
+      case 21: hourBlocked = AVOID_HOUR_21; break;
+      case 22: hourBlocked = AVOID_HOUR_22; break;
+      case 23: hourBlocked = AVOID_HOUR_23; break;
+   }
+   if(hourBlocked)
+   {
+      blockReason = "Learning Filter: Hour " + IntegerToString(hour) + ":00 is in avoid list";
+      return false;
+   }
+   
+   // Check avoided days (1=Monday ... 5=Friday in MQL5)
+   int dayOfWeek = dt.day_of_week;
+   bool dayBlocked = false;
+   switch(dayOfWeek)
+   {
+      case 1: dayBlocked = AVOID_MONDAY; break;
+      case 2: dayBlocked = AVOID_TUESDAY; break;
+      case 3: dayBlocked = AVOID_WEDNESDAY; break;
+      case 4: dayBlocked = AVOID_THURSDAY; break;
+      case 5: dayBlocked = AVOID_FRIDAY; break;
+   }
+   if(dayBlocked)
+   {
+      string dayNames[] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
+      blockReason = "Learning Filter: " + dayNames[dayOfWeek] + " is in avoid list";
+      return false;
+   }
+   
+   return true;
+}
+
+//+------------------------------------------------------------------+
+//| Increment daily trade count (call after successful trade)        |
+//+------------------------------------------------------------------+
+void IncrementDailyTradeCount()
+{
+   if(ENABLE_LEARNING_FILTER)
+   {
+      dailyTradeCount++;
+      Print("[LEARNING] Trade count: ", dailyTradeCount, "/", MAX_TRADES_PER_DAY);
+   }
+}
+
+//+------------------------------------------------------------------+
 //| Close all trades before weekend (Prop Firm)                      |
 //+------------------------------------------------------------------+
 void PropFirmWeekendClose()
@@ -1229,6 +1401,7 @@ void PlaceMarketOrder(double lots)
       Print("[BUILD] Word is Bond - the MATHEMATICS are set. Peace!");
       lastTradeTime = TimeCurrent();
       lastExecutedSignal = lastSignal;
+      IncrementDailyTradeCount();
    }
    else
    {
@@ -1606,6 +1779,14 @@ void CheckPyramidOpportunity()
       (currentDirection == POSITION_TYPE_SELL && lastSignal != "SELL"))
       return;
    
+   // Check learning filters before pyramiding
+   string learningReason = "";
+   if(!CheckLearningFilters(learningReason))
+   {
+      Print("[PYRAMID] ", learningReason);
+      return;
+   }
+   
    // Calculate pyramid lot size
    double baseLot = CalculateLotSize();
    double pyramidLot = NormalizeDouble(baseLot * MathPow(PYRAMID_LOT_MULTIPLIER, posCount), 2);
@@ -1636,6 +1817,7 @@ void CheckPyramidOpportunity()
       pyramidLastAddPrice = (currentDirection == POSITION_TYPE_BUY) ? 
                            SymbolInfoDouble(_Symbol, SYMBOL_ASK) : 
                            SymbolInfoDouble(_Symbol, SYMBOL_BID);
+      IncrementDailyTradeCount();
       
       // Move all SL to new entry if enabled
       if(PYRAMID_MOVE_SL)
@@ -1669,6 +1851,14 @@ void MovePyramidStops(ENUM_POSITION_TYPE direction, double newSLLevel)
 void ManageGridOrders()
 {
    if(!ENABLE_GRID) return;
+   
+   // Check learning filters before setting up new grid orders
+   string learningReason = "";
+   if(!CheckLearningFilters(learningReason))
+   {
+      // Grid already set continues, but no new grid setup during blocked times
+      return;
+   }
    
    double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
    double pipValue = (_Digits == 3 || _Digits == 5) ? point * 10 : point;
@@ -2063,6 +2253,17 @@ void UpdateChartComment()
       {
          commentText += "!! " + propBlockReason + " !!\n";
       }
+   }
+   
+   // Trade History Learning Status
+   if(ENABLE_LEARNING_FILTER)
+   {
+      commentText += "------------------------------\n";
+      string dirBias = DIRECTION_BIAS == 0 ? "Both" : (DIRECTION_BIAS == 1 ? "BUY Only" : "SELL Only");
+      commentText += "LEARNING: " + dirBias + " | Trades: " + IntegerToString(dailyTradeCount);
+      if(MAX_TRADES_PER_DAY > 0)
+         commentText += "/" + IntegerToString(MAX_TRADES_PER_DAY);
+      commentText += "\n";
    }
    
    commentText += TimeToString(TimeCurrent(), TIME_MINUTES);
