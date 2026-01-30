@@ -198,6 +198,19 @@ type TradeHistoryAnalysis = {
   message?: string;
 };
 
+type PropFirmSettings = {
+  enabled: boolean;
+  dailyDrawdownLimit: number;
+  maxDrawdownLimit: number;
+  dailyLossLimit: number;
+  maxLotSize: number;
+  maxOpenTrades: number;
+  noTradingDuringNews: boolean;
+  stopLossRequired: boolean;
+  minRiskRewardRatio: number;
+  notes: string;
+};
+
 type EASettings = {
   symbol: string;
   directionBias: 'BOTH' | 'BUY_ONLY' | 'SELL_ONLY';
@@ -208,6 +221,7 @@ type EASettings = {
   maxTradesPerDay: number;
   minConfidenceLevel: number;
   notes: string;
+  propFirmSettings?: PropFirmSettings;
 };
 
 type StrategyImprovement = {
