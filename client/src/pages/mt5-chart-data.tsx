@@ -161,6 +161,140 @@ function AiAccuracyDashboard() {
   );
 }
 
+type ReversalAlert = {
+  tradeId: number;
+  symbol: string;
+  tradeDirection: string;
+  newSignal: string;
+  confidence: number;
+  reversalStrength: string;
+  timeframe: string;
+  analysisTime: string;
+  message: string;
+};
+
+type ReversalData = {
+  reversals: ReversalAlert[];
+  openTradesCount: number;
+  message: string;
+};
+
+function ReversalAlertPanel() {
+  const { data: reversalData, isLoading, refetch } = useQuery<ReversalData>({
+    queryKey: ['/api/reversal-alerts'],
+    refetchInterval: 30000,
+  });
+
+  const getStrengthColor = (strength: string) => {
+    switch (strength) {
+      case 'CRITICAL': return 'text-red-400 bg-red-900/30 border-red-500/50';
+      case 'HIGH': return 'text-orange-400 bg-orange-900/30 border-orange-500/50';
+      case 'MEDIUM': return 'text-yellow-400 bg-yellow-900/30 border-yellow-500/50';
+      default: return 'text-blue-400 bg-blue-900/30 border-blue-500/50';
+    }
+  };
+
+  const getStrengthIcon = (strength: string) => {
+    switch (strength) {
+      case 'CRITICAL': return <AlertCircle className="w-5 h-5 text-red-400 animate-pulse" />;
+      case 'HIGH': return <AlertCircle className="w-5 h-5 text-orange-400" />;
+      case 'MEDIUM': return <TrendingUp className="w-5 h-5 text-yellow-400" />;
+      default: return <Activity className="w-5 h-5 text-blue-400" />;
+    }
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.2 }}
+    >
+      <Card className={`border-2 ${reversalData?.reversals?.length ? 'bg-gradient-to-br from-red-900/20 to-orange-900/20 border-red-500/40' : 'bg-gray-800/50 border-gray-700'}`}>
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-white flex items-center gap-2">
+              <Zap className={`w-5 h-5 ${reversalData?.reversals?.length ? 'text-red-400 animate-pulse' : 'text-gray-400'}`} />
+              Reversal Detection
+              {reversalData?.reversals?.length ? (
+                <Badge className="bg-red-500/20 text-red-400 border-red-500/30 animate-pulse">
+                  {reversalData.reversals.length} Alert{reversalData.reversals.length > 1 ? 's' : ''}
+                </Badge>
+              ) : null}
+            </CardTitle>
+            <Button variant="ghost" size="sm" onClick={() => refetch()}>
+              <RefreshCw className="w-4 h-4" />
+            </Button>
+          </div>
+          <CardDescription>
+            Monitors for AI signal flips on your open trades
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <div className="flex items-center justify-center py-6">
+              <RefreshCw className="w-6 h-6 animate-spin text-gray-400" />
+            </div>
+          ) : reversalData?.reversals?.length ? (
+            <div className="space-y-3">
+              {reversalData.reversals.map((alert, index) => (
+                <motion.div
+                  key={alert.tradeId}
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: index * 0.1 }}
+                  className={`p-4 rounded-lg border ${getStrengthColor(alert.reversalStrength)}`}
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-start gap-3">
+                      {getStrengthIcon(alert.reversalStrength)}
+                      <div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-bold text-white">{alert.symbol}</span>
+                          <Badge className="bg-gray-800 text-gray-300 text-xs">
+                            {alert.timeframe}
+                          </Badge>
+                        </div>
+                        <p className="text-sm text-gray-300 mb-2">{alert.message}</p>
+                        <div className="flex items-center gap-4 text-xs">
+                          <span className="text-gray-500">
+                            Your Trade: <span className={alert.tradeDirection === 'BUY' ? 'text-green-400' : 'text-red-400'}>{alert.tradeDirection}</span>
+                          </span>
+                          <span className="text-gray-500">→</span>
+                          <span className="text-gray-500">
+                            AI Signal: <span className={alert.newSignal === 'BUY' ? 'text-green-400' : 'text-red-400'}>{alert.newSignal}</span>
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-2xl font-bold text-white">{alert.confidence}%</div>
+                      <div className="text-xs text-gray-500 uppercase tracking-wide">AI Confidence</div>
+                      <Badge className={`mt-1 text-xs ${getStrengthColor(alert.reversalStrength)}`}>
+                        {alert.reversalStrength} REVERSAL
+                      </Badge>
+                    </div>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-6">
+              <CheckCircle className="w-12 h-12 text-green-500/50 mx-auto mb-3" />
+              <p className="text-green-400 font-medium">All Clear</p>
+              <p className="text-gray-500 text-sm mt-1">
+                {reversalData?.openTradesCount 
+                  ? `Monitoring ${reversalData.openTradesCount} open trade(s) - no reversals detected`
+                  : 'No open trades to monitor for reversals'
+                }
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </motion.div>
+  );
+}
+
 type Mt5ApiToken = {
   id: number;
   userId: number;
@@ -489,6 +623,9 @@ export default function MT5ChartDataPage() {
 
         {/* AI Trade Accuracy Dashboard */}
         <AiAccuracyDashboard />
+
+        {/* Reversal Detection Panel */}
+        <ReversalAlertPanel />
 
         <div className="grid lg:grid-cols-2 gap-6">
           <Card className="bg-gray-800/50 border-gray-700">
