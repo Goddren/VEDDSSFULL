@@ -228,6 +228,7 @@ export interface IStorage {
   // AI Trade Results methods
   createAiTradeResult(result: InsertAiTradeResult): Promise<AiTradeResult>;
   updateAiTradeResult(id: number, userId: number, data: Partial<AiTradeResult>): Promise<AiTradeResult | undefined>;
+  getAiTradeResultById(id: number): Promise<AiTradeResult | undefined>;
   getAiTradeResults(userId: number, limit?: number): Promise<AiTradeResult[]>;
   getAiTradeAccuracy(userId: number): Promise<{ daily: number; weekly: number; monthly: number; yearly: number; allTime: number; totalTrades: number; wins: number; losses: number }>;
   
@@ -1472,6 +1473,13 @@ export class DatabaseStorage implements IStorage {
       .where(and(eq(aiTradeResults.id, id), eq(aiTradeResults.userId, userId)))
       .returning();
     return updated;
+  }
+
+  async getAiTradeResultById(id: number): Promise<AiTradeResult | undefined> {
+    const [result] = await db.select().from(aiTradeResults)
+      .where(eq(aiTradeResults.id, id))
+      .limit(1);
+    return result;
   }
 
   async getAiTradeResults(userId: number, limit: number = 100): Promise<AiTradeResult[]> {

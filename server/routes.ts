@@ -5759,11 +5759,37 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
     }
     try {
       const userId = (req.user as User).id;
-      const { tradeId, symbol, currentDirection, newDirection, currentLoss, targetRecovery } = req.body;
       
-      // Validate required fields
-      if (!symbol || !newDirection) {
-        return res.status(400).json({ error: "Symbol and new direction are required" });
+      // Validate request body with Zod
+      const flipTradeSchema = z.object({
+        tradeId: z.number().optional(),
+        symbol: z.string().min(1, "Symbol is required").regex(/^[A-Z0-9]+$/i, "Invalid symbol format"),
+        currentDirection: z.enum(['BUY', 'SELL']),
+        newDirection: z.enum(['BUY', 'SELL']),
+        positionId: z.string().optional(), // TradeLocker position ID for closing
+      });
+      
+      const validationResult = flipTradeSchema.safeParse(req.body);
+      if (!validationResult.success) {
+        return res.status(400).json({ 
+          error: "Invalid request data", 
+          details: validationResult.error.errors 
+        });
+      }
+      
+      const { tradeId, symbol, currentDirection, newDirection, positionId } = validationResult.data;
+      
+      // Verify directions are opposite
+      if (currentDirection === newDirection) {
+        return res.status(400).json({ error: "Flip trade requires opposite direction" });
+      }
+      
+      // Verify ownership of trade result if tradeId provided
+      if (tradeId) {
+        const tradeResult = await storage.getAiTradeResultById(tradeId);
+        if (!tradeResult || tradeResult.userId !== userId) {
+          return res.status(403).json({ error: "Trade not found or access denied" });
+        }
       }
       
       // Get TradeLocker connection
@@ -5772,14 +5798,68 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         return res.status(400).json({ error: "No TradeLocker connection found. Please connect your account first." });
       }
       
-      // Calculate recovery lot size
-      // Formula: To recover loss + target profit, we need to calculate based on pip value
-      // For simplicity, we'll use a 1.5x multiplier on the original lot size for recovery
-      const baseLotSize = 0.01; // Minimum lot size
-      const recoveryMultiplier = currentLoss ? Math.max(1.5, 1 + (Math.abs(currentLoss) / 100)) : 1.5;
-      const recoveryLotSize = Math.min(parseFloat((baseLotSize * recoveryMultiplier).toFixed(2)), 1.0); // Cap at 1.0 lot
+      // Initialize TradeLocker service for position operations
+      const tlService = new TradeLockerService(
+        connection.accountType as 'demo' | 'live',
+        connection.accountId,
+        connection.serverId
+      );
+      const password = decryptPassword(connection.encryptedPassword);
+      await tlService.authenticate(connection.email, password);
       
-      // Execute the flip trade on TradeLocker
+      // Get current positions to find the one to close and calculate recovery lot size
+      let originalVolume = 0.01;
+      let currentLoss = 0;
+      let closedPositionId: string | undefined;
+      
+      const positions = await tlService.getPositions();
+      // Use exact symbol match (not includes) for security
+      const matchingPosition = positions?.d?.find((pos: any) => {
+        const posSymbol = pos.s?.toUpperCase().replace(/[^A-Z0-9]/g, '');
+        const targetSymbol = symbol.toUpperCase().replace(/[^A-Z0-9]/g, '');
+        return posSymbol === targetSymbol;
+      });
+      
+      // REQUIRE an open position to flip - do not allow opening reverse without closing first
+      if (!matchingPosition) {
+        return res.status(400).json({ 
+          error: `No open position found for ${symbol}. Flip trade requires an existing position to close.` 
+        });
+      }
+      
+      originalVolume = parseFloat(matchingPosition.qty) || 0.01;
+      currentLoss = parseFloat(matchingPosition.unrealizedPl) || 0;
+      closedPositionId = matchingPosition.id;
+      
+      // Verify the position direction matches what client expects
+      const positionSide = matchingPosition.side?.toUpperCase();
+      if (positionSide && positionSide !== currentDirection) {
+        return res.status(400).json({ 
+          error: `Position direction mismatch. Expected ${currentDirection} but found ${positionSide}.` 
+        });
+      }
+      
+      // Close the existing position
+      console.log(`[Flip Trade] Closing position ${closedPositionId} for ${symbol}`);
+      try {
+        await tlService.closePosition(closedPositionId);
+        console.log(`[Flip Trade] Position ${closedPositionId} closed successfully`);
+      } catch (closeError: any) {
+        console.error(`[Flip Trade] Failed to close position: ${closeError.message}`);
+        return res.status(400).json({ 
+          error: `Failed to close existing position: ${closeError.message}` 
+        });
+      }
+      
+      // Calculate recovery lot size based on actual position data
+      // Recovery multiplier: 1.5x base, scales up with larger losses (max 3x)
+      const lossMultiplier = currentLoss < 0 ? Math.min(1 + (Math.abs(currentLoss) / 50), 3) : 1.5;
+      const recoveryLotSize = Math.min(
+        parseFloat((originalVolume * lossMultiplier).toFixed(2)), 
+        1.0 // Cap at 1.0 lot for safety
+      );
+      
+      // Execute the reverse trade on TradeLocker
       const tradeResult = await executeMT5SignalOnTradeLocker(connection, {
         action: 'OPEN',
         symbol: symbol,
@@ -5791,9 +5871,9 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         // Update the original trade result as closed/loss if tradeId provided
         if (tradeId) {
           await storage.updateAiTradeResult(tradeId, userId, {
-            result: 'LOSS',
+            result: currentLoss < 0 ? 'LOSS' : 'WIN',
             closedAt: new Date(),
-            notes: `Flipped to ${newDirection} for recovery`
+            notes: `Flipped to ${newDirection} for recovery. P/L: ${currentLoss.toFixed(2)}`
           });
         }
         
@@ -5804,14 +5884,16 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           direction: newDirection,
           entryPrice: 0, // Will be filled by TradeLocker
           source: 'auto',
-          notes: `Recovery flip from ${currentDirection} - Lot: ${recoveryLotSize}`,
+          notes: `Recovery flip from ${currentDirection} - Lot: ${recoveryLotSize} (was ${originalVolume})`,
         });
         
         res.json({
           success: true,
-          message: `Flip trade executed! Opened ${newDirection} ${symbol} with ${recoveryLotSize} lots for recovery.`,
+          message: `Flip trade executed! Closed ${currentDirection} and opened ${newDirection} ${symbol} with ${recoveryLotSize} lots.`,
           orderId: tradeResult.orderId,
           lotSize: recoveryLotSize,
+          closedPositionId,
+          originalLoss: currentLoss,
         });
       } else {
         res.status(400).json({
