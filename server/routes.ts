@@ -5654,6 +5654,90 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
     }
   });
 
+  // Reversal Detection - Check if AI signal flips while trades are open
+  app.get("/api/reversal-alerts", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    try {
+      const userId = (req.user as User).id;
+      
+      // Get pending/open trades
+      const openTrades = await storage.getAiTradeResults(userId, 50);
+      const pendingTrades = openTrades.filter(t => t.result === 'PENDING' || !t.result);
+      
+      if (pendingTrades.length === 0) {
+        return res.json({ reversals: [], message: "No open trades to monitor" });
+      }
+      
+      // Get recent analyses for comparison
+      const recentAnalyses = await storage.getChartAnalysesByUserId(userId);
+      
+      const reversals: Array<{
+        tradeId: number;
+        symbol: string;
+        tradeDirection: string;
+        newSignal: string;
+        confidence: number;
+        reversalStrength: string;
+        timeframe: string;
+        analysisTime: string;
+        message: string;
+      }> = [];
+      
+      for (const trade of pendingTrades) {
+        // Find most recent analysis for this symbol
+        const latestAnalysis = recentAnalyses.find(a => 
+          a.symbol?.toLowerCase() === trade.symbol.toLowerCase()
+        );
+        
+        if (latestAnalysis && latestAnalysis.direction) {
+          const tradeDir = trade.direction.toUpperCase();
+          const analysisDir = latestAnalysis.direction.toUpperCase();
+          
+          // Check for reversal (opposite direction)
+          if ((tradeDir === 'BUY' && analysisDir === 'SELL') || 
+              (tradeDir === 'SELL' && analysisDir === 'BUY')) {
+            
+            // Parse confidence from analysis
+            const confidenceText = latestAnalysis.confidence || '50';
+            const confidenceMatch = confidenceText.match(/(\d+)/);
+            const confidence = confidenceMatch ? parseInt(confidenceMatch[1]) : 50;
+            
+            // Calculate reversal strength based on confidence
+            let reversalStrength = 'LOW';
+            if (confidence >= 80) reversalStrength = 'CRITICAL';
+            else if (confidence >= 65) reversalStrength = 'HIGH';
+            else if (confidence >= 50) reversalStrength = 'MEDIUM';
+            
+            reversals.push({
+              tradeId: trade.id,
+              symbol: trade.symbol,
+              tradeDirection: tradeDir,
+              newSignal: analysisDir,
+              confidence,
+              reversalStrength,
+              timeframe: latestAnalysis.timeframe || 'Unknown',
+              analysisTime: latestAnalysis.createdAt?.toISOString() || new Date().toISOString(),
+              message: `AI now signals ${analysisDir} on ${trade.symbol} (${confidence}% confidence) - you have an open ${tradeDir} position!`
+            });
+          }
+        }
+      }
+      
+      res.json({ 
+        reversals,
+        openTradesCount: pendingTrades.length,
+        message: reversals.length > 0 
+          ? `${reversals.length} reversal alert(s) detected!` 
+          : "No reversals detected - your trades align with current AI signals"
+      });
+    } catch (error: any) {
+      console.error("Error checking reversal alerts:", error);
+      res.status(500).json({ error: "Failed to check reversal alerts" });
+    }
+  });
+
   app.get("/api/tradelocker/debug-accounts", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) {
       return res.status(401).json({ error: "Authentication required" });
