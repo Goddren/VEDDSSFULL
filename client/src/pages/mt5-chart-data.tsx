@@ -213,6 +213,11 @@ function TradeHistoryLearning() {
   
   const { data: analysis, isLoading: analysisLoading, refetch: refetchAnalysis } = useQuery<TradeHistoryAnalysis>({
     queryKey: ['/api/trade-history-learning', searchedSymbol],
+    queryFn: async () => {
+      const res = await fetch(`/api/trade-history-learning/${searchedSymbol}`, { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to fetch analysis');
+      return res.json();
+    },
     enabled: !!searchedSymbol,
   });
   
