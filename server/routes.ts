@@ -4997,6 +4997,133 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         }
       }
       
+      // Process closed trades for history learning
+      const { closedTrades } = req.body;
+      if (closedTrades && Array.isArray(closedTrades) && closedTrades.length > 0) {
+        (global as any).mt5ClosedTrades = (global as any).mt5ClosedTrades || {};
+        (global as any).mt5ClosedTrades[token.userId] = {
+          trades: closedTrades,
+          lastUpdated: new Date().toISOString(),
+        };
+        
+        // Analyze patterns for learning recommendations per symbol
+        const symbolStats: Record<string, { 
+          wins: number; losses: number; 
+          hourlyTrades: Record<number, { wins: number; losses: number }>; 
+          dailyTrades: Record<number, { wins: number; losses: number }>; 
+          avgWinPL: number; avgLossPL: number; 
+          buyWins: number; buyLosses: number; sellWins: number; sellLosses: number 
+        }> = {};
+        
+        for (const trade of closedTrades) {
+          const sym = (trade.symbol || '').toUpperCase();
+          if (!sym) continue;
+          
+          if (!symbolStats[sym]) {
+            symbolStats[sym] = {
+              wins: 0, losses: 0, 
+              hourlyTrades: {}, dailyTrades: {},
+              avgWinPL: 0, avgLossPL: 0, buyWins: 0, buyLosses: 0, sellWins: 0, sellLosses: 0
+            };
+          }
+          
+          const stats = symbolStats[sym];
+          const isWin = trade.profit > 0;
+          const isLoss = trade.profit < 0;
+          const isBuy = trade.direction === 'BUY';
+          const hour = trade.closeHour || 0;
+          const day = trade.closeDay || 0;
+          
+          // Initialize hourly/daily tracking
+          if (!stats.hourlyTrades[hour]) stats.hourlyTrades[hour] = { wins: 0, losses: 0 };
+          if (!stats.dailyTrades[day]) stats.dailyTrades[day] = { wins: 0, losses: 0 };
+          
+          if (isWin) {
+            stats.wins++;
+            stats.avgWinPL += trade.profit;
+            if (isBuy) stats.buyWins++; else stats.sellWins++;
+            stats.hourlyTrades[hour].wins++;
+            stats.dailyTrades[day].wins++;
+          } else if (isLoss) {
+            stats.losses++;
+            stats.avgLossPL += trade.profit;
+            if (isBuy) stats.buyLosses++; else stats.sellLosses++;
+            stats.hourlyTrades[hour].losses++;
+            stats.dailyTrades[day].losses++;
+          }
+        }
+        
+        // Generate EA settings recommendations per symbol
+        const recommendations: Record<string, any> = {};
+        for (const [sym, stats] of Object.entries(symbolStats)) {
+          const totalTrades = stats.wins + stats.losses;
+          if (totalTrades < 3) continue; // Need minimum trades
+          
+          const winRate = stats.wins / totalTrades;
+          const avgWin = stats.wins > 0 ? stats.avgWinPL / stats.wins : 0;
+          const avgLoss = stats.losses > 0 ? Math.abs(stats.avgLossPL / stats.losses) : 0;
+          
+          // Direction bias: if BUY losses >> BUY wins, suggest SELL only
+          const buyWinRate = stats.buyWins / Math.max(1, stats.buyWins + stats.buyLosses);
+          const sellWinRate = stats.sellWins / Math.max(1, stats.sellWins + stats.sellLosses);
+          let directionBias = 0; // Both
+          if (buyWinRate < 0.35 && sellWinRate > 0.5) directionBias = 2; // SELL only
+          else if (sellWinRate < 0.35 && buyWinRate > 0.5) directionBias = 1; // BUY only
+          
+          // Find worst hours using loss RATE (losses / total), min 3 trades to qualify
+          const avoidHours: number[] = [];
+          for (const [hour, hourData] of Object.entries(stats.hourlyTrades)) {
+            const hData = hourData as { wins: number; losses: number };
+            const hTotal = hData.wins + hData.losses;
+            if (hTotal >= 3) {
+              const lossRate = hData.losses / hTotal;
+              if (lossRate > 0.65) avoidHours.push(parseInt(hour)); // >65% loss rate
+            }
+          }
+          
+          // Find worst days using loss RATE, min 3 trades to qualify
+          const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+          const avoidDays: string[] = [];
+          for (const [day, dayData] of Object.entries(stats.dailyTrades)) {
+            const dData = dayData as { wins: number; losses: number };
+            const dTotal = dData.wins + dData.losses;
+            if (dTotal >= 3) {
+              const lossRate = dData.losses / dTotal;
+              if (lossRate > 0.65) avoidDays.push(dayNames[parseInt(day)] || ''); // >65% loss rate
+            }
+          }
+          
+          recommendations[sym] = {
+            symbol: sym,
+            totalTrades,
+            winRate: Math.round(winRate * 100),
+            avgWinPL: Math.round(avgWin * 100) / 100,
+            avgLossPL: Math.round(avgLoss * 100) / 100,
+            directionBias,
+            directionBiasLabel: directionBias === 0 ? 'Both' : (directionBias === 1 ? 'BUY Only' : 'SELL Only'),
+            avoidHours,
+            avoidDays,
+            suggestedSettings: {
+              DIRECTION_BIAS: directionBias,
+              ...Object.fromEntries(avoidHours.map(h => [`AVOID_HOUR_${h}`, true])),
+              AVOID_MONDAY: avoidDays.includes('Monday'),
+              AVOID_TUESDAY: avoidDays.includes('Tuesday'),
+              AVOID_WEDNESDAY: avoidDays.includes('Wednesday'),
+              AVOID_THURSDAY: avoidDays.includes('Thursday'),
+              AVOID_FRIDAY: avoidDays.includes('Friday'),
+            }
+          };
+        }
+        
+        // Store learning recommendations per user
+        (global as any).mt5LearningRecommendations = (global as any).mt5LearningRecommendations || {};
+        (global as any).mt5LearningRecommendations[token.userId] = {
+          recommendations,
+          analyzedTrades: closedTrades.length,
+          lastUpdated: new Date().toISOString(),
+        };
+      }
+      
       // Track ALL connected pairs per user
       if (!(global as any).mt5ConnectedPairs[token.userId]) {
         (global as any).mt5ConnectedPairs[token.userId] = {};
@@ -5490,6 +5617,36 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       stalePairs,
       totalActive: activePairs.length,
       totalStale: stalePairs.length,
+    });
+  });
+
+  // Get Trade History Learning recommendations for EA settings per symbol
+  app.get("/api/mt5/learning-recommendations", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const userId = (req.user as User).id;
+    
+    const learningCache = (global as any).mt5LearningRecommendations || {};
+    const learningData = learningCache[userId];
+    
+    if (!learningData) {
+      return res.json({ 
+        hasData: false, 
+        message: "No trade history learning data available. The EA needs to sync closed trades to analyze patterns.",
+        recommendations: {}
+      });
+    }
+    
+    const closedTradesCache = (global as any).mt5ClosedTrades || {};
+    const closedTrades = closedTradesCache[userId]?.trades || [];
+    
+    res.json({
+      hasData: true,
+      analyzedTrades: learningData.analyzedTrades,
+      lastUpdated: learningData.lastUpdated,
+      recommendations: learningData.recommendations,
+      closedTradesCount: closedTrades.length,
     });
   });
 

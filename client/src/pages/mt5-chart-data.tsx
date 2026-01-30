@@ -233,10 +233,38 @@ type StrategyImprovement = {
   rawAnalysis?: string;
 };
 
+type EALearningRec = {
+  symbol: string;
+  totalTrades: number;
+  winRate: number;
+  avgWinPL: number;
+  avgLossPL: number;
+  directionBias: number;
+  directionBiasLabel: string;
+  avoidHours: number[];
+  avoidDays: string[];
+  suggestedSettings: Record<string, any>;
+};
+
+type EALearningData = {
+  hasData: boolean;
+  message?: string;
+  analyzedTrades?: number;
+  lastUpdated?: string;
+  recommendations?: Record<string, EALearningRec>;
+  closedTradesCount?: number;
+};
+
 function TradeHistoryLearning() {
   const { toast } = useToast();
   const [symbol, setSymbol] = useState('');
   const [searchedSymbol, setSearchedSymbol] = useState('');
+  
+  // Fetch EA-synced learning recommendations from MT5
+  const { data: eaLearning } = useQuery<EALearningData>({
+    queryKey: ['/api/mt5/learning-recommendations'],
+    refetchInterval: 30000,
+  });
   
   const { data: analysis, isLoading: analysisLoading, refetch: refetchAnalysis } = useQuery<TradeHistoryAnalysis>({
     queryKey: ['/api/trade-history-learning', searchedSymbol],
@@ -622,6 +650,114 @@ ${settings.notes}`;
             <p className="text-sm">Enter a trading pair to analyze your trade history</p>
             <p className="text-xs mt-1">Example: XAUUSD, BTCUSD, EURUSD</p>
           </div>
+        )}
+        
+        {/* EA-Synced Learning Recommendations */}
+        {eaLearning?.hasData && eaLearning.recommendations && Object.keys(eaLearning.recommendations).length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mt-6 pt-6 border-t border-gold/20"
+          >
+            <h4 className="text-sm font-medium text-gold flex items-center gap-2 mb-4">
+              <Zap className="w-4 h-4" />
+              MT5 Trade History - Live EA Settings Recommendations
+              <Badge className="bg-green-500/20 text-green-400 text-xs ml-2">
+                {eaLearning.closedTradesCount} trades synced
+              </Badge>
+            </h4>
+            <p className="text-xs text-gray-400 mb-4">
+              Based on your closed MT5 trades. Apply these settings directly to your EA inputs.
+            </p>
+            
+            <div className="grid gap-4">
+              {Object.values(eaLearning.recommendations).map((rec: EALearningRec) => (
+                <div key={rec.symbol} className="bg-gray-800/50 border border-gray-700 rounded-lg p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-white text-lg">{rec.symbol}</span>
+                      <Badge className={rec.winRate >= 50 ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}>
+                        {rec.winRate}% Win Rate
+                      </Badge>
+                    </div>
+                    <span className="text-xs text-gray-500">{rec.totalTrades} trades analyzed</span>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
+                    <div className="bg-gray-900/50 rounded p-2 text-center">
+                      <div className="text-xs text-gray-500">Direction Bias</div>
+                      <div className={`font-medium ${
+                        rec.directionBias === 1 ? 'text-green-400' : 
+                        rec.directionBias === 2 ? 'text-red-400' : 'text-white'
+                      }`}>
+                        {rec.directionBiasLabel}
+                      </div>
+                    </div>
+                    <div className="bg-gray-900/50 rounded p-2 text-center">
+                      <div className="text-xs text-gray-500">Avg Win</div>
+                      <div className="font-medium text-green-400">${rec.avgWinPL.toFixed(2)}</div>
+                    </div>
+                    <div className="bg-gray-900/50 rounded p-2 text-center">
+                      <div className="text-xs text-gray-500">Avg Loss</div>
+                      <div className="font-medium text-red-400">-${rec.avgLossPL.toFixed(2)}</div>
+                    </div>
+                    <div className="bg-gray-900/50 rounded p-2 text-center">
+                      <div className="text-xs text-gray-500">EA Setting</div>
+                      <code className="font-mono text-gold text-xs">DIRECTION_BIAS={rec.directionBias}</code>
+                    </div>
+                  </div>
+                  
+                  {rec.avoidHours.length > 0 && (
+                    <div className="bg-red-900/20 border border-red-500/30 rounded p-2 mb-2">
+                      <div className="text-xs text-red-400 mb-1">Avoid Hours (high loss rate):</div>
+                      <div className="flex flex-wrap gap-1">
+                        {rec.avoidHours.map(h => (
+                          <span key={h} className="bg-red-900/50 text-red-300 px-2 py-0.5 rounded text-xs">
+                            {h}:00 → <code className="font-mono">AVOID_HOUR_{h}=true</code>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {rec.avoidDays.length > 0 && (
+                    <div className="bg-orange-900/20 border border-orange-500/30 rounded p-2 mb-2">
+                      <div className="text-xs text-orange-400 mb-1">Avoid Days:</div>
+                      <div className="flex flex-wrap gap-1">
+                        {rec.avoidDays.map(d => (
+                          <span key={d} className="bg-orange-900/50 text-orange-300 px-2 py-0.5 rounded text-xs">
+                            {d} → <code className="font-mono">AVOID_{d.toUpperCase()}=true</code>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="w-full mt-2 border-gold/50 text-gold hover:bg-gold/10"
+                    onClick={() => {
+                      const settings = `EA Settings for ${rec.symbol}:
+DIRECTION_BIAS = ${rec.directionBias} // ${rec.directionBiasLabel}
+${rec.avoidHours.map(h => `AVOID_HOUR_${h} = true`).join('\n')}
+${rec.avoidDays.map(d => `AVOID_${d.toUpperCase()} = true`).join('\n')}
+
+Win Rate: ${rec.winRate}% from ${rec.totalTrades} trades`;
+                      navigator.clipboard.writeText(settings);
+                      toast({
+                        title: "EA Settings Copied!",
+                        description: `Settings for ${rec.symbol} copied to clipboard.`,
+                      });
+                    }}
+                  >
+                    <Copy className="w-4 h-4 mr-2" />
+                    Copy {rec.symbol} EA Settings
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </motion.div>
         )}
       </CardContent>
     </Card>

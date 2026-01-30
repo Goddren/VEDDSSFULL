@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "AI Powered Trading Vault"
 #property link      "https://aipoweredtradingvault.com"
-#property version   "3.87"
+#property version   "3.88"
 #property description "Sends chart data to AI Trading Vault with news-aware analysis, smart auto-trading, prop firm compliance, and active trade management"
 #property strict
 
@@ -604,12 +604,15 @@ bool SendChartData()
    // Build open positions data for trade sync
    string openPositionsJson = BuildOpenPositionsJson();
    
+   // Build closed trades for history learning (last 30 days)
+   string closedTradesJson = BuildClosedTradesJson(30);
+   
    // Escape broker name to handle special characters in broker names
    string brokerName = EscapeJsonString(AccountInfoString(ACCOUNT_COMPANY));
    string symbolName = EscapeJsonString(_Symbol);
    
    string jsonPayload = StringFormat(
-      "{\"eaVersion\":\"3.87\",\"symbol\":\"%s\",\"timeframe\":\"%s\",\"broker\":\"%s\",\"timestamp\":%d,\"candles\":%s%s%s,\"multiTimeframe\":%s,\"account\":%s,\"openPositions\":%s}",
+      "{\"eaVersion\":\"3.88\",\"symbol\":\"%s\",\"timeframe\":\"%s\",\"broker\":\"%s\",\"timestamp\":%d,\"candles\":%s%s%s,\"multiTimeframe\":%s,\"account\":%s,\"openPositions\":%s,\"closedTrades\":%s}",
       symbolName,
       GetTimeframeString(),
       brokerName,
@@ -619,7 +622,8 @@ bool SendChartData()
       ENABLE_MULTI_TIMEFRAME ? ",\"multiTimeframeEnabled\":true" : "",
       ENABLE_MULTI_TIMEFRAME ? multiTimeframeJson : "null",
       accountJson,
-      openPositionsJson
+      openPositionsJson,
+      closedTradesJson
    );
    
    uchar jsonData[];
@@ -2460,6 +2464,84 @@ string BuildOpenPositionsJson()
          magic,
          EscapeJsonString(comment)
       );
+   }
+   
+   json += "]";
+   return json;
+}
+
+//+------------------------------------------------------------------+
+//| Build JSON array of closed trades for history learning           |
+//+------------------------------------------------------------------+
+string BuildClosedTradesJson(int lookbackDays = 30)
+{
+   string json = "[";
+   bool first = true;
+   datetime startTime = TimeCurrent() - (lookbackDays * 86400);
+   
+   if(!HistorySelect(startTime, TimeCurrent()))
+      return "[]";
+   
+   int totalDeals = HistoryDealsTotal();
+   int tradeCount = 0;
+   
+   for(int i = totalDeals - 1; i >= 0 && tradeCount < 100; i--)
+   {
+      ulong dealTicket = HistoryDealGetTicket(i);
+      if(dealTicket <= 0) continue;
+      
+      ENUM_DEAL_TYPE dealType = (ENUM_DEAL_TYPE)HistoryDealGetInteger(dealTicket, DEAL_TYPE);
+      ENUM_DEAL_ENTRY dealEntry = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(dealTicket, DEAL_ENTRY);
+      
+      // Only count closing deals (exits)
+      if(dealEntry != DEAL_ENTRY_OUT && dealEntry != DEAL_ENTRY_INOUT) continue;
+      if(dealType != DEAL_TYPE_BUY && dealType != DEAL_TYPE_SELL) continue;
+      
+      string symbol = HistoryDealGetString(dealTicket, DEAL_SYMBOL);
+      double profit = HistoryDealGetDouble(dealTicket, DEAL_PROFIT);
+      double volume = HistoryDealGetDouble(dealTicket, DEAL_VOLUME);
+      double price = HistoryDealGetDouble(dealTicket, DEAL_PRICE);
+      datetime dealTime = (datetime)HistoryDealGetInteger(dealTicket, DEAL_TIME);
+      long magic = HistoryDealGetInteger(dealTicket, DEAL_MAGIC);
+      string comment = HistoryDealGetString(dealTicket, DEAL_COMMENT);
+      double commission = HistoryDealGetDouble(dealTicket, DEAL_COMMISSION);
+      double swap = HistoryDealGetDouble(dealTicket, DEAL_SWAP);
+      
+      // Determine ORIGINAL position direction from exit deal
+      // Exit BUY = was closing a SELL position, Exit SELL = was closing a BUY position
+      string direction = (dealType == DEAL_TYPE_SELL) ? "BUY" : "SELL";
+      
+      // Calculate hour and day for learning patterns
+      MqlDateTime dt;
+      TimeToStruct(dealTime, dt);
+      int closeHour = dt.hour;
+      int closeDay = dt.day_of_week; // 0=Sunday
+      
+      if(!first) json += ",";
+      first = false;
+      
+      json += StringFormat(
+         "{\"ticket\":%d,\"symbol\":\"%s\",\"direction\":\"%s\",\"volume\":%.2f,"
+         "\"closePrice\":%.5f,\"profit\":%.2f,\"commission\":%.2f,\"swap\":%.2f,"
+         "\"closeTime\":%d,\"closeHour\":%d,\"closeDay\":%d,\"magic\":%d,"
+         "\"result\":\"%s\",\"comment\":\"%s\"}",
+         dealTicket,
+         EscapeJsonString(symbol),
+         direction,
+         SafeDouble(volume),
+         SafeDouble(price),
+         SafeDouble(profit),
+         SafeDouble(commission),
+         SafeDouble(swap),
+         dealTime,
+         closeHour,
+         closeDay,
+         magic,
+         profit > 0 ? "WIN" : (profit < 0 ? "LOSS" : "BREAKEVEN"),
+         EscapeJsonString(comment)
+      );
+      
+      tradeCount++;
    }
    
    json += "]";
