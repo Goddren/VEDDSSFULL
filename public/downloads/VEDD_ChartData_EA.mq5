@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "AI Powered Trading Vault"
 #property link      "https://aipoweredtradingvault.com"
-#property version   "3.70"
+#property version   "3.71"
 #property description "Sends chart data to AI Trading Vault with news-aware analysis, smart auto-trading, and active trade management"
 #property strict
 
@@ -98,6 +98,7 @@ input int      MAGIC_NUMBER = 202501;             // Magic Number (Trade ID)
 input string   _entry_header = "========== ENTRY SETTINGS =========="; // *** ENTRY SETTINGS ***
 input bool     ENABLE_AUTO_TRADING = false;       // Enable Auto-Trading (CAREFUL!)
 input int      MIN_CONFIDENCE = 70;               // Min AI Confidence % to Trade
+input bool     TRADE_ON_NEW_CANDLE = false;       // Only Trade on New Candle Open
 input bool     ENABLE_PENDING_ORDERS = false;     // Use Pending Orders at AI Price
 input int      PENDING_EXPIRY_HOURS = 4;          // Pending Order Expiry (hours)
 input int      COOLDOWN_SECONDS = 300;            // Seconds Between Trades
@@ -250,6 +251,8 @@ bool hasNewsData = false;
 
 //--- Trading state
 datetime lastTradeTime = 0;
+datetime lastCandleTime = 0;
+bool newCandleOpened = false;
 string lastExecutedSignal = "";
 double dailyLossAccumulated = 0;
 datetime dailyLossResetDate = 0;
@@ -421,6 +424,18 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTick()
 {
+   // Detect new candle open
+   datetime currentCandleTime = iTime(_Symbol, PERIOD_CURRENT, 0);
+   if(currentCandleTime != lastCandleTime)
+   {
+      newCandleOpened = true;
+      lastCandleTime = currentCandleTime;
+   }
+   else
+   {
+      newCandleOpened = false;
+   }
+   
    if(TimeCurrent() - lastSendTime >= SEND_INTERVAL_SECONDS)
    {
       SendChartData();
@@ -476,7 +491,7 @@ bool SendChartData()
    string symbolName = EscapeJsonString(_Symbol);
    
    string jsonPayload = StringFormat(
-      "{\"eaVersion\":\"3.70\",\"symbol\":\"%s\",\"timeframe\":\"%s\",\"broker\":\"%s\",\"timestamp\":%d,\"candles\":%s%s%s,\"multiTimeframe\":%s,\"account\":%s}",
+      "{\"eaVersion\":\"3.71\",\"symbol\":\"%s\",\"timeframe\":\"%s\",\"broker\":\"%s\",\"timestamp\":%d,\"candles\":%s%s%s,\"multiTimeframe\":%s,\"account\":%s}",
       symbolName,
       GetTimeframeString(),
       brokerName,
@@ -832,6 +847,12 @@ bool IsTimeframeAllowed()
 //+------------------------------------------------------------------+
 void ProcessAutoTrade()
 {
+   // NEW CANDLE CHECK - Only trade when a new candle opens
+   if(TRADE_ON_NEW_CANDLE && !newCandleOpened)
+   {
+      return; // Wait for new candle
+   }
+   
    // TRADING HOURS CHECK - Only trade during allowed UTC hours
    if(!IsTradingHoursAllowed())
    {
