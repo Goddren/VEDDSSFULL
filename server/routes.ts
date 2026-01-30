@@ -5641,10 +5641,11 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       return res.status(401).json({ error: "Authentication required" });
     }
     try {
+      const userId = (req.user as User).id;
       const id = parseInt(req.params.id);
-      const updated = await storage.updateAiTradeResult(id, req.body);
+      const updated = await storage.updateAiTradeResult(id, userId, req.body);
       if (!updated) {
-        return res.status(404).json({ error: "Trade result not found" });
+        return res.status(404).json({ error: "Trade result not found or access denied" });
       }
       res.json(updated);
     } catch (error: any) {
