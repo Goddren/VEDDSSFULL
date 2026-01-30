@@ -550,7 +550,7 @@ bool SendChartData()
    string symbolName = EscapeJsonString(_Symbol);
    
    string jsonPayload = StringFormat(
-      "{\"eaVersion\":\"3.71\",\"symbol\":\"%s\",\"timeframe\":\"%s\",\"broker\":\"%s\",\"timestamp\":%d,\"candles\":%s%s%s,\"multiTimeframe\":%s,\"account\":%s}",
+      "{\"eaVersion\":\"3.80\",\"symbol\":\"%s\",\"timeframe\":\"%s\",\"broker\":\"%s\",\"timestamp\":%d,\"candles\":%s%s%s,\"multiTimeframe\":%s,\"account\":%s}",
       symbolName,
       GetTimeframeString(),
       brokerName,
@@ -768,6 +768,16 @@ void ParseAndDisplayAnalysis(string json)
 //+------------------------------------------------------------------+
 bool ShouldAutoTradeWithNews(string &reason)
 {
+   // Prop Firm: Block all trading during news events if enabled
+   if(PROP_FIRM_MODE && PROP_NO_NEWS_TRADING && hasNewsData)
+   {
+      if(StringLen(lastHighImpactAlert) > 0 || lastNewsImpact == "HIGH" || lastNewsImpact == "MEDIUM")
+      {
+         reason = "Prop Firm Mode - No trading during news events";
+         return false;
+      }
+   }
+   
    // Skip news checks if feature is disabled
    if(!NEWS_AWARE_TRADING)
    {
@@ -1027,11 +1037,12 @@ bool CheckPropFirmCompliance()
    
    double balance = AccountInfoDouble(ACCOUNT_BALANCE);
    double equity = AccountInfoDouble(ACCOUNT_EQUITY);
-   MqlDateTime dt;
-   TimeCurrent(dt);
+   MqlDateTime dt, resetDt;
+   TimeToStruct(TimeCurrent(), dt);
+   TimeToStruct(propDailyResetTime, resetDt);
    
    // Reset daily tracking at midnight
-   if(dt.day_of_year != MqlDateTime(propDailyResetTime).day_of_year)
+   if(dt.day_of_year != resetDt.day_of_year)
    {
       propDailyHighBalance = balance;
       propDailyResetTime = TimeCurrent();
