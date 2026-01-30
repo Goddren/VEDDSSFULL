@@ -477,31 +477,43 @@ function TradeHistoryLearning() {
                           onClick={() => {
                             const settings = improveMutation.data?.eaSettings;
                             if (!settings) return;
-                            const text = `// VEDD AI Recommended EA Settings for ${settings.symbol}
-// Generated from ${improveMutation.data?.totalTrades} trades (${improveMutation.data?.winRate}% win rate)
+                            const dayMap: { [key: string]: number } = { 'Sun': 0, 'Mon': 1, 'Tue': 2, 'Wed': 3, 'Thu': 4, 'Fri': 5, 'Sat': 6 };
+                            const daysNumeric = settings.daysToAvoid.map(d => dayMap[d] ?? d).join(', ');
+                            const text = `VEDD AI Recommended EA Settings for ${settings.symbol}
+================================================
+Generated from ${improveMutation.data?.totalTrades} trades (${improveMutation.data?.winRate}% win rate)
 
-input string Symbol = "${settings.symbol}";
-input ENUM_DIRECTION DirectionBias = ${settings.directionBias}; // ${settings.directionBias === 'BOTH' ? 'Trade both directions' : settings.directionBias === 'BUY_ONLY' ? 'Only BUY trades' : 'Only SELL trades'}
-input int MinConfidenceLevel = ${settings.minConfidenceLevel}; // Minimum AI confidence to enter trade
-input int MaxTradesPerDay = ${settings.maxTradesPerDay}; // Maximum trades per day
-input bool TradeOnNewCandle = ${settings.tradeOnNewCandle ? 'true' : 'false'}; // Wait for new candle to enter
+DIRECTION FILTER:
+${settings.directionBias === 'BUY_ONLY' ? '✓ Only take BUY signals (avoid SELL - too many losses)' : 
+  settings.directionBias === 'SELL_ONLY' ? '✓ Only take SELL signals (avoid BUY - too many losses)' : 
+  '✓ Trade both directions'}
 
-// Hours to avoid trading (based on loss patterns)
-input string HoursToAvoid = "${settings.hoursToAvoid.join(',')}"; // Comma-separated hours (0-23)
+TIME FILTERS:
+${settings.hoursToAvoid.length > 0 ? `✗ Avoid trading at hours: ${settings.hoursToAvoid.map(h => h + ':00').join(', ')}` : '✓ No specific hours to avoid'}
+${settings.daysToAvoid.length > 0 ? `✗ Avoid trading on: ${settings.daysToAvoid.join(', ')} (Day indices: ${daysNumeric})` : '✓ No specific days to avoid'}
 
-// Days to avoid trading (0=Sunday, 1=Monday, etc.)
-input string DaysToAvoid = "${settings.daysToAvoid.join(',')}";
+RISK SETTINGS:
+• Minimum AI Confidence: ${settings.minConfidenceLevel}%
+• Maximum Trades Per Day: ${settings.maxTradesPerDay}
+• Trade on New Candle: ${settings.tradeOnNewCandle ? 'Yes (recommended)' : 'No'}
 
-// ${settings.notes}`;
+APPLY THESE SETTINGS:
+1. Open your MT5 Chart Data EA settings
+2. Set direction filter based on recommendation above
+3. Avoid trading during the hours/days listed
+4. Set minimum confidence to ${settings.minConfidenceLevel}%
+5. Limit daily trades to ${settings.maxTradesPerDay}
+
+${settings.notes}`;
                             navigator.clipboard.writeText(text);
                             toast({
                               title: "EA Settings Copied!",
-                              description: "Paste these settings into your MT5 EA configuration.",
+                              description: "Settings summary copied. Apply these to your EA configuration.",
                             });
                           }}
                         >
                           <Copy className="w-4 h-4 mr-2" />
-                          Copy EA Settings
+                          Copy EA Settings Summary
                         </Button>
                       </div>
                     )}
