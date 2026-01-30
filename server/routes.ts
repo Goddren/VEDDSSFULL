@@ -5664,14 +5664,31 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       
       // Get pending/open trades
       const openTrades = await storage.getAiTradeResults(userId, 50);
-      const pendingTrades = openTrades.filter(t => t.result === 'PENDING' || !t.result);
+      const pendingTrades = openTrades.filter(t => (t.result === 'PENDING' || !t.result) && t.symbol);
       
       if (pendingTrades.length === 0) {
         return res.json({ reversals: [], message: "No open trades to monitor" });
       }
       
-      // Get recent analyses for comparison
+      // Get recent analyses for comparison, sorted by createdAt descending
       const recentAnalyses = await storage.getChartAnalysesByUserId(userId);
+      const sortedAnalyses = recentAnalyses.sort((a, b) => {
+        const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return dateB - dateA;
+      });
+      
+      // Helper to parse confidence from text (handles "High", "Medium", "Low" and percentages)
+      const parseConfidence = (text: string | null): number => {
+        if (!text) return 50;
+        const lower = text.toLowerCase();
+        if (lower.includes('very high') || lower.includes('extremely')) return 90;
+        if (lower.includes('high')) return 75;
+        if (lower.includes('medium') || lower.includes('moderate')) return 55;
+        if (lower.includes('low')) return 35;
+        const match = text.match(/(\d+)/);
+        return match ? parseInt(match[1]) : 50;
+      };
       
       const reversals: Array<{
         tradeId: number;
@@ -5686,8 +5703,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       }> = [];
       
       for (const trade of pendingTrades) {
-        // Find most recent analysis for this symbol
-        const latestAnalysis = recentAnalyses.find(a => 
+        // Find most recent analysis for this symbol (sorted list ensures first match is latest)
+        const latestAnalysis = sortedAnalyses.find(a => 
           a.symbol?.toLowerCase() === trade.symbol.toLowerCase()
         );
         
@@ -5699,10 +5716,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           if ((tradeDir === 'BUY' && analysisDir === 'SELL') || 
               (tradeDir === 'SELL' && analysisDir === 'BUY')) {
             
-            // Parse confidence from analysis
-            const confidenceText = latestAnalysis.confidence || '50';
-            const confidenceMatch = confidenceText.match(/(\d+)/);
-            const confidence = confidenceMatch ? parseInt(confidenceMatch[1]) : 50;
+            const confidence = parseConfidence(latestAnalysis.confidence);
             
             // Calculate reversal strength based on confidence
             let reversalStrength = 'LOW';
