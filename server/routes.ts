@@ -5752,6 +5752,223 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
     }
   });
 
+  // Trade History Learning - Analyze past trades and generate strategy improvements
+  app.get("/api/trade-history-learning/:symbol", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    try {
+      const userId = (req.user as User).id;
+      const symbol = req.params.symbol.toUpperCase();
+      
+      // Get all trades for this symbol
+      const trades = await storage.getAiTradeResultsBySymbol(userId, symbol, 500);
+      
+      if (trades.length < 3) {
+        return res.json({
+          symbol,
+          totalTrades: trades.length,
+          message: "Not enough trade history to analyze. Need at least 3 trades.",
+          patterns: [],
+          recommendations: [],
+        });
+      }
+      
+      // Calculate statistics
+      const wins = trades.filter(t => t.result === 'WIN').length;
+      const losses = trades.filter(t => t.result === 'LOSS').length;
+      const completed = wins + losses;
+      const winRate = completed > 0 ? (wins / completed * 100).toFixed(1) : '0';
+      
+      // Analyze loss patterns by time of day
+      const lossTrades = trades.filter(t => t.result === 'LOSS');
+      const lossHours: { [key: number]: number } = {};
+      const lossDays: { [key: number]: number } = {};
+      const lossDirections: { BUY: number; SELL: number } = { BUY: 0, SELL: 0 };
+      
+      lossTrades.forEach(trade => {
+        if (trade.createdAt) {
+          const date = new Date(trade.createdAt);
+          const hour = date.getHours();
+          const day = date.getDay();
+          lossHours[hour] = (lossHours[hour] || 0) + 1;
+          lossDays[day] = (lossDays[day] || 0) + 1;
+        }
+        if (trade.direction === 'BUY') lossDirections.BUY++;
+        if (trade.direction === 'SELL') lossDirections.SELL++;
+      });
+      
+      // Find worst hours and days
+      const worstHour = Object.entries(lossHours).sort((a, b) => b[1] - a[1])[0];
+      const worstDay = Object.entries(lossDays).sort((a, b) => b[1] - a[1])[0];
+      const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+      
+      // Identify patterns
+      const patterns: Array<{ type: string; description: string; severity: string }> = [];
+      
+      if (worstHour && worstHour[1] >= 3) {
+        patterns.push({
+          type: 'TIME_OF_DAY',
+          description: `Most losses occur around ${worstHour[0]}:00 (${worstHour[1]} losses)`,
+          severity: worstHour[1] >= 5 ? 'HIGH' : 'MEDIUM'
+        });
+      }
+      
+      if (worstDay && worstDay[1] >= 3) {
+        patterns.push({
+          type: 'DAY_OF_WEEK',
+          description: `${dayNames[parseInt(worstDay[0])]} has the most losses (${worstDay[1]} losses)`,
+          severity: worstDay[1] >= 5 ? 'HIGH' : 'MEDIUM'
+        });
+      }
+      
+      if (lossDirections.BUY > lossDirections.SELL * 2) {
+        patterns.push({
+          type: 'DIRECTION_BIAS',
+          description: `BUY trades fail more often (${lossDirections.BUY} vs ${lossDirections.SELL} SELL losses)`,
+          severity: 'HIGH'
+        });
+      } else if (lossDirections.SELL > lossDirections.BUY * 2) {
+        patterns.push({
+          type: 'DIRECTION_BIAS',
+          description: `SELL trades fail more often (${lossDirections.SELL} vs ${lossDirections.BUY} BUY losses)`,
+          severity: 'HIGH'
+        });
+      }
+      
+      // Check for losing streaks
+      let maxLossStreak = 0;
+      let currentStreak = 0;
+      trades.forEach(trade => {
+        if (trade.result === 'LOSS') {
+          currentStreak++;
+          maxLossStreak = Math.max(maxLossStreak, currentStreak);
+        } else if (trade.result === 'WIN') {
+          currentStreak = 0;
+        }
+      });
+      
+      if (maxLossStreak >= 3) {
+        patterns.push({
+          type: 'LOSING_STREAK',
+          description: `Maximum losing streak: ${maxLossStreak} trades in a row`,
+          severity: maxLossStreak >= 5 ? 'CRITICAL' : 'HIGH'
+        });
+      }
+      
+      res.json({
+        symbol,
+        totalTrades: trades.length,
+        completedTrades: completed,
+        wins,
+        losses,
+        winRate: parseFloat(winRate),
+        patterns,
+        worstHour: worstHour ? { hour: parseInt(worstHour[0]), losses: worstHour[1] } : null,
+        worstDay: worstDay ? { day: dayNames[parseInt(worstDay[0])], losses: worstDay[1] } : null,
+        directionStats: lossDirections,
+        maxLossStreak,
+        recentTrades: trades.slice(0, 10),
+      });
+    } catch (error: any) {
+      console.error("Error analyzing trade history:", error);
+      res.status(500).json({ error: "Failed to analyze trade history" });
+    }
+  });
+
+  // AI Strategy Improvement - Generate recommendations based on trade history
+  app.post("/api/trade-history-learning/:symbol/improve", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    try {
+      const userId = (req.user as User).id;
+      const symbol = req.params.symbol.toUpperCase();
+      
+      // Get trade history analysis
+      const trades = await storage.getAiTradeResultsBySymbol(userId, symbol, 100);
+      
+      if (trades.length < 5) {
+        return res.json({
+          recommendations: ["Build more trade history (at least 5 trades) for AI strategy analysis."],
+        });
+      }
+      
+      // Calculate key metrics for AI prompt
+      const wins = trades.filter(t => t.result === 'WIN').length;
+      const losses = trades.filter(t => t.result === 'LOSS').length;
+      const completed = wins + losses;
+      const winRate = completed > 0 ? (wins / completed * 100).toFixed(1) : '0';
+      
+      // Get loss patterns
+      const lossTrades = trades.filter(t => t.result === 'LOSS');
+      const lossHours = lossTrades.map(t => t.createdAt ? new Date(t.createdAt).getHours() : null).filter(Boolean);
+      const lossDays = lossTrades.map(t => t.createdAt ? ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date(t.createdAt).getDay()] : null).filter(Boolean);
+      const lossDirections = lossTrades.map(t => t.direction).filter(Boolean);
+      
+      // Get recent chart analyses for this symbol
+      const recentAnalyses = await storage.getChartAnalysesByUserId(userId);
+      const symbolAnalyses = recentAnalyses.filter(a => a.symbol?.toUpperCase().includes(symbol)).slice(0, 5);
+      
+      const prompt = `You are an expert trading strategy advisor. Analyze this trader's performance on ${symbol} and provide specific, actionable recommendations to improve their strategy.
+
+TRADE STATISTICS:
+- Symbol: ${symbol}
+- Total Trades: ${completed}
+- Win Rate: ${winRate}%
+- Wins: ${wins}, Losses: ${losses}
+
+LOSS PATTERNS:
+- Hours when losses occurred: ${lossHours.join(', ') || 'N/A'}
+- Days when losses occurred: ${lossDays.join(', ') || 'N/A'}
+- Directions of losses: ${lossDirections.join(', ') || 'N/A'}
+
+RECENT TRADE NOTES:
+${trades.slice(0, 5).map(t => `- ${t.direction} at ${t.entryPrice}: ${t.result} | ${t.notes || 'No notes'}`).join('\n')}
+
+Based on this data, provide 4-6 specific, actionable recommendations to improve their trading strategy for ${symbol}. Focus on:
+1. Best times to trade (or avoid)
+2. Direction bias corrections
+3. Entry/exit timing improvements
+4. Risk management adjustments
+5. Pattern-specific advice
+
+Format each recommendation as a clear, concise action item.`;
+
+      // Call OpenAI for strategy recommendations
+      const response = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [{ role: "user", content: prompt }],
+        max_tokens: 1000,
+        temperature: 0.7,
+      });
+      
+      const aiResponse = response.choices[0]?.message?.content || "";
+      
+      // Parse recommendations from response
+      const recommendations = aiResponse.split('\n')
+        .filter(line => line.trim().match(/^\d+\.|\-|\*/) || line.includes('Recommendation'))
+        .map(line => line.replace(/^\d+\.\s*|\-\s*|\*\s*/, '').trim())
+        .filter(line => line.length > 10)
+        .slice(0, 6);
+      
+      res.json({
+        symbol,
+        winRate: parseFloat(winRate),
+        totalTrades: completed,
+        recommendations: recommendations.length > 0 ? recommendations : [
+          "Continue building trade history for more specific recommendations.",
+          "Review your entry timing to ensure alignment with market momentum.",
+          "Consider adding confirmation signals before entering trades.",
+        ],
+        rawAnalysis: aiResponse,
+      });
+    } catch (error: any) {
+      console.error("Error generating strategy improvements:", error);
+      res.status(500).json({ error: "Failed to generate strategy improvements" });
+    }
+  });
+
   // Flip Trade - Close current position and open reverse to recover loss + profit
   app.post("/api/flip-trade", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) {

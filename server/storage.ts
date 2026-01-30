@@ -230,6 +230,7 @@ export interface IStorage {
   updateAiTradeResult(id: number, userId: number, data: Partial<AiTradeResult>): Promise<AiTradeResult | undefined>;
   getAiTradeResultById(id: number): Promise<AiTradeResult | undefined>;
   getAiTradeResults(userId: number, limit?: number): Promise<AiTradeResult[]>;
+  getAiTradeResultsBySymbol(userId: number, symbol: string, limit?: number): Promise<AiTradeResult[]>;
   getAiTradeAccuracy(userId: number): Promise<{ daily: number; weekly: number; monthly: number; yearly: number; allTime: number; totalTrades: number; wins: number; losses: number }>;
   
   // Ambassador Training Progress methods
@@ -1485,6 +1486,16 @@ export class DatabaseStorage implements IStorage {
   async getAiTradeResults(userId: number, limit: number = 100): Promise<AiTradeResult[]> {
     return await db.select().from(aiTradeResults)
       .where(eq(aiTradeResults.userId, userId))
+      .orderBy(desc(aiTradeResults.createdAt))
+      .limit(limit);
+  }
+
+  async getAiTradeResultsBySymbol(userId: number, symbol: string, limit: number = 500): Promise<AiTradeResult[]> {
+    return await db.select().from(aiTradeResults)
+      .where(and(
+        eq(aiTradeResults.userId, userId),
+        sql`UPPER(${aiTradeResults.symbol}) LIKE UPPER(${'%' + symbol + '%'})`
+      ))
       .orderBy(desc(aiTradeResults.createdAt))
       .limit(limit);
   }

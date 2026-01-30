@@ -31,7 +31,11 @@ import {
   Layers,
   Target,
   Shield,
-  BookOpen
+  BookOpen,
+  Brain,
+  Lightbulb,
+  Calendar,
+  Search
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { ConnectedPairs } from "@/components/mt5/connected-pairs";
@@ -178,6 +182,237 @@ type ReversalData = {
   openTradesCount: number;
   message: string;
 };
+
+type TradeHistoryAnalysis = {
+  symbol: string;
+  totalTrades: number;
+  completedTrades: number;
+  wins: number;
+  losses: number;
+  winRate: number;
+  patterns: Array<{ type: string; description: string; severity: string }>;
+  worstHour: { hour: number; losses: number } | null;
+  worstDay: { day: string; losses: number } | null;
+  directionStats: { BUY: number; SELL: number };
+  maxLossStreak: number;
+  message?: string;
+};
+
+type StrategyImprovement = {
+  symbol: string;
+  winRate: number;
+  totalTrades: number;
+  recommendations: string[];
+  rawAnalysis?: string;
+};
+
+function TradeHistoryLearning() {
+  const { toast } = useToast();
+  const [symbol, setSymbol] = useState('');
+  const [searchedSymbol, setSearchedSymbol] = useState('');
+  
+  const { data: analysis, isLoading: analysisLoading, refetch: refetchAnalysis } = useQuery<TradeHistoryAnalysis>({
+    queryKey: ['/api/trade-history-learning', searchedSymbol],
+    enabled: !!searchedSymbol,
+  });
+  
+  const improveMutation = useMutation({
+    mutationFn: async (sym: string) => {
+      const res = await apiRequest('POST', `/api/trade-history-learning/${sym}/improve`);
+      return res.json() as Promise<StrategyImprovement>;
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Analysis Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+  
+  const handleSearch = () => {
+    if (symbol.trim()) {
+      setSearchedSymbol(symbol.trim().toUpperCase());
+    }
+  };
+  
+  const getSeverityColor = (severity: string) => {
+    switch (severity) {
+      case 'CRITICAL': return 'bg-red-900/50 text-red-400 border-red-500';
+      case 'HIGH': return 'bg-orange-900/50 text-orange-400 border-orange-500';
+      case 'MEDIUM': return 'bg-yellow-900/50 text-yellow-400 border-yellow-500';
+      default: return 'bg-gray-800 text-gray-400 border-gray-600';
+    }
+  };
+  
+  return (
+    <Card className="bg-gray-900/50 border-gold/20">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-gold">
+          <Brain className="w-5 h-5" />
+          Trade History Learning
+        </CardTitle>
+        <CardDescription>
+          Analyze your past trades by pair to identify patterns and generate AI strategy improvements
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+            <Input
+              placeholder="Enter symbol (e.g. XAUUSD, BTCUSD)"
+              value={symbol}
+              onChange={(e) => setSymbol(e.target.value.toUpperCase())}
+              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+              className="pl-10 bg-gray-800/50 border-gray-700 text-white"
+            />
+          </div>
+          <Button onClick={handleSearch} disabled={!symbol.trim() || analysisLoading}>
+            {analysisLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : 'Analyze'}
+          </Button>
+        </div>
+        
+        {analysis && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="space-y-4"
+          >
+            {analysis.message ? (
+              <div className="text-center py-6 text-gray-400">
+                <AlertCircle className="w-8 h-8 mx-auto mb-2 text-yellow-500/50" />
+                <p>{analysis.message}</p>
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className="bg-gray-800/50 rounded-lg p-3 text-center">
+                    <div className="text-2xl font-bold text-white">{analysis.completedTrades}</div>
+                    <div className="text-xs text-gray-500">Total Trades</div>
+                  </div>
+                  <div className="bg-gray-800/50 rounded-lg p-3 text-center">
+                    <div className={`text-2xl font-bold ${analysis.winRate >= 50 ? 'text-green-400' : 'text-red-400'}`}>
+                      {analysis.winRate}%
+                    </div>
+                    <div className="text-xs text-gray-500">Win Rate</div>
+                  </div>
+                  <div className="bg-green-900/30 rounded-lg p-3 text-center">
+                    <div className="text-2xl font-bold text-green-400">{analysis.wins}</div>
+                    <div className="text-xs text-gray-500">Wins</div>
+                  </div>
+                  <div className="bg-red-900/30 rounded-lg p-3 text-center">
+                    <div className="text-2xl font-bold text-red-400">{analysis.losses}</div>
+                    <div className="text-xs text-gray-500">Losses</div>
+                  </div>
+                </div>
+                
+                {analysis.patterns.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="text-sm font-medium text-white flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 text-yellow-500" />
+                      Loss Patterns Detected
+                    </h4>
+                    <div className="space-y-2">
+                      {analysis.patterns.map((pattern, i) => (
+                        <div key={i} className={`p-3 rounded-lg border ${getSeverityColor(pattern.severity)}`}>
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm">{pattern.description}</span>
+                            <Badge className={getSeverityColor(pattern.severity)}>
+                              {pattern.severity}
+                            </Badge>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                <div className="grid grid-cols-2 gap-3">
+                  {analysis.worstHour && (
+                    <div className="bg-gray-800/50 rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Clock className="w-4 h-4 text-yellow-500" />
+                        <span className="text-xs text-gray-400">Worst Trading Hour</span>
+                      </div>
+                      <div className="text-lg font-bold text-white">{analysis.worstHour.hour}:00</div>
+                      <div className="text-xs text-red-400">{analysis.worstHour.losses} losses</div>
+                    </div>
+                  )}
+                  {analysis.worstDay && (
+                    <div className="bg-gray-800/50 rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Calendar className="w-4 h-4 text-yellow-500" />
+                        <span className="text-xs text-gray-400">Worst Day</span>
+                      </div>
+                      <div className="text-lg font-bold text-white">{analysis.worstDay.day}</div>
+                      <div className="text-xs text-red-400">{analysis.worstDay.losses} losses</div>
+                    </div>
+                  )}
+                </div>
+                
+                {analysis.maxLossStreak > 0 && (
+                  <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-3">
+                    <div className="text-sm text-red-400">
+                      Max Losing Streak: <span className="font-bold">{analysis.maxLossStreak} trades</span>
+                    </div>
+                  </div>
+                )}
+                
+                <Button
+                  className="w-full bg-gold hover:bg-gold/90 text-black"
+                  onClick={() => improveMutation.mutate(analysis.symbol)}
+                  disabled={improveMutation.isPending}
+                >
+                  {improveMutation.isPending ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin mr-2" />
+                      Generating AI Strategy...
+                    </>
+                  ) : (
+                    <>
+                      <Lightbulb className="w-4 h-4 mr-2" />
+                      Generate AI Strategy Improvements
+                    </>
+                  )}
+                </Button>
+                
+                {improveMutation.data && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-gradient-to-br from-gold/10 to-gold/5 border border-gold/30 rounded-lg p-4"
+                  >
+                    <h4 className="text-sm font-medium text-gold flex items-center gap-2 mb-3">
+                      <Lightbulb className="w-4 h-4" />
+                      AI Strategy Recommendations for {improveMutation.data.symbol}
+                    </h4>
+                    <div className="space-y-2">
+                      {improveMutation.data.recommendations.map((rec, i) => (
+                        <div key={i} className="flex items-start gap-2 text-sm text-gray-300">
+                          <CheckCircle className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" />
+                          <span>{rec}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+              </>
+            )}
+          </motion.div>
+        )}
+        
+        {!analysis && !analysisLoading && (
+          <div className="text-center py-8 text-gray-500">
+            <Brain className="w-12 h-12 mx-auto mb-3 opacity-50" />
+            <p className="text-sm">Enter a trading pair to analyze your trade history</p>
+            <p className="text-xs mt-1">Example: XAUUSD, BTCUSD, EURUSD</p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 function ReversalAlertPanel() {
   const { toast } = useToast();
@@ -673,6 +908,9 @@ export default function MT5ChartDataPage() {
 
         {/* Reversal Detection Panel */}
         <ReversalAlertPanel />
+
+        {/* Trade History Learning */}
+        <TradeHistoryLearning />
 
         <div className="grid lg:grid-cols-2 gap-6">
           <Card className="bg-gray-800/50 border-gray-700">
