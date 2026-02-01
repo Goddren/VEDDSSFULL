@@ -35,66 +35,85 @@ export interface TokenAnalysis {
 
 export async function fetchTrendingSolanaTokens(): Promise<SolanaToken[]> {
   try {
-    const response = await fetch('https://api.dexscreener.com/latest/dex/tokens/solana', {
-      headers: { 'Accept': 'application/json' }
-    });
+    // Use boosted tokens endpoint and fetch full data for each
+    const boostedResponse = await fetch('https://api.dexscreener.com/token-boosts/top/v1');
+    let tokenAddresses: string[] = [];
     
-    if (!response.ok) {
-      const boostedResponse = await fetch('https://api.dexscreener.com/token-boosts/top/v1');
-      if (boostedResponse.ok) {
-        const boostedData = await boostedResponse.json();
-        const solanaTokens = boostedData.filter((t: any) => t.chainId === 'solana').slice(0, 20);
-        return solanaTokens.map((t: any) => ({
-          address: t.tokenAddress,
-          symbol: t.description || 'UNKNOWN',
-          name: t.description || 'Unknown Token',
-          priceUsd: '0',
-          priceChange24h: 0,
-          volume24h: 0,
-          liquidity: 0,
-          fdv: 0,
-          txns24h: { buys: 0, sells: 0 },
-          makers24h: 0,
-          pairAddress: '',
-          dexId: 'raydium',
-        }));
+    if (boostedResponse.ok) {
+      const boostedData = await boostedResponse.json();
+      const solanaTokens = boostedData.filter((t: any) => t.chainId === 'solana');
+      tokenAddresses = solanaTokens.slice(0, 20).map((t: any) => t.tokenAddress);
+    }
+    
+    // If no boosted tokens, try search for popular tokens
+    if (tokenAddresses.length === 0) {
+      const searchResponse = await fetch('https://api.dexscreener.com/latest/dex/search?q=sol');
+      if (searchResponse.ok) {
+        const searchData = await searchResponse.json();
+        const solanaPairs = (searchData.pairs || []).filter((p: any) => p.chainId === 'solana');
+        return solanaPairs.slice(0, 30).map((pair: any) => mapPairToToken(pair));
+      }
+      return [];
+    }
+    
+    // Fetch full token data for boosted tokens (batch up to 30 addresses)
+    const batchAddresses = tokenAddresses.slice(0, 30).join(',');
+    const tokensResponse = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${batchAddresses}`);
+    
+    if (!tokensResponse.ok) {
+      console.error('Failed to fetch token data');
+      return [];
+    }
+    
+    const tokensData = await tokensResponse.json();
+    const pairs = tokensData.pairs || [];
+    
+    // Filter to Solana and dedupe by base token address
+    const seen = new Set<string>();
+    const uniquePairs: any[] = [];
+    for (const pair of pairs) {
+      if (pair.chainId === 'solana' && !seen.has(pair.baseToken?.address)) {
+        seen.add(pair.baseToken?.address);
+        uniquePairs.push(pair);
       }
     }
     
-    const data = await response.json();
-    const pairs = data.pairs || [];
-    
-    return pairs.slice(0, 30).map((pair: any) => ({
-      address: pair.baseToken?.address || '',
-      symbol: pair.baseToken?.symbol || 'UNKNOWN',
-      name: pair.baseToken?.name || 'Unknown Token',
-      priceUsd: pair.priceUsd || '0',
-      priceChange24h: pair.priceChange?.h24 || 0,
-      volume24h: pair.volume?.h24 || 0,
-      liquidity: pair.liquidity?.usd || 0,
-      fdv: pair.fdv || 0,
-      txns24h: {
-        buys: pair.txns?.h24?.buys || 0,
-        sells: pair.txns?.h24?.sells || 0
-      },
-      makers24h: pair.txns?.h24?.makers || 0,
-      pairAddress: pair.pairAddress || '',
-      dexId: pair.dexId || 'unknown',
-      createdAt: pair.pairCreatedAt ? new Date(pair.pairCreatedAt).toISOString() : undefined
-    }));
+    return uniquePairs.slice(0, 30).map((pair: any) => mapPairToToken(pair));
   } catch (error) {
     console.error('Error fetching trending tokens:', error);
     return [];
   }
 }
 
+function mapPairToToken(pair: any): SolanaToken {
+  return {
+    address: pair.baseToken?.address || '',
+    symbol: pair.baseToken?.symbol || 'UNKNOWN',
+    name: pair.baseToken?.name || 'Unknown Token',
+    priceUsd: pair.priceUsd || '0',
+    priceChange24h: pair.priceChange?.h24 || 0,
+    volume24h: pair.volume?.h24 || 0,
+    liquidity: pair.liquidity?.usd || 0,
+    fdv: pair.fdv || 0,
+    txns24h: {
+      buys: pair.txns?.h24?.buys || 0,
+      sells: pair.txns?.h24?.sells || 0
+    },
+    makers24h: pair.txns?.h24?.makers || 0,
+    pairAddress: pair.pairAddress || '',
+    dexId: pair.dexId || 'unknown',
+    createdAt: pair.pairCreatedAt ? new Date(pair.pairCreatedAt).toISOString() : undefined
+  };
+}
+
 export async function fetchNewSolanaPairs(): Promise<SolanaToken[]> {
   try {
-    const response = await fetch('https://api.dexscreener.com/latest/dex/pairs/solana');
+    // Search for new/trending tokens
+    const response = await fetch('https://api.dexscreener.com/latest/dex/search?q=pump');
     if (!response.ok) return [];
     
     const data = await response.json();
-    const pairs = data.pairs || [];
+    const pairs = (data.pairs || []).filter((p: any) => p.chainId === 'solana');
     
     const now = Date.now();
     const oneDayAgo = now - 24 * 60 * 60 * 1000;
@@ -102,24 +121,7 @@ export async function fetchNewSolanaPairs(): Promise<SolanaToken[]> {
     return pairs
       .filter((pair: any) => pair.pairCreatedAt && pair.pairCreatedAt > oneDayAgo)
       .slice(0, 20)
-      .map((pair: any) => ({
-        address: pair.baseToken?.address || '',
-        symbol: pair.baseToken?.symbol || 'UNKNOWN',
-        name: pair.baseToken?.name || 'Unknown Token',
-        priceUsd: pair.priceUsd || '0',
-        priceChange24h: pair.priceChange?.h24 || 0,
-        volume24h: pair.volume?.h24 || 0,
-        liquidity: pair.liquidity?.usd || 0,
-        fdv: pair.fdv || 0,
-        txns24h: {
-          buys: pair.txns?.h24?.buys || 0,
-          sells: pair.txns?.h24?.sells || 0
-        },
-        makers24h: pair.txns?.h24?.makers || 0,
-        pairAddress: pair.pairAddress || '',
-        dexId: pair.dexId || 'unknown',
-        createdAt: pair.pairCreatedAt ? new Date(pair.pairCreatedAt).toISOString() : undefined
-      }));
+      .map((pair: any) => mapPairToToken(pair));
   } catch (error) {
     console.error('Error fetching new pairs:', error);
     return [];
@@ -134,24 +136,7 @@ export async function searchSolanaToken(query: string): Promise<SolanaToken[]> {
     const data = await response.json();
     const pairs = (data.pairs || []).filter((p: any) => p.chainId === 'solana');
     
-    return pairs.slice(0, 10).map((pair: any) => ({
-      address: pair.baseToken?.address || '',
-      symbol: pair.baseToken?.symbol || 'UNKNOWN',
-      name: pair.baseToken?.name || 'Unknown Token',
-      priceUsd: pair.priceUsd || '0',
-      priceChange24h: pair.priceChange?.h24 || 0,
-      volume24h: pair.volume?.h24 || 0,
-      liquidity: pair.liquidity?.usd || 0,
-      fdv: pair.fdv || 0,
-      txns24h: {
-        buys: pair.txns?.h24?.buys || 0,
-        sells: pair.txns?.h24?.sells || 0
-      },
-      makers24h: pair.txns?.h24?.makers || 0,
-      pairAddress: pair.pairAddress || '',
-      dexId: pair.dexId || 'unknown',
-      createdAt: pair.pairCreatedAt ? new Date(pair.pairCreatedAt).toISOString() : undefined
-    }));
+    return pairs.slice(0, 10).map((pair: any) => mapPairToToken(pair));
   } catch (error) {
     console.error('Error searching token:', error);
     return [];

@@ -269,17 +269,47 @@ export default function SolanaScanner() {
     staleTime: 60000,
   });
   
+  const [searchResults, setSearchResults] = useState<TokenAnalysis[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  
   const searchMutation = useMutation({
     mutationFn: async (query: string) => {
+      setIsSearching(true);
       const res = await apiRequest('GET', `/api/solana/search?q=${encodeURIComponent(query)}`);
-      return res.json();
+      const data = await res.json();
+      
+      if (data.tokens?.length > 0) {
+        // Analyze each found token
+        const analyses: TokenAnalysis[] = [];
+        for (const token of data.tokens.slice(0, 5)) {
+          try {
+            const analyzeRes = await apiRequest('GET', `/api/solana/analyze/${token.address}`);
+            const analyzeData = await analyzeRes.json();
+            if (analyzeData.success && analyzeData.analysis) {
+              analyses.push(analyzeData.analysis);
+            }
+          } catch (e) {
+            console.error('Failed to analyze token', token.symbol);
+          }
+        }
+        return { tokens: data.tokens, analyses };
+      }
+      return { tokens: [], analyses: [] };
     },
     onSuccess: (data) => {
-      if (data.tokens?.length > 0) {
-        toast({ title: `Found ${data.tokens.length} tokens` });
+      setIsSearching(false);
+      if (data.analyses?.length > 0) {
+        setSearchResults(data.analyses);
+        toast({ title: `Analyzed ${data.analyses.length} tokens from search` });
+      } else if (data.tokens?.length > 0) {
+        toast({ title: `Found ${data.tokens.length} tokens but analysis failed`, variant: 'destructive' });
       } else {
         toast({ title: 'No tokens found', variant: 'destructive' });
       }
+    },
+    onError: () => {
+      setIsSearching(false);
+      toast({ title: 'Search failed', variant: 'destructive' });
     }
   });
   
@@ -321,10 +351,15 @@ export default function SolanaScanner() {
           onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
           className="max-w-md"
         />
-        <Button onClick={handleSearch} disabled={searchMutation.isPending}>
-          <Search className="h-4 w-4 mr-2" />
-          Search
+        <Button onClick={handleSearch} disabled={searchMutation.isPending || isSearching}>
+          <Search className={`h-4 w-4 mr-2 ${isSearching ? 'animate-pulse' : ''}`} />
+          {isSearching ? 'Analyzing...' : 'Search'}
         </Button>
+        {searchResults.length > 0 && (
+          <Button variant="outline" onClick={() => { setSearchResults([]); setSearchQuery(''); }}>
+            Clear
+          </Button>
+        )}
       </div>
       
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -374,10 +409,27 @@ export default function SolanaScanner() {
         </Card>
       </div>
       
-      {scanData?.scannedAt && (
+      {scanData?.scannedAt && !searchResults.length && (
         <p className="text-sm text-muted-foreground text-center">
           Last scanned: {new Date(scanData.scannedAt).toLocaleString()}
         </p>
+      )}
+      
+      {searchResults.length > 0 && (
+        <>
+          <div className="flex items-center gap-2">
+            <Search className="h-5 w-5 text-primary" />
+            <h2 className="text-xl font-semibold">Search Results for "{searchQuery}"</h2>
+            <Badge variant="secondary">{searchResults.length} tokens</Badge>
+          </div>
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {searchResults.map((analysis, idx) => (
+              <TokenCard key={analysis.token.address + idx} analysis={analysis} />
+            ))}
+          </div>
+          <hr className="my-8" />
+          <h2 className="text-xl font-semibold">Trending Tokens</h2>
+        </>
       )}
       
       {isLoading ? (
