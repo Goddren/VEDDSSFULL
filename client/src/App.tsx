@@ -59,6 +59,7 @@ import NotificationSettings from "@/pages/notification-settings";
 import VeddWalletPage from "@/pages/vedd-wallet";
 import HostDashboardPage from "@/pages/host-dashboard";
 import MyWalletPage from "@/pages/my-wallet";
+import SolanaScanner from "@/pages/solana-scanner";
 import StreakBanner from "@/components/StreakBanner";
 import { MobileFAB } from "@/components/mobile-fab";
 import { NetworkStatus } from "@/components/network-status";
@@ -168,6 +169,7 @@ function AppLayout() {
             <ProtectedRoute path="/vedd-wallet" component={VeddWalletPage} />
             <ProtectedRoute path="/host-dashboard" component={HostDashboardPage} />
             <ProtectedRoute path="/my-wallet" component={MyWalletPage} />
+            <Route path="/solana-scanner" component={SolanaScanner} />
             
             <Route component={NotFound} />
           </Switch>

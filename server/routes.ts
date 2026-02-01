@@ -47,6 +47,7 @@ import { encryptPassword, executeMT5SignalOnTradeLocker, TradeLockerService, dec
 import veddTokenRouter from "./routes/vedd-token";
 import { veddTokenService } from "./services/vedd-token-service";
 import { streamingService } from "./streaming";
+import { scanAndAnalyzeTokens, searchSolanaToken, analyzeToken, fetchTrendingSolanaTokens } from "./solana-scanner";
 
 // Configure multer for file uploads (images)
 const upload = multer({
@@ -9601,6 +9602,62 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       res.json(posts);
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  // ============= SOLANA TOKEN SCANNER =============
+  
+  // Scan and analyze trending Solana tokens
+  app.get("/api/solana/scan", async (req: Request, res: Response) => {
+    try {
+      const limit = Math.min(parseInt(req.query.limit as string) || 10, 20);
+      const analyses = await scanAndAnalyzeTokens(limit);
+      res.json({ success: true, tokens: analyses, scannedAt: new Date().toISOString() });
+    } catch (error) {
+      console.error('Error scanning Solana tokens:', error);
+      res.status(500).json({ success: false, error: 'Failed to scan tokens' });
+    }
+  });
+  
+  // Search for a specific Solana token
+  app.get("/api/solana/search", async (req: Request, res: Response) => {
+    try {
+      const query = req.query.q as string;
+      if (!query) {
+        return res.status(400).json({ success: false, error: 'Query parameter required' });
+      }
+      const tokens = await searchSolanaToken(query);
+      res.json({ success: true, tokens });
+    } catch (error) {
+      console.error('Error searching Solana token:', error);
+      res.status(500).json({ success: false, error: 'Failed to search token' });
+    }
+  });
+  
+  // Analyze a specific token by address
+  app.get("/api/solana/analyze/:address", async (req: Request, res: Response) => {
+    try {
+      const { address } = req.params;
+      const tokens = await searchSolanaToken(address);
+      if (tokens.length === 0) {
+        return res.status(404).json({ success: false, error: 'Token not found' });
+      }
+      const analysis = await analyzeToken(tokens[0]);
+      res.json({ success: true, analysis });
+    } catch (error) {
+      console.error('Error analyzing token:', error);
+      res.status(500).json({ success: false, error: 'Failed to analyze token' });
+    }
+  });
+  
+  // Get trending tokens (raw data without AI analysis)
+  app.get("/api/solana/trending", async (req: Request, res: Response) => {
+    try {
+      const tokens = await fetchTrendingSolanaTokens();
+      res.json({ success: true, tokens });
+    } catch (error) {
+      console.error('Error fetching trending tokens:', error);
+      res.status(500).json({ success: false, error: 'Failed to fetch trending tokens' });
     }
   });
 
