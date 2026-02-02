@@ -45,9 +45,10 @@ const WalletContext = createContext<WalletContextType | null>(null);
 const VEDD_TOKEN_MINT = 'Ch7WbPBy5XjL1UULwWYwh75DsVdXhFUVXtiNvNGopump';
 const AMBASSADOR_NFT_COLLECTION = 'VEDDAMBxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
 const SOLANA_RPC_ENDPOINTS = [
-  'https://rpc.ankr.com/solana',
   'https://api.mainnet-beta.solana.com',
-  'https://solana-api.projectserum.com',
+  'https://rpc.ankr.com/solana',
+  'https://solana.public-rpc.com',
+  'https://solana-mainnet.g.alchemy.com/v2/demo',
 ];
 
 const getPhantomProvider = (): SolanaProvider | null => {
@@ -116,9 +117,17 @@ export function SolanaWalletProvider({ children }: { children: ReactNode }) {
     for (const rpcUrl of SOLANA_RPC_ENDPOINTS) {
       try {
         console.log('Trying RPC:', rpcUrl);
-        const connection = new Connection(rpcUrl, { commitment: 'confirmed' });
+        const connection = new Connection(rpcUrl, { 
+          commitment: 'confirmed',
+          confirmTransactionInitialTimeout: 10000,
+        });
         
-        const balance = await connection.getBalance(publicKey);
+        const balancePromise = connection.getBalance(publicKey);
+        const timeoutPromise = new Promise<number>((_, reject) => 
+          setTimeout(() => reject(new Error('RPC timeout')), 8000)
+        );
+        
+        const balance = await Promise.race([balancePromise, timeoutPromise]);
         solBalance = balance;
         console.log('Fetched SOL balance:', balance / LAMPORTS_PER_SOL, 'SOL from RPC:', rpcUrl);
         
