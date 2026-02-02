@@ -9771,6 +9771,8 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         takeProfitPercent: 50,
         stopLossPercent: 20,
         minSignalConfidence: 70,
+        isAutoRebalanceEnabled: false,
+        rebalanceThresholdPercent: 10,
       };
     }
     
@@ -9796,10 +9798,12 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         takeProfitPercent: 50,
         stopLossPercent: 20,
         minSignalConfidence: 70,
+        isAutoRebalanceEnabled: false,
+        rebalanceThresholdPercent: 10,
       };
     }
     
-    const allowedFields = ['isAutoTradeEnabled', 'maxPositions', 'tradeAmountSol', 'takeProfitPercent', 'stopLossPercent', 'minSignalConfidence'];
+    const allowedFields = ['isAutoTradeEnabled', 'maxPositions', 'tradeAmountSol', 'takeProfitPercent', 'stopLossPercent', 'minSignalConfidence', 'isAutoRebalanceEnabled', 'rebalanceThresholdPercent'];
     for (const key of allowedFields) {
       if (req.body[key] !== undefined) {
         (tradingWallets[userId] as any)[key] = req.body[key];
