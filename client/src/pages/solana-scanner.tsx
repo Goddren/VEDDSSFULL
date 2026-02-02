@@ -320,7 +320,7 @@ function AutoTradingPanel() {
   const { toast } = useToast();
   const [depositAmount, setDepositAmount] = useState('');
   const [buyingToken, setBuyingToken] = useState<string | null>(null);
-  const { connected, walletData, connect, signAndSendTransaction, getPublicKey, refreshWalletData } = useSolanaWallet();
+  const { connected, connecting, walletData, connect, disconnect, signAndSendTransaction, getPublicKey, refreshWalletData, error } = useSolanaWallet();
   
   const { data: wallet, isLoading: walletLoading, refetch: refetchWallet } = useQuery<TradingWallet>({
     queryKey: ['/api/trading/wallet'],
@@ -426,18 +426,32 @@ function AutoTradingPanel() {
         </div>
         
         {!connected ? (
-          <div className="flex gap-2 items-center">
-            <Badge variant="outline" className="text-yellow-400 border-yellow-500/30">
-              <AlertTriangle className="h-3 w-3 mr-1" />
-              Wallet Not Connected
-            </Badge>
-            <Button onClick={() => connect('phantom')} variant="outline" size="sm">
-              <LinkIcon className="h-4 w-4 mr-1" />
-              Connect Phantom
-            </Button>
+          <div className="flex flex-col gap-2">
+            <div className="flex gap-2 items-center flex-wrap">
+              <Badge variant="outline" className="text-yellow-400 border-yellow-500/30">
+                <AlertTriangle className="h-3 w-3 mr-1" />
+                Wallet Not Connected
+              </Badge>
+              <Button onClick={() => connect('phantom')} variant="outline" size="sm" disabled={connecting}>
+                <LinkIcon className="h-4 w-4 mr-1" />
+                {connecting ? 'Connecting...' : 'Connect Phantom'}
+              </Button>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={() => window.open('https://phantom.app/', '_blank')}
+                className="text-xs text-muted-foreground"
+              >
+                <ExternalLink className="h-3 w-3 mr-1" />
+                Install Phantom
+              </Button>
+            </div>
+            {error && (
+              <p className="text-xs text-red-400">{error}</p>
+            )}
           </div>
         ) : (
-          <div className="flex gap-2 items-center">
+          <div className="flex gap-2 items-center flex-wrap">
             <Badge className="bg-green-500/20 text-green-400 border-green-500/30">
               <CheckCircle className="h-3 w-3 mr-1" />
               Wallet: {walletData?.address?.slice(0, 4)}...{walletData?.address?.slice(-4)}
@@ -446,6 +460,9 @@ function AutoTradingPanel() {
               <SiSolana className="h-3 w-3 mr-1" />
               {walletData?.solBalance?.toFixed(4) || '0'} SOL
             </Badge>
+            <Button variant="ghost" size="sm" onClick={disconnect} className="text-xs">
+              Disconnect
+            </Button>
           </div>
         )}
         
