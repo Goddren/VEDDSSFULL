@@ -289,6 +289,29 @@ function TradeHistoryLearning() {
       });
     },
   });
+
+  const clearLearningMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest('DELETE', '/api/mt5/learning-recommendations');
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Learning Data Cleared",
+        description: "Trade history learning data has been reset. Waiting for new trades.",
+      });
+      setSearchedSymbol('');
+      queryClient.invalidateQueries({ queryKey: ['/api/mt5/learning-recommendations'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/trade-history-learning'] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to Clear",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
   
   const handleSearch = () => {
     if (symbol.trim()) {
@@ -308,10 +331,26 @@ function TradeHistoryLearning() {
   return (
     <Card className="bg-gray-900/50 border-gold/20">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-gold">
-          <Brain className="w-5 h-5" />
-          Trade History Learning
-        </CardTitle>
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center gap-2 text-gold">
+            <Brain className="w-5 h-5" />
+            Trade History Learning
+          </CardTitle>
+          <Button
+            variant="outline"
+            size="sm"
+            className="border-gray-600 text-gray-400 hover:text-white hover:border-gray-500"
+            onClick={() => clearLearningMutation.mutate()}
+            disabled={clearLearningMutation.isPending}
+          >
+            {clearLearningMutation.isPending ? (
+              <RefreshCw className="w-4 h-4 animate-spin mr-1" />
+            ) : (
+              <Trash2 className="w-4 h-4 mr-1" />
+            )}
+            Clear Data
+          </Button>
+        </div>
         <CardDescription>
           Analyze your past trades by pair to identify patterns and generate AI strategy improvements
         </CardDescription>
@@ -794,6 +833,29 @@ function ReversalAlertPanel() {
     },
   });
 
+  const dismissAlertMutation = useMutation({
+    mutationFn: async (tradeId: number) => {
+      const res = await apiRequest('DELETE', `/api/ai-trade-results/${tradeId}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Alert Dismissed",
+        description: "Trade removed from monitoring. Waiting for better signal.",
+      });
+      refetch();
+      queryClient.invalidateQueries({ queryKey: ['/api/ai-trade-accuracy'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/ai-trade-results'] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to Dismiss",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   const getStrengthColor = (strength: string) => {
     switch (strength) {
       case 'CRITICAL': return 'text-red-400 bg-red-900/30 border-red-500/50';
@@ -887,24 +949,40 @@ function ReversalAlertPanel() {
                     <p className="text-xs text-gray-500">
                       Flip to catch reversal & recover losses
                     </p>
-                    <Button
-                      size="sm"
-                      className={`${alert.newSignal === 'BUY' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'}`}
-                      onClick={() => flipTradeMutation.mutate({
-                        tradeId: alert.tradeId,
-                        symbol: alert.symbol,
-                        currentDirection: alert.tradeDirection,
-                        newDirection: alert.newSignal
-                      })}
-                      disabled={flipTradeMutation.isPending}
-                    >
-                      {flipTradeMutation.isPending ? (
-                        <RefreshCw className="w-4 h-4 animate-spin mr-1" />
-                      ) : (
-                        <Zap className="w-4 h-4 mr-1" />
-                      )}
-                      Flip to {alert.newSignal}
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="border-gray-600 text-gray-400 hover:text-white hover:border-gray-500"
+                        onClick={() => dismissAlertMutation.mutate(alert.tradeId)}
+                        disabled={dismissAlertMutation.isPending}
+                      >
+                        {dismissAlertMutation.isPending ? (
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <XCircle className="w-4 h-4" />
+                        )}
+                        <span className="ml-1 hidden sm:inline">Dismiss</span>
+                      </Button>
+                      <Button
+                        size="sm"
+                        className={`${alert.newSignal === 'BUY' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'}`}
+                        onClick={() => flipTradeMutation.mutate({
+                          tradeId: alert.tradeId,
+                          symbol: alert.symbol,
+                          currentDirection: alert.tradeDirection,
+                          newDirection: alert.newSignal
+                        })}
+                        disabled={flipTradeMutation.isPending}
+                      >
+                        {flipTradeMutation.isPending ? (
+                          <RefreshCw className="w-4 h-4 animate-spin mr-1" />
+                        ) : (
+                          <Zap className="w-4 h-4 mr-1" />
+                        )}
+                        Flip to {alert.newSignal}
+                      </Button>
+                    </div>
                   </div>
                 </motion.div>
               ))}

@@ -5007,6 +5007,23 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           lastUpdated: new Date().toISOString(),
         };
         
+        // Update AI trade results with WIN/LOSS based on closed trades
+        for (const closedTrade of closedTrades) {
+          if (closedTrade.ticket) {
+            const existingResult = await storage.getAiTradeResultByTicket(token.userId, closedTrade.ticket.toString());
+            // Update trades that are PENDING or have no result yet
+            if (existingResult && (!existingResult.result || existingResult.result === 'PENDING')) {
+              const result = closedTrade.profit > 0 ? 'WIN' : (closedTrade.profit < 0 ? 'LOSS' : 'BREAKEVEN');
+              await storage.updateAiTradeResult(existingResult.id, token.userId, {
+                result,
+                exitPrice: closedTrade.closePrice || 0,
+                profitLoss: closedTrade.profit || 0,
+                closedAt: new Date(),
+              });
+            }
+          }
+        }
+        
         // Analyze patterns for learning recommendations per symbol
         const symbolStats: Record<string, { 
           wins: number; losses: number; 
@@ -5853,6 +5870,45 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
     } catch (error: any) {
       console.error("Error updating AI trade result:", error);
       res.status(500).json({ error: "Failed to update trade result" });
+    }
+  });
+
+  // Delete/dismiss a pending trade (for canceling reversal alerts)
+  app.delete("/api/ai-trade-results/:id", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    try {
+      const userId = (req.user as User).id;
+      const id = parseInt(req.params.id);
+      await storage.deleteAiTradeResult(id, userId);
+      res.json({ success: true, message: "Trade dismissed" });
+    } catch (error: any) {
+      console.error("Error deleting AI trade result:", error);
+      res.status(500).json({ error: "Failed to dismiss trade" });
+    }
+  });
+
+  // Clear trade history learning data for a user
+  app.delete("/api/mt5/learning-recommendations", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    try {
+      const userId = (req.user as User).id;
+      
+      // Clear learning recommendations cache
+      const learningCache = (global as any).mt5LearningRecommendations || {};
+      delete learningCache[userId];
+      
+      // Clear closed trades cache
+      const closedTradesCache = (global as any).mt5ClosedTrades || {};
+      delete closedTradesCache[userId];
+      
+      res.json({ success: true, message: "Trade history learning data cleared" });
+    } catch (error: any) {
+      console.error("Error clearing learning data:", error);
+      res.status(500).json({ error: "Failed to clear learning data" });
     }
   });
 
