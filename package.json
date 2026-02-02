@@ -53,6 +53,7 @@
     "@types/multer": "^1.4.12",
     "@use-gesture/react": "^10.3.1",
     "axios": "^1.13.2",
+    "bigint-buffer-fixed": "^1.1.6",
     "buffer": "^6.0.3",
     "canvas": "^3.1.2",
     "canvas-confetti": "^1.9.3",
@@ -130,5 +131,8 @@
   "optionalDependencies": {
     "bufferutil": "^4.0.8",
     "uuid-binary": "^1.0.0"
+  },
+  "overrides": {
+    "bigint-buffer": "npm:bigint-buffer-fixed@^1.1.6"
   }
 }
