@@ -8961,14 +8961,22 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   ): Promise<boolean> {
     try {
       const nacl = await import('tweetnacl');
+      const naclModule = nacl.default || nacl;
 
       const messageBytes = new TextEncoder().encode(message);
       
-      // Client sends signature as base64 (Buffer.from(sig).toString('base64'))
+      // Client sends signature as base64 (btoa)
       const signatureBytes = Uint8Array.from(Buffer.from(signature, 'base64'));
       
       // Wallet address is base58 encoded
       const publicKeyBytes = decodeBase58(walletAddress);
+
+      console.log('Signature verification:', {
+        messageLength: messageBytes.length,
+        signatureLength: signatureBytes.length,
+        publicKeyLength: publicKeyBytes.length,
+        walletAddress: walletAddress.slice(0, 8) + '...'
+      });
 
       if (publicKeyBytes.length !== 32) {
         console.error('Invalid public key length:', publicKeyBytes.length);
@@ -8980,7 +8988,9 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         return false;
       }
 
-      return nacl.sign.detached.verify(messageBytes, signatureBytes, publicKeyBytes);
+      const isValid = naclModule.sign.detached.verify(messageBytes, signatureBytes, publicKeyBytes);
+      console.log('Signature valid:', isValid);
+      return isValid;
     } catch (err) {
       console.error('Signature verification error:', err);
       return false;
