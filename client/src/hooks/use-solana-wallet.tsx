@@ -44,7 +44,24 @@ const WalletContext = createContext<WalletContextType | null>(null);
 
 const VEDD_TOKEN_MINT = 'Ch7WbPBy5XjL1UULwWYwh75DsVdXhFUVXtiNvNGopump';
 const AMBASSADOR_NFT_COLLECTION = 'VEDDAMBxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
-const SOLANA_RPC = 'https://api.mainnet-beta.solana.com';
+const SOLANA_RPC_ENDPOINTS = [
+  'https://api.mainnet-beta.solana.com',
+  'https://solana-mainnet.g.alchemy.com/v2/demo',
+  'https://rpc.ankr.com/solana',
+];
+
+const getWorkingRPC = async (): Promise<string> => {
+  for (const rpc of SOLANA_RPC_ENDPOINTS) {
+    try {
+      const connection = new Connection(rpc, 'confirmed');
+      await connection.getSlot();
+      return rpc;
+    } catch {
+      continue;
+    }
+  }
+  return SOLANA_RPC_ENDPOINTS[0];
+};
 
 const getPhantomProvider = (): SolanaProvider | null => {
   if (typeof window === 'undefined') return null;
@@ -103,9 +120,11 @@ export function SolanaWalletProvider({ children }: { children: ReactNode }) {
 
   const fetchTokenBalances = useCallback(async (address: string): Promise<Partial<WalletData>> => {
     try {
-      const connection = new Connection(SOLANA_RPC, 'confirmed');
+      const rpcUrl = await getWorkingRPC();
+      const connection = new Connection(rpcUrl, 'confirmed');
       const publicKey = new PublicKey(address);
       const solBalance = await connection.getBalance(publicKey);
+      console.log('Fetched SOL balance:', solBalance / LAMPORTS_PER_SOL, 'from RPC:', rpcUrl);
       
       let veddBalance = 0;
       let isAmbassador = false;
@@ -250,7 +269,7 @@ export function SolanaWalletProvider({ children }: { children: ReactNode }) {
     }
 
     try {
-      const connection = new Connection(SOLANA_RPC, 'confirmed');
+      const connection = new Connection(SOLANA_RPC_ENDPOINTS[0], 'confirmed');
       
       if (provider.signAndSendTransaction) {
         const { signature } = await provider.signAndSendTransaction(transaction);
@@ -275,7 +294,7 @@ export function SolanaWalletProvider({ children }: { children: ReactNode }) {
   }, [walletType]);
 
   const getConnection = useCallback(() => {
-    return new Connection(SOLANA_RPC, 'confirmed');
+    return new Connection(SOLANA_RPC_ENDPOINTS[0], 'confirmed');
   }, []);
 
   const getPublicKey = useCallback((): PublicKey | null => {

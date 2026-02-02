@@ -10,8 +10,24 @@ function base64ToUint8Array(base64: string): Uint8Array {
   return bytes;
 }
 
-const SOLANA_RPC = 'https://api.mainnet-beta.solana.com';
+const SOLANA_RPC_ENDPOINTS = [
+  'https://api.mainnet-beta.solana.com',
+  'https://rpc.ankr.com/solana',
+];
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
+
+const getWorkingConnection = async (): Promise<Connection> => {
+  for (const rpc of SOLANA_RPC_ENDPOINTS) {
+    try {
+      const connection = new Connection(rpc, 'confirmed');
+      await connection.getSlot();
+      return connection;
+    } catch {
+      continue;
+    }
+  }
+  return new Connection(SOLANA_RPC_ENDPOINTS[0], 'confirmed');
+};
 
 const jupiterQuoteApi = createJupiterApiClient();
 
