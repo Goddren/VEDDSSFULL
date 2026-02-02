@@ -726,6 +726,21 @@ export default function SubscriptionPage() {
                   </td>
                 ))}
               </tr>
+              <tr className="hover:bg-muted/20 transition-colors">
+                <td className="px-6 py-4 text-sm font-medium">Solana Token Scanner</td>
+                {plans?.map((plan) => (
+                  <td key={plan.id} className={`px-6 py-4 text-center ${subscription?.planId === plan.id ? 'bg-primary/5' : ''}`}>
+                    {plan.id >= 2 ? 
+                      <div className="flex items-center justify-center">
+                        <div className="p-1 rounded-full bg-primary/10">
+                          <Check className="h-4 w-4 text-primary" />
+                        </div>
+                      </div> : 
+                      <span className="text-muted-foreground">-</span>
+                    }
+                  </td>
+                ))}
+              </tr>
 
               {/* Group 3: Premium Features */}
               <tr className="bg-muted/30">

@@ -1615,6 +1615,77 @@ const trainingModules: TrainingModule[] = [
     ]
   },
   {
+    id: 'solana-scanner',
+    title: 'Solana Token Scanner',
+    description: 'How to use the AI-powered Solana token scanner for crypto trading signals',
+    duration: '20 min',
+    icon: Wallet,
+    image: platformsImg,
+    lessons: [
+      {
+        id: 'solana-1',
+        title: 'Understanding the Solana Scanner',
+        content: [
+          'The Solana Token Scanner uses AI to analyze trending tokens on the Solana blockchain',
+          'It scans DexScreener for real-time token data including price, volume, and liquidity',
+          'AI calculates sentiment, tokenomics, and whale activity scores for each token',
+          'Generates signals: STRONG_BUY, BUY, HOLD, SELL, or STRONG_SELL with confidence %',
+          'Shows recommended hold duration, risk level, entry price, target, and stop-loss',
+          'Perfect for traders who want to catch trending Solana memecoins and tokens'
+        ],
+        tips: [
+          'Emphasize the AI-powered analysis - this is unique in the crypto space',
+          'Show how the scanner updates with fresh trending tokens',
+          'Highlight the risk level indicator for responsible trading'
+        ]
+      },
+      {
+        id: 'solana-2',
+        title: 'Connecting Your Phantom Wallet',
+        content: [
+          'The scanner integrates with Phantom wallet for live trading',
+          'On desktop: Install the Phantom browser extension and click Connect Phantom',
+          'On mobile: Open the page inside the Phantom app browser',
+          'Once connected, your real SOL balance is displayed',
+          'This enables one-click buying of tokens directly from signal cards',
+          'Trades execute through Jupiter DEX for best swap rates on Solana'
+        ],
+        tips: [
+          'Walk users through Phantom wallet installation step-by-step',
+          'Remind them to never share seed phrases or private keys',
+          'Mobile users need to use the Phantom in-app browser'
+        ]
+      },
+      {
+        id: 'solana-3',
+        title: 'Auto-Trading & Rebalancing',
+        content: [
+          'Auto-Trade mode automatically buys tokens with strong buy signals',
+          'Set trade amount in SOL, take profit %, and stop loss % thresholds',
+          'Auto-Rebalance sells losing tokens and replaces with better performers',
+          'Configure rebalance threshold (e.g., -10%) to limit losses',
+          'Pump/Dump Protection monitors for rapid price drops and auto-exits',
+          'All settings are customizable in the Settings tab'
+        ],
+        tips: [
+          'Start with small trade amounts to test the system',
+          'Explain that crypto is highly volatile - use risk management',
+          'Auto-rebalance helps recover from bad trades automatically'
+        ],
+        quiz: {
+          question: 'What does Auto-Rebalance do when a token drops below the threshold?',
+          options: [
+            'Sends you a notification only',
+            'Automatically sells it and buys a better-performing token',
+            'Doubles down on the position',
+            'Pauses all trading'
+          ],
+          correct: 1
+        }
+      }
+    ]
+  },
+  {
     id: 'platform-essentials',
     title: 'Platform Essentials',
     description: 'What you need to know about MT5, TradeLocker, and TradingView',

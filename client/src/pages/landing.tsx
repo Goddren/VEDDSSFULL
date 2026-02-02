@@ -526,6 +526,13 @@ export default function LandingPage() {
                   description: "Automatically pauses trading during sideways/ranging markets using ADX and ATR analysis. Resumes when trends develop to avoid whipsaws.",
                   color: "bg-rose-50 dark:bg-rose-900/20",
                   bgGradient: "bg-theme-light border border-theme-light"
+                },
+                {
+                  icon: <Wallet className="h-7 w-7 text-purple-500" />,
+                  title: "Solana Token Scanner",
+                  description: "AI-powered scanner that analyzes trending Solana tokens for buy/sell signals. Connect your Phantom wallet for auto-trading with Jupiter DEX integration.",
+                  color: "bg-purple-50 dark:bg-purple-900/20",
+                  bgGradient: "bg-theme-light border border-theme-light"
                 }
               ]}
               className="min-h-[250px] md:min-h-[280px]"
