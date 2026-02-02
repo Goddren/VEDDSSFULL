@@ -297,6 +297,8 @@ interface TradingWallet {
   takeProfitPercent: number;
   stopLossPercent: number;
   minSignalConfidence: number;
+  isAutoRebalanceEnabled: boolean;
+  rebalanceThresholdPercent: number;
 }
 
 interface TokenPosition {
@@ -565,6 +567,43 @@ function AutoTradingPanel() {
                 max={10}
                 step={1}
               />
+            </div>
+            
+            <div className="p-3 bg-purple-500/10 rounded-lg border border-purple-500/30">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-start gap-2">
+                  <RefreshCw className="h-4 w-4 text-purple-500 mt-0.5" />
+                  <div className="text-sm">
+                    <p className="font-medium text-purple-500">Auto-Rebalance</p>
+                    <p className="text-muted-foreground text-xs mt-1">
+                      Automatically sell losing tokens and replace with better performers
+                    </p>
+                  </div>
+                </div>
+                <Switch
+                  checked={wallet?.isAutoRebalanceEnabled || false}
+                  onCheckedChange={(checked) => updateSettingsMutation.mutate({ isAutoRebalanceEnabled: checked })}
+                  disabled={!wallet || walletLoading}
+                />
+              </div>
+              {wallet?.isAutoRebalanceEnabled && (
+                <div className="space-y-2 pt-2 border-t border-purple-500/20">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs">Rebalance at</Label>
+                    <span className="text-sm font-medium text-red-400">-{wallet?.rebalanceThresholdPercent || 10}%</span>
+                  </div>
+                  <Slider
+                    value={[wallet?.rebalanceThresholdPercent || 10]}
+                    onValueChange={([v]) => updateSettingsMutation.mutate({ rebalanceThresholdPercent: v })}
+                    min={5}
+                    max={30}
+                    step={5}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    When a token drops {wallet?.rebalanceThresholdPercent || 10}%, sell it and buy a better signal
+                  </p>
+                </div>
+              )}
             </div>
             
             <div className="p-3 bg-yellow-500/10 rounded-lg border border-yellow-500/30">

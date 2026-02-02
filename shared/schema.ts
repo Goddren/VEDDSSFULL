@@ -1453,6 +1453,8 @@ export const tradingWallets = pgTable("trading_wallets", {
   takeProfitPercent: real("take_profit_percent").notNull().default(50), // Auto sell at +X%
   stopLossPercent: real("stop_loss_percent").notNull().default(20), // Auto sell at -X%
   minSignalConfidence: integer("min_signal_confidence").notNull().default(70), // Min confidence to buy
+  isAutoRebalanceEnabled: boolean("is_auto_rebalance_enabled").notNull().default(false), // Auto-sell losers and buy better tokens
+  rebalanceThresholdPercent: real("rebalance_threshold_percent").notNull().default(10), // Sell when token drops X% and find replacement
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at"),
 });
