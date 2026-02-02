@@ -45,23 +45,10 @@ const WalletContext = createContext<WalletContextType | null>(null);
 const VEDD_TOKEN_MINT = 'Ch7WbPBy5XjL1UULwWYwh75DsVdXhFUVXtiNvNGopump';
 const AMBASSADOR_NFT_COLLECTION = 'VEDDAMBxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
 const SOLANA_RPC_ENDPOINTS = [
-  'https://api.mainnet-beta.solana.com',
-  'https://solana-mainnet.g.alchemy.com/v2/demo',
   'https://rpc.ankr.com/solana',
+  'https://api.mainnet-beta.solana.com',
+  'https://solana-api.projectserum.com',
 ];
-
-const getWorkingRPC = async (): Promise<string> => {
-  for (const rpc of SOLANA_RPC_ENDPOINTS) {
-    try {
-      const connection = new Connection(rpc, 'confirmed');
-      await connection.getSlot();
-      return rpc;
-    } catch {
-      continue;
-    }
-  }
-  return SOLANA_RPC_ENDPOINTS[0];
-};
 
 const getPhantomProvider = (): SolanaProvider | null => {
   if (typeof window === 'undefined') return null;
@@ -119,53 +106,61 @@ export function SolanaWalletProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const fetchTokenBalances = useCallback(async (address: string): Promise<Partial<WalletData>> => {
-    try {
-      const rpcUrl = await getWorkingRPC();
-      const connection = new Connection(rpcUrl, 'confirmed');
-      const publicKey = new PublicKey(address);
-      const solBalance = await connection.getBalance(publicKey);
-      console.log('Fetched SOL balance:', solBalance / LAMPORTS_PER_SOL, 'from RPC:', rpcUrl);
-      
-      let veddBalance = 0;
-      let isAmbassador = false;
-      let ambassadorNftMint: string | null = null;
-
+    let solBalance = 0;
+    let veddBalance = 0;
+    let isAmbassador = false;
+    let ambassadorNftMint: string | null = null;
+    
+    const publicKey = new PublicKey(address);
+    
+    for (const rpcUrl of SOLANA_RPC_ENDPOINTS) {
       try {
-        const tokenAccounts = await connection.getParsedTokenAccountsByOwner(publicKey, {
-          programId: new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA')
-        });
+        console.log('Trying RPC:', rpcUrl);
+        const connection = new Connection(rpcUrl, { commitment: 'confirmed' });
+        
+        const balance = await connection.getBalance(publicKey);
+        solBalance = balance;
+        console.log('Fetched SOL balance:', balance / LAMPORTS_PER_SOL, 'SOL from RPC:', rpcUrl);
+        
+        try {
+          const tokenAccounts = await connection.getParsedTokenAccountsByOwner(publicKey, {
+            programId: new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA')
+          });
 
-        for (const account of tokenAccounts.value) {
-          const parsedInfo = account.account.data.parsed.info;
-          const mint = parsedInfo.mint;
-          const balance = parsedInfo.tokenAmount.uiAmount || 0;
+          for (const account of tokenAccounts.value) {
+            const parsedInfo = account.account.data.parsed.info;
+            const mint = parsedInfo.mint;
+            const tokenBalance = parsedInfo.tokenAmount.uiAmount || 0;
 
-          if (mint === VEDD_TOKEN_MINT) {
-            veddBalance = balance;
-          }
-          
-          if (mint.startsWith('VEDDAMB') || parsedInfo.tokenAmount.decimals === 0) {
-            const nftBalance = parsedInfo.tokenAmount.amount;
-            if (nftBalance === '1') {
-              isAmbassador = true;
-              ambassadorNftMint = mint;
+            if (mint === VEDD_TOKEN_MINT) {
+              veddBalance = tokenBalance;
+            }
+            
+            if (mint.startsWith('VEDDAMB') || parsedInfo.tokenAmount.decimals === 0) {
+              const nftBalance = parsedInfo.tokenAmount.amount;
+              if (nftBalance === '1') {
+                isAmbassador = true;
+                ambassadorNftMint = mint;
+              }
             }
           }
+        } catch (tokenError) {
+          console.log('Token fetch skipped:', tokenError);
         }
-      } catch (tokenError) {
-        console.log('Token fetch skipped (may be devnet or no tokens):', tokenError);
+        
+        break;
+      } catch (rpcError) {
+        console.warn('RPC failed:', rpcUrl, rpcError);
+        continue;
       }
-
-      return {
-        solBalance: solBalance / LAMPORTS_PER_SOL,
-        veddBalance,
-        isAmbassador,
-        ambassadorNftMint,
-      };
-    } catch (err) {
-      console.error('Error fetching token balances:', err);
-      return { solBalance: 0, veddBalance: 0, isAmbassador: false, ambassadorNftMint: null };
     }
+
+    return {
+      solBalance: solBalance / LAMPORTS_PER_SOL,
+      veddBalance,
+      isAmbassador,
+      ambassadorNftMint,
+    };
   }, []);
 
   const refreshWalletData = useCallback(async () => {
