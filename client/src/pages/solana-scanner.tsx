@@ -26,10 +26,13 @@ import {
   Power,
   Target,
   Shield,
-  PlusCircle
+  PlusCircle,
+  LinkIcon
 } from 'lucide-react';
+import { buyToken, sellToken } from '@/lib/jupiter-swap';
 import { SiSolana } from 'react-icons/si';
 import { useToast } from '@/hooks/use-toast';
+import { useSolanaWallet } from '@/hooks/use-solana-wallet';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
@@ -105,7 +108,7 @@ function formatPrice(price: string): string {
   return `$${num.toFixed(2)}`;
 }
 
-function TokenCard({ analysis }: { analysis: TokenAnalysis }) {
+function TokenCard({ analysis, onBuy, isBuying }: { analysis: TokenAnalysis; onBuy?: (tokenAddress: string, symbol: string) => void; isBuying?: boolean }) {
   const { toast } = useToast();
   const { token, signal, confidence, holdDuration, reasoning, sentimentScore, tokenomicsScore, whaleScore, riskLevel, entryPrice, targetPrice, stopLoss } = analysis;
   
@@ -251,7 +254,7 @@ function TokenCard({ analysis }: { analysis: TokenAnalysis }) {
         <div className="flex gap-2">
           <Button size="sm" variant="outline" className="flex-1" onClick={copyAddress}>
             <Copy className="h-3 w-3 mr-1" />
-            Copy Address
+            Copy
           </Button>
           <Button 
             size="sm" 
@@ -260,8 +263,23 @@ function TokenCard({ analysis }: { analysis: TokenAnalysis }) {
             onClick={() => window.open(`https://dexscreener.com/solana/${token.pairAddress}`, '_blank')}
           >
             <ExternalLink className="h-3 w-3 mr-1" />
-            DexScreener
+            Chart
           </Button>
+          {onBuy && (signal === 'STRONG_BUY' || signal === 'BUY') && (
+            <Button 
+              size="sm" 
+              className="flex-1 bg-green-600 hover:bg-green-700"
+              onClick={() => onBuy(token.address, token.symbol)}
+              disabled={isBuying}
+            >
+              {isBuying ? (
+                <RefreshCw className="h-3 w-3 mr-1 animate-spin" />
+              ) : (
+                <Zap className="h-3 w-3 mr-1" />
+              )}
+              Buy
+            </Button>
+          )}
         </div>
       </CardContent>
     </Card>
@@ -285,9 +303,11 @@ interface TokenPosition {
   id: number;
   tokenSymbol: string;
   tokenName: string;
+  tokenAddress: string;
   entryPriceSol: number;
   currentPriceSol: number;
   amountSolInvested: number;
+  tokenAmount: number;
   unrealizedPL: number;
   status: string;
   signalType: string;
@@ -297,6 +317,8 @@ interface TokenPosition {
 function AutoTradingPanel() {
   const { toast } = useToast();
   const [depositAmount, setDepositAmount] = useState('');
+  const [buyingToken, setBuyingToken] = useState<string | null>(null);
+  const { connected, walletData, connect, signAndSendTransaction, getPublicKey, refreshWalletData } = useSolanaWallet();
   
   const { data: wallet, isLoading: walletLoading, refetch: refetchWallet } = useQuery<TradingWallet>({
     queryKey: ['/api/trading/wallet'],
@@ -401,22 +423,29 @@ function AutoTradingPanel() {
           </div>
         </div>
         
-        <div className="flex gap-2">
-          <Input
-            type="number"
-            placeholder="Amount in SOL"
-            value={depositAmount}
-            onChange={(e) => setDepositAmount(e.target.value)}
-            className="max-w-[150px]"
-          />
-          <Button
-            onClick={() => depositAmount && depositMutation.mutate(parseFloat(depositAmount))}
-            disabled={!depositAmount || depositMutation.isPending}
-          >
-            <PlusCircle className="h-4 w-4 mr-1" />
-            Add Funds (Demo)
-          </Button>
-        </div>
+        {!connected ? (
+          <div className="flex gap-2 items-center">
+            <Badge variant="outline" className="text-yellow-400 border-yellow-500/30">
+              <AlertTriangle className="h-3 w-3 mr-1" />
+              Wallet Not Connected
+            </Badge>
+            <Button onClick={() => connect('phantom')} variant="outline" size="sm">
+              <LinkIcon className="h-4 w-4 mr-1" />
+              Connect Phantom
+            </Button>
+          </div>
+        ) : (
+          <div className="flex gap-2 items-center">
+            <Badge className="bg-green-500/20 text-green-400 border-green-500/30">
+              <CheckCircle className="h-3 w-3 mr-1" />
+              Wallet: {walletData?.address?.slice(0, 4)}...{walletData?.address?.slice(-4)}
+            </Badge>
+            <Badge variant="outline">
+              <SiSolana className="h-3 w-3 mr-1" />
+              {walletData?.solBalance?.toFixed(4) || '0'} SOL
+            </Badge>
+          </div>
+        )}
         
         <Tabs defaultValue="positions" className="w-full">
           <TabsList className="grid w-full grid-cols-2">
@@ -558,7 +587,13 @@ function AutoTradingPanel() {
 
 export default function SolanaScanner() {
   const [searchQuery, setSearchQuery] = useState('');
+  const [buyingToken, setBuyingToken] = useState<string | null>(null);
   const { toast } = useToast();
+  const { connected, walletData, signAndSendTransaction, getPublicKey, refreshWalletData } = useSolanaWallet();
+  
+  const { data: wallet } = useQuery<TradingWallet>({
+    queryKey: ['/api/trading/wallet'],
+  });
   
   const { data: scanData, isLoading, refetch, isFetching } = useQuery<ScanResponse>({
     queryKey: ['/api/solana/scan', { limit: 12 }],
@@ -568,6 +603,52 @@ export default function SolanaScanner() {
   
   const [searchResults, setSearchResults] = useState<TokenAnalysis[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  
+  const handleBuyToken = async (tokenAddress: string, tokenSymbol: string) => {
+    if (!connected) {
+      toast({ title: 'Connect your wallet first', variant: 'destructive' });
+      return;
+    }
+    
+    const publicKey = getPublicKey();
+    if (!publicKey) {
+      toast({ title: 'Wallet not ready', variant: 'destructive' });
+      return;
+    }
+    
+    const tradeAmount = wallet?.tradeAmountSol || 0.1;
+    if ((walletData?.solBalance || 0) < tradeAmount) {
+      toast({ title: 'Insufficient SOL balance', description: `Need at least ${tradeAmount} SOL`, variant: 'destructive' });
+      return;
+    }
+    
+    setBuyingToken(tokenAddress);
+    toast({ title: `Buying ${tokenSymbol}...`, description: `Swapping ${tradeAmount} SOL via Jupiter` });
+    
+    try {
+      const result = await buyToken(
+        tokenAddress,
+        tradeAmount,
+        signAndSendTransaction,
+        publicKey.toString(),
+        100
+      );
+      
+      if (result.success) {
+        toast({ 
+          title: 'Trade executed!', 
+          description: `Bought ${tokenSymbol} with ${result.inputAmount.toFixed(4)} SOL - TX: ${result.signature?.slice(0, 8)}...`
+        });
+        refreshWalletData();
+      } else {
+        toast({ title: 'Trade failed', description: result.error, variant: 'destructive' });
+      }
+    } catch (error: any) {
+      toast({ title: 'Trade error', description: error.message, variant: 'destructive' });
+    } finally {
+      setBuyingToken(null);
+    }
+  };
   
   const searchMutation = useMutation({
     mutationFn: async (query: string) => {
@@ -723,7 +804,7 @@ export default function SolanaScanner() {
           </div>
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
             {searchResults.map((analysis, idx) => (
-              <TokenCard key={analysis.token.address + idx} analysis={analysis} />
+              <TokenCard key={analysis.token.address + idx} analysis={analysis} onBuy={handleBuyToken} isBuying={buyingToken === analysis.token.address} />
             ))}
           </div>
           <hr className="my-8" />
@@ -750,7 +831,7 @@ export default function SolanaScanner() {
       ) : tokens.length > 0 ? (
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
           {tokens.map((analysis, idx) => (
-            <TokenCard key={analysis.token.address + idx} analysis={analysis} />
+            <TokenCard key={analysis.token.address + idx} analysis={analysis} onBuy={handleBuyToken} isBuying={buyingToken === analysis.token.address} />
           ))}
         </div>
       ) : (

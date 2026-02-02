@@ -13,6 +13,7 @@
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",
     "@jridgewell/trace-mapping": "^0.3.25",
+    "@jup-ag/api": "^6.0.48",
     "@neondatabase/serverless": "^0.10.4",
     "@radix-ui/react-accordion": "^1.2.1",
     "@radix-ui/react-alert-dialog": "^1.1.2",
@@ -52,6 +53,7 @@
     "@types/multer": "^1.4.12",
     "@use-gesture/react": "^10.3.1",
     "axios": "^1.13.2",
+    "buffer": "^6.0.3",
     "canvas": "^3.1.2",
     "canvas-confetti": "^1.9.3",
     "class-variance-authority": "^0.7.0",

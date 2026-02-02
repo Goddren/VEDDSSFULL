@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
-import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { Connection, PublicKey, LAMPORTS_PER_SOL, VersionedTransaction, Transaction } from '@solana/web3.js';
 
 interface SolanaProvider {
   isPhantom?: boolean;
@@ -8,6 +8,8 @@ interface SolanaProvider {
   connect: (options?: { onlyIfTrusted?: boolean }) => Promise<{ publicKey: { toString: () => string } }>;
   disconnect: () => Promise<void>;
   signMessage?: (message: Uint8Array, encoding: string) => Promise<{ signature: Uint8Array }>;
+  signTransaction?: (transaction: VersionedTransaction | Transaction) => Promise<VersionedTransaction | Transaction>;
+  signAndSendTransaction?: (transaction: VersionedTransaction | Transaction, options?: any) => Promise<{ signature: string }>;
   on: (event: string, callback: (...args: any[]) => void) => void;
   off: (event: string, callback: (...args: any[]) => void) => void;
 }
@@ -30,9 +32,12 @@ interface WalletContextType {
   connect: (type?: WalletType) => Promise<void>;
   disconnect: () => Promise<void>;
   signMessage: (message: string) => Promise<string | null>;
+  signAndSendTransaction: (transaction: VersionedTransaction) => Promise<string | null>;
   refreshWalletData: () => Promise<void>;
   error: string | null;
   availableWallets: WalletType[];
+  getConnection: () => Connection;
+  getPublicKey: () => PublicKey | null;
 }
 
 const WalletContext = createContext<WalletContextType | null>(null);
@@ -237,6 +242,50 @@ export function SolanaWalletProvider({ children }: { children: ReactNode }) {
     }
   }, [walletType]);
 
+  const signAndSendTransaction = useCallback(async (transaction: VersionedTransaction): Promise<string | null> => {
+    const provider = getProvider(walletType);
+    if (!provider) {
+      setError('No wallet connected');
+      return null;
+    }
+
+    try {
+      const connection = new Connection(SOLANA_RPC, 'confirmed');
+      
+      if (provider.signAndSendTransaction) {
+        const { signature } = await provider.signAndSendTransaction(transaction);
+        return signature;
+      } else if (provider.signTransaction) {
+        const signedTx = await provider.signTransaction(transaction) as VersionedTransaction;
+        const rawTransaction = signedTx.serialize();
+        const signature = await connection.sendRawTransaction(rawTransaction, {
+          skipPreflight: false,
+          maxRetries: 2,
+        });
+        return signature;
+      } else {
+        setError('Wallet does not support transaction signing');
+        return null;
+      }
+    } catch (err: any) {
+      console.error('Transaction signing error:', err);
+      setError(err.message || 'Failed to sign and send transaction');
+      return null;
+    }
+  }, [walletType]);
+
+  const getConnection = useCallback(() => {
+    return new Connection(SOLANA_RPC, 'confirmed');
+  }, []);
+
+  const getPublicKey = useCallback((): PublicKey | null => {
+    const provider = getProvider(walletType);
+    if (provider?.publicKey) {
+      return new PublicKey(provider.publicKey.toString());
+    }
+    return null;
+  }, [walletType]);
+
   useEffect(() => {
     const provider = getPhantomProvider();
     if (!provider) return;
@@ -285,9 +334,12 @@ export function SolanaWalletProvider({ children }: { children: ReactNode }) {
         connect,
         disconnect,
         signMessage,
+        signAndSendTransaction,
         refreshWalletData,
         error,
         availableWallets,
+        getConnection,
+        getPublicKey,
       }}
     >
       {children}
