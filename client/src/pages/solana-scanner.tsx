@@ -439,15 +439,28 @@ function AutoTradingPanel() {
               <Button 
                 variant="ghost" 
                 size="sm" 
-                onClick={() => window.open('https://phantom.app/', '_blank')}
+                onClick={() => {
+                  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+                  if (isMobile) {
+                    const currentUrl = encodeURIComponent(window.location.href);
+                    window.location.href = `https://phantom.app/ul/browse/${currentUrl}`;
+                  } else {
+                    window.open('https://phantom.app/', '_blank');
+                  }
+                }}
                 className="text-xs text-muted-foreground"
               >
                 <ExternalLink className="h-3 w-3 mr-1" />
-                Install Phantom
+                {/iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ? 'Open in Phantom App' : 'Install Phantom'}
               </Button>
             </div>
             {error && (
               <p className="text-xs text-red-400">{error}</p>
+            )}
+            {/iPhone|iPad|iPod|Android/i.test(navigator.userAgent) && (
+              <p className="text-xs text-muted-foreground">
+                On mobile, open this page in the Phantom app browser to connect your wallet
+              </p>
             )}
           </div>
         ) : (
