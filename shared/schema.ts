@@ -1433,3 +1433,87 @@ export type AmbassadorScheduleRegistration = typeof ambassadorScheduleRegistrati
 export type InsertAmbassadorScheduleRegistration = z.infer<typeof insertAmbassadorScheduleRegistrationSchema>;
 export type AmbassadorCommunityComment = typeof ambassadorCommunityComments.$inferSelect;
 export type InsertAmbassadorCommunityComment = z.infer<typeof insertAmbassadorCommunityCommentSchema>;
+
+// ============================================
+// Solana Token Auto-Trading System
+// ============================================
+
+// Trading Wallet - Holds SOL for auto-trading tokens
+export const tradingWallets = pgTable("trading_wallets", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull().unique(),
+  solBalance: real("sol_balance").notNull().default(0), // Available SOL for trading
+  lockedBalance: real("locked_balance").notNull().default(0), // SOL in open positions
+  totalDeposited: real("total_deposited").notNull().default(0), // Lifetime deposits
+  totalWithdrawn: real("total_withdrawn").notNull().default(0), // Lifetime withdrawals
+  totalProfitLoss: real("total_profit_loss").notNull().default(0), // Lifetime P/L
+  isAutoTradeEnabled: boolean("is_auto_trade_enabled").notNull().default(false),
+  maxPositions: integer("max_positions").notNull().default(3), // Max concurrent trades
+  tradeAmountSol: real("trade_amount_sol").notNull().default(0.1), // SOL per trade
+  takeProfitPercent: real("take_profit_percent").notNull().default(50), // Auto sell at +X%
+  stopLossPercent: real("stop_loss_percent").notNull().default(20), // Auto sell at -X%
+  minSignalConfidence: integer("min_signal_confidence").notNull().default(70), // Min confidence to buy
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at"),
+});
+
+// Token Positions - Active and closed trades
+export const tokenPositions = pgTable("token_positions", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  tokenAddress: text("token_address").notNull(), // Solana token mint address
+  tokenSymbol: text("token_symbol").notNull(),
+  tokenName: text("token_name"),
+  entryPriceSol: real("entry_price_sol").notNull(), // Price when bought
+  currentPriceSol: real("current_price_sol"), // Latest price
+  amountTokens: real("amount_tokens").notNull(), // Tokens held
+  amountSolInvested: real("amount_sol_invested").notNull(), // SOL spent
+  unrealizedPL: real("unrealized_pl").default(0), // Current P/L
+  realizedPL: real("realized_pl"), // Final P/L when closed
+  status: text("status").notNull().default('open'), // 'open', 'closed', 'stopped_out', 'take_profit'
+  signalConfidence: integer("signal_confidence"), // AI confidence when bought
+  signalType: text("signal_type"), // 'STRONG_BUY', 'BUY', etc.
+  exitReason: text("exit_reason"), // 'manual', 'take_profit', 'stop_loss', 'pump_dump_detected'
+  openedAt: timestamp("opened_at").defaultNow().notNull(),
+  closedAt: timestamp("closed_at"),
+});
+
+// Trading Activity Log - All trades and events
+export const tradingActivityLog = pgTable("trading_activity_log", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  positionId: integer("position_id").references(() => tokenPositions.id),
+  action: text("action").notNull(), // 'deposit', 'withdraw', 'buy', 'sell', 'stop_loss', 'take_profit'
+  tokenAddress: text("token_address"),
+  tokenSymbol: text("token_symbol"),
+  amountSol: real("amount_sol"),
+  amountTokens: real("amount_tokens"),
+  priceSol: real("price_sol"),
+  profitLoss: real("profit_loss"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertTradingWalletSchema = createInsertSchema(tradingWallets).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertTokenPositionSchema = createInsertSchema(tokenPositions).omit({
+  id: true,
+  openedAt: true,
+  closedAt: true,
+});
+
+export const insertTradingActivityLogSchema = createInsertSchema(tradingActivityLog).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type TradingWallet = typeof tradingWallets.$inferSelect;
+export type InsertTradingWallet = z.infer<typeof insertTradingWalletSchema>;
+export type TokenPosition = typeof tokenPositions.$inferSelect;
+export type InsertTokenPosition = z.infer<typeof insertTokenPositionSchema>;
+export type TradingActivityLog = typeof tradingActivityLog.$inferSelect;
+export type InsertTradingActivityLog = z.infer<typeof insertTradingActivityLogSchema>;

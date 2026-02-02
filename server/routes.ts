@@ -9717,6 +9717,179 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     }
   });
 
+  // ============================================
+  // Auto-Trading Wallet API
+  // ============================================
+  
+  // In-memory trading wallet storage (replace with DB in production)
+  const tradingWallets: Record<number, {
+    id: number;
+    solBalance: number;
+    lockedBalance: number;
+    totalProfitLoss: number;
+    isAutoTradeEnabled: boolean;
+    maxPositions: number;
+    tradeAmountSol: number;
+    takeProfitPercent: number;
+    stopLossPercent: number;
+    minSignalConfidence: number;
+  }> = {};
+  
+  const tokenPositions: Record<number, Array<{
+    id: number;
+    userId: number;
+    tokenAddress: string;
+    tokenSymbol: string;
+    tokenName: string;
+    entryPriceSol: number;
+    currentPriceSol: number;
+    amountSolInvested: number;
+    unrealizedPL: number;
+    status: string;
+    signalType: string;
+    openedAt: string;
+  }>> = {};
+  
+  let positionIdCounter = 1;
+  
+  // Get trading wallet
+  app.get("/api/trading/wallet", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const userId = (req.user as User).id;
+    
+    if (!tradingWallets[userId]) {
+      tradingWallets[userId] = {
+        id: userId,
+        solBalance: 0,
+        lockedBalance: 0,
+        totalProfitLoss: 0,
+        isAutoTradeEnabled: false,
+        maxPositions: 3,
+        tradeAmountSol: 0.1,
+        takeProfitPercent: 50,
+        stopLossPercent: 20,
+        minSignalConfidence: 70,
+      };
+    }
+    
+    res.json(tradingWallets[userId]);
+  });
+  
+  // Update trading wallet settings
+  app.patch("/api/trading/wallet", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const userId = (req.user as User).id;
+    
+    if (!tradingWallets[userId]) {
+      tradingWallets[userId] = {
+        id: userId,
+        solBalance: 0,
+        lockedBalance: 0,
+        totalProfitLoss: 0,
+        isAutoTradeEnabled: false,
+        maxPositions: 3,
+        tradeAmountSol: 0.1,
+        takeProfitPercent: 50,
+        stopLossPercent: 20,
+        minSignalConfidence: 70,
+      };
+    }
+    
+    const allowedFields = ['isAutoTradeEnabled', 'maxPositions', 'tradeAmountSol', 'takeProfitPercent', 'stopLossPercent', 'minSignalConfidence'];
+    for (const key of allowedFields) {
+      if (req.body[key] !== undefined) {
+        (tradingWallets[userId] as any)[key] = req.body[key];
+      }
+    }
+    
+    res.json(tradingWallets[userId]);
+  });
+  
+  // Deposit SOL (demo mode)
+  app.post("/api/trading/deposit", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const userId = (req.user as User).id;
+    const { amount } = req.body;
+    
+    if (!amount || amount <= 0) {
+      return res.status(400).json({ error: "Invalid amount" });
+    }
+    
+    if (!tradingWallets[userId]) {
+      tradingWallets[userId] = {
+        id: userId,
+        solBalance: 0,
+        lockedBalance: 0,
+        totalProfitLoss: 0,
+        isAutoTradeEnabled: false,
+        maxPositions: 3,
+        tradeAmountSol: 0.1,
+        takeProfitPercent: 50,
+        stopLossPercent: 20,
+        minSignalConfidence: 70,
+      };
+    }
+    
+    tradingWallets[userId].solBalance += amount;
+    
+    res.json({ 
+      success: true, 
+      message: `Added ${amount} SOL to your trading wallet (demo mode)`,
+      wallet: tradingWallets[userId]
+    });
+  });
+  
+  // Get open positions
+  app.get("/api/trading/positions", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const userId = (req.user as User).id;
+    
+    res.json(tokenPositions[userId] || []);
+  });
+  
+  // Close a position
+  app.post("/api/trading/positions/:id/close", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const userId = (req.user as User).id;
+    const positionId = parseInt(req.params.id);
+    
+    const positions = tokenPositions[userId] || [];
+    const posIndex = positions.findIndex(p => p.id === positionId);
+    
+    if (posIndex === -1) {
+      return res.status(404).json({ error: "Position not found" });
+    }
+    
+    const position = positions[posIndex];
+    const priceDiff = (position.currentPriceSol - position.entryPriceSol);
+    const profitLoss = priceDiff * (position.amountSolInvested / position.entryPriceSol);
+    
+    // Return SOL to wallet
+    tradingWallets[userId].solBalance += position.amountSolInvested + profitLoss;
+    tradingWallets[userId].lockedBalance -= position.amountSolInvested;
+    tradingWallets[userId].totalProfitLoss += profitLoss;
+    
+    // Mark position as closed
+    positions[posIndex].status = 'closed';
+    positions[posIndex].unrealizedPL = profitLoss;
+    
+    res.json({ 
+      success: true, 
+      message: `Position closed with ${profitLoss >= 0 ? '+' : ''}${profitLoss.toFixed(4)} SOL`,
+      position: positions[posIndex]
+    });
+  });
+
   const httpServer = createServer(app);
   
   streamingService.initialize(httpServer);
