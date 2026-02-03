@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/use-auth';
 import { BiBook } from 'react-icons/bi';
+import { SiSolana } from 'react-icons/si';
 import { 
   BarChart2, 
   TrendingUp, 
@@ -811,6 +812,12 @@ const Dashboard: React.FC = () => {
                     <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-amber-600 hover:border-amber-600 transition-all duration-500 ease-out hover:scale-105 animate-in fade-in-0 slide-in-from-bottom-2 duration-500" style={{ animationDelay: "275ms" }}>
                       <Coins className="h-4 w-4 mr-2 text-amber-400" />
                       My Wallet
+                    </Button>
+                  </Link>
+                  <Link href="/solana-scanner">
+                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-purple-600 hover:border-purple-600 transition-all duration-500 ease-out hover:scale-105 animate-in fade-in-0 slide-in-from-bottom-2 duration-500" style={{ animationDelay: "290ms" }}>
+                      <SiSolana className="h-4 w-4 mr-2 text-purple-400" />
+                      Sol Scanner
                     </Button>
                   </Link>
                   <Link href="/training-calendar">
