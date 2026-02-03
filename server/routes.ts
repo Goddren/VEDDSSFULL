@@ -5617,15 +5617,23 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         (global as any).mt5TradeCooldowns[mt5TradeKey] = nowForMT5;
       }
       
-      // Calculate risk-based position sizing (0.25% of balance per trade)
-      const RISK_PERCENT = 0.25; // 0.25% risk per trade
+      // Calculate position sizing based on EA risk settings
+      // Get risk settings from matching EA or use defaults
+      const useRiskPercent = matchingEA?.useRiskPercent ?? true; // Default to risk-based
+      const riskPercentSetting = matchingEA?.riskPercent ?? 0.25; // Default 0.25%
+      const fixedVolumeSetting = matchingEA?.volume ?? 0.01; // Default fixed lot
+      
       const accountData = (global as any).mt5AccountData?.[token.userId];
       const accountBalance = accountData?.balance || 10000; // Default to 10k if no account data
-      const riskAmount = accountBalance * (RISK_PERCENT / 100); // Dollar amount to risk
+      const riskAmount = accountBalance * (riskPercentSetting / 100); // Dollar amount to risk
       
-      // Calculate lot size based on stop loss distance
-      let mt5Volume = 0.01; // Default minimum lot size
-      if (analysis.tradePlan && analysis.tradePlan.entry && analysis.tradePlan.stopLoss) {
+      console.log(`[MT5 Risk Settings] EA: ${matchingEA?.name || 'default'}, UseRisk%: ${useRiskPercent}, Risk: ${riskPercentSetting}%, Fixed: ${fixedVolumeSetting} lots`);
+      
+      // Calculate lot size based on settings
+      let mt5Volume = fixedVolumeSetting; // Start with fixed lot size
+      
+      // Only calculate risk-based sizing if enabled
+      if (useRiskPercent && analysis.tradePlan && analysis.tradePlan.entry && analysis.tradePlan.stopLoss) {
         const entry = analysis.tradePlan.entry;
         const sl = analysis.tradePlan.stopLoss;
         const slDistance = Math.abs(entry - sl);
@@ -5665,13 +5673,16 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           mt5Volume = Math.max(0.01, Math.min(10, Math.round(calculatedLots * 100) / 100));
         }
         
-        console.log(`[MT5 Risk Calc] Balance: $${accountBalance.toFixed(2)}, Risk ${RISK_PERCENT}% = $${riskAmount.toFixed(2)}`);
+        console.log(`[MT5 Risk Calc] Balance: $${accountBalance.toFixed(2)}, Risk ${riskPercentSetting}% = $${riskAmount.toFixed(2)}`);
         console.log(`[MT5 Risk Calc] SL Distance: ${slDistance}, SL Pips: ${slPips.toFixed(1)}, Calculated Lots: ${mt5Volume}`);
+      } else if (useRiskPercent) {
+        // Risk-based but no trade plan - use conservative estimate
+        console.log(`[MT5 Risk Calc] No trade plan - using fixed lot size: ${fixedVolumeSetting}`);
+        mt5Volume = fixedVolumeSetting;
       } else {
-        // Fallback: use EA setting or calculate from balance alone
-        const fallbackLots = Math.max(0.01, Math.min(1, (accountBalance * 0.0025) / 100));
-        mt5Volume = matchingEA?.volume || fallbackLots;
-        console.log(`[MT5 Risk Calc] No trade plan - using fallback lot size: ${mt5Volume}`);
+        // Fixed lot mode - use the configured fixed volume
+        console.log(`[MT5 Risk Calc] Fixed lot mode - using: ${fixedVolumeSetting} lots`);
+        mt5Volume = fixedVolumeSetting;
       }
       
       // Calculate cooldown remaining for response

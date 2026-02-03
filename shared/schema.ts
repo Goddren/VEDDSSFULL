@@ -352,6 +352,13 @@ export const savedEAs = pgTable("saved_eas", {
   refreshVolatilityThreshold: integer("refresh_volatility_threshold").default(30), // % volatility change to trigger refresh
   refreshAtrThreshold: integer("refresh_atr_threshold").default(20), // % ATR change to trigger refresh
   refreshPriceThreshold: integer("refresh_price_threshold").default(2), // % price change to trigger refresh
+  // Risk Management Settings
+  volume: real("volume").default(0.01), // Fixed lot size
+  useRiskPercent: boolean("use_risk_percent").default(true), // Use risk % instead of fixed lot
+  riskPercent: real("risk_percent").default(0.25), // Risk per trade as % of balance
+  maxOpenTrades: integer("max_open_trades").default(1), // Max positions open at once
+  dailyLossLimit: real("daily_loss_limit").default(0), // Daily loss limit in $ (0=disabled)
+  liveRefreshEnabled: boolean("live_refresh_enabled").default(false), // Enable live chart refresh
   isShared: boolean("is_shared").default(false),
   price: integer("price"), // Price in cents, null if not shared
   shareCount: integer("share_count").default(0),
