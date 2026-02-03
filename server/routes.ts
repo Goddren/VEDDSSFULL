@@ -5567,9 +5567,43 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         }
       }
       
+      // Determine if MT5 EA should execute trade (with cooldown check)
+      const mt5TradeKey = `mt5_trade_${token.userId}_${sanitizedSymbol}`;
+      (global as any).mt5TradeCooldowns = (global as any).mt5TradeCooldowns || {};
+      const lastMT5TradeTime = (global as any).mt5TradeCooldowns[mt5TradeKey];
+      const nowForMT5 = Date.now();
+      const MT5_TRADE_COOLDOWN_MS = 5 * 60 * 1000; // 5 minute cooldown
+      
+      const mt5CooldownActive = lastMT5TradeTime && (nowForMT5 - lastMT5TradeTime) < MT5_TRADE_COOLDOWN_MS;
+      
+      const shouldMT5Execute = !mt5CooldownActive && 
+                                analysis.signal !== 'NEUTRAL' && 
+                                analysis.confidence >= MIN_CONFIDENCE_FOR_AUTO_TRADE && 
+                                analysis.tradePlan !== null;
+      
+      // Set cooldown if we're telling EA to execute
+      if (shouldMT5Execute) {
+        (global as any).mt5TradeCooldowns[mt5TradeKey] = nowForMT5;
+      }
+      
+      // Get trade volume from EA settings or use default
+      const mt5Volume = matchingEA?.volume || 0.01;
+      
+      // Calculate cooldown remaining for response
+      const mt5CooldownRemaining = mt5CooldownActive 
+        ? Math.round((MT5_TRADE_COOLDOWN_MS - (nowForMT5 - lastMT5TradeTime)) / 1000) 
+        : 0;
+      
       res.json({ 
         success: true, 
         message: "Chart data received and analyzed",
+        // MT5 TRADE EXECUTION COMMANDS - EA should check these to execute trades
+        mt5ExecuteTrade: shouldMT5Execute, // TRUE = EA should open trade NOW
+        mt5OrderType: analysis.signal === 'BUY' ? 0 : (analysis.signal === 'SELL' ? 1 : -1), // 0=BUY, 1=SELL, -1=NONE
+        mt5Volume: mt5Volume, // Lot size for the trade
+        mt5Direction: analysis.signal, // "BUY", "SELL", or "NEUTRAL"
+        mt5CooldownActive: mt5CooldownActive, // TRUE = trade cooldown is active, don't trade
+        mt5CooldownSeconds: mt5CooldownRemaining, // Seconds until cooldown expires
         // MT5-friendly flat summary (parse these fields in EA)
         mt5Signal: analysis.signal,
         mt5Confidence: analysis.confidence,
@@ -5586,7 +5620,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         candlesReceived: candles.length,
         refreshTriggered,
         matchingEA: matchingEA ? matchingEA.id : null,
-        // Auto-trade result (if executed)
+        // Auto-trade result (if executed on TradeLocker)
         tradelocker: tradelockerResult ? {
           executed: tradelockerResult.success,
           orderId: tradelockerResult.orderId,
