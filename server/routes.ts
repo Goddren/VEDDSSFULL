@@ -5457,6 +5457,116 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       const patternsStr = analysis.patterns.slice(0, 3).join(' | ');
       const alertsStr = analysis.alerts.slice(0, 2).join(' | ');
       
+      // AUTO-EXECUTE ON TRADELOCKER: Execute trade if signal is strong and autoExecute is enabled
+      let tradelockerResult: { success: boolean; orderId?: string; error?: string } | null = null;
+      const MIN_CONFIDENCE_FOR_AUTO_TRADE = 65; // Minimum confidence to trigger auto-trade
+      
+      if (analysis.signal !== 'NEUTRAL' && 
+          analysis.confidence >= MIN_CONFIDENCE_FOR_AUTO_TRADE && 
+          analysis.tradePlan) {
+        
+        const tlConnection = await storage.getUserTradelockerConnection(token.userId);
+        console.log('[MT5 Chart Data AutoTrade] Signal detected:', { 
+          signal: analysis.signal, 
+          confidence: analysis.confidence,
+          symbol: sanitizedSymbol,
+          hasTradeLocker: !!tlConnection,
+          isActive: tlConnection?.isActive,
+          autoExecute: tlConnection?.autoExecute
+        });
+        
+        if (tlConnection && tlConnection.isActive && tlConnection.autoExecute) {
+          // Check for duplicate/recent trades on same symbol to avoid over-trading
+          const recentTradeKey = `last_trade_${token.userId}_${sanitizedSymbol}`;
+          (global as any).recentTrades = (global as any).recentTrades || {};
+          const lastTradeTime = (global as any).recentTrades[recentTradeKey];
+          const now = Date.now();
+          const TRADE_COOLDOWN_MS = 5 * 60 * 1000; // 5 minute cooldown between trades on same symbol
+          
+          if (!lastTradeTime || (now - lastTradeTime) > TRADE_COOLDOWN_MS) {
+            // SET COOLDOWN FIRST to prevent race conditions from concurrent requests
+            (global as any).recentTrades[recentTradeKey] = now;
+            
+            // Check for existing open positions on this symbol to prevent duplicate entries
+            const recentTrades = await storage.getTradelockerTradeLogs(token.userId, 10);
+            const hasOpenPosition = recentTrades.some(t => 
+              t.symbol?.toUpperCase() === sanitizedSymbol.toUpperCase() && 
+              t.action === 'OPEN' && 
+              t.status === 'executed' &&
+              // Only consider trades from last 24 hours as potentially open
+              t.createdAt && (now - new Date(t.createdAt).getTime()) < 24 * 60 * 60 * 1000
+            );
+            
+            if (hasOpenPosition) {
+              console.log(`[MT5 Chart Data AutoTrade] Skipping trade - existing open position on ${sanitizedSymbol}`);
+            } else {
+              // Use default volume of 0.01 or from matching EA settings
+              const tradeVolume = matchingEA?.volume || 0.01;
+              
+              console.log('[MT5 Chart Data AutoTrade] Executing trade on TradeLocker:', {
+                action: 'OPEN',
+                symbol: sanitizedSymbol,
+                direction: analysis.signal,
+                volume: tradeVolume,
+                entry: analysis.tradePlan.entry,
+                stopLoss: analysis.tradePlan.stopLoss,
+                takeProfit: analysis.tradePlan.takeProfit
+              });
+              
+              try {
+                tradelockerResult = await executeMT5SignalOnTradeLocker(tlConnection, {
+                  action: 'OPEN',
+                  symbol: sanitizedSymbol,
+                  direction: analysis.signal,
+                  volume: tradeVolume,
+                  entryPrice: analysis.tradePlan.entry,
+                  stopLoss: analysis.tradePlan.stopLoss,
+                  takeProfit: analysis.tradePlan.takeProfit,
+                });
+                
+                // Log the trade attempt
+                await storage.createTradelockerTradeLog({
+                  connectionId: tlConnection.id,
+                  userId: token.userId,
+                  sourceSignalId: null,
+                  action: 'OPEN',
+                  symbol: sanitizedSymbol,
+                  direction: analysis.signal,
+                  volume: tradeVolume,
+                  entryPrice: analysis.tradePlan.entry,
+                  stopLoss: analysis.tradePlan.stopLoss,
+                  takeProfit: analysis.tradePlan.takeProfit,
+                  tradelockerOrderId: tradelockerResult.orderId || null,
+                  status: tradelockerResult.success ? 'executed' : 'failed',
+                  errorMessage: tradelockerResult.error || null,
+                });
+                
+                // Update connection stats
+                if (tradelockerResult.success) {
+                  await storage.updateTradelockerConnection(tlConnection.id, {
+                    tradeCount: tlConnection.tradeCount + 1,
+                    lastConnectedAt: new Date(),
+                    lastError: null,
+                  });
+                  console.log('[MT5 Chart Data AutoTrade] Trade executed successfully:', tradelockerResult.orderId);
+                } else {
+                  await storage.updateTradelockerConnection(tlConnection.id, {
+                    lastError: tradelockerResult.error,
+                  });
+                  console.log('[MT5 Chart Data AutoTrade] Trade failed:', tradelockerResult.error);
+                }
+              } catch (err) {
+                console.error('[MT5 Chart Data AutoTrade] Error executing trade:', err);
+                tradelockerResult = { success: false, error: err instanceof Error ? err.message : 'Unknown error' };
+              }
+            }
+          } else {
+            const cooldownRemaining = Math.round((TRADE_COOLDOWN_MS - (now - lastTradeTime)) / 1000);
+            console.log(`[MT5 Chart Data AutoTrade] Skipping trade - cooldown active (${cooldownRemaining}s remaining)`);
+          }
+        }
+      }
+      
       res.json({ 
         success: true, 
         message: "Chart data received and analyzed",
@@ -5476,6 +5586,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         candlesReceived: candles.length,
         refreshTriggered,
         matchingEA: matchingEA ? matchingEA.id : null,
+        // Auto-trade result (if executed)
+        tradelocker: tradelockerResult ? {
+          executed: tradelockerResult.success,
+          orderId: tradelockerResult.orderId,
+          error: tradelockerResult.error,
+        } : null,
       });
     } catch (error) {
       console.error('Error processing MT5 chart data:', error);
