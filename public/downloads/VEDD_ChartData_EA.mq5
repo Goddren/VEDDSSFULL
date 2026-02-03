@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "AI Powered Trading Vault"
 #property link      "https://aipoweredtradingvault.com"
-#property version   "3.88"
+#property version   "3.90"
 #property description "Sends chart data to AI Trading Vault with news-aware analysis, smart auto-trading, prop firm compliance, and active trade management"
 #property strict
 
@@ -293,6 +293,9 @@ double lastEntry = 0;
 double lastSL = 0;
 double lastTP = 0;
 bool hasTradePlan = false;
+bool serverExecuteTrade = false; // Server says to execute trade NOW
+double serverVolume = 0.01;      // Volume from server
+int serverCooldownSeconds = 0;   // Cooldown from server
 
 //--- News context variables
 string lastNewsSentiment = "";
@@ -674,7 +677,30 @@ bool SendChartData()
       
       ParseAndDisplayAnalysis(response);
       
-      if(ENABLE_AUTO_TRADING && hasTradePlan)
+      // SERVER-CONTROLLED TRADING: If server says execute, do it immediately
+      // This bypasses local EA filters since server already validated
+      if(serverExecuteTrade && (lastSignal == "BUY" || lastSignal == "SELL"))
+      {
+         Print("[SERVER-TRADE] Server command received - executing immediately!");
+         
+         // Basic safety checks only
+         if(!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) || !MQLInfoInteger(MQL_TRADE_ALLOWED))
+         {
+            Print("[SERVER-TRADE] Trading not allowed in terminal. Check permissions.");
+         }
+         else if(CountOpenTrades() >= MAX_OPEN_TRADES)
+         {
+            Print("[SERVER-TRADE] Max positions reached (", MAX_OPEN_TRADES, "). Skipping server trade.");
+         }
+         else
+         {
+            // Execute the trade using server-provided volume
+            double lots = serverVolume > 0 ? serverVolume : LOT_SIZE;
+            PlaceMarketOrder(lots);
+         }
+      }
+      // LOCAL EA TRADING: Use local filters when server doesn't command trade
+      else if(ENABLE_AUTO_TRADING && hasTradePlan)
       {
          ProcessAutoTrade();
       }
@@ -709,7 +735,20 @@ void ParseAndDisplayAnalysis(string json)
    string hasPlanStr = ExtractJsonString(json, "\"mt5HasTradePlan\":", ",");
    hasTradePlan = (StringFind(hasPlanStr, "true") >= 0);
    
-   if(hasTradePlan)
+   // Parse server-controlled trade execution fields
+   string executeStr = ExtractJsonString(json, "\"mt5ExecuteTrade\":", ",");
+   serverExecuteTrade = (StringFind(executeStr, "true") >= 0);
+   
+   string volumeStr = ExtractJsonNumber(json, "\"mt5Volume\":");
+   if(StringLen(volumeStr) > 0)
+      serverVolume = StringToDouble(volumeStr);
+   else
+      serverVolume = LOT_SIZE;
+   
+   string cooldownStr = ExtractJsonNumber(json, "\"mt5CooldownSeconds\":");
+   serverCooldownSeconds = (int)StringToInteger(cooldownStr);
+   
+   if(hasTradePlan || serverExecuteTrade)
    {
       string entryStr = ExtractJsonNumber(json, "\"mt5Entry\":");
       string slStr = ExtractJsonNumber(json, "\"mt5StopLoss\":");
@@ -724,6 +763,17 @@ void ParseAndDisplayAnalysis(string json)
       lastEntry = 0;
       lastSL = 0;
       lastTP = 0;
+   }
+   
+   // Log server trade command status
+   if(serverExecuteTrade)
+   {
+      Print("[SERVER] AI says EXECUTE NOW! Signal: ", lastSignal, " @ ", lastConfidence, "% conf");
+      Print("[SERVER] Volume: ", serverVolume, " | Entry: ", lastEntry, " | SL: ", lastSL, " | TP: ", lastTP);
+   }
+   else if(serverCooldownSeconds > 0)
+   {
+      Print("[SERVER] Trade cooldown active: ", serverCooldownSeconds, " seconds remaining");
    }
    
    // Extract news context (uses mt5-prefixed flat fields from API)
