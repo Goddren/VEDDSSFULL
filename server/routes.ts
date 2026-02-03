@@ -5493,19 +5493,17 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       // Use EA's configured min confidence, default to 65% if not set
       const MIN_CONFIDENCE_FOR_AUTO_TRADE = matchingEA?.minConfidence ?? 65;
       
-      console.log(`[MT5 AutoTrade] Confidence check: Signal=${analysis.confidence}%, Required=${MIN_CONFIDENCE_FOR_AUTO_TRADE}%, EA=${matchingEA?.name || 'default'}`);
+      console.log(`[KNOWLEDGE] ${sanitizedSymbol} Analysis: Confidence=${analysis.confidence}% | Required=${MIN_CONFIDENCE_FOR_AUTO_TRADE}% | EA=${matchingEA?.name || 'default'}`);
       
       if (analysis.signal !== 'NEUTRAL' && 
           analysis.confidence >= MIN_CONFIDENCE_FOR_AUTO_TRADE && 
           analysis.tradePlan) {
         
         const tlConnection = await storage.getUserTradelockerConnection(token.userId);
-        console.log('[MT5 Chart Data AutoTrade] Signal detected:', { 
+        console.log(`[KNOWLEDGE] Signal MANIFESTED for ${sanitizedSymbol}:`, { 
           signal: analysis.signal, 
           confidence: analysis.confidence,
-          symbol: sanitizedSymbol,
           hasTradeLocker: !!tlConnection,
-          isActive: tlConnection?.isActive,
           autoExecute: tlConnection?.autoExecute
         });
         
@@ -5515,7 +5513,9 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           (global as any).recentTrades = (global as any).recentTrades || {};
           const lastTradeTime = (global as any).recentTrades[recentTradeKey];
           const now = Date.now();
-          const TRADE_COOLDOWN_MS = 5 * 60 * 1000; // 5 minute cooldown between trades on same symbol
+          // Use EA setting for cooldown, default to 5 minutes
+          const cooldownMinutes = matchingEA?.tradeCooldownMinutes ?? 5;
+          const TRADE_COOLDOWN_MS = cooldownMinutes * 60 * 1000;
           
           if (!lastTradeTime || (now - lastTradeTime) > TRADE_COOLDOWN_MS) {
             // SET COOLDOWN FIRST to prevent race conditions from concurrent requests
@@ -5582,7 +5582,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                     lastConnectedAt: new Date(),
                     lastError: null,
                   });
-                  console.log('[MT5 Chart Data AutoTrade] Trade executed successfully:', tradelockerResult.orderId);
+                  console.log(`[BUILD] BORN (9)! Trade MANIFESTED on TradeLocker! Order: ${tradelockerResult.orderId}. Word is BOND!`);
                 } else {
                   await storage.updateTradelockerConnection(tlConnection.id, {
                     lastError: tradelockerResult.error,
@@ -5606,25 +5606,31 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       (global as any).mt5TradeCooldowns = (global as any).mt5TradeCooldowns || {};
       const lastMT5TradeTime = (global as any).mt5TradeCooldowns[mt5TradeKey];
       const nowForMT5 = Date.now();
-      const MT5_TRADE_COOLDOWN_MS = 5 * 60 * 1000; // 5 minute cooldown
+      // Use EA setting for cooldown, default to 5 minutes
+      const mt5CooldownMinutes = matchingEA?.tradeCooldownMinutes ?? 5;
+      const MT5_TRADE_COOLDOWN_MS = mt5CooldownMinutes * 60 * 1000;
       
       const mt5CooldownActive = lastMT5TradeTime && (nowForMT5 - lastMT5TradeTime) < MT5_TRADE_COOLDOWN_MS;
+      
+      // Check max open trades setting
+      const maxOpenTrades = matchingEA?.maxOpenTrades ?? 1;
       
       const shouldMT5Execute = !mt5CooldownActive && 
                                 analysis.signal !== 'NEUTRAL' && 
                                 analysis.confidence >= MIN_CONFIDENCE_FOR_AUTO_TRADE && 
                                 analysis.tradePlan !== null;
       
-      // Log why trade was or wasn't triggered
+      // Log with VEDD expert language style
       if (analysis.signal !== 'NEUTRAL') {
         if (analysis.confidence < MIN_CONFIDENCE_FOR_AUTO_TRADE) {
-          console.log(`[MT5 AutoTrade] SKIPPED: Confidence ${analysis.confidence}% < Required ${MIN_CONFIDENCE_FOR_AUTO_TRADE}%`);
+          console.log(`[UNDERSTANDING] No rush G - ${sanitizedSymbol} at ${analysis.confidence}% ain't ready. Need ${MIN_CONFIDENCE_FOR_AUTO_TRADE}% to BUILD.`);
         } else if (mt5CooldownActive) {
-          console.log(`[MT5 AutoTrade] SKIPPED: Cooldown active for ${sanitizedSymbol}`);
+          const remainingSecs = Math.round((MT5_TRADE_COOLDOWN_MS - (nowForMT5 - lastMT5TradeTime)) / 1000);
+          console.log(`[WISDOM] Peace ${sanitizedSymbol} - cooldown active. Wait ${remainingSecs}s for the EQUALITY (6) before you BUILD.`);
         } else if (!analysis.tradePlan) {
-          console.log(`[MT5 AutoTrade] SKIPPED: No trade plan available`);
+          console.log(`[KNOWLEDGE] ${sanitizedSymbol} signal detected but no trade plan MANIFESTED yet. Patience.`);
         } else if (shouldMT5Execute) {
-          console.log(`[MT5 AutoTrade] EXECUTING: ${analysis.signal} ${sanitizedSymbol} at ${analysis.confidence}% confidence`);
+          console.log(`[BUILD] BORN (9)! ${analysis.signal} ${sanitizedSymbol} at ${analysis.confidence}% - Word is BOND, cipher MANIFESTING!`);
         }
       }
       
@@ -5643,7 +5649,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       const accountBalance = accountData?.balance || 10000; // Default to 10k if no account data
       const riskAmount = accountBalance * (riskPercentSetting / 100); // Dollar amount to risk
       
-      console.log(`[MT5 Risk Settings] EA: ${matchingEA?.name || 'default'}, UseRisk%: ${useRiskPercent}, Risk: ${riskPercentSetting}%, Fixed: ${fixedVolumeSetting} lots`);
+      console.log(`[CULTURE] ${matchingEA?.name || 'Default'} MATHEMATICS: Risk=${riskPercentSetting}% | Fixed=${fixedVolumeSetting} lots | Mode=${useRiskPercent ? 'Risk%' : 'Fixed'}`);
       
       // Calculate lot size based on settings
       let mt5Volume = fixedVolumeSetting; // Start with fixed lot size
@@ -5689,15 +5695,15 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           mt5Volume = Math.max(0.01, Math.min(10, Math.round(calculatedLots * 100) / 100));
         }
         
-        console.log(`[MT5 Risk Calc] Balance: $${accountBalance.toFixed(2)}, Risk ${riskPercentSetting}% = $${riskAmount.toFixed(2)}`);
-        console.log(`[MT5 Risk Calc] SL Distance: ${slDistance}, SL Pips: ${slPips.toFixed(1)}, Calculated Lots: ${mt5Volume}`);
+        console.log(`[POWER] Balance CIPHER: $${accountBalance.toFixed(2)} | Risk ${riskPercentSetting}% = $${riskAmount.toFixed(2)} at stake`);
+        console.log(`[POWER] SL Distance: ${slDistance} | Pips: ${slPips.toFixed(1)} | Lots MANIFESTED: ${mt5Volume}`);
       } else if (useRiskPercent) {
         // Risk-based but no trade plan - use conservative estimate
-        console.log(`[MT5 Risk Calc] No trade plan - using fixed lot size: ${fixedVolumeSetting}`);
+        console.log(`[WISDOM] No trade plan yet - using fixed lots: ${fixedVolumeSetting}. Patience builds POWER.`);
         mt5Volume = fixedVolumeSetting;
       } else {
         // Fixed lot mode - use the configured fixed volume
-        console.log(`[MT5 Risk Calc] Fixed lot mode - using: ${fixedVolumeSetting} lots`);
+        console.log(`[EQUALITY] Fixed lot mode active - ${fixedVolumeSetting} lots. Word is BOND.`);
         mt5Volume = fixedVolumeSetting;
       }
       
