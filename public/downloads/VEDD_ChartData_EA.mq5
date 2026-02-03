@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "AI Powered Trading Vault"
 #property link      "https://aipoweredtradingvault.com"
-#property version   "3.90"
+#property version   "3.91"
 #property description "Sends chart data to AI Trading Vault with news-aware analysis, smart auto-trading, prop firm compliance, and active trade management"
 #property strict
 
@@ -67,6 +67,16 @@ input int      SEND_INTERVAL_SECONDS = 60;        // Send Interval (seconds)
 input bool     INCLUDE_INDICATORS = true;         // Include Technical Indicators
 input bool     SHOW_CHART_COMMENT = true;         // Show Analysis on Chart
 input int      TIMEOUT = 15000;                   // Request Timeout (ms)
+
+//+------------------------------------------------------------------+
+//|              *** MOBILE NOTIFICATIONS ***                        |
+//+------------------------------------------------------------------+
+input string   _mobile_header = "========== MOBILE NOTIFICATIONS =========="; // *** MOBILE ***
+input bool     ENABLE_PUSH_NOTIFICATIONS = false; // Send Push to MT5 Mobile App
+input bool     PUSH_ON_SIGNAL = true;             // Notify on Strong Signals (≥65%)
+input bool     PUSH_ON_TRADE = true;              // Notify on Trade Execution
+input bool     PUSH_ON_NEWS = true;               // Notify on High-Impact News
+input int      PUSH_MIN_CONFIDENCE = 65;          // Min Confidence for Signal Push
 
 //+------------------------------------------------------------------+
 //|              *** MULTI-TIMEFRAME AI ANALYSIS ***                 |
@@ -875,6 +885,10 @@ void ParseAndDisplayAnalysis(string json)
    {
       UpdateChartComment();
    }
+   
+   // Send mobile push notifications
+   PushSignalNotification();  // Signal alerts for strong signals
+   PushNewsNotification();    // High-impact news alerts
 }
 
 //+------------------------------------------------------------------+
@@ -1460,6 +1474,9 @@ void PlaceMarketOrder(double lots)
       lastTradeTime = TimeCurrent();
       lastExecutedSignal = lastSignal;
       IncrementDailyTradeCount();
+      
+      // Send push notification for trade execution
+      PushTradeNotification(lastSignal, lots, trade.ResultPrice());
    }
    else
    {
@@ -2327,6 +2344,70 @@ void UpdateChartComment()
    commentText += TimeToString(TimeCurrent(), TIME_MINUTES);
    
    Comment(commentText);
+}
+
+//+------------------------------------------------------------------+
+//| Send push notification to MT5 mobile app                         |
+//+------------------------------------------------------------------+
+void SendMobilePush(string message)
+{
+   if(!ENABLE_PUSH_NOTIFICATIONS) return;
+   
+   // SendNotification sends to MT5 mobile app
+   // User must have notifications enabled in MT5 and linked their MetaQuotes ID
+   bool result = SendNotification(message);
+   if(result)
+      Print("[PUSH] Sent to mobile: ", message);
+   else
+      Print("[PUSH] Failed to send. Check: Tools > Options > Notifications");
+}
+
+//+------------------------------------------------------------------+
+//| Send AI signal notification to mobile                            |
+//+------------------------------------------------------------------+
+void PushSignalNotification()
+{
+   if(!ENABLE_PUSH_NOTIFICATIONS || !PUSH_ON_SIGNAL) return;
+   if(lastConfidence < PUSH_MIN_CONFIDENCE) return;
+   if(lastSignal != "BUY" && lastSignal != "SELL") return;
+   
+   string msg = Symbol() + " " + lastSignal + " " + IntegerToString(lastConfidence) + "%";
+   if(lastEntry > 0)
+      msg += " @ " + DoubleToString(lastEntry, _Digits);
+   if(lastSL > 0)
+      msg += " SL:" + DoubleToString(lastSL, _Digits);
+   if(lastTP > 0)
+      msg += " TP:" + DoubleToString(lastTP, _Digits);
+   
+   SendMobilePush(msg);
+}
+
+//+------------------------------------------------------------------+
+//| Send trade execution notification to mobile                      |
+//+------------------------------------------------------------------+
+void PushTradeNotification(string action, double lots, double price)
+{
+   if(!ENABLE_PUSH_NOTIFICATIONS || !PUSH_ON_TRADE) return;
+   
+   string msg = "TRADE: " + action + " " + Symbol() + " " + DoubleToString(lots, 2) + " lots @ " + DoubleToString(price, _Digits);
+   SendMobilePush(msg);
+}
+
+//+------------------------------------------------------------------+
+//| Send news alert notification to mobile                           |
+//+------------------------------------------------------------------+
+void PushNewsNotification()
+{
+   if(!ENABLE_PUSH_NOTIFICATIONS || !PUSH_ON_NEWS) return;
+   if(StringLen(lastHighImpactAlert) == 0 && lastNewsImpact != "HIGH") return;
+   
+   string msg = Symbol() + " NEWS ALERT: ";
+   if(StringLen(lastHighImpactAlert) > 0)
+      msg += lastHighImpactAlert;
+   else
+      msg += "High-impact event - " + lastNewsSentiment;
+   
+   SendMobilePush(msg);
 }
 
 //+------------------------------------------------------------------+
