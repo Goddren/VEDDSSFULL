@@ -5617,8 +5617,62 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         (global as any).mt5TradeCooldowns[mt5TradeKey] = nowForMT5;
       }
       
-      // Get trade volume from EA settings or use default
-      const mt5Volume = matchingEA?.volume || 0.01;
+      // Calculate risk-based position sizing (0.25% of balance per trade)
+      const RISK_PERCENT = 0.25; // 0.25% risk per trade
+      const accountData = (global as any).mt5AccountData?.[token.userId];
+      const accountBalance = accountData?.balance || 10000; // Default to 10k if no account data
+      const riskAmount = accountBalance * (RISK_PERCENT / 100); // Dollar amount to risk
+      
+      // Calculate lot size based on stop loss distance
+      let mt5Volume = 0.01; // Default minimum lot size
+      if (analysis.tradePlan && analysis.tradePlan.entry && analysis.tradePlan.stopLoss) {
+        const entry = analysis.tradePlan.entry;
+        const sl = analysis.tradePlan.stopLoss;
+        const slDistance = Math.abs(entry - sl);
+        
+        // For forex pairs, pip value varies. Use approximation:
+        // - For XXX/USD pairs: pip value ≈ $10 per standard lot
+        // - For USD/XXX pairs: pip value ≈ $10 / price per standard lot
+        // - For gold (XAUUSD): $100 per $1 move per standard lot
+        const currentPrice = candles[0]?.c || entry;
+        
+        let pipValue = 10; // Default $10/pip for standard lot
+        let slPips = slDistance;
+        
+        // Adjust for gold/metals
+        if (sanitizedSymbol.includes('XAU') || sanitizedSymbol.includes('GOLD')) {
+          // Gold: $100 per $1 move per standard lot
+          pipValue = 100;
+          slPips = slDistance; // Already in dollars
+        } else if (sanitizedSymbol.includes('JPY')) {
+          // JPY pairs: pip is 0.01, value adjusted
+          slPips = slDistance * 100; // Convert to pips
+          pipValue = 10;
+        } else if (slDistance < 0.01) {
+          // Forex pairs: pip is 0.0001, so SL of 0.0050 = 50 pips
+          slPips = slDistance * 10000; // Convert to pips
+          pipValue = 10;
+        } else {
+          // Already in pips or different calculation needed
+          slPips = slDistance * 10000;
+          pipValue = 10;
+        }
+        
+        // Calculate lots: Risk Amount / (SL Pips * Pip Value)
+        if (slPips > 0) {
+          const calculatedLots = riskAmount / (slPips * pipValue);
+          // Round to 2 decimal places and enforce min/max
+          mt5Volume = Math.max(0.01, Math.min(10, Math.round(calculatedLots * 100) / 100));
+        }
+        
+        console.log(`[MT5 Risk Calc] Balance: $${accountBalance.toFixed(2)}, Risk ${RISK_PERCENT}% = $${riskAmount.toFixed(2)}`);
+        console.log(`[MT5 Risk Calc] SL Distance: ${slDistance}, SL Pips: ${slPips.toFixed(1)}, Calculated Lots: ${mt5Volume}`);
+      } else {
+        // Fallback: use EA setting or calculate from balance alone
+        const fallbackLots = Math.max(0.01, Math.min(1, (accountBalance * 0.0025) / 100));
+        mt5Volume = matchingEA?.volume || fallbackLots;
+        console.log(`[MT5 Risk Calc] No trade plan - using fallback lot size: ${mt5Volume}`);
+      }
       
       // Calculate cooldown remaining for response
       const mt5CooldownRemaining = mt5CooldownActive 
