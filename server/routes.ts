@@ -5232,8 +5232,26 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           const bbUpper = indicators.bollingerBands?.upper;
           const bbMiddle = indicators.bollingerBands?.middle;
           const bbLower = indicators.bollingerBands?.lower;
-          const atr = indicators.atr;
+          let atr = indicators.atr;
           const currentPrice = indicators.price?.bid || candles[0]?.c;
+          
+          // Fallback ATR calculation if not provided by EA
+          if (!atr && candles.length >= 14) {
+            let atrSum = 0;
+            for (let i = 0; i < 14 && i < candles.length - 1; i++) {
+              const high = candles[i]?.h || 0;
+              const low = candles[i]?.l || 0;
+              const prevClose = candles[i + 1]?.c || 0;
+              const tr = Math.max(
+                high - low,
+                Math.abs(high - prevClose),
+                Math.abs(low - prevClose)
+              );
+              atrSum += tr;
+            }
+            atr = atrSum / 14;
+            console.log('[MT5 Chart Data] Calculated fallback ATR:', atr);
+          }
           
           // RSI Analysis
           let rsiSignal = 'NEUTRAL';
@@ -5437,6 +5455,19 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 riskReward: (targetDistance / stopDistance).toFixed(2)
               };
             }
+            console.log('[MT5 Chart Data] Trade plan generated:', {
+              signal: analysis.signal,
+              confidence: analysis.confidence,
+              entry: analysis.tradePlan.entry,
+              stopLoss: analysis.tradePlan.stopLoss,
+              takeProfit: analysis.tradePlan.takeProfit
+            });
+          } else if (analysis.signal !== 'NEUTRAL') {
+            console.log('[MT5 Chart Data] No trade plan - missing data:', {
+              signal: analysis.signal,
+              hasCurrentPrice: !!currentPrice,
+              hasAtr: !!atr
+            });
           }
           
           // Detect pattern changes for EA refresh
