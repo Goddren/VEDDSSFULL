@@ -5490,7 +5490,10 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       
       // AUTO-EXECUTE ON TRADELOCKER: Execute trade if signal is strong and autoExecute is enabled
       let tradelockerResult: { success: boolean; orderId?: string; error?: string } | null = null;
-      const MIN_CONFIDENCE_FOR_AUTO_TRADE = 65; // Minimum confidence to trigger auto-trade
+      // Use EA's configured min confidence, default to 65% if not set
+      const MIN_CONFIDENCE_FOR_AUTO_TRADE = matchingEA?.minConfidence ?? 65;
+      
+      console.log(`[MT5 AutoTrade] Confidence check: Signal=${analysis.confidence}%, Required=${MIN_CONFIDENCE_FOR_AUTO_TRADE}%, EA=${matchingEA?.name || 'default'}`);
       
       if (analysis.signal !== 'NEUTRAL' && 
           analysis.confidence >= MIN_CONFIDENCE_FOR_AUTO_TRADE && 
@@ -5611,6 +5614,19 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                                 analysis.signal !== 'NEUTRAL' && 
                                 analysis.confidence >= MIN_CONFIDENCE_FOR_AUTO_TRADE && 
                                 analysis.tradePlan !== null;
+      
+      // Log why trade was or wasn't triggered
+      if (analysis.signal !== 'NEUTRAL') {
+        if (analysis.confidence < MIN_CONFIDENCE_FOR_AUTO_TRADE) {
+          console.log(`[MT5 AutoTrade] SKIPPED: Confidence ${analysis.confidence}% < Required ${MIN_CONFIDENCE_FOR_AUTO_TRADE}%`);
+        } else if (mt5CooldownActive) {
+          console.log(`[MT5 AutoTrade] SKIPPED: Cooldown active for ${sanitizedSymbol}`);
+        } else if (!analysis.tradePlan) {
+          console.log(`[MT5 AutoTrade] SKIPPED: No trade plan available`);
+        } else if (shouldMT5Execute) {
+          console.log(`[MT5 AutoTrade] EXECUTING: ${analysis.signal} ${sanitizedSymbol} at ${analysis.confidence}% confidence`);
+        }
+      }
       
       // Set cooldown if we're telling EA to execute
       if (shouldMT5Execute) {

@@ -358,6 +358,7 @@ export const savedEAs = pgTable("saved_eas", {
   riskPercent: real("risk_percent").default(0.25), // Risk per trade as % of balance
   maxOpenTrades: integer("max_open_trades").default(1), // Max positions open at once
   dailyLossLimit: real("daily_loss_limit").default(0), // Daily loss limit in $ (0=disabled)
+  minConfidence: integer("min_confidence").default(65), // Minimum confidence % to trigger trade
   liveRefreshEnabled: boolean("live_refresh_enabled").default(false), // Enable live chart refresh
   isShared: boolean("is_shared").default(false),
   price: integer("price"), // Price in cents, null if not shared
