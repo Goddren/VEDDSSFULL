@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -30,6 +30,8 @@ import {
   LinkIcon
 } from 'lucide-react';
 import { buyToken, sellToken } from '@/lib/jupiter-swap';
+import type { SwapResult } from '@/lib/jupiter-swap';
+import { Connection } from '@solana/web3.js';
 import { SiSolana } from 'react-icons/si';
 import { useToast } from '@/hooks/use-toast';
 import { useSolanaWallet } from '@/hooks/use-solana-wallet';
@@ -301,6 +303,17 @@ interface TradingWallet {
   rebalanceThresholdPercent: number;
 }
 
+interface WalletToken {
+  mint: string;
+  symbol: string;
+  name: string;
+  amount: number;
+  decimals: number;
+  uiAmount: number;
+  priceUsd: number | null;
+  valueUsd: number | null;
+}
+
 interface TokenPosition {
   id: number;
   tokenSymbol: string;
@@ -316,10 +329,195 @@ interface TokenPosition {
   openedAt: string;
 }
 
+function MyWalletTokens() {
+  const { toast } = useToast();
+  const { connected, walletData, signAndSendTransaction, getPublicKey, refreshWalletData, getConnection } = useSolanaWallet();
+  const [sellingToken, setSellingToken] = useState<string | null>(null);
+  const [walletTokens, setWalletTokens] = useState<WalletToken[]>([]);
+  const [loadingTokens, setLoadingTokens] = useState(false);
+  
+  const fetchWalletTokens = async () => {
+    if (!connected || !walletData?.address) return;
+    setLoadingTokens(true);
+    
+    try {
+      const { PublicKey } = await import('@solana/web3.js');
+      const connection = getConnection();
+      const publicKey = new PublicKey(walletData.address);
+      
+      const tokenAccounts = await connection.getParsedTokenAccountsByOwner(publicKey, {
+        programId: new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA')
+      });
+      
+      const tokens: WalletToken[] = [];
+      const tokenMints: string[] = [];
+      
+      for (const account of tokenAccounts.value) {
+        const info = account.account.data.parsed.info;
+        const uiAmount = info.tokenAmount.uiAmount || 0;
+        if (uiAmount > 0) {
+          tokenMints.push(info.mint);
+          tokens.push({
+            mint: info.mint,
+            symbol: 'Loading...',
+            name: 'Loading...',
+            amount: parseInt(info.tokenAmount.amount),
+            decimals: info.tokenAmount.decimals,
+            uiAmount,
+            priceUsd: null,
+            valueUsd: null,
+          });
+        }
+      }
+      
+      if (tokenMints.length > 0) {
+        try {
+          const batchMints = tokenMints.slice(0, 30).join(',');
+          const dexRes = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${batchMints}`);
+          if (dexRes.ok) {
+            const dexData = await dexRes.json();
+            const pairs = dexData.pairs || [];
+            
+            for (const token of tokens) {
+              const pair = pairs.find((p: any) => p.baseToken?.address === token.mint);
+              if (pair) {
+                token.symbol = pair.baseToken?.symbol || token.mint.slice(0, 6);
+                token.name = pair.baseToken?.name || 'Unknown';
+                token.priceUsd = parseFloat(pair.priceUsd) || null;
+                token.valueUsd = token.priceUsd ? token.uiAmount * token.priceUsd : null;
+              } else {
+                token.symbol = token.mint.slice(0, 6) + '...';
+                token.name = 'Unknown Token';
+              }
+            }
+          }
+        } catch (e) {
+          console.log('Price fetch skipped:', e);
+        }
+      }
+      
+      setWalletTokens(tokens.filter(t => t.uiAmount > 0).sort((a, b) => (b.valueUsd || 0) - (a.valueUsd || 0)));
+    } catch (error) {
+      console.error('Failed to fetch wallet tokens:', error);
+    } finally {
+      setLoadingTokens(false);
+    }
+  };
+  
+  useEffect(() => {
+    if (connected && walletData?.address) {
+      fetchWalletTokens();
+    }
+  }, [connected, walletData?.address]);
+  
+  const handleSellToken = async (token: WalletToken) => {
+    if (!connected) return;
+    const publicKey = getPublicKey();
+    if (!publicKey) return;
+    
+    setSellingToken(token.mint);
+    toast({ title: `Selling ${token.symbol}...`, description: `Swapping to SOL via Jupiter` });
+    
+    try {
+      const result = await sellToken(
+        token.mint,
+        token.uiAmount,
+        token.decimals,
+        signAndSendTransaction,
+        publicKey.toString(),
+        150
+      );
+      
+      if (result.success) {
+        toast({ 
+          title: 'Sold!', 
+          description: `Received ${result.outputAmount.toFixed(4)} SOL - TX: ${result.signature?.slice(0, 8)}...`
+        });
+        refreshWalletData();
+        fetchWalletTokens();
+      } else {
+        toast({ title: 'Sell failed', description: result.error, variant: 'destructive' });
+      }
+    } catch (error: any) {
+      toast({ title: 'Sell error', description: error.message, variant: 'destructive' });
+    } finally {
+      setSellingToken(null);
+    }
+  };
+  
+  if (!connected) return null;
+  
+  return (
+    <Card className="bg-gradient-to-br from-blue-900/20 to-purple-900/20 border-blue-500/30">
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center gap-2 text-blue-400">
+            <Wallet className="h-5 w-5" />
+            My Wallet Tokens
+          </CardTitle>
+          <Button variant="ghost" size="sm" onClick={fetchWalletTokens} disabled={loadingTokens}>
+            <RefreshCw className={`h-4 w-4 ${loadingTokens ? 'animate-spin' : ''}`} />
+          </Button>
+        </div>
+        <CardDescription>Tokens in your connected Phantom wallet</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {loadingTokens ? (
+          <div className="space-y-2">
+            {[1, 2, 3].map(i => <Skeleton key={i} className="h-12 w-full" />)}
+          </div>
+        ) : walletTokens.length > 0 ? (
+          <div className="space-y-2 max-h-80 overflow-y-auto">
+            {walletTokens.map((token) => (
+              <div key={token.mint} className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg border border-gray-700">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-xs font-bold">
+                    {token.symbol.slice(0, 2)}
+                  </div>
+                  <div>
+                    <p className="font-medium">{token.symbol}</p>
+                    <p className="text-xs text-muted-foreground">{token.uiAmount.toLocaleString(undefined, { maximumFractionDigits: 4 })}</p>
+                  </div>
+                </div>
+                <div className="text-right flex items-center gap-3">
+                  {token.valueUsd !== null ? (
+                    <div>
+                      <p className="font-bold">${token.valueUsd.toFixed(2)}</p>
+                      <p className="text-xs text-muted-foreground">${token.priceUsd?.toFixed(8)}</p>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">Price unavailable</p>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={() => handleSellToken(token)}
+                    disabled={sellingToken === token.mint}
+                  >
+                    {sellingToken === token.mint ? <RefreshCw className="h-3 w-3 animate-spin" /> : 'Sell'}
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-6 text-muted-foreground">
+            <Wallet className="h-8 w-8 mx-auto mb-2 opacity-50" />
+            <p>No tokens found in wallet</p>
+            <p className="text-xs mt-1">Buy tokens from the scanner below</p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function AutoTradingPanel() {
   const { toast } = useToast();
   const [depositAmount, setDepositAmount] = useState('');
   const [buyingToken, setBuyingToken] = useState<string | null>(null);
+  const [autoTradeLog, setAutoTradeLog] = useState<string[]>([]);
+  const [recentlyBought, setRecentlyBought] = useState<Set<string>>(new Set());
   const { connected, connecting, walletData, connect, disconnect, signAndSendTransaction, getPublicKey, refreshWalletData, error } = useSolanaWallet();
   
   const { data: wallet, isLoading: walletLoading, refetch: refetchWallet } = useQuery<TradingWallet>({
@@ -331,6 +529,139 @@ function AutoTradingPanel() {
     queryKey: ['/api/trading/positions'],
     refetchInterval: 10000,
   });
+  
+  // Fetch scan data for auto-trading
+  const { data: scanData } = useQuery<ScanResponse>({
+    queryKey: ['/api/solana/scan', { limit: 12 }],
+    refetchInterval: wallet?.isAutoTradeEnabled ? 60000 : false, // Auto-refresh when enabled
+  });
+  
+  // Fetch wallet tokens for position tracking
+  const [walletTokenMints, setWalletTokenMints] = useState<Set<string>>(new Set());
+  
+  // Get connection from wallet hook
+  const { getConnection: getWalletConnection } = useSolanaWallet();
+  
+  // Refresh wallet token mints periodically for position tracking
+  useEffect(() => {
+    if (!connected || !walletData?.address) return;
+    
+    const refreshTokenMints = async () => {
+      try {
+        const { PublicKey } = await import('@solana/web3.js');
+        const connection = getWalletConnection();
+        const publicKey = new PublicKey(walletData.address);
+        
+        const tokenAccounts = await connection.getParsedTokenAccountsByOwner(publicKey, {
+          programId: new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA')
+        });
+        
+        const mints = new Set<string>();
+        for (const account of tokenAccounts.value) {
+          const info = account.account.data.parsed.info;
+          if (info.tokenAmount.uiAmount > 0) {
+            mints.add(info.mint);
+          }
+        }
+        setWalletTokenMints(mints);
+      } catch (error) {
+        console.error('Failed to refresh token mints:', error);
+      }
+    };
+    
+    refreshTokenMints();
+    const interval = setInterval(refreshTokenMints, 30000); // Refresh every 30s
+    return () => clearInterval(interval);
+  }, [connected, walletData?.address]);
+  
+  // Auto-trade execution effect
+  useEffect(() => {
+    if (!wallet?.isAutoTradeEnabled || !connected || !scanData?.tokens) return;
+    
+    const publicKey = getPublicKey();
+    if (!publicKey) return;
+    
+    const executeAutoTrade = async () => {
+      const minConfidence = wallet.minSignalConfidence || 70;
+      const maxPositions = wallet.maxPositions || 3;
+      const tradeAmount = wallet.tradeAmountSol || 0.1;
+      const balance = walletData?.solBalance || 0;
+      
+      // Use actual wallet token count for position tracking
+      const openPositionCount = walletTokenMints.size;
+      if (openPositionCount >= maxPositions) {
+        const timestamp = new Date().toLocaleTimeString();
+        setAutoTradeLog(prev => [...prev.slice(-9), `${timestamp}: Max positions (${maxPositions}) reached - skipping`]);
+        return;
+      }
+      
+      if (balance < tradeAmount) {
+        const timestamp = new Date().toLocaleTimeString();
+        setAutoTradeLog(prev => [...prev.slice(-9), `${timestamp}: Insufficient balance (${balance.toFixed(4)} SOL < ${tradeAmount} SOL)`]);
+        return;
+      }
+      
+      // Find strong buy signals we haven't already bought (check actual wallet tokens)
+      const strongSignals = scanData.tokens.filter(t => 
+        (t.signal === 'STRONG_BUY' || t.signal === 'BUY') &&
+        t.confidence >= minConfidence &&
+        !walletTokenMints.has(t.token.address) && // Don't buy tokens we already hold
+        !recentlyBought.has(t.token.address)
+      );
+      
+      if (strongSignals.length === 0) return;
+      
+      // Take the strongest signal
+      const bestSignal = strongSignals[0];
+      const tokenAddress = bestSignal.token.address;
+      const tokenSymbol = bestSignal.token.symbol;
+      
+      // Add to recently bought to prevent double-buying
+      setRecentlyBought(prev => new Set(prev).add(tokenAddress));
+      setBuyingToken(tokenAddress);
+      
+      const timestamp = new Date().toLocaleTimeString();
+      setAutoTradeLog(prev => [...prev.slice(-9), `${timestamp}: Auto-buying ${tokenSymbol} (${bestSignal.confidence}% confidence)`]);
+      
+      toast({ 
+        title: `Auto-Trade: Buying ${tokenSymbol}`, 
+        description: `Signal: ${bestSignal.signal} at ${bestSignal.confidence}% confidence`
+      });
+      
+      try {
+        const result = await buyToken(
+          tokenAddress,
+          tradeAmount,
+          signAndSendTransaction,
+          publicKey.toString(),
+          150 // 1.5% slippage for auto-trades
+        );
+        
+        if (result.success) {
+          setAutoTradeLog(prev => [...prev.slice(-9), `${timestamp}: SUCCESS - Bought ${tokenSymbol} for ${result.inputAmount.toFixed(4)} SOL`]);
+          toast({ 
+            title: 'Auto-Trade Executed!', 
+            description: `Bought ${tokenSymbol} with ${result.inputAmount.toFixed(4)} SOL`
+          });
+          refreshWalletData();
+        } else {
+          setAutoTradeLog(prev => [...prev.slice(-9), `${timestamp}: FAILED - ${result.error}`]);
+          // Remove from recently bought so we can retry
+          setRecentlyBought(prev => {
+            const next = new Set(prev);
+            next.delete(tokenAddress);
+            return next;
+          });
+        }
+      } catch (error: any) {
+        setAutoTradeLog(prev => [...prev.slice(-9), `${timestamp}: ERROR - ${error.message}`]);
+      } finally {
+        setBuyingToken(null);
+      }
+    };
+    
+    executeAutoTrade();
+  }, [scanData?.scannedAt, wallet?.isAutoTradeEnabled, connected]);
   
   const updateSettingsMutation = useMutation({
     mutationFn: async (settings: Partial<TradingWallet>) => {
@@ -371,7 +702,9 @@ function AutoTradingPanel() {
   });
   
   const openPositions = positions?.filter(p => p.status === 'open') || [];
-  const availableBalance = wallet?.solBalance || 0;
+  // Use real Phantom wallet balance and token count instead of demo
+  const availableBalance = connected ? (walletData?.solBalance || 0) : (wallet?.solBalance || 0);
+  const actualTokenCount = connected ? walletTokenMints.size : openPositions.length;
   const totalPL = wallet?.totalProfitLoss || 0;
   
   return (
@@ -406,16 +739,18 @@ function AutoTradingPanel() {
       <CardContent className="space-y-6">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div className="bg-gray-900/50 rounded-lg p-3 text-center">
-            <p className="text-xs text-muted-foreground">Available SOL</p>
-            <p className="text-xl font-bold text-purple-400">{availableBalance.toFixed(4)}</p>
+            <p className="text-xs text-muted-foreground">{connected ? 'Phantom Balance' : 'Demo Balance'}</p>
+            <p className="text-xl font-bold text-purple-400">{availableBalance.toFixed(4)} SOL</p>
+            {connected && <p className="text-xs text-green-400">Real Wallet</p>}
           </div>
           <div className="bg-gray-900/50 rounded-lg p-3 text-center">
-            <p className="text-xs text-muted-foreground">In Positions</p>
-            <p className="text-xl font-bold text-blue-400">{(wallet?.lockedBalance || 0).toFixed(4)}</p>
+            <p className="text-xs text-muted-foreground">Trade Amount</p>
+            <p className="text-xl font-bold text-blue-400">{(wallet?.tradeAmountSol || 0.1).toFixed(2)} SOL</p>
           </div>
           <div className="bg-gray-900/50 rounded-lg p-3 text-center">
-            <p className="text-xs text-muted-foreground">Open Trades</p>
-            <p className="text-xl font-bold">{openPositions.length}/{wallet?.maxPositions || 3}</p>
+            <p className="text-xs text-muted-foreground">{connected ? 'Wallet Tokens' : 'Open Trades'}</p>
+            <p className="text-xl font-bold">{actualTokenCount}/{wallet?.maxPositions || 3}</p>
+            {connected && <p className="text-xs text-green-400">Real Positions</p>}
           </div>
           <div className={`bg-gray-900/50 rounded-lg p-3 text-center ${totalPL >= 0 ? 'border-green-500/30' : 'border-red-500/30'} border`}>
             <p className="text-xs text-muted-foreground">Total P/L</p>
@@ -480,8 +815,9 @@ function AutoTradingPanel() {
         )}
         
         <Tabs defaultValue="positions" className="w-full">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="positions">Open Positions ({openPositions.length})</TabsTrigger>
+          <TabsList className="grid w-full grid-cols-3">
+            <TabsTrigger value="positions">Positions ({openPositions.length})</TabsTrigger>
+            <TabsTrigger value="activity">Activity Log</TabsTrigger>
             <TabsTrigger value="settings">Settings</TabsTrigger>
           </TabsList>
           
@@ -524,6 +860,30 @@ function AutoTradingPanel() {
                 <Target className="h-8 w-8 mx-auto mb-2 opacity-50" />
                 <p>No open positions</p>
                 <p className="text-xs mt-1">Enable auto-trade to automatically buy strong signals</p>
+              </div>
+            )}
+          </TabsContent>
+          
+          <TabsContent value="activity" className="space-y-3 mt-4">
+            {autoTradeLog.length > 0 ? (
+              <div className="space-y-1 max-h-60 overflow-y-auto">
+                {autoTradeLog.map((log, idx) => (
+                  <div key={idx} className={`text-xs p-2 rounded ${log.includes('SUCCESS') ? 'bg-green-900/30 text-green-400' : log.includes('FAILED') || log.includes('ERROR') ? 'bg-red-900/30 text-red-400' : 'bg-gray-800/50 text-muted-foreground'}`}>
+                    {log}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-8 text-muted-foreground">
+                <Activity className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                <p>No auto-trade activity yet</p>
+                <p className="text-xs mt-1">Enable auto-trade and connect your wallet to start</p>
+              </div>
+            )}
+            {buyingToken && (
+              <div className="flex items-center gap-2 p-3 bg-purple-900/30 rounded-lg border border-purple-500/30">
+                <RefreshCw className="h-4 w-4 animate-spin text-purple-400" />
+                <span className="text-sm text-purple-400">Executing trade via Jupiter...</span>
               </div>
             )}
           </TabsContent>
@@ -857,6 +1217,8 @@ export default function SolanaScanner() {
       </div>
       
       <AutoTradingPanel />
+      
+      <MyWalletTokens />
       
       {scanData?.scannedAt && !searchResults.length && (
         <p className="text-sm text-muted-foreground text-center">
