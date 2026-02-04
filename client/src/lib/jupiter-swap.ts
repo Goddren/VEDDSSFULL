@@ -48,6 +48,7 @@ export interface SwapResult {
   error?: string;
   inputAmount: number;
   outputAmount: number;
+  outputDecimals?: number;
 }
 
 export async function getSwapQuote(
@@ -89,7 +90,8 @@ export async function getSwapQuote(
 export async function executeSwap(
   quote: QuoteResponse,
   userPublicKey: string,
-  signAndSendTransaction: (tx: VersionedTransaction) => Promise<string | null>
+  signAndSendTransaction: (tx: VersionedTransaction) => Promise<string | null>,
+  outputDecimals?: number
 ): Promise<SwapResult> {
   try {
     const swapResult = await jupiterQuoteApi.swapPost({
@@ -107,6 +109,7 @@ export async function executeSwap(
         error: 'Failed to create swap transaction',
         inputAmount: parseInt(quote.inAmount) / 1e9,
         outputAmount: parseInt(quote.outAmount),
+        outputDecimals,
       };
     }
 
@@ -121,6 +124,7 @@ export async function executeSwap(
         error: 'Transaction signing was rejected',
         inputAmount: parseInt(quote.inAmount) / 1e9,
         outputAmount: parseInt(quote.outAmount),
+        outputDecimals,
       };
     }
 
@@ -129,6 +133,7 @@ export async function executeSwap(
       signature,
       inputAmount: parseInt(quote.inAmount) / 1e9,
       outputAmount: parseInt(quote.outAmount),
+      outputDecimals,
     };
   } catch (error: any) {
     console.error('Swap execution failed:', error);
@@ -137,6 +142,7 @@ export async function executeSwap(
       error: error.message || 'Swap failed',
       inputAmount: parseInt(quote.inAmount) / 1e9,
       outputAmount: parseInt(quote.outAmount),
+      outputDecimals,
     };
   }
 }
@@ -160,7 +166,33 @@ export async function buyToken(
     };
   }
 
-  return executeSwap(quote.quote, userPublicKey, signAndSendTransaction);
+  // Get token decimals from quote response route info
+  let outputDecimals = 9; // Default to 9 decimals (common for SPL tokens)
+  try {
+    // The route plan contains swap info with token decimals
+    const routePlan = quote.quote.routePlan;
+    if (routePlan && routePlan.length > 0) {
+      const lastStep = routePlan[routePlan.length - 1];
+      // Jupiter stores decimals in the swapInfo
+      if (lastStep.swapInfo && (lastStep.swapInfo as any).outputMint) {
+        // Try to get decimals from the quote - Jupiter V6 provides this
+        const outAmountRaw = parseInt(quote.quote.outAmount);
+        const expectedDecimals = [9, 8, 6, 5, 4, 3, 2, 1, 0];
+        for (const dec of expectedDecimals) {
+          const humanAmount = outAmountRaw / Math.pow(10, dec);
+          // Most tokens have reasonable amounts between 0.0001 and 1e12
+          if (humanAmount >= 0.0001 && humanAmount <= 1e12) {
+            outputDecimals = dec;
+            break;
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.log('Could not determine token decimals, using default 9');
+  }
+
+  return executeSwap(quote.quote, userPublicKey, signAndSendTransaction, outputDecimals);
 }
 
 export async function sellToken(

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -27,7 +27,11 @@ import {
   Target,
   Shield,
   PlusCircle,
-  LinkIcon
+  LinkIcon,
+  Bell,
+  BellOff,
+  Volume2,
+  VolumeX
 } from 'lucide-react';
 import { buyToken, sellToken } from '@/lib/jupiter-swap';
 import type { SwapResult } from '@/lib/jupiter-swap';
@@ -35,6 +39,7 @@ import { Connection } from '@solana/web3.js';
 import { SiSolana } from 'react-icons/si';
 import { useToast } from '@/hooks/use-toast';
 import { useSolanaWallet } from '@/hooks/use-solana-wallet';
+import { useNotifications } from '@/hooks/use-notifications';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
@@ -539,6 +544,47 @@ function AutoTradingPanel() {
   const [autoTradeLog, setAutoTradeLog] = useState<string[]>([]);
   const [recentlyBought, setRecentlyBought] = useState<Set<string>>(new Set());
   const { connected, connecting, walletData, connect, disconnect, signAndSendTransaction, getPublicKey, refreshWalletData, error } = useSolanaWallet();
+  const { permission, soundEnabled, requestPermission, playSound, notifyTradeSignal, notifyTradeExecuted, notifyTakeProfitHit, notifyStopLossHit, toggleSound } = useNotifications();
+  
+  // Position tracking for auto-sell
+  interface TrackedPosition {
+    tokenAddress: string;
+    symbol: string;
+    purchasePrice: number;
+    purchaseAmount: number;
+    decimals: number;
+    purchasedAt: string;
+  }
+  
+  // Load tracked positions from localStorage on mount
+  const [trackedPositions, setTrackedPositions] = useState<Map<string, TrackedPosition>>(() => {
+    try {
+      const stored = localStorage.getItem('trackedPositions');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        return new Map(Object.entries(parsed));
+      }
+    } catch (e) {}
+    return new Map();
+  });
+  
+  // Use ref for sellingToken to avoid stale closure issues
+  const sellingTokenRef = React.useRef<string | null>(null);
+  const [sellingToken, setSellingToken] = useState<string | null>(null);
+  
+  // Persist tracked positions to localStorage when they change
+  useEffect(() => {
+    const obj: Record<string, TrackedPosition> = {};
+    Array.from(trackedPositions.entries()).forEach(([k, v]) => {
+      obj[k] = v;
+    });
+    localStorage.setItem('trackedPositions', JSON.stringify(obj));
+  }, [trackedPositions]);
+  
+  // Keep ref in sync with state
+  useEffect(() => {
+    sellingTokenRef.current = sellingToken;
+  }, [sellingToken]);
   
   // Use phantom wallet-based settings when connected (no login required)
   const phantomAddress = connected ? walletData?.address : null;
@@ -655,6 +701,9 @@ function AutoTradingPanel() {
       const timestamp = new Date().toLocaleTimeString();
       setAutoTradeLog(prev => [...prev.slice(-9), `${timestamp}: Auto-buying ${tokenSymbol} (${bestSignal.confidence}% confidence)`]);
       
+      // Send notification and play sound for trade signal
+      notifyTradeSignal(tokenSymbol, bestSignal.signal, bestSignal.confidence);
+      
       toast({ 
         title: `Auto-Trade: Buying ${tokenSymbol}`, 
         description: `Signal: ${bestSignal.signal} at ${bestSignal.confidence}% confidence`
@@ -671,6 +720,23 @@ function AutoTradingPanel() {
         
         if (result.success) {
           setAutoTradeLog(prev => [...prev.slice(-9), `${timestamp}: SUCCESS - Bought ${tokenSymbol} for ${result.inputAmount.toFixed(4)} SOL`]);
+          // Track position for auto-sell with actual decimals from Jupiter response
+          const currentPrice = parseFloat(bestSignal.token.priceUsd);
+          const tokenDecimals = result.outputDecimals || 9; // Jupiter provides decimals
+          setTrackedPositions(prev => {
+            const next = new Map(prev);
+            next.set(tokenAddress, {
+              tokenAddress,
+              symbol: tokenSymbol,
+              purchasePrice: currentPrice,
+              purchaseAmount: result.outputAmount,
+              decimals: tokenDecimals,
+              purchasedAt: new Date().toISOString(),
+            });
+            return next;
+          });
+          // Notify success
+          notifyTradeExecuted(tokenSymbol, 'bought', result.inputAmount);
           toast({ 
             title: 'Auto-Trade Executed!', 
             description: `Bought ${tokenSymbol} with ${result.inputAmount.toFixed(4)} SOL`
@@ -678,6 +744,7 @@ function AutoTradingPanel() {
           refreshWalletData();
         } else {
           setAutoTradeLog(prev => [...prev.slice(-9), `${timestamp}: FAILED - ${result.error}`]);
+          playSound('error');
           // Remove from recently bought so we can retry
           setRecentlyBought(prev => {
             const next = new Set(prev);
@@ -687,6 +754,7 @@ function AutoTradingPanel() {
         }
       } catch (error: any) {
         setAutoTradeLog(prev => [...prev.slice(-9), `${timestamp}: ERROR - ${error.message}`]);
+        playSound('error');
       } finally {
         setBuyingToken(null);
       }
@@ -694,6 +762,137 @@ function AutoTradingPanel() {
     
     executeAutoTrade();
   }, [scanData?.scannedAt, wallet?.isAutoTradeEnabled, connected]);
+  
+  // Auto-sell monitoring effect - checks positions against take profit / stop loss
+  useEffect(() => {
+    if (!wallet?.isAutoTradeEnabled || !connected || trackedPositions.size === 0 || !scanData?.tokens) return;
+    
+    const publicKey = getPublicKey();
+    if (!publicKey) return;
+    
+    const checkAutoSell = async () => {
+      const takeProfitPercent = wallet.takeProfitPercent || 50;
+      const stopLossPercent = wallet.stopLossPercent || 20;
+      
+      for (const [tokenAddress, position] of Array.from(trackedPositions.entries())) {
+        // Skip if already selling (use ref to avoid stale closure)
+        if (sellingTokenRef.current === tokenAddress) continue;
+        
+        // Find current price from scan data
+        const currentData = scanData.tokens.find(t => t.token.address === tokenAddress);
+        if (!currentData) continue;
+        
+        const currentPrice = parseFloat(currentData.token.priceUsd);
+        const priceChange = ((currentPrice - position.purchasePrice) / position.purchasePrice) * 100;
+        
+        const timestamp = new Date().toLocaleTimeString();
+        
+        // Check take profit
+        if (priceChange >= takeProfitPercent) {
+          setAutoTradeLog(prev => [...prev.slice(-9), `${timestamp}: TAKE PROFIT - ${position.symbol} +${priceChange.toFixed(1)}% (target: +${takeProfitPercent}%)`]);
+          notifyTakeProfitHit(position.symbol, priceChange);
+          
+          setSellingToken(tokenAddress);
+          try {
+            const result = await sellToken(
+              tokenAddress,
+              position.purchaseAmount,
+              position.decimals || 9, // Use tracked decimals
+              signAndSendTransaction,
+              publicKey.toString(),
+              200 // 2% slippage for auto-sells
+            );
+            
+            if (result.success) {
+              setAutoTradeLog(prev => [...prev.slice(-9), `${timestamp}: SOLD ${position.symbol} - +${priceChange.toFixed(1)}% profit, received ${result.outputAmount.toFixed(4)} SOL`]);
+              notifyTradeExecuted(position.symbol, 'sold', result.outputAmount);
+              // Remove from tracked positions
+              setTrackedPositions(prev => {
+                const next = new Map(prev);
+                next.delete(tokenAddress);
+                return next;
+              });
+              refreshWalletData();
+            }
+          } catch (err: any) {
+            setAutoTradeLog(prev => [...prev.slice(-9), `${timestamp}: SELL FAILED - ${err.message}`]);
+          } finally {
+            setSellingToken(null);
+          }
+        }
+        // Check stop loss
+        else if (priceChange <= -stopLossPercent) {
+          setAutoTradeLog(prev => [...prev.slice(-9), `${timestamp}: STOP LOSS - ${position.symbol} ${priceChange.toFixed(1)}% (limit: -${stopLossPercent}%)`]);
+          notifyStopLossHit(position.symbol, priceChange);
+          
+          setSellingToken(tokenAddress);
+          try {
+            const result = await sellToken(
+              tokenAddress,
+              position.purchaseAmount,
+              position.decimals || 9, // Use tracked decimals
+              signAndSendTransaction,
+              publicKey.toString(),
+              300 // 3% slippage for emergency sells
+            );
+            
+            if (result.success) {
+              setAutoTradeLog(prev => [...prev.slice(-9), `${timestamp}: SOLD ${position.symbol} - ${priceChange.toFixed(1)}% loss, received ${result.outputAmount.toFixed(4)} SOL`]);
+              notifyTradeExecuted(position.symbol, 'sold', result.outputAmount);
+              setTrackedPositions(prev => {
+                const next = new Map(prev);
+                next.delete(tokenAddress);
+                return next;
+              });
+              refreshWalletData();
+            }
+          } catch (err: any) {
+            setAutoTradeLog(prev => [...prev.slice(-9), `${timestamp}: SELL FAILED - ${err.message}`]);
+          } finally {
+            setSellingToken(null);
+          }
+        }
+        // Check for pump detection (rapid price increase followed by signal change)
+        else if (priceChange > 30 && (currentData.signal === 'SELL' || currentData.signal === 'STRONG_SELL')) {
+          setAutoTradeLog(prev => [...prev.slice(-9), `${timestamp}: PUMP DETECTED - ${position.symbol} +${priceChange.toFixed(1)}% with SELL signal, auto-selling`]);
+          notifyTakeProfitHit(position.symbol, priceChange);
+          
+          setSellingToken(tokenAddress);
+          try {
+            const result = await sellToken(
+              tokenAddress,
+              position.purchaseAmount,
+              position.decimals || 9, // Use tracked decimals
+              signAndSendTransaction,
+              publicKey.toString(),
+              300
+            );
+            
+            if (result.success) {
+              setAutoTradeLog(prev => [...prev.slice(-9), `${timestamp}: PUMP EXIT - Sold ${position.symbol} at +${priceChange.toFixed(1)}%`]);
+              notifyTradeExecuted(position.symbol, 'sold', result.outputAmount);
+              setTrackedPositions(prev => {
+                const next = new Map(prev);
+                next.delete(tokenAddress);
+                return next;
+              });
+              refreshWalletData();
+            }
+          } catch (err: any) {
+            setAutoTradeLog(prev => [...prev.slice(-9), `${timestamp}: PUMP EXIT FAILED - ${err.message}`]);
+          } finally {
+            setSellingToken(null);
+          }
+        }
+      }
+    };
+    
+    // Check positions every 30 seconds
+    const interval = setInterval(checkAutoSell, 30000);
+    checkAutoSell(); // Run immediately on mount/update
+    
+    return () => clearInterval(interval);
+  }, [wallet?.isAutoTradeEnabled, connected, trackedPositions, scanData?.tokens]);
   
   const updateSettingsMutation = useMutation({
     mutationFn: async (settings: Partial<TradingWallet>) => {
@@ -778,6 +977,40 @@ function AutoTradingPanel() {
         <CardDescription>
           Automatically buy tokens with strong signals and sell when targets are hit or pump/dump detected
         </CardDescription>
+        <div className="flex items-center gap-2 mt-2">
+          <Button 
+            variant={permission === 'granted' ? 'outline' : 'default'}
+            size="sm" 
+            onClick={requestPermission}
+            className={permission === 'granted' ? 'bg-green-500/10 border-green-500/30 text-green-400' : ''}
+          >
+            {permission === 'granted' ? (
+              <><Bell className="h-4 w-4 mr-1" /> Notifications On</>
+            ) : (
+              <><BellOff className="h-4 w-4 mr-1" /> Enable Notifications</>
+            )}
+          </Button>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={toggleSound}
+            className={soundEnabled ? 'bg-blue-500/10 border-blue-500/30 text-blue-400' : ''}
+          >
+            {soundEnabled ? (
+              <><Volume2 className="h-4 w-4 mr-1" /> Sound On</>
+            ) : (
+              <><VolumeX className="h-4 w-4 mr-1" /> Sound Off</>
+            )}
+          </Button>
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={() => playSound('alert')}
+            className="text-muted-foreground"
+          >
+            Test Sound
+          </Button>
+        </div>
       </CardHeader>
       <CardContent className="space-y-6">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
