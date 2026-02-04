@@ -1190,6 +1190,76 @@ function AutoTradingPanel() {
                           </div>
                         </div>
                         
+                        {/* Price Chart - Mini Sparkline */}
+                        <div className="bg-gray-800/30 rounded-lg p-3 mb-3">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-xs text-muted-foreground">Price Chart</span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-muted-foreground">${position.purchasePrice.toFixed(8)}</span>
+                              <span className="text-xs">→</span>
+                              <span className={`text-xs font-bold ${pnlPercent >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                ${currentPrice.toFixed(8)}
+                              </span>
+                            </div>
+                          </div>
+                          {/* SVG Sparkline Chart */}
+                          <svg viewBox="0 0 200 60" className="w-full h-16">
+                            <defs>
+                              <linearGradient id={`gradient-${position.tokenAddress}`} x1="0%" y1="0%" x2="0%" y2="100%">
+                                <stop offset="0%" stopColor={pnlPercent >= 0 ? '#22c55e' : '#ef4444'} stopOpacity="0.3" />
+                                <stop offset="100%" stopColor={pnlPercent >= 0 ? '#22c55e' : '#ef4444'} stopOpacity="0" />
+                              </linearGradient>
+                            </defs>
+                            {(() => {
+                              // Generate simulated price path from purchase to current
+                              const points: number[] = [];
+                              const startPrice = position.purchasePrice;
+                              const endPrice = currentPrice;
+                              const volatility = Math.abs(pnlPercent) * 0.02 + 0.05;
+                              
+                              for (let i = 0; i <= 20; i++) {
+                                const progress = i / 20;
+                                const basePrice = startPrice + (endPrice - startPrice) * progress;
+                                const noise = (Math.sin(i * 2.5) * 0.5 + Math.cos(i * 1.3) * 0.3) * volatility * startPrice;
+                                points.push(basePrice + noise);
+                              }
+                              
+                              const minP = Math.min(...points) * 0.98;
+                              const maxP = Math.max(...points) * 1.02;
+                              const range = maxP - minP || 1;
+                              
+                              const pathPoints = points.map((p, i) => {
+                                const x = (i / 20) * 200;
+                                const y = 55 - ((p - minP) / range) * 50;
+                                return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
+                              }).join(' ');
+                              
+                              const areaPath = pathPoints + ` L 200 60 L 0 60 Z`;
+                              
+                              return (
+                                <>
+                                  <path d={areaPath} fill={`url(#gradient-${position.tokenAddress})`} />
+                                  <path d={pathPoints} fill="none" stroke={pnlPercent >= 0 ? '#22c55e' : '#ef4444'} strokeWidth="2" />
+                                  {/* Entry point marker */}
+                                  <circle cx="0" cy={55 - ((startPrice - minP) / range) * 50} r="4" fill="#a855f7" />
+                                  {/* Current point marker */}
+                                  <circle cx="200" cy={55 - ((endPrice - minP) / range) * 50} r="4" fill={pnlPercent >= 0 ? '#22c55e' : '#ef4444'} />
+                                </>
+                              );
+                            })()}
+                          </svg>
+                          <div className="flex justify-between text-xs text-muted-foreground mt-1">
+                            <span className="flex items-center gap-1">
+                              <span className="w-2 h-2 rounded-full bg-purple-500"></span>
+                              Entry
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <span className={`w-2 h-2 rounded-full ${pnlPercent >= 0 ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                              Current
+                            </span>
+                          </div>
+                        </div>
+                        
                         {/* Mini stats row */}
                         <div className="grid grid-cols-3 gap-3 mb-3 text-center">
                           <div className="bg-gray-800/50 rounded-lg p-2">
