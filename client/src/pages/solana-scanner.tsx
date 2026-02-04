@@ -35,7 +35,8 @@ import {
   Brain,
   Share2,
   Download,
-  Twitter
+  Twitter,
+  Eye
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import VeddLogo from '@/components/ui/vedd-logo';
@@ -1668,6 +1669,46 @@ function AutoTradingPanel() {
                 <p className="font-medium">No AI trades yet</p>
                 <p className="text-xs mt-1">Enable auto-trade and connect your wallet to start AI-powered trading</p>
                 <p className="text-xs mt-2 text-purple-400">When AI buys a token, you'll see the reasoning here with live P&L tracking</p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-4"
+                  onClick={() => {
+                    const demoPosition: TrackedPosition = {
+                      tokenAddress: 'DEMO_' + Date.now(),
+                      symbol: 'DEMO',
+                      purchasePrice: 0.00045,
+                      purchaseAmount: 100000,
+                      decimals: 9,
+                      purchasedAt: new Date(Date.now() - 1000 * 60 * 60 * 5).toISOString(),
+                      signal: 'BUY',
+                      confidence: 87,
+                      reasoning: [
+                        'Strong upward momentum detected',
+                        'High whale accumulation (15+ large buys)',
+                        'Healthy liquidity ratio 12%',
+                        'Positive social sentiment trending'
+                      ],
+                      sentimentScore: 82,
+                      tokenomicsScore: 78,
+                      whaleScore: 91,
+                      tokenName: 'Demo Token',
+                      marketCap: 4500000,
+                      volume24h: 2100000,
+                      currentPrice: 0.00068,
+                      pnlPercent: 51.1
+                    };
+                    setTrackedPositions(prev => {
+                      const next = new Map(prev);
+                      next.set(demoPosition.tokenAddress, demoPosition);
+                      return next;
+                    });
+                    toast({ title: 'Demo trade added!', description: 'Preview the share card and chart' });
+                  }}
+                >
+                  <Eye className="h-4 w-4 mr-2" />
+                  Add Demo Trade to Preview
+                </Button>
               </div>
             )}
           </TabsContent>
