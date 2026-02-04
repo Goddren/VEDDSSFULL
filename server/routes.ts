@@ -9994,6 +9994,134 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       res.status(500).json({ success: false, error: 'Failed to fetch trending tokens' });
     }
   });
+  
+  // Get wallet tokens for a Solana address (server-side fetch to avoid client rate limiting)
+  app.get("/api/solana/wallet-tokens/:address", async (req: Request, res: Response) => {
+    try {
+      const { address } = req.params;
+      if (!address || address.length < 32) {
+        return res.status(400).json({ success: false, error: 'Invalid wallet address' });
+      }
+      
+      const RPC_ENDPOINTS = [
+        'https://rpc.ankr.com/solana',
+        'https://solana.public-rpc.com',
+        'https://api.mainnet-beta.solana.com',
+        'https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92',
+      ];
+      
+      let tokenAccounts: any = null;
+      let lastError: any = null;
+      
+      for (const rpcUrl of RPC_ENDPOINTS) {
+        try {
+          console.log('Wallet tokens: Trying RPC:', rpcUrl);
+          const response = await fetch(rpcUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              jsonrpc: '2.0',
+              id: 1,
+              method: 'getTokenAccountsByOwner',
+              params: [
+                address,
+                { programId: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA' },
+                { encoding: 'jsonParsed', commitment: 'confirmed' }
+              ]
+            })
+          });
+          
+          if (!response.ok) {
+            throw new Error(`RPC error: ${response.status}`);
+          }
+          
+          const data = await response.json();
+          if (data.error) {
+            throw new Error(data.error.message || 'RPC error');
+          }
+          
+          tokenAccounts = data.result?.value || [];
+          console.log('Wallet tokens: Got', tokenAccounts.length, 'accounts from', rpcUrl);
+          break;
+        } catch (err: any) {
+          console.warn('Wallet tokens RPC failed:', rpcUrl, err.message);
+          lastError = err;
+          await new Promise(r => setTimeout(r, 300));
+          continue;
+        }
+      }
+      
+      if (tokenAccounts === null) {
+        throw lastError || new Error('All RPC endpoints failed');
+      }
+      
+      // Parse token accounts
+      const tokens: Array<{
+        mint: string;
+        symbol: string;
+        name: string;
+        amount: string;
+        decimals: number;
+        uiAmount: number;
+        priceUsd: number | null;
+        valueUsd: number | null;
+      }> = [];
+      
+      const tokenMints: string[] = [];
+      
+      for (const account of tokenAccounts) {
+        const info = account.account?.data?.parsed?.info;
+        if (!info) continue;
+        
+        const uiAmount = info.tokenAmount?.uiAmount || 0;
+        if (uiAmount > 0) {
+          tokenMints.push(info.mint);
+          tokens.push({
+            mint: info.mint,
+            symbol: info.mint.slice(0, 6) + '...',
+            name: 'Unknown',
+            amount: info.tokenAmount?.amount || '0',
+            decimals: info.tokenAmount?.decimals || 0,
+            uiAmount,
+            priceUsd: null,
+            valueUsd: null,
+          });
+        }
+      }
+      
+      // Fetch prices from DexScreener
+      if (tokenMints.length > 0) {
+        try {
+          const batchMints = tokenMints.slice(0, 30).join(',');
+          const dexRes = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${batchMints}`);
+          if (dexRes.ok) {
+            const dexData = await dexRes.json();
+            const pairs = dexData.pairs || [];
+            
+            for (const token of tokens) {
+              const pair = pairs.find((p: any) => p.baseToken?.address === token.mint);
+              if (pair) {
+                token.symbol = pair.baseToken?.symbol || token.symbol;
+                token.name = pair.baseToken?.name || 'Unknown';
+                token.priceUsd = parseFloat(pair.priceUsd) || null;
+                token.valueUsd = token.priceUsd ? token.uiAmount * token.priceUsd : null;
+              }
+            }
+          }
+        } catch (e) {
+          console.log('Price fetch skipped:', e);
+        }
+      }
+      
+      // Sort by value
+      tokens.sort((a, b) => (b.valueUsd || 0) - (a.valueUsd || 0));
+      
+      res.json({ success: true, tokens });
+    } catch (error: any) {
+      console.error('Error fetching wallet tokens:', error);
+      res.status(500).json({ success: false, error: error.message || 'Failed to fetch wallet tokens' });
+    }
+  });
 
   // ============================================
   // Auto-Trading Wallet API

@@ -358,105 +358,35 @@ function MyWalletTokens() {
     console.log('MyWalletTokens: Starting fetch for address:', walletData.address);
     
     try {
-      const { PublicKey, Connection: SolConnection } = await import('@solana/web3.js');
-      const publicKey = new PublicKey(walletData.address);
+      // Use server-side API to avoid client RPC rate limiting
+      const response = await fetch(`/api/solana/wallet-tokens/${walletData.address}`);
+      const data = await response.json();
       
-      let tokenAccounts: any = null;
-      let lastError: any = null;
-      
-      for (let i = 0; i < WALLET_RPC_ENDPOINTS.length; i++) {
-        const rpcUrl = WALLET_RPC_ENDPOINTS[i];
-        try {
-          console.log('MyWalletTokens: Trying RPC:', rpcUrl);
-          const connection = new SolConnection(rpcUrl, {
-            commitment: 'confirmed',
-            confirmTransactionInitialTimeout: 15000,
-          });
-          
-          const fetchPromise = connection.getParsedTokenAccountsByOwner(publicKey, {
-            programId: new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA')
-          });
-          
-          const timeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('RPC timeout')), 12000)
-          );
-          
-          tokenAccounts = await Promise.race([fetchPromise, timeoutPromise]);
-          console.log('MyWalletTokens: Got', tokenAccounts.value?.length || 0, 'token accounts from', rpcUrl);
-          break;
-        } catch (err: any) {
-          console.warn('MyWalletTokens: RPC failed:', rpcUrl, err.message);
-          lastError = err;
-          if (i < WALLET_RPC_ENDPOINTS.length - 1) {
-            await delay(500);
-          }
-          continue;
-        }
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to fetch wallet tokens');
       }
       
-      if (!tokenAccounts) {
-        throw lastError || new Error('All RPC endpoints failed');
-      }
+      console.log('MyWalletTokens: Got', data.tokens?.length || 0, 'tokens from server');
       
-      const tokens: WalletToken[] = [];
-      const tokenMints: string[] = [];
+      const tokens: WalletToken[] = (data.tokens || []).map((t: any) => ({
+        mint: t.mint,
+        symbol: t.symbol,
+        name: t.name,
+        amount: parseInt(t.amount) || 0,
+        decimals: t.decimals,
+        uiAmount: t.uiAmount,
+        priceUsd: t.priceUsd,
+        valueUsd: t.valueUsd,
+      }));
       
-      for (const account of tokenAccounts.value) {
-        const info = account.account.data.parsed.info;
-        const uiAmount = info.tokenAmount.uiAmount || 0;
-        console.log('MyWalletTokens: Token', info.mint.slice(0, 8), 'amount:', uiAmount);
-        if (uiAmount > 0) {
-          tokenMints.push(info.mint);
-          tokens.push({
-            mint: info.mint,
-            symbol: 'Loading...',
-            name: 'Loading...',
-            amount: parseInt(info.tokenAmount.amount),
-            decimals: info.tokenAmount.decimals,
-            uiAmount,
-            priceUsd: null,
-            valueUsd: null,
-          });
-        }
-      }
-      
-      console.log('MyWalletTokens: Found', tokens.length, 'tokens with balance');
-      
-      if (tokenMints.length > 0) {
-        try {
-          const batchMints = tokenMints.slice(0, 30).join(',');
-          const dexRes = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${batchMints}`);
-          if (dexRes.ok) {
-            const dexData = await dexRes.json();
-            const pairs = dexData.pairs || [];
-            
-            for (const token of tokens) {
-              const pair = pairs.find((p: any) => p.baseToken?.address === token.mint);
-              if (pair) {
-                token.symbol = pair.baseToken?.symbol || token.mint.slice(0, 6);
-                token.name = pair.baseToken?.name || 'Unknown';
-                token.priceUsd = parseFloat(pair.priceUsd) || null;
-                token.valueUsd = token.priceUsd ? token.uiAmount * token.priceUsd : null;
-              } else {
-                token.symbol = token.mint.slice(0, 6) + '...';
-                token.name = 'Unknown Token';
-              }
-            }
-          }
-        } catch (e) {
-          console.log('MyWalletTokens: Price fetch skipped:', e);
-        }
-      }
-      
-      const sortedTokens = tokens.filter(t => t.uiAmount > 0).sort((a, b) => (b.valueUsd || 0) - (a.valueUsd || 0));
-      console.log('MyWalletTokens: Setting', sortedTokens.length, 'tokens');
-      setWalletTokens(sortedTokens);
+      console.log('MyWalletTokens: Setting', tokens.length, 'tokens');
+      setWalletTokens(tokens);
     } catch (error: any) {
       console.error('MyWalletTokens: Failed to fetch wallet tokens:', error);
       setFetchError(error.message || 'Failed to load tokens');
       toast({
         title: 'Failed to load wallet tokens',
-        description: 'RPC rate limited. Try again in a moment.',
+        description: error.message || 'Server error. Try again in a moment.',
         variant: 'destructive'
       });
     } finally {
