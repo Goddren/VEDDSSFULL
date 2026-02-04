@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -269,6 +269,7 @@ type ReversalAlert = {
 
 type ReversalData = {
   reversals: ReversalAlert[];
+  totalReversals: number;
   openTradesCount: number;
   message: string;
 };
@@ -895,10 +896,51 @@ Win Rate: ${rec.winRate}% from ${rec.totalTrades} trades`;
 
 function ReversalAlertPanel() {
   const { toast } = useToast();
+  const [clearedAlerts, setClearedAlerts] = useState<Set<number>>(new Set());
+  const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
+  
   const { data: reversalData, isLoading, refetch } = useQuery<ReversalData>({
     queryKey: ['/api/reversal-alerts'],
     refetchInterval: 30000,
   });
+  
+  // Auto-refresh and clear old alerts after 15 minutes
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = new Date();
+      const timeSinceRefresh = now.getTime() - lastRefresh.getTime();
+      if (timeSinceRefresh >= 15 * 60 * 1000) {
+        setClearedAlerts(new Set());
+        setLastRefresh(now);
+        refetch();
+      }
+    }, 60000);
+    return () => clearInterval(interval);
+  }, [lastRefresh, refetch]);
+  
+  // Filter out cleared alerts
+  const visibleReversals = reversalData?.reversals?.filter(r => !clearedAlerts.has(r.tradeId)) || [];
+  
+  const handleClearAll = () => {
+    if (reversalData?.reversals) {
+      const ids = new Set(reversalData.reversals.map(r => r.tradeId));
+      setClearedAlerts(ids);
+      toast({ title: "Alerts Cleared", description: "All reversal alerts dismissed until next refresh" });
+    }
+  };
+  
+  const handleRefresh = () => {
+    setClearedAlerts(new Set());
+    setLastRefresh(new Date());
+    refetch();
+  };
+  
+  const getTimeSince = (isoTime: string) => {
+    const mins = Math.floor((Date.now() - new Date(isoTime).getTime()) / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins}m ago`;
+    return `${Math.floor(mins / 60)}h ${mins % 60}m ago`;
+  };
 
   const flipTradeMutation = useMutation({
     mutationFn: async (data: { tradeId: number; symbol: string; currentDirection: string; newDirection: string }) => {
@@ -970,24 +1012,36 @@ function ReversalAlertPanel() {
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.2 }}
     >
-      <Card className={`border-2 ${reversalData?.reversals?.length ? 'bg-gradient-to-br from-red-900/20 to-orange-900/20 border-red-500/40' : 'bg-gray-800/50 border-gray-700'}`}>
+      <Card className={`border-2 ${visibleReversals.length ? 'bg-gradient-to-br from-red-900/20 to-orange-900/20 border-red-500/40' : 'bg-gray-800/50 border-gray-700'}`}>
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between">
             <CardTitle className="text-white flex items-center gap-2">
-              <Zap className={`w-5 h-5 ${reversalData?.reversals?.length ? 'text-red-400 animate-pulse' : 'text-gray-400'}`} />
+              <Zap className={`w-5 h-5 ${visibleReversals.length ? 'text-red-400 animate-pulse' : 'text-gray-400'}`} />
               Reversal Detection
-              {reversalData?.reversals?.length ? (
+              {visibleReversals.length ? (
                 <Badge className="bg-red-500/20 text-red-400 border-red-500/30 animate-pulse">
-                  {reversalData.reversals.length} Alert{reversalData.reversals.length > 1 ? 's' : ''}
+                  {visibleReversals.length} Alert{visibleReversals.length > 1 ? 's' : ''}
                 </Badge>
               ) : null}
+              {reversalData?.totalReversals && reversalData.totalReversals > 7 && (
+                <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30 text-xs">
+                  +{reversalData.totalReversals - 7} more
+                </Badge>
+              )}
             </CardTitle>
-            <Button variant="ghost" size="sm" onClick={() => refetch()}>
-              <RefreshCw className="w-4 h-4" />
-            </Button>
+            <div className="flex items-center gap-1">
+              {visibleReversals.length > 0 && (
+                <Button variant="ghost" size="sm" onClick={handleClearAll} className="text-gray-400 hover:text-red-400">
+                  <Trash2 className="w-4 h-4" />
+                </Button>
+              )}
+              <Button variant="ghost" size="sm" onClick={handleRefresh}>
+                <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+              </Button>
+            </div>
           </div>
           <CardDescription>
-            Monitors for AI signal flips on your open trades
+            Monitors for AI signal flips (auto-clears after 15 min)
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -995,9 +1049,9 @@ function ReversalAlertPanel() {
             <div className="flex items-center justify-center py-6">
               <RefreshCw className="w-6 h-6 animate-spin text-gray-400" />
             </div>
-          ) : reversalData?.reversals?.length ? (
+          ) : visibleReversals.length ? (
             <div className="space-y-3">
-              {reversalData.reversals.map((alert, index) => (
+              {visibleReversals.map((alert, index) => (
                 <motion.div
                   key={alert.tradeId}
                   initial={{ opacity: 0, x: -20 }}
@@ -1036,9 +1090,12 @@ function ReversalAlertPanel() {
                     </div>
                   </div>
                   <div className="mt-3 pt-3 border-t border-gray-700/50 flex items-center justify-between">
-                    <p className="text-xs text-gray-500">
-                      Flip to catch reversal & recover losses
-                    </p>
+                    <div className="text-xs text-gray-500">
+                      <p>Flip to catch reversal & recover losses</p>
+                      <p className="text-gray-600 flex items-center gap-1 mt-1">
+                        <Clock className="w-3 h-3" /> Detected {getTimeSince(alert.analysisTime)}
+                      </p>
+                    </div>
                     <div className="flex items-center gap-2">
                       <Button
                         size="sm"

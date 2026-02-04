@@ -6277,8 +6277,15 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         }
       }
       
+      // Limit to max 7 reversals, sorted by strength
+      const sortedReversals = reversals.sort((a, b) => {
+        const strengthOrder: Record<string, number> = { 'CRITICAL': 0, 'HIGH': 1, 'MEDIUM': 2, 'LOW': 3 };
+        return (strengthOrder[a.reversalStrength] || 4) - (strengthOrder[b.reversalStrength] || 4);
+      }).slice(0, 7);
+      
       res.json({ 
-        reversals,
+        reversals: sortedReversals,
+        totalReversals: reversals.length,
         openTradesCount: pendingTrades.length,
         message: reversals.length > 0 
           ? `${reversals.length} reversal alert(s) detected!` 
