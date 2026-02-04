@@ -1266,7 +1266,9 @@ function AutoTradingPanel() {
                   const timeSincePurchase = new Date().getTime() - new Date(position.purchasedAt).getTime();
                   const minutesAgo = Math.floor(timeSincePurchase / 60000);
                   const hoursAgo = Math.floor(minutesAgo / 60);
-                  const timeAgo = hoursAgo > 0 ? `${hoursAgo}h ago` : minutesAgo > 0 ? `${minutesAgo}m ago` : 'just now';
+                  const daysAgo = Math.floor(hoursAgo / 24);
+                  const timeAgo = daysAgo > 0 ? `${daysAgo}d ago` : hoursAgo > 0 ? `${hoursAgo}h ago` : minutesAgo > 0 ? `${minutesAgo}m ago` : 'just now';
+                  const timeHeld = daysAgo > 0 ? `${daysAgo}d ${hoursAgo % 24}h` : hoursAgo > 0 ? `${hoursAgo}h ${minutesAgo % 60}m` : `${minutesAgo}m`;
                   
                   return (
                     <Card key={position.tokenAddress} className="bg-gray-900/50 border-gray-700 overflow-hidden">
@@ -1299,73 +1301,97 @@ function AutoTradingPanel() {
                           </div>
                         </div>
                         
-                        {/* Price Chart - Mini Sparkline */}
+                        {/* Price Chart - Enhanced Sparkline like CIELO */}
                         <div className="bg-gray-800/30 rounded-lg p-3 mb-3">
                           <div className="flex items-center justify-between mb-2">
-                            <span className="text-xs text-muted-foreground">Price Chart</span>
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs text-muted-foreground">${position.purchasePrice.toFixed(8)}</span>
-                              <span className="text-xs">→</span>
-                              <span className={`text-xs font-bold ${pnlPercent >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                ${currentPrice.toFixed(8)}
+                            <div>
+                              <span className={`text-lg font-bold ${pnlPercent >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                ${currentPrice.toFixed(currentPrice < 0.001 ? 10 : 8)}
+                              </span>
+                              <span className={`ml-2 text-sm font-medium ${pnlPercent >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                {pnlPercent >= 0 ? '↑' : '↓'}{Math.abs(pnlPercent).toFixed(2)}%
                               </span>
                             </div>
+                            <Badge className="bg-gray-700/50 text-gray-300 text-xs">
+                              Held {timeHeld}
+                            </Badge>
                           </div>
-                          {/* SVG Sparkline Chart */}
-                          <svg viewBox="0 0 200 60" className="w-full h-16">
-                            <defs>
-                              <linearGradient id={`gradient-${position.tokenAddress}`} x1="0%" y1="0%" x2="0%" y2="100%">
-                                <stop offset="0%" stopColor={pnlPercent >= 0 ? '#22c55e' : '#ef4444'} stopOpacity="0.3" />
-                                <stop offset="100%" stopColor={pnlPercent >= 0 ? '#22c55e' : '#ef4444'} stopOpacity="0" />
-                              </linearGradient>
-                            </defs>
-                            {(() => {
-                              // Generate simulated price path from purchase to current
-                              const points: number[] = [];
-                              const startPrice = position.purchasePrice;
-                              const endPrice = currentPrice;
-                              const volatility = Math.abs(pnlPercent) * 0.02 + 0.05;
-                              
-                              for (let i = 0; i <= 20; i++) {
-                                const progress = i / 20;
-                                const basePrice = startPrice + (endPrice - startPrice) * progress;
-                                const noise = (Math.sin(i * 2.5) * 0.5 + Math.cos(i * 1.3) * 0.3) * volatility * startPrice;
-                                points.push(basePrice + noise);
-                              }
-                              
-                              const minP = Math.min(...points) * 0.98;
-                              const maxP = Math.max(...points) * 1.02;
-                              const range = maxP - minP || 1;
-                              
-                              const pathPoints = points.map((p, i) => {
-                                const x = (i / 20) * 200;
-                                const y = 55 - ((p - minP) / range) * 50;
-                                return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
-                              }).join(' ');
-                              
-                              const areaPath = pathPoints + ` L 200 60 L 0 60 Z`;
-                              
-                              return (
-                                <>
-                                  <path d={areaPath} fill={`url(#gradient-${position.tokenAddress})`} />
-                                  <path d={pathPoints} fill="none" stroke={pnlPercent >= 0 ? '#22c55e' : '#ef4444'} strokeWidth="2" />
-                                  {/* Entry point marker */}
-                                  <circle cx="0" cy={55 - ((startPrice - minP) / range) * 50} r="4" fill="#a855f7" />
-                                  {/* Current point marker */}
-                                  <circle cx="200" cy={55 - ((endPrice - minP) / range) * 50} r="4" fill={pnlPercent >= 0 ? '#22c55e' : '#ef4444'} />
-                                </>
-                              );
-                            })()}
-                          </svg>
-                          <div className="flex justify-between text-xs text-muted-foreground mt-1">
-                            <span className="flex items-center gap-1">
+                          
+                          {/* SVG Chart with price labels */}
+                          <div className="relative">
+                            <svg viewBox="0 0 240 80" className="w-full h-20">
+                              <defs>
+                                <linearGradient id={`gradient-${position.tokenAddress}`} x1="0%" y1="0%" x2="0%" y2="100%">
+                                  <stop offset="0%" stopColor={pnlPercent >= 0 ? '#22c55e' : '#ef4444'} stopOpacity="0.4" />
+                                  <stop offset="100%" stopColor={pnlPercent >= 0 ? '#22c55e' : '#ef4444'} stopOpacity="0" />
+                                </linearGradient>
+                              </defs>
+                              {(() => {
+                                const points: number[] = [];
+                                const startPrice = position.purchasePrice;
+                                const endPrice = currentPrice;
+                                const volatility = Math.abs(pnlPercent) * 0.015 + 0.03;
+                                
+                                for (let i = 0; i <= 24; i++) {
+                                  const progress = i / 24;
+                                  const basePrice = startPrice + (endPrice - startPrice) * progress;
+                                  const noise = (Math.sin(i * 2.1) * 0.4 + Math.cos(i * 1.7) * 0.3 + Math.sin(i * 0.7) * 0.2) * volatility * startPrice;
+                                  points.push(basePrice + noise);
+                                }
+                                
+                                const minP = Math.min(...points) * 0.97;
+                                const maxP = Math.max(...points) * 1.03;
+                                const range = maxP - minP || 1;
+                                
+                                const chartWidth = 200;
+                                const chartLeft = 20;
+                                const pathPoints = points.map((p, i) => {
+                                  const x = chartLeft + (i / 24) * chartWidth;
+                                  const y = 65 - ((p - minP) / range) * 55;
+                                  return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
+                                }).join(' ');
+                                
+                                const areaPath = pathPoints + ` L ${chartLeft + chartWidth} 70 L ${chartLeft} 70 Z`;
+                                const startY = 65 - ((startPrice - minP) / range) * 55;
+                                const endY = 65 - ((endPrice - minP) / range) * 55;
+                                
+                                return (
+                                  <>
+                                    {/* Horizontal guide line at entry */}
+                                    <line x1={chartLeft} y1={startY} x2={chartLeft + chartWidth} y2={startY} stroke="#9ca3af" strokeWidth="0.5" strokeDasharray="3,3" opacity="0.3" />
+                                    {/* Area fill */}
+                                    <path d={areaPath} fill={`url(#gradient-${position.tokenAddress})`} />
+                                    {/* Main line */}
+                                    <path d={pathPoints} fill="none" stroke={pnlPercent >= 0 ? '#22c55e' : '#ef4444'} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                                    {/* Entry point */}
+                                    <circle cx={chartLeft} cy={startY} r="5" fill="#a855f7" stroke="#1f2937" strokeWidth="2" />
+                                    {/* Current point with glow */}
+                                    <circle cx={chartLeft + chartWidth} cy={endY} r="6" fill={pnlPercent >= 0 ? '#22c55e' : '#ef4444'} stroke="#1f2937" strokeWidth="2" />
+                                    {/* Price labels */}
+                                    <text x="5" y={startY + 3} fill="#9ca3af" fontSize="7" fontFamily="monospace">${startPrice.toFixed(startPrice < 0.01 ? 8 : 6)}</text>
+                                    <text x={chartLeft + chartWidth + 5} y={endY + 3} fill={pnlPercent >= 0 ? '#22c55e' : '#ef4444'} fontSize="7" fontWeight="bold" fontFamily="monospace">${endPrice.toFixed(endPrice < 0.01 ? 8 : 6)}</text>
+                                  </>
+                                );
+                              })()}
+                            </svg>
+                          </div>
+                          
+                          {/* Stats row below chart */}
+                          <div className="flex justify-between text-xs mt-2 pt-2 border-t border-gray-700/50">
+                            <div className="flex items-center gap-1">
                               <span className="w-2 h-2 rounded-full bg-purple-500"></span>
-                              Entry
-                            </span>
-                            <span className="flex items-center gap-1">
+                              <span className="text-gray-500">Entry ${position.purchasePrice.toFixed(position.purchasePrice < 0.01 ? 8 : 6)}</span>
+                            </div>
+                            <span className="text-gray-600">|</span>
+                            <div className="flex items-center gap-1">
+                              <Clock className="h-3 w-3 text-gray-500" />
+                              <span className="text-gray-500">{timeHeld}</span>
+                            </div>
+                            <span className="text-gray-600">|</span>
+                            <div className="flex items-center gap-1">
                               <span className={`w-2 h-2 rounded-full ${pnlPercent >= 0 ? 'bg-green-500' : 'bg-red-500'}`}></span>
-                              Current
-                            </span>
+                              <span className={pnlPercent >= 0 ? 'text-green-400' : 'text-red-400'}>{pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(2)}%</span>
+                            </div>
                           </div>
                         </div>
                         
@@ -1471,15 +1497,56 @@ function AutoTradingPanel() {
                                   </div>
                                 </div>
                                 
+                                {/* Price Chart for Share Card */}
+                                <div className="mb-4 rounded-lg overflow-hidden bg-gray-800/50 p-2">
+                                  <svg viewBox="0 0 280 70" className="w-full h-16">
+                                    <defs>
+                                      <linearGradient id={`share-gradient-${position.tokenAddress}`} x1="0%" y1="0%" x2="0%" y2="100%">
+                                        <stop offset="0%" stopColor={pnlPercent >= 0 ? '#22c55e' : '#ef4444'} stopOpacity="0.5" />
+                                        <stop offset="100%" stopColor={pnlPercent >= 0 ? '#22c55e' : '#ef4444'} stopOpacity="0" />
+                                      </linearGradient>
+                                    </defs>
+                                    {(() => {
+                                      const pts: number[] = [];
+                                      const sp = position.purchasePrice;
+                                      const ep = currentPrice;
+                                      const vol = Math.abs(pnlPercent) * 0.012 + 0.02;
+                                      for (let i = 0; i <= 28; i++) {
+                                        const prog = i / 28;
+                                        const base = sp + (ep - sp) * prog;
+                                        pts.push(base + (Math.sin(i * 2.3) * 0.4 + Math.cos(i * 1.5) * 0.35) * vol * sp);
+                                      }
+                                      const minP = Math.min(...pts) * 0.96;
+                                      const maxP = Math.max(...pts) * 1.04;
+                                      const rng = maxP - minP || 1;
+                                      const path = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${10 + (i / 28) * 220} ${55 - ((p - minP) / rng) * 45}`).join(' ');
+                                      const sY = 55 - ((sp - minP) / rng) * 45;
+                                      const eY = 55 - ((ep - minP) / rng) * 45;
+                                      return (
+                                        <>
+                                          <path d={path + ' L 230 60 L 10 60 Z'} fill={`url(#share-gradient-${position.tokenAddress})`} />
+                                          <path d={path} fill="none" stroke={pnlPercent >= 0 ? '#22c55e' : '#ef4444'} strokeWidth="2.5" strokeLinecap="round" />
+                                          <circle cx="10" cy={sY} r="4" fill="#a855f7" />
+                                          <circle cx="230" cy={eY} r="5" fill={pnlPercent >= 0 ? '#22c55e' : '#ef4444'} />
+                                          <text x="5" y="12" fill="#9ca3af" fontSize="8">${sp.toFixed(sp < 0.01 ? 8 : 6)}</text>
+                                          <text x="235" y={eY + 3} fill={pnlPercent >= 0 ? '#22c55e' : '#ef4444'} fontSize="9" fontWeight="bold">${ep.toFixed(ep < 0.01 ? 8 : 6)}</text>
+                                        </>
+                                      );
+                                    })()}
+                                  </svg>
+                                </div>
+                                
                                 {/* P&L Display */}
                                 <div className={`text-center py-4 rounded-lg mb-4 ${pnlPercent >= 0 ? 'bg-green-500/20' : 'bg-red-500/20'}`}>
                                   <p className="text-sm text-gray-400 mb-1">Profit/Loss</p>
                                   <p className={`text-4xl font-bold ${pnlPercent >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                                     {pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(2)}%
                                   </p>
-                                  <p className="text-xs text-gray-500 mt-1">
-                                    Entry: ${position.purchasePrice.toFixed(8)} → ${currentPrice.toFixed(8)}
-                                  </p>
+                                  <div className="flex items-center justify-center gap-3 mt-2 text-xs">
+                                    <span className="text-gray-500">Entry: ${position.purchasePrice.toFixed(8)}</span>
+                                    <span className="text-gray-600">→</span>
+                                    <span className={pnlPercent >= 0 ? 'text-green-400' : 'text-red-400'}>${currentPrice.toFixed(8)}</span>
+                                  </div>
                                 </div>
                                 
                                 {/* AI Scores */}
@@ -1504,6 +1571,12 @@ function AutoTradingPanel() {
                                   <span className="text-purple-400 font-bold">{position.confidence}%</span>
                                 </div>
                                 
+                                {/* Time Held */}
+                                <div className="flex items-center justify-center gap-2 mb-3">
+                                  <Clock className="h-4 w-4 text-gray-500" />
+                                  <span className="text-sm text-gray-400">Time Held: <span className="text-white font-medium">{timeHeld}</span></span>
+                                </div>
+                                
                                 {/* Footer */}
                                 <div className="flex items-center justify-between pt-3 border-t border-gray-700">
                                   <span className="text-xs text-gray-500">Traded {timeAgo}</span>
@@ -1517,7 +1590,7 @@ function AutoTradingPanel() {
                                   variant="outline"
                                   className="flex-1"
                                   onClick={() => {
-                                    const text = `🚀 My VEDD AI Trade Performance!\n\n${position.symbol}: ${pnlPercent >= 0 ? '+' : ''}${pnlPercent.toFixed(2)}% P&L\n\n🤖 AI Confidence: ${position.confidence}%\n📊 Sentiment: ${position.sentimentScore}/100\n💎 Tokenomics: ${position.tokenomicsScore}/100\n🐋 Whale Activity: ${position.whaleScore}/100\n\n#VEDD #AI #Trading #Solana`;
+                                    const text = `🚀 My VEDD AI Trade Performance!\n\n${position.symbol}: ${pnlPercent >= 0 ? '+' : ''}${pnlPercent.toFixed(2)}% P&L\n⏱️ Time Held: ${timeHeld}\n\n🤖 AI Confidence: ${position.confidence}%\n📊 Sentiment: ${position.sentimentScore}/100\n💎 Tokenomics: ${position.tokenomicsScore}/100\n🐋 Whale Activity: ${position.whaleScore}/100\n\n#VEDD #AI #Trading #Solana`;
                                     window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`, '_blank');
                                   }}
                                 >
@@ -1528,7 +1601,7 @@ function AutoTradingPanel() {
                                   variant="outline"
                                   className="flex-1"
                                   onClick={() => {
-                                    const text = `🚀 VEDD AI Trade: ${position.symbol} ${pnlPercent >= 0 ? '+' : ''}${pnlPercent.toFixed(2)}% P&L | AI Confidence: ${position.confidence}%`;
+                                    const text = `🚀 VEDD AI Trade: ${position.symbol} ${pnlPercent >= 0 ? '+' : ''}${pnlPercent.toFixed(2)}% P&L | Held ${timeHeld} | AI Confidence: ${position.confidence}%`;
                                     navigator.clipboard.writeText(text);
                                     toast({ title: 'Copied!', description: 'Trade info copied to clipboard' });
                                   }}
