@@ -329,25 +329,67 @@ interface TokenPosition {
   openedAt: string;
 }
 
+const WALLET_RPC_ENDPOINTS = [
+  'https://api.mainnet-beta.solana.com',
+  'https://rpc.ankr.com/solana',
+  'https://solana.public-rpc.com',
+  'https://solana-mainnet.g.alchemy.com/v2/demo',
+];
+
 function MyWalletTokens() {
   const { toast } = useToast();
   const { connected, walletData, signAndSendTransaction, getPublicKey, refreshWalletData, getConnection } = useSolanaWallet();
   const [sellingToken, setSellingToken] = useState<string | null>(null);
   const [walletTokens, setWalletTokens] = useState<WalletToken[]>([]);
   const [loadingTokens, setLoadingTokens] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   
   const fetchWalletTokens = async () => {
-    if (!connected || !walletData?.address) return;
+    if (!connected || !walletData?.address) {
+      console.log('MyWalletTokens: Not fetching - connected:', connected, 'address:', walletData?.address);
+      return;
+    }
     setLoadingTokens(true);
+    setFetchError(null);
+    
+    console.log('MyWalletTokens: Starting fetch for address:', walletData.address);
     
     try {
-      const { PublicKey } = await import('@solana/web3.js');
-      const connection = getConnection();
+      const { PublicKey, Connection: SolConnection } = await import('@solana/web3.js');
       const publicKey = new PublicKey(walletData.address);
       
-      const tokenAccounts = await connection.getParsedTokenAccountsByOwner(publicKey, {
-        programId: new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA')
-      });
+      let tokenAccounts: any = null;
+      let lastError: any = null;
+      
+      for (const rpcUrl of WALLET_RPC_ENDPOINTS) {
+        try {
+          console.log('MyWalletTokens: Trying RPC:', rpcUrl);
+          const connection = new SolConnection(rpcUrl, {
+            commitment: 'confirmed',
+            confirmTransactionInitialTimeout: 15000,
+          });
+          
+          const fetchPromise = connection.getParsedTokenAccountsByOwner(publicKey, {
+            programId: new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA')
+          });
+          
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('RPC timeout')), 12000)
+          );
+          
+          tokenAccounts = await Promise.race([fetchPromise, timeoutPromise]);
+          console.log('MyWalletTokens: Got', tokenAccounts.value?.length || 0, 'token accounts from', rpcUrl);
+          break;
+        } catch (err: any) {
+          console.warn('MyWalletTokens: RPC failed:', rpcUrl, err.message);
+          lastError = err;
+          continue;
+        }
+      }
+      
+      if (!tokenAccounts) {
+        throw lastError || new Error('All RPC endpoints failed');
+      }
       
       const tokens: WalletToken[] = [];
       const tokenMints: string[] = [];
@@ -355,6 +397,7 @@ function MyWalletTokens() {
       for (const account of tokenAccounts.value) {
         const info = account.account.data.parsed.info;
         const uiAmount = info.tokenAmount.uiAmount || 0;
+        console.log('MyWalletTokens: Token', info.mint.slice(0, 8), 'amount:', uiAmount);
         if (uiAmount > 0) {
           tokenMints.push(info.mint);
           tokens.push({
@@ -369,6 +412,8 @@ function MyWalletTokens() {
           });
         }
       }
+      
+      console.log('MyWalletTokens: Found', tokens.length, 'tokens with balance');
       
       if (tokenMints.length > 0) {
         try {
@@ -392,13 +437,21 @@ function MyWalletTokens() {
             }
           }
         } catch (e) {
-          console.log('Price fetch skipped:', e);
+          console.log('MyWalletTokens: Price fetch skipped:', e);
         }
       }
       
-      setWalletTokens(tokens.filter(t => t.uiAmount > 0).sort((a, b) => (b.valueUsd || 0) - (a.valueUsd || 0)));
-    } catch (error) {
-      console.error('Failed to fetch wallet tokens:', error);
+      const sortedTokens = tokens.filter(t => t.uiAmount > 0).sort((a, b) => (b.valueUsd || 0) - (a.valueUsd || 0));
+      console.log('MyWalletTokens: Setting', sortedTokens.length, 'tokens');
+      setWalletTokens(sortedTokens);
+    } catch (error: any) {
+      console.error('MyWalletTokens: Failed to fetch wallet tokens:', error);
+      setFetchError(error.message || 'Failed to load tokens');
+      toast({
+        title: 'Failed to load wallet tokens',
+        description: 'RPC rate limited. Try again in a moment.',
+        variant: 'destructive'
+      });
     } finally {
       setLoadingTokens(false);
     }
@@ -499,6 +552,15 @@ function MyWalletTokens() {
                 </div>
               </div>
             ))}
+          </div>
+        ) : fetchError ? (
+          <div className="text-center py-6 text-muted-foreground">
+            <AlertTriangle className="h-8 w-8 mx-auto mb-2 text-yellow-500" />
+            <p className="text-yellow-400">{fetchError}</p>
+            <Button variant="outline" size="sm" className="mt-2" onClick={fetchWalletTokens}>
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Retry
+            </Button>
           </div>
         ) : (
           <div className="text-center py-6 text-muted-foreground">
