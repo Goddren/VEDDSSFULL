@@ -32,8 +32,13 @@ import {
   BellOff,
   Volume2,
   VolumeX,
-  Brain
+  Brain,
+  Share2,
+  Download,
+  Twitter
 } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import VeddLogo from '@/components/ui/vedd-logo';
 import { buyToken, sellToken } from '@/lib/jupiter-swap';
 import type { SwapResult } from '@/lib/jupiter-swap';
 import { Connection } from '@solana/web3.js';
@@ -1321,6 +1326,116 @@ function AutoTradingPanel() {
                             <ExternalLink className="h-3 w-3 mr-1" />
                             DexScreener
                           </Button>
+                          
+                          {/* Share Button with Dialog */}
+                          <Dialog>
+                            <DialogTrigger asChild>
+                              <Button size="sm" variant="outline" className="flex-1 bg-purple-600/20 border-purple-500/30 hover:bg-purple-600/30">
+                                <Share2 className="h-3 w-3 mr-1" />
+                                Share
+                              </Button>
+                            </DialogTrigger>
+                            <DialogContent className="max-w-md">
+                              <DialogHeader>
+                                <DialogTitle className="flex items-center gap-2">
+                                  <Share2 className="h-5 w-5" />
+                                  Share Trade Performance
+                                </DialogTitle>
+                              </DialogHeader>
+                              
+                              {/* Share Card Preview */}
+                              <div 
+                                id={`share-card-${position.tokenAddress}`}
+                                className="bg-gradient-to-br from-gray-900 via-purple-900/50 to-gray-900 rounded-xl p-5 border border-purple-500/30"
+                              >
+                                {/* Header with VEDD Logo */}
+                                <div className="flex items-center justify-between mb-4">
+                                  <VeddLogo height={32} />
+                                  <Badge className="bg-purple-500/20 text-purple-300 border-purple-500/30">
+                                    AI Trade
+                                  </Badge>
+                                </div>
+                                
+                                {/* Token Info */}
+                                <div className="flex items-center gap-3 mb-4">
+                                  <div className="w-14 h-14 rounded-full bg-gradient-to-br from-purple-600 to-blue-600 flex items-center justify-center text-xl font-bold">
+                                    {position.symbol.slice(0, 2)}
+                                  </div>
+                                  <div>
+                                    <h3 className="font-bold text-xl text-white">{position.tokenName || position.symbol}</h3>
+                                    <p className="text-sm text-gray-400">${position.symbol}</p>
+                                  </div>
+                                </div>
+                                
+                                {/* P&L Display */}
+                                <div className={`text-center py-4 rounded-lg mb-4 ${pnlPercent >= 0 ? 'bg-green-500/20' : 'bg-red-500/20'}`}>
+                                  <p className="text-sm text-gray-400 mb-1">Profit/Loss</p>
+                                  <p className={`text-4xl font-bold ${pnlPercent >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                    {pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(2)}%
+                                  </p>
+                                  <p className="text-xs text-gray-500 mt-1">
+                                    Entry: ${position.purchasePrice.toFixed(8)} → ${currentPrice.toFixed(8)}
+                                  </p>
+                                </div>
+                                
+                                {/* AI Scores */}
+                                <div className="grid grid-cols-3 gap-2 mb-4">
+                                  <div className="text-center bg-gray-800/50 rounded-lg p-2">
+                                    <p className="text-xs text-blue-400">Sentiment</p>
+                                    <p className="font-bold text-white">{position.sentimentScore}</p>
+                                  </div>
+                                  <div className="text-center bg-gray-800/50 rounded-lg p-2">
+                                    <p className="text-xs text-green-400">Tokenomics</p>
+                                    <p className="font-bold text-white">{position.tokenomicsScore}</p>
+                                  </div>
+                                  <div className="text-center bg-gray-800/50 rounded-lg p-2">
+                                    <p className="text-xs text-yellow-400">Whale</p>
+                                    <p className="font-bold text-white">{position.whaleScore}</p>
+                                  </div>
+                                </div>
+                                
+                                {/* AI Confidence */}
+                                <div className="flex items-center justify-between text-sm mb-3">
+                                  <span className="text-gray-400">AI Confidence</span>
+                                  <span className="text-purple-400 font-bold">{position.confidence}%</span>
+                                </div>
+                                
+                                {/* Footer */}
+                                <div className="flex items-center justify-between pt-3 border-t border-gray-700">
+                                  <span className="text-xs text-gray-500">Traded {timeAgo}</span>
+                                  <span className="text-xs text-purple-400">VEDD AI Trading</span>
+                                </div>
+                              </div>
+                              
+                              {/* Share Buttons */}
+                              <div className="flex gap-2 mt-4">
+                                <Button
+                                  variant="outline"
+                                  className="flex-1"
+                                  onClick={() => {
+                                    const text = `🚀 My VEDD AI Trade Performance!\n\n${position.symbol}: ${pnlPercent >= 0 ? '+' : ''}${pnlPercent.toFixed(2)}% P&L\n\n🤖 AI Confidence: ${position.confidence}%\n📊 Sentiment: ${position.sentimentScore}/100\n💎 Tokenomics: ${position.tokenomicsScore}/100\n🐋 Whale Activity: ${position.whaleScore}/100\n\n#VEDD #AI #Trading #Solana`;
+                                    window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`, '_blank');
+                                  }}
+                                >
+                                  <Twitter className="h-4 w-4 mr-2" />
+                                  Tweet
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  className="flex-1"
+                                  onClick={() => {
+                                    const text = `🚀 VEDD AI Trade: ${position.symbol} ${pnlPercent >= 0 ? '+' : ''}${pnlPercent.toFixed(2)}% P&L | AI Confidence: ${position.confidence}%`;
+                                    navigator.clipboard.writeText(text);
+                                    toast({ title: 'Copied!', description: 'Trade info copied to clipboard' });
+                                  }}
+                                >
+                                  <Copy className="h-4 w-4 mr-2" />
+                                  Copy
+                                </Button>
+                              </div>
+                            </DialogContent>
+                          </Dialog>
+                          
                           <Button
                             size="sm"
                             variant="destructive"
