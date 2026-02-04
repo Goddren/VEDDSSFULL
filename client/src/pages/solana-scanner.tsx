@@ -353,10 +353,73 @@ const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 function MyWalletTokens() {
   const { toast } = useToast();
   const { connected, walletData, signAndSendTransaction, getPublicKey, refreshWalletData, getConnection } = useSolanaWallet();
+  const { playSound, notifyTradeSignal } = useNotifications();
   const [sellingToken, setSellingToken] = useState<string | null>(null);
   const [walletTokens, setWalletTokens] = useState<WalletToken[]>([]);
   const [loadingTokens, setLoadingTokens] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [tokenSignals, setTokenSignals] = useState<Map<string, TokenAnalysis>>(new Map());
+  const [analyzingTokens, setAnalyzingTokens] = useState(false);
+  const [notifiedSellSignals, setNotifiedSellSignals] = useState<Set<string>>(new Set());
+  const [monitoringEnabled, setMonitoringEnabled] = useState(true);
+  
+  // Analyze wallet tokens for signals
+  const analyzeWalletTokens = async () => {
+    if (walletTokens.length === 0) return;
+    setAnalyzingTokens(true);
+    
+    const signalMap = new Map<string, TokenAnalysis>();
+    
+    for (const token of walletTokens) {
+      try {
+        const response = await fetch(`/api/solana/search?query=${token.mint}`);
+        const data = await response.json();
+        if (data.success && data.tokens && data.tokens.length > 0) {
+          signalMap.set(token.mint, data.tokens[0]);
+        }
+      } catch (e) {
+        console.log(`Failed to get signal for ${token.symbol}`);
+      }
+    }
+    
+    setTokenSignals(signalMap);
+    setAnalyzingTokens(false);
+    
+    // Check for sell signals and notify
+    if (monitoringEnabled) {
+      signalMap.forEach((analysis, mint) => {
+        if ((analysis.signal === 'SELL' || analysis.signal === 'STRONG_SELL') && !notifiedSellSignals.has(mint)) {
+          const token = walletTokens.find(t => t.mint === mint);
+          if (token) {
+            playSound('alert');
+            notifyTradeSignal(token.symbol, analysis.signal, analysis.confidence);
+            toast({
+              title: `⚠️ Sell Signal: ${token.symbol}`,
+              description: `${analysis.signal} signal detected at ${analysis.confidence}% confidence`,
+              variant: 'destructive'
+            });
+            setNotifiedSellSignals(prev => {
+              const next = new Set(Array.from(prev));
+              next.add(mint);
+              return next;
+            });
+          }
+        }
+      });
+    }
+  };
+  
+  // Monitor wallet tokens periodically
+  useEffect(() => {
+    if (!connected || walletTokens.length === 0 || !monitoringEnabled) return;
+    
+    // Initial analysis
+    analyzeWalletTokens();
+    
+    // Re-analyze every 60 seconds
+    const interval = setInterval(analyzeWalletTokens, 60000);
+    return () => clearInterval(interval);
+  }, [connected, walletTokens.length, monitoringEnabled]);
   
   const fetchWalletTokens = async () => {
     if (!connected || !walletData?.address) {
@@ -456,11 +519,37 @@ function MyWalletTokens() {
             <Wallet className="h-5 w-5" />
             My Wallet Tokens
           </CardTitle>
-          <Button variant="ghost" size="sm" onClick={fetchWalletTokens} disabled={loadingTokens}>
-            <RefreshCw className={`h-4 w-4 ${loadingTokens ? 'animate-spin' : ''}`} />
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              onClick={analyzeWalletTokens} 
+              disabled={analyzingTokens || walletTokens.length === 0}
+              title="Analyze tokens for signals"
+            >
+              <Brain className={`h-4 w-4 ${analyzingTokens ? 'animate-pulse text-purple-400' : ''}`} />
+            </Button>
+            <Button variant="ghost" size="sm" onClick={fetchWalletTokens} disabled={loadingTokens}>
+              <RefreshCw className={`h-4 w-4 ${loadingTokens ? 'animate-spin' : ''}`} />
+            </Button>
+          </div>
         </div>
-        <CardDescription>Tokens in your connected Phantom wallet</CardDescription>
+        <CardDescription className="flex items-center justify-between">
+          <span>Tokens in your connected Phantom wallet</span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs">Signal Monitor</span>
+            <Switch
+              checked={monitoringEnabled}
+              onCheckedChange={setMonitoringEnabled}
+              className="scale-75"
+            />
+            {monitoringEnabled && analyzingTokens && (
+              <Badge variant="outline" className="text-xs bg-purple-500/20 text-purple-300">
+                Analyzing...
+              </Badge>
+            )}
+          </div>
+        </CardDescription>
       </CardHeader>
       <CardContent>
         {loadingTokens ? (
@@ -469,58 +558,73 @@ function MyWalletTokens() {
           </div>
         ) : walletTokens.length > 0 ? (
           <div className="space-y-2 max-h-80 overflow-y-auto">
-            {walletTokens.map((token) => (
-              <div key={token.mint} className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg border border-gray-700 hover:border-blue-500/50 transition-colors">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-xs font-bold">
-                    {token.symbol.slice(0, 2)}
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <p className="font-medium">{token.symbol}</p>
-                      <a 
-                        href={`https://dexscreener.com/solana/${token.mint}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-blue-400 hover:text-blue-300"
-                        title="View on DexScreener"
-                      >
-                        <ExternalLink className="h-3 w-3" />
-                      </a>
+            {walletTokens.map((token) => {
+              const signal = tokenSignals.get(token.mint);
+              const signalColor = signal ? (
+                signal.signal === 'STRONG_BUY' || signal.signal === 'BUY' ? 'bg-green-500/20 text-green-400 border-green-500/30' :
+                signal.signal === 'STRONG_SELL' || signal.signal === 'SELL' ? 'bg-red-500/20 text-red-400 border-red-500/30 animate-pulse' :
+                'bg-yellow-500/20 text-yellow-400 border-yellow-500/30'
+              ) : '';
+              
+              return (
+                <div key={token.mint} className={`flex items-center justify-between p-3 bg-gray-800/50 rounded-lg border ${(signal?.signal === 'SELL' || signal?.signal === 'STRONG_SELL') ? 'border-red-500/50' : 'border-gray-700'} hover:border-blue-500/50 transition-colors`}>
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-xs font-bold">
+                      {token.symbol.slice(0, 2)}
                     </div>
-                    <p className="text-xs text-muted-foreground">{token.uiAmount.toLocaleString(undefined, { maximumFractionDigits: 4 })}</p>
-                    <p className="text-xs text-muted-foreground font-mono truncate max-w-[120px]">{token.mint.slice(0, 6)}...{token.mint.slice(-4)}</p>
-                  </div>
-                </div>
-                <div className="text-right flex items-center gap-2">
-                  {token.valueUsd !== null ? (
                     <div>
-                      <p className="font-bold">${token.valueUsd.toFixed(2)}</p>
-                      <p className="text-xs text-muted-foreground">${token.priceUsd?.toFixed(8)}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="font-medium">{token.symbol}</p>
+                        {signal && (
+                          <Badge className={`text-xs ${signalColor}`}>
+                            {signal.signal} {signal.confidence}%
+                          </Badge>
+                        )}
+                        <a 
+                          href={`https://dexscreener.com/solana/${token.mint}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-400 hover:text-blue-300"
+                          title="View on DexScreener"
+                        >
+                          <ExternalLink className="h-3 w-3" />
+                        </a>
+                      </div>
+                      <p className="text-xs text-muted-foreground">{token.uiAmount.toLocaleString(undefined, { maximumFractionDigits: 4 })}</p>
+                      <p className="text-xs text-muted-foreground font-mono truncate max-w-[120px]">{token.mint.slice(0, 6)}...{token.mint.slice(-4)}</p>
                     </div>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">Price unavailable</p>
-                  )}
-                  <a 
-                    href={`https://solscan.io/token/${token.mint}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="p-1.5 rounded bg-gray-700/50 hover:bg-gray-600/50 text-blue-400"
-                    title="View on Solscan"
-                  >
-                    <Search className="h-3.5 w-3.5" />
-                  </a>
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    onClick={() => handleSellToken(token)}
-                    disabled={sellingToken === token.mint}
-                  >
-                    {sellingToken === token.mint ? <RefreshCw className="h-3 w-3 animate-spin" /> : 'Sell'}
-                  </Button>
+                  </div>
+                  <div className="text-right flex items-center gap-2">
+                    {token.valueUsd !== null ? (
+                      <div>
+                        <p className="font-bold">${token.valueUsd.toFixed(2)}</p>
+                        <p className="text-xs text-muted-foreground">${token.priceUsd?.toFixed(8)}</p>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">Price unavailable</p>
+                    )}
+                    <a 
+                      href={`https://solscan.io/token/${token.mint}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="p-1.5 rounded bg-gray-700/50 hover:bg-gray-600/50 text-blue-400"
+                      title="View on Solscan"
+                    >
+                      <Search className="h-3.5 w-3.5" />
+                    </a>
+                    <Button
+                      size="sm"
+                      variant={signal?.signal === 'SELL' || signal?.signal === 'STRONG_SELL' ? 'destructive' : 'outline'}
+                      onClick={() => handleSellToken(token)}
+                      disabled={sellingToken === token.mint}
+                      className={signal?.signal === 'SELL' || signal?.signal === 'STRONG_SELL' ? 'animate-pulse' : ''}
+                    >
+                      {sellingToken === token.mint ? <RefreshCw className="h-3 w-3 animate-spin" /> : 'Sell'}
+                    </Button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         ) : fetchError ? (
           <div className="text-center py-6 text-muted-foreground">
