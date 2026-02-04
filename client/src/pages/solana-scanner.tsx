@@ -1191,6 +1191,86 @@ function AutoTradingPanel() {
           </div>
         </div>
         
+        {/* AI Activity Panel - Shows scanning status */}
+        {wallet?.isAutoTradeEnabled && connected && (
+          <div className="bg-gradient-to-r from-purple-900/30 via-blue-900/20 to-purple-900/30 border border-purple-500/30 rounded-lg p-4">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="relative">
+                <Brain className="h-6 w-6 text-purple-400" />
+                <span className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full animate-pulse"></span>
+              </div>
+              <div>
+                <h4 className="font-semibold text-purple-300 flex items-center gap-2">
+                  AI Scanner Active
+                  <RefreshCw className="h-3 w-3 animate-spin text-purple-400" />
+                </h4>
+                <p className="text-xs text-gray-400">Monitoring {scanData?.tokens?.length || 0} tokens for signals</p>
+              </div>
+            </div>
+            
+            {/* Scanning Activity Feed */}
+            <div className="space-y-2 max-h-40 overflow-y-auto">
+              {scanData?.tokens?.slice(0, 5).map((token, idx) => {
+                const signalType = token.signal;
+                const confidence = token.confidence || 0;
+                const isNearSignal = confidence >= (wallet?.minSignalConfidence || 75) - 15 && confidence < (wallet?.minSignalConfidence || 75);
+                const meetsThreshold = confidence >= (wallet?.minSignalConfidence || 75) && (signalType === 'BUY' || signalType === 'STRONG_BUY');
+                
+                return (
+                  <div key={token.token.address} className="flex items-center justify-between bg-gray-800/50 rounded px-3 py-2 text-sm">
+                    <div className="flex items-center gap-2">
+                      <div className={`w-2 h-2 rounded-full ${meetsThreshold ? 'bg-green-500 animate-pulse' : isNearSignal ? 'bg-yellow-500 animate-pulse' : 'bg-gray-500'}`}></div>
+                      <span className="font-medium text-gray-300">{token.token.symbol}</span>
+                      <span className="text-xs text-gray-500">${parseFloat(token.token.priceUsd).toFixed(8)}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {meetsThreshold ? (
+                        <Badge className="bg-green-500/20 text-green-400 text-xs border-green-500/30">
+                          <Zap className="h-3 w-3 mr-1" />
+                          Signal Ready!
+                        </Badge>
+                      ) : isNearSignal ? (
+                        <Badge className="bg-yellow-500/20 text-yellow-400 text-xs border-yellow-500/30">
+                          <Target className="h-3 w-3 mr-1" />
+                          Near Signal ({confidence}%)
+                        </Badge>
+                      ) : (
+                        <span className="text-xs text-gray-500">Analyzing... {confidence}%</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            
+            {/* What AI is Looking For */}
+            <div className="mt-3 pt-3 border-t border-gray-700/50">
+              <p className="text-xs text-gray-500 mb-2">Currently Evaluating:</p>
+              <div className="flex flex-wrap gap-2">
+                <Badge variant="outline" className="text-xs bg-blue-500/10 border-blue-500/30 text-blue-400">
+                  <TrendingUp className="h-3 w-3 mr-1" />
+                  Price Momentum
+                </Badge>
+                <Badge variant="outline" className="text-xs bg-green-500/10 border-green-500/30 text-green-400">
+                  <Activity className="h-3 w-3 mr-1" />
+                  Tokenomics
+                </Badge>
+                <Badge variant="outline" className="text-xs bg-yellow-500/10 border-yellow-500/30 text-yellow-400">
+                  <DollarSign className="h-3 w-3 mr-1" />
+                  Whale Activity
+                </Badge>
+                <Badge variant="outline" className="text-xs bg-purple-500/10 border-purple-500/30 text-purple-400">
+                  <Shield className="h-3 w-3 mr-1" />
+                  Liquidity Health
+                </Badge>
+              </div>
+              <p className="text-xs text-gray-600 mt-2">
+                Min confidence: {wallet?.minSignalConfidence || 75}% | Buy amount: {wallet?.tradeAmountSol || 0.1} SOL | TP: {wallet?.takeProfitPercent || 50}% | SL: {wallet?.stopLossPercent || 20}%
+              </p>
+            </div>
+          </div>
+        )}
+        
         {!connected ? (
           <div className="flex flex-col gap-2">
             <div className="flex gap-2 items-center flex-wrap">
