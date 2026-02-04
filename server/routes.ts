@@ -10206,6 +10206,71 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   
   let positionIdCounter = 1;
   
+  // Phantom wallet-based trading settings (no login required, keyed by wallet address)
+  const phantomWalletSettings: Record<string, TradingWallet> = {};
+  
+  // Get phantom trading wallet by address (no auth required)
+  app.get("/api/trading/phantom-wallet/:address", async (req: Request, res: Response) => {
+    const { address } = req.params;
+    if (!address || address.length < 32) {
+      return res.status(400).json({ error: 'Invalid wallet address' });
+    }
+    
+    if (!phantomWalletSettings[address]) {
+      phantomWalletSettings[address] = {
+        id: 0,
+        solBalance: 0,
+        lockedBalance: 0,
+        totalProfitLoss: 0,
+        isAutoTradeEnabled: false,
+        maxPositions: 3,
+        tradeAmountSol: 0.1,
+        takeProfitPercent: 50,
+        stopLossPercent: 20,
+        minSignalConfidence: 70,
+        isAutoRebalanceEnabled: false,
+        rebalanceThresholdPercent: 10,
+      };
+    }
+    
+    res.json(phantomWalletSettings[address]);
+  });
+  
+  // Update phantom trading wallet settings by address (no auth required)
+  app.patch("/api/trading/phantom-wallet/:address", async (req: Request, res: Response) => {
+    const { address } = req.params;
+    if (!address || address.length < 32) {
+      return res.status(400).json({ error: 'Invalid wallet address' });
+    }
+    
+    if (!phantomWalletSettings[address]) {
+      phantomWalletSettings[address] = {
+        id: 0,
+        solBalance: 0,
+        lockedBalance: 0,
+        totalProfitLoss: 0,
+        isAutoTradeEnabled: false,
+        maxPositions: 3,
+        tradeAmountSol: 0.1,
+        takeProfitPercent: 50,
+        stopLossPercent: 20,
+        minSignalConfidence: 70,
+        isAutoRebalanceEnabled: false,
+        rebalanceThresholdPercent: 10,
+      };
+    }
+    
+    const allowedFields = ['isAutoTradeEnabled', 'maxPositions', 'tradeAmountSol', 'takeProfitPercent', 'stopLossPercent', 'minSignalConfidence', 'isAutoRebalanceEnabled', 'rebalanceThresholdPercent'];
+    for (const key of allowedFields) {
+      if (req.body[key] !== undefined) {
+        (phantomWalletSettings[address] as any)[key] = req.body[key];
+      }
+    }
+    
+    console.log('Updated phantom wallet settings for', address.slice(0, 8), ':', phantomWalletSettings[address]);
+    res.json(phantomWalletSettings[address]);
+  });
+  
   // Get trading wallet
   app.get("/api/trading/wallet", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) {

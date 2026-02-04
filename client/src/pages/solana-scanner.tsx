@@ -459,17 +459,29 @@ function MyWalletTokens() {
         ) : walletTokens.length > 0 ? (
           <div className="space-y-2 max-h-80 overflow-y-auto">
             {walletTokens.map((token) => (
-              <div key={token.mint} className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg border border-gray-700">
+              <div key={token.mint} className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg border border-gray-700 hover:border-blue-500/50 transition-colors">
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-xs font-bold">
                     {token.symbol.slice(0, 2)}
                   </div>
                   <div>
-                    <p className="font-medium">{token.symbol}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="font-medium">{token.symbol}</p>
+                      <a 
+                        href={`https://dexscreener.com/solana/${token.mint}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-400 hover:text-blue-300"
+                        title="View on DexScreener"
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                    </div>
                     <p className="text-xs text-muted-foreground">{token.uiAmount.toLocaleString(undefined, { maximumFractionDigits: 4 })}</p>
+                    <p className="text-xs text-muted-foreground font-mono truncate max-w-[120px]">{token.mint.slice(0, 6)}...{token.mint.slice(-4)}</p>
                   </div>
                 </div>
-                <div className="text-right flex items-center gap-3">
+                <div className="text-right flex items-center gap-2">
                   {token.valueUsd !== null ? (
                     <div>
                       <p className="font-bold">${token.valueUsd.toFixed(2)}</p>
@@ -478,6 +490,15 @@ function MyWalletTokens() {
                   ) : (
                     <p className="text-xs text-muted-foreground">Price unavailable</p>
                   )}
+                  <a 
+                    href={`https://solscan.io/token/${token.mint}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="p-1.5 rounded bg-gray-700/50 hover:bg-gray-600/50 text-blue-400"
+                    title="View on Solscan"
+                  >
+                    <Search className="h-3.5 w-3.5" />
+                  </a>
                   <Button
                     size="sm"
                     variant="destructive"
@@ -519,9 +540,21 @@ function AutoTradingPanel() {
   const [recentlyBought, setRecentlyBought] = useState<Set<string>>(new Set());
   const { connected, connecting, walletData, connect, disconnect, signAndSendTransaction, getPublicKey, refreshWalletData, error } = useSolanaWallet();
   
+  // Use phantom wallet-based settings when connected (no login required)
+  const phantomAddress = connected ? walletData?.address : null;
+  
   const { data: wallet, isLoading: walletLoading, refetch: refetchWallet } = useQuery<TradingWallet>({
-    queryKey: ['/api/trading/wallet'],
+    queryKey: phantomAddress ? ['/api/trading/phantom-wallet', phantomAddress] : ['/api/trading/wallet'],
+    queryFn: async () => {
+      const url = phantomAddress 
+        ? `/api/trading/phantom-wallet/${phantomAddress}` 
+        : '/api/trading/wallet';
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('Failed to fetch wallet');
+      return res.json();
+    },
     refetchInterval: 30000,
+    enabled: connected || true, // Always fetch, phantom or user wallet
   });
   
   const { data: positions, refetch: refetchPositions } = useQuery<TokenPosition[]>({
@@ -664,14 +697,25 @@ function AutoTradingPanel() {
   
   const updateSettingsMutation = useMutation({
     mutationFn: async (settings: Partial<TradingWallet>) => {
-      const res = await apiRequest('PATCH', '/api/trading/wallet', settings);
-      return res.json();
+      // Use phantom wallet endpoint when connected (no auth required)
+      if (phantomAddress) {
+        const res = await fetch(`/api/trading/phantom-wallet/${phantomAddress}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(settings),
+        });
+        if (!res.ok) throw new Error('Failed to update settings');
+        return res.json();
+      } else {
+        const res = await apiRequest('PATCH', '/api/trading/wallet', settings);
+        return res.json();
+      }
     },
     onSuccess: () => {
       toast({ title: 'Settings updated' });
       refetchWallet();
     },
-    onError: () => toast({ title: 'Failed to update settings', variant: 'destructive' }),
+    onError: (error: any) => toast({ title: 'Failed to update settings', description: error?.message, variant: 'destructive' }),
   });
   
   const depositMutation = useMutation({
@@ -720,7 +764,7 @@ function AutoTradingPanel() {
               id="auto-trade"
               checked={wallet?.isAutoTradeEnabled || false}
               onCheckedChange={(checked) => updateSettingsMutation.mutate({ isAutoTradeEnabled: checked })}
-              disabled={!wallet || walletLoading}
+              disabled={walletLoading || updateSettingsMutation.isPending}
             />
             {wallet?.isAutoTradeEnabled ? (
               <Badge className="bg-green-500/20 text-green-400 border-green-500/30">
@@ -972,7 +1016,7 @@ function AutoTradingPanel() {
                 <Switch
                   checked={wallet?.isAutoRebalanceEnabled || false}
                   onCheckedChange={(checked) => updateSettingsMutation.mutate({ isAutoRebalanceEnabled: checked })}
-                  disabled={!wallet || walletLoading}
+                  disabled={walletLoading || updateSettingsMutation.isPending}
                 />
               </div>
               {wallet?.isAutoRebalanceEnabled && (
