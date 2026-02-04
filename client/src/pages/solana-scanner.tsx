@@ -330,11 +330,14 @@ interface TokenPosition {
 }
 
 const WALLET_RPC_ENDPOINTS = [
-  'https://api.mainnet-beta.solana.com',
   'https://rpc.ankr.com/solana',
   'https://solana.public-rpc.com',
+  'https://api.mainnet-beta.solana.com',
+  'https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92',
   'https://solana-mainnet.g.alchemy.com/v2/demo',
 ];
+
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 function MyWalletTokens() {
   const { toast } = useToast();
@@ -361,7 +364,8 @@ function MyWalletTokens() {
       let tokenAccounts: any = null;
       let lastError: any = null;
       
-      for (const rpcUrl of WALLET_RPC_ENDPOINTS) {
+      for (let i = 0; i < WALLET_RPC_ENDPOINTS.length; i++) {
+        const rpcUrl = WALLET_RPC_ENDPOINTS[i];
         try {
           console.log('MyWalletTokens: Trying RPC:', rpcUrl);
           const connection = new SolConnection(rpcUrl, {
@@ -383,6 +387,9 @@ function MyWalletTokens() {
         } catch (err: any) {
           console.warn('MyWalletTokens: RPC failed:', rpcUrl, err.message);
           lastError = err;
+          if (i < WALLET_RPC_ENDPOINTS.length - 1) {
+            await delay(500);
+          }
           continue;
         }
       }
