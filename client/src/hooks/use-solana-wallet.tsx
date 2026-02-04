@@ -131,60 +131,47 @@ export function SolanaWalletProvider({ children }: { children: ReactNode }) {
     let isAmbassador = false;
     let ambassadorNftMint: string | null = null;
     
-    const publicKey = new PublicKey(address);
+    console.log('fetchTokenBalances: Fetching for address:', address);
     
-    for (const rpcUrl of SOLANA_RPC_ENDPOINTS) {
-      try {
-        console.log('Trying RPC:', rpcUrl);
-        const connection = new Connection(rpcUrl, { 
-          commitment: 'confirmed',
-          confirmTransactionInitialTimeout: 10000,
-        });
-        
-        const balancePromise = connection.getBalance(publicKey);
-        const timeoutPromise = new Promise<number>((_, reject) => 
-          setTimeout(() => reject(new Error('RPC timeout')), 8000)
-        );
-        
-        const balance = await Promise.race([balancePromise, timeoutPromise]);
-        solBalance = balance;
-        console.log('Fetched SOL balance:', balance / LAMPORTS_PER_SOL, 'SOL from RPC:', rpcUrl);
-        
-        try {
-          const tokenAccounts = await connection.getParsedTokenAccountsByOwner(publicKey, {
-            programId: new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA')
-          });
-
-          for (const account of tokenAccounts.value) {
-            const parsedInfo = account.account.data.parsed.info;
-            const mint = parsedInfo.mint;
-            const tokenBalance = parsedInfo.tokenAmount.uiAmount || 0;
-
-            if (mint === VEDD_TOKEN_MINT) {
-              veddBalance = tokenBalance;
-            }
-            
-            if (mint.startsWith('VEDDAMB') || parsedInfo.tokenAmount.decimals === 0) {
-              const nftBalance = parsedInfo.tokenAmount.amount;
-              if (nftBalance === '1') {
-                isAmbassador = true;
-                ambassadorNftMint = mint;
-              }
+    // Use server-side API to avoid client rate limiting
+    try {
+      // Fetch SOL balance from server
+      const balanceRes = await fetch(`/api/solana/balance/${address}`);
+      const balanceData = await balanceRes.json();
+      if (balanceData.success) {
+        solBalance = balanceData.balance || 0;
+        console.log('fetchTokenBalances: Got SOL balance from server:', solBalance);
+      }
+    } catch (err) {
+      console.error('fetchTokenBalances: Failed to fetch SOL balance from server:', err);
+    }
+    
+    // Fetch tokens from server to check for VEDD and Ambassador NFT
+    try {
+      const tokensRes = await fetch(`/api/solana/wallet-tokens/${address}`);
+      const tokensData = await tokensRes.json();
+      if (tokensData.success && tokensData.tokens) {
+        console.log('fetchTokenBalances: Got', tokensData.tokens.length, 'tokens from server');
+        for (const token of tokensData.tokens) {
+          if (token.mint === VEDD_TOKEN_MINT) {
+            veddBalance = token.uiAmount || 0;
+          }
+          if (token.mint.startsWith('VEDDAMB') || token.decimals === 0) {
+            if (token.uiAmount === 1) {
+              isAmbassador = true;
+              ambassadorNftMint = token.mint;
             }
           }
-        } catch (tokenError) {
-          console.log('Token fetch skipped:', tokenError);
         }
-        
-        break;
-      } catch (rpcError) {
-        console.warn('RPC failed:', rpcUrl, rpcError);
-        continue;
       }
+    } catch (err) {
+      console.error('fetchTokenBalances: Failed to fetch tokens from server:', err);
     }
 
+    console.log('fetchTokenBalances: Final data -', { solBalance, veddBalance, isAmbassador });
+    
     return {
-      solBalance: solBalance / LAMPORTS_PER_SOL,
+      solBalance,
       veddBalance,
       isAmbassador,
       ambassadorNftMint,

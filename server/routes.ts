@@ -9995,6 +9995,55 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     }
   });
   
+  // Get SOL balance for a Solana address (server-side fetch to avoid client rate limiting)
+  app.get("/api/solana/balance/:address", async (req: Request, res: Response) => {
+    try {
+      const { address } = req.params;
+      if (!address || address.length < 32) {
+        return res.status(400).json({ success: false, error: 'Invalid wallet address' });
+      }
+      
+      const RPC_ENDPOINTS = [
+        'https://rpc.ankr.com/solana',
+        'https://api.mainnet-beta.solana.com',
+        'https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92',
+      ];
+      
+      let balance: number | null = null;
+      
+      for (const rpcUrl of RPC_ENDPOINTS) {
+        try {
+          const response = await fetch(rpcUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              jsonrpc: '2.0',
+              id: 1,
+              method: 'getBalance',
+              params: [address, { commitment: 'confirmed' }]
+            })
+          });
+          
+          if (!response.ok) continue;
+          
+          const data = await response.json();
+          if (data.result?.value !== undefined) {
+            balance = data.result.value / 1_000_000_000; // Convert lamports to SOL
+            console.log('SOL balance for', address.slice(0, 8), ':', balance, 'SOL from', rpcUrl);
+            break;
+          }
+        } catch (err) {
+          continue;
+        }
+      }
+      
+      res.json({ success: true, balance: balance || 0 });
+    } catch (error: any) {
+      console.error('Error fetching SOL balance:', error);
+      res.status(500).json({ success: false, error: error.message || 'Failed to fetch balance' });
+    }
+  });
+
   // Get wallet tokens for a Solana address (server-side fetch to avoid client rate limiting)
   app.get("/api/solana/wallet-tokens/:address", async (req: Request, res: Response) => {
     try {
@@ -10005,7 +10054,6 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       
       const RPC_ENDPOINTS = [
         'https://rpc.ankr.com/solana',
-        'https://solana.public-rpc.com',
         'https://api.mainnet-beta.solana.com',
         'https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92',
       ];
