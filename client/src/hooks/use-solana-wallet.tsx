@@ -51,15 +51,34 @@ const SOLANA_RPC_ENDPOINTS = [
   'https://solana-mainnet.g.alchemy.com/v2/demo',
 ];
 
+const isMobile = () => {
+  if (typeof window === 'undefined') return false;
+  return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+};
+
 const getPhantomProvider = (): SolanaProvider | null => {
   if (typeof window === 'undefined') return null;
   const anyWindow = window as any;
-  if (anyWindow.solana?.isPhantom) {
+  
+  // Check multiple injection points for Phantom (desktop and mobile)
+  const providers = [
+    anyWindow.phantom?.solana,
+    anyWindow.solana,
+  ];
+  
+  for (const provider of providers) {
+    if (provider?.isPhantom) {
+      console.log('Found Phantom provider:', provider);
+      return provider;
+    }
+  }
+  
+  // On mobile in Phantom browser, it may take a moment to inject
+  if (isMobile() && anyWindow.solana) {
+    console.log('Mobile: Using window.solana provider');
     return anyWindow.solana;
   }
-  if (anyWindow.phantom?.solana?.isPhantom) {
-    return anyWindow.phantom.solana;
-  }
+  
   return null;
 };
 
@@ -190,15 +209,26 @@ export function SolanaWalletProvider({ children }: { children: ReactNode }) {
 
   const connect = useCallback(async (type?: WalletType) => {
     const targetType = type || 'phantom';
-    const provider = getProvider(targetType);
+    console.log('Wallet connect: Starting connection for type:', targetType, 'isMobile:', isMobile());
+    
+    // On mobile, give the provider a moment to inject
+    let provider = getProvider(targetType);
+    if (!provider && isMobile()) {
+      console.log('Wallet connect: Mobile - waiting for provider injection...');
+      await new Promise(r => setTimeout(r, 500));
+      provider = getProvider(targetType);
+    }
     
     if (!provider) {
+      console.log('Wallet connect: No provider found');
       if (targetType === 'pumpfun') {
         setError('Please install pump.fun wallet to connect');
         window.open('https://pump.fun/', '_blank');
       } else {
         setError('Please install Phantom wallet to connect');
-        window.open('https://phantom.app/', '_blank');
+        if (!isMobile()) {
+          window.open('https://phantom.app/', '_blank');
+        }
       }
       return;
     }
@@ -207,10 +237,13 @@ export function SolanaWalletProvider({ children }: { children: ReactNode }) {
       setConnecting(true);
       setError(null);
 
+      console.log('Wallet connect: Calling provider.connect()');
       const response = await provider.connect();
       const address = response.publicKey.toString();
+      console.log('Wallet connect: Connected to address:', address);
 
       const balances = await fetchTokenBalances(address);
+      console.log('Wallet connect: Fetched balances:', balances);
 
       setWalletData({
         address,
@@ -222,6 +255,7 @@ export function SolanaWalletProvider({ children }: { children: ReactNode }) {
 
       setWalletType(targetType);
       setConnected(true);
+      console.log('Wallet connect: Connection complete');
     } catch (err: any) {
       console.error('Wallet connection error:', err);
       setError(err.message || 'Failed to connect wallet');
