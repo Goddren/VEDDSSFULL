@@ -31,7 +31,8 @@ import {
   Bell,
   BellOff,
   Volume2,
-  VolumeX
+  VolumeX,
+  Brain
 } from 'lucide-react';
 import { buyToken, sellToken } from '@/lib/jupiter-swap';
 import type { SwapResult } from '@/lib/jupiter-swap';
@@ -546,7 +547,7 @@ function AutoTradingPanel() {
   const { connected, connecting, walletData, connect, disconnect, signAndSendTransaction, getPublicKey, refreshWalletData, error } = useSolanaWallet();
   const { permission, soundEnabled, requestPermission, playSound, notifyTradeSignal, notifyTradeExecuted, notifyTakeProfitHit, notifyStopLossHit, toggleSound } = useNotifications();
   
-  // Position tracking for auto-sell
+  // Position tracking for auto-sell with AI reasoning
   interface TrackedPosition {
     tokenAddress: string;
     symbol: string;
@@ -554,6 +555,22 @@ function AutoTradingPanel() {
     purchaseAmount: number;
     decimals: number;
     purchasedAt: string;
+    // AI reasoning and confidence
+    signal: string;
+    confidence: number;
+    reasoning: string[];
+    sentimentScore: number;
+    tokenomicsScore: number;
+    whaleScore: number;
+    // Token info for display
+    tokenName: string;
+    tokenImage?: string;
+    marketCap?: number;
+    volume24h?: number;
+    fdv?: number;
+    // PnL tracking
+    currentPrice?: number;
+    pnlPercent?: number;
   }
   
   // Load tracked positions from localStorage on mount
@@ -720,9 +737,24 @@ function AutoTradingPanel() {
         
         if (result.success) {
           setAutoTradeLog(prev => [...prev.slice(-9), `${timestamp}: SUCCESS - Bought ${tokenSymbol} for ${result.inputAmount.toFixed(4)} SOL`]);
-          // Track position for auto-sell with actual decimals from Jupiter response
+          // Track position for auto-sell with AI reasoning
           const currentPrice = parseFloat(bestSignal.token.priceUsd);
-          const tokenDecimals = result.outputDecimals || 9; // Jupiter provides decimals
+          const tokenDecimals = result.outputDecimals || 9;
+          
+          // Generate AI reasoning for why this trade was made
+          const reasoning: string[] = [];
+          const buyRatio = bestSignal.token.txns24h.buys / (bestSignal.token.txns24h.buys + bestSignal.token.txns24h.sells || 1);
+          const volumeToLiquidity = bestSignal.token.volume24h / (bestSignal.token.liquidity || 1);
+          
+          if (bestSignal.token.priceChange24h > 10) reasoning.push(`Strong momentum: +${bestSignal.token.priceChange24h.toFixed(1)}% in 24h`);
+          if (buyRatio > 0.6) reasoning.push(`Bullish pressure: ${(buyRatio * 100).toFixed(0)}% buys`);
+          if (volumeToLiquidity > 0.5) reasoning.push(`High trading activity vs liquidity`);
+          if (bestSignal.sentimentScore >= 70) reasoning.push(`Strong sentiment score: ${bestSignal.sentimentScore}/100`);
+          if (bestSignal.tokenomicsScore >= 70) reasoning.push(`Solid tokenomics: ${bestSignal.tokenomicsScore}/100`);
+          if (bestSignal.whaleScore >= 70) reasoning.push(`Whale interest detected: ${bestSignal.whaleScore}/100`);
+          if (bestSignal.confidence >= 80) reasoning.push(`High AI confidence: ${bestSignal.confidence}%`);
+          if (reasoning.length === 0) reasoning.push(`Signal: ${bestSignal.signal} with ${bestSignal.confidence}% confidence`);
+          
           setTrackedPositions(prev => {
             const next = new Map(prev);
             next.set(tokenAddress, {
@@ -732,6 +764,19 @@ function AutoTradingPanel() {
               purchaseAmount: result.outputAmount,
               decimals: tokenDecimals,
               purchasedAt: new Date().toISOString(),
+              // AI analysis data
+              signal: bestSignal.signal,
+              confidence: bestSignal.confidence,
+              reasoning,
+              sentimentScore: bestSignal.sentimentScore,
+              tokenomicsScore: bestSignal.tokenomicsScore,
+              whaleScore: bestSignal.whaleScore,
+              // Token info
+              tokenName: bestSignal.token.name,
+              tokenImage: undefined, // DexScreener doesn't provide image in this response
+              marketCap: bestSignal.token.fdv, // Use FDV as marketCap proxy
+              volume24h: bestSignal.token.volume24h,
+              fdv: bestSignal.token.fdv,
             });
             return next;
           });
@@ -1090,12 +1135,180 @@ function AutoTradingPanel() {
           </div>
         )}
         
-        <Tabs defaultValue="positions" className="w-full">
-          <TabsList className="grid w-full grid-cols-3">
+        <Tabs defaultValue="trades" className="w-full">
+          <TabsList className="grid w-full grid-cols-4">
+            <TabsTrigger value="trades">My Trades ({trackedPositions.size})</TabsTrigger>
             <TabsTrigger value="positions">Positions ({openPositions.length})</TabsTrigger>
             <TabsTrigger value="activity">Activity Log</TabsTrigger>
             <TabsTrigger value="settings">Settings</TabsTrigger>
           </TabsList>
+          
+          {/* My Trades - Shows AI auto-trades with live P&L and reasoning */}
+          <TabsContent value="trades" className="space-y-4 mt-4">
+            {trackedPositions.size > 0 ? (
+              <div className="space-y-4">
+                {Array.from(trackedPositions.values()).map((position) => {
+                  // Calculate live P&L
+                  const currentToken = scanData?.tokens?.find(t => t.token.address === position.tokenAddress);
+                  const currentPrice = currentToken ? parseFloat(currentToken.token.priceUsd) : position.purchasePrice;
+                  const pnlPercent = position.purchasePrice > 0 
+                    ? ((currentPrice - position.purchasePrice) / position.purchasePrice * 100)
+                    : 0;
+                  const timeSincePurchase = new Date().getTime() - new Date(position.purchasedAt).getTime();
+                  const minutesAgo = Math.floor(timeSincePurchase / 60000);
+                  const hoursAgo = Math.floor(minutesAgo / 60);
+                  const timeAgo = hoursAgo > 0 ? `${hoursAgo}h ago` : minutesAgo > 0 ? `${minutesAgo}m ago` : 'just now';
+                  
+                  return (
+                    <Card key={position.tokenAddress} className="bg-gray-900/50 border-gray-700 overflow-hidden">
+                      <div className="p-4">
+                        {/* Header with token info and P&L */}
+                        <div className="flex items-start justify-between mb-3">
+                          <div className="flex items-center gap-3">
+                            {position.tokenImage ? (
+                              <img src={position.tokenImage} alt={position.symbol} className="w-12 h-12 rounded-full" />
+                            ) : (
+                              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-purple-600 to-blue-600 flex items-center justify-center text-lg font-bold">
+                                {position.symbol.slice(0, 2)}
+                              </div>
+                            )}
+                            <div>
+                              <h3 className="font-bold text-lg">{position.tokenName || position.symbol}</h3>
+                              <p className="text-sm text-muted-foreground flex items-center gap-2">
+                                <span>${currentPrice.toFixed(8)}</span>
+                                <span className={`font-bold ${pnlPercent >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                  {pnlPercent >= 0 ? '↑' : '↓'}{Math.abs(pnlPercent).toFixed(2)}%
+                                </span>
+                              </p>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <Badge className={pnlPercent >= 0 ? 'bg-green-500/20 text-green-400 border-green-500/30' : 'bg-red-500/20 text-red-400 border-red-500/30'}>
+                              {pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(2)}% P&L
+                            </Badge>
+                            <p className="text-xs text-muted-foreground mt-1">Bought {timeAgo}</p>
+                          </div>
+                        </div>
+                        
+                        {/* Mini stats row */}
+                        <div className="grid grid-cols-3 gap-3 mb-3 text-center">
+                          <div className="bg-gray-800/50 rounded-lg p-2">
+                            <p className="text-xs text-muted-foreground">Market Cap</p>
+                            <p className="font-medium text-sm">
+                              {position.marketCap ? (position.marketCap >= 1e6 ? `$${(position.marketCap / 1e6).toFixed(1)}M` : `$${(position.marketCap / 1e3).toFixed(0)}K`) : 'N/A'}
+                            </p>
+                          </div>
+                          <div className="bg-gray-800/50 rounded-lg p-2">
+                            <p className="text-xs text-muted-foreground">24h Volume</p>
+                            <p className="font-medium text-sm">
+                              {position.volume24h ? (position.volume24h >= 1e6 ? `$${(position.volume24h / 1e6).toFixed(1)}M` : `$${(position.volume24h / 1e3).toFixed(0)}K`) : 'N/A'}
+                            </p>
+                          </div>
+                          <div className="bg-gray-800/50 rounded-lg p-2">
+                            <p className="text-xs text-muted-foreground">Confidence</p>
+                            <p className="font-medium text-sm text-purple-400">{position.confidence}%</p>
+                          </div>
+                        </div>
+                        
+                        {/* AI Reasoning */}
+                        <div className="bg-purple-900/20 border border-purple-500/30 rounded-lg p-3">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Brain className="h-4 w-4 text-purple-400" />
+                            <p className="text-sm font-medium text-purple-400">Why AI Bought This Token</p>
+                          </div>
+                          <ul className="space-y-1">
+                            {position.reasoning.map((reason, idx) => (
+                              <li key={idx} className="text-sm text-muted-foreground flex items-start gap-2">
+                                <span className="text-green-400 mt-1">•</span>
+                                <span>{reason}</span>
+                              </li>
+                            ))}
+                          </ul>
+                          <div className="flex items-center gap-4 mt-3 pt-2 border-t border-purple-500/20">
+                            <div className="flex items-center gap-1">
+                              <TrendingUp className="h-3 w-3 text-blue-400" />
+                              <span className="text-xs text-muted-foreground">Sentiment: {position.sentimentScore}/100</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <Target className="h-3 w-3 text-green-400" />
+                              <span className="text-xs text-muted-foreground">Tokenomics: {position.tokenomicsScore}/100</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <Zap className="h-3 w-3 text-yellow-400" />
+                              <span className="text-xs text-muted-foreground">Whale: {position.whaleScore}/100</span>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {/* Action buttons */}
+                        <div className="flex gap-2 mt-3">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="flex-1"
+                            onClick={() => window.open(`https://dexscreener.com/solana/${position.tokenAddress}`, '_blank')}
+                          >
+                            <ExternalLink className="h-3 w-3 mr-1" />
+                            DexScreener
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            className="flex-1"
+                            onClick={async () => {
+                              const pk = getPublicKey();
+                              if (!pk) return;
+                              setSellingToken(position.tokenAddress);
+                              try {
+                                const result = await sellToken(
+                                  position.tokenAddress,
+                                  position.purchaseAmount,
+                                  position.decimals || 9,
+                                  signAndSendTransaction,
+                                  pk.toString(),
+                                  200
+                                );
+                                if (result.success) {
+                                  toast({ title: `Sold ${position.symbol}!`, description: `Received ${result.outputAmount.toFixed(4)} SOL` });
+                                  setTrackedPositions(prev => {
+                                    const next = new Map(prev);
+                                    next.delete(position.tokenAddress);
+                                    return next;
+                                  });
+                                  refreshWalletData();
+                                } else {
+                                  toast({ title: 'Sell failed', description: result.error, variant: 'destructive' });
+                                }
+                              } catch (err: any) {
+                                toast({ title: 'Sell failed', description: err.message, variant: 'destructive' });
+                              } finally {
+                                setSellingToken(null);
+                              }
+                            }}
+                            disabled={sellingToken === position.tokenAddress}
+                          >
+                            {sellingToken === position.tokenAddress ? (
+                              <RefreshCw className="h-3 w-3 mr-1 animate-spin" />
+                            ) : (
+                              <TrendingDown className="h-3 w-3 mr-1" />
+                            )}
+                            Sell Now
+                          </Button>
+                        </div>
+                      </div>
+                    </Card>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="text-center py-8 text-muted-foreground">
+                <Brain className="h-10 w-10 mx-auto mb-3 opacity-50" />
+                <p className="font-medium">No AI trades yet</p>
+                <p className="text-xs mt-1">Enable auto-trade and connect your wallet to start AI-powered trading</p>
+                <p className="text-xs mt-2 text-purple-400">When AI buys a token, you'll see the reasoning here with live P&L tracking</p>
+              </div>
+            )}
+          </TabsContent>
           
           <TabsContent value="positions" className="space-y-3 mt-4">
             {openPositions.length > 0 ? (
