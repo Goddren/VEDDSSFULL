@@ -361,6 +361,20 @@ export default function SubscriptionPage() {
               <p className="text-xs text-muted-foreground">Auto-pause in sideways markets</p>
             </div>
           </div>
+          <div className="flex items-start gap-2 p-3 bg-background rounded-lg border-2 border-purple-500">
+            <Check className="h-5 w-5 text-purple-500 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-medium text-sm text-purple-600 dark:text-purple-400">Solana Token Scanner</p>
+              <p className="text-xs text-muted-foreground">AI-powered token signals with auto-trading</p>
+            </div>
+          </div>
+          <div className="flex items-start gap-2 p-3 bg-background rounded-lg border-2 border-cyan-500">
+            <Check className="h-5 w-5 text-cyan-500 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-medium text-sm text-cyan-600 dark:text-cyan-400">Phantom Wallet Integration</p>
+              <p className="text-xs text-muted-foreground">Auto-buy/sell via Jupiter DEX</p>
+            </div>
+          </div>
         </div>
       </div>
 

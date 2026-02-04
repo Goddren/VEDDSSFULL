@@ -1618,7 +1618,7 @@ const trainingModules: TrainingModule[] = [
     id: 'solana-scanner',
     title: 'Solana Token Scanner',
     description: 'How to use the AI-powered Solana token scanner for crypto trading signals',
-    duration: '20 min',
+    duration: '30 min',
     icon: Wallet,
     image: platformsImg,
     lessons: [
@@ -1681,6 +1681,50 @@ const trainingModules: TrainingModule[] = [
             'Pauses all trading'
           ],
           correct: 1
+        }
+      },
+      {
+        id: 'solana-4',
+        title: 'Wallet Monitoring & Sell Signals',
+        content: [
+          'The scanner monitors ALL tokens in your Phantom wallet - not just AI-purchased ones',
+          'AI analyzes each token for sell signals every 60 seconds when enabled',
+          'Color-coded badges show BUY/SELL signals with confidence percentages next to each token',
+          'Sell signals pulse red and animate to draw your attention immediately',
+          'Browser notifications alert you when sell signals are detected for your holdings',
+          'The "My Trades" tab shows AI reasoning behind each trade with sparkline price charts'
+        ],
+        tips: [
+          'This is a powerful unique feature - users can monitor their entire portfolio',
+          'Show how the brain icon animates while analysis is running',
+          'Explain the sell signal notifications can help prevent significant losses'
+        ]
+      },
+      {
+        id: 'solana-5',
+        title: 'Trade Performance & Sharing',
+        content: [
+          'Each trade shows live P&L tracking with percentage gains/losses',
+          'Sparkline charts visualize price movement since purchase',
+          'AI reasoning is displayed for each trade - sentiment, tokenomics, whale scores',
+          'Generate branded share cards with VEDD logo for social media',
+          'Share trade performance on Twitter or copy links to build your trading reputation',
+          'Share cards include entry price, current price, P&L, and AI confidence scores'
+        ],
+        tips: [
+          'Sharing successful trades builds social proof and attracts new users',
+          'The branded share cards make content look professional and trustworthy',
+          'AI reasoning transparency helps educate users on why signals are generated'
+        ],
+        quiz: {
+          question: 'What does the Wallet Monitoring feature track?',
+          options: [
+            'Only tokens purchased through the AI scanner',
+            'Only Solana network activity',
+            'ALL tokens in your Phantom wallet for sell signals',
+            'Only tokens above $100 value'
+          ],
+          correct: 2
         }
       }
     ]

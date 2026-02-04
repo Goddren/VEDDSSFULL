@@ -617,6 +617,32 @@ export default function LandingPage() {
                 Interactive countdown timer to major trading sessions, helping you prepare for market opens and closes.
               </p>
             </motion.div>
+            
+            {/* Solana Token Scanner */}
+            <motion.div variants={fadeIn} className="flex flex-col p-6 bg-gradient-to-br from-purple-900/30 to-cyan-900/30 rounded-lg border border-purple-500/30 shadow-theme transform hover:translate-y-[-4px] transition-all duration-300 group">
+              <div className="flex items-center mb-4">
+                <div className="p-2 rounded-full bg-purple-50 dark:bg-purple-900/40 mr-3 group-hover:bg-purple-100 dark:group-hover:bg-purple-900/50 transition-all duration-300">
+                  <Wallet className="h-5 w-5 text-purple-400" />
+                </div>
+                <h3 className="text-lg font-semibold text-theme-main">Solana Token Scanner</h3>
+              </div>
+              <p className="text-theme-muted flex-grow">
+                AI-powered scanner analyzes trending Solana tokens for buy/sell signals. Connect Phantom wallet for auto-trading via Jupiter DEX.
+              </p>
+            </motion.div>
+            
+            {/* Wallet Monitoring */}
+            <motion.div variants={fadeIn} className="flex flex-col p-6 bg-gradient-to-br from-cyan-900/30 to-blue-900/30 rounded-lg border border-cyan-500/30 shadow-theme transform hover:translate-y-[-4px] transition-all duration-300 group">
+              <div className="flex items-center mb-4">
+                <div className="p-2 rounded-full bg-cyan-50 dark:bg-cyan-900/40 mr-3 group-hover:bg-cyan-100 dark:group-hover:bg-cyan-900/50 transition-all duration-300">
+                  <Brain className="h-5 w-5 text-cyan-400" />
+                </div>
+                <h3 className="text-lg font-semibold text-theme-main">Wallet Monitoring</h3>
+              </div>
+              <p className="text-theme-muted flex-grow">
+                AI continuously monitors your wallet tokens for sell signals. Get notifications when it's time to exit positions before losses.
+              </p>
+            </motion.div>
           </motion.div>
         </div>
       </motion.section>
