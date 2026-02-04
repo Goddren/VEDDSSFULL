@@ -6190,10 +6190,22 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       
       // Get pending/open trades
       const openTrades = await storage.getAiTradeResults(userId, 50);
-      const pendingTrades = openTrades.filter(t => (t.result === 'PENDING' || !t.result) && t.symbol);
+      const now = Date.now();
+      const FIFTEEN_MINUTES = 15 * 60 * 1000;
+      
+      // Filter for pending trades, auto-cancel (skip) trades older than 15 minutes
+      const pendingTrades = openTrades.filter(t => {
+        if (!((t.result === 'PENDING' || !t.result) && t.symbol)) return false;
+        // Auto-cancel: skip trades older than 15 minutes
+        if (t.createdAt) {
+          const tradeAge = now - new Date(t.createdAt).getTime();
+          if (tradeAge > FIFTEEN_MINUTES) return false;
+        }
+        return true;
+      });
       
       if (pendingTrades.length === 0) {
-        return res.json({ reversals: [], message: "No open trades to monitor" });
+        return res.json({ reversals: [], message: "No open trades to monitor (trades older than 15 minutes are auto-cancelled)" });
       }
       
       // Get recent analyses for comparison, sorted by createdAt descending

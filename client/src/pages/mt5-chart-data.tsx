@@ -51,10 +51,47 @@ type AiAccuracy = {
   losses: number;
 };
 
+type PendingTrade = {
+  id: number;
+  symbol: string;
+  direction: string;
+  entryPrice: number;
+  createdAt: string;
+  result: string | null;
+};
+
 function AiAccuracyDashboard() {
+  const { toast } = useToast();
+  const [showPending, setShowPending] = useState(false);
+  
   const { data: accuracy, isLoading, refetch } = useQuery<AiAccuracy>({
     queryKey: ['/api/ai-trade-accuracy'],
-    refetchInterval: 60000,
+    refetchInterval: 30000,
+  });
+  
+  const { data: pendingTrades, refetch: refetchPending } = useQuery<PendingTrade[]>({
+    queryKey: ['/api/ai-trade-results'],
+    enabled: showPending,
+    select: (data) => data.filter((t: PendingTrade) => !t.result || t.result === 'PENDING').slice(0, 20),
+  });
+  
+  const markTradeMutation = useMutation({
+    mutationFn: async ({ tradeId, result }: { tradeId: number; result: 'WIN' | 'LOSS' }) => {
+      const res = await apiRequest('PATCH', `/api/ai-trade-results/${tradeId}`, { 
+        result, 
+        closedAt: new Date().toISOString() 
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Trade marked!", description: "Accuracy updated" });
+      refetch();
+      refetchPending();
+      queryClient.invalidateQueries({ queryKey: ['/api/ai-trade-results'] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to update", description: error.message, variant: "destructive" });
+    },
   });
 
   const getAccuracyColor = (value: number) => {
@@ -155,6 +192,59 @@ function AiAccuracyDashboard() {
                   No trades recorded yet. Your AI accuracy will appear here as you complete trades.
                 </p>
               )}
+              
+              <div className="mt-4 pt-4 border-t border-gray-700">
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => { setShowPending(!showPending); if (!showPending) refetchPending(); }}
+                  className="w-full"
+                >
+                  {showPending ? 'Hide Pending Trades' : 'Mark Pending Trades as Win/Loss'}
+                </Button>
+                
+                {showPending && pendingTrades && pendingTrades.length > 0 && (
+                  <div className="mt-3 space-y-2 max-h-48 overflow-y-auto">
+                    {pendingTrades.map((trade) => (
+                      <div key={trade.id} className="flex items-center justify-between p-2 bg-gray-800/50 rounded-lg border border-gray-700">
+                        <div className="flex items-center gap-2">
+                          <Badge className={trade.direction === 'BUY' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}>
+                            {trade.direction}
+                          </Badge>
+                          <span className="text-white font-medium">{trade.symbol}</span>
+                          <span className="text-gray-400 text-sm">@ {trade.entryPrice?.toFixed(5)}</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Button 
+                            size="sm" 
+                            variant="ghost" 
+                            className="text-green-400 hover:bg-green-500/20"
+                            onClick={() => markTradeMutation.mutate({ tradeId: trade.id, result: 'WIN' })}
+                            disabled={markTradeMutation.isPending}
+                          >
+                            <CheckCircle className="w-4 h-4 mr-1" /> Win
+                          </Button>
+                          <Button 
+                            size="sm" 
+                            variant="ghost" 
+                            className="text-red-400 hover:bg-red-500/20"
+                            onClick={() => markTradeMutation.mutate({ tradeId: trade.id, result: 'LOSS' })}
+                            disabled={markTradeMutation.isPending}
+                          >
+                            <XCircle className="w-4 h-4 mr-1" /> Loss
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                
+                {showPending && pendingTrades && pendingTrades.length === 0 && (
+                  <p className="mt-3 text-center text-gray-500 text-sm">
+                    No pending trades to mark. Trades from MT5 EA will appear here.
+                  </p>
+                )}
+              </div>
             </div>
           ) : (
             <p className="text-center text-gray-400 py-4">Unable to load accuracy data</p>
