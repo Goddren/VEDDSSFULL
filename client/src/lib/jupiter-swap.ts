@@ -94,16 +94,21 @@ export async function executeSwap(
   outputDecimals?: number
 ): Promise<SwapResult> {
   try {
+    console.log('[Jupiter] Creating swap transaction for', userPublicKey);
+    console.log('[Jupiter] Quote:', { inAmount: quote.inAmount, outAmount: quote.outAmount });
+    
     const swapResult = await jupiterQuoteApi.swapPost({
       swapRequest: {
         quoteResponse: quote,
         userPublicKey,
         wrapAndUnwrapSol: true,
         dynamicComputeUnitLimit: true,
+        prioritizationFeeLamports: { priorityLevelWithMaxLamports: { maxLamports: 5000000, priorityLevel: 'high' } },
       },
     });
 
     if (!swapResult || !swapResult.swapTransaction) {
+      console.error('[Jupiter] Failed to create swap transaction');
       return {
         success: false,
         error: 'Failed to create swap transaction',
@@ -113,19 +118,46 @@ export async function executeSwap(
       };
     }
 
+    console.log('[Jupiter] Swap transaction created, requesting wallet signature...');
     const swapTransactionBuf = base64ToUint8Array(swapResult.swapTransaction);
     const transaction = VersionedTransaction.deserialize(swapTransactionBuf);
 
     const signature = await signAndSendTransaction(transaction);
 
     if (!signature) {
+      console.error('[Jupiter] Transaction was rejected by wallet');
       return {
         success: false,
-        error: 'Transaction signing was rejected',
+        error: 'Transaction signing was rejected - check your Phantom wallet for the popup',
         inputAmount: parseInt(quote.inAmount) / 1e9,
         outputAmount: parseInt(quote.outAmount),
         outputDecimals,
       };
+    }
+
+    console.log('[Jupiter] Transaction signed! Signature:', signature);
+    console.log('[Jupiter] View on Solscan: https://solscan.io/tx/' + signature);
+    
+    // Wait for confirmation
+    try {
+      const connection = await getWorkingConnection();
+      console.log('[Jupiter] Waiting for transaction confirmation...');
+      const confirmation = await connection.confirmTransaction(signature, 'confirmed');
+      
+      if (confirmation.value.err) {
+        console.error('[Jupiter] Transaction failed on-chain:', confirmation.value.err);
+        return {
+          success: false,
+          error: 'Transaction failed on blockchain: ' + JSON.stringify(confirmation.value.err),
+          signature,
+          inputAmount: parseInt(quote.inAmount) / 1e9,
+          outputAmount: parseInt(quote.outAmount),
+          outputDecimals,
+        };
+      }
+      console.log('[Jupiter] Transaction CONFIRMED on blockchain!');
+    } catch (confirmError: any) {
+      console.warn('[Jupiter] Could not confirm transaction (may still be processing):', confirmError.message);
     }
 
     return {
@@ -136,7 +168,7 @@ export async function executeSwap(
       outputDecimals,
     };
   } catch (error: any) {
-    console.error('Swap execution failed:', error);
+    console.error('[Jupiter] Swap execution failed:', error);
     return {
       success: false,
       error: error.message || 'Swap failed',

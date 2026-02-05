@@ -892,11 +892,25 @@ function AutoTradingPanel() {
           });
           // Notify success
           notifyTradeExecuted(tokenSymbol, 'bought', result.inputAmount);
+          const txSig = result.signature || '';
           toast({ 
             title: 'Auto-Trade Executed!', 
-            description: `Bought ${tokenSymbol} with ${result.inputAmount.toFixed(4)} SOL`
+            description: `Bought ${tokenSymbol} with ${result.inputAmount.toFixed(4)} SOL`,
+            action: txSig ? (
+              <a 
+                href={`https://solscan.io/tx/${txSig}`} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="underline text-purple-400 hover:text-purple-300"
+              >
+                View TX
+              </a>
+            ) : undefined
           });
-          refreshWalletData();
+          console.log('[Auto-Trade] Transaction signature:', txSig);
+          console.log('[Auto-Trade] View on Solscan:', `https://solscan.io/tx/${txSig}`);
+          // Wait a bit for blockchain to update, then refresh
+          setTimeout(() => refreshWalletData(), 3000);
         } else {
           setAutoTradeLog(prev => [...prev.slice(-9), `${timestamp}: FAILED - ${result.error}`]);
           playSound('error');
@@ -2036,15 +2050,31 @@ export default function SolanaScanner() {
       );
       
       if (result.success) {
+        const txSig = result.signature || '';
+        console.log('[Manual Buy] SUCCESS! Transaction signature:', txSig);
+        console.log('[Manual Buy] View on Solscan:', `https://solscan.io/tx/${txSig}`);
         toast({ 
           title: 'Trade executed!', 
-          description: `Bought ${tokenSymbol} with ${result.inputAmount.toFixed(4)} SOL - TX: ${result.signature?.slice(0, 8)}...`
+          description: `Bought ${tokenSymbol} with ${result.inputAmount.toFixed(4)} SOL`,
+          action: txSig ? (
+            <a 
+              href={`https://solscan.io/tx/${txSig}`} 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="underline text-purple-400 hover:text-purple-300"
+            >
+              View TX
+            </a>
+          ) : undefined
         });
-        refreshWalletData();
+        // Wait for blockchain to update before refreshing
+        setTimeout(() => refreshWalletData(), 3000);
       } else {
+        console.error('[Manual Buy] FAILED:', result.error);
         toast({ title: 'Trade failed', description: result.error, variant: 'destructive' });
       }
     } catch (error: any) {
+      console.error('[Manual Buy] ERROR:', error);
       toast({ title: 'Trade error', description: error.message, variant: 'destructive' });
     } finally {
       setBuyingToken(null);
