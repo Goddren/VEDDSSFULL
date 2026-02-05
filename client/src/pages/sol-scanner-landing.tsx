@@ -279,8 +279,8 @@ export default function SolScannerLanding() {
             <div className="mt-4 pt-4 border-t border-gray-700/50 text-center">
               <p className="text-xs text-gray-500">
                 Referral earnings are backed by the VEDD token ecosystem. 
-                <Link href="/" className="text-purple-400 hover:underline ml-1">
-                  Learn more about VEDD
+                <Link href="/vedd-tokenomics" className="text-purple-400 hover:underline ml-1">
+                  Learn more about VEDD Tokenomics
                 </Link>
               </p>
             </div>

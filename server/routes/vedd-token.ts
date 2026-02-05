@@ -319,12 +319,12 @@ router.get('/referral/stats', async (req: Request, res: Response) => {
       .where(eq(ambassadorActionRewards.userId, userId));
     
     const referralTypes = ['referral_signup', 'referral_profit_share', 'referral_first_trade', 'referral_ambassador'];
-    const referralOnlyRewards = referralRewards.filter(r => referralTypes.includes(r.actionType));
+    const referralOnlyRewards = referralRewards.filter((r: any) => referralTypes.includes(r.actionType));
     
-    const totalReferrals = referralOnlyRewards.filter(r => r.actionType === 'referral_signup').length;
-    const totalEarnings = referralOnlyRewards.reduce((sum, r) => sum + (r.totalReward || 0), 0);
-    const pendingEarnings = referralOnlyRewards.filter(r => r.verificationStatus === 'pending').reduce((sum, r) => sum + (r.totalReward || 0), 0);
-    const claimedEarnings = referralOnlyRewards.filter(r => r.verificationStatus === 'verified').reduce((sum, r) => sum + (r.totalReward || 0), 0);
+    const totalReferrals = referralOnlyRewards.filter((r: any) => r.actionType === 'referral_signup').length;
+    const totalEarnings = referralOnlyRewards.reduce((sum: number, r: any) => sum + (r.totalReward || 0), 0);
+    const pendingEarnings = referralOnlyRewards.filter((r: any) => r.verificationStatus === 'pending').reduce((sum: number, r: any) => sum + (r.totalReward || 0), 0);
+    const claimedEarnings = referralOnlyRewards.filter((r: any) => r.verificationStatus === 'verified').reduce((sum: number, r: any) => sum + (r.totalReward || 0), 0);
     
     res.json({
       totalReferrals,
