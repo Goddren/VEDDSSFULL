@@ -60,6 +60,8 @@ import VeddWalletPage from "@/pages/vedd-wallet";
 import HostDashboardPage from "@/pages/host-dashboard";
 import MyWalletPage from "@/pages/my-wallet";
 import SolanaScanner from "@/pages/solana-scanner";
+import SolScannerLanding from "@/pages/sol-scanner-landing";
+import SolScannerTrades from "@/pages/sol-scanner-trades";
 import StreakBanner from "@/components/StreakBanner";
 import { MobileFAB } from "@/components/mobile-fab";
 import { NetworkStatus } from "@/components/network-status";
@@ -170,6 +172,8 @@ function AppLayout() {
             <ProtectedRoute path="/host-dashboard" component={HostDashboardPage} />
             <ProtectedRoute path="/my-wallet" component={MyWalletPage} />
             <Route path="/solana-scanner" component={SolanaScanner} />
+            <Route path="/sol-scanner" component={SolScannerLanding} />
+            <Route path="/sol-scanner/trades" component={SolScannerTrades} />
             
             <Route component={NotFound} />
           </Switch>
