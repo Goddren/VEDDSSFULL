@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { veddTokenService } from '../services/vedd-token-service';
 import { db } from '../db';
-import { users, veddPoolWallets, veddRewardConfig, ambassadorActionRewards, veddTransferJobs } from '@shared/schema';
+import { users, veddPoolWallets, veddRewardConfig, ambassadorActionRewards, veddTransferJobs, referrals } from '@shared/schema';
 import { eq, desc } from 'drizzle-orm';
 
 const router = Router();
@@ -241,31 +241,47 @@ router.post('/referral/trade-profit', async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) {
       return res.status(401).json({ error: 'Not authenticated' });
     }
-    const userId = (req.user as any).id;
-    const { referrerCode, profitAmount, tokenSymbol, tradeType } = req.body;
+    const traderId = (req.user as any).id;
+    const { profitAmount, tokenSymbol, tradeType } = req.body;
     
-    if (!referrerCode || typeof profitAmount !== 'number' || profitAmount <= 0) {
-      return res.status(400).json({ error: 'Valid referrerCode and positive profitAmount required' });
+    if (typeof profitAmount !== 'number' || profitAmount <= 0) {
+      return res.status(400).json({ error: 'Valid positive profitAmount required' });
+    }
+    
+    const [referral] = await db.select()
+      .from(referrals)
+      .where(eq(referrals.referredId, traderId))
+      .limit(1);
+    
+    if (!referral) {
+      return res.json({ success: false, message: 'No referrer found for this user' });
+    }
+    
+    const referrerId = referral.referrerId;
+    
+    if (referrerId === traderId) {
+      return res.status(400).json({ error: 'Self-referral not allowed' });
     }
     
     const referralSharePercent = 0.05;
     const referralReward = profitAmount * referralSharePercent;
     
     const result = await veddTokenService.enqueueReward(
-      userId,
+      referrerId,
       'referral_profit_share',
       undefined,
-      { referrerCode, profitAmount, tokenSymbol, tradeType, referralReward }
+      { traderId, profitAmount, tokenSymbol, tradeType, referralReward }
     );
     
     if (result) {
       res.json({ 
         success: true, 
-        message: `Referral reward of ${referralReward.toFixed(4)} VEDD queued for ${referrerCode}`,
-        rewardId: result.rewardId
+        message: `Referral reward of ${referralReward.toFixed(4)} VEDD queued for referrer`,
+        rewardId: result.rewardId,
+        referrerId
       });
     } else {
-      res.json({ success: false, message: 'No referral reward available' });
+      res.json({ success: false, message: 'No referral reward available - config may be missing' });
     }
   } catch (error: any) {
     console.error('Error processing referral trade profit:', error);
@@ -278,28 +294,39 @@ router.post('/referral/signup', async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) {
       return res.status(401).json({ error: 'Not authenticated' });
     }
-    const userId = (req.user as any).id;
-    const { referrerCode } = req.body;
+    const newUserId = (req.user as any).id;
     
-    if (!referrerCode) {
-      return res.status(400).json({ error: 'referrerCode required' });
+    const [referral] = await db.select()
+      .from(referrals)
+      .where(eq(referrals.referredId, newUserId))
+      .limit(1);
+    
+    if (!referral) {
+      return res.json({ success: false, message: 'No referrer found for this user' });
+    }
+    
+    const referrerId = referral.referrerId;
+    
+    if (referrerId === newUserId) {
+      return res.status(400).json({ error: 'Self-referral not allowed' });
     }
     
     const result = await veddTokenService.enqueueReward(
-      userId, 
+      referrerId, 
       'referral_signup',
-      undefined,
-      { referrerCode, action: 'new_user_signup' }
+      newUserId,
+      { referredUserId: newUserId, action: 'new_user_signup' }
     );
     
     if (result) {
       res.json({ 
         success: true, 
-        message: 'Referral signup reward queued',
-        rewardId: result.rewardId
+        message: 'Referral signup reward queued for referrer',
+        rewardId: result.rewardId,
+        referrerId
       });
     } else {
-      res.json({ success: false, message: 'No referral signup reward available' });
+      res.json({ success: false, message: 'No referral signup reward available - config may be missing' });
     }
   } catch (error: any) {
     console.error('Error processing referral signup:', error);
