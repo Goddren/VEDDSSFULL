@@ -1397,12 +1397,30 @@ function AutoTradingPanel() {
         )}
         
         <Tabs defaultValue="trades" className="w-full">
-          <TabsList className="grid w-full grid-cols-5">
-            <TabsTrigger value="trades">My Trades ({trackedPositions.size})</TabsTrigger>
-            <TabsTrigger value="history">Past Trades ({closedPositions.length})</TabsTrigger>
-            <TabsTrigger value="positions">Positions ({openPositions.length})</TabsTrigger>
-            <TabsTrigger value="activity">Activity Log</TabsTrigger>
-            <TabsTrigger value="settings">Settings</TabsTrigger>
+          <TabsList className="flex w-full overflow-x-auto gap-1 h-auto flex-wrap sm:flex-nowrap">
+            <TabsTrigger value="trades" className="flex-shrink-0 text-xs sm:text-sm px-2 sm:px-3">
+              <span className="hidden sm:inline">My Trades</span>
+              <span className="sm:hidden">Trades</span>
+              <span className="ml-1">({trackedPositions.size})</span>
+            </TabsTrigger>
+            <TabsTrigger value="history" className="flex-shrink-0 text-xs sm:text-sm px-2 sm:px-3">
+              <span className="hidden sm:inline">Past Trades</span>
+              <span className="sm:hidden">History</span>
+              <span className="ml-1">({closedPositions.length})</span>
+            </TabsTrigger>
+            <TabsTrigger value="positions" className="flex-shrink-0 text-xs sm:text-sm px-2 sm:px-3">
+              <span className="hidden sm:inline">Positions</span>
+              <span className="sm:hidden">Pos</span>
+              <span className="ml-1">({openPositions.length})</span>
+            </TabsTrigger>
+            <TabsTrigger value="activity" className="flex-shrink-0 text-xs sm:text-sm px-2 sm:px-3">
+              <span className="hidden sm:inline">Activity Log</span>
+              <span className="sm:hidden">Log</span>
+            </TabsTrigger>
+            <TabsTrigger value="settings" className="flex-shrink-0 text-xs sm:text-sm px-2 sm:px-3">
+              <Settings className="h-4 w-4 sm:hidden" />
+              <span className="hidden sm:inline">Settings</span>
+            </TabsTrigger>
           </TabsList>
           
           {/* My Trades - Shows AI auto-trades with live P&L and reasoning */}
