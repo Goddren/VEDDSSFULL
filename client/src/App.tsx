@@ -65,6 +65,7 @@ import SolScannerTrades from "@/pages/sol-scanner-trades";
 import VeddTokenomics from "@/pages/vedd-tokenomics";
 import StreakBanner from "@/components/StreakBanner";
 import { MobileFAB } from "@/components/mobile-fab";
+import { MobileBottomNav } from "@/components/mobile-bottom-nav";
 import { NetworkStatus } from "@/components/network-status";
 import { NewsNotificationScheduler } from "@/components/news-notification-scheduler";
 import { SubscriptionUsageHeader } from "@/components/ui/subscription-usage-header";
@@ -182,9 +183,10 @@ function AppLayout() {
         </PageTransition>
       </main>
       {showHeaderFooter && !isAuthPage && <Footer />}
-      <MobileFAB />
+      <MobileBottomNav />
       <NetworkStatus />
       <Toaster />
+      <div className="pb-16 md:pb-0" />
     </div>
   );
 }
