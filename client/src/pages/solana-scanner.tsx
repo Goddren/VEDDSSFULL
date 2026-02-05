@@ -37,9 +37,13 @@ import {
   Download,
   Twitter,
   Eye,
-  History
+  History,
+  Gift,
+  Users,
+  BarChart3
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Link } from 'wouter';
 import VeddLogo from '@/components/ui/vedd-logo';
 import { buyToken, sellToken } from '@/lib/jupiter-swap';
 import type { SwapResult } from '@/lib/jupiter-swap';
@@ -2436,11 +2440,42 @@ function AutoTradingPanel() {
   );
 }
 
+function generateReferralCode(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let code = 'VEDD';
+  for (let i = 0; i < 6; i++) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return code;
+}
+
 export default function SolanaScanner() {
   const [searchQuery, setSearchQuery] = useState('');
   const [buyingToken, setBuyingToken] = useState<string | null>(null);
+  const [referralCode, setReferralCode] = useState<string>('');
+  const [referralCopied, setReferralCopied] = useState(false);
+  const [referralStats, setReferralStats] = useState({ referrals: 0, earnings: 0 });
   const { toast } = useToast();
   const { connected, walletData, signAndSendTransaction, getPublicKey, refreshWalletData } = useSolanaWallet();
+  
+  useEffect(() => {
+    const stored = localStorage.getItem('vedd_referral_code');
+    if (stored) {
+      setReferralCode(stored);
+    } else {
+      const newCode = generateReferralCode();
+      localStorage.setItem('vedd_referral_code', newCode);
+      setReferralCode(newCode);
+    }
+    const stats = localStorage.getItem('vedd_referral_stats');
+    if (stats) setReferralStats(JSON.parse(stats));
+    
+    const params = new URLSearchParams(window.location.search);
+    const ref = params.get('ref');
+    if (ref && ref !== stored) {
+      localStorage.setItem('vedd_referred_by', ref);
+    }
+  }, []);
   
   const { data: wallet } = useQuery<TradingWallet>({
     queryKey: ['/api/trading/wallet'],
@@ -2582,10 +2617,90 @@ export default function SolanaScanner() {
           </div>
         </div>
         
-        <Button onClick={() => refetch()} disabled={isFetching} size="lg">
-          <RefreshCw className={`h-4 w-4 mr-2 ${isFetching ? 'animate-spin' : ''}`} />
-          {isFetching ? 'Scanning...' : 'Scan Now'}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Link href="/sol-scanner/trades">
+            <Button variant="outline" size="sm">
+              <BarChart3 className="h-4 w-4 mr-2" />
+              All Trades
+            </Button>
+          </Link>
+          
+          <Dialog>
+            <DialogTrigger asChild>
+              <Button variant="outline" size="sm" className="text-yellow-500 border-yellow-500/30 hover:bg-yellow-500/10">
+                <Gift className="h-4 w-4 mr-2" />
+                Refer & Earn
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Gift className="h-5 w-5 text-yellow-400" />
+                  Earn VEDD Rewards
+                </DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  Share your referral link and earn 5% of your referrals' trading profits, paid in VEDD tokens!
+                </p>
+                
+                <div className="flex items-center gap-2">
+                  <Input 
+                    value={`${window.location.origin}/sol-scanner?ref=${referralCode}`} 
+                    readOnly 
+                    className="bg-muted text-xs"
+                  />
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => {
+                      navigator.clipboard.writeText(`${window.location.origin}/sol-scanner?ref=${referralCode}`);
+                      setReferralCopied(true);
+                      toast({ title: 'Link Copied!', description: 'Share to earn VEDD rewards' });
+                      setTimeout(() => setReferralCopied(false), 2000);
+                    }}
+                  >
+                    {referralCopied ? <CheckCircle className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                  </Button>
+                </div>
+                
+                <div className="flex items-center justify-between text-sm bg-muted/50 rounded-lg p-3">
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline">Code: {referralCode}</Badge>
+                  </div>
+                  <div className="flex items-center gap-4 text-xs">
+                    <span className="flex items-center gap-1">
+                      <Users className="h-3 w-3" /> {referralStats.referrals}
+                    </span>
+                    <span className="flex items-center gap-1 text-green-400">
+                      <DollarSign className="h-3 w-3" /> {referralStats.earnings.toFixed(2)} VEDD
+                    </span>
+                  </div>
+                </div>
+                
+                <Button
+                  className="w-full"
+                  onClick={() => {
+                    const text = `🚀 Trade Solana tokens with AI signals!\n\n🤖 AI scans trending tokens 24/7\n📊 Auto buy/sell at targets\n💰 Earn 5% of friends' profits\n\nJoin with my link:\n${window.location.origin}/sol-scanner?ref=${referralCode}\n\n#VEDD #Solana #AI`;
+                    window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`, '_blank');
+                  }}
+                >
+                  <Twitter className="h-4 w-4 mr-2" />
+                  Share on Twitter
+                </Button>
+                
+                <p className="text-xs text-center text-muted-foreground">
+                  Earnings backed by the VEDD token ecosystem
+                </p>
+              </div>
+            </DialogContent>
+          </Dialog>
+          
+          <Button onClick={() => refetch()} disabled={isFetching} size="lg">
+            <RefreshCw className={`h-4 w-4 mr-2 ${isFetching ? 'animate-spin' : ''}`} />
+            {isFetching ? 'Scanning...' : 'Scan Now'}
+          </Button>
+        </div>
       </div>
       
       <div className="flex gap-2">
@@ -2731,6 +2846,24 @@ export default function SolanaScanner() {
           </p>
         </CardContent>
       </Card>
+      
+      <div className="text-center py-8 border-t border-border/50 mt-8">
+        <VeddLogo height={32} className="mx-auto mb-4" />
+        <p className="text-sm text-muted-foreground mb-4">Part of the VEDD AI Trading Vault ecosystem</p>
+        <div className="flex items-center justify-center gap-4">
+          <Link href="/">
+            <Button variant="outline">
+              <Target className="h-4 w-4 mr-2" />
+              Enter Trading Vault
+            </Button>
+          </Link>
+          <Link href="/sol-scanner">
+            <Button variant="ghost" size="sm">
+              Learn More
+            </Button>
+          </Link>
+        </div>
+      </div>
     </div>
   );
 }
