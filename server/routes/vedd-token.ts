@@ -236,4 +236,107 @@ router.post('/admin/config/:actionType', requireAdmin, async (req: Request, res:
   }
 });
 
+router.post('/referral/trade-profit', async (req: Request, res: Response) => {
+  try {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    const userId = (req.user as any).id;
+    const { referrerCode, profitAmount, tokenSymbol, tradeType } = req.body;
+    
+    if (!referrerCode || typeof profitAmount !== 'number' || profitAmount <= 0) {
+      return res.status(400).json({ error: 'Valid referrerCode and positive profitAmount required' });
+    }
+    
+    const referralSharePercent = 0.05;
+    const referralReward = profitAmount * referralSharePercent;
+    
+    const result = await veddTokenService.enqueueReward(
+      userId,
+      'referral_profit_share',
+      undefined,
+      { referrerCode, profitAmount, tokenSymbol, tradeType, referralReward }
+    );
+    
+    if (result) {
+      res.json({ 
+        success: true, 
+        message: `Referral reward of ${referralReward.toFixed(4)} VEDD queued for ${referrerCode}`,
+        rewardId: result.rewardId
+      });
+    } else {
+      res.json({ success: false, message: 'No referral reward available' });
+    }
+  } catch (error: any) {
+    console.error('Error processing referral trade profit:', error);
+    res.status(500).json({ error: 'Failed to process referral profit share' });
+  }
+});
+
+router.post('/referral/signup', async (req: Request, res: Response) => {
+  try {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    const userId = (req.user as any).id;
+    const { referrerCode } = req.body;
+    
+    if (!referrerCode) {
+      return res.status(400).json({ error: 'referrerCode required' });
+    }
+    
+    const result = await veddTokenService.enqueueReward(
+      userId, 
+      'referral_signup',
+      undefined,
+      { referrerCode, action: 'new_user_signup' }
+    );
+    
+    if (result) {
+      res.json({ 
+        success: true, 
+        message: 'Referral signup reward queued',
+        rewardId: result.rewardId
+      });
+    } else {
+      res.json({ success: false, message: 'No referral signup reward available' });
+    }
+  } catch (error: any) {
+    console.error('Error processing referral signup:', error);
+    res.status(500).json({ error: 'Failed to process referral signup reward' });
+  }
+});
+
+router.get('/referral/stats', async (req: Request, res: Response) => {
+  try {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    const userId = (req.user as any).id;
+    
+    const referralRewards = await db.select()
+      .from(ambassadorActionRewards)
+      .where(eq(ambassadorActionRewards.userId, userId));
+    
+    const referralTypes = ['referral_signup', 'referral_profit_share', 'referral_first_trade', 'referral_ambassador'];
+    const referralOnlyRewards = referralRewards.filter(r => referralTypes.includes(r.actionType));
+    
+    const totalReferrals = referralOnlyRewards.filter(r => r.actionType === 'referral_signup').length;
+    const totalEarnings = referralOnlyRewards.reduce((sum, r) => sum + (r.totalReward || 0), 0);
+    const pendingEarnings = referralOnlyRewards.filter(r => r.verificationStatus === 'pending').reduce((sum, r) => sum + (r.totalReward || 0), 0);
+    const claimedEarnings = referralOnlyRewards.filter(r => r.verificationStatus === 'verified').reduce((sum, r) => sum + (r.totalReward || 0), 0);
+    
+    res.json({
+      totalReferrals,
+      totalEarnings,
+      pendingEarnings,
+      claimedEarnings,
+      recentRewards: referralOnlyRewards.slice(0, 10)
+    });
+  } catch (error: any) {
+    console.error('Error fetching referral stats:', error);
+    res.status(500).json({ error: 'Failed to fetch referral statistics' });
+  }
+});
+
 export default router;
