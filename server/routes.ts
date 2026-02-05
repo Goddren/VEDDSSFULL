@@ -4846,7 +4846,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         return res.status(403).json({ error: "API key is disabled" });
       }
       
-      const { symbol, timeframe, broker, timestamp, candles, indicators, account } = req.body;
+      const { symbol, timeframe, broker, timestamp, candles, indicators, account, eaSettings } = req.body;
       
       // Validate required fields with detailed error messages for debugging
       if (!symbol || typeof symbol !== 'string') {
@@ -5493,10 +5493,11 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       
       // AUTO-EXECUTE ON TRADELOCKER: Execute trade if signal is strong and autoExecute is enabled
       let tradelockerResult: { success: boolean; orderId?: string; error?: string } | null = null;
-      // Use EA's configured min confidence, default to 65% if not set
-      const MIN_CONFIDENCE_FOR_AUTO_TRADE = matchingEA?.minConfidence ?? 65;
+      // Use MT5 EA's MIN_CONFIDENCE setting if provided, then fall back to saved EA's minConfidence, default to 65%
+      const mt5MinConfidence = eaSettings?.minConfidence;
+      const MIN_CONFIDENCE_FOR_AUTO_TRADE = mt5MinConfidence ?? matchingEA?.minConfidence ?? 65;
       
-      console.log(`[KNOWLEDGE] ${sanitizedSymbol} Analysis: Confidence=${analysis.confidence}% | Required=${MIN_CONFIDENCE_FOR_AUTO_TRADE}% | EA=${matchingEA?.name || 'default'}`);
+      console.log(`[KNOWLEDGE] ${sanitizedSymbol} Analysis: Confidence=${analysis.confidence}% | Required=${MIN_CONFIDENCE_FOR_AUTO_TRADE}% | Source=${mt5MinConfidence ? 'MT5 EA' : (matchingEA?.name || 'default')}`);
       
       if (analysis.signal !== 'NEUTRAL' && 
           analysis.confidence >= MIN_CONFIDENCE_FOR_AUTO_TRADE && 

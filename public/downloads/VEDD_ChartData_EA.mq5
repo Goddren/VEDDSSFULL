@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "AI Powered Trading Vault"
 #property link      "https://aipoweredtradingvault.com"
-#property version   "3.91"
+#property version   "3.92"
 #property description "Sends chart data to AI Trading Vault with news-aware analysis, smart auto-trading, prop firm compliance, and active trade management"
 #property strict
 
@@ -624,8 +624,19 @@ bool SendChartData()
    string brokerName = EscapeJsonString(AccountInfoString(ACCOUNT_COMPANY));
    string symbolName = EscapeJsonString(_Symbol);
    
+   // Build EA settings JSON for server sync
+   string eaSettingsJson = StringFormat(
+      "{\"minConfidence\":%d,\"lotSize\":%.2f,\"useRiskPercent\":%s,\"riskPercent\":%.2f,\"maxOpenTrades\":%d,\"autoTradingEnabled\":%s}",
+      MIN_CONFIDENCE,
+      LOT_SIZE,
+      USE_RISK_PERCENT ? "true" : "false",
+      RISK_PERCENT,
+      MAX_OPEN_TRADES,
+      ENABLE_AUTO_TRADING ? "true" : "false"
+   );
+   
    string jsonPayload = StringFormat(
-      "{\"eaVersion\":\"3.88\",\"symbol\":\"%s\",\"timeframe\":\"%s\",\"broker\":\"%s\",\"timestamp\":%d,\"candles\":%s%s%s,\"multiTimeframe\":%s,\"account\":%s,\"openPositions\":%s,\"closedTrades\":%s}",
+      "{\"eaVersion\":\"3.92\",\"symbol\":\"%s\",\"timeframe\":\"%s\",\"broker\":\"%s\",\"timestamp\":%d,\"candles\":%s%s%s,\"multiTimeframe\":%s,\"account\":%s,\"openPositions\":%s,\"closedTrades\":%s,\"eaSettings\":%s}",
       symbolName,
       GetTimeframeString(),
       brokerName,
@@ -636,7 +647,8 @@ bool SendChartData()
       ENABLE_MULTI_TIMEFRAME ? multiTimeframeJson : "null",
       accountJson,
       openPositionsJson,
-      closedTradesJson
+      closedTradesJson,
+      eaSettingsJson
    );
    
    uchar jsonData[];
