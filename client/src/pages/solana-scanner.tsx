@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -36,7 +36,8 @@ import {
   Share2,
   Download,
   Twitter,
-  Eye
+  Eye,
+  History
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import VeddLogo from '@/components/ui/vedd-logo';
@@ -683,6 +684,15 @@ function AutoTradingPanel() {
     pnlPercent?: number;
   }
   
+  interface ClosedPosition extends TrackedPosition {
+    soldAt: string;
+    soldPrice: number;
+    soldAmount: number; // SOL received
+    finalPnlPercent: number;
+    exitReason: 'take_profit' | 'stop_loss' | 'pump_detected' | 'manual_sell';
+    txSignature?: string;
+  }
+  
   // Load tracked positions from localStorage on mount
   const [trackedPositions, setTrackedPositions] = useState<Map<string, TrackedPosition>>(() => {
     try {
@@ -693,6 +703,17 @@ function AutoTradingPanel() {
       }
     } catch (e) {}
     return new Map();
+  });
+  
+  // Load closed positions history from localStorage
+  const [closedPositions, setClosedPositions] = useState<ClosedPosition[]>(() => {
+    try {
+      const stored = localStorage.getItem('closedPositions');
+      if (stored) {
+        return JSON.parse(stored);
+      }
+    } catch (e) {}
+    return [];
   });
   
   // Use ref for sellingToken to avoid stale closure issues
@@ -707,6 +728,32 @@ function AutoTradingPanel() {
     });
     localStorage.setItem('trackedPositions', JSON.stringify(obj));
   }, [trackedPositions]);
+  
+  // Persist closed positions to localStorage when they change
+  useEffect(() => {
+    localStorage.setItem('closedPositions', JSON.stringify(closedPositions));
+  }, [closedPositions]);
+  
+  // Helper to save a closed position
+  const saveClosedPosition = useCallback((
+    position: TrackedPosition, 
+    soldPrice: number, 
+    soldAmount: number, 
+    exitReason: ClosedPosition['exitReason'],
+    txSignature?: string
+  ) => {
+    const finalPnlPercent = ((soldPrice - position.purchasePrice) / position.purchasePrice) * 100;
+    const closedPos: ClosedPosition = {
+      ...position,
+      soldAt: new Date().toISOString(),
+      soldPrice,
+      soldAmount,
+      finalPnlPercent,
+      exitReason,
+      txSignature,
+    };
+    setClosedPositions(prev => [closedPos, ...prev].slice(0, 50)); // Keep last 50 trades
+  }, []);
   
   // Keep ref in sync with state
   useEffect(() => {
@@ -975,6 +1022,8 @@ function AutoTradingPanel() {
             if (result.success) {
               setAutoTradeLog(prev => [...prev.slice(-9), `${timestamp}: SOLD ${position.symbol} - +${priceChange.toFixed(1)}% profit, received ${result.outputAmount.toFixed(4)} SOL`]);
               notifyTradeExecuted(position.symbol, 'sold', result.outputAmount);
+              // Save to closed positions history
+              saveClosedPosition(position, currentPrice, result.outputAmount, 'take_profit', result.signature);
               // Remove from tracked positions
               setTrackedPositions(prev => {
                 const next = new Map(prev);
@@ -1008,6 +1057,8 @@ function AutoTradingPanel() {
             if (result.success) {
               setAutoTradeLog(prev => [...prev.slice(-9), `${timestamp}: SOLD ${position.symbol} - ${priceChange.toFixed(1)}% loss, received ${result.outputAmount.toFixed(4)} SOL`]);
               notifyTradeExecuted(position.symbol, 'sold', result.outputAmount);
+              // Save to closed positions history
+              saveClosedPosition(position, currentPrice, result.outputAmount, 'stop_loss', result.signature);
               setTrackedPositions(prev => {
                 const next = new Map(prev);
                 next.delete(tokenAddress);
@@ -1040,6 +1091,8 @@ function AutoTradingPanel() {
             if (result.success) {
               setAutoTradeLog(prev => [...prev.slice(-9), `${timestamp}: PUMP EXIT - Sold ${position.symbol} at +${priceChange.toFixed(1)}%`]);
               notifyTradeExecuted(position.symbol, 'sold', result.outputAmount);
+              // Save to closed positions history
+              saveClosedPosition(position, currentPrice, result.outputAmount, 'pump_detected', result.signature);
               setTrackedPositions(prev => {
                 const next = new Map(prev);
                 next.delete(tokenAddress);
@@ -1340,8 +1393,9 @@ function AutoTradingPanel() {
         )}
         
         <Tabs defaultValue="trades" className="w-full">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="trades">My Trades ({trackedPositions.size})</TabsTrigger>
+            <TabsTrigger value="history">Past Trades ({closedPositions.length})</TabsTrigger>
             <TabsTrigger value="positions">Positions ({openPositions.length})</TabsTrigger>
             <TabsTrigger value="activity">Activity Log</TabsTrigger>
             <TabsTrigger value="settings">Settings</TabsTrigger>
@@ -1726,7 +1780,23 @@ function AutoTradingPanel() {
                                   200
                                 );
                                 if (result.success) {
-                                  toast({ title: `Sold ${position.symbol}!`, description: `Received ${result.outputAmount.toFixed(4)} SOL` });
+                                  const txSig = result.signature || '';
+                                  toast({ 
+                                    title: `Sold ${position.symbol}!`, 
+                                    description: `Received ${result.outputAmount.toFixed(4)} SOL`,
+                                    action: txSig ? (
+                                      <a 
+                                        href={`https://solscan.io/tx/${txSig}`} 
+                                        target="_blank" 
+                                        rel="noopener noreferrer"
+                                        className="underline text-purple-400 hover:text-purple-300"
+                                      >
+                                        View TX
+                                      </a>
+                                    ) : undefined
+                                  });
+                                  // Save to closed positions history
+                                  saveClosedPosition(position, currentPrice, result.outputAmount, 'manual_sell', txSig);
                                   setTrackedPositions(prev => {
                                     const next = new Map(prev);
                                     next.delete(position.tokenAddress);
@@ -1803,6 +1873,372 @@ function AutoTradingPanel() {
                   <Eye className="h-4 w-4 mr-2" />
                   Add Demo Trade to Preview
                 </Button>
+              </div>
+            )}
+          </TabsContent>
+          
+          {/* Past Trades - History of closed positions with P&L and share cards */}
+          <TabsContent value="history" className="space-y-4 mt-4">
+            {closedPositions.length > 0 ? (
+              <div className="space-y-4">
+                {/* Summary Stats */}
+                <div className="grid grid-cols-4 gap-3 mb-4">
+                  <div className="bg-gray-900/50 rounded-lg p-3 text-center">
+                    <p className="text-xs text-muted-foreground">Total Trades</p>
+                    <p className="text-xl font-bold">{closedPositions.length}</p>
+                  </div>
+                  <div className="bg-gray-900/50 rounded-lg p-3 text-center">
+                    <p className="text-xs text-muted-foreground">Win Rate</p>
+                    <p className="text-xl font-bold text-green-400">
+                      {((closedPositions.filter(p => p.finalPnlPercent > 0).length / closedPositions.length) * 100).toFixed(0)}%
+                    </p>
+                  </div>
+                  <div className="bg-gray-900/50 rounded-lg p-3 text-center">
+                    <p className="text-xs text-muted-foreground">Best Trade</p>
+                    <p className="text-xl font-bold text-green-400">
+                      +{Math.max(...closedPositions.map(p => p.finalPnlPercent), 0).toFixed(1)}%
+                    </p>
+                  </div>
+                  <div className="bg-gray-900/50 rounded-lg p-3 text-center">
+                    <p className="text-xs text-muted-foreground">Total SOL Gained</p>
+                    <p className={`text-xl font-bold ${closedPositions.reduce((sum, p) => sum + p.soldAmount, 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      {closedPositions.reduce((sum, p) => sum + p.soldAmount, 0).toFixed(4)}
+                    </p>
+                  </div>
+                </div>
+                
+                {closedPositions.map((position, idx) => {
+                  const tradeDate = new Date(position.soldAt);
+                  const purchaseDate = new Date(position.purchasedAt);
+                  const holdDuration = tradeDate.getTime() - purchaseDate.getTime();
+                  const days = Math.floor(holdDuration / (1000 * 60 * 60 * 24));
+                  const hours = Math.floor((holdDuration % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+                  const mins = Math.floor((holdDuration % (1000 * 60 * 60)) / (1000 * 60));
+                  const timeHeld = days > 0 ? `${days}d ${hours}h` : hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+                  const timeAgo = new Date(position.soldAt).toLocaleDateString();
+                  
+                  const exitReasonLabel = {
+                    'take_profit': 'Take Profit',
+                    'stop_loss': 'Stop Loss',
+                    'pump_detected': 'Pump Exit',
+                    'manual_sell': 'Manual Sell'
+                  }[position.exitReason];
+                  
+                  const exitReasonColor = {
+                    'take_profit': 'text-green-400 bg-green-500/20 border-green-500/30',
+                    'stop_loss': 'text-red-400 bg-red-500/20 border-red-500/30',
+                    'pump_detected': 'text-yellow-400 bg-yellow-500/20 border-yellow-500/30',
+                    'manual_sell': 'text-blue-400 bg-blue-500/20 border-blue-500/30'
+                  }[position.exitReason];
+                  
+                  return (
+                    <Card key={`${position.tokenAddress}-${idx}`} className={`bg-gray-900/50 border ${position.finalPnlPercent >= 0 ? 'border-green-500/30' : 'border-red-500/30'}`}>
+                      <div className="p-4">
+                        <div className="flex items-start justify-between mb-3">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold ${position.finalPnlPercent >= 0 ? 'bg-green-500/20' : 'bg-red-500/20'}`}>
+                              {position.symbol.slice(0, 2)}
+                            </div>
+                            <div>
+                              <h4 className="font-semibold flex items-center gap-2">
+                                {position.tokenName || position.symbol}
+                                <Badge className={exitReasonColor}>{exitReasonLabel}</Badge>
+                              </h4>
+                              <p className="text-xs text-muted-foreground">${position.symbol}</p>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <p className={`text-2xl font-bold ${position.finalPnlPercent >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                              {position.finalPnlPercent >= 0 ? '+' : ''}{position.finalPnlPercent.toFixed(2)}%
+                            </p>
+                            <p className="text-xs text-muted-foreground">Received {position.soldAmount.toFixed(4)} SOL</p>
+                          </div>
+                        </div>
+                        
+                        {/* Price Chart */}
+                        <div className="mb-3 rounded-lg overflow-hidden bg-gray-800/50 p-2">
+                          <svg viewBox="0 0 280 50" className="w-full h-12">
+                            <defs>
+                              <linearGradient id={`history-gradient-${idx}`} x1="0%" y1="0%" x2="0%" y2="100%">
+                                <stop offset="0%" stopColor={position.finalPnlPercent >= 0 ? '#22c55e' : '#ef4444'} stopOpacity="0.4" />
+                                <stop offset="100%" stopColor={position.finalPnlPercent >= 0 ? '#22c55e' : '#ef4444'} stopOpacity="0" />
+                              </linearGradient>
+                            </defs>
+                            {(() => {
+                              const pts: number[] = [];
+                              const sp = position.purchasePrice;
+                              const ep = position.soldPrice;
+                              const vol = Math.abs(position.finalPnlPercent) * 0.01 + 0.02;
+                              for (let i = 0; i <= 20; i++) {
+                                const prog = i / 20;
+                                const base = sp + (ep - sp) * prog;
+                                pts.push(base + (Math.sin(i * 2.1) * 0.35 + Math.cos(i * 1.4) * 0.3) * vol * sp);
+                              }
+                              const minP = Math.min(...pts) * 0.95;
+                              const maxP = Math.max(...pts) * 1.05;
+                              const rng = maxP - minP || 1;
+                              const path = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${15 + (i / 20) * 210} ${40 - ((p - minP) / rng) * 32}`).join(' ');
+                              const sY = 40 - ((sp - minP) / rng) * 32;
+                              const eY = 40 - ((ep - minP) / rng) * 32;
+                              return (
+                                <>
+                                  <path d={path + ' L 225 45 L 15 45 Z'} fill={`url(#history-gradient-${idx})`} />
+                                  <path d={path} fill="none" stroke={position.finalPnlPercent >= 0 ? '#22c55e' : '#ef4444'} strokeWidth="2" strokeLinecap="round" />
+                                  <circle cx="15" cy={sY} r="3" fill="#a855f7" />
+                                  <circle cx="225" cy={eY} r="4" fill={position.finalPnlPercent >= 0 ? '#22c55e' : '#ef4444'} />
+                                  <text x="5" y="10" fill="#9ca3af" fontSize="7">${sp.toFixed(sp < 0.01 ? 8 : 5)}</text>
+                                  <text x="235" y={eY + 3} fill={position.finalPnlPercent >= 0 ? '#22c55e' : '#ef4444'} fontSize="8" fontWeight="bold">${ep.toFixed(ep < 0.01 ? 8 : 5)}</text>
+                                </>
+                              );
+                            })()}
+                          </svg>
+                        </div>
+                        
+                        {/* Trade Info */}
+                        <div className="grid grid-cols-4 gap-2 text-xs mb-3">
+                          <div className="text-center">
+                            <p className="text-muted-foreground">Entry</p>
+                            <p className="font-medium">${position.purchasePrice.toFixed(8)}</p>
+                          </div>
+                          <div className="text-center">
+                            <p className="text-muted-foreground">Exit</p>
+                            <p className="font-medium">${position.soldPrice.toFixed(8)}</p>
+                          </div>
+                          <div className="text-center">
+                            <p className="text-muted-foreground">Held</p>
+                            <p className="font-medium">{timeHeld}</p>
+                          </div>
+                          <div className="text-center">
+                            <p className="text-muted-foreground">AI Conf</p>
+                            <p className="font-medium text-purple-400">{position.confidence}%</p>
+                          </div>
+                        </div>
+                        
+                        {/* AI Scores */}
+                        <div className="grid grid-cols-3 gap-2 text-xs mb-3">
+                          <div className="bg-gray-800/50 rounded p-2 text-center">
+                            <p className="text-blue-400">Sentiment</p>
+                            <p className="font-bold">{position.sentimentScore}/100</p>
+                          </div>
+                          <div className="bg-gray-800/50 rounded p-2 text-center">
+                            <p className="text-green-400">Tokenomics</p>
+                            <p className="font-bold">{position.tokenomicsScore}/100</p>
+                          </div>
+                          <div className="bg-gray-800/50 rounded p-2 text-center">
+                            <p className="text-yellow-400">Whale</p>
+                            <p className="font-bold">{position.whaleScore}/100</p>
+                          </div>
+                        </div>
+                        
+                        {/* Reasoning */}
+                        {position.reasoning && position.reasoning.length > 0 && (
+                          <div className="mb-3 p-2 bg-gray-800/30 rounded text-xs">
+                            <p className="text-muted-foreground mb-1">AI Reasoning:</p>
+                            <ul className="list-disc list-inside text-gray-400 space-y-0.5">
+                              {position.reasoning.slice(0, 3).map((r, i) => (
+                                <li key={i}>{r}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        
+                        {/* Actions */}
+                        <div className="flex gap-2">
+                          <Dialog>
+                            <DialogTrigger asChild>
+                              <Button variant="outline" size="sm" className="flex-1">
+                                <Share2 className="h-3 w-3 mr-1" />
+                                Share Card
+                              </Button>
+                            </DialogTrigger>
+                            <DialogContent className="max-w-md">
+                              <DialogHeader>
+                                <DialogTitle className="flex items-center gap-2">
+                                  <Share2 className="h-5 w-5" />
+                                  Share Completed Trade
+                                </DialogTitle>
+                              </DialogHeader>
+                              
+                              {/* Share Card Preview */}
+                              <div 
+                                id={`history-share-card-${idx}`}
+                                className="bg-gradient-to-br from-gray-900 via-purple-900/50 to-gray-900 rounded-xl p-5 border border-purple-500/30"
+                              >
+                                {/* Header with VEDD Logo */}
+                                <div className="flex items-center justify-between mb-4">
+                                  <VeddLogo height={32} />
+                                  <Badge className={exitReasonColor}>
+                                    {exitReasonLabel}
+                                  </Badge>
+                                </div>
+                                
+                                {/* Token Info */}
+                                <div className="flex items-center gap-3 mb-4">
+                                  <div className={`w-14 h-14 rounded-full flex items-center justify-center text-xl font-bold ${position.finalPnlPercent >= 0 ? 'bg-green-500/20' : 'bg-red-500/20'}`}>
+                                    {position.symbol.slice(0, 2)}
+                                  </div>
+                                  <div>
+                                    <h3 className="font-bold text-xl text-white">{position.tokenName || position.symbol}</h3>
+                                    <p className="text-sm text-gray-400">${position.symbol}</p>
+                                  </div>
+                                </div>
+                                
+                                {/* Price Chart */}
+                                <div className="mb-4 rounded-lg overflow-hidden bg-gray-800/50 p-2">
+                                  <svg viewBox="0 0 280 70" className="w-full h-16">
+                                    <defs>
+                                      <linearGradient id={`share-history-gradient-${idx}`} x1="0%" y1="0%" x2="0%" y2="100%">
+                                        <stop offset="0%" stopColor={position.finalPnlPercent >= 0 ? '#22c55e' : '#ef4444'} stopOpacity="0.5" />
+                                        <stop offset="100%" stopColor={position.finalPnlPercent >= 0 ? '#22c55e' : '#ef4444'} stopOpacity="0" />
+                                      </linearGradient>
+                                    </defs>
+                                    {(() => {
+                                      const pts: number[] = [];
+                                      const sp = position.purchasePrice;
+                                      const ep = position.soldPrice;
+                                      const vol = Math.abs(position.finalPnlPercent) * 0.012 + 0.02;
+                                      for (let i = 0; i <= 28; i++) {
+                                        const prog = i / 28;
+                                        const base = sp + (ep - sp) * prog;
+                                        pts.push(base + (Math.sin(i * 2.3) * 0.4 + Math.cos(i * 1.5) * 0.35) * vol * sp);
+                                      }
+                                      const minP = Math.min(...pts) * 0.96;
+                                      const maxP = Math.max(...pts) * 1.04;
+                                      const rng = maxP - minP || 1;
+                                      const path = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${10 + (i / 28) * 220} ${55 - ((p - minP) / rng) * 45}`).join(' ');
+                                      const sY = 55 - ((sp - minP) / rng) * 45;
+                                      const eY = 55 - ((ep - minP) / rng) * 45;
+                                      return (
+                                        <>
+                                          <path d={path + ' L 230 60 L 10 60 Z'} fill={`url(#share-history-gradient-${idx})`} />
+                                          <path d={path} fill="none" stroke={position.finalPnlPercent >= 0 ? '#22c55e' : '#ef4444'} strokeWidth="2.5" strokeLinecap="round" />
+                                          <circle cx="10" cy={sY} r="4" fill="#a855f7" />
+                                          <circle cx="230" cy={eY} r="5" fill={position.finalPnlPercent >= 0 ? '#22c55e' : '#ef4444'} />
+                                          <text x="5" y="12" fill="#9ca3af" fontSize="8">${sp.toFixed(sp < 0.01 ? 8 : 6)}</text>
+                                          <text x="235" y={eY + 3} fill={position.finalPnlPercent >= 0 ? '#22c55e' : '#ef4444'} fontSize="9" fontWeight="bold">${ep.toFixed(ep < 0.01 ? 8 : 6)}</text>
+                                        </>
+                                      );
+                                    })()}
+                                  </svg>
+                                </div>
+                                
+                                {/* P&L Display */}
+                                <div className={`text-center py-4 rounded-lg mb-4 ${position.finalPnlPercent >= 0 ? 'bg-green-500/20' : 'bg-red-500/20'}`}>
+                                  <p className="text-sm text-gray-400 mb-1">Final Profit/Loss</p>
+                                  <p className={`text-4xl font-bold ${position.finalPnlPercent >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                    {position.finalPnlPercent >= 0 ? '+' : ''}{position.finalPnlPercent.toFixed(2)}%
+                                  </p>
+                                  <p className="text-sm text-gray-400 mt-1">Received {position.soldAmount.toFixed(4)} SOL</p>
+                                </div>
+                                
+                                {/* AI Scores */}
+                                <div className="grid grid-cols-3 gap-2 mb-4">
+                                  <div className="text-center bg-gray-800/50 rounded-lg p-2">
+                                    <p className="text-xs text-blue-400">Sentiment</p>
+                                    <p className="font-bold text-white">{position.sentimentScore}</p>
+                                  </div>
+                                  <div className="text-center bg-gray-800/50 rounded-lg p-2">
+                                    <p className="text-xs text-green-400">Tokenomics</p>
+                                    <p className="font-bold text-white">{position.tokenomicsScore}</p>
+                                  </div>
+                                  <div className="text-center bg-gray-800/50 rounded-lg p-2">
+                                    <p className="text-xs text-yellow-400">Whale</p>
+                                    <p className="font-bold text-white">{position.whaleScore}</p>
+                                  </div>
+                                </div>
+                                
+                                {/* Time Held */}
+                                <div className="flex items-center justify-center gap-2 mb-3">
+                                  <Clock className="h-4 w-4 text-gray-500" />
+                                  <span className="text-sm text-gray-400">Time Held: <span className="text-white font-medium">{timeHeld}</span></span>
+                                </div>
+                                
+                                {/* Footer */}
+                                <div className="flex items-center justify-between pt-3 border-t border-gray-700">
+                                  <span className="text-xs text-gray-500">Closed {timeAgo}</span>
+                                  <span className="text-xs text-purple-400">VEDD AI Trading</span>
+                                </div>
+                              </div>
+                              
+                              {/* Share Buttons */}
+                              <div className="flex gap-2 mt-4">
+                                <Button
+                                  variant="outline"
+                                  className="flex-1"
+                                  onClick={() => {
+                                    const text = `${position.finalPnlPercent >= 0 ? '🚀' : '📉'} Completed VEDD AI Trade!\n\n${position.symbol}: ${position.finalPnlPercent >= 0 ? '+' : ''}${position.finalPnlPercent.toFixed(2)}% P&L\n💰 Received: ${position.soldAmount.toFixed(4)} SOL\n⏱️ Time Held: ${timeHeld}\n🏷️ Exit: ${exitReasonLabel}\n\n🤖 AI Confidence: ${position.confidence}%\n📊 Sentiment: ${position.sentimentScore}/100\n💎 Tokenomics: ${position.tokenomicsScore}/100\n🐋 Whale Activity: ${position.whaleScore}/100\n\n#VEDD #AI #Trading #Solana`;
+                                    window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`, '_blank');
+                                  }}
+                                >
+                                  <Twitter className="h-4 w-4 mr-2" />
+                                  Tweet
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  className="flex-1"
+                                  onClick={() => {
+                                    const text = `${position.finalPnlPercent >= 0 ? '🚀' : '📉'} VEDD AI Trade: ${position.symbol} ${position.finalPnlPercent >= 0 ? '+' : ''}${position.finalPnlPercent.toFixed(2)}% | ${position.soldAmount.toFixed(4)} SOL | Held ${timeHeld} | ${exitReasonLabel} | AI: ${position.confidence}%`;
+                                    navigator.clipboard.writeText(text);
+                                    toast({ title: 'Copied!', description: 'Trade info copied to clipboard' });
+                                  }}
+                                >
+                                  <Copy className="h-4 w-4 mr-2" />
+                                  Copy
+                                </Button>
+                              </div>
+                              
+                              {position.txSignature && (
+                                <div className="mt-2 text-center">
+                                  <a
+                                    href={`https://solscan.io/tx/${position.txSignature}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-xs text-purple-400 hover:text-purple-300 underline"
+                                  >
+                                    View Transaction on Solscan
+                                  </a>
+                                </div>
+                              )}
+                            </DialogContent>
+                          </Dialog>
+                          
+                          {position.txSignature && (
+                            <Button 
+                              variant="ghost" 
+                              size="sm"
+                              onClick={() => window.open(`https://solscan.io/tx/${position.txSignature}`, '_blank')}
+                            >
+                              <ExternalLink className="h-3 w-3 mr-1" />
+                              TX
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    </Card>
+                  );
+                })}
+                
+                {/* Clear History */}
+                <div className="flex justify-center">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-xs text-muted-foreground"
+                    onClick={() => {
+                      if (confirm('Clear all trade history? This cannot be undone.')) {
+                        setClosedPositions([]);
+                      }
+                    }}
+                  >
+                    Clear History
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-8 text-muted-foreground">
+                <History className="h-10 w-10 mx-auto mb-3 opacity-50" />
+                <p className="font-medium">No past trades yet</p>
+                <p className="text-xs mt-1">Completed trades will appear here with full P&L tracking and shareable cards</p>
               </div>
             )}
           </TabsContent>
