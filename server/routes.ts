@@ -5497,7 +5497,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       const mt5MinConfidence = eaSettings?.minConfidence;
       const MIN_CONFIDENCE_FOR_AUTO_TRADE = mt5MinConfidence ?? matchingEA?.minConfidence ?? 65;
       
-      console.log(`[KNOWLEDGE] ${sanitizedSymbol} Analysis: Confidence=${analysis.confidence}% | Required=${MIN_CONFIDENCE_FOR_AUTO_TRADE}% | Source=${mt5MinConfidence ? 'MT5 EA' : (matchingEA?.name || 'default')}`);
+      console.log(`[KNOWLEDGE] ${sanitizedSymbol} Analysis: Confidence=${analysis.confidence}% | Required=${MIN_CONFIDENCE_FOR_AUTO_TRADE}% | Source=${mt5MinConfidence ? 'MT5 EA' : (matchingEA?.name || 'default')} | Session=${eaSettings?.sessionName || 'N/A'}`);
       
       if (analysis.signal !== 'NEUTRAL' && 
           analysis.confidence >= MIN_CONFIDENCE_FOR_AUTO_TRADE && 
@@ -5716,6 +5716,81 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         ? Math.round((MT5_TRADE_COOLDOWN_MS - (nowForMT5 - lastMT5TradeTime)) / 1000) 
         : 0;
       
+      // Session recommendation based on live trade profit analysis
+      let recommendedSession = 0; // 0 = no recommendation
+      let sessionAnalysis: { session: string; profitByHour: Record<number, number>; bestHours: number[]; totalProfit: number } | null = null;
+      
+      const closedTradesCache = (global as any).mt5ClosedTrades || {};
+      const userClosedTrades = closedTradesCache[token.userId]?.trades || [];
+      
+      if (userClosedTrades.length >= 5 && eaSettings?.tradingSession === 6) {
+        // Analyze hourly profit for this symbol
+        const hourlyProfit: Record<number, { total: number; count: number; wins: number }> = {};
+        const symUpper = sanitizedSymbol.toUpperCase().replace('/', '');
+        
+        for (const t of userClosedTrades) {
+          const tSym = (t.symbol || '').toUpperCase().replace('/', '');
+          if (tSym !== symUpper) continue;
+          const hour = t.openHour ?? t.closeHour ?? 0;
+          if (!hourlyProfit[hour]) hourlyProfit[hour] = { total: 0, count: 0, wins: 0 };
+          hourlyProfit[hour].total += (t.profit || 0);
+          hourlyProfit[hour].count += 1;
+          if ((t.profit || 0) > 0) hourlyProfit[hour].wins += 1;
+        }
+        
+        // Define sessions with their UTC hour ranges
+        const sessions = [
+          { id: 1, name: 'London', start: 8, end: 17 },
+          { id: 2, name: 'New York', start: 13, end: 22 },
+          { id: 3, name: 'Tokyo', start: 0, end: 9 },
+          { id: 4, name: 'Sydney', start: 22, end: 7 },
+          { id: 5, name: 'LDN/NY Overlap', start: 13, end: 17 },
+        ];
+        
+        // Calculate total profit per session
+        let bestSessionProfit = -Infinity;
+        let bestSessionId = 0;
+        
+        for (const sess of sessions) {
+          let sessProfit = 0;
+          let sessCount = 0;
+          let sessWins = 0;
+          
+          for (const [hourStr, data] of Object.entries(hourlyProfit)) {
+            const h = parseInt(hourStr);
+            const inSession = sess.start <= sess.end 
+              ? (h >= sess.start && h < sess.end)
+              : (h >= sess.start || h < sess.end);
+            if (inSession) {
+              sessProfit += data.total;
+              sessCount += data.count;
+              sessWins += data.wins;
+            }
+          }
+          
+          // Need at least 3 trades in a session to recommend it
+          if (sessCount >= 3 && sessProfit > bestSessionProfit) {
+            bestSessionProfit = sessProfit;
+            bestSessionId = sess.id;
+          }
+        }
+        
+        if (bestSessionId > 0) {
+          recommendedSession = bestSessionId;
+          const bestSess = sessions.find(s => s.id === bestSessionId);
+          console.log(`[SESSION] Recommending ${bestSess?.name} for ${sanitizedSymbol} - Profit: $${bestSessionProfit.toFixed(2)} from live trades`);
+          
+          // Build analysis for response
+          const profitByHour: Record<number, number> = {};
+          const bestHours: number[] = [];
+          for (const [h, data] of Object.entries(hourlyProfit)) {
+            profitByHour[parseInt(h)] = data.total;
+            if (data.total > 0 && data.wins / data.count >= 0.55) bestHours.push(parseInt(h));
+          }
+          sessionAnalysis = { session: bestSess?.name || '', profitByHour, bestHours, totalProfit: bestSessionProfit };
+        }
+      }
+      
       res.json({ 
         success: true, 
         message: "Chart data received and analyzed",
@@ -5737,6 +5812,13 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         mt5TakeProfit: analysis.tradePlan?.takeProfit || 0,
         mt5RiskReward: analysis.tradePlan?.riskReward || "0",
         mt5HasTradePlan: analysis.tradePlan ? true : false,
+        // Session recommendation for Auto mode
+        mt5RecommendedSession: recommendedSession,
+        mt5SessionAnalysis: sessionAnalysis,
+        mt5ActiveSession: eaSettings?.sessionName || null,
+        mt5RecommendedSessionName: recommendedSession > 0 
+          ? ['', 'London', 'New York', 'Tokyo', 'Sydney', 'LDN/NY Overlap'][recommendedSession] || null 
+          : null,
         // Full analysis for web clients
         analysis,
         candlesReceived: candles.length,

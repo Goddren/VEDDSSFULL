@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "AI Powered Trading Vault"
 #property link      "https://aipoweredtradingvault.com"
-#property version   "3.92"
+#property version   "3.93"
 #property description "Sends chart data to AI Trading Vault with news-aware analysis, smart auto-trading, prop firm compliance, and active trade management"
 #property strict
 
@@ -167,12 +167,13 @@ input int      PENDING_EXPIRY_HOURS = 4;          // Pending Order Expiry (hours
 input int      COOLDOWN_SECONDS = 300;            // Seconds Between Trades
 
 //+------------------------------------------------------------------+
-//|                  *** TRADING HOURS (UTC) ***                     |
+//|                  *** TRADING SESSIONS (UTC) ***                  |
 //+------------------------------------------------------------------+
-input string   _hours_header = "========== TRADING HOURS (UTC) =========="; // *** TRADING HOURS ***
+input string   _hours_header = "========== TRADING SESSIONS (UTC) =========="; // *** TRADING SESSIONS ***
+input int      TRADING_SESSION = 0;               // Session: 0=Custom,1=London,2=NewYork,3=Tokyo,4=Sydney,5=LDN/NY,6=Auto(AI)
 input bool     USE_TRADING_HOURS = true;          // Enable Trading Hours Filter
-input int      TRADE_START_HOUR = 8;              // Start Trading Hour (UTC) 0-23
-input int      TRADE_END_HOUR = 20;               // End Trading Hour (UTC) 0-23
+input int      TRADE_START_HOUR = 8;              // Custom Start Hour (UTC) 0-23
+input int      TRADE_END_HOUR = 20;               // Custom End Hour (UTC) 0-23
 input bool     TRADE_ON_SUNDAY = false;           // Allow Trading on Sunday
 input bool     TRADE_ON_MONDAY = true;            // Allow Trading on Monday
 input bool     TRADE_ON_TUESDAY = true;           // Allow Trading on Tuesday
@@ -336,6 +337,12 @@ string propBlockReason = "";
 int dailyTradeCount = 0;
 datetime learningDailyResetTime = 0;
 
+//--- Session state (resolved from TRADING_SESSION or server recommendation)
+int activeSessionStart = 0;
+int activeSessionEnd = 0;
+string activeSessionName = "Custom";
+int serverRecommendedSession = -1;
+
 //--- Pyramiding state
 int pyramidPositionCount = 0;
 double pyramidLastAddPrice = 0;
@@ -390,10 +397,12 @@ int OnInit()
       Print("Max Ciphers Open: ", MAX_OPEN_TRADES);
       Print("Pending Wisdom: ", ENABLE_PENDING_ORDERS ? "YES" : "NO");
       Print("----------------------------------------");
+      Print("TRADING SESSION: ", GetSessionDisplayName());
+      ResolveSession();
       Print("TRADING HOURS (UTC): ", USE_TRADING_HOURS ? "ACTIVE" : "OFF (24/7)");
       if(USE_TRADING_HOURS)
       {
-         Print("  Hours: ", TRADE_START_HOUR, ":00 - ", TRADE_END_HOUR, ":00 UTC");
+         Print("  Session: ", activeSessionName, " (", activeSessionStart, ":00 - ", activeSessionEnd, ":00 UTC)");
          string days = "";
          if(TRADE_ON_SUNDAY) days += "Sun ";
          if(TRADE_ON_MONDAY) days += "Mon ";
@@ -624,19 +633,26 @@ bool SendChartData()
    string brokerName = EscapeJsonString(AccountInfoString(ACCOUNT_COMPANY));
    string symbolName = EscapeJsonString(_Symbol);
    
+   // Resolve current session for payload
+   ResolveSession();
+   
    // Build EA settings JSON for server sync
    string eaSettingsJson = StringFormat(
-      "{\"minConfidence\":%d,\"lotSize\":%.2f,\"useRiskPercent\":%s,\"riskPercent\":%.2f,\"maxOpenTrades\":%d,\"autoTradingEnabled\":%s}",
+      "{\"minConfidence\":%d,\"lotSize\":%.2f,\"useRiskPercent\":%s,\"riskPercent\":%.2f,\"maxOpenTrades\":%d,\"autoTradingEnabled\":%s,\"tradingSession\":%d,\"sessionName\":\"%s\",\"sessionStart\":%d,\"sessionEnd\":%d}",
       MIN_CONFIDENCE,
       LOT_SIZE,
       USE_RISK_PERCENT ? "true" : "false",
       RISK_PERCENT,
       MAX_OPEN_TRADES,
-      ENABLE_AUTO_TRADING ? "true" : "false"
+      ENABLE_AUTO_TRADING ? "true" : "false",
+      TRADING_SESSION,
+      activeSessionName,
+      activeSessionStart,
+      activeSessionEnd
    );
    
    string jsonPayload = StringFormat(
-      "{\"eaVersion\":\"3.92\",\"symbol\":\"%s\",\"timeframe\":\"%s\",\"broker\":\"%s\",\"timestamp\":%d,\"candles\":%s%s%s,\"multiTimeframe\":%s,\"account\":%s,\"openPositions\":%s,\"closedTrades\":%s,\"eaSettings\":%s}",
+      "{\"eaVersion\":\"3.93\",\"symbol\":\"%s\",\"timeframe\":\"%s\",\"broker\":\"%s\",\"timestamp\":%d,\"candles\":%s%s%s,\"multiTimeframe\":%s,\"account\":%s,\"openPositions\":%s,\"closedTrades\":%s,\"eaSettings\":%s}",
       symbolName,
       GetTimeframeString(),
       brokerName,
@@ -796,6 +812,19 @@ void ParseAndDisplayAnalysis(string json)
    else if(serverCooldownSeconds > 0)
    {
       Print("[SERVER] Trade cooldown active: ", serverCooldownSeconds, " seconds remaining");
+   }
+   
+   // Parse recommended session from server (for Auto mode)
+   string recSessionStr = ExtractJsonNumber(json, "\"mt5RecommendedSession\":");
+   if(StringLen(recSessionStr) > 0)
+   {
+      int recSession = (int)StringToInteger(recSessionStr);
+      if(recSession > 0 && recSession <= 5)
+      {
+         serverRecommendedSession = recSession;
+         string sessionNames[] = {"", "London", "New York", "Tokyo", "Sydney", "LDN/NY Overlap"};
+         Print("[SESSION] Server recommends: ", sessionNames[recSession], " session based on live trade profit analysis");
+      }
    }
    
    // Extract news context (uses mt5-prefixed flat fields from API)
@@ -989,18 +1018,115 @@ bool ShouldAutoTradeWithNews(string &reason)
 }
 
 //+------------------------------------------------------------------+
+//| Resolve trading session to start/end hours                        |
+//+------------------------------------------------------------------+
+void ResolveSession()
+{
+   int session = TRADING_SESSION;
+   
+   // If Auto mode (6) and server has recommended a session, use it
+   if(session == 6 && serverRecommendedSession > 0 && serverRecommendedSession <= 5)
+   {
+      session = serverRecommendedSession;
+   }
+   
+   switch(session)
+   {
+      case 1: // London
+         activeSessionStart = 8;
+         activeSessionEnd = 17;
+         activeSessionName = "London";
+         break;
+      case 2: // New York
+         activeSessionStart = 13;
+         activeSessionEnd = 22;
+         activeSessionName = "New York";
+         break;
+      case 3: // Tokyo
+         activeSessionStart = 0;
+         activeSessionEnd = 9;
+         activeSessionName = "Tokyo";
+         break;
+      case 4: // Sydney
+         activeSessionStart = 22;
+         activeSessionEnd = 7;
+         activeSessionName = "Sydney";
+         break;
+      case 5: // London/NY Overlap
+         activeSessionStart = 13;
+         activeSessionEnd = 17;
+         activeSessionName = "LDN/NY Overlap";
+         break;
+      case 6: // Auto - use pair-based defaults until server recommends
+      {
+         string sym = _Symbol;
+         StringToUpper(sym);
+         // Auto-detect best session based on pair currencies
+         // Priority: JPY > AUD/NZD > EUR/GBP/CHF > USD/CAD > Default
+         if(StringFind(sym, "JPY") >= 0)
+         {
+            activeSessionStart = 0;
+            activeSessionEnd = 9;
+            activeSessionName = "Tokyo (Auto)";
+         }
+         else if(StringFind(sym, "AUD") >= 0 || StringFind(sym, "NZD") >= 0)
+         {
+            activeSessionStart = 22;
+            activeSessionEnd = 7;
+            activeSessionName = "Sydney (Auto)";
+         }
+         else if(StringFind(sym, "EUR") >= 0 || StringFind(sym, "GBP") >= 0 || StringFind(sym, "CHF") >= 0)
+         {
+            activeSessionStart = 8;
+            activeSessionEnd = 17;
+            activeSessionName = "London (Auto)";
+         }
+         else if(StringFind(sym, "USD") >= 0 || StringFind(sym, "CAD") >= 0)
+         {
+            activeSessionStart = 13;
+            activeSessionEnd = 22;
+            activeSessionName = "New York (Auto)";
+         }
+         else
+         {
+            activeSessionStart = 8;
+            activeSessionEnd = 20;
+            activeSessionName = "Default (Auto)";
+         }
+         break;
+      }
+      default: // Custom (0) - use user-defined hours
+         activeSessionStart = TRADE_START_HOUR;
+         activeSessionEnd = TRADE_END_HOUR;
+         activeSessionName = "Custom";
+         break;
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Get session name for display                                      |
+//+------------------------------------------------------------------+
+string GetSessionDisplayName()
+{
+   string names[] = {"Custom", "London", "New York", "Tokyo", "Sydney", "LDN/NY Overlap", "Auto (AI)"};
+   if(TRADING_SESSION >= 0 && TRADING_SESSION <= 6) return names[TRADING_SESSION];
+   return "Custom";
+}
+
+//+------------------------------------------------------------------+
 //| Check if current UTC time is within trading hours                 |
 //+------------------------------------------------------------------+
 bool IsTradingHoursAllowed()
 {
-   if(!USE_TRADING_HOURS) return true;  // Trading hours filter disabled
+   if(!USE_TRADING_HOURS) return true;
    
-   // Get current UTC time
+   // Resolve session hours
+   ResolveSession();
+   
    datetime utcTime = TimeGMT();
    MqlDateTime dt;
    TimeToStruct(utcTime, dt);
    
-   // Check day of week (0=Sunday, 1=Monday, ... 6=Saturday)
    bool dayAllowed = false;
    switch(dt.day_of_week)
    {
@@ -1015,18 +1141,16 @@ bool IsTradingHoursAllowed()
    
    if(!dayAllowed) return false;
    
-   // Check hour range (handles overnight sessions too)
    int currentHour = dt.hour;
    
-   if(TRADE_START_HOUR <= TRADE_END_HOUR)
+   if(activeSessionStart <= activeSessionEnd)
    {
-      // Normal range: e.g., 8 to 20
-      return (currentHour >= TRADE_START_HOUR && currentHour < TRADE_END_HOUR);
+      return (currentHour >= activeSessionStart && currentHour < activeSessionEnd);
    }
    else
    {
-      // Overnight range: e.g., 20 to 8 (trades from 20:00 to 07:59)
-      return (currentHour >= TRADE_START_HOUR || currentHour < TRADE_END_HOUR);
+      // Overnight range (e.g., Sydney 22:00 to 07:00)
+      return (currentHour >= activeSessionStart || currentHour < activeSessionEnd);
    }
 }
 
@@ -2317,6 +2441,7 @@ void UpdateChartComment()
    if(ENABLE_AUTO_TRADING)
    {
       commentText += "AUTO-TRADE: ON\n";
+      commentText += "Session: " + activeSessionName + " (" + IntegerToString(activeSessionStart) + ":00-" + IntegerToString(activeSessionEnd) + ":00 UTC)\n";
       commentText += "Open Trades: " + IntegerToString(CountOpenTrades()) + "/" + IntegerToString(MAX_OPEN_TRADES) + "\n";
    }
    else
