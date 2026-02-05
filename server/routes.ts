@@ -5201,9 +5201,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       // Check if this data should trigger an EA refresh
       let refreshTriggered = false;
       const userEAs = await storage.getUserSavedEAs(token.userId);
+      // First try to find EA with liveRefreshEnabled, then fall back to any EA for the symbol
       const matchingEA = userEAs.find(ea => 
         ea.symbol.toUpperCase().replace('/', '') === symbol.toUpperCase().replace('/', '') &&
         ea.liveRefreshEnabled
+      ) || userEAs.find(ea => 
+        ea.symbol.toUpperCase().replace('/', '') === symbol.toUpperCase().replace('/', '')
       );
       
       // Build comprehensive AI analysis from the indicators
