@@ -5473,6 +5473,330 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             });
           }
           
+          // === SL / TP / TRAILING CONFIDENCE SCORING ===
+          // Separate confidence scores for each trade level based on multiple factors
+          if (analysis.tradePlan && currentPrice && atr && atr > 0) {
+            const stopDistance = Math.abs(analysis.tradePlan.entry - analysis.tradePlan.stopLoss);
+            const targetDistance = Math.abs(analysis.tradePlan.takeProfit - analysis.tradePlan.entry);
+            
+            // Guard against zero/near-zero distances that would produce extreme ratios
+            if (stopDistance <= 0 || targetDistance <= 0) {
+              // Skip confidence scoring - can't evaluate with invalid levels
+            } else {
+            
+            // --- SL CONFIDENCE ---
+            let slScore = 50; // Base score
+            const slFactors: string[] = [];
+            
+            // Factor 1: ATR Distance - Is SL at a reasonable ATR-based distance? (1.0-2.0 ATR = ideal)
+            const slAtrRatio = stopDistance / atr;
+            if (slAtrRatio >= 1.0 && slAtrRatio <= 2.0) {
+              slScore += 15;
+              slFactors.push(`ATR distance optimal (${slAtrRatio.toFixed(1)}x ATR)`);
+            } else if (slAtrRatio >= 0.5 && slAtrRatio <= 3.0) {
+              slScore += 8;
+              slFactors.push(`ATR distance acceptable (${slAtrRatio.toFixed(1)}x ATR)`);
+            } else {
+              slScore -= 10;
+              slFactors.push(`ATR distance risky (${slAtrRatio.toFixed(1)}x ATR - ${slAtrRatio < 0.5 ? 'too tight' : 'too wide'})`);
+            }
+            
+            // Factor 2: Bollinger Band support at SL zone
+            if (bbUpper && bbLower && bbMiddle) {
+              const bbWidth = bbUpper - bbLower;
+              if (analysis.signal === 'BUY') {
+                const slDistFromLower = Math.abs(analysis.tradePlan.stopLoss - bbLower);
+                if (slDistFromLower <= bbWidth * 0.15) {
+                  slScore += 12;
+                  slFactors.push('SL near lower BB support');
+                }
+              } else {
+                const slDistFromUpper = Math.abs(analysis.tradePlan.stopLoss - bbUpper);
+                if (slDistFromUpper <= bbWidth * 0.15) {
+                  slScore += 12;
+                  slFactors.push('SL near upper BB resistance');
+                }
+              }
+            }
+            
+            // Factor 3: Volume strength (high volume = stronger levels)
+            if (volumeRatio > 1.5) {
+              slScore += 10;
+              slFactors.push(`High volume confirms level (${volumeRatio.toFixed(1)}x avg)`);
+            } else if (volumeRatio > 1.0) {
+              slScore += 5;
+              slFactors.push(`Moderate volume (${volumeRatio.toFixed(1)}x avg)`);
+            } else if (volumeRatio < 0.5) {
+              slScore -= 8;
+              slFactors.push(`Low volume - weak level (${volumeRatio.toFixed(1)}x avg)`);
+            }
+            
+            // Factor 4: RSI alignment (not extreme = SL more likely to hold)
+            if (rsi !== null) {
+              if (analysis.signal === 'BUY' && rsi > 35 && rsi < 65) {
+                slScore += 8;
+                slFactors.push('RSI neutral zone - room for movement');
+              } else if (analysis.signal === 'SELL' && rsi > 35 && rsi < 65) {
+                slScore += 8;
+                slFactors.push('RSI neutral zone - room for movement');
+              } else if ((analysis.signal === 'BUY' && rsi < 25) || (analysis.signal === 'SELL' && rsi > 75)) {
+                slScore += 5;
+                slFactors.push('RSI extreme - reversal likely near SL');
+              }
+            }
+            
+            // Factor 5: Multi-timeframe alignment
+            if (multiTimeframeEnabled && mtfCount >= 2) {
+              const aligned = analysis.signal === 'BUY' ? mtfBullish : mtfBearish;
+              const alignPct = aligned / mtfCount;
+              if (alignPct >= 0.7) {
+                slScore += 12;
+                slFactors.push(`Strong MTF alignment (${Math.round(alignPct * 100)}% agree)`);
+              } else if (alignPct >= 0.5) {
+                slScore += 6;
+                slFactors.push(`Moderate MTF alignment (${Math.round(alignPct * 100)}% agree)`);
+              } else {
+                slScore -= 5;
+                slFactors.push(`Weak MTF alignment (${Math.round(alignPct * 100)}% agree) - SL at risk`);
+              }
+            }
+            
+            // Factor 6: Moving average support near SL
+            if (ema20 && ema50 && sma200) {
+              const maLevels = [ema20, ema50, sma200];
+              const slPrice = analysis.tradePlan.stopLoss;
+              const nearbyMA = maLevels.find(ma => Math.abs(ma - slPrice) / currentPrice < 0.005);
+              if (nearbyMA) {
+                slScore += 10;
+                slFactors.push('MA support/resistance near SL zone');
+              }
+            }
+            
+            // --- TP CONFIDENCE ---
+            let tpScore = 50; // Base score
+            const tpFactors: string[] = [];
+            
+            // Factor 1: Risk/Reward ratio quality
+            const rr = targetDistance / stopDistance;
+            if (rr >= 2.5) {
+              tpScore += 10;
+              tpFactors.push(`Excellent R:R (${rr.toFixed(1)}:1)`);
+            } else if (rr >= 1.5) {
+              tpScore += 15;
+              tpFactors.push(`Good R:R (${rr.toFixed(1)}:1) - realistic target`);
+            } else if (rr >= 1.0) {
+              tpScore += 5;
+              tpFactors.push(`Modest R:R (${rr.toFixed(1)}:1)`);
+            } else {
+              tpScore -= 10;
+              tpFactors.push(`Poor R:R (${rr.toFixed(1)}:1) - unfavorable`);
+            }
+            
+            // Factor 2: Momentum strength toward TP
+            if (macdHist !== undefined && macdHist !== null) {
+              const momentumDir = macdHist > 0 ? 'BUY' : 'SELL';
+              if (momentumDir === analysis.signal) {
+                const histStrength = Math.abs(macdHist);
+                if (histStrength > 0) {
+                  tpScore += 12;
+                  tpFactors.push('MACD momentum supports move to TP');
+                }
+              } else {
+                tpScore -= 8;
+                tpFactors.push('MACD momentum opposes TP direction');
+              }
+            }
+            
+            // Factor 3: Bollinger Band obstacle check at TP
+            if (bbUpper && bbLower && bbMiddle) {
+              if (analysis.signal === 'BUY') {
+                if (analysis.tradePlan.takeProfit > bbUpper) {
+                  tpScore -= 8;
+                  tpFactors.push('TP beyond upper BB - may face resistance');
+                } else {
+                  tpScore += 8;
+                  tpFactors.push('TP within BB range - achievable');
+                }
+              } else {
+                if (analysis.tradePlan.takeProfit < bbLower) {
+                  tpScore -= 8;
+                  tpFactors.push('TP beyond lower BB - may find support');
+                } else {
+                  tpScore += 8;
+                  tpFactors.push('TP within BB range - achievable');
+                }
+              }
+            }
+            
+            // Factor 4: Volume supporting TP move
+            if (volumeRatio > 1.5) {
+              tpScore += 10;
+              tpFactors.push('High volume supports momentum to TP');
+            } else if (volumeRatio < 0.5) {
+              tpScore -= 8;
+              tpFactors.push('Low volume - may lack fuel to reach TP');
+            }
+            
+            // Factor 5: Moving average alignment toward TP
+            if (maTrend === 'STRONG UPTREND' && analysis.signal === 'BUY') {
+              tpScore += 12;
+              tpFactors.push('Strong uptrend supports TP target');
+            } else if (maTrend === 'STRONG DOWNTREND' && analysis.signal === 'SELL') {
+              tpScore += 12;
+              tpFactors.push('Strong downtrend supports TP target');
+            } else if (maTrend === 'UPTREND' && analysis.signal === 'BUY') {
+              tpScore += 6;
+              tpFactors.push('Uptrend supports direction');
+            } else if (maTrend === 'DOWNTREND' && analysis.signal === 'SELL') {
+              tpScore += 6;
+              tpFactors.push('Downtrend supports direction');
+            } else if (maTrend === 'SIDEWAYS') {
+              tpScore -= 5;
+              tpFactors.push('Sideways trend - TP may take longer');
+            }
+            
+            // Factor 6: MTF alignment toward TP
+            if (multiTimeframeEnabled && mtfCount >= 2) {
+              const aligned = analysis.signal === 'BUY' ? mtfBullish : mtfBearish;
+              const alignPct = aligned / mtfCount;
+              if (alignPct >= 0.7) {
+                tpScore += 10;
+                tpFactors.push(`MTF momentum toward TP (${Math.round(alignPct * 100)}%)`);
+              } else if (alignPct < 0.4) {
+                tpScore -= 5;
+                tpFactors.push(`MTF divergence - TP at risk (${Math.round(alignPct * 100)}%)`);
+              }
+            }
+            
+            // --- TRAILING STOP CONFIDENCE ---
+            let trailScore = 50; // Base score
+            const trailFactors: string[] = [];
+            let trailRecommendation = 'STANDARD'; // TIGHT, STANDARD, WIDE, AGGRESSIVE
+            
+            // Factor 1: Trend strength determines trail approach
+            if (maTrend === 'STRONG UPTREND' || maTrend === 'STRONG DOWNTREND') {
+              trailScore += 15;
+              trailRecommendation = 'WIDE';
+              trailFactors.push('Strong trend - use wide trail to let profits run');
+            } else if (maTrend === 'UPTREND' || maTrend === 'DOWNTREND') {
+              trailScore += 10;
+              trailRecommendation = 'STANDARD';
+              trailFactors.push('Moderate trend - standard trailing recommended');
+            } else {
+              trailScore -= 5;
+              trailRecommendation = 'TIGHT';
+              trailFactors.push('Sideways - tight trail to protect gains');
+            }
+            
+            // Factor 2: Volatility determines trail distance
+            const volatility = analysis.indicators?.atr?.volatility;
+            if (volatility === 'HIGH') {
+              trailScore += 8;
+              trailFactors.push('High volatility - ATR-based trail (Mode 2) recommended');
+              if (trailRecommendation !== 'TIGHT') trailRecommendation = 'WIDE';
+            } else if (volatility === 'LOW') {
+              trailScore += 5;
+              trailFactors.push('Low volatility - fixed trail sufficient');
+              trailRecommendation = 'TIGHT';
+            } else {
+              trailScore += 3;
+              trailFactors.push('Moderate volatility');
+            }
+            
+            // Factor 3: RSI momentum for trail timing
+            if (rsi !== null) {
+              if (analysis.signal === 'BUY' && rsi >= 60 && rsi <= 75) {
+                trailScore += 10;
+                trailFactors.push('RSI bullish momentum supports trailing');
+              } else if (analysis.signal === 'SELL' && rsi >= 25 && rsi <= 40) {
+                trailScore += 10;
+                trailFactors.push('RSI bearish momentum supports trailing');
+              } else if (analysis.signal === 'BUY' && rsi > 75) {
+                trailScore -= 5;
+                trailRecommendation = 'AGGRESSIVE';
+                trailFactors.push('RSI overbought - tighten trail, exit pressure likely');
+              } else if (analysis.signal === 'SELL' && rsi < 25) {
+                trailScore -= 5;
+                trailRecommendation = 'AGGRESSIVE';
+                trailFactors.push('RSI oversold - tighten trail, bounce likely');
+              }
+            }
+            
+            // Factor 4: Volume confirms trail confidence
+            if (volumeRatio > 1.3) {
+              trailScore += 8;
+              trailFactors.push('Volume supports price continuation');
+            } else if (volumeRatio < 0.6) {
+              trailScore -= 8;
+              trailRecommendation = 'TIGHT';
+              trailFactors.push('Volume fading - tighten trail');
+            }
+            
+            // Factor 5: MACD histogram for trail momentum
+            if (macdHist !== undefined && macdHist !== null) {
+              const prevHist = indicators.macd?.prevHistogram;
+              if (prevHist !== undefined) {
+                const histGrowing = Math.abs(macdHist) > Math.abs(prevHist);
+                if (histGrowing && ((macdHist > 0 && analysis.signal === 'BUY') || (macdHist < 0 && analysis.signal === 'SELL'))) {
+                  trailScore += 10;
+                  trailFactors.push('MACD expanding - momentum growing, widen trail');
+                  if (trailRecommendation === 'TIGHT') trailRecommendation = 'STANDARD';
+                } else if (!histGrowing) {
+                  trailScore -= 5;
+                  trailFactors.push('MACD contracting - momentum fading');
+                  if (trailRecommendation === 'WIDE') trailRecommendation = 'STANDARD';
+                }
+              }
+            }
+            
+            // Factor 6: MTF alignment for trail hold
+            if (multiTimeframeEnabled && mtfCount >= 2) {
+              const aligned = analysis.signal === 'BUY' ? mtfBullish : mtfBearish;
+              const alignPct = aligned / mtfCount;
+              if (alignPct >= 0.7) {
+                trailScore += 10;
+                trailFactors.push(`MTF supports hold (${Math.round(alignPct * 100)}%) - trail wider`);
+              } else if (alignPct < 0.4) {
+                trailScore -= 8;
+                trailRecommendation = 'TIGHT';
+                trailFactors.push(`MTF diverging (${Math.round(alignPct * 100)}%) - trail tight`);
+              }
+            }
+            
+            // Suggested trail ATR multiplier based on recommendation
+            const trailAtrMultiplier = {
+              'TIGHT': 1.0,
+              'STANDARD': 1.5,
+              'WIDE': 2.0,
+              'AGGRESSIVE': 0.8,
+            }[trailRecommendation] || 1.5;
+            
+            // Clamp all scores to 10-95
+            slScore = Math.max(10, Math.min(95, slScore));
+            tpScore = Math.max(10, Math.min(95, tpScore));
+            trailScore = Math.max(10, Math.min(95, trailScore));
+            
+            // Attach to analysis
+            analysis.slConfidence = {
+              score: slScore,
+              factors: slFactors,
+              summary: slScore >= 75 ? 'Strong SL placement' : slScore >= 55 ? 'Acceptable SL zone' : 'Weak SL - consider adjusting'
+            };
+            analysis.tpConfidence = {
+              score: tpScore,
+              factors: tpFactors,
+              summary: tpScore >= 75 ? 'TP highly achievable' : tpScore >= 55 ? 'TP realistic but monitor' : 'TP aggressive - partial close recommended'
+            };
+            analysis.trailConfidence = {
+              score: trailScore,
+              factors: trailFactors,
+              recommendation: trailRecommendation,
+              suggestedATRMultiplier: trailAtrMultiplier,
+              summary: trailScore >= 75 ? 'Strong trail conditions' : trailScore >= 55 ? 'Standard trail appropriate' : 'Trail with caution'
+            };
+          } // end else (valid distances)
+          } // end if (tradePlan && atr)
+          
           // Detect pattern changes for EA refresh
           if (matchingEA && matchingEA.direction) {
             const prevDirection = matchingEA.direction;
@@ -5819,6 +6143,18 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         mt5RecommendedSessionName: recommendedSession > 0 
           ? ['', 'London', 'New York', 'Tokyo', 'Sydney', 'LDN/NY Overlap'][recommendedSession] || null 
           : null,
+        // SL / TP / Trailing Confidence Scores (flat for MT5 parsing)
+        mt5SLConfidence: analysis.slConfidence?.score || 0,
+        mt5SLSummary: analysis.slConfidence?.summary || '',
+        mt5SLFactors: analysis.slConfidence?.factors?.join(' | ') || '',
+        mt5TPConfidence: analysis.tpConfidence?.score || 0,
+        mt5TPSummary: analysis.tpConfidence?.summary || '',
+        mt5TPFactors: analysis.tpConfidence?.factors?.join(' | ') || '',
+        mt5TrailConfidence: analysis.trailConfidence?.score || 0,
+        mt5TrailSummary: analysis.trailConfidence?.summary || '',
+        mt5TrailRecommendation: analysis.trailConfidence?.recommendation || 'STANDARD',
+        mt5TrailATRMultiplier: analysis.trailConfidence?.suggestedATRMultiplier || 1.5,
+        mt5TrailFactors: analysis.trailConfidence?.factors?.join(' | ') || '',
         // Full analysis for web clients
         analysis,
         candlesReceived: candles.length,

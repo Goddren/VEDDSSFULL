@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "AI Powered Trading Vault"
 #property link      "https://aipoweredtradingvault.com"
-#property version   "3.93"
+#property version   "3.94"
 #property description "Sends chart data to AI Trading Vault with news-aware analysis, smart auto-trading, prop firm compliance, and active trade management"
 #property strict
 
@@ -307,6 +307,19 @@ bool hasTradePlan = false;
 bool serverExecuteTrade = false; // Server says to execute trade NOW
 double serverVolume = 0.01;      // Volume from server
 int serverCooldownSeconds = 0;   // Cooldown from server
+
+//--- SL / TP / Trailing Confidence Scores
+int slConfidence = 0;
+string slSummary = "";
+string slFactors = "";
+int tpConfidence = 0;
+string tpSummary = "";
+string tpFactors = "";
+int trailConfidence = 0;
+string trailSummary = "";
+string trailRecommendation = "STANDARD";
+double trailATRMultiplier = 1.5;
+string trailFactors = "";
 
 //--- News context variables
 string lastNewsSentiment = "";
@@ -652,7 +665,7 @@ bool SendChartData()
    );
    
    string jsonPayload = StringFormat(
-      "{\"eaVersion\":\"3.93\",\"symbol\":\"%s\",\"timeframe\":\"%s\",\"broker\":\"%s\",\"timestamp\":%d,\"candles\":%s%s%s,\"multiTimeframe\":%s,\"account\":%s,\"openPositions\":%s,\"closedTrades\":%s,\"eaSettings\":%s}",
+      "{\"eaVersion\":\"3.94\",\"symbol\":\"%s\",\"timeframe\":\"%s\",\"broker\":\"%s\",\"timestamp\":%d,\"candles\":%s%s%s,\"multiTimeframe\":%s,\"account\":%s,\"openPositions\":%s,\"closedTrades\":%s,\"eaSettings\":%s}",
       symbolName,
       GetTimeframeString(),
       brokerName,
@@ -844,6 +857,34 @@ void ParseAndDisplayAnalysis(string json)
       hasNewsData = false;
    }
    
+   // Extract SL / TP / Trailing Confidence Scores
+   string slConfStr = ExtractJsonNumber(json, "\"mt5SLConfidence\":");
+   if(StringLen(slConfStr) > 0) slConfidence = (int)StringToInteger(slConfStr);
+   else slConfidence = 0;
+   
+   slSummary = ExtractJsonString(json, "\"mt5SLSummary\":\"", "\"");
+   slFactors = ExtractJsonString(json, "\"mt5SLFactors\":\"", "\"");
+   
+   string tpConfStr = ExtractJsonNumber(json, "\"mt5TPConfidence\":");
+   if(StringLen(tpConfStr) > 0) tpConfidence = (int)StringToInteger(tpConfStr);
+   else tpConfidence = 0;
+   
+   tpSummary = ExtractJsonString(json, "\"mt5TPSummary\":\"", "\"");
+   tpFactors = ExtractJsonString(json, "\"mt5TPFactors\":\"", "\"");
+   
+   string trailConfStr = ExtractJsonNumber(json, "\"mt5TrailConfidence\":");
+   if(StringLen(trailConfStr) > 0) trailConfidence = (int)StringToInteger(trailConfStr);
+   else trailConfidence = 0;
+   
+   trailSummary = ExtractJsonString(json, "\"mt5TrailSummary\":\"", "\"");
+   trailRecommendation = ExtractJsonString(json, "\"mt5TrailRecommendation\":\"", "\"");
+   if(StringLen(trailRecommendation) == 0) trailRecommendation = "STANDARD";
+   trailFactors = ExtractJsonString(json, "\"mt5TrailFactors\":\"", "\"");
+   
+   string trailAtrStr = ExtractJsonNumber(json, "\"mt5TrailATRMultiplier\":");
+   if(StringLen(trailAtrStr) > 0) trailATRMultiplier = StringToDouble(trailAtrStr);
+   else trailATRMultiplier = 1.5;
+   
    Print("");
    Print("PEACE GOD/EARTH! VEDD AI droppin' Knowledge on ", _Symbol, " (", GetTimeframeString(), ")");
    Print("");
@@ -889,6 +930,43 @@ void ParseAndDisplayAnalysis(string json)
       Print("   BORN (9) Entry @ ", DoubleToString(lastEntry, _Digits));
       Print("   CIPHER (0) SL @ ", DoubleToString(lastSL, _Digits), " - Protect your POWER!");
       Print("   GOD (7) TP @ ", DoubleToString(lastTP, _Digits), " - Manifest those gains!");
+      
+      // Display SL / TP / Trailing Confidence Scores
+      if(slConfidence > 0 || tpConfidence > 0)
+      {
+         Print("");
+         Print("LEVEL CONFIDENCE SCORES (Word is Bond!):");
+         
+         // SL Confidence
+         string slGrade = slConfidence >= 75 ? "SUPREME" : (slConfidence >= 55 ? "SOLID" : "WEAK");
+         Print("   SL Confidence: ", slConfidence, "% [", slGrade, "] - ", slSummary);
+         if(StringLen(slFactors) > 0)
+            Print("      Factors: ", slFactors);
+         
+         // TP Confidence
+         string tpGrade = tpConfidence >= 75 ? "SUPREME" : (tpConfidence >= 55 ? "SOLID" : "WEAK");
+         Print("   TP Confidence: ", tpConfidence, "% [", tpGrade, "] - ", tpSummary);
+         if(StringLen(tpFactors) > 0)
+            Print("      Factors: ", tpFactors);
+         
+         // Trailing Stop Confidence
+         string trailGrade = trailConfidence >= 75 ? "SUPREME" : (trailConfidence >= 55 ? "SOLID" : "WEAK");
+         Print("   Trail Confidence: ", trailConfidence, "% [", trailGrade, "] - ", trailSummary);
+         Print("   Trail Mode: ", trailRecommendation, " | Suggested ATR Multi: ", DoubleToString(trailATRMultiplier, 1));
+         if(StringLen(trailFactors) > 0)
+            Print("      Factors: ", trailFactors);
+         
+         // Trade quality grade based on all three scores
+         int avgConfidence = (slConfidence + tpConfidence + trailConfidence) / 3;
+         if(avgConfidence >= 75)
+            Print("   OVERALL TRADE QUALITY: A-GRADE CIPHER - Full POWER setup!");
+         else if(avgConfidence >= 60)
+            Print("   OVERALL TRADE QUALITY: B-GRADE - Solid setup, proceed with WISDOM.");
+         else if(avgConfidence >= 45)
+            Print("   OVERALL TRADE QUALITY: C-GRADE - Proceed with caution, KNOWLEDGE first.");
+         else
+            Print("   OVERALL TRADE QUALITY: D-GRADE - Weak setup, consider passing.");
+      }
    }
    
    // Display news context if available
@@ -1823,7 +1901,7 @@ void ManageOpenTrades()
          }
       }
       
-      // 4. TRAILING STOP
+      // 4. TRAILING STOP (with AI confidence-aware adjustments)
       if(ENABLE_TRAILING_STOP && profitPips >= TRAIL_START_PIPS)
       {
          double trailDistance = 0;
@@ -1836,11 +1914,32 @@ void ManageOpenTrades()
          else if(TRAIL_MODE == 2) // ATR-based
          {
             double atr = GetCurrentATR();
-            trailDistance = atr * TRAIL_ATR_MULTIPLIER;
+            // Use server-recommended ATR multiplier if confidence data available
+            double effectiveMultiplier = TRAIL_ATR_MULTIPLIER;
+            if(trailConfidence > 0 && trailATRMultiplier > 0)
+            {
+               effectiveMultiplier = trailATRMultiplier;
+            }
+            trailDistance = atr * effectiveMultiplier;
          }
          else if(TRAIL_MODE == 3) // Breakeven + Trail
          {
             trailDistance = TRAIL_DISTANCE_PIPS * pipValue;
+         }
+         
+         // Apply confidence-based trail tightening
+         // If trail confidence is low (<45), tighten trail by 20% to protect profits
+         // If trail confidence is high (>75), widen trail by 10% to let profits run
+         if(trailConfidence > 0)
+         {
+            if(trailConfidence < 45)
+            {
+               trailDistance *= 0.8; // Tighten 20%
+            }
+            else if(trailConfidence > 75)
+            {
+               trailDistance *= 1.1; // Widen 10%
+            }
          }
          
          double newSL = 0;
@@ -2412,8 +2511,16 @@ void UpdateChartComment()
    {
       commentText += "------------------------------\n";
       commentText += "Entry: " + DoubleToString(lastEntry, _Digits) + "\n";
-      commentText += "SL: " + DoubleToString(lastSL, _Digits) + "\n";
-      commentText += "TP: " + DoubleToString(lastTP, _Digits) + "\n";
+      commentText += "SL: " + DoubleToString(lastSL, _Digits);
+      if(slConfidence > 0) commentText += " [" + IntegerToString(slConfidence) + "%]";
+      commentText += "\n";
+      commentText += "TP: " + DoubleToString(lastTP, _Digits);
+      if(tpConfidence > 0) commentText += " [" + IntegerToString(tpConfidence) + "%]";
+      commentText += "\n";
+      if(trailConfidence > 0)
+      {
+         commentText += "Trail: " + trailRecommendation + " [" + IntegerToString(trailConfidence) + "%]\n";
+      }
    }
    
    // News section
@@ -2512,9 +2619,17 @@ void PushSignalNotification()
    if(lastEntry > 0)
       msg += " @ " + DoubleToString(lastEntry, _Digits);
    if(lastSL > 0)
+   {
       msg += " SL:" + DoubleToString(lastSL, _Digits);
+      if(slConfidence > 0) msg += "(" + IntegerToString(slConfidence) + "%)";
+   }
    if(lastTP > 0)
+   {
       msg += " TP:" + DoubleToString(lastTP, _Digits);
+      if(tpConfidence > 0) msg += "(" + IntegerToString(tpConfidence) + "%)";
+   }
+   if(trailConfidence > 0)
+      msg += " Trail:" + trailRecommendation;
    
    SendMobilePush(msg);
 }
