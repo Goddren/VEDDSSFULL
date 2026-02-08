@@ -40,7 +40,8 @@ import {
   History,
   Gift,
   Users,
-  BarChart3
+  BarChart3,
+  Trash2
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Link } from 'wouter';
@@ -1427,6 +1428,24 @@ function AutoTradingPanel() {
           <TabsContent value="trades" className="space-y-4 mt-4">
             {trackedPositions.size > 0 ? (
               <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm text-muted-foreground">{trackedPositions.size} active trade{trackedPositions.size !== 1 ? 's' : ''}</p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-red-400 border-red-500/30 hover:bg-red-500/10 hover:text-red-300"
+                    onClick={() => {
+                      if (window.confirm('Clear all trades from this list? This only removes them from tracking — it does not sell anything in your wallet.')) {
+                        setTrackedPositions(new Map());
+                        localStorage.removeItem('trackedPositions');
+                        toast({ title: 'Trades cleared', description: 'All tracked trades have been removed from the list.' });
+                      }
+                    }}
+                  >
+                    <Trash2 className="h-4 w-4 mr-1" />
+                    Clear All
+                  </Button>
+                </div>
                 {Array.from(trackedPositions.values()).map((position) => {
                   // Calculate live P&L
                   const currentToken = scanData?.tokens?.find(t => t.token.address === position.tokenAddress);
@@ -1464,11 +1483,27 @@ function AutoTradingPanel() {
                               </p>
                             </div>
                           </div>
-                          <div className="text-right">
-                            <Badge className={pnlPercent >= 0 ? 'bg-green-500/20 text-green-400 border-green-500/30' : 'bg-red-500/20 text-red-400 border-red-500/30'}>
-                              {pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(2)}% P&L
-                            </Badge>
-                            <p className="text-xs text-muted-foreground mt-1">Bought {timeAgo}</p>
+                          <div className="text-right flex items-start gap-2">
+                            <div>
+                              <Badge className={pnlPercent >= 0 ? 'bg-green-500/20 text-green-400 border-green-500/30' : 'bg-red-500/20 text-red-400 border-red-500/30'}>
+                                {pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(2)}% P&L
+                              </Badge>
+                              <p className="text-xs text-muted-foreground mt-1">Bought {timeAgo}</p>
+                            </div>
+                            <button
+                              title="Remove from tracking"
+                              className="p-1 rounded hover:bg-red-500/20 text-gray-500 hover:text-red-400 transition-colors"
+                              onClick={() => {
+                                setTrackedPositions(prev => {
+                                  const next = new Map(prev);
+                                  next.delete(position.tokenAddress);
+                                  return next;
+                                });
+                                toast({ title: `${position.symbol} removed`, description: 'Trade removed from tracking list.' });
+                              }}
+                            >
+                              <XCircle className="h-4 w-4" />
+                            </button>
                           </div>
                         </div>
                         
