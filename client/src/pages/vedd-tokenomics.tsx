@@ -116,6 +116,168 @@ const tokenUtility = [
   { icon: Star, title: 'NFT Access', description: 'Exclusive NFT drops and ambassador badges' }
 ];
 
+interface RoadmapMonth {
+  month: number;
+  label: string;
+  quarter: string;
+  theme: string;
+  priceTarget: string;
+  priceRange: string;
+  marketCap: string;
+  milestones: string[];
+  drivers: string[];
+  communityTarget: string;
+  ambassadorTarget: string;
+  color: string;
+  gradient: string;
+}
+
+const priceRoadmap: RoadmapMonth[] = [
+  {
+    month: 1, label: 'Month 1', quarter: 'Q1', theme: 'Foundation & Launch',
+    priceTarget: '$0.001', priceRange: '$0.0008 - $0.0015', marketCap: '$250K',
+    milestones: ['Token launch on Raydium/Jupiter', 'Initial liquidity pool deployment', 'AI Trading Vault beta live', 'Ambassador program opens enrollment'],
+    drivers: ['Initial DEX listing excitement', 'Early adopter accumulation', 'First liquidity provision'],
+    communityTarget: '500', ambassadorTarget: '10',
+    color: 'text-blue-400', gradient: 'from-blue-600/20 to-blue-900/20 border-blue-500/30'
+  },
+  {
+    month: 2, label: 'Month 2', quarter: 'Q1', theme: 'Ambassador Acceleration',
+    priceTarget: '$0.0018', priceRange: '$0.0012 - $0.0025', marketCap: '$450K',
+    milestones: ['44-Day Content Journey launches', 'First ambassador cohort certified', 'SOL Scanner auto-trading live', 'Referral rewards system activated'],
+    drivers: ['Ambassador content driving awareness', 'Referral network effects begin', 'Trading utility creates buy pressure'],
+    communityTarget: '1,500', ambassadorTarget: '50',
+    color: 'text-blue-400', gradient: 'from-blue-600/20 to-blue-900/20 border-blue-500/30'
+  },
+  {
+    month: 3, label: 'Month 3', quarter: 'Q1', theme: 'Product-Market Fit',
+    priceTarget: '$0.003', priceRange: '$0.002 - $0.005', marketCap: '$750K',
+    milestones: ['Multi-DEX integration (Raydium, Orca, Meteora)', 'Token-gated membership tiers live', 'EA Marketplace opens', 'First VEDD governance vote'],
+    drivers: ['Utility token demand from memberships', 'EA creators earning passive income', 'Growing trading volume on platform'],
+    communityTarget: '3,000', ambassadorTarget: '150',
+    color: 'text-blue-400', gradient: 'from-blue-600/20 to-blue-900/20 border-blue-500/30'
+  },
+  {
+    month: 4, label: 'Month 4', quarter: 'Q2', theme: 'Community Expansion',
+    priceTarget: '$0.005', priceRange: '$0.003 - $0.008', marketCap: '$1.25M',
+    milestones: ['Ambassador training V2 with video certification', 'Regional community leads appointed', 'Staking program launches', 'Partnership with first trading education platform'],
+    drivers: ['Staking reduces circulating supply', 'Ambassador army creating daily content', 'First major partnership announcement'],
+    communityTarget: '6,000', ambassadorTarget: '350',
+    color: 'text-green-400', gradient: 'from-green-600/20 to-green-900/20 border-green-500/30'
+  },
+  {
+    month: 5, label: 'Month 5', quarter: 'Q2', theme: 'Global Ambassador Network',
+    priceTarget: '$0.008', priceRange: '$0.005 - $0.012', marketCap: '$2M',
+    milestones: ['Ambassadors active in 20+ countries', 'VEDD NFT membership collection launches', 'MT5 trade copier adoption milestone', 'Community trading competitions begin'],
+    drivers: ['NFT collection creates scarcity narrative', 'Global word-of-mouth marketing', 'Trading competitions drive engagement'],
+    communityTarget: '12,000', ambassadorTarget: '600',
+    color: 'text-green-400', gradient: 'from-green-600/20 to-green-900/20 border-green-500/30'
+  },
+  {
+    month: 6, label: 'Month 6', quarter: 'Q2', theme: 'Ecosystem Maturity',
+    priceTarget: '$0.015', priceRange: '$0.01 - $0.025', marketCap: '$3.75M',
+    milestones: ['Token listed on second DEX aggregator', 'Advanced AI models integrated', 'Webhook signal system adoption spike', 'First $1M total platform trading volume'],
+    drivers: ['Real trading volume validates utility', 'Additional exchange exposure', 'Word-of-mouth reaches critical mass'],
+    communityTarget: '20,000', ambassadorTarget: '1,000',
+    color: 'text-green-400', gradient: 'from-green-600/20 to-green-900/20 border-green-500/30'
+  },
+  {
+    month: 7, label: 'Month 7', quarter: 'Q3', theme: 'Institutional Interest',
+    priceTarget: '$0.025', priceRange: '$0.015 - $0.04', marketCap: '$6.25M',
+    milestones: ['CEX listing application submitted', 'API for third-party integrations', 'Copy trading across platforms', 'Ambassador-led regional events'],
+    drivers: ['CEX listing anticipation', 'B2B utility expansion', 'Growing daily active traders'],
+    communityTarget: '35,000', ambassadorTarget: '1,500',
+    color: 'text-yellow-400', gradient: 'from-yellow-600/20 to-yellow-900/20 border-yellow-500/30'
+  },
+  {
+    month: 8, label: 'Month 8', quarter: 'Q3', theme: 'Revenue Sharing Launch',
+    priceTarget: '$0.04', priceRange: '$0.025 - $0.06', marketCap: '$10M',
+    milestones: ['Platform revenue sharing for stakers', 'Premium signal subscription tier', 'Mobile app beta launch', 'Ambassador summit (virtual)'],
+    drivers: ['Revenue-backed token value', 'Mobile expands addressable market', 'Staking APY attracts holders'],
+    communityTarget: '50,000', ambassadorTarget: '2,500',
+    color: 'text-yellow-400', gradient: 'from-yellow-600/20 to-yellow-900/20 border-yellow-500/30'
+  },
+  {
+    month: 9, label: 'Month 9', quarter: 'Q3', theme: 'Market Penetration',
+    priceTarget: '$0.065', priceRange: '$0.04 - $0.10', marketCap: '$16.25M',
+    milestones: ['First CEX listing goes live', 'AI accuracy exceeds 75% signal rate', 'Cross-chain expansion announced', 'VEDD burn mechanism introduced'],
+    drivers: ['CEX listing brings massive new audience', 'Proven track record attracts traders', 'Token burn creates deflationary pressure'],
+    communityTarget: '80,000', ambassadorTarget: '4,000',
+    color: 'text-yellow-400', gradient: 'from-yellow-600/20 to-yellow-900/20 border-yellow-500/30'
+  },
+  {
+    month: 10, label: 'Month 10', quarter: 'Q4', theme: 'Scaling & Partnerships',
+    priceTarget: '$0.10', priceRange: '$0.06 - $0.15', marketCap: '$25M',
+    milestones: ['Strategic partnership with major broker', 'VEDD integrated into partner platforms', 'Ambassador certification recognized industry-wide', 'DAO governance fully operational'],
+    drivers: ['Broker partnership validates project', 'Cross-platform utility increases demand', 'DAO governance attracts governance token investors'],
+    communityTarget: '120,000', ambassadorTarget: '6,000',
+    color: 'text-purple-400', gradient: 'from-purple-600/20 to-purple-900/20 border-purple-500/30'
+  },
+  {
+    month: 11, label: 'Month 11', quarter: 'Q4', theme: 'Mass Adoption Push',
+    priceTarget: '$0.15', priceRange: '$0.10 - $0.25', marketCap: '$37.5M',
+    milestones: ['Second CEX listing', 'Multi-language platform support', 'Ambassador program in 50+ countries', 'VEDD Debit Card partnership announced'],
+    drivers: ['Additional CEX exposure', 'Global accessibility drives adoption', 'Real-world utility narrative'],
+    communityTarget: '175,000', ambassadorTarget: '8,500',
+    color: 'text-purple-400', gradient: 'from-purple-600/20 to-purple-900/20 border-purple-500/30'
+  },
+  {
+    month: 12, label: 'Month 12', quarter: 'Q4', theme: 'Year One Complete',
+    priceTarget: '$0.25', priceRange: '$0.15 - $0.40', marketCap: '$62.5M',
+    milestones: ['Year-end ambassador gala event', 'Advanced AI V2 with proprietary models', 'Institutional trading desk beta', '500K+ community members target'],
+    drivers: ['Full ecosystem delivering real value', 'Institutional demand begins', 'Community flywheel at full speed', 'Strong brand recognition in crypto trading'],
+    communityTarget: '250,000', ambassadorTarget: '12,000',
+    color: 'text-purple-400', gradient: 'from-purple-600/20 to-purple-900/20 border-purple-500/30'
+  },
+];
+
+const quarterSummary = [
+  {
+    quarter: 'Q1',
+    title: 'Foundation & Launch',
+    subtitle: 'Months 1-3',
+    priceStart: '$0.001',
+    priceEnd: '$0.003',
+    growth: '200%',
+    focus: 'Token launch, ambassador program kickoff, core platform features, initial community building',
+    color: 'from-blue-600 to-blue-400',
+    bgColor: 'bg-blue-500/10 border-blue-500/30',
+  },
+  {
+    quarter: 'Q2',
+    title: 'Community Expansion',
+    subtitle: 'Months 4-6',
+    priceStart: '$0.005',
+    priceEnd: '$0.015',
+    growth: '200%',
+    focus: 'Global ambassador network, staking launch, NFT memberships, ecosystem maturity',
+    color: 'from-green-600 to-green-400',
+    bgColor: 'bg-green-500/10 border-green-500/30',
+  },
+  {
+    quarter: 'Q3',
+    title: 'Revenue & CEX',
+    subtitle: 'Months 7-9',
+    priceStart: '$0.025',
+    priceEnd: '$0.065',
+    growth: '160%',
+    focus: 'CEX listing, revenue sharing, mobile app, token burn mechanism',
+    color: 'from-yellow-600 to-yellow-400',
+    bgColor: 'bg-yellow-500/10 border-yellow-500/30',
+  },
+  {
+    quarter: 'Q4',
+    title: 'Mass Adoption',
+    subtitle: 'Months 10-12',
+    priceStart: '$0.10',
+    priceEnd: '$0.25',
+    growth: '150%',
+    focus: 'Strategic partnerships, multi-CEX presence, global scaling, institutional interest',
+    color: 'from-purple-600 to-purple-400',
+    bgColor: 'bg-purple-500/10 border-purple-500/30',
+  },
+];
+
 export default function VeddTokenomics() {
   const { data: rewardConfigs = [] } = useQuery<RewardConfig[]>({
     queryKey: ['/api/vedd/config']
@@ -201,8 +363,9 @@ export default function VeddTokenomics() {
         </div>
         
         <Tabs defaultValue="allocation" className="mb-12">
-          <TabsList className="grid grid-cols-4 w-full max-w-2xl mx-auto mb-8">
+          <TabsList className="grid grid-cols-5 w-full max-w-3xl mx-auto mb-8">
             <TabsTrigger value="allocation">Allocation</TabsTrigger>
+            <TabsTrigger value="roadmap">Price Roadmap</TabsTrigger>
             <TabsTrigger value="rewards">Earn VEDD</TabsTrigger>
             <TabsTrigger value="utility">Utility</TabsTrigger>
             <TabsTrigger value="pool">Rewards Pool</TabsTrigger>
@@ -283,6 +446,176 @@ export default function VeddTokenomics() {
                 </div>
               </CardContent>
             </Card>
+          </TabsContent>
+          
+          {/* Price Roadmap Tab */}
+          <TabsContent value="roadmap">
+            <div className="space-y-8">
+              <Card className="bg-gradient-to-r from-purple-900/30 to-pink-900/30 border-purple-500/30">
+                <CardContent className="py-6">
+                  <div className="text-center mb-4">
+                    <h2 className="text-2xl font-bold mb-2">12-Month VEDD Price Projection</h2>
+                    <p className="text-muted-foreground max-w-2xl mx-auto">
+                      Price expectations backed by platform build-out milestones, ambassador-driven community growth, 
+                      and expanding token utility throughout the VEDD ecosystem.
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
+                    {quarterSummary.map((q, idx) => (
+                      <div key={idx} className={`rounded-lg border p-4 text-center ${q.bgColor}`}>
+                        <Badge className={`bg-gradient-to-r ${q.color} text-white border-0 mb-2`}>{q.quarter}</Badge>
+                        <p className="text-xs text-muted-foreground mb-1">{q.subtitle}</p>
+                        <p className="font-bold text-lg">{q.priceEnd}</p>
+                        <p className="text-xs text-muted-foreground">{q.priceStart} → {q.priceEnd}</p>
+                        <Badge variant="outline" className="mt-2 text-green-400 border-green-500/30">+{q.growth}</Badge>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+              
+              <div className="grid md:grid-cols-4 gap-3 mb-4">
+                {quarterSummary.map((q, idx) => (
+                  <Card key={idx} className={`${q.bgColor}`}>
+                    <CardContent className="pt-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Badge className={`bg-gradient-to-r ${q.color} text-white border-0`}>{q.quarter}</Badge>
+                        <span className="font-bold text-sm">{q.title}</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">{q.focus}</p>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+
+              <div className="relative">
+                <div className="absolute left-6 top-0 bottom-0 w-0.5 bg-gradient-to-b from-blue-500 via-green-500 via-yellow-500 to-purple-500 hidden md:block" />
+                
+                <div className="space-y-6">
+                  {priceRoadmap.map((month, idx) => (
+                    <Card key={idx} className={`bg-gradient-to-br ${month.gradient} overflow-hidden`}>
+                      <CardContent className="py-5">
+                        <div className="flex flex-col md:flex-row gap-6">
+                          <div className="md:w-48 shrink-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <div className={`w-3 h-3 rounded-full ${month.color.replace('text-', 'bg-')}`} />
+                              <Badge variant="outline" className={`${month.color}`}>{month.quarter}</Badge>
+                            </div>
+                            <h3 className="text-xl font-bold">{month.label}</h3>
+                            <p className={`text-sm font-medium ${month.color}`}>{month.theme}</p>
+                            <div className="mt-3 space-y-1">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs text-muted-foreground">Target</span>
+                                <span className="text-lg font-bold">{month.priceTarget}</span>
+                              </div>
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs text-muted-foreground">Range</span>
+                                <span className="text-xs">{month.priceRange}</span>
+                              </div>
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs text-muted-foreground">Mkt Cap</span>
+                                <span className="text-sm font-semibold">{month.marketCap}</span>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          <div className="flex-1 grid md:grid-cols-2 gap-4">
+                            <div>
+                              <p className="text-xs font-semibold text-muted-foreground uppercase mb-2 flex items-center gap-1">
+                                <Target className="h-3 w-3" /> Milestones
+                              </p>
+                              <ul className="space-y-1.5">
+                                {month.milestones.map((m, i) => (
+                                  <li key={i} className="flex items-start gap-2 text-sm">
+                                    <CheckCircle className={`h-3.5 w-3.5 mt-0.5 shrink-0 ${month.color}`} />
+                                    <span>{m}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                            
+                            <div>
+                              <p className="text-xs font-semibold text-muted-foreground uppercase mb-2 flex items-center gap-1">
+                                <TrendingUp className="h-3 w-3" /> Price Drivers
+                              </p>
+                              <ul className="space-y-1.5 mb-3">
+                                {month.drivers.map((d, i) => (
+                                  <li key={i} className="flex items-start gap-2 text-sm">
+                                    <Zap className={`h-3.5 w-3.5 mt-0.5 shrink-0 ${month.color}`} />
+                                    <span>{d}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                              
+                              <div className="flex gap-3 mt-auto">
+                                <div className="flex items-center gap-1.5 text-xs bg-muted/40 rounded-lg px-2 py-1">
+                                  <Users className="h-3 w-3 text-blue-400" />
+                                  <span>{month.communityTarget} members</span>
+                                </div>
+                                <div className="flex items-center gap-1.5 text-xs bg-muted/40 rounded-lg px-2 py-1">
+                                  <Trophy className="h-3 w-3 text-yellow-400" />
+                                  <span>{month.ambassadorTarget} ambassadors</span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+              
+              <Card className="bg-gradient-to-r from-green-900/20 to-emerald-900/20 border-green-500/30">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-green-400">
+                    <TrendingUp className="h-5 w-5" />
+                    Year 1 Growth Summary
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid md:grid-cols-4 gap-6">
+                    <div className="text-center">
+                      <p className="text-3xl font-bold text-green-400">250x</p>
+                      <p className="text-sm text-muted-foreground">Price Growth Target</p>
+                      <p className="text-xs text-muted-foreground">$0.001 → $0.25</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-3xl font-bold text-blue-400">250K</p>
+                      <p className="text-sm text-muted-foreground">Community Members</p>
+                      <p className="text-xs text-muted-foreground">Global VEDD community</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-3xl font-bold text-yellow-400">12K</p>
+                      <p className="text-sm text-muted-foreground">Certified Ambassadors</p>
+                      <p className="text-xs text-muted-foreground">50+ countries</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-3xl font-bold text-purple-400">$62.5M</p>
+                      <p className="text-sm text-muted-foreground">Market Cap Target</p>
+                      <p className="text-xs text-muted-foreground">Fully diluted valuation</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+              
+              <Card className="bg-yellow-500/5 border-yellow-500/20">
+                <CardContent className="py-4">
+                  <div className="flex items-start gap-3">
+                    <Shield className="h-5 w-5 text-yellow-400 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-medium text-yellow-400">Important Disclaimer</p>
+                      <p className="text-sm text-muted-foreground">
+                        These price projections are based on planned development milestones, community growth targets, 
+                        and utility expansion. Actual token prices are determined by market conditions and are not guaranteed. 
+                        Cryptocurrency investments carry significant risk. Always do your own research (DYOR) and never 
+                        invest more than you can afford to lose. Past performance does not guarantee future results.
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
           </TabsContent>
           
           {/* Earn VEDD Tab */}
