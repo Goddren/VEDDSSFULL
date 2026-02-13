@@ -59,6 +59,8 @@ import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
+type DexSource = 'all' | 'raydium' | 'orca' | 'meteora' | 'pumpfun' | 'jupiter';
+
 interface TokenAnalysis {
   token: {
     address: string;
@@ -73,6 +75,9 @@ interface TokenAnalysis {
     makers24h: number;
     pairAddress: string;
     dexId: string;
+    dexSource?: DexSource;
+    availableDexes?: string[];
+    poolType?: string;
   };
   signal: 'STRONG_BUY' | 'BUY' | 'HOLD' | 'SELL' | 'STRONG_SELL';
   confidence: number;
@@ -91,6 +96,34 @@ interface ScanResponse {
   success: boolean;
   tokens: TokenAnalysis[];
   scannedAt: string;
+  dexFilter?: DexSource;
+}
+
+const DEX_OPTIONS: { value: DexSource; label: string; color: string }[] = [
+  { value: 'all', label: 'All DEXs', color: 'text-white' },
+  { value: 'raydium', label: 'Raydium', color: 'text-purple-400' },
+  { value: 'orca', label: 'Orca', color: 'text-cyan-400' },
+  { value: 'meteora', label: 'Meteora', color: 'text-yellow-400' },
+  { value: 'pumpfun', label: 'Pump.fun', color: 'text-green-400' },
+  { value: 'jupiter', label: 'Jupiter', color: 'text-orange-400' },
+];
+
+function getDexBadgeColor(dexId: string): string {
+  const d = (dexId || '').toLowerCase();
+  if (d.includes('raydium')) return 'bg-purple-500/20 text-purple-400 border-purple-500/30';
+  if (d.includes('orca') || d.includes('whirlpool')) return 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30';
+  if (d.includes('meteora')) return 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30';
+  if (d.includes('pump')) return 'bg-green-500/20 text-green-400 border-green-500/30';
+  return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
+}
+
+function getDexDisplayName(dexId: string): string {
+  const d = (dexId || '').toLowerCase();
+  if (d.includes('raydium')) return 'Raydium';
+  if (d.includes('orca') || d.includes('whirlpool')) return 'Orca';
+  if (d.includes('meteora')) return 'Meteora';
+  if (d.includes('pump')) return 'Pump.fun';
+  return dexId || 'DEX';
 }
 
 const signalColors: Record<string, string> = {
@@ -150,9 +183,21 @@ function TokenCard({ analysis, onBuy, isBuying }: { analysis: TokenAnalysis; onB
             <div>
               <CardTitle className="text-lg flex items-center gap-2">
                 {token.symbol}
-                <Badge variant="outline" className="text-xs">{token.dexId}</Badge>
+                <Badge variant="outline" className={`text-xs ${getDexBadgeColor(token.dexId)}`}>
+                  {getDexDisplayName(token.dexId)}
+                </Badge>
+                {token.poolType && (
+                  <Badge variant="outline" className="text-xs opacity-70">{token.poolType}</Badge>
+                )}
               </CardTitle>
-              <CardDescription className="text-xs truncate max-w-[180px]">{token.name}</CardDescription>
+              <div className="flex items-center gap-1">
+                <CardDescription className="text-xs truncate max-w-[140px]">{token.name}</CardDescription>
+                {token.availableDexes && token.availableDexes.length > 1 && (
+                  <Badge variant="secondary" className="text-[10px] px-1 py-0">
+                    +{token.availableDexes.length - 1} DEX
+                  </Badge>
+                )}
+              </div>
             </div>
           </div>
           <Badge className={`${signalColors[signal]} flex items-center gap-1`}>
@@ -2508,6 +2553,7 @@ export default function SolanaScanner() {
   const [referralCode, setReferralCode] = useState<string>('');
   const [referralCopied, setReferralCopied] = useState(false);
   const [referralStats, setReferralStats] = useState({ referrals: 0, earnings: 0 });
+  const [dexFilter, setDexFilter] = useState<DexSource>('all');
   const { toast } = useToast();
   const { connected, walletData, signAndSendTransaction, getPublicKey, refreshWalletData } = useSolanaWallet();
   
@@ -2535,7 +2581,12 @@ export default function SolanaScanner() {
   });
   
   const { data: scanData, isLoading, refetch, isFetching } = useQuery<ScanResponse>({
-    queryKey: ['/api/solana/scan', { limit: 12 }],
+    queryKey: ['/api/solana/scan', { limit: 12, dex: dexFilter }],
+    queryFn: async () => {
+      const res = await fetch(`/api/solana/scan?limit=12&dex=${dexFilter}`);
+      if (!res.ok) throw new Error('Failed to scan');
+      return res.json();
+    },
     refetchOnWindowFocus: false,
     staleTime: 60000,
   });
@@ -2773,6 +2824,20 @@ export default function SolanaScanner() {
             Clear
           </Button>
         )}
+      </div>
+      
+      <div className="flex flex-wrap gap-2">
+        {DEX_OPTIONS.map((dex) => (
+          <Button
+            key={dex.value}
+            variant={dexFilter === dex.value ? 'default' : 'outline'}
+            size="sm"
+            className={dexFilter === dex.value ? '' : `${dex.color} hover:opacity-80`}
+            onClick={() => setDexFilter(dex.value)}
+          >
+            {dex.label}
+          </Button>
+        ))}
       </div>
       
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

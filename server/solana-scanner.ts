@@ -2,6 +2,8 @@ import OpenAI from "openai";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+export type DexSource = 'all' | 'raydium' | 'orca' | 'meteora' | 'pumpfun' | 'jupiter';
+
 export interface SolanaToken {
   address: string;
   symbol: string;
@@ -16,6 +18,9 @@ export interface SolanaToken {
   pairAddress: string;
   dexId: string;
   createdAt?: string;
+  dexSource?: DexSource;
+  availableDexes?: string[];
+  poolType?: string;
 }
 
 export interface TokenAnalysis {
@@ -86,6 +91,13 @@ export async function fetchTrendingSolanaTokens(): Promise<SolanaToken[]> {
 }
 
 function mapPairToToken(pair: any): SolanaToken {
+  const dexId = (pair.dexId || 'unknown').toLowerCase();
+  let dexSource: DexSource = 'jupiter';
+  if (dexId.includes('raydium')) dexSource = 'raydium';
+  else if (dexId.includes('orca') || dexId.includes('whirlpool')) dexSource = 'orca';
+  else if (dexId.includes('meteora')) dexSource = 'meteora';
+  else if (dexId.includes('pump') || dexId.includes('pumpfun')) dexSource = 'pumpfun';
+
   return {
     address: pair.baseToken?.address || '',
     symbol: pair.baseToken?.symbol || 'UNKNOWN',
@@ -102,8 +114,141 @@ function mapPairToToken(pair: any): SolanaToken {
     makers24h: pair.txns?.h24?.makers || 0,
     pairAddress: pair.pairAddress || '',
     dexId: pair.dexId || 'unknown',
-    createdAt: pair.pairCreatedAt ? new Date(pair.pairCreatedAt).toISOString() : undefined
+    createdAt: pair.pairCreatedAt ? new Date(pair.pairCreatedAt).toISOString() : undefined,
+    dexSource,
+    availableDexes: [pair.dexId || 'unknown'],
+    poolType: pair.labels?.join(', ') || undefined,
   };
+}
+
+async function fetchRaydiumTokens(): Promise<SolanaToken[]> {
+  try {
+    const response = await fetch('https://api.dexscreener.com/latest/dex/search?q=raydium%20sol');
+    if (!response.ok) return [];
+    const data = await response.json();
+    const pairs = (data.pairs || [])
+      .filter((p: any) => p.chainId === 'solana' && p.dexId?.toLowerCase().includes('raydium'));
+    return pairs.slice(0, 20).map((pair: any) => {
+      const token = mapPairToToken(pair);
+      token.dexSource = 'raydium';
+      return token;
+    });
+  } catch (error) {
+    console.error('Error fetching Raydium tokens:', error);
+    return [];
+  }
+}
+
+async function fetchOrcaTokens(): Promise<SolanaToken[]> {
+  try {
+    const response = await fetch('https://api.dexscreener.com/latest/dex/search?q=orca%20sol');
+    if (!response.ok) return [];
+    const data = await response.json();
+    const pairs = (data.pairs || [])
+      .filter((p: any) => p.chainId === 'solana' && p.dexId?.toLowerCase().includes('orca'));
+    return pairs.slice(0, 20).map((pair: any) => {
+      const token = mapPairToToken(pair);
+      token.dexSource = 'orca';
+      token.poolType = 'Whirlpool';
+      return token;
+    });
+  } catch (error) {
+    console.error('Error fetching Orca tokens:', error);
+    return [];
+  }
+}
+
+async function fetchMeteoraTokens(): Promise<SolanaToken[]> {
+  try {
+    const response = await fetch('https://api.dexscreener.com/latest/dex/search?q=meteora%20sol');
+    if (!response.ok) return [];
+    const data = await response.json();
+    const pairs = (data.pairs || [])
+      .filter((p: any) => p.chainId === 'solana' && p.dexId?.toLowerCase().includes('meteora'));
+    return pairs.slice(0, 20).map((pair: any) => {
+      const token = mapPairToToken(pair);
+      token.dexSource = 'meteora';
+      token.poolType = 'DLMM';
+      return token;
+    });
+  } catch (error) {
+    console.error('Error fetching Meteora tokens:', error);
+    return [];
+  }
+}
+
+async function fetchPumpFunTokens(): Promise<SolanaToken[]> {
+  try {
+    const response = await fetch('https://api.dexscreener.com/latest/dex/search?q=pump.fun');
+    if (!response.ok) return [];
+    const data = await response.json();
+    const pairs = (data.pairs || [])
+      .filter((p: any) => p.chainId === 'solana' && (
+        p.dexId?.toLowerCase().includes('pump') ||
+        p.url?.includes('pump.fun') ||
+        p.baseToken?.name?.toLowerCase().includes('pump')
+      ));
+    return pairs.slice(0, 20).map((pair: any) => {
+      const token = mapPairToToken(pair);
+      token.dexSource = 'pumpfun';
+      token.poolType = 'Bonding Curve';
+      return token;
+    });
+  } catch (error) {
+    console.error('Error fetching Pump.fun tokens:', error);
+    return [];
+  }
+}
+
+function mergeAndDedupeTokens(tokenArrays: SolanaToken[][]): SolanaToken[] {
+  const tokenMap = new Map<string, SolanaToken>();
+
+  for (const tokens of tokenArrays) {
+    for (const token of tokens) {
+      if (!token.address) continue;
+      const existing = tokenMap.get(token.address);
+      if (existing) {
+        const existingDexes = new Set(existing.availableDexes || []);
+        (token.availableDexes || []).forEach(d => existingDexes.add(d));
+        existing.availableDexes = Array.from(existingDexes);
+        if (token.liquidity > existing.liquidity) {
+          existing.priceUsd = token.priceUsd;
+          existing.liquidity = token.liquidity;
+          existing.volume24h = Math.max(existing.volume24h, token.volume24h);
+          existing.dexId = token.dexId;
+          existing.dexSource = token.dexSource;
+          existing.pairAddress = token.pairAddress;
+        }
+      } else {
+        tokenMap.set(token.address, { ...token });
+      }
+    }
+  }
+
+  return Array.from(tokenMap.values());
+}
+
+export async function fetchMultiDexTokens(dexFilter: DexSource = 'all'): Promise<SolanaToken[]> {
+  try {
+    if (dexFilter === 'raydium') return await fetchRaydiumTokens();
+    if (dexFilter === 'orca') return await fetchOrcaTokens();
+    if (dexFilter === 'meteora') return await fetchMeteoraTokens();
+    if (dexFilter === 'pumpfun') return await fetchPumpFunTokens();
+    if (dexFilter === 'jupiter') return await fetchTrendingSolanaTokens();
+
+    const [trending, raydium, orca, meteora, pumpfun] = await Promise.all([
+      fetchTrendingSolanaTokens(),
+      fetchRaydiumTokens(),
+      fetchOrcaTokens(),
+      fetchMeteoraTokens(),
+      fetchPumpFunTokens(),
+    ]);
+
+    return mergeAndDedupeTokens([trending, raydium, orca, meteora, pumpfun]);
+  } catch (error) {
+    console.error('Error fetching multi-DEX tokens:', error);
+    return fetchTrendingSolanaTokens();
+  }
 }
 
 export async function fetchNewSolanaPairs(): Promise<SolanaToken[]> {
@@ -305,8 +450,10 @@ Provide a brief 2-3 sentence trading analysis explaining the signal and key fact
   };
 }
 
-export async function scanAndAnalyzeTokens(limit: number = 10): Promise<TokenAnalysis[]> {
-  const tokens = await fetchTrendingSolanaTokens();
+export async function scanAndAnalyzeTokens(limit: number = 10, dexFilter: DexSource = 'all'): Promise<TokenAnalysis[]> {
+  const tokens = dexFilter === 'all'
+    ? await fetchMultiDexTokens('all')
+    : await fetchMultiDexTokens(dexFilter);
   
   const filteredTokens = tokens
     .filter(t => t.liquidity > 5000 && t.volume24h > 1000)

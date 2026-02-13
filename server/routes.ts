@@ -47,7 +47,7 @@ import { encryptPassword, executeMT5SignalOnTradeLocker, TradeLockerService, dec
 import veddTokenRouter from "./routes/vedd-token";
 import { veddTokenService } from "./services/vedd-token-service";
 import { streamingService } from "./streaming";
-import { scanAndAnalyzeTokens, searchSolanaToken, analyzeToken, fetchTrendingSolanaTokens } from "./solana-scanner";
+import { scanAndAnalyzeTokens, searchSolanaToken, analyzeToken, fetchTrendingSolanaTokens, fetchMultiDexTokens, type DexSource } from "./solana-scanner";
 
 // Configure multer for file uploads (images)
 const upload = multer({
@@ -10493,8 +10493,11 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   app.get("/api/solana/scan", async (req: Request, res: Response) => {
     try {
       const limit = Math.min(parseInt(req.query.limit as string) || 10, 20);
-      const analyses = await scanAndAnalyzeTokens(limit);
-      res.json({ success: true, tokens: analyses, scannedAt: new Date().toISOString() });
+      const dexFilter = (req.query.dex as DexSource) || 'all';
+      const validDexes: DexSource[] = ['all', 'raydium', 'orca', 'meteora', 'pumpfun', 'jupiter'];
+      const safeDexFilter = validDexes.includes(dexFilter) ? dexFilter : 'all';
+      const analyses = await scanAndAnalyzeTokens(limit, safeDexFilter);
+      res.json({ success: true, tokens: analyses, scannedAt: new Date().toISOString(), dexFilter: safeDexFilter });
     } catch (error) {
       console.error('Error scanning Solana tokens:', error);
       res.status(500).json({ success: false, error: 'Failed to scan tokens' });
