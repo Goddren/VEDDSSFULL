@@ -22,6 +22,9 @@ interface WalletData {
   veddBalance: number;
   isAmbassador: boolean;
   ambassadorNftMint: string | null;
+  membershipTier: string;
+  hasVeddNft: boolean;
+  membershipNftMint: string | null;
 }
 
 interface WalletContextType {
@@ -130,28 +133,26 @@ export function SolanaWalletProvider({ children }: { children: ReactNode }) {
     let veddBalance = 0;
     let isAmbassador = false;
     let ambassadorNftMint: string | null = null;
+    let hasVeddNft = false;
+    let membershipNftMint: string | null = null;
+    let membershipTier = 'none';
     
     console.log('fetchTokenBalances: Fetching for address:', address);
     
-    // Use server-side API to avoid client rate limiting
     try {
-      // Fetch SOL balance from server
       const balanceRes = await fetch(`/api/solana/balance/${address}`);
       const balanceData = await balanceRes.json();
       if (balanceData.success) {
         solBalance = balanceData.balance || 0;
-        console.log('fetchTokenBalances: Got SOL balance from server:', solBalance);
       }
     } catch (err) {
       console.error('fetchTokenBalances: Failed to fetch SOL balance from server:', err);
     }
     
-    // Fetch tokens from server to check for VEDD and Ambassador NFT
     try {
       const tokensRes = await fetch(`/api/solana/wallet-tokens/${address}`);
       const tokensData = await tokensRes.json();
       if (tokensData.success && tokensData.tokens) {
-        console.log('fetchTokenBalances: Got', tokensData.tokens.length, 'tokens from server');
         for (const token of tokensData.tokens) {
           if (token.mint === VEDD_TOKEN_MINT) {
             veddBalance = token.uiAmount || 0;
@@ -162,19 +163,31 @@ export function SolanaWalletProvider({ children }: { children: ReactNode }) {
               ambassadorNftMint = token.mint;
             }
           }
+          if ((token.mint.startsWith('VEDDNFT') || token.mint.startsWith('VEDDMEM')) && token.uiAmount === 1 && token.decimals === 0) {
+            hasVeddNft = true;
+            membershipNftMint = token.mint;
+          }
         }
       }
     } catch (err) {
       console.error('fetchTokenBalances: Failed to fetch tokens from server:', err);
     }
 
-    console.log('fetchTokenBalances: Final data -', { solBalance, veddBalance, isAmbassador });
+    if (hasVeddNft) membershipTier = 'elite';
+    else if (veddBalance >= 500) membershipTier = 'pro';
+    else if (veddBalance >= 100) membershipTier = 'basic';
+    else membershipTier = 'none';
+
+    console.log('fetchTokenBalances: Final data -', { solBalance, veddBalance, isAmbassador, membershipTier, hasVeddNft });
     
     return {
       solBalance,
       veddBalance,
       isAmbassador,
       ambassadorNftMint,
+      membershipTier,
+      hasVeddNft,
+      membershipNftMint,
     };
   }, []);
 
@@ -191,6 +204,9 @@ export function SolanaWalletProvider({ children }: { children: ReactNode }) {
       veddBalance: balances.veddBalance || 0,
       isAmbassador: balances.isAmbassador || false,
       ambassadorNftMint: balances.ambassadorNftMint || null,
+      membershipTier: balances.membershipTier || 'none',
+      hasVeddNft: balances.hasVeddNft || false,
+      membershipNftMint: balances.membershipNftMint || null,
     });
   }, [fetchTokenBalances, walletType]);
 
@@ -238,6 +254,9 @@ export function SolanaWalletProvider({ children }: { children: ReactNode }) {
         veddBalance: balances.veddBalance || 0,
         isAmbassador: balances.isAmbassador || false,
         ambassadorNftMint: balances.ambassadorNftMint || null,
+        membershipTier: balances.membershipTier || 'none',
+        hasVeddNft: balances.hasVeddNft || false,
+        membershipNftMint: balances.membershipNftMint || null,
       });
 
       setWalletType(targetType);

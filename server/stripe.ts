@@ -219,7 +219,12 @@ export async function createSubscription(userId: number, planId: number, success
 // Check if user can perform an action based on their subscription limits
 export async function checkUserSubscriptionLimits(userId: number, actionType: 'analysis' | 'social_share') {
   try {
-    // Get user with their subscription plan
+    const MEMBERSHIP_PLAN_MAP: Record<string, string> = {
+      basic: 'Starter',
+      pro: 'Premium',
+      elite: 'Yearly',
+    };
+
     const [user] = await db
       .select({
         id: users.id,
@@ -228,6 +233,7 @@ export async function checkUserSubscriptionLimits(userId: number, actionType: 'a
         monthlyAnalysisCount: users.monthlyAnalysisCount,
         monthlySocialShareCount: users.monthlySocialShareCount,
         lastCountReset: users.lastCountReset,
+        membershipTier: users.membershipTier,
       })
       .from(users)
       .where(eq(users.id, userId));
@@ -236,7 +242,6 @@ export async function checkUserSubscriptionLimits(userId: number, actionType: 'a
       throw new Error('User not found');
     }
 
-    // If user doesn't have a subscription plan, assign them the free plan (id: 1)
     if (!user.subscriptionPlanId) {
       await db
         .update(users)
@@ -249,11 +254,28 @@ export async function checkUserSubscriptionLimits(userId: number, actionType: 'a
       user.subscriptionStatus = 'active';
     }
 
-    // Get the user's subscription plan
-    const [plan] = await db
-      .select()
-      .from(subscriptionPlans)
-      .where(eq(subscriptionPlans.id, user.subscriptionPlanId));
+    let plan;
+
+    if (user.membershipTier && user.membershipTier !== 'none') {
+      const equivalentPlanName = MEMBERSHIP_PLAN_MAP[user.membershipTier];
+      if (equivalentPlanName) {
+        const [tokenPlan] = await db
+          .select()
+          .from(subscriptionPlans)
+          .where(eq(subscriptionPlans.name, equivalentPlanName));
+        if (tokenPlan) {
+          plan = tokenPlan;
+        }
+      }
+    }
+
+    if (!plan) {
+      const [dbPlan] = await db
+        .select()
+        .from(subscriptionPlans)
+        .where(eq(subscriptionPlans.id, user.subscriptionPlanId));
+      plan = dbPlan;
+    }
 
     if (!plan) {
       throw new Error('Subscription plan not found');

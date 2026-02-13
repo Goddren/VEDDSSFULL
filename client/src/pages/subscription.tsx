@@ -3,7 +3,7 @@ import { apiRequest } from '@/lib/queryClient';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/use-auth';
 import { useLocation } from 'wouter';
-import { Loader2, Check, AlertCircle, Coins } from 'lucide-react';
+import { Loader2, Check, AlertCircle, Coins, Crown, Shield, Star, Wallet, ExternalLink } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -471,6 +471,99 @@ export default function SubscriptionPage() {
           </Alert>
         </div>
       )}
+
+      {/* Token-Gated Membership Section */}
+      <div className="mb-12 p-6 bg-gradient-to-br from-purple-500/10 via-amber-500/5 to-blue-500/10 rounded-xl border border-purple-500/20">
+        <div className="text-center mb-6">
+          <h2 className="text-2xl font-bold mb-2">VEDD Token Membership</h2>
+          <p className="text-muted-foreground">Hold VEDD tokens or a VEDD NFT in your wallet to unlock membership tiers — no recurring payments needed</p>
+        </div>
+        
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+          <Card className="border-2 border-blue-500/30 bg-blue-500/5 overflow-hidden">
+            <div className="bg-blue-500/20 p-3 text-center">
+              <Star className="h-8 w-8 text-blue-400 mx-auto mb-1" />
+              <h3 className="font-bold text-lg text-blue-300">Basic Tier</h3>
+            </div>
+            <CardContent className="pt-4">
+              <div className="text-center mb-3">
+                <p className="text-3xl font-bold text-blue-300">100+</p>
+                <p className="text-sm text-muted-foreground">VEDD Tokens</p>
+              </div>
+              <ul className="space-y-2 text-sm">
+                <li className="flex items-start gap-2"><Check className="h-4 w-4 text-blue-400 mt-0.5 flex-shrink-0" /> All Starter plan features</li>
+                <li className="flex items-start gap-2"><Check className="h-4 w-4 text-blue-400 mt-0.5 flex-shrink-0" /> Multi-timeframe EA generator</li>
+                <li className="flex items-start gap-2"><Check className="h-4 w-4 text-blue-400 mt-0.5 flex-shrink-0" /> 100 chart analyses/month</li>
+                <li className="flex items-start gap-2"><Check className="h-4 w-4 text-blue-400 mt-0.5 flex-shrink-0" /> Trailing stop automation</li>
+                <li className="flex items-start gap-2"><Check className="h-4 w-4 text-blue-400 mt-0.5 flex-shrink-0" /> Priority support</li>
+              </ul>
+            </CardContent>
+          </Card>
+
+          <Card className="border-2 border-purple-500/30 bg-purple-500/5 overflow-hidden">
+            <div className="bg-purple-500/20 p-3 text-center">
+              <Shield className="h-8 w-8 text-purple-400 mx-auto mb-1" />
+              <h3 className="font-bold text-lg text-purple-300">Pro Tier</h3>
+            </div>
+            <CardContent className="pt-4">
+              <div className="text-center mb-3">
+                <p className="text-3xl font-bold text-purple-300">500+</p>
+                <p className="text-sm text-muted-foreground">VEDD Tokens</p>
+              </div>
+              <ul className="space-y-2 text-sm">
+                <li className="flex items-start gap-2"><Check className="h-4 w-4 text-purple-400 mt-0.5 flex-shrink-0" /> All Premium plan features</li>
+                <li className="flex items-start gap-2"><Check className="h-4 w-4 text-purple-400 mt-0.5 flex-shrink-0" /> Unlimited chart analyses</li>
+                <li className="flex items-start gap-2"><Check className="h-4 w-4 text-purple-400 mt-0.5 flex-shrink-0" /> Confidence scoring system</li>
+                <li className="flex items-start gap-2"><Check className="h-4 w-4 text-purple-400 mt-0.5 flex-shrink-0" /> EA Marketplace monetization</li>
+                <li className="flex items-start gap-2"><Check className="h-4 w-4 text-purple-400 mt-0.5 flex-shrink-0" /> API access for automation</li>
+              </ul>
+            </CardContent>
+          </Card>
+
+          <Card className="border-2 border-amber-500/30 bg-amber-500/5 overflow-hidden relative">
+            <div className="absolute top-2 right-2">
+              <Badge className="bg-amber-500 text-black font-bold text-xs">TOP TIER</Badge>
+            </div>
+            <div className="bg-gradient-to-r from-amber-500/20 to-orange-500/20 p-3 text-center">
+              <Crown className="h-8 w-8 text-amber-400 mx-auto mb-1" />
+              <h3 className="font-bold text-lg text-amber-300">Elite Tier</h3>
+            </div>
+            <CardContent className="pt-4">
+              <div className="text-center mb-3">
+                <p className="text-3xl font-bold text-amber-300">VEDD NFT</p>
+                <p className="text-sm text-muted-foreground">Membership NFT Required</p>
+              </div>
+              <ul className="space-y-2 text-sm">
+                <li className="flex items-start gap-2"><Check className="h-4 w-4 text-amber-400 mt-0.5 flex-shrink-0" /> Everything in Pro tier</li>
+                <li className="flex items-start gap-2"><Check className="h-4 w-4 text-amber-400 mt-0.5 flex-shrink-0" /> Lifetime access - never expires</li>
+                <li className="flex items-start gap-2"><Check className="h-4 w-4 text-amber-400 mt-0.5 flex-shrink-0" /> Early access to beta features</li>
+                <li className="flex items-start gap-2"><Check className="h-4 w-4 text-amber-400 mt-0.5 flex-shrink-0" /> Premium creator tools</li>
+                <li className="flex items-start gap-2"><Check className="h-4 w-4 text-amber-400 mt-0.5 flex-shrink-0" /> Transferable membership (sell/trade)</li>
+              </ul>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="text-center space-y-3">
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <a href="https://pump.fun/coin/Ch7WbPBy5XjL1UULwWYwh75DsVdXhFUVXtiNvNGopump" target="_blank" rel="noopener noreferrer">
+              <Button className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500">
+                <ExternalLink className="h-4 w-4 mr-2" />
+                Buy VEDD Tokens
+              </Button>
+            </a>
+            <Button variant="outline" className="border-purple-500/30 text-purple-300 hover:bg-purple-500/10" onClick={() => setLocation('/auth')}>
+              <Wallet className="h-4 w-4 mr-2" />
+              Login with Wallet
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">Connect your Phantom wallet on the login page to verify your token holdings and activate your membership tier</p>
+        </div>
+      </div>
+
+      <div className="text-center mb-8">
+        <p className="text-lg text-muted-foreground">Or subscribe with a traditional payment plan:</p>
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
         {plans?.map((plan) => (

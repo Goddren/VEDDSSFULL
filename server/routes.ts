@@ -2257,9 +2257,35 @@ Respond ONLY in valid JSON format with these exact keys:
       }
 
       const userId = (req.user as Express.User).id;
+      const user = req.user as User;
       const subscription = await getUserSubscription(userId);
       
-      res.json(subscription || { planId: 1, planName: "Free", status: "active" });
+      const baseResponse = subscription || { planId: 1, planName: "Free", status: "active" };
+      
+      const membershipTier = user.membershipTier || 'none';
+      if (membershipTier !== 'none') {
+        const TIER_PLAN_MAP: Record<string, string> = { basic: 'Starter', pro: 'Premium', elite: 'Yearly' };
+        const equivalentPlan = TIER_PLAN_MAP[membershipTier];
+        if (equivalentPlan) {
+          const plans = await getSubscriptionPlans();
+          const tokenPlan = plans.find((p: any) => p.name === equivalentPlan);
+          if (tokenPlan) {
+            (baseResponse as any).tokenGatedPlanName = equivalentPlan;
+            (baseResponse as any).tokenGatedAnalysisLimit = tokenPlan.analysisLimit;
+            (baseResponse as any).tokenGatedSocialShareLimit = tokenPlan.socialShareLimit;
+            if (!subscription || tokenPlan.analysisLimit > (subscription.analysisLimit || 0)) {
+              (baseResponse as any).planName = `${equivalentPlan} (VEDD ${membershipTier.charAt(0).toUpperCase() + membershipTier.slice(1)})`;
+              (baseResponse as any).analysisLimit = tokenPlan.analysisLimit;
+              (baseResponse as any).socialShareLimit = tokenPlan.socialShareLimit;
+              (baseResponse as any).status = 'active';
+            }
+          }
+        }
+        (baseResponse as any).membershipTier = membershipTier;
+        (baseResponse as any).isTokenGated = true;
+      }
+      
+      res.json(baseResponse);
     } catch (error) {
       console.error("Error fetching user subscription:", error);
       res.status(500).json({ message: "Error fetching user subscription" });
@@ -9707,10 +9733,25 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   }
 
   // Server-side Solana token verification (ignore client-sent values for security)
+  const VEDD_MEMBERSHIP_TIERS = {
+    basic: { minTokens: 100, label: 'Basic', planEquivalent: 'Starter' },
+    pro: { minTokens: 500, label: 'Pro', planEquivalent: 'Premium' },
+    elite: { label: 'Elite', planEquivalent: 'Yearly', requiresNft: true },
+  };
+
+  function determineMembershipTier(veddBalance: number, hasNft: boolean): string {
+    if (hasNft) return 'elite';
+    if (veddBalance >= VEDD_MEMBERSHIP_TIERS.pro.minTokens) return 'pro';
+    if (veddBalance >= VEDD_MEMBERSHIP_TIERS.basic.minTokens) return 'basic';
+    return 'none';
+  }
+
   async function verifyTokenBalancesServerSide(walletAddress: string): Promise<{
     veddBalance: number;
     isAmbassador: boolean;
     ambassadorNftMint: string | null;
+    hasVeddNft: boolean;
+    membershipNftMint: string | null;
   }> {
     const VEDD_TOKEN_MINT = 'Ch7WbPBy5XjL1UULwWYwh75DsVdXhFUVXtiNvNGopump';
     const SOLANA_RPC = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
@@ -9735,6 +9776,8 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       let veddBalance = 0;
       let isAmbassador = false;
       let ambassadorNftMint: string | null = null;
+      let hasVeddNft = false;
+      let membershipNftMint: string | null = null;
       
       if (data.result?.value) {
         for (const account of data.result.value) {
@@ -9750,13 +9793,18 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
             isAmbassador = true;
             ambassadorNftMint = mint;
           }
+
+          if ((mint.startsWith('VEDDNFT') || mint.startsWith('VEDDMEM')) && parsedInfo.tokenAmount.amount === '1' && parsedInfo.tokenAmount.decimals === 0) {
+            hasVeddNft = true;
+            membershipNftMint = mint;
+          }
         }
       }
       
-      return { veddBalance, isAmbassador, ambassadorNftMint };
+      return { veddBalance, isAmbassador, ambassadorNftMint, hasVeddNft, membershipNftMint };
     } catch (err) {
       console.error('Server-side token verification failed:', err);
-      return { veddBalance: 0, isAmbassador: false, ambassadorNftMint: null };
+      return { veddBalance: 0, isAmbassador: false, ambassadorNftMint: null, hasVeddNft: false, membershipNftMint: null };
     }
   }
 
@@ -9788,27 +9836,36 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       }
 
       // Server-side verification of token balances (ignore client-sent values)
-      const { veddBalance, isAmbassador, ambassadorNftMint } = await verifyTokenBalancesServerSide(walletAddress);
+      const { veddBalance, isAmbassador, ambassadorNftMint, hasVeddNft, membershipNftMint } = await verifyTokenBalancesServerSide(walletAddress);
+
+      // Determine membership tier from token holdings
+      const membershipTier = determineMembershipTier(veddBalance, hasVeddNft);
+      const tierInfo = membershipTier !== 'none' ? (VEDD_MEMBERSHIP_TIERS as any)[membershipTier] : null;
 
       // Find or create user by wallet address
       let user = await storage.getUserByWalletAddress(walletAddress);
       let isNewUser = false;
       
+      const membershipFields = {
+        veddTokenBalance: veddBalance,
+        isAmbassador,
+        ambassadorNftMint,
+        hasVeddNft,
+        membershipNftMint,
+        membershipTier,
+        lastWalletSync: new Date(),
+        walletVerified: true,
+      };
+
       if (!user) {
-        // Check if user is authenticated and wants to link wallet
         if (req.isAuthenticated()) {
           const currentUser = req.user as User;
           await storage.updateUser(currentUser.id, {
             walletAddress,
-            veddTokenBalance: veddBalance,
-            isAmbassador,
-            ambassadorNftMint,
-            lastWalletSync: new Date(),
-            walletVerified: true,
+            ...membershipFields,
           });
           user = await storage.getUser(currentUser.id);
         } else {
-          // Create new user from wallet address (wallet-only login)
           const shortAddress = `${walletAddress.slice(0, 4)}...${walletAddress.slice(-4)}`;
           const username = `wallet_${walletAddress.slice(0, 8)}`;
           const randomPassword = Math.random().toString(36).slice(-12) + Math.random().toString(36).slice(-12);
@@ -9816,40 +9873,36 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
           
           user = await storage.createUser({
             username,
-            password: hashedPassword, // Hashed random password - user logs in via wallet
+            password: hashedPassword,
             email: `${walletAddress.slice(0, 12)}@wallet.veddai.com`,
             fullName: `Wallet User ${shortAddress}`,
             walletAddress,
-            veddTokenBalance: veddBalance,
-            isAmbassador,
-            ambassadorNftMint,
-            lastWalletSync: new Date(),
-            walletVerified: true,
+            ...membershipFields,
           });
           isNewUser = true;
         }
       } else {
-        // Update token balances from server verification
-        await storage.updateUser(user.id, {
-          veddTokenBalance: veddBalance,
-          isAmbassador,
-          ambassadorNftMint,
-          lastWalletSync: new Date(),
-        });
+        await storage.updateUser(user.id, membershipFields);
+      }
 
-        // Check and apply token-gated subscription
-        if (veddBalance > 0 && !user.tokenGatedSubscriptionEnd) {
-          const threeMonthsFromNow = new Date();
-          threeMonthsFromNow.setMonth(threeMonthsFromNow.getMonth() + 3);
-          await storage.updateUser(user.id, {
-            tokenGatedSubscriptionEnd: threeMonthsFromNow,
-            subscriptionStatus: 'active',
-          });
-        }
+      // Apply token-gated subscription based on membership tier
+      if (user && membershipTier !== 'none') {
+        const oneYearFromNow = new Date();
+        oneYearFromNow.setFullYear(oneYearFromNow.getFullYear() + 1);
+        await storage.updateUser(user.id, {
+          tokenGatedSubscriptionEnd: oneYearFromNow,
+          subscriptionStatus: 'active',
+        });
+      } else if (user && membershipTier === 'none' && user.membershipTier !== 'none') {
+        await storage.updateUser(user.id, {
+          subscriptionStatus: user.stripeSubscriptionId ? 'active' : 'none',
+          membershipTier: 'none',
+        });
       }
 
       // Log the user in via session (wallet-based login)
       if (user) {
+        user = await storage.getUser(user.id);
         await new Promise<void>((resolve, reject) => {
           req.login(user, (err) => {
             if (err) reject(err);
@@ -9860,14 +9913,68 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       
       res.json({ 
         success: true,
-        user: user ? { id: user.id, username: user.username, walletAddress, veddBalance, isAmbassador } : null,
-        tokenGatedAccess: veddBalance > 0,
+        user: user ? { 
+          id: user.id, 
+          username: user.username, 
+          walletAddress, 
+          veddBalance, 
+          isAmbassador,
+          membershipTier,
+          hasVeddNft,
+        } : null,
+        tokenGatedAccess: membershipTier !== 'none',
+        membershipTier,
+        tierLabel: tierInfo?.label || 'None',
+        tierPlanEquivalent: tierInfo?.planEquivalent || null,
         isNewUser,
       });
     } catch (err) {
       console.error('Wallet authentication error:', err);
       res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' });
     }
+  });
+
+  // Get membership tier info for current user
+  app.get("/api/membership/status", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.json({ 
+        membershipTier: 'none',
+        hasVeddNft: false,
+        veddBalance: 0,
+        tierLabel: 'None',
+        tierPlanEquivalent: null,
+        isTokenGated: false,
+      });
+    }
+    
+    const user = req.user as User;
+    const tier = user.membershipTier || 'none';
+    const tierInfo = tier !== 'none' ? (VEDD_MEMBERSHIP_TIERS as any)[tier] : null;
+    
+    res.json({
+      membershipTier: tier,
+      hasVeddNft: user.hasVeddNft || false,
+      veddBalance: user.veddTokenBalance || 0,
+      tierLabel: tierInfo?.label || 'None',
+      tierPlanEquivalent: tierInfo?.planEquivalent || null,
+      isTokenGated: tier !== 'none',
+      tokenGatedSubscriptionEnd: user.tokenGatedSubscriptionEnd,
+      walletAddress: user.walletAddress,
+      walletVerified: user.walletVerified,
+    });
+  });
+
+  // Get membership tier requirements (public endpoint)
+  app.get("/api/membership/tiers", async (_req: Request, res: Response) => {
+    res.json({
+      tiers: [
+        { id: 'basic', label: 'Basic', minTokens: 100, planEquivalent: 'Starter', requiresNft: false },
+        { id: 'pro', label: 'Pro', minTokens: 500, planEquivalent: 'Premium', requiresNft: false },
+        { id: 'elite', label: 'Elite', minTokens: null, planEquivalent: 'Yearly', requiresNft: true },
+      ],
+      tokenMint: 'Ch7WbPBy5XjL1UULwWYwh75DsVdXhFUVXtiNvNGopump',
+      nftPrefixes: ['VEDDNFT', 'VEDDMEM'],
+    });
   });
 
   // Get governance proposals

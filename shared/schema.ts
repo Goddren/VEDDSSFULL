@@ -43,6 +43,9 @@ export const users = pgTable("users", {
   lastWalletSync: timestamp("last_wallet_sync"), // Last time wallet data was synced
   walletVerified: boolean("wallet_verified").default(false), // Has user signed message to verify wallet ownership
   isAdmin: boolean("is_admin").default(false), // Admin privileges for token pool management
+  membershipTier: text("membership_tier").default('none'), // none, basic, pro, elite - token-gated membership
+  membershipNftMint: text("membership_nft_mint"), // VEDD membership NFT mint address for elite tier
+  hasVeddNft: boolean("has_vedd_nft").default(false), // Holds a VEDD membership NFT
   // faithBasedContent field temporarily removed due to database issues
   // Using localStorage instead of database column for faith-based content preferences
   // referralCode field temporarily removed due to database issues

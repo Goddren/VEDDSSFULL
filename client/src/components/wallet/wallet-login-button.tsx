@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Wallet, Check, X, Coins, Award, RefreshCw, ExternalLink } from 'lucide-react';
+import { Wallet, Check, X, Coins, Award, RefreshCw, ExternalLink, Crown, Shield, Star } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { useSolanaWallet } from '@/hooks/use-solana-wallet';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
@@ -11,6 +12,13 @@ interface WalletLoginButtonProps {
   onWalletLogin?: (walletData: { address: string; veddBalance: number; isAmbassador: boolean }) => void;
   className?: string;
 }
+
+const TIER_CONFIG: Record<string, { label: string; color: string; bgColor: string; borderColor: string; icon: any; description: string }> = {
+  elite: { label: 'Elite', color: 'text-amber-300', bgColor: 'bg-amber-500/20', borderColor: 'border-amber-500/30', icon: Crown, description: 'VEDD NFT Holder - Full Access' },
+  pro: { label: 'Pro', color: 'text-purple-300', bgColor: 'bg-purple-500/20', borderColor: 'border-purple-500/30', icon: Shield, description: '500+ VEDD Tokens' },
+  basic: { label: 'Basic', color: 'text-blue-300', bgColor: 'bg-blue-500/20', borderColor: 'border-blue-500/30', icon: Star, description: '100+ VEDD Tokens' },
+  none: { label: 'No Membership', color: 'text-gray-400', bgColor: 'bg-gray-500/10', borderColor: 'border-gray-700/30', icon: Coins, description: 'Hold VEDD tokens or NFT for access' },
+};
 
 export function WalletLoginButton({ onWalletLogin, className }: WalletLoginButtonProps) {
   const { connected, connecting, walletData, connect, disconnect, signMessage, refreshWalletData, error } = useSolanaWallet();
@@ -225,13 +233,51 @@ export function WalletLoginButton({ onWalletLogin, className }: WalletLoginButto
           </div>
         </div>
 
-        {walletData?.veddBalance && walletData.veddBalance > 0 && (
-          <div className="mt-3 p-2 bg-gradient-to-r from-amber-500/10 to-orange-500/10 border border-amber-500/20 rounded-lg">
-            <p className="text-amber-300 text-xs text-center">
-              You qualify for 3 months free subscription
-            </p>
-          </div>
-        )}
+        {/* Membership Tier Display */}
+        {(() => {
+          const tier = walletData?.membershipTier || 'none';
+          const config = TIER_CONFIG[tier] || TIER_CONFIG.none;
+          const TierIcon = config.icon;
+          return (
+            <div className={`mt-3 p-3 rounded-lg border ${config.bgColor} ${config.borderColor}`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <TierIcon className={`h-5 w-5 ${config.color}`} />
+                  <div>
+                    <p className={`font-bold text-sm ${config.color}`}>
+                      {tier !== 'none' ? `${config.label} Member` : 'No Membership'}
+                    </p>
+                    <p className="text-xs text-gray-400">{config.description}</p>
+                  </div>
+                </div>
+                {tier !== 'none' && (
+                  <Badge className={`${config.bgColor} ${config.color} ${config.borderColor} border text-xs`}>
+                    Active
+                  </Badge>
+                )}
+              </div>
+              {tier === 'none' && (
+                <div className="mt-2 grid grid-cols-3 gap-1 text-center">
+                  <div className="bg-blue-500/10 rounded p-1">
+                    <p className="text-blue-300 text-xs font-bold">100+</p>
+                    <p className="text-gray-500 text-[10px]">Basic</p>
+                  </div>
+                  <div className="bg-purple-500/10 rounded p-1">
+                    <p className="text-purple-300 text-xs font-bold">500+</p>
+                    <p className="text-gray-500 text-[10px]">Pro</p>
+                  </div>
+                  <div className="bg-amber-500/10 rounded p-1">
+                    <p className="text-amber-300 text-xs font-bold">NFT</p>
+                    <p className="text-gray-500 text-[10px]">Elite</p>
+                  </div>
+                </div>
+              )}
+              {tier === 'basic' && walletData?.veddBalance !== undefined && (
+                <p className="text-xs text-gray-400 mt-1">Hold {500 - Math.floor(walletData.veddBalance)} more VEDD for Pro tier</p>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       <div className="flex gap-2">

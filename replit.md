@@ -27,7 +27,7 @@ Preferred communication style: Simple, everyday language.
 ### Technical Implementations
 - **Backend**: Node.js with Express, TypeScript.
 - **Database**: PostgreSQL with Drizzle ORM.
-- **Authentication**: Passport.js with local strategy (session-based).
+- **Authentication**: Passport.js with local strategy (session-based), plus Phantom wallet login with token-gated membership tiers (Basic: 100+ VEDD tokens, Pro: 500+ tokens, Elite: VEDD NFT holder).
 - **State Management**: React Query for server state, Context API for authentication.
 - **Routing**: Wouter for client-side routing.
 - **Styling**: Tailwind CSS with a custom design system.
