@@ -554,6 +554,11 @@ input int ChoppyConfirmBars = 3;                // Bars ADX must stay below thre
 input bool UseATRChoppyFilter = true;           // Also check ATR volatility for choppy detection
 input double ATRChoppyRatio = 0.5;              // ATR below (this * avg ATR) = low volatility choppy
 input int ChoppyATRLookback = 20;               // Bars to calculate average ATR
+input bool ChoppyRequireBoth = false;           // true=require ADX+ATR both choppy, false=ANY single signal triggers pause
+input int ChoppyCooldownBars = 5;               // Bars to wait after choppy clears before resuming trades
+input bool UseBBSqueezeFilter = true;           // Detect Bollinger Band squeeze (tight range = choppy)
+input int BB_Period = 20;                       // Bollinger Band period
+input double BB_SqueezeRatio = 0.4;             // BB width below (this * avg width) = squeeze/choppy
 input bool LogChoppyState = true;               // Print messages when choppy state changes
 
 //--- Trading Hours (Peak Volume Times) - OPTIONAL
@@ -728,6 +733,12 @@ struct ChoppyMarketState
    int choppyBarsCount;          // Consecutive bars below threshold
    datetime lastStateChange;     // When state last changed
    string reason;                // Why market is considered choppy
+   bool adxChoppy;               // ADX alone says choppy
+   bool atrChoppy;               // ATR alone says choppy
+   bool bbSqueeze;               // Bollinger Band squeeze detected
+   int cooldownBarsLeft;         // Bars remaining in cooldown after choppy clears
+   double bbWidth;               // Current BB width
+   double avgBBWidth;            // Average BB width for comparison
 };
 
 //--- Global variables for multi-stage system
@@ -740,6 +751,7 @@ MARKET_STATE g_lastHTFState = STATE_UNKNOWN;  // Track state changes
 ChoppyMarketState g_choppyState;  // Choppy market detection state
 bool g_wasChoppy = false;         // Previous choppy state for change detection
 int g_adxHandle = INVALID_HANDLE; // ADX indicator handle
+int g_bbHandle = INVALID_HANDLE;  // Bollinger Band indicator handle for squeeze detection
 
 //+------------------------------------------------------------------+
 //| CHART VISUALIZATION SETTINGS                                     |
@@ -910,8 +922,20 @@ void UpdateInfoPanel()
    ObjectSetInteger(0, TEXT_INFO + "ATR_val", OBJPROP_COLOR, clrWhite);
    
    // Update Market State
-   string state_text = g_choppyState.isChoppy ? "CHOPPY" : "TRENDING";
-   color state_color = g_choppyState.isChoppy ? NeutralColor : BuyColor;
+   string state_text = "TRENDING";
+   color state_color = BuyColor;
+   if(g_choppyState.isChoppy)
+   {
+      state_text = "CHOPPY";
+      if(g_choppyState.adxChoppy && g_choppyState.bbSqueeze) state_text = "CHOPPY+SQZ";
+      else if(g_choppyState.bbSqueeze) state_text = "SQUEEZE";
+      state_color = NeutralColor;
+   }
+   else if(g_choppyState.cooldownBarsLeft > 0)
+   {
+      state_text = "COOLDOWN(" + IntegerToString(g_choppyState.cooldownBarsLeft) + ")";
+      state_color = clrOrange;
+   }
    ObjectSetString(0, TEXT_INFO + "Choppy_val", OBJPROP_TEXT, state_text);
    ObjectSetInteger(0, TEXT_INFO + "Choppy_val", OBJPROP_COLOR, state_color);
    
@@ -921,8 +945,9 @@ void UpdateInfoPanel()
    ObjectSetInteger(0, TEXT_INFO + "Trades_val", OBJPROP_COLOR, open_trades > 0 ? BuyColor : clrWhite);
    
    // Update Status
-   string status = trading_paused ? "PAUSED" : (g_choppyState.isChoppy ? "WAITING" : "ACTIVE");
-   color status_color = trading_paused ? SellColor : (g_choppyState.isChoppy ? NeutralColor : BuyColor);
+   bool in_cooldown = (!g_choppyState.isChoppy && g_choppyState.cooldownBarsLeft > 0);
+   string status = trading_paused ? "PAUSED" : (g_choppyState.isChoppy || in_cooldown ? "WAITING" : "ACTIVE");
+   color status_color = trading_paused ? SellColor : (g_choppyState.isChoppy || in_cooldown ? NeutralColor : BuyColor);
    ObjectSetString(0, TEXT_INFO + "Status_val", OBJPROP_TEXT, status);
    ObjectSetInteger(0, TEXT_INFO + "Status_val", OBJPROP_COLOR, status_color);
    
@@ -1110,11 +1135,23 @@ int OnInit()
       {
          Print("Warning: Failed to create ADX indicator for choppy market detection");
       }
+      if(UseBBSqueezeFilter)
+      {
+         g_bbHandle = iBands(_Symbol, PERIOD_CURRENT, BB_Period, 0, 2.0, PRICE_CLOSE);
+         if(g_bbHandle == INVALID_HANDLE)
+         {
+            Print("Warning: Failed to create Bollinger Band indicator for squeeze detection");
+         }
+      }
       // Initialize choppy state
       g_choppyState.isChoppy = false;
       g_choppyState.choppyBarsCount = 0;
+      g_choppyState.cooldownBarsLeft = 0;
       g_choppyState.lastStateChange = TimeCurrent();
       g_choppyState.reason = "";
+      g_choppyState.adxChoppy = false;
+      g_choppyState.atrChoppy = false;
+      g_choppyState.bbSqueeze = false;
    }
    
    if(rsi_handle == INVALID_HANDLE || macd_handle == INVALID_HANDLE || atr_handle == INVALID_HANDLE)
@@ -1546,12 +1583,18 @@ ${higherTFs.map(tf => `      if(tf_${tf.timeframe.replace(/[^a-zA-Z0-9]/g, '_')}
       Print("");
       if(UseChoppyMarketFilter)
       {
+         string choppy_status = g_choppyState.isChoppy ? "CHOPPY (Trading Paused)" : 
+                                (g_choppyState.cooldownBarsLeft > 0 ? "COOLDOWN (" + IntegerToString(g_choppyState.cooldownBarsLeft) + " bars)" : "CLEAR (Trading Active)");
          Print("CHOPPY MARKET FILTER:");
-         Print("  - Status: ", g_choppyState.isChoppy ? "CHOPPY (Trading Paused)" : "CLEAR (Trading Active)");
+         Print("  - Status: ", choppy_status);
          Print("  - ADX: ", DoubleToString(g_choppyState.currentADX, 2), 
                " (Threshold: ", DoubleToString(ADX_ChoppyThreshold, 1), 
                ", Strong: ", DoubleToString(ADX_StrongTrendThreshold, 1), ")");
+         Print("  - ADX Choppy: ", g_choppyState.adxChoppy ? "YES" : "NO",
+               " | ATR Choppy: ", g_choppyState.atrChoppy ? "YES" : "NO",
+               " | BB Squeeze: ", g_choppyState.bbSqueeze ? "YES" : "NO");
          Print("  - Trend Strength: ", GetTrendStrengthFromADX(), "%");
+         Print("  - Mode: ", ChoppyRequireBoth ? "STRICT (require both)" : "SENSITIVE (either triggers)");
          if(g_choppyState.isChoppy)
          {
             Print("  - Reason: ", g_choppyState.reason);
@@ -2827,10 +2870,10 @@ void EvaluateChoppyMarketState()
    }
    
    bool adx_confirmed_choppy = (consecutive_choppy >= ChoppyConfirmBars);
+   g_choppyState.adxChoppy = adx_confirmed_choppy;
    
    // ATR-based choppy detection (low volatility)
    bool atr_choppy = false;
-   g_choppyState.reason = "";
    
    if(UseATRChoppyFilter)
    {
@@ -2841,7 +2884,6 @@ void EvaluateChoppyMarketState()
       {
          g_choppyState.currentATR = atr_values[0];
          
-         // Calculate average ATR
          double atr_sum = 0;
          for(int i = 1; i <= ChoppyATRLookback; i++)
          {
@@ -2849,44 +2891,89 @@ void EvaluateChoppyMarketState()
          }
          g_choppyState.avgATR = atr_sum / ChoppyATRLookback;
          
-         // Current ATR significantly below average = low volatility choppy
          atr_choppy = (g_choppyState.currentATR < g_choppyState.avgATR * ATRChoppyRatio);
-         
-         if(atr_choppy)
-         {
-            g_choppyState.reason = "Low volatility (ATR)";
-         }
       }
    }
+   g_choppyState.atrChoppy = atr_choppy;
    
-   // Combine ADX and ATR choppy signals
+   // Bollinger Band squeeze detection (tight range = consolidation/choppy)
+   bool bb_squeeze = false;
+   
+   if(UseBBSqueezeFilter && g_bbHandle != INVALID_HANDLE)
+   {
+      double bb_upper[], bb_lower[];
+      ArraySetAsSeries(bb_upper, true);
+      ArraySetAsSeries(bb_lower, true);
+      
+      int bb_lookback = ChoppyATRLookback;
+      if(CopyBuffer(g_bbHandle, 1, 0, bb_lookback + 1, bb_upper) > 0 &&
+         CopyBuffer(g_bbHandle, 2, 0, bb_lookback + 1, bb_lower) > 0)
+      {
+         g_choppyState.bbWidth = bb_upper[0] - bb_lower[0];
+         
+         double bb_width_sum = 0;
+         for(int i = 1; i <= bb_lookback; i++)
+         {
+            bb_width_sum += (bb_upper[i] - bb_lower[i]);
+         }
+         g_choppyState.avgBBWidth = bb_width_sum / bb_lookback;
+         
+         bb_squeeze = (g_choppyState.bbWidth < g_choppyState.avgBBWidth * BB_SqueezeRatio);
+      }
+   }
+   g_choppyState.bbSqueeze = bb_squeeze;
+   
+   // Build reason string from all active signals
+   string reasons = "";
+   int signal_count = 0;
+   
+   if(adx_confirmed_choppy) { reasons += "ADX<" + DoubleToString(ADX_ChoppyThreshold,0); signal_count++; }
+   if(atr_choppy) { if(signal_count > 0) reasons += " + "; reasons += "Low ATR"; signal_count++; }
+   if(bb_squeeze) { if(signal_count > 0) reasons += " + "; reasons += "BB Squeeze"; signal_count++; }
+   g_choppyState.reason = reasons;
+   
+   // Combine choppy signals based on ChoppyRequireBoth setting
    bool now_choppy = false;
    
-   if(adx_confirmed_choppy && atr_choppy)
+   if(ChoppyRequireBoth)
    {
-      now_choppy = true;
-      g_choppyState.reason = "ADX < " + DoubleToString(ADX_ChoppyThreshold, 1) + " + Low ATR";
+      // Strict mode: require BOTH ADX choppy AND ATR choppy simultaneously
+      now_choppy = adx_confirmed_choppy && atr_choppy;
+      // BB squeeze is treated as independent bonus signal even in strict mode
+      if(bb_squeeze && UseBBSqueezeFilter && adx_confirmed_choppy)
+         now_choppy = true;
    }
-   else if(adx_confirmed_choppy && !UseATRChoppyFilter)
+   else
    {
-      now_choppy = true;
-      g_choppyState.reason = "ADX < " + DoubleToString(ADX_ChoppyThreshold, 1);
-   }
-   else if(adx_confirmed_choppy && g_choppyState.currentADX < 15.0)
-   {
-      // Very low ADX overrides ATR check
-      now_choppy = true;
-      g_choppyState.reason = "Very low ADX (" + DoubleToString(g_choppyState.currentADX, 1) + ")";
+      // Default mode: ANY single confirmed signal pauses trading
+      // This catches choppy markets that ADX misses (e.g. ranging with vol spikes)
+      if(adx_confirmed_choppy)
+         now_choppy = true;
+      else if(atr_choppy && UseATRChoppyFilter)
+         now_choppy = true;
+      else if(bb_squeeze && UseBBSqueezeFilter)
+         now_choppy = true;
+      // Very low ADX always overrides regardless of other signals
+      if(adx_choppy && g_choppyState.currentADX < 15.0 && consecutive_choppy >= 2)
+         now_choppy = true;
    }
    
    // Update consecutive bar count
    if(adx_choppy)
-   {
       g_choppyState.choppyBarsCount++;
-   }
    else
-   {
       g_choppyState.choppyBarsCount = 0;
+   
+   // Cooldown logic: after choppy clears, wait before resuming
+   if(g_wasChoppy && !now_choppy)
+   {
+      // Choppy just cleared this bar - start cooldown (don't decrement yet)
+      g_choppyState.cooldownBarsLeft = ChoppyCooldownBars;
+   }
+   else if(!g_wasChoppy && !now_choppy && g_choppyState.cooldownBarsLeft > 0)
+   {
+      // Already in cooldown from a previous bar - decrement
+      g_choppyState.cooldownBarsLeft--;
    }
    
    // State change logging
@@ -2899,18 +2986,27 @@ void EvaluateChoppyMarketState()
          if(now_choppy)
          {
             Print("=== CHOPPY MARKET DETECTED - TRADING PAUSED ===");
-            Print("Reason: ", g_choppyState.reason);
-            Print("ADX: ", DoubleToString(g_choppyState.currentADX, 2));
+            Print("Signals: ", g_choppyState.reason, " (", signal_count, " indicator(s) triggered)");
+            Print("ADX: ", DoubleToString(g_choppyState.currentADX, 2),
+                  " | Threshold: ", DoubleToString(ADX_ChoppyThreshold, 1));
             if(UseATRChoppyFilter)
             {
                Print("ATR: ", DoubleToString(g_choppyState.currentATR, 5), 
-                     " (Avg: ", DoubleToString(g_choppyState.avgATR, 5), ")");
+                     " (Avg: ", DoubleToString(g_choppyState.avgATR, 5),
+                     ", Ratio: ", DoubleToString(g_choppyState.currentATR / MathMax(g_choppyState.avgATR, 0.00001) * 100, 1), "%)");
+            }
+            if(UseBBSqueezeFilter)
+            {
+               Print("BB Width: ", DoubleToString(g_choppyState.bbWidth, 5),
+                     " (Avg: ", DoubleToString(g_choppyState.avgBBWidth, 5),
+                     ", Ratio: ", DoubleToString(g_choppyState.bbWidth / MathMax(g_choppyState.avgBBWidth, 0.00001) * 100, 1), "%)");
             }
          }
          else
          {
-            Print("=== CHOPPY MARKET CLEARED - TRADING RESUMED ===");
+            Print("=== CHOPPY MARKET CLEARED - COOLDOWN ", ChoppyCooldownBars, " BARS ===");
             Print("ADX: ", DoubleToString(g_choppyState.currentADX, 2));
+            Print("Waiting ", ChoppyCooldownBars, " bars before resuming trades...");
          }
       }
    }
@@ -2926,6 +3022,18 @@ bool IsMarketChoppy()
 {
    if(!UseChoppyMarketFilter)
       return false;
+   
+   // Still in cooldown after choppy cleared - wait before trading
+   if(!g_choppyState.isChoppy && g_choppyState.cooldownBarsLeft > 0)
+   {
+      static int cooldown_log = 0;
+      cooldown_log++;
+      if(cooldown_log % 20 == 0 && LogChoppyState)
+      {
+         Print("CHOPPY COOLDOWN: ", g_choppyState.cooldownBarsLeft, " bars remaining before trading resumes");
+      }
+      return true;  // Treat as still choppy during cooldown
+   }
    
    return g_choppyState.isChoppy;
 }
