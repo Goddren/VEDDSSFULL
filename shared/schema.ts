@@ -1531,3 +1531,30 @@ export type TokenPosition = typeof tokenPositions.$inferSelect;
 export type InsertTokenPosition = z.infer<typeof insertTokenPositionSchema>;
 export type TradingActivityLog = typeof tradingActivityLog.$inferSelect;
 export type InsertTradingActivityLog = z.infer<typeof insertTradingActivityLogSchema>;
+
+export const userApiKeys = pgTable("user_api_keys", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  provider: text("provider").notNull(), // openai, anthropic, google, groq, mistral
+  apiKey: text("api_key").notNull(), // encrypted key
+  label: text("label"), // user-friendly name
+  isActive: boolean("is_active").default(true).notNull(),
+  isValid: boolean("is_valid").default(false).notNull(),
+  lastValidated: timestamp("last_validated"),
+  lastUsed: timestamp("last_used"),
+  usageCount: integer("usage_count").default(0).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  unique("user_provider_unique").on(table.userId, table.provider),
+]);
+
+export const insertUserApiKeySchema = createInsertSchema(userApiKeys).omit({
+  id: true,
+  createdAt: true,
+  lastValidated: true,
+  lastUsed: true,
+  usageCount: true,
+});
+
+export type UserApiKey = typeof userApiKeys.$inferSelect;
+export type InsertUserApiKey = z.infer<typeof insertUserApiKeySchema>;
