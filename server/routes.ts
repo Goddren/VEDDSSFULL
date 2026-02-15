@@ -4083,6 +4083,48 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
     }
   });
 
+  // News alerts endpoint for MT5 chart data page (polling)
+  app.get("/api/news/alerts/:symbol", async (req: Request, res: Response) => {
+    try {
+      const { symbol } = req.params;
+      if (!newsService.isInitialized()) {
+        newsService.initialize();
+      }
+      
+      const [pairSentiment, upcomingEvents] = await Promise.all([
+        newsService.analyzePairSentiment(symbol, 3),
+        newsService.getUpcomingEventsForPair(symbol, 3)
+      ]);
+      
+      const now = Date.now();
+      const imminentEvents = upcomingEvents.filter((e: any) => {
+        const msUntil = e.datetime - now;
+        return msUntil > 0 && msUntil <= 3600000;
+      });
+      const todayHighImpact = upcomingEvents.filter((e: any) => e.daysUntil === 0 && e.impact === 'high');
+      
+      res.json({
+        sentiment: {
+          label: pairSentiment.overallLabel,
+          score: pairSentiment.overallScore,
+          bullishCount: pairSentiment.bullishCount,
+          bearishCount: pairSentiment.bearishCount,
+          tradingImplication: pairSentiment.tradingImplication,
+          pairDirection: (pairSentiment as any).pairDirection || null,
+        },
+        topHeadlines: (pairSentiment.topHeadlines || []).slice(0, 5),
+        upcomingEvents: upcomingEvents.slice(0, 8),
+        imminentEvents,
+        todayHighImpact,
+        hasImminentNews: imminentEvents.length > 0,
+        hasTodayHighImpact: todayHighImpact.length > 0,
+      });
+    } catch (error) {
+      console.error('Error fetching news alerts:', error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to fetch news alerts" });
+    }
+  });
+
   // ========== What If Scenario Analysis API ==========
   
   // Analyze a "What If" scenario using AI
@@ -5981,6 +6023,60 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       
       console.log(`[KNOWLEDGE] ${sanitizedSymbol} Analysis: Confidence=${analysis.confidence}% | Required=${MIN_CONFIDENCE_FOR_AUTO_TRADE}% | Source=${mt5MinConfidence ? 'MT5 EA' : (matchingEA?.name || 'default')} | Session=${eaSettings?.sessionName || 'N/A'}`);
       
+      // Fetch news context for the pair (used in AI confirmation and response)
+      let newsContextForAI: { sentiment?: any; upcomingEvents?: any[]; topHeadlines?: string[] } | undefined;
+      let newsAlerts: any = null;
+      try {
+        const { newsService } = await import('./news-service');
+        if (!newsService.isInitialized()) {
+          newsService.initialize();
+        }
+        const [pairSentiment, upcomingEvents] = await Promise.all([
+          newsService.analyzePairSentiment(sanitizedSymbol, 3),
+          newsService.getUpcomingEventsForPair(sanitizedSymbol, 3)
+        ]);
+        const topHeadlines = pairSentiment.topHeadlines || [];
+        newsContextForAI = { sentiment: pairSentiment, upcomingEvents, topHeadlines };
+        
+        const now = Date.now();
+        const imminentEvents = upcomingEvents.filter((e: any) => {
+          const msUntil = e.datetime - now;
+          return msUntil > 0 && msUntil <= 3600000;
+        });
+        const todayHighImpact = upcomingEvents.filter((e: any) => e.daysUntil === 0 && e.impact === 'high');
+        
+        newsAlerts = {
+          sentiment: {
+            label: pairSentiment.overallLabel,
+            score: pairSentiment.overallScore,
+            bullishCount: pairSentiment.bullishCount,
+            bearishCount: pairSentiment.bearishCount,
+            tradingImplication: pairSentiment.tradingImplication,
+            pairDirection: (pairSentiment as any).pairDirection || null,
+          },
+          topHeadlines: topHeadlines.slice(0, 5),
+          upcomingEvents: upcomingEvents.slice(0, 8),
+          imminentEvents: imminentEvents,
+          todayHighImpact: todayHighImpact,
+          hasImminentNews: imminentEvents.length > 0,
+          hasTodayHighImpact: todayHighImpact.length > 0,
+        };
+        
+        if (imminentEvents.length > 0) {
+          const eventNames = imminentEvents.map((e: any) => e.event).join(', ');
+          analysis.alerts.push(`NEWS ALERT: ${eventNames} releasing within 1 hour - expect high volatility`);
+        }
+        if (pairSentiment.overallLabel === 'bearish' && analysis.signal === 'BUY') {
+          analysis.alerts.push(`NEWS WARNING: Bearish news sentiment conflicts with BUY signal`);
+        } else if (pairSentiment.overallLabel === 'bullish' && analysis.signal === 'SELL') {
+          analysis.alerts.push(`NEWS WARNING: Bullish news sentiment conflicts with SELL signal`);
+        }
+        
+        console.log(`[News Context] ${sanitizedSymbol}: Sentiment=${pairSentiment.overallLabel} (${pairSentiment.overallScore}), Upcoming=${upcomingEvents.length} events, Imminent=${imminentEvents.length}`);
+      } catch (newsErr) {
+        console.log(`[News Context] Error fetching news for ${sanitizedSymbol}:`, newsErr instanceof Error ? newsErr.message : 'Unknown');
+      }
+      
       // AI Vision Confirmation: Get second opinion from AI before trading (if enabled)
       const preConfirmSignal = analysis.signal;
       const preConfirmConfidence = analysis.confidence;
@@ -6005,7 +6101,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               analysis.tradePlan,
               sanitizedSymbol,
               sanitizedTimeframe,
-              token.userId
+              token.userId,
+              newsContextForAI
             );
             
             if (!aiConfirmation.confirmed) {
@@ -6428,6 +6525,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           aiConfidence: aiConfirmation.aiConfidence,
           reasoning: aiConfirmation.reasoning,
         } : null,
+        // News alerts and economic events context
+        newsAlerts,
       });
     } catch (error) {
       console.error('Error processing MT5 chart data:', error);

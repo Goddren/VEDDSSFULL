@@ -40,6 +40,7 @@ import {
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { ConnectedPairs } from "@/components/mt5/connected-pairs";
+import { NewsAlerts } from "@/components/mt5/news-alerts";
 
 type AiAccuracy = {
   daily: number;
@@ -1233,6 +1234,12 @@ export default function MT5ChartDataPage() {
     queryKey: ['/api/ai-vision-confirmation'],
   });
 
+  const { data: connectedPairsData } = useQuery<{ activePairs: Array<{ symbol: string }> }>({
+    queryKey: ['/api/mt5/connected-pairs'],
+    refetchInterval: 30000,
+  });
+  const firstActiveSymbol = connectedPairsData?.activePairs?.[0]?.symbol;
+
   interface AiConfirmationLog {
     id: number;
     timestamp: string;
@@ -1375,6 +1382,9 @@ export default function MT5ChartDataPage() {
 
         {/* Connected Pairs Display */}
         <ConnectedPairs />
+
+        {/* News & Economic Events Alerts */}
+        <NewsAlerts symbol={firstActiveSymbol} />
 
         {/* AI Vision Confirmation Toggle */}
         <Card className="bg-gradient-to-br from-purple-900/30 to-indigo-900/30 border-purple-500/30">

@@ -263,7 +263,8 @@ export function getAiConfirmationLogs(userId: number): AiConfirmationLogEntry[] 
 
 function buildConfirmationPrompt(
   candleData: any[], indicators: any, proposedSignal: string,
-  proposedConfidence: number, tradePlan: any, symbol: string, timeframe: string
+  proposedConfidence: number, tradePlan: any, symbol: string, timeframe: string,
+  newsContext?: { sentiment?: any; upcomingEvents?: any[]; topHeadlines?: string[] }
 ): { system: string; user: string } {
   const recentCandles = candleData.slice(0, 30);
   const candleSummary = recentCandles.map((c: any, i: number) => 
@@ -283,8 +284,38 @@ function buildConfirmationPrompt(
   const coreStr = JSON.stringify(coreIndicators, null, 2);
   const advStr = Object.keys(advancedIndicators).length > 0 ? JSON.stringify(advancedIndicators, null, 2) : '';
 
+  let newsSection = '';
+  if (newsContext) {
+    const parts: string[] = [];
+    if (newsContext.sentiment) {
+      parts.push(`NEWS SENTIMENT: ${newsContext.sentiment.overallLabel?.toUpperCase() || 'NEUTRAL'} (score: ${newsContext.sentiment.overallScore || 0}/100)`);
+      parts.push(`Bullish articles: ${newsContext.sentiment.bullishCount || 0} | Bearish: ${newsContext.sentiment.bearishCount || 0} | Neutral: ${newsContext.sentiment.neutralCount || 0}`);
+      if (newsContext.sentiment.tradingImplication) {
+        parts.push(`Trading Implication: ${newsContext.sentiment.tradingImplication}`);
+      }
+      if (newsContext.sentiment.pairDirection) {
+        parts.push(`Pair Direction from News: ${newsContext.sentiment.pairDirection}`);
+      }
+    }
+    if (newsContext.topHeadlines && newsContext.topHeadlines.length > 0) {
+      parts.push(`\nRecent Headlines:`);
+      newsContext.topHeadlines.slice(0, 5).forEach((h, i) => parts.push(`  ${i + 1}. ${h}`));
+    }
+    if (newsContext.upcomingEvents && newsContext.upcomingEvents.length > 0) {
+      parts.push(`\nUPCOMING ECONOMIC EVENTS (potential volatility):`);
+      newsContext.upcomingEvents.slice(0, 5).forEach((e: any) => {
+        const timeUntil = e.daysUntil === 0 ? 'TODAY' : e.daysUntil === 1 ? 'TOMORROW' : `in ${e.daysUntil} days`;
+        parts.push(`  - [${e.impact?.toUpperCase()}] ${e.event} (${e.currency}) - ${timeUntil} at ${e.timeFormatted || 'TBD'}`);
+        if (e.potentialImpact) parts.push(`    Impact: ${e.potentialImpact}`);
+      });
+    }
+    if (parts.length > 0) {
+      newsSection = `\nNEWS & ECONOMIC EVENTS CONTEXT:\n${parts.join('\n')}`;
+    }
+  }
+
   return {
-    system: "You are an elite institutional trading analyst with expertise in technical analysis, market structure, price action, and risk management. Provide honest, unbiased second opinions on trade signals using ALL available data. Always return valid JSON.",
+    system: "You are an elite institutional trading analyst with expertise in technical analysis, market structure, price action, risk management, and fundamental/news analysis. Provide honest, unbiased second opinions on trade signals using ALL available data including news sentiment and upcoming economic events. Always return valid JSON.",
     user: `You are an elite trading analyst providing a SECOND OPINION on a proposed trade. Use ALL data below for maximum accuracy.
 
 SYMBOL: ${symbol}
@@ -305,7 +336,8 @@ ${coreStr}
 ${advStr ? `
 ADVANCED ANALYSIS:
 ${advStr}
-` : ''}
+` : ''}${newsSection}
+
 Provide your independent assessment considering ALL of the following:
 1. PRICE ACTION: Do candle patterns (engulfing, hammer, star, doji) support the direction?
 2. MOMENTUM: RSI, MACD, Stochastic alignment — any divergences?
@@ -319,13 +351,17 @@ Provide your independent assessment considering ALL of the following:
 10. SWING POINTS: Are recent swing highs/lows respected in the trade plan?
 11. OPEN POSITIONS: Are there existing positions on this symbol? Avoid doubling correlated exposure.
 12. TRADE HISTORY: What is the recent win rate on this symbol? Is the trader on a losing streak?
+13. NEWS SENTIMENT: Does the current news flow support or contradict the proposed trade direction? Are headlines bullish or bearish for this pair?
+14. UPCOMING EVENTS: Are there high-impact economic events (rate decisions, NFP, CPI) coming soon that could invalidate the trade? Should the trader wait or use tighter stops?
+
+CRITICAL: If a high-impact news event is imminent (today or tomorrow), factor this into your confidence and reasoning. Warn if the trade could be invalidated by upcoming data releases.
 
 Return your analysis as JSON:
 {
   "confirmed": boolean,
   "direction": "BUY" | "SELL" | "NEUTRAL",
   "confidence": number (0-100),
-  "reasoning": "Detailed explanation referencing specific indicators, patterns, and levels",
+  "reasoning": "Detailed explanation referencing specific indicators, patterns, levels, AND news/events",
   "adjustedEntry": number or null,
   "adjustedStopLoss": number or null,
   "adjustedTakeProfit": number or null
@@ -429,12 +465,13 @@ export async function getAiVisionConfirmation(
   tradePlan: any,
   symbol: string,
   timeframe: string,
-  userId?: number
+  userId?: number,
+  newsContext?: { sentiment?: any; upcomingEvents?: any[]; topHeadlines?: string[] }
 ): Promise<AiVisionConfirmation> {
   try {
     const selectedModel = userId ? getUserModelPreference(userId) : 'gpt-4o-mini';
     const provider = getModelProvider(selectedModel);
-    const prompt = buildConfirmationPrompt(candleData, indicators, proposedSignal, proposedConfidence, tradePlan, symbol, timeframe);
+    const prompt = buildConfirmationPrompt(candleData, indicators, proposedSignal, proposedConfidence, tradePlan, symbol, timeframe, newsContext);
 
     console.log(`[AI Vision Confirmation] Requesting ${provider}/${selectedModel} confirmation for ${symbol} ${proposedSignal}`);
 
