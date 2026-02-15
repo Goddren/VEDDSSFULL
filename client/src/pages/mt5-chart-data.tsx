@@ -1175,7 +1175,7 @@ export default function MT5ChartDataPage() {
         {/* Market Open Breakout Strategy */}
         <Card className="bg-gradient-to-br from-amber-900/30 to-orange-900/30 border-amber-500/30">
           <CardContent className="p-5">
-            <div className="flex items-start gap-3">
+            <div className="flex items-start gap-3 mb-4">
               <div className="p-2 rounded-lg bg-amber-500/20 mt-0.5">
                 <TrendingUp className="w-5 h-5 text-amber-400" />
               </div>
@@ -1187,25 +1187,109 @@ export default function MT5ChartDataPage() {
                 <p className="text-gray-400 text-sm mt-1">
                   Automatically detects breakouts at London, New York, and Tokyo session opens. When price breaks above or below the prior session's range within the first 30 minutes, the AI factors this into its trade decision with extra weight.
                 </p>
-                <div className="grid grid-cols-3 gap-3 mt-3">
-                  <div className="p-2 rounded bg-gray-900/50 border border-gray-700 text-center">
-                    <p className="text-xs text-gray-500 uppercase">London</p>
-                    <p className="text-sm font-medium text-amber-400">7:00 UTC</p>
-                  </div>
-                  <div className="p-2 rounded bg-gray-900/50 border border-gray-700 text-center">
-                    <p className="text-xs text-gray-500 uppercase">New York</p>
-                    <p className="text-sm font-medium text-amber-400">13:00 UTC</p>
-                  </div>
-                  <div className="p-2 rounded bg-gray-900/50 border border-gray-700 text-center">
-                    <p className="text-xs text-gray-500 uppercase">Tokyo</p>
-                    <p className="text-sm font-medium text-amber-400">0:00 UTC</p>
-                  </div>
-                </div>
-                <p className="text-gray-500 text-xs mt-2">
-                  Strong breakouts with volume confirmation receive the highest weight in trade decisions. The AI uses a 15-point institutional checklist including breakout analysis.
-                </p>
               </div>
             </div>
+
+            <div className="space-y-3">
+              {[
+                {
+                  session: 'London',
+                  openTime: '7:00 AM UTC',
+                  preSession: 'Midnight – 7:00 AM UTC',
+                  preHours: '7 hours',
+                  color: 'blue',
+                  desc: 'Scans the overnight range before the London session opens',
+                },
+                {
+                  session: 'New York',
+                  openTime: '1:00 PM UTC',
+                  preSession: '7:00 AM – 1:00 PM UTC',
+                  preHours: '6 hours',
+                  color: 'green',
+                  desc: 'Scans the London session range before New York opens',
+                },
+                {
+                  session: 'Tokyo',
+                  openTime: '12:00 AM UTC',
+                  preSession: '9:00 PM – Midnight UTC',
+                  preHours: '3 hours',
+                  color: 'purple',
+                  desc: 'Scans the late NY range before Tokyo opens',
+                },
+              ].map((s) => (
+                <div key={s.session} className="rounded-lg bg-gray-900/60 border border-gray-700/50 p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <div className={`w-2.5 h-2.5 rounded-full ${s.color === 'blue' ? 'bg-blue-400' : s.color === 'green' ? 'bg-green-400' : 'bg-purple-400'}`} />
+                      <span className="font-medium text-white text-sm">{s.session} Session</span>
+                    </div>
+                    <Badge variant="outline" className="text-amber-400 border-amber-500/40 text-[10px]">
+                      Opens {s.openTime}
+                    </Badge>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 mb-1.5">
+                    <div className="p-2 rounded bg-gray-800/60 border border-gray-700/30">
+                      <p className="text-[10px] text-gray-500 uppercase tracking-wider">Pre-Session Range</p>
+                      <p className="text-xs font-medium text-gray-300 mt-0.5">{s.preSession}</p>
+                    </div>
+                    <div className="p-2 rounded bg-gray-800/60 border border-gray-700/30">
+                      <p className="text-[10px] text-gray-500 uppercase tracking-wider">Lookback Period</p>
+                      <p className="text-xs font-medium text-amber-400 mt-0.5">{s.preHours}</p>
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-gray-500">{s.desc}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-4 rounded-lg bg-gray-900/60 border border-gray-700/50 p-3">
+              <h4 className="text-xs font-semibold text-amber-400 uppercase tracking-wider mb-2">How It Works</h4>
+              <div className="space-y-2">
+                <div className="flex items-start gap-2">
+                  <div className="w-5 h-5 rounded-full bg-amber-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <span className="text-[10px] font-bold text-amber-400">1</span>
+                  </div>
+                  <p className="text-xs text-gray-400">The system finds the <span className="text-gray-200">highest high</span> and <span className="text-gray-200">lowest low</span> from the pre-session period to form the range</p>
+                </div>
+                <div className="flex items-start gap-2">
+                  <div className="w-5 h-5 rounded-full bg-amber-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <span className="text-[10px] font-bold text-amber-400">2</span>
+                  </div>
+                  <p className="text-xs text-gray-400">Within the first <span className="text-gray-200">30 minutes</span> of session open, it checks if price has broken above or below the range by at least <span className="text-gray-200">10%</span> of the range size</p>
+                </div>
+                <div className="flex items-start gap-2">
+                  <div className="w-5 h-5 rounded-full bg-amber-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <span className="text-[10px] font-bold text-amber-400">3</span>
+                  </div>
+                  <p className="text-xs text-gray-400">Breakout strength is rated <span className="text-green-400">Strong</span>, <span className="text-yellow-400">Moderate</span>, or <span className="text-orange-400">Weak</span> based on how far price has moved beyond the range</p>
+                </div>
+                <div className="flex items-start gap-2">
+                  <div className="w-5 h-5 rounded-full bg-amber-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <span className="text-[10px] font-bold text-amber-400">4</span>
+                  </div>
+                  <p className="text-xs text-gray-400">Volume confirmation checks if current volume is <span className="text-gray-200">1.2x above average</span> — confirmed breakouts get the highest weight in trade decisions</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-3 grid grid-cols-3 gap-2">
+              <div className="p-2 rounded bg-green-900/20 border border-green-700/30 text-center">
+                <p className="text-[10px] text-gray-500 uppercase">Strong</p>
+                <p className="text-xs font-medium text-green-400">+3 votes</p>
+              </div>
+              <div className="p-2 rounded bg-yellow-900/20 border border-yellow-700/30 text-center">
+                <p className="text-[10px] text-gray-500 uppercase">Moderate</p>
+                <p className="text-xs font-medium text-yellow-400">+2 votes</p>
+              </div>
+              <div className="p-2 rounded bg-orange-900/20 border border-orange-700/30 text-center">
+                <p className="text-[10px] text-gray-500 uppercase">Weak</p>
+                <p className="text-xs font-medium text-orange-400">+1 vote</p>
+              </div>
+            </div>
+
+            <p className="text-gray-500 text-xs mt-3">
+              The number of candles used adjusts automatically based on your chart timeframe. The AI uses a 15-point institutional checklist including breakout analysis (point 15).
+            </p>
           </CardContent>
         </Card>
 
