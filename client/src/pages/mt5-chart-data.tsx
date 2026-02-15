@@ -1014,8 +1014,8 @@ function BreakoutLiveStatus() {
     pairStatuses: Array<{
       symbol: string;
       timeframe: string;
-      updatedAt: string;
-      ageSeconds: number;
+      updatedAt: string | null;
+      ageSeconds: number | null;
       isBreakoutWindow: boolean;
       session: string;
       minutesSinceOpen: number;
@@ -1027,10 +1027,20 @@ function BreakoutLiveStatus() {
       volumeConfirmed: boolean;
       signal: string;
       preSessionRange: { high: number; low: number; range: number };
+      breakoutEnabled: boolean;
     }>;
   }>({
     queryKey: ['/api/mt5/breakout-status'],
     refetchInterval: 15000,
+  });
+
+  const toggleMutation = useMutation({
+    mutationFn: async ({ symbol, enabled }: { symbol: string; enabled: boolean }) => {
+      await apiRequest('POST', '/api/mt5/breakout-settings', { symbol, enabled });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/mt5/breakout-status'] });
+    },
   });
 
   if (isLoading) {
@@ -1142,17 +1152,19 @@ function BreakoutLiveStatus() {
 
             {data.pairStatuses.length > 0 ? (
               <div className="space-y-2">
-                <p className="text-xs text-gray-500 uppercase tracking-wider font-medium">Pair Detection Results</p>
+                <p className="text-xs text-gray-500 uppercase tracking-wider font-medium">Breakout Detection Per Pair</p>
                 {data.pairStatuses.map((pair) => (
-                  <div key={`${pair.symbol}-${pair.timeframe}`} className={`rounded-lg border p-3 ${pair.breakoutDetected ? strengthBg(pair.breakoutStrength) : 'bg-gray-800/40 border-gray-700/40'}`}>
+                  <div key={`${pair.symbol}-${pair.timeframe}`} className={`rounded-lg border p-3 ${!pair.breakoutEnabled ? 'bg-gray-800/20 border-gray-700/20 opacity-60' : pair.breakoutDetected ? strengthBg(pair.breakoutStrength) : 'bg-gray-800/40 border-gray-700/40'}`}>
                     <div className="flex items-center justify-between mb-1.5">
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-medium text-white">{pair.symbol}</span>
-                        <Badge variant="outline" className="text-gray-400 border-gray-600 text-[10px]">{pair.timeframe}</Badge>
+                        {pair.timeframe !== 'N/A' && (
+                          <Badge variant="outline" className="text-gray-400 border-gray-600 text-[10px]">{pair.timeframe}</Badge>
+                        )}
                       </div>
-                      <div className="flex items-center gap-1.5">
-                        {pair.breakoutDetected ? (
-                          <>
+                      <div className="flex items-center gap-2">
+                        {pair.breakoutEnabled && pair.breakoutDetected ? (
+                          <div className="flex items-center gap-1.5">
                             <Badge className={`text-[10px] ${pair.breakoutDirection === 'BULLISH' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
                               {pair.breakoutDirection}
                             </Badge>
@@ -1162,13 +1174,20 @@ function BreakoutLiveStatus() {
                             {pair.volumeConfirmed && (
                               <Badge className="bg-cyan-500/20 text-cyan-400 text-[10px]">VOL</Badge>
                             )}
-                          </>
+                          </div>
+                        ) : pair.breakoutEnabled ? (
+                          <span className="text-xs text-gray-500">{pair.isBreakoutWindow ? 'No breakout' : pair.updatedAt ? 'Outside window' : 'Awaiting data'}</span>
                         ) : (
-                          <span className="text-xs text-gray-500">{pair.isBreakoutWindow ? 'No breakout' : 'Outside window'}</span>
+                          <span className="text-xs text-gray-600">Disabled</span>
                         )}
+                        <Switch
+                          checked={pair.breakoutEnabled}
+                          onCheckedChange={(checked) => toggleMutation.mutate({ symbol: pair.symbol, enabled: checked })}
+                          className="scale-75"
+                        />
                       </div>
                     </div>
-                    {pair.breakoutDetected && (
+                    {pair.breakoutEnabled && pair.breakoutDetected && (
                       <div className="grid grid-cols-3 gap-2 mt-2">
                         <div className="p-1.5 rounded bg-gray-900/60 text-center">
                           <p className="text-[10px] text-gray-500">Range H</p>
@@ -1185,7 +1204,7 @@ function BreakoutLiveStatus() {
                       </div>
                     )}
                     <p className="text-[11px] text-gray-500 mt-1.5">{pair.priceVsRange}</p>
-                    <p className="text-[10px] text-gray-600 mt-0.5">{pair.ageSeconds}s ago</p>
+                    {pair.ageSeconds != null && <p className="text-[10px] text-gray-600 mt-0.5">{pair.ageSeconds}s ago</p>}
                   </div>
                 ))}
               </div>

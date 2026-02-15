@@ -5606,7 +5606,10 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           }
           
           // Market Open Breakout votes (strong signal during session opens)
-          const breakoutEnabled = eaSettings?.breakoutStrategy !== false;
+          const perPairSettings = (global as any).mt5BreakoutSettings?.[token.userId] || {};
+          const pairBreakoutKey = sanitizedSymbol.toUpperCase().replace('/', '');
+          const perPairEnabled = perPairSettings[pairBreakoutKey];
+          const breakoutEnabled = perPairEnabled !== false && eaSettings?.breakoutStrategy !== false;
           if (breakoutEnabled && advanced.breakoutDetection?.breakoutDetected && advanced.breakoutDetection.isBreakoutWindow) {
             const breakoutWeight = advanced.breakoutDetection.breakoutStrength === 'STRONG' ? 3 : 
                                    advanced.breakoutDetection.breakoutStrength === 'MODERATE' ? 2 : 1;
@@ -6797,11 +6800,23 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
 
     const breakoutCache = (global as any).mt5BreakoutCache || {};
     const userBreakouts = breakoutCache[userId] || {};
+    const perPairSettings = (global as any).mt5BreakoutSettings?.[userId] || {};
     const pairStatuses: any[] = [];
+
+    const pairsCache = (global as any).mt5ConnectedPairs || {};
+    const userPairs = pairsCache[userId] || {};
+    const allPairSymbols = new Set<string>();
+    for (const [key, pair] of Object.entries(userPairs)) {
+      const p = pair as any;
+      const ageS = Math.floor((now.getTime() - new Date(p.lastSeen).getTime()) / 1000);
+      if (ageS < 600) allPairSymbols.add(p.symbol.toUpperCase().replace('/', ''));
+    }
 
     for (const [key, data] of Object.entries(userBreakouts)) {
       const bd = data as any;
       const ageSeconds = Math.floor((now.getTime() - new Date(bd.updatedAt).getTime()) / 1000);
+      const pairKey = bd.symbol.toUpperCase().replace('/', '');
+      const enabled = perPairSettings[pairKey] !== false;
       if (ageSeconds < 600) {
         pairStatuses.push({
           symbol: bd.symbol,
@@ -6811,16 +6826,39 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           isBreakoutWindow: bd.isBreakoutWindow,
           session: bd.session,
           minutesSinceOpen: bd.minutesSinceOpen,
-          breakoutDetected: bd.breakoutDetected,
-          breakoutDirection: bd.breakoutDirection,
-          breakoutStrength: bd.breakoutStrength,
-          priceVsRange: bd.priceVsRange,
-          breakoutDistance: bd.breakoutDistance,
-          volumeConfirmed: bd.volumeConfirmed,
-          signal: bd.signal,
+          breakoutDetected: enabled ? bd.breakoutDetected : false,
+          breakoutDirection: enabled ? bd.breakoutDirection : 'NONE',
+          breakoutStrength: enabled ? bd.breakoutStrength : 'NONE',
+          priceVsRange: enabled ? bd.priceVsRange : 'Breakout detection disabled',
+          breakoutDistance: enabled ? bd.breakoutDistance : 0,
+          volumeConfirmed: enabled ? bd.volumeConfirmed : false,
+          signal: enabled ? bd.signal : 'NEUTRAL',
           preSessionRange: bd.preSessionRange,
+          breakoutEnabled: enabled,
         });
+        allPairSymbols.delete(pairKey);
       }
+    }
+
+    for (const sym of allPairSymbols) {
+      const enabled = perPairSettings[sym] !== false;
+      pairStatuses.push({
+        symbol: sym,
+        timeframe: 'N/A',
+        updatedAt: null,
+        ageSeconds: null,
+        isBreakoutWindow: false,
+        session: 'NONE',
+        breakoutDetected: false,
+        breakoutDirection: 'NONE',
+        breakoutStrength: 'NONE',
+        priceVsRange: 'Awaiting data',
+        breakoutDistance: 0,
+        volumeConfirmed: false,
+        signal: 'NEUTRAL',
+        preSessionRange: { high: 0, low: 0, range: 0 },
+        breakoutEnabled: enabled,
+      });
     }
 
     res.json({
@@ -6831,6 +6869,32 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       nextSession,
       pairStatuses,
     });
+  });
+
+  app.get("/api/mt5/breakout-settings", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const userId = (req.user as User).id;
+    const settings = (global as any).mt5BreakoutSettings?.[userId] || {};
+    res.json({ settings });
+  });
+
+  app.post("/api/mt5/breakout-settings", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const userId = (req.user as User).id;
+    const { symbol, enabled } = req.body;
+    if (!symbol || typeof enabled !== 'boolean') {
+      return res.status(400).json({ error: "symbol and enabled (boolean) required" });
+    }
+    (global as any).mt5BreakoutSettings = (global as any).mt5BreakoutSettings || {};
+    if (!(global as any).mt5BreakoutSettings[userId]) {
+      (global as any).mt5BreakoutSettings[userId] = {};
+    }
+    (global as any).mt5BreakoutSettings[userId][symbol.toUpperCase().replace('/', '')] = enabled;
+    res.json({ symbol, enabled, settings: (global as any).mt5BreakoutSettings[userId] });
   });
 
   // Get Trade History Learning recommendations for EA settings per symbol
