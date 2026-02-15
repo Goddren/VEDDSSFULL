@@ -11095,6 +11095,25 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     }
   });
 
+  app.get("/api/ai-model-preference", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
+    const { getUserModelPreference, AVAILABLE_VISION_MODELS } = await import('./openai');
+    const currentModel = getUserModelPreference(req.user!.id);
+    res.json({ model: currentModel, availableModels: AVAILABLE_VISION_MODELS });
+  });
+
+  app.post("/api/ai-model-preference", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
+    const { model } = req.body;
+    const { setUserModelPreference, AVAILABLE_VISION_MODELS } = await import('./openai');
+    const validIds = AVAILABLE_VISION_MODELS.map(m => m.id);
+    if (!validIds.includes(model)) {
+      return res.status(400).json({ message: `Invalid model. Choose from: ${validIds.join(', ')}` });
+    }
+    setUserModelPreference(req.user!.id, model);
+    res.json({ success: true, model });
+  });
+
   const httpServer = createServer(app);
   
   streamingService.initialize(httpServer);

@@ -9,9 +9,16 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { 
   Key, CheckCircle2, XCircle, Loader2, Trash2, Shield, 
-  ArrowLeft, Plus, RefreshCw, Zap
+  ArrowLeft, Plus, RefreshCw, Zap, Cpu, Sparkles, DollarSign
 } from "lucide-react";
 import { Link } from "wouter";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 const AI_PROVIDERS = [
   { 
@@ -144,6 +151,24 @@ export default function AiApiKeysPage() {
     },
   });
 
+  const { data: modelPref, isLoading: modelLoading } = useQuery<{ model: string; availableModels: { id: string; name: string; description: string; tier: string }[] }>({
+    queryKey: ['/api/ai-model-preference'],
+  });
+
+  const setModelMutation = useMutation({
+    mutationFn: async (model: string) => {
+      const res = await apiRequest('POST', '/api/ai-model-preference', { model });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/ai-model-preference'] });
+      toast({ title: "Model Updated", description: `Chart analysis will now use ${data.model === 'gpt-4o' ? 'GPT-4o (Premium)' : 'GPT-4o Mini (Budget)'}.` });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message || "Failed to update model", variant: "destructive" });
+    },
+  });
+
   const savedProviders = new Set(savedKeys.map(k => k.provider));
   const availableProviders = AI_PROVIDERS.filter(p => !savedProviders.has(p.id));
 
@@ -173,6 +198,65 @@ export default function AiApiKeysPage() {
             <span>Keys are stored securely and never shared. You can add up to 5 providers.</span>
           </div>
         </div>
+
+        <Card className="mb-6 border-primary/20">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Cpu className="h-5 w-5 text-primary" />
+              AI Vision Model for Chart Analysis
+            </CardTitle>
+            <CardDescription>
+              Choose which AI model analyzes your trading charts. Budget mode costs significantly less per analysis.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {modelLoading ? (
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            ) : (
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                <Select
+                  value={modelPref?.model || 'gpt-4o'}
+                  onValueChange={(value) => setModelMutation.mutate(value)}
+                  disabled={setModelMutation.isPending}
+                >
+                  <SelectTrigger className="w-full sm:w-[280px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(modelPref?.availableModels || []).map((m) => (
+                      <SelectItem key={m.id} value={m.id}>
+                        <div className="flex items-center gap-2">
+                          {m.tier === 'premium' ? (
+                            <Sparkles className="h-4 w-4 text-amber-500" />
+                          ) : (
+                            <DollarSign className="h-4 w-4 text-green-500" />
+                          )}
+                          <span>{m.name}</span>
+                          <Badge variant="outline" className="ml-1 text-[10px] px-1.5 py-0">
+                            {m.tier === 'premium' ? 'Best' : 'Save $'}
+                          </Badge>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-sm text-muted-foreground">
+                  {modelPref?.model === 'gpt-4o-mini' ? (
+                    <span className="flex items-center gap-1">
+                      <DollarSign className="h-3.5 w-3.5 text-green-500" />
+                      Budget mode — good accuracy at ~10x lower cost
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1">
+                      <Sparkles className="h-3.5 w-3.5 text-amber-500" />
+                      Premium mode — best accuracy for chart reading
+                    </span>
+                  )}
+                </p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         {isLoading ? (
           <div className="flex items-center justify-center py-20">
@@ -366,7 +450,7 @@ export default function AiApiKeysPage() {
                 <ul className="text-sm text-muted-foreground space-y-1.5">
                   <li>When you add your own AI key and set it as active, all chart analysis and AI features will use your key.</li>
                   <li>If your key is disabled or invalid, the platform falls back to its built-in AI credits.</li>
-                  <li>OpenAI keys are used for chart analysis (GPT-4o Vision). Other providers can be used for text-based AI features.</li>
+                  <li>OpenAI keys are used for chart analysis. Choose GPT-4o (best accuracy) or GPT-4o Mini (budget-friendly) using the model selector above.</li>
                   <li>You can switch between providers at any time using the toggle.</li>
                   <li>Usage is tracked so you can monitor how often each key is being used.</li>
                 </ul>
