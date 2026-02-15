@@ -1172,6 +1172,43 @@ export default function MT5ChartDataPage() {
         {/* News & Economic Events Alerts */}
         <NewsAlerts symbol={firstActiveSymbol} />
 
+        {/* Market Open Breakout Strategy */}
+        <Card className="bg-gradient-to-br from-amber-900/30 to-orange-900/30 border-amber-500/30">
+          <CardContent className="p-5">
+            <div className="flex items-start gap-3">
+              <div className="p-2 rounded-lg bg-amber-500/20 mt-0.5">
+                <TrendingUp className="w-5 h-5 text-amber-400" />
+              </div>
+              <div className="flex-1">
+                <h3 className="font-semibold text-white flex items-center gap-2">
+                  Market Open Breakout Strategy
+                  <Badge className="bg-green-500/20 text-green-400 text-xs">Active</Badge>
+                </h3>
+                <p className="text-gray-400 text-sm mt-1">
+                  Automatically detects breakouts at London, New York, and Tokyo session opens. When price breaks above or below the prior session's range within the first 30 minutes, the AI factors this into its trade decision with extra weight.
+                </p>
+                <div className="grid grid-cols-3 gap-3 mt-3">
+                  <div className="p-2 rounded bg-gray-900/50 border border-gray-700 text-center">
+                    <p className="text-xs text-gray-500 uppercase">London</p>
+                    <p className="text-sm font-medium text-amber-400">7:00 UTC</p>
+                  </div>
+                  <div className="p-2 rounded bg-gray-900/50 border border-gray-700 text-center">
+                    <p className="text-xs text-gray-500 uppercase">New York</p>
+                    <p className="text-sm font-medium text-amber-400">13:00 UTC</p>
+                  </div>
+                  <div className="p-2 rounded bg-gray-900/50 border border-gray-700 text-center">
+                    <p className="text-xs text-gray-500 uppercase">Tokyo</p>
+                    <p className="text-sm font-medium text-amber-400">0:00 UTC</p>
+                  </div>
+                </div>
+                <p className="text-gray-500 text-xs mt-2">
+                  Strong breakouts with volume confirmation receive the highest weight in trade decisions. The AI uses a 15-point institutional checklist including breakout analysis.
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* AI Vision Confirmation Toggle */}
         <Card className="bg-gradient-to-br from-purple-900/30 to-indigo-900/30 border-purple-500/30">
           <CardContent className="p-5">

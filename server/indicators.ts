@@ -21,6 +21,19 @@ export interface AdvancedIndicators {
   swingPoints?: { lastSwingHigh: number; lastSwingLow: number; swingHighIndex: number; swingLowIndex: number };
   volumeProfile?: { avgVolume: number; currentVolume: number; volumeRatio: number; volumeTrend: string };
   recentTradeContext?: { openPositionsOnSymbol: number; recentWinRate: number; recentTradeCount: number; avgHoldingPeriod: string };
+  breakoutDetection?: {
+    isBreakoutWindow: boolean;
+    session: string;
+    minutesSinceOpen: number;
+    preSessionRange: { high: number; low: number; range: number };
+    breakoutDetected: boolean;
+    breakoutDirection: 'BULLISH' | 'BEARISH' | 'NONE';
+    breakoutStrength: 'STRONG' | 'MODERATE' | 'WEAK' | 'NONE';
+    priceVsRange: string;
+    breakoutDistance: number;
+    volumeConfirmed: boolean;
+    signal: 'BUY' | 'SELL' | 'NEUTRAL';
+  };
 }
 
 export function calculateADX(candles: CandleData[], period: number = 14): AdvancedIndicators['adx'] {
@@ -446,10 +459,183 @@ export function calculateVolumeProfile(candles: CandleData[]): AdvancedIndicator
   };
 }
 
+export function detectMarketOpenBreakout(
+  candles: CandleData[],
+  symbol: string,
+  timeframe: string
+): AdvancedIndicators['breakoutDetection'] {
+  if (candles.length < 20) return undefined;
+
+  const now = new Date();
+  const hourUTC = now.getUTCHours();
+  const minuteUTC = now.getUTCMinutes();
+  const dayOfWeek = now.getUTCDay();
+
+  if (dayOfWeek === 0 || dayOfWeek === 6) return undefined;
+
+  const sessionDefs = [
+    { name: 'LONDON', openHour: 7, preSessionHours: 7, windowMinutes: 30 },
+    { name: 'NEW_YORK', openHour: 13, preSessionHours: 6, windowMinutes: 30 },
+    { name: 'TOKYO', openHour: 0, preSessionHours: 3, windowMinutes: 30 },
+  ];
+
+  let activeSession: typeof sessionDefs[0] | null = null;
+  let minutesSinceOpen = 0;
+
+  for (const sess of sessionDefs) {
+    const totalMinutes = hourUTC * 60 + minuteUTC;
+    const openMinutes = sess.openHour * 60;
+    let diff = totalMinutes - openMinutes;
+    if (diff < 0) diff += 1440;
+    if (diff >= 0 && diff <= sess.windowMinutes) {
+      activeSession = sess;
+      minutesSinceOpen = diff;
+      break;
+    }
+  }
+
+  if (!activeSession) {
+    return {
+      isBreakoutWindow: false,
+      session: 'NONE',
+      minutesSinceOpen: 0,
+      preSessionRange: { high: 0, low: 0, range: 0 },
+      breakoutDetected: false,
+      breakoutDirection: 'NONE',
+      breakoutStrength: 'NONE',
+      priceVsRange: 'Outside breakout window',
+      breakoutDistance: 0,
+      volumeConfirmed: false,
+      signal: 'NEUTRAL',
+    };
+  }
+
+  const chronological = [...candles].reverse();
+
+  let tfMinutes = 60;
+  if (timeframe.includes('M1')) tfMinutes = 1;
+  else if (timeframe.includes('M5')) tfMinutes = 5;
+  else if (timeframe.includes('M15')) tfMinutes = 15;
+  else if (timeframe.includes('M30')) tfMinutes = 30;
+  else if (timeframe.includes('H1')) tfMinutes = 60;
+  else if (timeframe.includes('H4')) tfMinutes = 240;
+
+  const preSessionCandles = Math.max(4, Math.ceil((activeSession.preSessionHours * 60) / tfMinutes));
+  const openCandles = Math.max(1, Math.ceil(minutesSinceOpen / tfMinutes));
+
+  const endIdx = chronological.length;
+  const preSessionSlice = chronological.slice(
+    Math.max(0, endIdx - openCandles - preSessionCandles),
+    Math.max(0, endIdx - openCandles)
+  );
+
+  if (preSessionSlice.length < 2) {
+    return {
+      isBreakoutWindow: true,
+      session: activeSession.name,
+      minutesSinceOpen,
+      preSessionRange: { high: 0, low: 0, range: 0 },
+      breakoutDetected: false,
+      breakoutDirection: 'NONE',
+      breakoutStrength: 'NONE',
+      priceVsRange: 'Insufficient pre-session data',
+      breakoutDistance: 0,
+      volumeConfirmed: false,
+      signal: 'NEUTRAL',
+    };
+  }
+
+  let rangeHigh = -Infinity;
+  let rangeLow = Infinity;
+  for (const c of preSessionSlice) {
+    if (c.h > rangeHigh) rangeHigh = c.h;
+    if (c.l < rangeLow) rangeLow = c.l;
+  }
+  const range = rangeHigh - rangeLow;
+
+  if (range <= 0) {
+    return {
+      isBreakoutWindow: true,
+      session: activeSession.name,
+      minutesSinceOpen,
+      preSessionRange: { high: rangeHigh === -Infinity ? 0 : rangeHigh, low: rangeLow === Infinity ? 0 : rangeLow, range: 0 },
+      breakoutDetected: false,
+      breakoutDirection: 'NONE',
+      breakoutStrength: 'NONE',
+      priceVsRange: 'Range too narrow for breakout detection',
+      breakoutDistance: 0,
+      volumeConfirmed: false,
+      signal: 'NEUTRAL',
+    };
+  }
+
+  const currentPrice = candles[0].c;
+  const breakoutDistance = currentPrice > rangeHigh
+    ? currentPrice - rangeHigh
+    : currentPrice < rangeLow
+      ? rangeLow - currentPrice
+      : 0;
+
+  let breakoutDirection: 'BULLISH' | 'BEARISH' | 'NONE' = 'NONE';
+  let breakoutDetected = false;
+
+  const threshold = range * 0.1;
+  if (currentPrice > rangeHigh + threshold) {
+    breakoutDirection = 'BULLISH';
+    breakoutDetected = true;
+  } else if (currentPrice < rangeLow - threshold) {
+    breakoutDirection = 'BEARISH';
+    breakoutDetected = true;
+  }
+
+  let breakoutStrength: 'STRONG' | 'MODERATE' | 'WEAK' | 'NONE' = 'NONE';
+  if (breakoutDetected) {
+    const ratio = breakoutDistance / range;
+    if (ratio > 0.5) breakoutStrength = 'STRONG';
+    else if (ratio > 0.25) breakoutStrength = 'MODERATE';
+    else breakoutStrength = 'WEAK';
+  }
+
+  let volumeConfirmed = false;
+  if (breakoutDetected && candles[0].v && candles.length >= 10) {
+    const avgVol = candles.slice(1, 11).reduce((s, c) => s + (c.v || 0), 0) / 10;
+    volumeConfirmed = (candles[0].v || 0) > avgVol * 1.2;
+  }
+
+  let priceVsRange: string;
+  if (currentPrice > rangeHigh) priceVsRange = `Price ABOVE range high by ${breakoutDistance.toFixed(5)}`;
+  else if (currentPrice < rangeLow) priceVsRange = `Price BELOW range low by ${breakoutDistance.toFixed(5)}`;
+  else priceVsRange = `Price INSIDE range (${((currentPrice - rangeLow) / range * 100).toFixed(0)}% from low)`;
+
+  let signal: 'BUY' | 'SELL' | 'NEUTRAL' = 'NEUTRAL';
+  if (breakoutDetected && breakoutStrength !== 'NONE') {
+    signal = breakoutDirection === 'BULLISH' ? 'BUY' : 'SELL';
+  }
+
+  return {
+    isBreakoutWindow: true,
+    session: activeSession.name,
+    minutesSinceOpen,
+    preSessionRange: {
+      high: Math.round(rangeHigh * 100000) / 100000,
+      low: Math.round(rangeLow * 100000) / 100000,
+      range: Math.round(range * 100000) / 100000,
+    },
+    breakoutDetected,
+    breakoutDirection,
+    breakoutStrength,
+    priceVsRange,
+    breakoutDistance: Math.round(breakoutDistance * 100000) / 100000,
+    volumeConfirmed,
+    signal,
+  };
+}
+
 export function computeAllAdvancedIndicators(
   candles: CandleData[],
   currentATR: number,
-  symbol: string
+  symbol: string,
+  timeframe: string = 'H1'
 ): AdvancedIndicators {
   return {
     adx: calculateADX(candles),
@@ -464,5 +650,6 @@ export function computeAllAdvancedIndicators(
     sessionContext: getSessionContext(symbol),
     volatilityContext: calculateVolatilityContext(candles, currentATR),
     volumeProfile: calculateVolumeProfile(candles),
+    breakoutDetection: detectMarketOpenBreakout(candles, symbol, timeframe),
   };
 }

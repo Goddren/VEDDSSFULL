@@ -5437,7 +5437,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           
           // Advanced indicators (ADX, Stochastic, VWAP, OBV, Pivot Points, Fibonacci, S/R, Candle Patterns, Session Context)
           const { computeAllAdvancedIndicators } = await import('./indicators');
-          const advanced = computeAllAdvancedIndicators(candles, atr || 0, sanitizedSymbol);
+          const advanced = computeAllAdvancedIndicators(candles, atr || 0, sanitizedSymbol, sanitizedTimeframe);
           
           if (advanced.adx) {
             analysis.indicators.adx = advanced.adx;
@@ -5539,6 +5539,21 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             analysis.alerts.push('Market session closed or weekend - reduced liquidity');
           }
           
+          // Market Open Breakout Detection
+          if (advanced.breakoutDetection) {
+            analysis.indicators.breakoutDetection = advanced.breakoutDetection;
+            if (advanced.breakoutDetection.isBreakoutWindow) {
+              analysis.patterns.push(`Breakout Window: ${advanced.breakoutDetection.session} Open`);
+              if (advanced.breakoutDetection.breakoutDetected) {
+                analysis.patterns.push(`${advanced.breakoutDetection.breakoutStrength} ${advanced.breakoutDetection.breakoutDirection} Breakout`);
+                if (advanced.breakoutDetection.volumeConfirmed) {
+                  analysis.patterns.push('Breakout Volume Confirmed');
+                }
+                analysis.alerts.push(`BREAKOUT: ${advanced.breakoutDetection.breakoutDirection} breakout at ${advanced.breakoutDetection.session} open - ${advanced.breakoutDetection.priceVsRange}`);
+              }
+            }
+          }
+          
           // Weak trend penalty (ADX < 20 reduces confidence in directional signals)
           const adxPenalty = advanced.adx && advanced.adx.value < 20 ? 0.8 : 1;
           
@@ -5579,12 +5594,23 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             }
           }
           
+          // Market Open Breakout votes (strong signal during session opens)
+          const breakoutEnabled = eaSettings?.breakoutStrategy !== false;
+          if (breakoutEnabled && advanced.breakoutDetection?.breakoutDetected && advanced.breakoutDetection.isBreakoutWindow) {
+            const breakoutWeight = advanced.breakoutDetection.breakoutStrength === 'STRONG' ? 3 : 
+                                   advanced.breakoutDetection.breakoutStrength === 'MODERATE' ? 2 : 1;
+            const volumeBonus = advanced.breakoutDetection.volumeConfirmed ? 1 : 0;
+            if (advanced.breakoutDetection.signal === 'BUY') buyVotes += breakoutWeight + volumeBonus;
+            if (advanced.breakoutDetection.signal === 'SELL') sellVotes += breakoutWeight + volumeBonus;
+          }
+          
           let baseVotes = 6.5; // Core: RSI 1.5 + MACD 2 + MA 2 + BB 1
           if (advanced.adx) baseVotes += 1;
           if (advanced.stochastic) baseVotes += 1.5;
           if (advanced.vwap) baseVotes += 0.5;
           if (advanced.obv?.divergence && advanced.obv.divergence !== 'NONE') baseVotes += 1;
           if (bullishPatterns.length > 0 || bearishPatterns.length > 0) baseVotes += Math.min(Math.max(bullishPatterns.length, bearishPatterns.length), 2);
+          if (breakoutEnabled && advanced.breakoutDetection?.breakoutDetected) baseVotes += 4;
           const totalVotes = multiTimeframeEnabled && mtfCount > 0 ? baseVotes + (mtfCount * 0.75) : baseVotes;
           if (buyVotes > sellVotes && buyVotes >= 3) {
             analysis.signal = 'BUY';
@@ -6507,6 +6533,16 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         mt5TrailRecommendation: analysis.trailConfidence?.recommendation || 'STANDARD',
         mt5TrailATRMultiplier: analysis.trailConfidence?.suggestedATRMultiplier || 1.5,
         mt5TrailFactors: analysis.trailConfidence?.factors?.join(' | ') || '',
+        // Market Open Breakout Detection (flat for MT5 parsing)
+        mt5BreakoutWindow: analysis.indicators?.breakoutDetection?.isBreakoutWindow || false,
+        mt5BreakoutSession: analysis.indicators?.breakoutDetection?.session || 'NONE',
+        mt5BreakoutDetected: analysis.indicators?.breakoutDetection?.breakoutDetected || false,
+        mt5BreakoutDirection: analysis.indicators?.breakoutDetection?.breakoutDirection || 'NONE',
+        mt5BreakoutStrength: analysis.indicators?.breakoutDetection?.breakoutStrength || 'NONE',
+        mt5BreakoutSignal: analysis.indicators?.breakoutDetection?.signal || 'NEUTRAL',
+        mt5BreakoutVolumeConfirmed: analysis.indicators?.breakoutDetection?.volumeConfirmed || false,
+        mt5BreakoutRangeHigh: analysis.indicators?.breakoutDetection?.preSessionRange?.high || 0,
+        mt5BreakoutRangeLow: analysis.indicators?.breakoutDetection?.preSessionRange?.low || 0,
         // Full analysis for web clients
         analysis,
         candlesReceived: candles.length,

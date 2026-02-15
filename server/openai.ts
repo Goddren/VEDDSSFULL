@@ -274,7 +274,7 @@ function buildConfirmationPrompt(
   const coreIndicators: any = {};
   const advancedIndicators: any = {};
   if (indicators) {
-    const advancedKeys = ['adx', 'stochastic', 'vwap', 'obv', 'pivotPoints', 'fibonacci', 'supportResistance', 'candlePatterns', 'swingPoints', 'sessionContext', 'volatilityContext', 'volumeProfile'];
+    const advancedKeys = ['adx', 'stochastic', 'vwap', 'obv', 'pivotPoints', 'fibonacci', 'supportResistance', 'candlePatterns', 'swingPoints', 'sessionContext', 'volatilityContext', 'volumeProfile', 'breakoutDetection'];
     for (const [key, val] of Object.entries(indicators)) {
       if (advancedKeys.includes(key)) advancedIndicators[key] = val;
       else coreIndicators[key] = val;
@@ -353,8 +353,9 @@ Provide your independent assessment considering ALL of the following:
 12. TRADE HISTORY: What is the recent win rate on this symbol? Is the trader on a losing streak?
 13. NEWS SENTIMENT: Does the current news flow support or contradict the proposed trade direction? Are headlines bullish or bearish for this pair?
 14. UPCOMING EVENTS: Are there high-impact economic events (rate decisions, NFP, CPI) coming soon that could invalidate the trade? Should the trader wait or use tighter stops?
+15. MARKET OPEN BREAKOUT: If breakoutDetection data is present and shows isBreakoutWindow=true, is there a confirmed breakout at the session open? Does the breakout direction align with the proposed signal? Is volume confirming the breakout? A strong volume-confirmed breakout at London or NY open is a high-probability setup — boost confidence if aligned, reduce if contradicting.
 
-CRITICAL: If a high-impact news event is imminent (today or tomorrow), factor this into your confidence and reasoning. Warn if the trade could be invalidated by upcoming data releases.
+CRITICAL: If a high-impact news event is imminent (today or tomorrow), factor this into your confidence and reasoning. Warn if the trade could be invalidated by upcoming data releases. If a market open breakout is detected with volume confirmation, this is a high-probability institutional setup — give it significant weight.
 
 Return your analysis as JSON:
 {
