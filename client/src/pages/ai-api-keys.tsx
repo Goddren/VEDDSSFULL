@@ -15,7 +15,10 @@ import { Link } from "wouter";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
+  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -151,7 +154,7 @@ export default function AiApiKeysPage() {
     },
   });
 
-  const { data: modelPref, isLoading: modelLoading } = useQuery<{ model: string; availableModels: { id: string; name: string; description: string; tier: string }[] }>({
+  const { data: modelPref, isLoading: modelLoading } = useQuery<{ model: string; availableModels: { id: string; name: string; description: string; tier: string; provider: string }[] }>({
     queryKey: ['/api/ai-model-preference'],
   });
 
@@ -162,7 +165,7 @@ export default function AiApiKeysPage() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['/api/ai-model-preference'] });
-      toast({ title: "Model Updated", description: `Chart analysis will now use ${data.model === 'gpt-4o' ? 'GPT-4o (Premium)' : 'GPT-4o Mini (Budget)'}.` });
+      toast({ title: "AI Agent Updated", description: `Chart analysis and AI Second Opinion will now use ${data.modelName || data.model}.` });
     },
     onError: (err: any) => {
       toast({ title: "Error", description: err.message || "Failed to update model", variant: "destructive" });
@@ -203,56 +206,94 @@ export default function AiApiKeysPage() {
           <CardHeader className="pb-3">
             <CardTitle className="text-lg flex items-center gap-2">
               <Cpu className="h-5 w-5 text-primary" />
-              AI Vision Model for Chart Analysis
+              AI Agent for Chart Analysis & Second Opinion
             </CardTitle>
             <CardDescription>
-              Choose which AI model analyzes your trading charts. Budget mode costs significantly less per analysis.
+              Choose which AI model powers your chart analysis and trade confirmations. Non-OpenAI models require your own API key connected below.
             </CardDescription>
           </CardHeader>
           <CardContent>
             {modelLoading ? (
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             ) : (
-              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+              <div className="flex flex-col gap-4">
                 <Select
                   value={modelPref?.model || 'gpt-4o'}
                   onValueChange={(value) => setModelMutation.mutate(value)}
                   disabled={setModelMutation.isPending}
                 >
-                  <SelectTrigger className="w-full sm:w-[280px]">
+                  <SelectTrigger className="w-full sm:w-[340px]">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {(modelPref?.availableModels || []).map((m) => (
-                      <SelectItem key={m.id} value={m.id}>
-                        <div className="flex items-center gap-2">
-                          {m.tier === 'premium' ? (
-                            <Sparkles className="h-4 w-4 text-amber-500" />
-                          ) : (
-                            <DollarSign className="h-4 w-4 text-green-500" />
-                          )}
-                          <span>{m.name}</span>
-                          <Badge variant="outline" className="ml-1 text-[10px] px-1.5 py-0">
-                            {m.tier === 'premium' ? 'Best' : 'Save $'}
-                          </Badge>
-                        </div>
-                      </SelectItem>
-                    ))}
+                    {(() => {
+                      const models = modelPref?.availableModels || [];
+                      const providers = ['openai', 'anthropic', 'google', 'groq', 'mistral'];
+                      const providerLabels: Record<string, string> = {
+                        openai: '🤖 OpenAI', anthropic: '🧠 Anthropic', google: '💎 Google AI',
+                        groq: '⚡ Groq', mistral: '🌊 Mistral AI'
+                      };
+                      return providers.map((prov, idx) => {
+                        const provModels = models.filter((m: any) => m.provider === prov);
+                        if (provModels.length === 0) return null;
+                        const needsKey = prov !== 'openai';
+                        const hasKey = savedKeys.some(k => k.provider === prov && k.isActive);
+                        return (
+                          <SelectGroup key={prov}>
+                            {idx > 0 && <SelectSeparator />}
+                            <SelectLabel className="flex items-center justify-between text-xs">
+                              <span>{providerLabels[prov] || prov}</span>
+                              {needsKey && !hasKey && (
+                                <Badge variant="outline" className="text-[9px] px-1 py-0 text-yellow-600 border-yellow-600">Key Required</Badge>
+                              )}
+                              {needsKey && hasKey && (
+                                <Badge variant="outline" className="text-[9px] px-1 py-0 text-green-600 border-green-600">Connected</Badge>
+                              )}
+                            </SelectLabel>
+                            {provModels.map((m: any) => (
+                              <SelectItem key={m.id} value={m.id}>
+                                <div className="flex items-center gap-2">
+                                  {m.tier === 'premium' ? (
+                                    <Sparkles className="h-3.5 w-3.5 text-amber-500" />
+                                  ) : (
+                                    <DollarSign className="h-3.5 w-3.5 text-green-500" />
+                                  )}
+                                  <span>{m.name}</span>
+                                  <Badge variant="outline" className="ml-1 text-[9px] px-1 py-0">
+                                    {m.tier === 'premium' ? 'Premium' : 'Budget'}
+                                  </Badge>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        );
+                      });
+                    })()}
                   </SelectContent>
                 </Select>
-                <p className="text-sm text-muted-foreground">
-                  {modelPref?.model === 'gpt-4o-mini' ? (
-                    <span className="flex items-center gap-1">
-                      <DollarSign className="h-3.5 w-3.5 text-green-500" />
-                      Budget mode — good accuracy at ~10x lower cost
-                    </span>
-                  ) : (
-                    <span className="flex items-center gap-1">
-                      <Sparkles className="h-3.5 w-3.5 text-amber-500" />
-                      Premium mode — best accuracy for chart reading
-                    </span>
-                  )}
-                </p>
+                {(() => {
+                  const selected = (modelPref?.availableModels || []).find((m: any) => m.id === modelPref?.model);
+                  if (!selected) return null;
+                  const needsKey = (selected as any).provider !== 'openai';
+                  const hasKey = savedKeys.some(k => k.provider === (selected as any).provider && k.isActive);
+                  return (
+                    <div className="text-sm text-muted-foreground space-y-1">
+                      <span className="flex items-center gap-1">
+                        {selected.tier === 'premium' ? (
+                          <><Sparkles className="h-3.5 w-3.5 text-amber-500" /> Premium — {selected.description}</>
+                        ) : (
+                          <><DollarSign className="h-3.5 w-3.5 text-green-500" /> Budget — {selected.description}</>
+                        )}
+                      </span>
+                      {needsKey && !hasKey && (
+                        <p className="text-xs text-yellow-600 flex items-center gap-1">
+                          <XCircle className="h-3 w-3" />
+                          Add your {AI_PROVIDERS.find(p => p.id === (selected as any).provider)?.name} API key below to use this model
+                        </p>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             )}
           </CardContent>

@@ -176,20 +176,33 @@ export const openai = new OpenAI({
 });
 
 export const AVAILABLE_VISION_MODELS = [
-  { id: 'gpt-4o', name: 'GPT-4o', description: 'Best accuracy for chart analysis', tier: 'premium' },
-  { id: 'gpt-4o-mini', name: 'GPT-4o Mini', description: 'Budget-friendly, good accuracy', tier: 'budget' },
-] as const;
+  { id: 'gpt-4o', name: 'GPT-4o', description: 'Best accuracy for chart analysis', tier: 'premium', provider: 'openai' },
+  { id: 'gpt-4o-mini', name: 'GPT-4o Mini', description: 'Budget-friendly, good accuracy', tier: 'budget', provider: 'openai' },
+  { id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4', description: 'Excellent reasoning and analysis', tier: 'premium', provider: 'anthropic' },
+  { id: 'claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku', description: 'Fast and affordable', tier: 'budget', provider: 'anthropic' },
+  { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', description: 'Fast multimodal analysis', tier: 'budget', provider: 'google' },
+  { id: 'gemini-1.5-pro-latest', name: 'Gemini 1.5 Pro', description: 'Advanced reasoning', tier: 'premium', provider: 'google' },
+  { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B', description: 'Ultra-fast inference', tier: 'budget', provider: 'groq' },
+  { id: 'mixtral-8x7b-32768', name: 'Mixtral 8x7B', description: 'Fast mixture of experts', tier: 'budget', provider: 'groq' },
+  { id: 'mistral-large-latest', name: 'Mistral Large', description: 'Top-tier reasoning', tier: 'premium', provider: 'mistral' },
+  { id: 'mistral-small-latest', name: 'Mistral Small', description: 'Efficient and affordable', tier: 'budget', provider: 'mistral' },
+];
 
-export type VisionModelId = typeof AVAILABLE_VISION_MODELS[number]['id'];
+export type VisionModelId = string;
 
-const userModelPreferences: Map<number, VisionModelId> = new Map();
+const userModelPreferences: Map<number, string> = new Map();
 
-export function setUserModelPreference(userId: number, model: VisionModelId) {
+export function setUserModelPreference(userId: number, model: string) {
   userModelPreferences.set(userId, model);
 }
 
-export function getUserModelPreference(userId: number): VisionModelId {
+export function getUserModelPreference(userId: number): string {
   return userModelPreferences.get(userId) || 'gpt-4o';
+}
+
+function getModelProvider(modelId: string): string {
+  const model = AVAILABLE_VISION_MODELS.find(m => m.id === modelId);
+  return model?.provider || 'openai';
 }
 
 const aiVisionConfirmationEnabled: Map<number, boolean> = new Map();
@@ -212,28 +225,19 @@ export interface AiVisionConfirmation {
   adjustedTakeProfit?: number;
 }
 
-export async function getAiVisionConfirmation(
-  candleData: any[],
-  indicators: any,
-  proposedSignal: string,
-  proposedConfidence: number,
-  tradePlan: any,
-  symbol: string,
-  timeframe: string,
-  userId?: number
-): Promise<AiVisionConfirmation> {
-  try {
-    const openaiInstance = userId ? await getOpenAIInstanceForUser(userId) : getOpenAIInstance();
-    const selectedModel = userId ? getUserModelPreference(userId) : 'gpt-4o-mini';
+function buildConfirmationPrompt(
+  candleData: any[], indicators: any, proposedSignal: string,
+  proposedConfidence: number, tradePlan: any, symbol: string, timeframe: string
+): { system: string; user: string } {
+  const recentCandles = candleData.slice(0, 30);
+  const candleSummary = recentCandles.map((c: any, i: number) => 
+    `[${i}] O:${c.o} H:${c.h} L:${c.l} C:${c.c} V:${c.v || 0}`
+  ).join('\n');
+  const indicatorSummary = JSON.stringify(indicators, null, 2);
 
-    const recentCandles = candleData.slice(0, 30);
-    const candleSummary = recentCandles.map((c, i) => 
-      `[${i}] O:${c.o} H:${c.h} L:${c.l} C:${c.c} V:${c.v || 0}`
-    ).join('\n');
-
-    const indicatorSummary = JSON.stringify(indicators, null, 2);
-
-    const prompt = `You are an expert trading analyst providing a SECOND OPINION on a proposed trade signal.
+  return {
+    system: "You are a professional trading analyst. Provide honest, unbiased second opinions on trade signals. Always return valid JSON.",
+    user: `You are an expert trading analyst providing a SECOND OPINION on a proposed trade signal.
 
 SYMBOL: ${symbol}
 TIMEFRAME: ${timeframe}
@@ -267,35 +271,163 @@ Return your analysis as JSON:
   "adjustedEntry": number or null,
   "adjustedStopLoss": number or null,
   "adjustedTakeProfit": number or null
-}`;
+}`
+  };
+}
 
-    console.log(`[AI Vision Confirmation] Requesting ${selectedModel} confirmation for ${symbol} ${proposedSignal}`);
+async function callOpenAIConfirmation(prompt: { system: string; user: string }, model: string, userId?: number): Promise<string> {
+  const openaiInstance = userId ? await getOpenAIInstanceForUser(userId) : getOpenAIInstance();
+  const response = await openaiInstance.chat.completions.create({
+    model,
+    messages: [
+      { role: "system", content: prompt.system },
+      { role: "user", content: prompt.user }
+    ],
+    response_format: { type: "json_object" },
+    max_tokens: 1000,
+    temperature: 0.3,
+  });
+  return response.choices[0]?.message?.content || '';
+}
 
-    const response = await openaiInstance.chat.completions.create({
-      model: selectedModel,
-      messages: [
-        { role: "system", content: "You are a professional trading analyst. Provide honest, unbiased second opinions on trade signals. Always return valid JSON." },
-        { role: "user", content: prompt }
-      ],
-      response_format: { type: "json_object" },
-      max_tokens: 1000,
-      temperature: 0.3,
-    });
+async function callAnthropicConfirmation(prompt: { system: string; user: string }, model: string, apiKey: string): Promise<string> {
+  const Anthropic = (await import('@anthropic-ai/sdk')).default;
+  const client = new Anthropic({ apiKey });
+  const response = await client.messages.create({
+    model,
+    max_tokens: 1000,
+    system: prompt.system + ' Always return valid JSON with no markdown formatting.',
+    messages: [{ role: "user", content: prompt.user }],
+  });
+  const block = response.content[0];
+  return block.type === 'text' ? block.text : '';
+}
 
-    const content = response.choices[0]?.message?.content;
+async function callGoogleConfirmation(prompt: { system: string; user: string }, model: string, apiKey: string): Promise<string> {
+  const { GoogleGenerativeAI } = await import('@google/generative-ai');
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const genModel = genAI.getGenerativeModel({ 
+    model,
+    systemInstruction: prompt.system,
+    generationConfig: { responseMimeType: "application/json", temperature: 0.3, maxOutputTokens: 1000 },
+  });
+  const result = await genModel.generateContent(prompt.user);
+  return result.response.text();
+}
+
+async function callGroqConfirmation(prompt: { system: string; user: string }, model: string, apiKey: string): Promise<string> {
+  const Groq = (await import('groq-sdk')).default;
+  const client = new Groq({ apiKey });
+  const response = await client.chat.completions.create({
+    model,
+    messages: [
+      { role: "system", content: prompt.system },
+      { role: "user", content: prompt.user }
+    ],
+    response_format: { type: "json_object" },
+    max_tokens: 1000,
+    temperature: 0.3,
+  });
+  return response.choices[0]?.message?.content || '';
+}
+
+async function callMistralConfirmation(prompt: { system: string; user: string }, model: string, apiKey: string): Promise<string> {
+  const { Mistral } = await import('@mistralai/mistralai');
+  const client = new Mistral({ apiKey });
+  const response = await client.chat.complete({
+    model,
+    messages: [
+      { role: "system", content: prompt.system },
+      { role: "user", content: prompt.user }
+    ],
+    responseFormat: { type: "json_object" },
+    maxTokens: 1000,
+    temperature: 0.3,
+  });
+  const choice = response.choices?.[0];
+  if (!choice || !('message' in choice)) return '';
+  return typeof choice.message.content === 'string' ? choice.message.content : '';
+}
+
+async function getUserApiKeyForProvider(userId: number, provider: string): Promise<string | null> {
+  try {
+    const { storage } = await import('./storage');
+    const userKey = await storage.getActiveUserApiKey(userId, provider);
+    if (userKey?.apiKey) {
+      await storage.updateUserApiKeyUsage(userId, provider);
+      return userKey.apiKey;
+    }
+  } catch (e) {
+    console.error(`Error fetching user API key for ${provider}:`, e);
+  }
+  return null;
+}
+
+export async function getAiVisionConfirmation(
+  candleData: any[],
+  indicators: any,
+  proposedSignal: string,
+  proposedConfidence: number,
+  tradePlan: any,
+  symbol: string,
+  timeframe: string,
+  userId?: number
+): Promise<AiVisionConfirmation> {
+  try {
+    const selectedModel = userId ? getUserModelPreference(userId) : 'gpt-4o-mini';
+    const provider = getModelProvider(selectedModel);
+    const prompt = buildConfirmationPrompt(candleData, indicators, proposedSignal, proposedConfidence, tradePlan, symbol, timeframe);
+
+    console.log(`[AI Vision Confirmation] Requesting ${provider}/${selectedModel} confirmation for ${symbol} ${proposedSignal}`);
+
+    let content = '';
+
+    if (provider === 'openai') {
+      content = await callOpenAIConfirmation(prompt, selectedModel, userId);
+    } else if (userId) {
+      const apiKey = await getUserApiKeyForProvider(userId, provider);
+      if (!apiKey) {
+        return {
+          confirmed: false,
+          aiDirection: 'NEUTRAL',
+          aiConfidence: 0,
+          reasoning: `No ${provider} API key configured. Add your key on the AI Provider Keys page, or switch to an OpenAI model.`,
+        };
+      }
+      switch (provider) {
+        case 'anthropic':
+          content = await callAnthropicConfirmation(prompt, selectedModel, apiKey);
+          break;
+        case 'google':
+          content = await callGoogleConfirmation(prompt, selectedModel, apiKey);
+          break;
+        case 'groq':
+          content = await callGroqConfirmation(prompt, selectedModel, apiKey);
+          break;
+        case 'mistral':
+          content = await callMistralConfirmation(prompt, selectedModel, apiKey);
+          break;
+        default:
+          content = await callOpenAIConfirmation(prompt, selectedModel, userId);
+      }
+    } else {
+      content = await callOpenAIConfirmation(prompt, 'gpt-4o-mini');
+    }
+
     if (!content) throw new Error("No response from AI");
 
-    const result = JSON.parse(content);
-    console.log(`[AI Vision Confirmation] ${symbol}: ${result.confirmed ? 'CONFIRMED' : 'REJECTED'} (AI says ${result.direction} at ${result.confidence}%)`);
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    const result = JSON.parse(jsonMatch ? jsonMatch[0] : content);
+    console.log(`[AI Vision Confirmation] ${symbol}: ${result.confirmed ? 'CONFIRMED' : 'REJECTED'} (AI says ${result.direction} at ${result.confidence}%) [${provider}/${selectedModel}]`);
 
     return {
       confirmed: !!result.confirmed,
       aiDirection: result.direction || 'NEUTRAL',
       aiConfidence: typeof result.confidence === 'number' ? result.confidence : 50,
       reasoning: result.reasoning || 'No reasoning provided',
-      adjustedEntry: result.adjustedEntry || undefined,
-      adjustedStopLoss: result.adjustedStopLoss || undefined,
-      adjustedTakeProfit: result.adjustedTakeProfit || undefined,
+      adjustedEntry: typeof result.adjustedEntry === 'number' ? result.adjustedEntry : undefined,
+      adjustedStopLoss: typeof result.adjustedStopLoss === 'number' ? result.adjustedStopLoss : undefined,
+      adjustedTakeProfit: typeof result.adjustedTakeProfit === 'number' ? result.adjustedTakeProfit : undefined,
     };
   } catch (error) {
     console.error('[AI Vision Confirmation] Error:', error);

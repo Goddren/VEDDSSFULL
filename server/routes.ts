@@ -11171,7 +11171,8 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       return res.status(400).json({ message: `Invalid model. Choose from: ${validIds.join(', ')}` });
     }
     setUserModelPreference(req.user!.id, model);
-    res.json({ success: true, model });
+    const modelInfo = AVAILABLE_VISION_MODELS.find(m => m.id === model);
+    res.json({ success: true, model, modelName: modelInfo?.name || model });
   });
 
   app.get("/api/ai-vision-confirmation", async (req: Request, res: Response) => {
