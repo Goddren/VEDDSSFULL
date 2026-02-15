@@ -1,7 +1,9 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { User } from "@shared/schema";
+import { User, userApiKeys } from "@shared/schema";
+import { eq, and } from "drizzle-orm";
+import { db } from "./db";
 import { scrypt, randomBytes } from "crypto";
 import { promisify } from "util";
 import { z } from "zod";
@@ -370,7 +372,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Call OpenAI for analysis with optional known symbol for enhanced Gold/BTC analysis
       const knownSymbol = req.body.symbol || undefined;
-      const analysis = await analyzeChartImage(cleanBase64, knownSymbol);
+      const analysis = await analyzeChartImage(cleanBase64, knownSymbol, req.user?.id);
       console.log('Analysis completed successfully');
       
       // Fetch news sentiment for the detected symbol and adjust confidence
@@ -599,7 +601,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         try {
           // Pass symbol if detected from previous frame for enhanced Gold/BTC analysis
           const detectedSymbol = analyses.length > 0 ? analyses[analyses.length - 1].symbol : undefined;
-          const analysis = await analyzeChartImage(frame.base64, detectedSymbol);
+          const analysis = await analyzeChartImage(frame.base64, detectedSymbol, req.user?.id);
           
           // Save frame to uploads
           const frameFileName = `video_frame_${groupId}_${i + 1}.jpg`;
@@ -1091,7 +1093,7 @@ Respond ONLY in valid JSON format with these exact keys:
 
       // Call OpenAI for analysis with optional known symbol for enhanced Gold/BTC analysis
       const knownSymbol = req.body.symbol || undefined;
-      const analysis = await analyzeChartImage(base64Image, knownSymbol);
+      const analysis = await analyzeChartImage(base64Image, knownSymbol, req.user?.id);
       
       console.log("Analysis result from OpenAI:", JSON.stringify(analysis, null, 2));
 
@@ -10962,6 +10964,135 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       message: `Position closed with ${profitLoss >= 0 ? '+' : ''}${profitLoss.toFixed(4)} SOL`,
       position: positions[posIndex]
     });
+  });
+
+  // ============ User API Keys Management ============
+  function sanitizeKeyForResponse(key: any) {
+    const { apiKey, ...safeKey } = key;
+    return { ...safeKey, hasKey: !!apiKey };
+  }
+
+  app.get("/api/user-api-keys", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
+    try {
+      const keys = await storage.getUserApiKeys(req.user!.id);
+      res.json(keys.map(sanitizeKeyForResponse));
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/user-api-keys", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
+    try {
+      const { provider, apiKey, label } = req.body;
+      const validProviders = ['openai', 'anthropic', 'google', 'groq', 'mistral'];
+      if (!validProviders.includes(provider)) {
+        return res.status(400).json({ message: "Invalid provider. Must be one of: " + validProviders.join(', ') });
+      }
+      if (!apiKey || typeof apiKey !== 'string' || apiKey.trim().length < 10) {
+        return res.status(400).json({ message: "Invalid API key" });
+      }
+
+      const existingKeys = await storage.getUserApiKeys(req.user!.id);
+      const isUpdating = existingKeys.some(k => k.provider === provider);
+      if (!isUpdating && existingKeys.length >= 5) {
+        return res.status(400).json({ message: "Maximum of 5 AI providers allowed" });
+      }
+
+      const result = await storage.createOrUpdateUserApiKey({
+        userId: req.user!.id,
+        provider,
+        apiKey: apiKey.trim(),
+        label: label || provider,
+        isActive: true,
+        isValid: false,
+      });
+
+      res.json(sanitizeKeyForResponse(result));
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/user-api-keys/validate", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
+    try {
+      const { provider } = req.body;
+      const key = await storage.getActiveUserApiKey(req.user!.id, provider);
+      if (!key) {
+        const anyKey = await storage.getUserApiKey(req.user!.id, provider);
+        if (!anyKey) return res.status(404).json({ message: "Key not found" });
+        return res.status(400).json({ message: "Key is not active. Enable it first.", valid: false, provider });
+      }
+      const decryptedKey = key.apiKey;
+
+      let isValid = false;
+      try {
+        if (provider === 'openai') {
+          const testClient = new (await import('openai')).default({ apiKey: decryptedKey });
+          await testClient.models.list();
+          isValid = true;
+        } else if (provider === 'anthropic') {
+          const resp = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: { 'x-api-key': decryptedKey, 'content-type': 'application/json', 'anthropic-version': '2023-06-01' },
+            body: JSON.stringify({ model: 'claude-3-haiku-20240307', max_tokens: 1, messages: [{ role: 'user', content: 'hi' }] }),
+          });
+          isValid = resp.status !== 401 && resp.status !== 403;
+        } else if (provider === 'google') {
+          const resp = await fetch(`https://generativelanguage.googleapis.com/v1/models?key=${decryptedKey}`);
+          isValid = resp.ok;
+        } else if (provider === 'groq') {
+          const resp = await fetch('https://api.groq.com/openai/v1/models', {
+            headers: { 'Authorization': `Bearer ${decryptedKey}` },
+          });
+          isValid = resp.ok;
+        } else if (provider === 'mistral') {
+          const resp = await fetch('https://api.mistral.ai/v1/models', {
+            headers: { 'Authorization': `Bearer ${decryptedKey}` },
+          });
+          isValid = resp.ok;
+        }
+      } catch (e) {
+        isValid = false;
+      }
+
+      await db.update(userApiKeys)
+        .set({ isValid, lastValidated: new Date() })
+        .where(and(eq(userApiKeys.userId, req.user!.id), eq(userApiKeys.provider, provider)));
+
+      res.json({ valid: isValid, provider });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/user-api-keys/toggle", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
+    try {
+      const { provider, isActive } = req.body;
+      const key = await storage.getUserApiKey(req.user!.id, provider);
+      if (!key) return res.status(404).json({ message: "Key not found" });
+
+      await db.update(userApiKeys)
+        .set({ isActive: !!isActive })
+        .where(and(eq(userApiKeys.userId, req.user!.id), eq(userApiKeys.provider, provider)));
+
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/user-api-keys/:provider", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
+    try {
+      await storage.deleteUserApiKey(req.user!.id, req.params.provider);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
   });
 
   const httpServer = createServer(app);

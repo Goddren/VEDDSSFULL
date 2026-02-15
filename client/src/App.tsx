@@ -56,6 +56,7 @@ import AdminVeddPool from "@/pages/admin-vedd-pool";
 import WebhooksPage from "@/pages/webhooks";
 import MT5ChartDataPage from "@/pages/mt5-chart-data";
 import NotificationSettings from "@/pages/notification-settings";
+import AiApiKeysPage from "@/pages/ai-api-keys";
 import VeddWalletPage from "@/pages/vedd-wallet";
 import HostDashboardPage from "@/pages/host-dashboard";
 import MyWalletPage from "@/pages/my-wallet";
@@ -167,6 +168,7 @@ function AppLayout() {
             <ProtectedRoute path="/webhooks" component={WebhooksPage} />
             <ProtectedRoute path="/mt5-chart-data" component={MT5ChartDataPage} />
             <ProtectedRoute path="/notification-settings" component={NotificationSettings} />
+            <ProtectedRoute path="/ai-api-keys" component={AiApiKeysPage} />
             
             {/* Admin routes */}
             <ProtectedRoute path="/admin/vedd-pool" component={AdminVeddPool} />

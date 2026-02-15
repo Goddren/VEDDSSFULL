@@ -42,14 +42,53 @@ import {
   type ConnectedSocialAccount, type InsertConnectedSocialAccount,
   type SocialPost, type InsertSocialPost,
   type AiTradeResult, type InsertAiTradeResult,
+  type UserApiKey, type InsertUserApiKey,
   veddPoolWallets, veddTransferJobs, ambassadorActionRewards,
-  internalWallets, withdrawalRequests, aiTradeResults
+  internalWallets, withdrawalRequests, aiTradeResults, userApiKeys
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, sql, desc, isNull } from "drizzle-orm";
 import session from "express-session";
 import createMemoryStore from "memorystore";
 import crypto from "crypto";
+
+const ENCRYPTION_KEY = process.env.API_KEY_ENCRYPTION_SECRET;
+const ENCRYPTION_ALGORITHM = 'aes-256-cbc';
+
+if (!ENCRYPTION_KEY || ENCRYPTION_KEY.length < 64) {
+  console.warn('API_KEY_ENCRYPTION_SECRET not set or too short. User API key encryption will use a derived key.');
+}
+
+function getEncryptionKey(): Buffer {
+  if (ENCRYPTION_KEY && ENCRYPTION_KEY.length >= 64) {
+    return Buffer.from(ENCRYPTION_KEY.substring(0, 64), 'hex');
+  }
+  return crypto.createHash('sha256').update(process.env.DATABASE_URL || 'vedd-ai-trading-vault-default').digest();
+}
+
+function encryptApiKey(plainKey: string): string {
+  const iv = crypto.randomBytes(16);
+  const key = getEncryptionKey();
+  const cipher = crypto.createCipheriv(ENCRYPTION_ALGORITHM, key, iv);
+  let encrypted = cipher.update(plainKey, 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  return iv.toString('hex') + ':' + encrypted;
+}
+
+function decryptApiKey(encryptedKey: string): string {
+  try {
+    const parts = encryptedKey.split(':');
+    if (parts.length !== 2) return encryptedKey;
+    const iv = Buffer.from(parts[0], 'hex');
+    const key = getEncryptionKey();
+    const decipher = crypto.createDecipheriv(ENCRYPTION_ALGORITHM, key, iv);
+    let decrypted = decipher.update(parts[1], 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
+  } catch {
+    return encryptedKey;
+  }
+}
 
 // In-memory storage will be implemented in the class
 
@@ -328,6 +367,14 @@ export interface IStorage {
   createSocialPost(data: InsertSocialPost): Promise<SocialPost>;
   getSocialPosts(userId: number): Promise<SocialPost[]>;
   updateSocialPost(id: number, data: Partial<SocialPost>): Promise<SocialPost | undefined>;
+
+  // User API Key methods
+  getUserApiKeys(userId: number): Promise<UserApiKey[]>;
+  getUserApiKey(userId: number, provider: string): Promise<UserApiKey | undefined>;
+  createOrUpdateUserApiKey(data: InsertUserApiKey): Promise<UserApiKey>;
+  deleteUserApiKey(userId: number, provider: string): Promise<boolean>;
+  updateUserApiKeyUsage(userId: number, provider: string): Promise<void>;
+  getActiveUserApiKey(userId: number, provider: string): Promise<UserApiKey | undefined>;
 }
 
 // Create PostgreSQL session store
@@ -2253,6 +2300,57 @@ export class DatabaseStorage implements IStorage {
       .set(data)
       .where(eq(socialPosts.id, id))
       .returning();
+    return result;
+  }
+
+  async getUserApiKeys(userId: number): Promise<UserApiKey[]> {
+    return await db.select().from(userApiKeys)
+      .where(eq(userApiKeys.userId, userId))
+      .orderBy(userApiKeys.provider);
+  }
+
+  async getUserApiKey(userId: number, provider: string): Promise<UserApiKey | undefined> {
+    const [result] = await db.select().from(userApiKeys)
+      .where(and(eq(userApiKeys.userId, userId), eq(userApiKeys.provider, provider)));
+    return result;
+  }
+
+  async createOrUpdateUserApiKey(data: InsertUserApiKey): Promise<UserApiKey> {
+    const encryptedKey = encryptApiKey(data.apiKey);
+    const existing = await this.getUserApiKey(data.userId, data.provider);
+    if (existing) {
+      const [result] = await db.update(userApiKeys)
+        .set({ apiKey: encryptedKey, label: data.label, isActive: data.isActive ?? true, isValid: false, lastValidated: null })
+        .where(and(eq(userApiKeys.userId, data.userId), eq(userApiKeys.provider, data.provider)))
+        .returning();
+      return result;
+    }
+    const [result] = await db.insert(userApiKeys).values({ ...data, apiKey: encryptedKey }).returning();
+    return result;
+  }
+
+  async deleteUserApiKey(userId: number, provider: string): Promise<boolean> {
+    const result = await db.delete(userApiKeys)
+      .where(and(eq(userApiKeys.userId, userId), eq(userApiKeys.provider, provider)));
+    return true;
+  }
+
+  async updateUserApiKeyUsage(userId: number, provider: string): Promise<void> {
+    await db.update(userApiKeys)
+      .set({ lastUsed: new Date(), usageCount: sql`${userApiKeys.usageCount} + 1` })
+      .where(and(eq(userApiKeys.userId, userId), eq(userApiKeys.provider, provider)));
+  }
+
+  async getActiveUserApiKey(userId: number, provider: string): Promise<UserApiKey | undefined> {
+    const [result] = await db.select().from(userApiKeys)
+      .where(and(
+        eq(userApiKeys.userId, userId),
+        eq(userApiKeys.provider, provider),
+        eq(userApiKeys.isActive, true)
+      ));
+    if (result) {
+      return { ...result, apiKey: decryptApiKey(result.apiKey) };
+    }
     return result;
   }
 }

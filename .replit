@@ -95,3 +95,8 @@ args = "npm run dev"
 
 [agent]
 integrations = ["javascript_openai_ai_integrations:1.0.0", "stripe:2.0.0", "javascript_websocket:1.0.0"]
+
+[userenv]
+
+[userenv.shared]
+API_KEY_ENCRYPTION_SECRET = "e1621e3d18614bb99f4ceaeafe9ac5e21491e1b9768c30b4eb4df2649d165165"

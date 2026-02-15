@@ -175,10 +175,26 @@ export const openai = new OpenAI({
   apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
 });
 
-// Function to get an OpenAI instance with the current API key
-// This ensures we're always using the most up-to-date key
-function getOpenAIInstance() {
-  // the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
+// Function to get an OpenAI instance - optionally using a user's own API key
+function getOpenAIInstance(userApiKey?: string) {
+  if (userApiKey) {
+    return new OpenAI({ apiKey: userApiKey });
+  }
+  return openai;
+}
+
+// Get OpenAI instance for a specific user, checking for their own API key first
+export async function getOpenAIInstanceForUser(userId: number): Promise<OpenAI> {
+  try {
+    const { storage } = await import('./storage');
+    const userKey = await storage.getActiveUserApiKey(userId, 'openai');
+    if (userKey && userKey.apiKey) {
+      await storage.updateUserApiKeyUsage(userId, 'openai');
+      return new OpenAI({ apiKey: userKey.apiKey });
+    }
+  } catch (e) {
+    console.error('Error fetching user API key, falling back to platform key:', e);
+  }
   return openai;
 }
 
@@ -204,9 +220,9 @@ export async function testOpenAIApiKey(): Promise<boolean> {
 export { getAssetSpecificConfig, getAssetSpecificPrompt };
 
 // Enhanced chart analysis with optional symbol for asset-specific analysis
-export async function analyzeChartImage(base64Image: string, knownSymbol?: string): Promise<ChartAnalysisResponse> {
+export async function analyzeChartImage(base64Image: string, knownSymbol?: string, userId?: number): Promise<ChartAnalysisResponse> {
   try {
-    const openai = getOpenAIInstance();
+    const openai = userId ? await getOpenAIInstanceForUser(userId) : getOpenAIInstance();
     
     // Get asset-specific prompt if symbol is provided
     const assetSpecificAddition = knownSymbol ? getAssetSpecificPrompt(knownSymbol) : '';

@@ -862,13 +862,18 @@ export default function ProfilePage() {
             <TabsContent value="api" className="space-y-6">
               <Card>
                 <CardHeader>
-                  <CardTitle>OpenAI API Settings</CardTitle>
+                  <CardTitle>AI Provider Settings</CardTitle>
                   <CardDescription>
-                    Manage your OpenAI API key for chart analysis functionality
+                    Manage your AI API keys for chart analysis and other AI features
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <ApiKeySettings className="max-w-none" />
+                  <div className="mt-4 pt-4 border-t">
+                    <a href="/ai-api-keys" className="text-primary hover:underline text-sm font-medium">
+                      Manage all AI providers (OpenAI, Anthropic, Google, Groq, Mistral) →
+                    </a>
+                  </div>
                 </CardContent>
               </Card>
             </TabsContent>

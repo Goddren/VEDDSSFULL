@@ -33,7 +33,8 @@ Preferred communication style: Simple, everyday language.
 - **Styling**: Tailwind CSS with a custom design system.
 - **Build Tools**: Vite for frontend, ESBuild for backend.
 - **File Processing**: Multer for uploads, Canvas for server-side image processing.
-- **AI Integration**: OpenAI GPT-4o for chart analysis.
+- **AI Integration**: OpenAI GPT-4o for chart analysis. Multi-provider AI key management allows users to connect their own API keys (OpenAI, Anthropic, Google, Groq, Mistral - up to 5 providers) with encrypted storage and automatic routing through user keys when available, falling back to platform credits.
+- **AI API Key Management**: User-configurable AI providers at `/ai-api-keys` with AES-256-CBC encrypted storage, per-provider validation, usage tracking, and active/inactive toggling.
 - **EA Trading Strategy**: Hybrid AI + Technical Indicator approach, combining AI pattern analysis (baked-in) with real-time technical indicator confirmation (MACD, RSI, Volume, ATR).
 - **EA Marketplace**: Allows users to save, manage, publish, and subscribe to Expert Advisors, enabling passive income for creators.
 - **Market Data Service**: Fetches real-time market data (Forex, stocks, crypto, indices) to enable a "Live AI Refresh" feature, detecting pattern changes for EA re-analysis.
