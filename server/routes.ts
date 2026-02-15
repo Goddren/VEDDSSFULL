@@ -5845,11 +5845,64 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       
       // AUTO-EXECUTE ON TRADELOCKER: Execute trade if signal is strong and autoExecute is enabled
       let tradelockerResult: { success: boolean; orderId?: string; error?: string } | null = null;
+      let aiConfirmation: any = null;
       // Use MT5 EA's MIN_CONFIDENCE setting if provided, then fall back to saved EA's minConfidence, default to 65%
       const mt5MinConfidence = eaSettings?.minConfidence;
       const MIN_CONFIDENCE_FOR_AUTO_TRADE = mt5MinConfidence ?? matchingEA?.minConfidence ?? 65;
       
       console.log(`[KNOWLEDGE] ${sanitizedSymbol} Analysis: Confidence=${analysis.confidence}% | Required=${MIN_CONFIDENCE_FOR_AUTO_TRADE}% | Source=${mt5MinConfidence ? 'MT5 EA' : (matchingEA?.name || 'default')} | Session=${eaSettings?.sessionName || 'N/A'}`);
+      
+      // AI Vision Confirmation: Get second opinion from AI before trading (if enabled)
+      if (analysis.signal !== 'NEUTRAL' && 
+          analysis.confidence >= MIN_CONFIDENCE_FOR_AUTO_TRADE && 
+          analysis.tradePlan) {
+        try {
+          const { isAiVisionConfirmationEnabled, getAiVisionConfirmation } = await import('./openai');
+          if (isAiVisionConfirmationEnabled(token.userId)) {
+            console.log(`[AI Vision Confirmation] Enabled for user ${token.userId} - requesting AI second opinion on ${sanitizedSymbol}`);
+            aiConfirmation = await getAiVisionConfirmation(
+              candles,
+              indicators,
+              analysis.signal,
+              analysis.confidence,
+              analysis.tradePlan,
+              sanitizedSymbol,
+              sanitizedTimeframe,
+              token.userId
+            );
+            
+            if (!aiConfirmation.confirmed) {
+              console.log(`[AI Vision Confirmation] REJECTED trade on ${sanitizedSymbol}: ${aiConfirmation.reasoning}`);
+              analysis.alerts.push(`AI Confirmation REJECTED: ${aiConfirmation.reasoning}`);
+              analysis.tradePlan = null;
+              analysis.signal = 'NEUTRAL';
+              analysis.confidence = Math.min(analysis.confidence, aiConfirmation.aiConfidence);
+            } else {
+              console.log(`[AI Vision Confirmation] CONFIRMED trade on ${sanitizedSymbol}: ${aiConfirmation.reasoning}`);
+              analysis.alerts.push(`AI Confirmation: ${aiConfirmation.reasoning}`);
+              const currentPrice = indicators?.price?.bid || candles[0]?.c || 0;
+              const maxDeviation = currentPrice * 0.05;
+              if (typeof aiConfirmation.adjustedStopLoss === 'number' && !isNaN(aiConfirmation.adjustedStopLoss) && aiConfirmation.adjustedStopLoss > 0 &&
+                  Math.abs(aiConfirmation.adjustedStopLoss - currentPrice) < maxDeviation) {
+                analysis.tradePlan.stopLoss = aiConfirmation.adjustedStopLoss;
+              }
+              if (typeof aiConfirmation.adjustedTakeProfit === 'number' && !isNaN(aiConfirmation.adjustedTakeProfit) && aiConfirmation.adjustedTakeProfit > 0 &&
+                  Math.abs(aiConfirmation.adjustedTakeProfit - currentPrice) < maxDeviation) {
+                analysis.tradePlan.takeProfit = aiConfirmation.adjustedTakeProfit;
+              }
+              if (typeof aiConfirmation.adjustedEntry === 'number' && !isNaN(aiConfirmation.adjustedEntry) && aiConfirmation.adjustedEntry > 0 &&
+                  Math.abs(aiConfirmation.adjustedEntry - currentPrice) < maxDeviation) {
+                analysis.tradePlan.entry = aiConfirmation.adjustedEntry;
+              }
+            }
+          }
+        } catch (confirmError) {
+          console.error('[AI Vision Confirmation] Error:', confirmError);
+          analysis.alerts.push('AI Confirmation error - trade blocked for safety');
+          analysis.tradePlan = null;
+          analysis.signal = 'NEUTRAL';
+        }
+      }
       
       if (analysis.signal !== 'NEUTRAL' && 
           analysis.confidence >= MIN_CONFIDENCE_FOR_AUTO_TRADE && 
@@ -6193,6 +6246,13 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           executed: tradelockerResult.success,
           orderId: tradelockerResult.orderId,
           error: tradelockerResult.error,
+        } : null,
+        // AI Vision Confirmation result (if enabled)
+        aiConfirmation: aiConfirmation ? {
+          confirmed: aiConfirmation.confirmed,
+          aiDirection: aiConfirmation.aiDirection,
+          aiConfidence: aiConfirmation.aiConfidence,
+          reasoning: aiConfirmation.reasoning,
         } : null,
       });
     } catch (error) {
@@ -11112,6 +11172,23 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     }
     setUserModelPreference(req.user!.id, model);
     res.json({ success: true, model });
+  });
+
+  app.get("/api/ai-vision-confirmation", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
+    const { isAiVisionConfirmationEnabled } = await import('./openai');
+    res.json({ enabled: isAiVisionConfirmationEnabled(req.user!.id) });
+  });
+
+  app.post("/api/ai-vision-confirmation", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
+    const { enabled } = req.body;
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({ message: "enabled must be a boolean" });
+    }
+    const { setAiVisionConfirmation } = await import('./openai');
+    setAiVisionConfirmation(req.user!.id, enabled);
+    res.json({ success: true, enabled });
   });
 
   const httpServer = createServer(app);

@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { 
@@ -1228,6 +1229,26 @@ export default function MT5ChartDataPage() {
     refetchInterval: 10000,
   });
 
+  const { data: aiConfirmationSetting } = useQuery<{ enabled: boolean }>({
+    queryKey: ['/api/ai-vision-confirmation'],
+  });
+
+  const toggleAiConfirmationMutation = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      const res = await apiRequest('POST', '/api/ai-vision-confirmation', { enabled });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/ai-vision-confirmation'] });
+      toast({ 
+        title: data.enabled ? "AI Confirmation Enabled" : "AI Confirmation Disabled", 
+        description: data.enabled 
+          ? "AI will review trade signals before execution for a second opinion." 
+          : "Trades will execute based on indicator analysis only."
+      });
+    },
+  });
+
   const createTokenMutation = useMutation({
     mutationFn: async (name: string) => {
       const res = await apiRequest('POST', '/api/mt5-tokens', { name });
@@ -1328,6 +1349,41 @@ export default function MT5ChartDataPage() {
 
         {/* Connected Pairs Display */}
         <ConnectedPairs />
+
+        {/* AI Vision Confirmation Toggle */}
+        <Card className="bg-gradient-to-br from-purple-900/30 to-indigo-900/30 border-purple-500/30">
+          <CardContent className="p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start gap-3 flex-1">
+                <div className="p-2 rounded-lg bg-purple-500/20 mt-0.5">
+                  <Brain className="w-5 h-5 text-purple-400" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-white flex items-center gap-2">
+                    AI Second Opinion
+                    <Badge variant="outline" className="text-purple-400 border-purple-500/40 text-[10px]">
+                      Optional
+                    </Badge>
+                  </h3>
+                  <p className="text-sm text-gray-400 mt-1">
+                    When enabled, AI reviews the indicator-based trade signal before execution and can confirm, reject, or adjust entry/SL/TP levels. Uses your selected AI model (GPT-4o or Mini).
+                  </p>
+                  {aiConfirmationSetting?.enabled && (
+                    <p className="text-xs text-purple-300 mt-2 flex items-center gap-1">
+                      <CheckCircle className="w-3 h-3" />
+                      AI will confirm signals before trades execute
+                    </p>
+                  )}
+                </div>
+              </div>
+              <Switch 
+                checked={aiConfirmationSetting?.enabled || false}
+                onCheckedChange={(checked) => toggleAiConfirmationMutation.mutate(checked)}
+                disabled={toggleAiConfirmationMutation.isPending}
+              />
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Account Balance Breakdown */}
         {accountData?.connected && (

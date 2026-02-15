@@ -192,6 +192,122 @@ export function getUserModelPreference(userId: number): VisionModelId {
   return userModelPreferences.get(userId) || 'gpt-4o';
 }
 
+const aiVisionConfirmationEnabled: Map<number, boolean> = new Map();
+
+export function setAiVisionConfirmation(userId: number, enabled: boolean) {
+  aiVisionConfirmationEnabled.set(userId, enabled);
+}
+
+export function isAiVisionConfirmationEnabled(userId: number): boolean {
+  return aiVisionConfirmationEnabled.get(userId) || false;
+}
+
+export interface AiVisionConfirmation {
+  confirmed: boolean;
+  aiDirection: string;
+  aiConfidence: number;
+  reasoning: string;
+  adjustedEntry?: number;
+  adjustedStopLoss?: number;
+  adjustedTakeProfit?: number;
+}
+
+export async function getAiVisionConfirmation(
+  candleData: any[],
+  indicators: any,
+  proposedSignal: string,
+  proposedConfidence: number,
+  tradePlan: any,
+  symbol: string,
+  timeframe: string,
+  userId?: number
+): Promise<AiVisionConfirmation> {
+  try {
+    const openaiInstance = userId ? await getOpenAIInstanceForUser(userId) : getOpenAIInstance();
+    const selectedModel = userId ? getUserModelPreference(userId) : 'gpt-4o-mini';
+
+    const recentCandles = candleData.slice(0, 30);
+    const candleSummary = recentCandles.map((c, i) => 
+      `[${i}] O:${c.o} H:${c.h} L:${c.l} C:${c.c} V:${c.v || 0}`
+    ).join('\n');
+
+    const indicatorSummary = JSON.stringify(indicators, null, 2);
+
+    const prompt = `You are an expert trading analyst providing a SECOND OPINION on a proposed trade signal.
+
+SYMBOL: ${symbol}
+TIMEFRAME: ${timeframe}
+
+PROPOSED SIGNAL: ${proposedSignal} with ${proposedConfidence}% confidence
+PROPOSED TRADE PLAN:
+- Entry: ${tradePlan?.entry}
+- Stop Loss: ${tradePlan?.stopLoss}
+- Take Profit: ${tradePlan?.takeProfit}
+- Risk/Reward: ${tradePlan?.riskReward}
+
+RECENT CANDLE DATA (index 0 = most recent candle):
+${candleSummary}
+
+INDICATOR VALUES:
+${indicatorSummary}
+
+Analyze this data and provide your independent assessment. Consider:
+1. Does the price action support the proposed direction?
+2. Are the indicators aligned with the signal?
+3. Is the risk/reward ratio appropriate?
+4. Are there any divergences or warning signs?
+5. Would you adjust the entry, stop loss, or take profit levels?
+
+Return your analysis as JSON:
+{
+  "confirmed": boolean,
+  "direction": "BUY" | "SELL" | "NEUTRAL",
+  "confidence": number (0-100),
+  "reasoning": "Brief explanation of your assessment",
+  "adjustedEntry": number or null,
+  "adjustedStopLoss": number or null,
+  "adjustedTakeProfit": number or null
+}`;
+
+    console.log(`[AI Vision Confirmation] Requesting ${selectedModel} confirmation for ${symbol} ${proposedSignal}`);
+
+    const response = await openaiInstance.chat.completions.create({
+      model: selectedModel,
+      messages: [
+        { role: "system", content: "You are a professional trading analyst. Provide honest, unbiased second opinions on trade signals. Always return valid JSON." },
+        { role: "user", content: prompt }
+      ],
+      response_format: { type: "json_object" },
+      max_tokens: 1000,
+      temperature: 0.3,
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) throw new Error("No response from AI");
+
+    const result = JSON.parse(content);
+    console.log(`[AI Vision Confirmation] ${symbol}: ${result.confirmed ? 'CONFIRMED' : 'REJECTED'} (AI says ${result.direction} at ${result.confidence}%)`);
+
+    return {
+      confirmed: !!result.confirmed,
+      aiDirection: result.direction || 'NEUTRAL',
+      aiConfidence: typeof result.confidence === 'number' ? result.confidence : 50,
+      reasoning: result.reasoning || 'No reasoning provided',
+      adjustedEntry: result.adjustedEntry || undefined,
+      adjustedStopLoss: result.adjustedStopLoss || undefined,
+      adjustedTakeProfit: result.adjustedTakeProfit || undefined,
+    };
+  } catch (error) {
+    console.error('[AI Vision Confirmation] Error:', error);
+    return {
+      confirmed: false,
+      aiDirection: 'NEUTRAL',
+      aiConfidence: 0,
+      reasoning: 'AI confirmation unavailable - blocking trade for safety (disable AI Second Opinion to trade without confirmation)',
+    };
+  }
+}
+
 // Function to get an OpenAI instance - optionally using a user's own API key
 function getOpenAIInstance(userApiKey?: string) {
   if (userApiKey) {
