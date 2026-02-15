@@ -13,7 +13,7 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
-import { Menu, Bell, User, LogOut, Settings, History, LineChart, CreditCard, Award, Users, Newspaper, Wand2, Clock, Briefcase, Zap, HelpCircle, BookOpen, GraduationCap, FileText, Lightbulb, ChevronDown, MoreHorizontal, BarChart3, Webhook, Wallet, Scan, Coins } from 'lucide-react';
+import { Menu, Bell, User, LogOut, Settings, History, LineChart, CreditCard, Award, Users, Newspaper, Wand2, Clock, Briefcase, Zap, HelpCircle, BookOpen, GraduationCap, FileText, Lightbulb, ChevronDown, MoreHorizontal, BarChart3, Webhook, Wallet, Scan, Coins, KeyRound } from 'lucide-react';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 
 const Header: React.FC = () => {
@@ -194,6 +194,14 @@ const Header: React.FC = () => {
                   </div>
                 </Link>
               </DropdownMenuItem>
+              <DropdownMenuItem className="cursor-pointer" asChild>
+                <Link href="/ai-api-keys">
+                  <div className="flex items-center w-full">
+                    <KeyRound className="mr-2 h-4 w-4" />
+                    <span>AI API Keys</span>
+                  </div>
+                </Link>
+              </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem className="cursor-pointer" asChild>
                 <Link href="/user-guide">
@@ -261,6 +269,15 @@ const Header: React.FC = () => {
                 >
                   <Wallet className="h-4 w-4 mr-2" />
                   VEDD Wallet
+                </Link>
+                <Link 
+                  href="/ai-api-keys"
+                  onClick={handleMobileNavClick}
+                  className={`text-lg font-medium transition-colors flex items-center ${location === '/ai-api-keys' ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+                  data-testid="mobile-nav-ai-api-keys"
+                >
+                  <KeyRound className="h-4 w-4 mr-2" />
+                  AI API Keys
                 </Link>
                 <div className="border-t border-gray-700 my-2 pt-2">
                   <Link 
