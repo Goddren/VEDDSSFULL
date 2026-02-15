@@ -175,6 +175,23 @@ export const openai = new OpenAI({
   apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
 });
 
+export const AVAILABLE_VISION_MODELS = [
+  { id: 'gpt-4o', name: 'GPT-4o', description: 'Best accuracy for chart analysis', tier: 'premium' },
+  { id: 'gpt-4o-mini', name: 'GPT-4o Mini', description: 'Budget-friendly, good accuracy', tier: 'budget' },
+] as const;
+
+export type VisionModelId = typeof AVAILABLE_VISION_MODELS[number]['id'];
+
+const userModelPreferences: Map<number, VisionModelId> = new Map();
+
+export function setUserModelPreference(userId: number, model: VisionModelId) {
+  userModelPreferences.set(userId, model);
+}
+
+export function getUserModelPreference(userId: number): VisionModelId {
+  return userModelPreferences.get(userId) || 'gpt-4o';
+}
+
 // Function to get an OpenAI instance - optionally using a user's own API key
 function getOpenAIInstance(userApiKey?: string) {
   if (userApiKey) {
@@ -223,13 +240,16 @@ export { getAssetSpecificConfig, getAssetSpecificPrompt };
 export async function analyzeChartImage(base64Image: string, knownSymbol?: string, userId?: number): Promise<ChartAnalysisResponse> {
   try {
     const openai = userId ? await getOpenAIInstanceForUser(userId) : getOpenAIInstance();
+    const selectedModel = userId ? getUserModelPreference(userId) : 'gpt-4o';
     
     // Get asset-specific prompt if symbol is provided
     const assetSpecificAddition = knownSymbol ? getAssetSpecificPrompt(knownSymbol) : '';
     const assetConfig = knownSymbol ? getAssetSpecificConfig(knownSymbol) : null;
     
+    console.log(`[AI Analysis] Using model: ${selectedModel} for user ${userId || 'platform'}`);
+    
     const visionResponse = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: selectedModel,
       messages: [
         {
           role: "system",
