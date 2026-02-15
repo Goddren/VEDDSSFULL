@@ -991,6 +991,218 @@ type AccountData = {
   message?: string;
 };
 
+function BreakoutLiveStatus() {
+  const { data, isLoading } = useQuery<{
+    serverTime: string;
+    serverTimeUTC: string;
+    isWeekend: boolean;
+    currentWindow: {
+      session: string;
+      minutesSinceOpen: number;
+      minutesRemaining: number;
+      openTime: string;
+      preSessionRange: string;
+      preSessionHours: number;
+    } | null;
+    nextSession: {
+      session: string;
+      minutesUntilOpen: number;
+      openTime: string;
+      preSessionRange: string;
+      preSessionHours: number;
+    } | null;
+    pairStatuses: Array<{
+      symbol: string;
+      timeframe: string;
+      updatedAt: string;
+      ageSeconds: number;
+      isBreakoutWindow: boolean;
+      session: string;
+      minutesSinceOpen: number;
+      breakoutDetected: boolean;
+      breakoutDirection: string;
+      breakoutStrength: string;
+      priceVsRange: string;
+      breakoutDistance: number;
+      volumeConfirmed: boolean;
+      signal: string;
+      preSessionRange: { high: number; low: number; range: number };
+    }>;
+  }>({
+    queryKey: ['/api/mt5/breakout-status'],
+    refetchInterval: 15000,
+  });
+
+  if (isLoading) {
+    return (
+      <Card className="bg-gradient-to-br from-amber-900/20 to-yellow-900/20 border-amber-500/20">
+        <CardContent className="p-5">
+          <div className="flex items-center gap-2 text-gray-400">
+            <RefreshCw className="w-4 h-4 animate-spin" />
+            <span className="text-sm">Loading breakout status...</span>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!data) return null;
+
+  const sessionColor = (name: string) => {
+    if (name === 'LONDON') return 'blue';
+    if (name === 'NEW_YORK') return 'green';
+    return 'purple';
+  };
+
+  const strengthColor = (s: string) => {
+    if (s === 'STRONG') return 'text-green-400';
+    if (s === 'MODERATE') return 'text-yellow-400';
+    if (s === 'WEAK') return 'text-orange-400';
+    return 'text-gray-400';
+  };
+
+  const strengthBg = (s: string) => {
+    if (s === 'STRONG') return 'bg-green-500/20 border-green-500/30';
+    if (s === 'MODERATE') return 'bg-yellow-500/20 border-yellow-500/30';
+    if (s === 'WEAK') return 'bg-orange-500/20 border-orange-500/30';
+    return 'bg-gray-500/20 border-gray-500/30';
+  };
+
+  const formatMinutes = (m: number) => {
+    if (m < 60) return `${m}m`;
+    const h = Math.floor(m / 60);
+    const mins = m % 60;
+    return mins > 0 ? `${h}h ${mins}m` : `${h}h`;
+  };
+
+  return (
+    <Card className="bg-gradient-to-br from-amber-900/20 to-yellow-900/20 border-amber-500/20">
+      <CardContent className="p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <Activity className="w-5 h-5 text-amber-400" />
+              <div className={`absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full ${data.currentWindow ? 'bg-green-400 animate-pulse' : 'bg-gray-500'}`} />
+            </div>
+            <h3 className="font-semibold text-white">Live Breakout Status</h3>
+          </div>
+          <div className="flex items-center gap-2">
+            <Clock className="w-3.5 h-3.5 text-gray-500" />
+            <span className="text-xs text-gray-500">{data.serverTimeUTC}</span>
+          </div>
+        </div>
+
+        {data.isWeekend ? (
+          <div className="rounded-lg bg-gray-800/60 border border-gray-700/50 p-4 text-center">
+            <Calendar className="w-8 h-8 text-gray-600 mx-auto mb-2" />
+            <p className="text-sm text-gray-400">Markets are closed for the weekend</p>
+            <p className="text-xs text-gray-600 mt-1">Breakout detection resumes on Monday</p>
+          </div>
+        ) : (
+          <>
+            {data.currentWindow ? (
+              <div className="rounded-lg bg-amber-900/30 border border-amber-500/30 p-3 mb-3">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <div className={`w-2.5 h-2.5 rounded-full animate-pulse ${sessionColor(data.currentWindow.session) === 'blue' ? 'bg-blue-400' : sessionColor(data.currentWindow.session) === 'green' ? 'bg-green-400' : 'bg-purple-400'}`} />
+                    <span className="text-sm font-medium text-white">{data.currentWindow.session} Breakout Window</span>
+                    <Badge className="bg-green-500/20 text-green-400 text-[10px]">LIVE</Badge>
+                  </div>
+                  <span className="text-xs text-amber-400 font-medium">{data.currentWindow.minutesRemaining}m left</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="p-1.5 rounded bg-gray-900/50 text-center">
+                    <p className="text-[10px] text-gray-500">Opened</p>
+                    <p className="text-xs text-gray-300">{data.currentWindow.openTime}</p>
+                  </div>
+                  <div className="p-1.5 rounded bg-gray-900/50 text-center">
+                    <p className="text-[10px] text-gray-500">Elapsed</p>
+                    <p className="text-xs text-gray-300">{data.currentWindow.minutesSinceOpen}m ago</p>
+                  </div>
+                  <div className="p-1.5 rounded bg-gray-900/50 text-center">
+                    <p className="text-[10px] text-gray-500">Pre-Range</p>
+                    <p className="text-xs text-gray-300">{data.currentWindow.preSessionHours}h</p>
+                  </div>
+                </div>
+              </div>
+            ) : data.nextSession ? (
+              <div className="rounded-lg bg-gray-800/60 border border-gray-700/50 p-3 mb-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-gray-500" />
+                    <span className="text-sm text-gray-400">Next breakout window</span>
+                  </div>
+                  <Badge variant="outline" className="text-gray-400 border-gray-600 text-[10px]">
+                    {data.nextSession.session} in {formatMinutes(data.nextSession.minutesUntilOpen)}
+                  </Badge>
+                </div>
+                <p className="text-xs text-gray-600 mt-1.5 ml-6">Opens at {data.nextSession.openTime} (pre-session: {data.nextSession.preSessionRange})</p>
+              </div>
+            ) : null}
+
+            {data.pairStatuses.length > 0 ? (
+              <div className="space-y-2">
+                <p className="text-xs text-gray-500 uppercase tracking-wider font-medium">Pair Detection Results</p>
+                {data.pairStatuses.map((pair) => (
+                  <div key={`${pair.symbol}-${pair.timeframe}`} className={`rounded-lg border p-3 ${pair.breakoutDetected ? strengthBg(pair.breakoutStrength) : 'bg-gray-800/40 border-gray-700/40'}`}>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-white">{pair.symbol}</span>
+                        <Badge variant="outline" className="text-gray-400 border-gray-600 text-[10px]">{pair.timeframe}</Badge>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        {pair.breakoutDetected ? (
+                          <>
+                            <Badge className={`text-[10px] ${pair.breakoutDirection === 'BULLISH' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+                              {pair.breakoutDirection}
+                            </Badge>
+                            <Badge className={`text-[10px] ${strengthBg(pair.breakoutStrength)}`}>
+                              <span className={strengthColor(pair.breakoutStrength)}>{pair.breakoutStrength}</span>
+                            </Badge>
+                            {pair.volumeConfirmed && (
+                              <Badge className="bg-cyan-500/20 text-cyan-400 text-[10px]">VOL</Badge>
+                            )}
+                          </>
+                        ) : (
+                          <span className="text-xs text-gray-500">{pair.isBreakoutWindow ? 'No breakout' : 'Outside window'}</span>
+                        )}
+                      </div>
+                    </div>
+                    {pair.breakoutDetected && (
+                      <div className="grid grid-cols-3 gap-2 mt-2">
+                        <div className="p-1.5 rounded bg-gray-900/60 text-center">
+                          <p className="text-[10px] text-gray-500">Range H</p>
+                          <p className="text-xs text-gray-300">{pair.preSessionRange.high.toFixed(5)}</p>
+                        </div>
+                        <div className="p-1.5 rounded bg-gray-900/60 text-center">
+                          <p className="text-[10px] text-gray-500">Range L</p>
+                          <p className="text-xs text-gray-300">{pair.preSessionRange.low.toFixed(5)}</p>
+                        </div>
+                        <div className="p-1.5 rounded bg-gray-900/60 text-center">
+                          <p className="text-[10px] text-gray-500">Distance</p>
+                          <p className="text-xs text-gray-300">{pair.breakoutDistance.toFixed(5)}</p>
+                        </div>
+                      </div>
+                    )}
+                    <p className="text-[11px] text-gray-500 mt-1.5">{pair.priceVsRange}</p>
+                    <p className="text-[10px] text-gray-600 mt-0.5">{pair.ageSeconds}s ago</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-lg bg-gray-800/40 border border-gray-700/30 p-3 text-center">
+                <Zap className="w-5 h-5 text-gray-600 mx-auto mb-1" />
+                <p className="text-xs text-gray-500">No active pair data yet</p>
+                <p className="text-[11px] text-gray-600 mt-0.5">Connect your MT5 EA to see live breakout detection</p>
+              </div>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function MT5ChartDataPage() {
   const { toast } = useToast();
   const [newTokenName, setNewTokenName] = useState("");
@@ -1171,6 +1383,9 @@ export default function MT5ChartDataPage() {
 
         {/* News & Economic Events Alerts */}
         <NewsAlerts symbol={firstActiveSymbol} />
+
+        {/* Live Breakout Status */}
+        <BreakoutLiveStatus />
 
         {/* Market Open Breakout Strategy */}
         <Card className="bg-gradient-to-br from-amber-900/30 to-orange-900/30 border-amber-500/30">

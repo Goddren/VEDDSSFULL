@@ -5265,6 +5265,11 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         isHighVolume: isHighVolume,
       };
       
+      (global as any).mt5BreakoutCache = (global as any).mt5BreakoutCache || {};
+      if (!(global as any).mt5BreakoutCache[token.userId]) {
+        (global as any).mt5BreakoutCache[token.userId] = {};
+      }
+      
       // Increment signal count for the token (tracking usage)
       await storage.incrementMt5TokenSignalCount(token.id);
       
@@ -5552,6 +5557,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 analysis.alerts.push(`BREAKOUT: ${advanced.breakoutDetection.breakoutDirection} breakout at ${advanced.breakoutDetection.session} open - ${advanced.breakoutDetection.priceVsRange}`);
               }
             }
+            (global as any).mt5BreakoutCache[token.userId][pairKey] = {
+              symbol: sanitizedSymbol,
+              timeframe: sanitizedTimeframe,
+              updatedAt: new Date().toISOString(),
+              ...advanced.breakoutDetection,
+            };
           }
           
           // Weak trend penalty (ADX < 20 reduces confidence in directional signals)
@@ -6722,6 +6733,103 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       stalePairs,
       totalActive: activePairs.length,
       totalStale: stalePairs.length,
+    });
+  });
+
+  app.get("/api/mt5/breakout-status", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const userId = (req.user as User).id;
+
+    const now = new Date();
+    const hourUTC = now.getUTCHours();
+    const minuteUTC = now.getUTCMinutes();
+    const dayOfWeek = now.getUTCDay();
+    const totalMinutes = hourUTC * 60 + minuteUTC;
+
+    const sessions = [
+      { name: 'LONDON', openHour: 7, preSessionStart: '00:00', preSessionEnd: '07:00', preHours: 7, windowMinutes: 30 },
+      { name: 'NEW_YORK', openHour: 13, preSessionStart: '07:00', preSessionEnd: '13:00', preHours: 6, windowMinutes: 30 },
+      { name: 'TOKYO', openHour: 0, preSessionStart: '21:00', preSessionEnd: '00:00', preHours: 3, windowMinutes: 30 },
+    ];
+
+    let currentWindow: any = null;
+    let nextSession: any = null;
+
+    if (dayOfWeek > 0 && dayOfWeek < 6) {
+      for (const sess of sessions) {
+        const openMinutes = sess.openHour * 60;
+        let diff = totalMinutes - openMinutes;
+        if (diff < 0) diff += 1440;
+        if (diff >= 0 && diff <= sess.windowMinutes) {
+          currentWindow = {
+            session: sess.name,
+            minutesSinceOpen: diff,
+            minutesRemaining: sess.windowMinutes - diff,
+            openTime: `${String(sess.openHour).padStart(2, '0')}:00 UTC`,
+            preSessionRange: `${sess.preSessionStart} – ${sess.preSessionEnd} UTC`,
+            preSessionHours: sess.preHours,
+          };
+          break;
+        }
+      }
+
+      if (!currentWindow) {
+        let minWait = Infinity;
+        for (const sess of sessions) {
+          const openMinutes = sess.openHour * 60;
+          let wait = openMinutes - totalMinutes;
+          if (wait <= 0) wait += 1440;
+          if (wait < minWait) {
+            minWait = wait;
+            nextSession = {
+              session: sess.name,
+              minutesUntilOpen: wait,
+              openTime: `${String(sess.openHour).padStart(2, '0')}:00 UTC`,
+              preSessionRange: `${sess.preSessionStart} – ${sess.preSessionEnd} UTC`,
+              preSessionHours: sess.preHours,
+            };
+          }
+        }
+      }
+    }
+
+    const breakoutCache = (global as any).mt5BreakoutCache || {};
+    const userBreakouts = breakoutCache[userId] || {};
+    const pairStatuses: any[] = [];
+
+    for (const [key, data] of Object.entries(userBreakouts)) {
+      const bd = data as any;
+      const ageSeconds = Math.floor((now.getTime() - new Date(bd.updatedAt).getTime()) / 1000);
+      if (ageSeconds < 600) {
+        pairStatuses.push({
+          symbol: bd.symbol,
+          timeframe: bd.timeframe,
+          updatedAt: bd.updatedAt,
+          ageSeconds,
+          isBreakoutWindow: bd.isBreakoutWindow,
+          session: bd.session,
+          minutesSinceOpen: bd.minutesSinceOpen,
+          breakoutDetected: bd.breakoutDetected,
+          breakoutDirection: bd.breakoutDirection,
+          breakoutStrength: bd.breakoutStrength,
+          priceVsRange: bd.priceVsRange,
+          breakoutDistance: bd.breakoutDistance,
+          volumeConfirmed: bd.volumeConfirmed,
+          signal: bd.signal,
+          preSessionRange: bd.preSessionRange,
+        });
+      }
+    }
+
+    res.json({
+      serverTime: now.toISOString(),
+      serverTimeUTC: `${String(hourUTC).padStart(2, '0')}:${String(minuteUTC).padStart(2, '0')} UTC`,
+      isWeekend: dayOfWeek === 0 || dayOfWeek === 6,
+      currentWindow,
+      nextSession,
+      pairStatuses,
     });
   });
 
