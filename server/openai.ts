@@ -225,6 +225,42 @@ export interface AiVisionConfirmation {
   adjustedTakeProfit?: number;
 }
 
+export interface AiConfirmationLogEntry {
+  id: number;
+  timestamp: string;
+  symbol: string;
+  timeframe: string;
+  proposedSignal: string;
+  proposedConfidence: number;
+  proposedEntry?: number;
+  proposedSL?: number;
+  proposedTP?: number;
+  aiDecision: 'APPROVED' | 'REJECTED' | 'ADJUSTED' | 'ERROR';
+  aiDirection: string;
+  aiConfidence: number;
+  reasoning: string;
+  adjustedEntry?: number;
+  adjustedSL?: number;
+  adjustedTP?: number;
+  modelUsed: string;
+}
+
+const aiConfirmationLogs: Map<number, AiConfirmationLogEntry[]> = new Map();
+let logIdCounter = 1;
+
+export function addAiConfirmationLog(userId: number, entry: Omit<AiConfirmationLogEntry, 'id'>) {
+  if (!aiConfirmationLogs.has(userId)) {
+    aiConfirmationLogs.set(userId, []);
+  }
+  const logs = aiConfirmationLogs.get(userId)!;
+  logs.unshift({ ...entry, id: logIdCounter++ });
+  if (logs.length > 50) logs.pop();
+}
+
+export function getAiConfirmationLogs(userId: number): AiConfirmationLogEntry[] {
+  return aiConfirmationLogs.get(userId) || [];
+}
+
 function buildConfirmationPrompt(
   candleData: any[], indicators: any, proposedSignal: string,
   proposedConfidence: number, tradePlan: any, symbol: string, timeframe: string

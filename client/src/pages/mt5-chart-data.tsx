@@ -1233,6 +1233,32 @@ export default function MT5ChartDataPage() {
     queryKey: ['/api/ai-vision-confirmation'],
   });
 
+  interface AiConfirmationLog {
+    id: number;
+    timestamp: string;
+    symbol: string;
+    timeframe: string;
+    proposedSignal: string;
+    proposedConfidence: number;
+    proposedEntry?: number;
+    proposedSL?: number;
+    proposedTP?: number;
+    aiDecision: 'APPROVED' | 'REJECTED' | 'ADJUSTED' | 'ERROR';
+    aiDirection: string;
+    aiConfidence: number;
+    reasoning: string;
+    adjustedEntry?: number;
+    adjustedSL?: number;
+    adjustedTP?: number;
+    modelUsed: string;
+  }
+
+  const { data: aiConfirmationLogs = [] } = useQuery<AiConfirmationLog[]>({
+    queryKey: ['/api/ai-confirmation-logs'],
+    refetchInterval: 15000,
+    enabled: aiConfirmationSetting?.enabled || false,
+  });
+
   const toggleAiConfirmationMutation = useMutation({
     mutationFn: async (enabled: boolean) => {
       const res = await apiRequest('POST', '/api/ai-vision-confirmation', { enabled });
@@ -1384,6 +1410,105 @@ export default function MT5ChartDataPage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* AI Confirmation Activity Log */}
+        {aiConfirmationSetting?.enabled && aiConfirmationLogs.length > 0 && (
+          <Card className="bg-gradient-to-br from-gray-800/80 to-gray-900/80 border-purple-500/30">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-white flex items-center gap-2 text-lg">
+                <Brain className="w-5 h-5 text-purple-400" />
+                AI Second Opinion Log
+                <Badge variant="outline" className="text-purple-400 border-purple-500/40 text-[10px]">
+                  Last {aiConfirmationLogs.length}
+                </Badge>
+              </CardTitle>
+              <CardDescription>
+                Real-time log of AI trade confirmations — see what was approved, rejected, or adjusted and why.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3 max-h-[500px] overflow-y-auto">
+              {aiConfirmationLogs.map((log) => (
+                <div key={log.id} className={`rounded-lg border p-3 space-y-2 ${
+                  log.aiDecision === 'APPROVED' ? 'border-green-500/30 bg-green-500/5' :
+                  log.aiDecision === 'ADJUSTED' ? 'border-amber-500/30 bg-amber-500/5' :
+                  log.aiDecision === 'REJECTED' ? 'border-red-500/30 bg-red-500/5' :
+                  'border-gray-500/30 bg-gray-500/5'
+                }`}>
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div className="flex items-center gap-2">
+                      <Badge className={`text-xs ${
+                        log.aiDecision === 'APPROVED' ? 'bg-green-500/20 text-green-400 border-green-500/30' :
+                        log.aiDecision === 'ADJUSTED' ? 'bg-amber-500/20 text-amber-400 border-amber-500/30' :
+                        log.aiDecision === 'REJECTED' ? 'bg-red-500/20 text-red-400 border-red-500/30' :
+                        'bg-gray-500/20 text-gray-400 border-gray-500/30'
+                      }`}>
+                        {log.aiDecision === 'APPROVED' && <CheckCircle className="w-3 h-3 mr-1" />}
+                        {log.aiDecision === 'ADJUSTED' && <Target className="w-3 h-3 mr-1" />}
+                        {log.aiDecision === 'REJECTED' && <XCircle className="w-3 h-3 mr-1" />}
+                        {log.aiDecision === 'ERROR' && <AlertCircle className="w-3 h-3 mr-1" />}
+                        {log.aiDecision}
+                      </Badge>
+                      <span className="font-semibold text-white text-sm">{log.symbol}</span>
+                      <Badge variant="outline" className="text-[10px] text-gray-400">{log.timeframe}</Badge>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs text-gray-500">
+                      <span>{log.modelUsed}</span>
+                      <span>{new Date(log.timestamp).toLocaleTimeString()}</span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div className="space-y-1">
+                      <p className="text-gray-500 font-medium">EA Proposed</p>
+                      <p className="text-white">
+                        <Badge variant="outline" className={`text-[10px] mr-1 ${log.proposedSignal === 'BUY' ? 'text-green-400 border-green-500/40' : 'text-red-400 border-red-500/40'}`}>
+                          {log.proposedSignal}
+                        </Badge>
+                        {log.proposedConfidence}% confidence
+                      </p>
+                      {log.proposedEntry && <p className="text-gray-400">Entry: {log.proposedEntry}</p>}
+                      {log.proposedSL && <p className="text-gray-400">SL: {log.proposedSL}</p>}
+                      {log.proposedTP && <p className="text-gray-400">TP: {log.proposedTP}</p>}
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-gray-500 font-medium">AI Assessment</p>
+                      <p className="text-white">
+                        <Badge variant="outline" className={`text-[10px] mr-1 ${log.aiDirection === 'BUY' ? 'text-green-400 border-green-500/40' : log.aiDirection === 'SELL' ? 'text-red-400 border-red-500/40' : 'text-gray-400 border-gray-500/40'}`}>
+                          {log.aiDirection}
+                        </Badge>
+                        {log.aiConfidence}% confidence
+                      </p>
+                      {log.adjustedEntry && <p className="text-amber-400">Entry: {log.adjustedEntry} (adjusted)</p>}
+                      {log.adjustedSL && <p className="text-amber-400">SL: {log.adjustedSL} (adjusted)</p>}
+                      {log.adjustedTP && <p className="text-amber-400">TP: {log.adjustedTP} (adjusted)</p>}
+                    </div>
+                  </div>
+
+                  <div className="bg-black/30 rounded p-2 mt-1">
+                    <p className="text-xs text-gray-400 flex items-start gap-1.5">
+                      <Lightbulb className="w-3.5 h-3.5 text-purple-400 mt-0.5 flex-shrink-0" />
+                      <span className="italic">{log.reasoning}</span>
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        )}
+
+        {aiConfirmationSetting?.enabled && aiConfirmationLogs.length === 0 && (
+          <Card className="bg-gradient-to-br from-gray-800/80 to-gray-900/80 border-purple-500/20">
+            <CardContent className="p-5">
+              <div className="flex items-center gap-3 text-gray-400">
+                <Brain className="w-5 h-5 text-purple-400/50" />
+                <div>
+                  <p className="text-sm font-medium text-white/70">AI Second Opinion Log</p>
+                  <p className="text-xs text-gray-500">No confirmations yet. The log will appear here when the EA sends a trade signal for AI review.</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Account Balance Breakdown */}
         {accountData?.connected && (

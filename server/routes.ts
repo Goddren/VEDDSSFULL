@@ -5853,13 +5853,21 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       console.log(`[KNOWLEDGE] ${sanitizedSymbol} Analysis: Confidence=${analysis.confidence}% | Required=${MIN_CONFIDENCE_FOR_AUTO_TRADE}% | Source=${mt5MinConfidence ? 'MT5 EA' : (matchingEA?.name || 'default')} | Session=${eaSettings?.sessionName || 'N/A'}`);
       
       // AI Vision Confirmation: Get second opinion from AI before trading (if enabled)
+      const preConfirmSignal = analysis.signal;
+      const preConfirmConfidence = analysis.confidence;
+      const preConfirmEntry = analysis.tradePlan?.entry;
+      const preConfirmSL = analysis.tradePlan?.stopLoss;
+      const preConfirmTP = analysis.tradePlan?.takeProfit;
       if (analysis.signal !== 'NEUTRAL' && 
           analysis.confidence >= MIN_CONFIDENCE_FOR_AUTO_TRADE && 
           analysis.tradePlan) {
         try {
-          const { isAiVisionConfirmationEnabled, getAiVisionConfirmation } = await import('./openai');
+          const { isAiVisionConfirmationEnabled, getAiVisionConfirmation, addAiConfirmationLog, getUserModelPreference, AVAILABLE_VISION_MODELS } = await import('./openai');
           if (isAiVisionConfirmationEnabled(token.userId)) {
             console.log(`[AI Vision Confirmation] Enabled for user ${token.userId} - requesting AI second opinion on ${sanitizedSymbol}`);
+            const selectedModelId = getUserModelPreference(token.userId);
+            const modelInfo = AVAILABLE_VISION_MODELS.find((m: any) => m.id === selectedModelId);
+
             aiConfirmation = await getAiVisionConfirmation(
               candles,
               indicators,
@@ -5877,28 +5885,65 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               analysis.tradePlan = null;
               analysis.signal = 'NEUTRAL';
               analysis.confidence = Math.min(analysis.confidence, aiConfirmation.aiConfidence);
+              addAiConfirmationLog(token.userId, {
+                timestamp: new Date().toISOString(),
+                symbol: sanitizedSymbol, timeframe: sanitizedTimeframe,
+                proposedSignal: preConfirmSignal, proposedConfidence: preConfirmConfidence,
+                proposedEntry: preConfirmEntry, proposedSL: preConfirmSL, proposedTP: preConfirmTP,
+                aiDecision: 'REJECTED', aiDirection: aiConfirmation.aiDirection,
+                aiConfidence: aiConfirmation.aiConfidence, reasoning: aiConfirmation.reasoning,
+                modelUsed: modelInfo?.name || selectedModelId,
+              });
             } else {
               console.log(`[AI Vision Confirmation] CONFIRMED trade on ${sanitizedSymbol}: ${aiConfirmation.reasoning}`);
               analysis.alerts.push(`AI Confirmation: ${aiConfirmation.reasoning}`);
               const currentPrice = indicators?.price?.bid || candles[0]?.c || 0;
               const maxDeviation = currentPrice * 0.05;
+              let hasAdjustments = false;
               if (typeof aiConfirmation.adjustedStopLoss === 'number' && !isNaN(aiConfirmation.adjustedStopLoss) && aiConfirmation.adjustedStopLoss > 0 &&
                   Math.abs(aiConfirmation.adjustedStopLoss - currentPrice) < maxDeviation) {
                 analysis.tradePlan.stopLoss = aiConfirmation.adjustedStopLoss;
+                hasAdjustments = true;
               }
               if (typeof aiConfirmation.adjustedTakeProfit === 'number' && !isNaN(aiConfirmation.adjustedTakeProfit) && aiConfirmation.adjustedTakeProfit > 0 &&
                   Math.abs(aiConfirmation.adjustedTakeProfit - currentPrice) < maxDeviation) {
                 analysis.tradePlan.takeProfit = aiConfirmation.adjustedTakeProfit;
+                hasAdjustments = true;
               }
               if (typeof aiConfirmation.adjustedEntry === 'number' && !isNaN(aiConfirmation.adjustedEntry) && aiConfirmation.adjustedEntry > 0 &&
                   Math.abs(aiConfirmation.adjustedEntry - currentPrice) < maxDeviation) {
                 analysis.tradePlan.entry = aiConfirmation.adjustedEntry;
+                hasAdjustments = true;
               }
+              addAiConfirmationLog(token.userId, {
+                timestamp: new Date().toISOString(),
+                symbol: sanitizedSymbol, timeframe: sanitizedTimeframe,
+                proposedSignal: preConfirmSignal, proposedConfidence: preConfirmConfidence,
+                proposedEntry: preConfirmEntry, proposedSL: preConfirmSL, proposedTP: preConfirmTP,
+                aiDecision: hasAdjustments ? 'ADJUSTED' : 'APPROVED',
+                aiDirection: aiConfirmation.aiDirection,
+                aiConfidence: aiConfirmation.aiConfidence, reasoning: aiConfirmation.reasoning,
+                adjustedEntry: aiConfirmation.adjustedEntry, adjustedSL: aiConfirmation.adjustedStopLoss,
+                adjustedTP: aiConfirmation.adjustedTakeProfit,
+                modelUsed: modelInfo?.name || selectedModelId,
+              });
             }
           }
         } catch (confirmError) {
           console.error('[AI Vision Confirmation] Error:', confirmError);
           analysis.alerts.push('AI Confirmation error - trade blocked for safety');
+          const { addAiConfirmationLog, getUserModelPreference, AVAILABLE_VISION_MODELS } = await import('./openai');
+          const errModelId = getUserModelPreference(token.userId);
+          const errModelInfo = AVAILABLE_VISION_MODELS.find((m: any) => m.id === errModelId);
+          addAiConfirmationLog(token.userId, {
+            timestamp: new Date().toISOString(),
+            symbol: sanitizedSymbol, timeframe: sanitizedTimeframe,
+            proposedSignal: preConfirmSignal, proposedConfidence: preConfirmConfidence,
+            proposedEntry: preConfirmEntry, proposedSL: preConfirmSL, proposedTP: preConfirmTP,
+            aiDecision: 'ERROR', aiDirection: 'NEUTRAL', aiConfidence: 0,
+            reasoning: `AI confirmation error: ${confirmError instanceof Error ? confirmError.message : 'Unknown error'} - trade blocked`,
+            modelUsed: errModelInfo?.name || errModelId,
+          });
           analysis.tradePlan = null;
           analysis.signal = 'NEUTRAL';
         }
@@ -11190,6 +11235,13 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     const { setAiVisionConfirmation } = await import('./openai');
     setAiVisionConfirmation(req.user!.id, enabled);
     res.json({ success: true, enabled });
+  });
+
+  app.get("/api/ai-confirmation-logs", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
+    const { getAiConfirmationLogs } = await import('./openai');
+    const logs = getAiConfirmationLogs(req.user!.id);
+    res.json(logs);
   });
 
   const httpServer = createServer(app);
