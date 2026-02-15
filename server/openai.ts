@@ -269,11 +269,23 @@ function buildConfirmationPrompt(
   const candleSummary = recentCandles.map((c: any, i: number) => 
     `[${i}] O:${c.o} H:${c.h} L:${c.l} C:${c.c} V:${c.v || 0}`
   ).join('\n');
-  const indicatorSummary = JSON.stringify(indicators, null, 2);
+
+  const coreIndicators: any = {};
+  const advancedIndicators: any = {};
+  if (indicators) {
+    const advancedKeys = ['adx', 'stochastic', 'vwap', 'obv', 'pivotPoints', 'fibonacci', 'supportResistance', 'candlePatterns', 'swingPoints', 'sessionContext', 'volatilityContext', 'volumeProfile'];
+    for (const [key, val] of Object.entries(indicators)) {
+      if (advancedKeys.includes(key)) advancedIndicators[key] = val;
+      else coreIndicators[key] = val;
+    }
+  }
+
+  const coreStr = JSON.stringify(coreIndicators, null, 2);
+  const advStr = Object.keys(advancedIndicators).length > 0 ? JSON.stringify(advancedIndicators, null, 2) : '';
 
   return {
-    system: "You are a professional trading analyst. Provide honest, unbiased second opinions on trade signals. Always return valid JSON.",
-    user: `You are an expert trading analyst providing a SECOND OPINION on a proposed trade signal.
+    system: "You are an elite institutional trading analyst with expertise in technical analysis, market structure, price action, and risk management. Provide honest, unbiased second opinions on trade signals using ALL available data. Always return valid JSON.",
+    user: `You are an elite trading analyst providing a SECOND OPINION on a proposed trade. Use ALL data below for maximum accuracy.
 
 SYMBOL: ${symbol}
 TIMEFRAME: ${timeframe}
@@ -285,25 +297,35 @@ PROPOSED TRADE PLAN:
 - Take Profit: ${tradePlan?.takeProfit}
 - Risk/Reward: ${tradePlan?.riskReward}
 
-RECENT CANDLE DATA (index 0 = most recent candle):
+RECENT CANDLE DATA (index 0 = most recent):
 ${candleSummary}
 
-INDICATOR VALUES:
-${indicatorSummary}
-
-Analyze this data and provide your independent assessment. Consider:
-1. Does the price action support the proposed direction?
-2. Are the indicators aligned with the signal?
-3. Is the risk/reward ratio appropriate?
-4. Are there any divergences or warning signs?
-5. Would you adjust the entry, stop loss, or take profit levels?
+CORE INDICATORS (RSI, MACD, MAs, BBs, ATR):
+${coreStr}
+${advStr ? `
+ADVANCED ANALYSIS:
+${advStr}
+` : ''}
+Provide your independent assessment considering ALL of the following:
+1. PRICE ACTION: Do candle patterns (engulfing, hammer, star, doji) support the direction?
+2. MOMENTUM: RSI, MACD, Stochastic alignment — any divergences?
+3. TREND STRENGTH: ADX value — is the trend strong enough to trade? Is it ranging (ADX < 20)?
+4. VOLUME: OBV trend and divergence, volume profile — is volume confirming the move?
+5. MARKET STRUCTURE: Support/Resistance, Pivot Points, Fibonacci levels — is SL behind structure? Is TP at a realistic level?
+6. VWAP: Is price above or below VWAP? Does it align with the signal?
+7. SESSION CONTEXT: Is this the right trading session for this pair? Low liquidity risk?
+8. VOLATILITY: Is current ATR normal, high, or low vs recent history? Should position size be adjusted?
+9. RISK/REWARD: Is the R:R ratio >= 1.5? Are the SL/TP levels optimized relative to S/R?
+10. SWING POINTS: Are recent swing highs/lows respected in the trade plan?
+11. OPEN POSITIONS: Are there existing positions on this symbol? Avoid doubling correlated exposure.
+12. TRADE HISTORY: What is the recent win rate on this symbol? Is the trader on a losing streak?
 
 Return your analysis as JSON:
 {
   "confirmed": boolean,
   "direction": "BUY" | "SELL" | "NEUTRAL",
   "confidence": number (0-100),
-  "reasoning": "Brief explanation of your assessment",
+  "reasoning": "Detailed explanation referencing specific indicators, patterns, and levels",
   "adjustedEntry": number or null,
   "adjustedStopLoss": number or null,
   "adjustedTakeProfit": number or null

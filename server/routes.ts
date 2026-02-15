@@ -5393,6 +5393,74 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             analysis.indicators.atr = { value: atr, volatility };
           }
           
+          // Advanced indicators (ADX, Stochastic, VWAP, OBV, Pivot Points, Fibonacci, S/R, Candle Patterns, Session Context)
+          const { computeAllAdvancedIndicators } = await import('./indicators');
+          const advanced = computeAllAdvancedIndicators(candles, atr || 0, sanitizedSymbol);
+          
+          if (advanced.adx) {
+            analysis.indicators.adx = advanced.adx;
+            if (advanced.adx.trend === 'WEAK') {
+              analysis.patterns.push('ADX Weak Trend (' + advanced.adx.value.toFixed(1) + ') - Ranging Market');
+            } else if (advanced.adx.trend === 'VERY STRONG') {
+              analysis.patterns.push('ADX Very Strong Trend (' + advanced.adx.value.toFixed(1) + ')');
+            }
+          }
+          if (advanced.stochastic) {
+            analysis.indicators.stochastic = advanced.stochastic;
+            if (advanced.stochastic.status === 'OVERBOUGHT') analysis.patterns.push('Stochastic Overbought (' + advanced.stochastic.k.toFixed(1) + ')');
+            if (advanced.stochastic.status === 'OVERSOLD') analysis.patterns.push('Stochastic Oversold (' + advanced.stochastic.k.toFixed(1) + ')');
+          }
+          if (advanced.vwap) analysis.indicators.vwap = advanced.vwap;
+          if (advanced.obv) {
+            analysis.indicators.obv = advanced.obv;
+            if (advanced.obv.divergence === 'BULLISH') analysis.patterns.push('OBV Bullish Divergence');
+            if (advanced.obv.divergence === 'BEARISH') analysis.patterns.push('OBV Bearish Divergence');
+          }
+          if (advanced.pivotPoints) analysis.indicators.pivotPoints = advanced.pivotPoints;
+          if (advanced.fibonacci) analysis.indicators.fibonacci = advanced.fibonacci;
+          if (advanced.supportResistance) analysis.indicators.supportResistance = advanced.supportResistance;
+          if (advanced.candlePatterns && advanced.candlePatterns.length > 0) {
+            analysis.indicators.candlePatterns = advanced.candlePatterns;
+            for (const p of advanced.candlePatterns) analysis.patterns.push('Candle: ' + p);
+          }
+          if (advanced.swingPoints) analysis.indicators.swingPoints = advanced.swingPoints;
+          if (advanced.sessionContext) analysis.indicators.sessionContext = advanced.sessionContext;
+          if (advanced.volatilityContext) analysis.indicators.volatilityContext = advanced.volatilityContext;
+          if (advanced.volumeProfile) analysis.indicators.volumeProfile = advanced.volumeProfile;
+          
+          // Add open positions context for this symbol
+          const userOpenPositions = (global as any).mt5OpenPositions?.[token.userId]?.positions || [];
+          const symbolPositions = userOpenPositions.filter((p: any) => 
+            (p.symbol || '').toUpperCase().replace('/', '') === sanitizedSymbol
+          );
+          if (symbolPositions.length > 0) {
+            analysis.indicators.openPositionContext = {
+              count: symbolPositions.length,
+              directions: symbolPositions.map((p: any) => p.direction),
+              totalLots: symbolPositions.reduce((s: number, p: any) => s + (p.lots || 0), 0),
+              avgEntryPrice: symbolPositions.reduce((s: number, p: any) => s + (p.openPrice || 0), 0) / symbolPositions.length,
+              unrealizedPnL: symbolPositions.reduce((s: number, p: any) => s + (p.profit || 0), 0),
+            };
+            analysis.alerts.push(`${symbolPositions.length} open position(s) on ${sanitizedSymbol}`);
+          }
+          
+          // Add recent trade history context
+          const closedTradeData = (global as any).mt5ClosedTrades?.[token.userId]?.trades || [];
+          const symbolClosedTrades = closedTradeData.filter((t: any) => 
+            (t.symbol || '').toUpperCase().replace('/', '') === sanitizedSymbol
+          );
+          if (symbolClosedTrades.length > 0) {
+            const wins = symbolClosedTrades.filter((t: any) => t.profit > 0).length;
+            const losses = symbolClosedTrades.filter((t: any) => t.profit < 0).length;
+            analysis.indicators.recentTradeHistory = {
+              totalTrades: symbolClosedTrades.length,
+              wins,
+              losses,
+              winRate: symbolClosedTrades.length > 0 ? Math.round((wins / symbolClosedTrades.length) * 100) : 0,
+              netPnL: symbolClosedTrades.reduce((s: number, t: any) => s + (t.profit || 0), 0),
+            };
+          }
+          
           // Calculate overall signal (weighted consensus)
           let buyVotes = 0, sellVotes = 0;
           if (rsiSignal === 'BUY') buyVotes += 1.5;
@@ -5403,6 +5471,34 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           if (maSignal === 'SELL') sellVotes += 2;
           if (bbSignal === 'BUY') buyVotes += 1;
           if (bbSignal === 'SELL') sellVotes += 1;
+          
+          // Advanced indicator votes
+          if (advanced.adx?.signal === 'BUY') buyVotes += 1;
+          if (advanced.adx?.signal === 'SELL') sellVotes += 1;
+          if (advanced.stochastic?.signal === 'BUY') buyVotes += 1.5;
+          if (advanced.stochastic?.signal === 'SELL') sellVotes += 1.5;
+          if (advanced.vwap?.signal === 'BUY') buyVotes += 0.5;
+          if (advanced.vwap?.signal === 'SELL') sellVotes += 0.5;
+          if (advanced.obv?.divergence === 'BULLISH') buyVotes += 1;
+          if (advanced.obv?.divergence === 'BEARISH') sellVotes += 1;
+          
+          // Candle pattern votes
+          const bullishPatterns = (advanced.candlePatterns || []).filter(p => 
+            p.includes('Bullish') || p.includes('Hammer') || p.includes('Morning Star')
+          );
+          const bearishPatterns = (advanced.candlePatterns || []).filter(p => 
+            p.includes('Bearish') || p.includes('Shooting Star') || p.includes('Evening Star')
+          );
+          if (bullishPatterns.length > 0) buyVotes += Math.min(bullishPatterns.length, 2);
+          if (bearishPatterns.length > 0) sellVotes += Math.min(bearishPatterns.length, 2);
+          
+          // Session context penalty for low-liquidity sessions
+          if (advanced.sessionContext && !advanced.sessionContext.isSessionOpen) {
+            analysis.alerts.push('Market session closed or weekend - reduced liquidity');
+          }
+          
+          // Weak trend penalty (ADX < 20 reduces confidence in directional signals)
+          const adxPenalty = advanced.adx && advanced.adx.value < 20 ? 0.8 : 1;
           
           // Multi-timeframe alignment bonus (if multi-timeframe data is provided)
           const { multiTimeframe, multiTimeframeEnabled } = req.body;
@@ -5441,13 +5537,19 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             }
           }
           
-          const totalVotes = multiTimeframeEnabled && mtfCount > 0 ? 6.5 + (mtfCount * 0.75) : 6.5;
+          let baseVotes = 6.5; // Core: RSI 1.5 + MACD 2 + MA 2 + BB 1
+          if (advanced.adx) baseVotes += 1;
+          if (advanced.stochastic) baseVotes += 1.5;
+          if (advanced.vwap) baseVotes += 0.5;
+          if (advanced.obv?.divergence && advanced.obv.divergence !== 'NONE') baseVotes += 1;
+          if (bullishPatterns.length > 0 || bearishPatterns.length > 0) baseVotes += Math.min(Math.max(bullishPatterns.length, bearishPatterns.length), 2);
+          const totalVotes = multiTimeframeEnabled && mtfCount > 0 ? baseVotes + (mtfCount * 0.75) : baseVotes;
           if (buyVotes > sellVotes && buyVotes >= 3) {
             analysis.signal = 'BUY';
-            analysis.confidence = Math.min(95, Math.round((buyVotes / totalVotes) * 100));
+            analysis.confidence = Math.min(95, Math.round((buyVotes / totalVotes) * 100 * adxPenalty));
           } else if (sellVotes > buyVotes && sellVotes >= 3) {
             analysis.signal = 'SELL';
-            analysis.confidence = Math.min(95, Math.round((sellVotes / totalVotes) * 100));
+            analysis.confidence = Math.min(95, Math.round((sellVotes / totalVotes) * 100 * adxPenalty));
           } else {
             analysis.signal = 'NEUTRAL';
             analysis.confidence = 50;
@@ -5464,26 +5566,53 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           
           analysis.trend = maTrend;
           
-          // Generate trade plan if we have a signal
+          // Generate trade plan if we have a signal (S/R-enhanced)
           if (analysis.signal !== 'NEUTRAL' && currentPrice && atr) {
             const stopDistance = atr * 1.5;
             const targetDistance = atr * 2.5;
             
+            const sr = advanced.supportResistance;
+            const pp = advanced.pivotPoints;
+            
             if (analysis.signal === 'BUY') {
+              let sl = currentPrice - stopDistance;
+              let tp = currentPrice + targetDistance;
+              if (sr?.nearestSupport && sr.nearestSupport > sl && sr.nearestSupport < currentPrice) {
+                sl = sr.nearestSupport - atr * 0.3;
+              }
+              if (sr?.nearestResistance && sr.nearestResistance > currentPrice) {
+                tp = Math.max(tp, sr.nearestResistance);
+              } else if (pp?.r1 && pp.r1 > currentPrice) {
+                tp = Math.max(tp, pp.r1);
+              }
+              const actualStop = Math.abs(currentPrice - sl);
+              const actualTarget = Math.abs(tp - currentPrice);
               analysis.tradePlan = {
                 direction: 'BUY',
                 entry: currentPrice,
-                stopLoss: currentPrice - stopDistance,
-                takeProfit: currentPrice + targetDistance,
-                riskReward: (targetDistance / stopDistance).toFixed(2)
+                stopLoss: sl,
+                takeProfit: tp,
+                riskReward: (actualTarget / actualStop).toFixed(2)
               };
             } else {
+              let sl = currentPrice + stopDistance;
+              let tp = currentPrice - targetDistance;
+              if (sr?.nearestResistance && sr.nearestResistance > currentPrice && sr.nearestResistance < sl) {
+                sl = sr.nearestResistance + atr * 0.3;
+              }
+              if (sr?.nearestSupport && sr.nearestSupport < currentPrice) {
+                tp = Math.min(tp, sr.nearestSupport);
+              } else if (pp?.s1 && pp.s1 < currentPrice) {
+                tp = Math.min(tp, pp.s1);
+              }
+              const actualStop = Math.abs(sl - currentPrice);
+              const actualTarget = Math.abs(currentPrice - tp);
               analysis.tradePlan = {
                 direction: 'SELL',
                 entry: currentPrice,
-                stopLoss: currentPrice + stopDistance,
-                takeProfit: currentPrice - targetDistance,
-                riskReward: (targetDistance / stopDistance).toFixed(2)
+                stopLoss: sl,
+                takeProfit: tp,
+                riskReward: (actualTarget / actualStop).toFixed(2)
               };
             }
             console.log('[MT5 Chart Data] Trade plan generated:', {
@@ -5870,7 +5999,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
 
             aiConfirmation = await getAiVisionConfirmation(
               candles,
-              indicators,
+              analysis.indicators,
               analysis.signal,
               analysis.confidence,
               analysis.tradePlan,
