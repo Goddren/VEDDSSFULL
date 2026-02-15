@@ -996,6 +996,61 @@ const trainingModules: TrainingModule[] = [
           ],
           correct: 2
         }
+      },
+      {
+        id: 'features-11',
+        title: 'Market Open Breakout Strategy',
+        content: [
+          'Automatically detect institutional breakouts at the 3 major market session opens',
+          'This strategy looks for price breaking above or below the prior session range within the first 30 minutes of each open',
+          '',
+          '🌍 SESSION OPEN TIMES (UTC):',
+          '  • London: 7:00 AM UTC (scans midnight to 7 AM range = 7 hours)',
+          '  • New York: 1:00 PM UTC (scans 7 AM to 1 PM range = 6 hours)',
+          '  • Tokyo: 12:00 AM UTC (scans 9 PM to midnight range = 3 hours)',
+          '',
+          '📊 HOW BREAKOUT DETECTION WORKS:',
+          '  • Step 1: The system finds the highest high and lowest low from the pre-session period',
+          '  • Step 2: Within the first 30 minutes of session open, it checks if price has broken above or below the range by at least 10%',
+          '  • Step 3: Breakout strength is rated Strong, Moderate, or Weak based on distance moved beyond the range',
+          '  • Step 4: Volume confirmation checks if current volume is 1.2x above average',
+          '',
+          '⚡ CONSENSUS VOTING WEIGHTS:',
+          '  • Strong breakout = +3 votes',
+          '  • Moderate breakout = +2 votes',
+          '  • Weak breakout = +1 vote',
+          '  • Volume confirmed = +1 bonus vote',
+          '  • The AI uses a 15-point institutional checklist including breakout analysis (point 15)',
+          '',
+          '🔧 LIVE STATUS & PER-PAIR TOGGLES:',
+          '  • Live Breakout Status section on the MT5 Chart Data page shows real-time window status',
+          '  • Shows which session window is active, time remaining, and next session countdown',
+          '  • Per-pair toggle switches let you enable/disable breakout detection for each connected pair',
+          '  • When disabled for a pair, breakout analysis runs but does not influence trade decisions',
+          '  • Detection results show direction (Bullish/Bearish), strength, range levels, and volume confirmation'
+        ],
+        keyPoints: [
+          { title: 'Session-Based Detection', description: 'Breakouts are detected at the 3 major market opens where institutional order flow is highest - London, New York, and Tokyo.', icon: Clock },
+          { title: 'Volume Confirmation', description: 'Breakouts with volume 1.2x above average are marked as confirmed - these get the highest weight in trade decisions.', icon: BarChart2 },
+          { title: 'Per-Pair Control', description: 'Each connected pair has its own breakout toggle. Turn it off for pairs where you prefer pure technical analysis without session breakout influence.', icon: Target }
+        ],
+        tips: [
+          'Explain that London and New York opens have the highest volume and strongest breakouts',
+          'Show the Live Breakout Status section on the MT5 Chart Data page',
+          'Demo the per-pair toggle switch to show how users can customize per instrument',
+          'Emphasize that Strong + Volume Confirmed breakouts are the highest probability setups',
+          'Mention the AI factors this into its 15-point checklist automatically'
+        ],
+        quiz: {
+          question: 'Which session has the longest pre-session lookback period?',
+          options: [
+            'Tokyo (3 hours)',
+            'New York (6 hours)',
+            'London (7 hours)',
+            'All sessions look back the same amount'
+          ],
+          correct: 2
+        }
       }
     ]
   },

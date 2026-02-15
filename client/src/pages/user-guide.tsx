@@ -236,6 +236,40 @@ const guideSections: GuideSection[] = [
           'Data refreshes every 10 seconds while EA is connected'
         ],
         tips: ['Use breakout levels to identify intraday support/resistance', 'High volume often precedes significant price moves', 'Multiple pairs can connect simultaneously from different charts']
+      },
+      {
+        heading: 'Market Open Breakout Strategy',
+        steps: [
+          'Automatically detects breakouts at the 3 major session opens: London, New York, and Tokyo',
+          '',
+          'SESSION OPEN TIMES & PRE-SESSION RANGES:',
+          '  London: 7:00 AM UTC — scans midnight to 7 AM (7 hours lookback)',
+          '  New York: 1:00 PM UTC — scans 7 AM to 1 PM (6 hours lookback)',
+          '  Tokyo: 12:00 AM UTC — scans 9 PM to midnight (3 hours lookback)',
+          '',
+          'HOW IT WORKS:',
+          '  1. Finds the highest high and lowest low from the pre-session period',
+          '  2. Within the first 30 minutes of session open, checks if price broke above or below the range by 10%+',
+          '  3. Rates breakout strength as Strong (+3 votes), Moderate (+2), or Weak (+1)',
+          '  4. Volume confirmation (1.2x above average) adds +1 bonus vote',
+          '',
+          'LIVE STATUS (on MT5 Chart Data page):',
+          '  Shows current server time, active breakout window, time remaining',
+          '  Displays next session countdown when no window is active',
+          '  Per-pair breakout detection results with direction, strength, and range levels',
+          '',
+          'PER-PAIR TOGGLES:',
+          '  Each connected pair has its own on/off switch for breakout detection',
+          '  Toggle switch appears next to each pair in the Live Breakout Status section',
+          '  Disabled pairs skip breakout analysis in trade decisions (all other indicators still apply)',
+          '  Default is ON for all pairs'
+        ],
+        tips: [
+          'London and New York sessions typically have the strongest breakouts due to institutional volume',
+          'Strong + Volume Confirmed breakouts are the highest probability setups',
+          'Use per-pair toggles to disable breakout detection for pairs where sessions matter less (e.g., crypto)',
+          'The number of candles scanned adjusts automatically based on your chart timeframe'
+        ]
       }
     ]
   },
