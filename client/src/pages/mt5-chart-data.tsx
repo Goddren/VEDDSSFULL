@@ -962,7 +962,7 @@ type ConnectionStatus = {
   message?: string;
 };
 
-type AccountData = {
+type BrokerAccount = {
   connected: boolean;
   lastUpdated?: string;
   secondsAgo?: number;
@@ -988,6 +988,11 @@ type AccountData = {
   totalBuyLots: number;
   totalSellLots: number;
   unrealizedProfit: number;
+};
+
+type AccountData = BrokerAccount & {
+  accounts?: BrokerAccount[];
+  totalAccounts?: number;
   message?: string;
 };
 
@@ -1661,144 +1666,172 @@ export default function MT5ChartDataPage() {
           </Card>
         )}
 
-        {/* Account Balance Breakdown */}
-        {accountData?.connected && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
-          >
-            <Card className="bg-gradient-to-br from-gray-800/80 to-gray-900/80 border-amber-500/30">
-              <CardHeader className="pb-2">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-white flex items-center gap-2">
-                    <TrendingUp className="w-5 h-5 text-amber-400" />
-                    Account Balance Breakdown
-                  </CardTitle>
-                  <div className="flex items-center gap-2">
-                    <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/30">
-                      {accountData.broker}
-                    </Badge>
-                    <Button variant="ghost" size="sm" onClick={() => refetchAccountData()}>
-                      <RefreshCw className="w-4 h-4" />
-                    </Button>
-                  </div>
+        {/* Account Balance Breakdown — Multi-Broker Support */}
+        {(accountData?.connected || (accountData?.accounts && accountData.accounts.length > 0)) && (() => {
+          const allAccounts: BrokerAccount[] = (accountData.accounts && accountData.accounts.length > 0)
+            ? accountData.accounts
+            : [accountData];
+          const connectedAccounts = allAccounts.filter(a => a.connected);
+          
+          return (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1 }}
+              className="space-y-4"
+            >
+              {allAccounts.length > 1 && (
+                <div className="flex items-center gap-3">
+                  <TrendingUp className="w-5 h-5 text-amber-400" />
+                  <h2 className="text-lg font-semibold text-white">Account Balance Breakdown</h2>
+                  <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/30 ml-auto">
+                    {connectedAccounts.length} Broker{connectedAccounts.length !== 1 ? 's' : ''} Connected
+                  </Badge>
+                  <Button variant="ghost" size="sm" onClick={() => refetchAccountData()}>
+                    <RefreshCw className="w-4 h-4" />
+                  </Button>
                 </div>
-                <CardDescription>
-                  Account #{accountData.accountNumber} • {accountData.server} • 1:{accountData.leverage} Leverage
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {/* Main Balance Stats */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div className="p-4 bg-gray-900/50 rounded-lg border border-gray-700">
-                    <p className="text-gray-400 text-sm">Balance</p>
-                    <p className="text-2xl font-bold text-white">
-                      {accountData.currency} {accountData.balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </p>
-                  </div>
-                  <div className="p-4 bg-gray-900/50 rounded-lg border border-gray-700">
-                    <p className="text-gray-400 text-sm">Equity</p>
-                    <p className={`text-2xl font-bold ${accountData.equity >= accountData.balance ? 'text-green-400' : 'text-red-400'}`}>
-                      {accountData.currency} {accountData.equity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </p>
-                  </div>
-                  <div className="p-4 bg-gray-900/50 rounded-lg border border-gray-700">
-                    <p className="text-gray-400 text-sm">Daily P&L</p>
-                    <p className={`text-2xl font-bold ${accountData.dailyPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                      {accountData.dailyPnL >= 0 ? '+' : ''}{accountData.currency} {accountData.dailyPnL.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </p>
-                    <p className={`text-sm ${accountData.dailyPnLPercent >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                      {accountData.dailyPnLPercent >= 0 ? '+' : ''}{accountData.dailyPnLPercent.toFixed(2)}%
-                    </p>
-                  </div>
-                  <div className="p-4 bg-gray-900/50 rounded-lg border border-gray-700">
-                    <p className="text-gray-400 text-sm">Unrealized P&L</p>
-                    <p className={`text-2xl font-bold ${accountData.unrealizedProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                      {accountData.unrealizedProfit >= 0 ? '+' : ''}{accountData.currency} {accountData.unrealizedProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </p>
-                  </div>
-                </div>
+              )}
 
-                {/* Margin Stats */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div className="p-3 bg-gray-900/30 rounded-lg">
-                    <p className="text-gray-500 text-xs">Margin Used</p>
-                    <p className="text-lg font-semibold text-white">
-                      {accountData.currency} {accountData.margin.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </p>
-                  </div>
-                  <div className="p-3 bg-gray-900/30 rounded-lg">
-                    <p className="text-gray-500 text-xs">Free Margin</p>
-                    <p className="text-lg font-semibold text-green-400">
-                      {accountData.currency} {accountData.freeMargin.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </p>
-                  </div>
-                  <div className="p-3 bg-gray-900/30 rounded-lg">
-                    <p className="text-gray-500 text-xs">Margin Level</p>
-                    <p className={`text-lg font-semibold ${accountData.marginLevel > 200 ? 'text-green-400' : accountData.marginLevel > 100 ? 'text-yellow-400' : 'text-red-400'}`}>
-                      {accountData.marginLevel > 0 ? `${accountData.marginLevel.toFixed(1)}%` : 'N/A'}
-                    </p>
-                  </div>
-                  <div className="p-3 bg-gray-900/30 rounded-lg">
-                    <p className="text-gray-500 text-xs">Credit</p>
-                    <p className="text-lg font-semibold text-gray-400">
-                      {accountData.currency} {accountData.credit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Open Positions Breakdown */}
-                <div className="p-4 bg-gray-900/50 rounded-lg border border-gray-700">
-                  <div className="flex items-center justify-between mb-3">
-                    <p className="text-gray-400 font-medium">Open Positions</p>
-                    <Badge className="bg-blue-500/20 text-blue-400">
-                      {accountData.openPositions} positions • {accountData.pendingOrders} pending
-                    </Badge>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="flex items-center justify-between p-3 bg-green-900/20 rounded border border-green-700/30">
-                      <div>
-                        <p className="text-green-400 font-medium">BUY Positions</p>
-                        <p className="text-gray-400 text-sm">{accountData.buyPositions} trades</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-green-400 font-bold">{accountData.totalBuyLots.toFixed(2)}</p>
-                        <p className="text-gray-500 text-xs">total lots</p>
+              <div className={allAccounts.length > 1 ? "grid grid-cols-1 md:grid-cols-2 gap-4" : ""}>
+              {allAccounts.map((acct, acctIdx) => (
+                <Card key={`${acct.accountNumber}_${acct.broker}_${acctIdx}`} className={`bg-gradient-to-br from-gray-800/80 to-gray-900/80 ${acct.connected ? 'border-amber-500/30' : 'border-gray-600/30 opacity-60'}`}>
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-white flex items-center gap-2">
+                        {allAccounts.length <= 1 && <TrendingUp className="w-5 h-5 text-amber-400" />}
+                        {allAccounts.length > 1 ? (
+                          <span className="text-base">{acct.broker}</span>
+                        ) : (
+                          <span>Account Balance Breakdown</span>
+                        )}
+                        <div className={`w-2 h-2 rounded-full ${acct.connected ? 'bg-green-500 animate-pulse' : 'bg-gray-500'}`} />
+                      </CardTitle>
+                      <div className="flex items-center gap-2">
+                        <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/30">
+                          {acct.broker}
+                        </Badge>
+                        {allAccounts.length <= 1 && (
+                          <Button variant="ghost" size="sm" onClick={() => refetchAccountData()}>
+                            <RefreshCw className="w-4 h-4" />
+                          </Button>
+                        )}
                       </div>
                     </div>
-                    <div className="flex items-center justify-between p-3 bg-red-900/20 rounded border border-red-700/30">
-                      <div>
-                        <p className="text-red-400 font-medium">SELL Positions</p>
-                        <p className="text-gray-400 text-sm">{accountData.sellPositions} trades</p>
+                    <CardDescription>
+                      Account #{acct.accountNumber} • {acct.server} • 1:{acct.leverage} Leverage
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className={`grid grid-cols-2 ${allAccounts.length <= 1 ? 'md:grid-cols-4' : ''} gap-3`}>
+                      <div className="p-3 bg-gray-900/50 rounded-lg border border-gray-700">
+                        <p className="text-gray-400 text-xs">Balance</p>
+                        <p className={`${allAccounts.length > 1 ? 'text-lg' : 'text-2xl'} font-bold text-white`}>
+                          {acct.currency} {acct.balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </p>
                       </div>
-                      <div className="text-right">
-                        <p className="text-red-400 font-bold">{accountData.totalSellLots.toFixed(2)}</p>
-                        <p className="text-gray-500 text-xs">total lots</p>
+                      <div className="p-3 bg-gray-900/50 rounded-lg border border-gray-700">
+                        <p className="text-gray-400 text-xs">Equity</p>
+                        <p className={`${allAccounts.length > 1 ? 'text-lg' : 'text-2xl'} font-bold ${acct.equity >= acct.balance ? 'text-green-400' : 'text-red-400'}`}>
+                          {acct.currency} {acct.equity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </p>
+                      </div>
+                      <div className="p-3 bg-gray-900/50 rounded-lg border border-gray-700">
+                        <p className="text-gray-400 text-xs">Daily P&L</p>
+                        <p className={`${allAccounts.length > 1 ? 'text-lg' : 'text-2xl'} font-bold ${acct.dailyPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                          {acct.dailyPnL >= 0 ? '+' : ''}{acct.currency} {acct.dailyPnL.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </p>
+                        <p className={`text-xs ${acct.dailyPnLPercent >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                          {acct.dailyPnLPercent >= 0 ? '+' : ''}{acct.dailyPnLPercent.toFixed(2)}%
+                        </p>
+                      </div>
+                      <div className="p-3 bg-gray-900/50 rounded-lg border border-gray-700">
+                        <p className="text-gray-400 text-xs">Unrealized P&L</p>
+                        <p className={`${allAccounts.length > 1 ? 'text-lg' : 'text-2xl'} font-bold ${acct.unrealizedProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                          {acct.unrealizedProfit >= 0 ? '+' : ''}{acct.currency} {acct.unrealizedProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </p>
                       </div>
                     </div>
-                  </div>
-                </div>
 
-                {/* Last Updated */}
-                <div className="flex items-center justify-between text-xs text-gray-500">
-                  <span>Account: {accountData.accountName}</span>
-                  <span>
-                    Last updated: {accountData.secondsAgo !== undefined && accountData.secondsAgo < 60 
-                      ? `${accountData.secondsAgo}s ago`
-                      : accountData.secondsAgo !== undefined 
-                        ? `${Math.floor(accountData.secondsAgo / 60)}m ago`
-                        : 'Unknown'
-                    }
-                  </span>
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-        )}
+                    <div className={`grid grid-cols-2 ${allAccounts.length <= 1 ? 'md:grid-cols-4' : ''} gap-3`}>
+                      <div className="p-2 bg-gray-900/30 rounded-lg">
+                        <p className="text-gray-500 text-xs">Margin Used</p>
+                        <p className="text-sm font-semibold text-white">
+                          {acct.currency} {acct.margin.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </p>
+                      </div>
+                      <div className="p-2 bg-gray-900/30 rounded-lg">
+                        <p className="text-gray-500 text-xs">Free Margin</p>
+                        <p className="text-sm font-semibold text-green-400">
+                          {acct.currency} {acct.freeMargin.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </p>
+                      </div>
+                      <div className="p-2 bg-gray-900/30 rounded-lg">
+                        <p className="text-gray-500 text-xs">Margin Level</p>
+                        <p className={`text-sm font-semibold ${acct.marginLevel > 200 ? 'text-green-400' : acct.marginLevel > 100 ? 'text-yellow-400' : 'text-red-400'}`}>
+                          {acct.marginLevel > 0 ? `${acct.marginLevel.toFixed(1)}%` : 'N/A'}
+                        </p>
+                      </div>
+                      <div className="p-2 bg-gray-900/30 rounded-lg">
+                        <p className="text-gray-500 text-xs">Credit</p>
+                        <p className="text-sm font-semibold text-gray-400">
+                          {acct.currency} {acct.credit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="p-4 bg-gray-900/50 rounded-lg border border-gray-700">
+                      <div className="flex items-center justify-between mb-3">
+                        <p className="text-gray-400 font-medium">Open Positions</p>
+                        <Badge className="bg-blue-500/20 text-blue-400">
+                          {acct.openPositions} positions • {acct.pendingOrders} pending
+                        </Badge>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="flex items-center justify-between p-3 bg-green-900/20 rounded border border-green-700/30">
+                          <div>
+                            <p className="text-green-400 font-medium">BUY Positions</p>
+                            <p className="text-gray-400 text-sm">{acct.buyPositions} trades</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-green-400 font-bold">{acct.totalBuyLots.toFixed(2)}</p>
+                            <p className="text-gray-500 text-xs">total lots</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between p-3 bg-red-900/20 rounded border border-red-700/30">
+                          <div>
+                            <p className="text-red-400 font-medium">SELL Positions</p>
+                            <p className="text-gray-400 text-sm">{acct.sellPositions} trades</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-red-400 font-bold">{acct.totalSellLots.toFixed(2)}</p>
+                            <p className="text-gray-500 text-xs">total lots</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between text-xs text-gray-500">
+                      <span>Account: {acct.accountName}</span>
+                      <span>
+                        Last updated: {acct.secondsAgo !== undefined && acct.secondsAgo < 60 
+                          ? `${acct.secondsAgo}s ago`
+                          : acct.secondsAgo !== undefined 
+                            ? `${Math.floor(acct.secondsAgo / 60)}m ago`
+                            : 'Unknown'
+                        }
+                      </span>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+              </div>
+            </motion.div>
+          );
+        })()}
 
         {/* No Account Data Message */}
-        {!accountData?.connected && mt5ConnectionStatus?.connected && (
+        {!accountData?.connected && !(accountData?.accounts && accountData.accounts.length > 0) && mt5ConnectionStatus?.connected && (
           <Card className="bg-gray-800/50 border-gray-700">
             <CardContent className="p-6 text-center">
               <AlertCircle className="w-12 h-12 text-amber-400 mx-auto mb-3" />

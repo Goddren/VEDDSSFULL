@@ -5014,10 +5014,14 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         candleCount: candles.length,
       };
       
-      // Store account data if provided
+      // Store account data if provided — keyed per broker account to support multi-broker
       if (account && typeof account === 'object') {
         (global as any).mt5AccountData = (global as any).mt5AccountData || {};
-        (global as any).mt5AccountData[token.userId] = {
+        if (!(global as any).mt5AccountData[token.userId]) {
+          (global as any).mt5AccountData[token.userId] = {};
+        }
+        const brokerKey = `${account.accountNumber || 'unknown'}_${(broker || 'Unknown').replace(/[^A-Za-z0-9]/g, '')}`;
+        (global as any).mt5AccountData[token.userId][brokerKey] = {
           ...account,
           lastUpdated: new Date().toISOString(),
           broker: broker || 'Unknown',
@@ -6640,7 +6644,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
     });
   });
 
-  // Get MT5 account balance and breakdown data
+  // Get MT5 account balance and breakdown data (supports multiple brokers)
   app.get("/api/mt5/account-data", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) {
       return res.status(401).json({ error: "Authentication required" });
@@ -6648,47 +6652,128 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
     const userId = (req.user as User).id;
     
     const accountCache = (global as any).mt5AccountData || {};
-    const accountData = accountCache[userId];
+    const userAccounts = accountCache[userId];
     
-    if (!accountData) {
+    if (!userAccounts) {
       return res.json({ 
         connected: false, 
+        accounts: [],
         message: "No account data available. Make sure your MT5 Chart Data EA is running with the latest version." 
       });
     }
-    
-    // Check if data is recent (within last 5 minutes)
-    const lastUpdated = new Date(accountData.lastUpdated);
+
+    // Support both old format (single object) and new format (keyed by broker)
     const now = new Date();
-    const secondsAgo = Math.floor((now.getTime() - lastUpdated.getTime()) / 1000);
-    const isActive = secondsAgo < 300;
-    
+    const accounts: any[] = [];
+
+    if (userAccounts.lastUpdated && typeof userAccounts.lastUpdated === 'string') {
+      // Old single-account format — convert to multi-broker
+      const secondsAgo = Math.floor((now.getTime() - new Date(userAccounts.lastUpdated).getTime()) / 1000);
+      const isActive = secondsAgo < 300;
+      accounts.push({
+        connected: isActive,
+        lastUpdated: userAccounts.lastUpdated,
+        secondsAgo,
+        broker: userAccounts.broker || 'Unknown',
+        balance: userAccounts.balance || 0,
+        equity: userAccounts.equity || 0,
+        margin: userAccounts.margin || 0,
+        freeMargin: userAccounts.freeMargin || 0,
+        profit: userAccounts.profit || 0,
+        credit: userAccounts.credit || 0,
+        currency: userAccounts.currency || 'USD',
+        accountNumber: userAccounts.accountNumber || 0,
+        accountName: userAccounts.accountName || '',
+        server: userAccounts.server || '',
+        leverage: userAccounts.leverage || 0,
+        marginLevel: userAccounts.marginLevel || 0,
+        dailyPnL: userAccounts.dailyPnL || 0,
+        dailyPnLPercent: userAccounts.dailyPnLPercent || 0,
+        openPositions: userAccounts.openPositions || 0,
+        pendingOrders: userAccounts.pendingOrders || 0,
+        buyPositions: userAccounts.buyPositions || 0,
+        sellPositions: userAccounts.sellPositions || 0,
+        totalBuyLots: userAccounts.totalBuyLots || 0,
+        totalSellLots: userAccounts.totalSellLots || 0,
+        unrealizedProfit: userAccounts.unrealizedProfit || 0,
+      });
+    } else {
+      // New multi-broker format
+      for (const [key, acctData] of Object.entries(userAccounts)) {
+        const accountData = acctData as any;
+        if (!accountData.lastUpdated) continue;
+        const lastUpdated = new Date(accountData.lastUpdated);
+        const secondsAgo = Math.floor((now.getTime() - lastUpdated.getTime()) / 1000);
+        const isActive = secondsAgo < 300;
+        if (secondsAgo > 3600) continue; // Skip accounts not seen in over 1 hour
+        accounts.push({
+          connected: isActive,
+          lastUpdated: accountData.lastUpdated,
+          secondsAgo,
+          broker: accountData.broker || 'Unknown',
+          balance: accountData.balance || 0,
+          equity: accountData.equity || 0,
+          margin: accountData.margin || 0,
+          freeMargin: accountData.freeMargin || 0,
+          profit: accountData.profit || 0,
+          credit: accountData.credit || 0,
+          currency: accountData.currency || 'USD',
+          accountNumber: accountData.accountNumber || 0,
+          accountName: accountData.accountName || '',
+          server: accountData.server || '',
+          leverage: accountData.leverage || 0,
+          marginLevel: accountData.marginLevel || 0,
+          dailyPnL: accountData.dailyPnL || 0,
+          dailyPnLPercent: accountData.dailyPnLPercent || 0,
+          openPositions: accountData.openPositions || 0,
+          pendingOrders: accountData.pendingOrders || 0,
+          buyPositions: accountData.buyPositions || 0,
+          sellPositions: accountData.sellPositions || 0,
+          totalBuyLots: accountData.totalBuyLots || 0,
+          totalSellLots: accountData.totalSellLots || 0,
+          unrealizedProfit: accountData.unrealizedProfit || 0,
+        });
+      }
+    }
+
+    // Sort: active accounts first, then by most recent
+    accounts.sort((a, b) => {
+      if (a.connected && !b.connected) return -1;
+      if (!a.connected && b.connected) return 1;
+      return a.secondsAgo - b.secondsAgo;
+    });
+
+    // Backwards compatible: also return top-level fields from the most active account
+    const primary = accounts[0];
+    const anyConnected = accounts.some(a => a.connected);
     res.json({
-      connected: isActive,
-      lastUpdated: accountData.lastUpdated,
-      secondsAgo,
-      broker: accountData.broker,
-      balance: accountData.balance || 0,
-      equity: accountData.equity || 0,
-      margin: accountData.margin || 0,
-      freeMargin: accountData.freeMargin || 0,
-      profit: accountData.profit || 0,
-      credit: accountData.credit || 0,
-      currency: accountData.currency || 'USD',
-      accountNumber: accountData.accountNumber || 0,
-      accountName: accountData.accountName || '',
-      server: accountData.server || '',
-      leverage: accountData.leverage || 0,
-      marginLevel: accountData.marginLevel || 0,
-      dailyPnL: accountData.dailyPnL || 0,
-      dailyPnLPercent: accountData.dailyPnLPercent || 0,
-      openPositions: accountData.openPositions || 0,
-      pendingOrders: accountData.pendingOrders || 0,
-      buyPositions: accountData.buyPositions || 0,
-      sellPositions: accountData.sellPositions || 0,
-      totalBuyLots: accountData.totalBuyLots || 0,
-      totalSellLots: accountData.totalSellLots || 0,
-      unrealizedProfit: accountData.unrealizedProfit || 0,
+      connected: anyConnected,
+      lastUpdated: primary?.lastUpdated,
+      secondsAgo: primary?.secondsAgo,
+      broker: primary?.broker,
+      balance: primary?.balance || 0,
+      equity: primary?.equity || 0,
+      margin: primary?.margin || 0,
+      freeMargin: primary?.freeMargin || 0,
+      profit: primary?.profit || 0,
+      credit: primary?.credit || 0,
+      currency: primary?.currency || 'USD',
+      accountNumber: primary?.accountNumber || 0,
+      accountName: primary?.accountName || '',
+      server: primary?.server || '',
+      leverage: primary?.leverage || 0,
+      marginLevel: primary?.marginLevel || 0,
+      dailyPnL: primary?.dailyPnL || 0,
+      dailyPnLPercent: primary?.dailyPnLPercent || 0,
+      openPositions: primary?.openPositions || 0,
+      pendingOrders: primary?.pendingOrders || 0,
+      buyPositions: primary?.buyPositions || 0,
+      sellPositions: primary?.sellPositions || 0,
+      totalBuyLots: primary?.totalBuyLots || 0,
+      totalSellLots: primary?.totalSellLots || 0,
+      unrealizedProfit: primary?.unrealizedProfit || 0,
+      accounts,
+      totalAccounts: accounts.length,
     });
   });
 
