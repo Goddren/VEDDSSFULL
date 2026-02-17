@@ -363,7 +363,11 @@ Provide your independent assessment considering ALL of the following:
 12. TRADE HISTORY: What is the recent win rate on this symbol? Is the trader on a losing streak?
 13. NEWS SENTIMENT: Does the current news flow support or contradict the proposed trade direction? Are headlines bullish or bearish for this pair?
 14. UPCOMING EVENTS: Are there high-impact economic events (rate decisions, NFP, CPI) coming soon that could invalidate the trade? Should the trader wait or use tighter stops?
-15. MARKET OPEN BREAKOUT: If breakoutDetection data is present and shows isBreakoutWindow=true, is there a confirmed breakout at the session open? Does the breakout direction align with the proposed signal? Is volume confirming the breakout? A strong volume-confirmed breakout at London or NY open is a high-probability setup — boost confidence if aligned, reduce if contradicting.
+15. MARKET OPEN BREAKOUT: If breakoutDetection data is present and shows isBreakoutWindow=true, carefully analyze the breakout status:
+   - If breakoutDetected=true: This IS a confirmed breakout. Give it MAJOR weight — session open breakouts at London/NY are high-probability institutional setups. Boost confidence significantly if breakout direction aligns with the proposed signal.
+   - If approachingBreakout=true: Price is at the edge of the pre-session range and about to break out. This is a high-alert state — be ready to confirm in the approaching direction if other indicators align.
+   - Volume/momentum confirmation (volumeConfirmed=true or strong candle body) greatly increases breakout reliability.
+   - A breakout that contradicts the proposed signal is a strong warning — reduce confidence or reject.
 
 CRITICAL RULES FOR YOUR DECISION:
 - CONFIRM the trade if the majority of indicators support the direction, even if 1-2 minor indicators are neutral or slightly against. No trade has 100% alignment — focus on the weight of evidence.

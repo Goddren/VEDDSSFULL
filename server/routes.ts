@@ -5552,13 +5552,16 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           if (advanced.breakoutDetection) {
             analysis.indicators.breakoutDetection = advanced.breakoutDetection;
             if (advanced.breakoutDetection.isBreakoutWindow) {
-              analysis.patterns.push(`Breakout Window: ${advanced.breakoutDetection.session} Open`);
+              analysis.patterns.push(`Breakout Window: ${advanced.breakoutDetection.session} Open (${advanced.breakoutDetection.minutesSinceOpen}min)`);
               if (advanced.breakoutDetection.breakoutDetected) {
                 analysis.patterns.push(`${advanced.breakoutDetection.breakoutStrength} ${advanced.breakoutDetection.breakoutDirection} Breakout`);
                 if (advanced.breakoutDetection.volumeConfirmed) {
                   analysis.patterns.push('Breakout Volume Confirmed');
                 }
                 analysis.alerts.push(`BREAKOUT: ${advanced.breakoutDetection.breakoutDirection} breakout at ${advanced.breakoutDetection.session} open - ${advanced.breakoutDetection.priceVsRange}`);
+              } else if (advanced.breakoutDetection.approachingBreakout) {
+                analysis.patterns.push(`Approaching ${advanced.breakoutDetection.approachingDirection} Breakout`);
+                analysis.alerts.push(`APPROACHING BREAKOUT: Price near ${advanced.breakoutDetection.approachingDirection} edge at ${advanced.breakoutDetection.session} open - ${advanced.breakoutDetection.priceVsRange}`);
               }
             }
             (global as any).mt5BreakoutCache[token.userId][pairKey] = {
@@ -5614,12 +5617,17 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           const pairBreakoutKey = sanitizedSymbol.toUpperCase().replace('/', '');
           const perPairEnabled = perPairSettings[pairBreakoutKey];
           const breakoutEnabled = perPairEnabled !== false && eaSettings?.breakoutStrategy !== false;
-          if (breakoutEnabled && advanced.breakoutDetection?.breakoutDetected && advanced.breakoutDetection.isBreakoutWindow) {
-            const breakoutWeight = advanced.breakoutDetection.breakoutStrength === 'STRONG' ? 3 : 
-                                   advanced.breakoutDetection.breakoutStrength === 'MODERATE' ? 2 : 1;
-            const volumeBonus = advanced.breakoutDetection.volumeConfirmed ? 1 : 0;
-            if (advanced.breakoutDetection.signal === 'BUY') buyVotes += breakoutWeight + volumeBonus;
-            if (advanced.breakoutDetection.signal === 'SELL') sellVotes += breakoutWeight + volumeBonus;
+          if (breakoutEnabled && advanced.breakoutDetection?.isBreakoutWindow) {
+            if (advanced.breakoutDetection.breakoutDetected) {
+              const breakoutWeight = advanced.breakoutDetection.breakoutStrength === 'STRONG' ? 3 : 
+                                     advanced.breakoutDetection.breakoutStrength === 'MODERATE' ? 2 : 1;
+              const volumeBonus = advanced.breakoutDetection.volumeConfirmed ? 1 : 0;
+              if (advanced.breakoutDetection.signal === 'BUY') buyVotes += breakoutWeight + volumeBonus;
+              if (advanced.breakoutDetection.signal === 'SELL') sellVotes += breakoutWeight + volumeBonus;
+            } else if (advanced.breakoutDetection.approachingBreakout) {
+              if (advanced.breakoutDetection.approachingDirection === 'BULLISH') buyVotes += 1;
+              if (advanced.breakoutDetection.approachingDirection === 'BEARISH') sellVotes += 1;
+            }
           }
           
           let baseVotes = 6.5; // Core: RSI 1.5 + MACD 2 + MA 2 + BB 1
@@ -6580,6 +6588,9 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         mt5BreakoutVolumeConfirmed: analysis.indicators?.breakoutDetection?.volumeConfirmed || false,
         mt5BreakoutRangeHigh: analysis.indicators?.breakoutDetection?.preSessionRange?.high || 0,
         mt5BreakoutRangeLow: analysis.indicators?.breakoutDetection?.preSessionRange?.low || 0,
+        mt5BreakoutApproaching: analysis.indicators?.breakoutDetection?.approachingBreakout || false,
+        mt5BreakoutApproachingDir: analysis.indicators?.breakoutDetection?.approachingDirection || 'NONE',
+        mt5BreakoutRangePosition: analysis.indicators?.breakoutDetection?.rangePosition || 0,
         // AI Second Opinion results (flat for MT5 parsing - separate from EA confidence)
         mt5AiEnabled: !!aiConfirmation,
         mt5AiDecision: aiConfirmation ? (aiConfirmation.confirmed ? 'APPROVED' : 'BLOCKED') : 'OFF',

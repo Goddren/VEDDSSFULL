@@ -33,6 +33,9 @@ export interface AdvancedIndicators {
     breakoutDistance: number;
     volumeConfirmed: boolean;
     signal: 'BUY' | 'SELL' | 'NEUTRAL';
+    approachingBreakout?: boolean;
+    approachingDirection?: 'BULLISH' | 'BEARISH' | 'NONE';
+    rangePosition?: number;
   };
 }
 
@@ -474,9 +477,9 @@ export function detectMarketOpenBreakout(
   if (dayOfWeek === 0 || dayOfWeek === 6) return undefined;
 
   const sessionDefs = [
-    { name: 'LONDON', openHour: 7, preSessionHours: 7, windowMinutes: 30 },
-    { name: 'NEW_YORK', openHour: 13, preSessionHours: 6, windowMinutes: 30 },
-    { name: 'TOKYO', openHour: 0, preSessionHours: 3, windowMinutes: 30 },
+    { name: 'LONDON', openHour: 7, preSessionHours: 7, windowMinutes: 90 },
+    { name: 'NEW_YORK', openHour: 13, preSessionHours: 6, windowMinutes: 90 },
+    { name: 'TOKYO', openHour: 0, preSessionHours: 3, windowMinutes: 60 },
   ];
 
   let activeSession: typeof sessionDefs[0] | null = null;
@@ -579,7 +582,7 @@ export function detectMarketOpenBreakout(
   let breakoutDirection: 'BULLISH' | 'BEARISH' | 'NONE' = 'NONE';
   let breakoutDetected = false;
 
-  const threshold = range * 0.1;
+  const threshold = range * 0.05;
   if (currentPrice > rangeHigh + threshold) {
     breakoutDirection = 'BULLISH';
     breakoutDetected = true;
@@ -591,21 +594,46 @@ export function detectMarketOpenBreakout(
   let breakoutStrength: 'STRONG' | 'MODERATE' | 'WEAK' | 'NONE' = 'NONE';
   if (breakoutDetected) {
     const ratio = breakoutDistance / range;
-    if (ratio > 0.5) breakoutStrength = 'STRONG';
-    else if (ratio > 0.25) breakoutStrength = 'MODERATE';
+    if (ratio > 0.4) breakoutStrength = 'STRONG';
+    else if (ratio > 0.15) breakoutStrength = 'MODERATE';
     else breakoutStrength = 'WEAK';
   }
 
   let volumeConfirmed = false;
-  if (breakoutDetected && candles[0].v && candles.length >= 10) {
-    const avgVol = candles.slice(1, 11).reduce((s, c) => s + (c.v || 0), 0) / 10;
-    volumeConfirmed = (candles[0].v || 0) > avgVol * 1.2;
+  if (breakoutDetected && candles.length >= 10) {
+    const hasVolume = candles.slice(0, 11).some(c => c.v && c.v > 0);
+    if (hasVolume) {
+      const avgVol = candles.slice(1, 11).reduce((s, c) => s + (c.v || 0), 0) / 10;
+      volumeConfirmed = avgVol > 0 && (candles[0].v || 0) > avgVol * 1.2;
+    } else {
+      const recentCandles = candles.slice(0, 5);
+      const avgBodySize = recentCandles.reduce((s, c) => s + Math.abs(c.c - c.o), 0) / recentCandles.length;
+      const currentBodySize = Math.abs(candles[0].c - candles[0].o);
+      volumeConfirmed = currentBodySize > avgBodySize * 1.3;
+    }
   }
+
+  let approachingBreakout = false;
+  let approachingDirection: 'BULLISH' | 'BEARISH' | 'NONE' = 'NONE';
+  if (!breakoutDetected) {
+    const upperZone = rangeHigh - range * 0.08;
+    const lowerZone = rangeLow + range * 0.08;
+    if (currentPrice >= upperZone && currentPrice <= rangeHigh + threshold) {
+      approachingBreakout = true;
+      approachingDirection = 'BULLISH';
+    } else if (currentPrice <= lowerZone && currentPrice >= rangeLow - threshold) {
+      approachingBreakout = true;
+      approachingDirection = 'BEARISH';
+    }
+  }
+
+  const rangePosition = range > 0 ? ((currentPrice - rangeLow) / range) * 100 : 50;
 
   let priceVsRange: string;
   if (currentPrice > rangeHigh) priceVsRange = `Price ABOVE range high by ${breakoutDistance.toFixed(5)}`;
   else if (currentPrice < rangeLow) priceVsRange = `Price BELOW range low by ${breakoutDistance.toFixed(5)}`;
-  else priceVsRange = `Price INSIDE range (${((currentPrice - rangeLow) / range * 100).toFixed(0)}% from low)`;
+  else if (approachingBreakout) priceVsRange = `Price APPROACHING ${approachingDirection} breakout (${rangePosition.toFixed(0)}% in range)`;
+  else priceVsRange = `Price INSIDE range (${rangePosition.toFixed(0)}% from low)`;
 
   let signal: 'BUY' | 'SELL' | 'NEUTRAL' = 'NEUTRAL';
   if (breakoutDetected && breakoutStrength !== 'NONE') {
@@ -628,6 +656,9 @@ export function detectMarketOpenBreakout(
     breakoutDistance: Math.round(breakoutDistance * 100000) / 100000,
     volumeConfirmed,
     signal,
+    approachingBreakout,
+    approachingDirection,
+    rangePosition: Math.round(rangePosition * 100) / 100,
   };
 }
 
