@@ -6529,7 +6529,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         mt5CooldownSeconds: mt5CooldownRemaining, // Seconds until cooldown expires
         // MT5-friendly flat summary (parse these fields in EA)
         mt5Signal: analysis.signal,
-        mt5Confidence: analysis.confidence,
+        mt5Confidence: preConfirmConfidence || analysis.confidence,
         mt5Trend: analysis.trend,
         mt5Patterns: patternsStr,
         mt5Alerts: alertsStr,
