@@ -6152,8 +6152,9 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               newsContextForAI
             );
             
-            // Dual confidence gate: AI >= 70% AND EA >= 80% to execute
-            const AI_MIN_CONFIDENCE = 70;
+            // Dual confidence gate: AI >= user's threshold AND EA >= 80% to execute
+            const { getAiMinConfidence } = await import('./openai');
+            const AI_MIN_CONFIDENCE = getAiMinConfidence(token.userId);
             const EA_MIN_CONFIDENCE_FOR_AI_GATE = 80;
             const aiPasses = aiConfirmation.aiConfidence >= AI_MIN_CONFIDENCE;
             const eaPasses = preConfirmConfidence >= EA_MIN_CONFIDENCE_FOR_AI_GATE;
@@ -11768,19 +11769,25 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
 
   app.get("/api/ai-vision-confirmation", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
-    const { isAiVisionConfirmationEnabled } = await import('./openai');
-    res.json({ enabled: isAiVisionConfirmationEnabled(req.user!.id) });
+    const { isAiVisionConfirmationEnabled, getAiMinConfidence } = await import('./openai');
+    res.json({ 
+      enabled: isAiVisionConfirmationEnabled(req.user!.id),
+      aiMinConfidence: getAiMinConfidence(req.user!.id),
+    });
   });
 
   app.post("/api/ai-vision-confirmation", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
-    const { enabled } = req.body;
+    const { enabled, aiMinConfidence } = req.body;
     if (typeof enabled !== 'boolean') {
       return res.status(400).json({ message: "enabled must be a boolean" });
     }
-    const { setAiVisionConfirmation } = await import('./openai');
+    const { setAiVisionConfirmation, setAiMinConfidence, getAiMinConfidence } = await import('./openai');
     setAiVisionConfirmation(req.user!.id, enabled);
-    res.json({ success: true, enabled });
+    if (typeof aiMinConfidence === 'number') {
+      setAiMinConfidence(req.user!.id, aiMinConfidence);
+    }
+    res.json({ success: true, enabled, aiMinConfidence: getAiMinConfidence(req.user!.id) });
   });
 
   app.get("/api/ai-confirmation-logs", async (req: Request, res: Response) => {

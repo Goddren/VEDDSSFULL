@@ -206,6 +206,7 @@ function getModelProvider(modelId: string): string {
 }
 
 const aiVisionConfirmationEnabled: Map<number, boolean> = new Map();
+const aiMinConfidenceThreshold: Map<number, number> = new Map();
 
 export function setAiVisionConfirmation(userId: number, enabled: boolean) {
   aiVisionConfirmationEnabled.set(userId, enabled);
@@ -213,6 +214,15 @@ export function setAiVisionConfirmation(userId: number, enabled: boolean) {
 
 export function isAiVisionConfirmationEnabled(userId: number): boolean {
   return aiVisionConfirmationEnabled.get(userId) || false;
+}
+
+export function setAiMinConfidence(userId: number, minConfidence: number) {
+  const clamped = Math.max(0, Math.min(100, Math.round(minConfidence)));
+  aiMinConfidenceThreshold.set(userId, clamped);
+}
+
+export function getAiMinConfidence(userId: number): number {
+  return aiMinConfidenceThreshold.get(userId) ?? 70;
 }
 
 export interface AiVisionConfirmation {

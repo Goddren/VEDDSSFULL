@@ -1252,7 +1252,7 @@ export default function MT5ChartDataPage() {
     refetchInterval: 10000,
   });
 
-  const { data: aiConfirmationSetting } = useQuery<{ enabled: boolean }>({
+  const { data: aiConfirmationSetting } = useQuery<{ enabled: boolean; aiMinConfidence: number }>({
     queryKey: ['/api/ai-vision-confirmation'],
   });
 
@@ -1300,6 +1300,23 @@ export default function MT5ChartDataPage() {
         description: data.enabled 
           ? "AI will review trade signals before execution for a second opinion." 
           : "Trades will execute based on indicator analysis only."
+      });
+    },
+  });
+
+  const updateAiMinConfidenceMutation = useMutation({
+    mutationFn: async (aiMinConfidence: number) => {
+      const res = await apiRequest('POST', '/api/ai-vision-confirmation', { 
+        enabled: aiConfirmationSetting?.enabled ?? false,
+        aiMinConfidence 
+      });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/ai-vision-confirmation'] });
+      toast({ 
+        title: "AI Confidence Threshold Updated", 
+        description: `AI must be at least ${data.aiMinConfidence}% confident for trades to execute.`
       });
     },
   });
@@ -1534,7 +1551,7 @@ export default function MT5ChartDataPage() {
 
         {/* AI Vision Confirmation Toggle */}
         <Card className="bg-gradient-to-br from-purple-900/30 to-indigo-900/30 border-purple-500/30">
-          <CardContent className="p-5">
+          <CardContent className="p-5 space-y-4">
             <div className="flex items-start justify-between gap-4">
               <div className="flex items-start gap-3 flex-1">
                 <div className="p-2 rounded-lg bg-purple-500/20 mt-0.5">
@@ -1548,12 +1565,12 @@ export default function MT5ChartDataPage() {
                     </Badge>
                   </h3>
                   <p className="text-sm text-gray-400 mt-1">
-                    When enabled, AI reviews the indicator-based trade signal before execution and can confirm, reject, or adjust entry/SL/TP levels. Uses your selected AI model (GPT-4o or Mini).
+                    When enabled, AI reviews the indicator-based trade signal before execution. Both EA (80%+) and AI must meet their confidence thresholds for trades to execute.
                   </p>
                   {aiConfirmationSetting?.enabled && (
                     <p className="text-xs text-purple-300 mt-2 flex items-center gap-1">
                       <CheckCircle className="w-3 h-3" />
-                      AI will confirm signals before trades execute
+                      Trades require EA 80%+ AND AI {aiConfirmationSetting.aiMinConfidence}%+
                     </p>
                   )}
                 </div>
@@ -1564,6 +1581,64 @@ export default function MT5ChartDataPage() {
                 disabled={toggleAiConfirmationMutation.isPending}
               />
             </div>
+
+            {aiConfirmationSetting?.enabled && (
+              <div className="ml-12 p-4 rounded-lg bg-purple-900/20 border border-purple-500/20 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-white">Minimum AI Confidence</p>
+                    <p className="text-xs text-gray-400">AI must be at least this confident to allow the trade</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 w-8 p-0 border-purple-500/40 text-purple-300 hover:bg-purple-500/20"
+                      onClick={() => {
+                        const current = aiConfirmationSetting.aiMinConfidence ?? 70;
+                        if (current > 10) updateAiMinConfidenceMutation.mutate(current - 5);
+                      }}
+                      disabled={updateAiMinConfidenceMutation.isPending || (aiConfirmationSetting.aiMinConfidence ?? 70) <= 10}
+                    >
+                      -
+                    </Button>
+                    <span className="text-xl font-bold text-purple-300 w-14 text-center">
+                      {aiConfirmationSetting.aiMinConfidence ?? 70}%
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 w-8 p-0 border-purple-500/40 text-purple-300 hover:bg-purple-500/20"
+                      onClick={() => {
+                        const current = aiConfirmationSetting.aiMinConfidence ?? 70;
+                        if (current < 100) updateAiMinConfidenceMutation.mutate(current + 5);
+                      }}
+                      disabled={updateAiMinConfidenceMutation.isPending || (aiConfirmationSetting.aiMinConfidence ?? 70) >= 100}
+                    >
+                      +
+                    </Button>
+                  </div>
+                </div>
+                <div className="flex gap-2 flex-wrap">
+                  {[50, 60, 70, 80, 90].map((val) => (
+                    <Button
+                      key={val}
+                      variant="outline"
+                      size="sm"
+                      className={`text-xs h-7 px-3 ${
+                        (aiConfirmationSetting.aiMinConfidence ?? 70) === val
+                          ? 'bg-purple-500/30 text-purple-200 border-purple-400'
+                          : 'border-gray-600 text-gray-400 hover:bg-purple-500/10'
+                      }`}
+                      onClick={() => updateAiMinConfidenceMutation.mutate(val)}
+                      disabled={updateAiMinConfidenceMutation.isPending}
+                    >
+                      {val}%
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
 
