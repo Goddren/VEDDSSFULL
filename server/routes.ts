@@ -6122,6 +6122,9 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       }
       
       // AI Vision Confirmation: Get second opinion from AI before trading (if enabled)
+      // ADVISORY MODE: AI provides its confidence and reasoning but does NOT block trades.
+      // The EA signal, confidence, and trade plan remain intact regardless of AI decision.
+      // Both EA confidence and AI confidence are returned as separate fields.
       const preConfirmSignal = analysis.signal;
       const preConfirmConfidence = analysis.confidence;
       const preConfirmEntry = analysis.tradePlan?.entry;
@@ -6151,10 +6154,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             
             if (!aiConfirmation.confirmed) {
               console.log(`[AI Vision Confirmation] REJECTED trade on ${sanitizedSymbol}: ${aiConfirmation.reasoning}`);
-              analysis.alerts.push(`AI Confirmation REJECTED: ${aiConfirmation.reasoning}`);
-              analysis.tradePlan = null;
-              analysis.signal = 'NEUTRAL';
-              analysis.confidence = Math.min(analysis.confidence, aiConfirmation.aiConfidence);
+              analysis.alerts.push(`AI Second Opinion: DISAGREES (${aiConfirmation.aiConfidence}% confidence) - ${aiConfirmation.reasoning}`);
               addAiConfirmationLog(token.userId, {
                 timestamp: new Date().toISOString(),
                 symbol: sanitizedSymbol, timeframe: sanitizedTimeframe,
@@ -6166,7 +6166,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               });
             } else {
               console.log(`[AI Vision Confirmation] CONFIRMED trade on ${sanitizedSymbol}: ${aiConfirmation.reasoning}`);
-              analysis.alerts.push(`AI Confirmation: ${aiConfirmation.reasoning}`);
+              analysis.alerts.push(`AI Second Opinion: AGREES (${aiConfirmation.aiConfidence}% confidence) - ${aiConfirmation.reasoning}`);
               const currentPrice = indicators?.price?.bid || candles[0]?.c || 0;
               const maxDeviation = currentPrice * 0.05;
               let hasAdjustments = false;
@@ -6201,7 +6201,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           }
         } catch (confirmError) {
           console.error('[AI Vision Confirmation] Error:', confirmError);
-          analysis.alerts.push('AI Confirmation error - trade blocked for safety');
+          analysis.alerts.push('AI Second Opinion unavailable - proceeding with EA analysis only');
           const { addAiConfirmationLog, getUserModelPreference, AVAILABLE_VISION_MODELS } = await import('./openai');
           const errModelId = getUserModelPreference(token.userId);
           const errModelInfo = AVAILABLE_VISION_MODELS.find((m: any) => m.id === errModelId);
@@ -6211,11 +6211,15 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             proposedSignal: preConfirmSignal, proposedConfidence: preConfirmConfidence,
             proposedEntry: preConfirmEntry, proposedSL: preConfirmSL, proposedTP: preConfirmTP,
             aiDecision: 'ERROR', aiDirection: 'NEUTRAL', aiConfidence: 0,
-            reasoning: `AI confirmation error: ${confirmError instanceof Error ? confirmError.message : 'Unknown error'} - trade blocked`,
+            reasoning: `AI confirmation error: ${confirmError instanceof Error ? confirmError.message : 'Unknown error'} - trade proceeding with EA analysis`,
             modelUsed: errModelInfo?.name || errModelId,
           });
-          analysis.tradePlan = null;
-          analysis.signal = 'NEUTRAL';
+          aiConfirmation = {
+            confirmed: false,
+            aiDirection: 'NEUTRAL',
+            aiConfidence: 0,
+            reasoning: 'AI unavailable - using EA analysis only',
+          };
         }
       }
       
@@ -6561,6 +6565,13 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         mt5BreakoutVolumeConfirmed: analysis.indicators?.breakoutDetection?.volumeConfirmed || false,
         mt5BreakoutRangeHigh: analysis.indicators?.breakoutDetection?.preSessionRange?.high || 0,
         mt5BreakoutRangeLow: analysis.indicators?.breakoutDetection?.preSessionRange?.low || 0,
+        // AI Second Opinion results (flat for MT5 parsing - separate from EA confidence)
+        mt5AiEnabled: !!aiConfirmation,
+        mt5AiDecision: aiConfirmation ? (aiConfirmation.confirmed ? 'AGREES' : 'DISAGREES') : 'OFF',
+        mt5AiConfidence: aiConfirmation?.aiConfidence || 0,
+        mt5AiDirection: aiConfirmation?.aiDirection || 'NEUTRAL',
+        mt5AiReasoning: aiConfirmation?.reasoning || '',
+        mt5EaConfidence: analysis.confidence,
         // Full analysis for web clients
         analysis,
         candlesReceived: candles.length,
