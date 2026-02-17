@@ -55,7 +55,7 @@
     "@types/canvas-confetti": "^1.9.0",
     "@types/multer": "^1.4.12",
     "@use-gesture/react": "^10.3.1",
-    "axios": "^1.13.2",
+    "axios": "^1.13.5",
     "bigint-buffer-fixed": "^1.1.6",
     "buffer": "^6.0.3",
     "canvas": "^3.1.2",
@@ -137,6 +137,7 @@
     "uuid-binary": "^1.0.0"
   },
   "overrides": {
-    "bigint-buffer": "npm:bigint-buffer-fixed@^1.1.6"
+    "bigint-buffer": "npm:bigint-buffer-fixed@^1.1.6",
+    "tar": "7.5.7"
   }
 }
