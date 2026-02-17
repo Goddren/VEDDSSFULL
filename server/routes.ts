@@ -5548,7 +5548,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             analysis.alerts.push('Market session closed or weekend - reduced liquidity');
           }
           
-          // Market Open Breakout Detection
+          // Market Open Breakout Detection (from EA's timeframe)
           if (advanced.breakoutDetection) {
             analysis.indicators.breakoutDetection = advanced.breakoutDetection;
             if (advanced.breakoutDetection.isBreakoutWindow) {
@@ -5570,6 +5570,27 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               updatedAt: new Date().toISOString(),
               ...advanced.breakoutDetection,
             };
+          }
+
+          // Independent M15 Breakout Monitor: merge separate breakout data if available
+          try {
+            const { getIndependentBreakoutForSymbol } = await import('./services/breakout-monitor');
+            const independentBreakout = getIndependentBreakoutForSymbol(token.userId, sanitizedSymbol);
+            if (independentBreakout && independentBreakout.isBreakoutWindow) {
+              analysis.indicators.independentBreakout = independentBreakout;
+              const eaDetected = advanced.breakoutDetection?.breakoutDetected || false;
+              if (independentBreakout.breakoutDetected && !eaDetected) {
+                analysis.patterns.push(`M15 Independent: ${independentBreakout.breakoutStrength} ${independentBreakout.breakoutDirection} Breakout`);
+                if (independentBreakout.volumeConfirmed) {
+                  analysis.patterns.push('M15 Breakout Volume Confirmed');
+                }
+                analysis.alerts.push(`M15 BREAKOUT: ${independentBreakout.breakoutDirection} breakout at ${independentBreakout.session} open (independent monitor) - ${independentBreakout.priceVsRange}`);
+              } else if (independentBreakout.approachingBreakout && !eaDetected) {
+                analysis.patterns.push(`M15 Independent: Approaching ${independentBreakout.approachingDirection} Breakout`);
+                analysis.alerts.push(`M15 APPROACHING: ${independentBreakout.approachingDirection} breakout developing at ${independentBreakout.session} open (independent monitor)`);
+              }
+            }
+          } catch (err) {
           }
           
           // Weak trend penalty (ADX < 20 reduces confidence in directional signals)
@@ -5630,13 +5651,34 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             }
           }
           
+          // Independent M15 breakout votes (when EA timeframe missed the breakout)
+          if (breakoutEnabled) {
+            try {
+              const { getIndependentBreakoutForSymbol } = await import('./services/breakout-monitor');
+              const indBreakout = getIndependentBreakoutForSymbol(token.userId, sanitizedSymbol);
+              const eaAlreadyCaught = advanced.breakoutDetection?.breakoutDetected || false;
+              if (indBreakout && indBreakout.isBreakoutWindow && !eaAlreadyCaught) {
+                if (indBreakout.breakoutDetected) {
+                  const indWeight = indBreakout.breakoutStrength === 'STRONG' ? 3 : 
+                                    indBreakout.breakoutStrength === 'MODERATE' ? 2 : 1;
+                  const indVolBonus = indBreakout.volumeConfirmed ? 1 : 0;
+                  if (indBreakout.signal === 'BUY') buyVotes += indWeight + indVolBonus;
+                  if (indBreakout.signal === 'SELL') sellVotes += indWeight + indVolBonus;
+                } else if (indBreakout.approachingBreakout) {
+                  if (indBreakout.approachingDirection === 'BULLISH') buyVotes += 1;
+                  if (indBreakout.approachingDirection === 'BEARISH') sellVotes += 1;
+                }
+              }
+            } catch (err) {}
+          }
+
           let baseVotes = 6.5; // Core: RSI 1.5 + MACD 2 + MA 2 + BB 1
           if (advanced.adx) baseVotes += 1;
           if (advanced.stochastic) baseVotes += 1.5;
           if (advanced.vwap) baseVotes += 0.5;
           if (advanced.obv?.divergence && advanced.obv.divergence !== 'NONE') baseVotes += 1;
           if (bullishPatterns.length > 0 || bearishPatterns.length > 0) baseVotes += Math.min(Math.max(bullishPatterns.length, bearishPatterns.length), 2);
-          if (breakoutEnabled && advanced.breakoutDetection?.breakoutDetected) baseVotes += 4;
+          if (breakoutEnabled && (advanced.breakoutDetection?.breakoutDetected || analysis.indicators?.independentBreakout?.breakoutDetected)) baseVotes += 4;
           const totalVotes = multiTimeframeEnabled && mtfCount > 0 ? baseVotes + (mtfCount * 0.75) : baseVotes;
           if (buyVotes > sellVotes && buyVotes >= 3) {
             analysis.signal = 'BUY';
@@ -6591,6 +6633,14 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         mt5BreakoutApproaching: analysis.indicators?.breakoutDetection?.approachingBreakout || false,
         mt5BreakoutApproachingDir: analysis.indicators?.breakoutDetection?.approachingDirection || 'NONE',
         mt5BreakoutRangePosition: analysis.indicators?.breakoutDetection?.rangePosition || 0,
+        // Independent M15 Breakout Monitor (separate from EA timeframe)
+        mt5IndBreakoutActive: !!analysis.indicators?.independentBreakout,
+        mt5IndBreakoutDetected: analysis.indicators?.independentBreakout?.breakoutDetected || false,
+        mt5IndBreakoutDirection: analysis.indicators?.independentBreakout?.breakoutDirection || 'NONE',
+        mt5IndBreakoutStrength: analysis.indicators?.independentBreakout?.breakoutStrength || 'NONE',
+        mt5IndBreakoutSignal: analysis.indicators?.independentBreakout?.signal || 'NEUTRAL',
+        mt5IndBreakoutApproaching: analysis.indicators?.independentBreakout?.approachingBreakout || false,
+        mt5IndBreakoutApproachingDir: analysis.indicators?.independentBreakout?.approachingDirection || 'NONE',
         // AI Second Opinion results (flat for MT5 parsing - separate from EA confidence)
         mt5AiEnabled: !!aiConfirmation,
         mt5AiDecision: aiConfirmation ? (aiConfirmation.confirmed ? 'APPROVED' : 'BLOCKED') : 'OFF',
@@ -6874,9 +6924,9 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
     const totalMinutes = hourUTC * 60 + minuteUTC;
 
     const sessions = [
-      { name: 'LONDON', openHour: 7, preSessionStart: '00:00', preSessionEnd: '07:00', preHours: 7, windowMinutes: 30 },
-      { name: 'NEW_YORK', openHour: 13, preSessionStart: '07:00', preSessionEnd: '13:00', preHours: 6, windowMinutes: 30 },
-      { name: 'TOKYO', openHour: 0, preSessionStart: '21:00', preSessionEnd: '00:00', preHours: 3, windowMinutes: 30 },
+      { name: 'LONDON', openHour: 7, preSessionStart: '00:00', preSessionEnd: '07:00', preHours: 7, windowMinutes: 90 },
+      { name: 'NEW_YORK', openHour: 13, preSessionStart: '07:00', preSessionEnd: '13:00', preHours: 6, windowMinutes: 90 },
+      { name: 'TOKYO', openHour: 0, preSessionStart: '21:00', preSessionEnd: '00:00', preHours: 3, windowMinutes: 60 },
     ];
 
     let currentWindow: any = null;
@@ -6925,6 +6975,13 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
     const perPairSettings = (global as any).mt5BreakoutSettings?.[userId] || {};
     const pairStatuses: any[] = [];
 
+    // Get independent M15 monitor data
+    let independentMonitor: any = null;
+    try {
+      const { getIndependentBreakoutStatus } = await import('./services/breakout-monitor');
+      independentMonitor = getIndependentBreakoutStatus(userId);
+    } catch (err) {}
+
     const pairsCache = (global as any).mt5ConnectedPairs || {};
     const userPairs = pairsCache[userId] || {};
     const allPairSymbols = new Set<string>();
@@ -6939,6 +6996,11 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       const ageSeconds = Math.floor((now.getTime() - new Date(bd.updatedAt).getTime()) / 1000);
       const pairKey = bd.symbol.toUpperCase().replace('/', '');
       const enabled = perPairSettings[pairKey] !== false;
+
+      // Check if independent M15 monitor has a breakout for this pair
+      const indResult = independentMonitor?.results?.[pairKey];
+      const hasIndBreakout = indResult?.breakoutDetected && !bd.breakoutDetected;
+
       if (ageSeconds < 600) {
         pairStatuses.push({
           symbol: bd.symbol,
@@ -6948,15 +7010,18 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           isBreakoutWindow: bd.isBreakoutWindow,
           session: bd.session,
           minutesSinceOpen: bd.minutesSinceOpen,
-          breakoutDetected: enabled ? bd.breakoutDetected : false,
-          breakoutDirection: enabled ? bd.breakoutDirection : 'NONE',
-          breakoutStrength: enabled ? bd.breakoutStrength : 'NONE',
-          priceVsRange: enabled ? bd.priceVsRange : 'Breakout detection disabled',
-          breakoutDistance: enabled ? bd.breakoutDistance : 0,
-          volumeConfirmed: enabled ? bd.volumeConfirmed : false,
-          signal: enabled ? bd.signal : 'NEUTRAL',
-          preSessionRange: bd.preSessionRange,
+          breakoutDetected: enabled ? (bd.breakoutDetected || hasIndBreakout) : false,
+          breakoutDirection: enabled ? (hasIndBreakout ? indResult.breakoutDirection : bd.breakoutDirection) : 'NONE',
+          breakoutStrength: enabled ? (hasIndBreakout ? indResult.breakoutStrength : bd.breakoutStrength) : 'NONE',
+          priceVsRange: enabled ? (hasIndBreakout ? `${indResult.priceVsRange} (M15)` : bd.priceVsRange) : 'Breakout detection disabled',
+          breakoutDistance: enabled ? (hasIndBreakout ? indResult.breakoutDistance : bd.breakoutDistance) : 0,
+          volumeConfirmed: enabled ? (bd.volumeConfirmed || (hasIndBreakout && indResult.volumeConfirmed)) : false,
+          signal: enabled ? (hasIndBreakout ? indResult.signal : bd.signal) : 'NEUTRAL',
+          preSessionRange: hasIndBreakout ? indResult.preSessionRange : bd.preSessionRange,
           breakoutEnabled: enabled,
+          source: hasIndBreakout ? 'independent_m15' : 'ea_timeframe',
+          approachingBreakout: bd.approachingBreakout || indResult?.approachingBreakout || false,
+          approachingDirection: bd.approachingDirection || indResult?.approachingDirection || 'NONE',
         });
         allPairSymbols.delete(pairKey);
       }
@@ -6964,22 +7029,28 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
 
     for (const sym of allPairSymbols) {
       const enabled = perPairSettings[sym] !== false;
+      const indResult = independentMonitor?.results?.[sym];
+      const hasIndData = indResult && indResult.isBreakoutWindow;
+
       pairStatuses.push({
         symbol: sym,
-        timeframe: 'N/A',
-        updatedAt: null,
-        ageSeconds: null,
-        isBreakoutWindow: false,
-        session: 'NONE',
-        breakoutDetected: false,
-        breakoutDirection: 'NONE',
-        breakoutStrength: 'NONE',
-        priceVsRange: 'Awaiting data',
-        breakoutDistance: 0,
-        volumeConfirmed: false,
-        signal: 'NEUTRAL',
-        preSessionRange: { high: 0, low: 0, range: 0 },
+        timeframe: hasIndData ? 'M15' : 'N/A',
+        updatedAt: hasIndData ? indResult.detectedAt : null,
+        ageSeconds: hasIndData ? Math.floor((now.getTime() - new Date(indResult.detectedAt).getTime()) / 1000) : null,
+        isBreakoutWindow: hasIndData ? indResult.isBreakoutWindow : false,
+        session: hasIndData ? indResult.session : 'NONE',
+        breakoutDetected: enabled && hasIndData ? indResult.breakoutDetected : false,
+        breakoutDirection: enabled && hasIndData ? indResult.breakoutDirection : 'NONE',
+        breakoutStrength: enabled && hasIndData ? indResult.breakoutStrength : 'NONE',
+        priceVsRange: !enabled ? 'Breakout detection disabled' : (hasIndData ? `${indResult.priceVsRange} (M15)` : 'Awaiting data'),
+        breakoutDistance: enabled && hasIndData ? indResult.breakoutDistance : 0,
+        volumeConfirmed: enabled && hasIndData ? indResult.volumeConfirmed : false,
+        signal: enabled && hasIndData ? indResult.signal : 'NEUTRAL',
+        preSessionRange: hasIndData ? indResult.preSessionRange : { high: 0, low: 0, range: 0 },
         breakoutEnabled: enabled,
+        source: hasIndData ? 'independent_m15' : 'none',
+        approachingBreakout: hasIndData ? indResult.approachingBreakout || false : false,
+        approachingDirection: hasIndData ? indResult.approachingDirection || 'NONE' : 'NONE',
       });
     }
 
@@ -6990,6 +7061,13 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       currentWindow,
       nextSession,
       pairStatuses,
+      independentMonitor: independentMonitor ? {
+        active: independentMonitor.monitorActive,
+        lastPollTime: independentMonitor.lastPollTime,
+        pollCount: independentMonitor.pollCount,
+        pairsMonitored: Object.keys(independentMonitor.results).length,
+        errors: independentMonitor.errors,
+      } : null,
     });
   });
 

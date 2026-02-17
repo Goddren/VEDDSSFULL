@@ -69,6 +69,10 @@ app.use((req, res, next) => {
   // Initialize market data service for Live AI Refresh
   initializeMarketDataService();
   
+  // Start independent breakout monitor (M15 polling during session windows)
+  const { startBreakoutMonitor } = await import('./services/breakout-monitor');
+  startBreakoutMonitor();
+  
   const server = await registerRoutes(app);
 
   app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
