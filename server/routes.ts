@@ -6152,9 +6152,21 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               newsContextForAI
             );
             
-            if (!aiConfirmation.confirmed) {
-              console.log(`[AI Vision Confirmation] BLOCKED trade on ${sanitizedSymbol} (EA: ${preConfirmConfidence}% | AI: ${aiConfirmation.aiConfidence}%): ${aiConfirmation.reasoning}`);
-              analysis.alerts.push(`AI BLOCKED TRADE (AI: ${aiConfirmation.aiConfidence}% vs EA: ${preConfirmConfidence}%) - ${aiConfirmation.reasoning}`);
+            // Dual confidence gate: AI >= 70% AND EA >= 80% to execute
+            const AI_MIN_CONFIDENCE = 70;
+            const EA_MIN_CONFIDENCE_FOR_AI_GATE = 80;
+            const aiPasses = aiConfirmation.aiConfidence >= AI_MIN_CONFIDENCE;
+            const eaPasses = preConfirmConfidence >= EA_MIN_CONFIDENCE_FOR_AI_GATE;
+            const dualConfidencePassed = aiPasses && eaPasses;
+
+            if (!dualConfidencePassed) {
+              const reason = !aiPasses && !eaPasses 
+                ? `Both below threshold (AI: ${aiConfirmation.aiConfidence}% < ${AI_MIN_CONFIDENCE}%, EA: ${preConfirmConfidence}% < ${EA_MIN_CONFIDENCE_FOR_AI_GATE}%)`
+                : !aiPasses 
+                  ? `AI confidence too low (AI: ${aiConfirmation.aiConfidence}% < ${AI_MIN_CONFIDENCE}%, EA: ${preConfirmConfidence}%)`
+                  : `EA confidence too low (EA: ${preConfirmConfidence}% < ${EA_MIN_CONFIDENCE_FOR_AI_GATE}%, AI: ${aiConfirmation.aiConfidence}%)`;
+              console.log(`[AI Vision Confirmation] BLOCKED trade on ${sanitizedSymbol} - ${reason}: ${aiConfirmation.reasoning}`);
+              analysis.alerts.push(`TRADE BLOCKED: ${reason} - ${aiConfirmation.reasoning}`);
               analysis.tradePlan = null;
               analysis.signal = 'NEUTRAL';
               addAiConfirmationLog(token.userId, {
@@ -6163,12 +6175,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 proposedSignal: preConfirmSignal, proposedConfidence: preConfirmConfidence,
                 proposedEntry: preConfirmEntry, proposedSL: preConfirmSL, proposedTP: preConfirmTP,
                 aiDecision: 'REJECTED', aiDirection: aiConfirmation.aiDirection,
-                aiConfidence: aiConfirmation.aiConfidence, reasoning: aiConfirmation.reasoning,
+                aiConfidence: aiConfirmation.aiConfidence, reasoning: `${reason} | ${aiConfirmation.reasoning}`,
                 modelUsed: modelInfo?.name || selectedModelId,
               });
             } else {
-              console.log(`[AI Vision Confirmation] CONFIRMED trade on ${sanitizedSymbol}: ${aiConfirmation.reasoning}`);
-              analysis.alerts.push(`AI Second Opinion: AGREES (${aiConfirmation.aiConfidence}% confidence) - ${aiConfirmation.reasoning}`);
+              console.log(`[AI Vision Confirmation] APPROVED trade on ${sanitizedSymbol} (EA: ${preConfirmConfidence}% | AI: ${aiConfirmation.aiConfidence}%): ${aiConfirmation.reasoning}`);
+              analysis.alerts.push(`TRADE APPROVED (EA: ${preConfirmConfidence}% | AI: ${aiConfirmation.aiConfidence}%) - ${aiConfirmation.reasoning}`);
               const currentPrice = indicators?.price?.bid || candles[0]?.c || 0;
               const maxDeviation = currentPrice * 0.05;
               let hasAdjustments = false;
