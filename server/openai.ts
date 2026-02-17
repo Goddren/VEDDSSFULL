@@ -355,14 +355,19 @@ Provide your independent assessment considering ALL of the following:
 14. UPCOMING EVENTS: Are there high-impact economic events (rate decisions, NFP, CPI) coming soon that could invalidate the trade? Should the trader wait or use tighter stops?
 15. MARKET OPEN BREAKOUT: If breakoutDetection data is present and shows isBreakoutWindow=true, is there a confirmed breakout at the session open? Does the breakout direction align with the proposed signal? Is volume confirming the breakout? A strong volume-confirmed breakout at London or NY open is a high-probability setup — boost confidence if aligned, reduce if contradicting.
 
-CRITICAL: If a high-impact news event is imminent (today or tomorrow), factor this into your confidence and reasoning. Warn if the trade could be invalidated by upcoming data releases. If a market open breakout is detected with volume confirmation, this is a high-probability institutional setup — give it significant weight.
+CRITICAL RULES FOR YOUR DECISION:
+- CONFIRM the trade if the majority of indicators support the direction, even if 1-2 minor indicators are neutral or slightly against. No trade has 100% alignment — focus on the weight of evidence.
+- REJECT ONLY if there are serious red flags: strong divergence against the trade, price hitting major resistance/support in the wrong direction, extreme overbought/oversold against the signal, or imminent high-impact news that directly threatens the trade.
+- Your "confidence" field is YOUR independent confidence in the trade (0-100). This is shown separately from the EA's confidence so traders see both perspectives.
+- If a market open breakout is detected with volume confirmation, this is a high-probability institutional setup — give it significant weight.
+- If news events are imminent (today/tomorrow), factor this into confidence. Warn if the trade could be invalidated.
 
 Return your analysis as JSON:
 {
   "confirmed": boolean,
   "direction": "BUY" | "SELL" | "NEUTRAL",
-  "confidence": number (0-100),
-  "reasoning": "Detailed explanation referencing specific indicators, patterns, levels, AND news/events",
+  "confidence": number (0-100, your independent AI confidence percentage),
+  "reasoning": "Concise explanation referencing the key indicators and news/events that drove your decision",
   "adjustedEntry": number or null,
   "adjustedStopLoss": number or null,
   "adjustedTakeProfit": number or null

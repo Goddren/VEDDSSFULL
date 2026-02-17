@@ -6153,8 +6153,10 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             );
             
             if (!aiConfirmation.confirmed) {
-              console.log(`[AI Vision Confirmation] REJECTED trade on ${sanitizedSymbol}: ${aiConfirmation.reasoning}`);
-              analysis.alerts.push(`AI Second Opinion: DISAGREES (${aiConfirmation.aiConfidence}% confidence) - ${aiConfirmation.reasoning}`);
+              console.log(`[AI Vision Confirmation] BLOCKED trade on ${sanitizedSymbol} (EA: ${preConfirmConfidence}% | AI: ${aiConfirmation.aiConfidence}%): ${aiConfirmation.reasoning}`);
+              analysis.alerts.push(`AI BLOCKED TRADE (AI: ${aiConfirmation.aiConfidence}% vs EA: ${preConfirmConfidence}%) - ${aiConfirmation.reasoning}`);
+              analysis.tradePlan = null;
+              analysis.signal = 'NEUTRAL';
               addAiConfirmationLog(token.userId, {
                 timestamp: new Date().toISOString(),
                 symbol: sanitizedSymbol, timeframe: sanitizedTimeframe,
@@ -6567,11 +6569,11 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         mt5BreakoutRangeLow: analysis.indicators?.breakoutDetection?.preSessionRange?.low || 0,
         // AI Second Opinion results (flat for MT5 parsing - separate from EA confidence)
         mt5AiEnabled: !!aiConfirmation,
-        mt5AiDecision: aiConfirmation ? (aiConfirmation.confirmed ? 'AGREES' : 'DISAGREES') : 'OFF',
+        mt5AiDecision: aiConfirmation ? (aiConfirmation.confirmed ? 'APPROVED' : 'BLOCKED') : 'OFF',
         mt5AiConfidence: aiConfirmation?.aiConfidence || 0,
         mt5AiDirection: aiConfirmation?.aiDirection || 'NEUTRAL',
         mt5AiReasoning: aiConfirmation?.reasoning || '',
-        mt5EaConfidence: analysis.confidence,
+        mt5EaConfidence: preConfirmConfidence || analysis.confidence,
         // Full analysis for web clients
         analysis,
         candlesReceived: candles.length,
