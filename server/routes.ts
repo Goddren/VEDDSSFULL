@@ -6218,6 +6218,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   : `EA confidence too low (EA: ${preConfirmConfidence}% < ${EA_MIN_CONFIDENCE_FOR_AI_GATE}%, AI: ${aiConfirmation.aiConfidence}%)`;
               console.log(`[AI Vision Confirmation] BLOCKED trade on ${sanitizedSymbol} - ${reason}: ${aiConfirmation.reasoning}`);
               analysis.alerts.push(`TRADE BLOCKED: ${reason} - ${aiConfirmation.reasoning}`);
+              aiConfirmation.confirmed = false;
               analysis.tradePlan = null;
               analysis.signal = 'NEUTRAL';
               addAiConfirmationLog(token.userId, {
@@ -6232,6 +6233,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             } else {
               console.log(`[AI Vision Confirmation] APPROVED trade on ${sanitizedSymbol} (EA: ${preConfirmConfidence}% | AI: ${aiConfirmation.aiConfidence}%): ${aiConfirmation.reasoning}`);
               analysis.alerts.push(`TRADE APPROVED (EA: ${preConfirmConfidence}% | AI: ${aiConfirmation.aiConfidence}%) - ${aiConfirmation.reasoning}`);
+              aiConfirmation.confirmed = true;
               const currentPrice = indicators?.price?.bid || candles[0]?.c || 0;
               const maxDeviation = currentPrice * 0.05;
               let hasAdjustments = false;
