@@ -190,7 +190,7 @@ export default function LandingPage() {
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <EarlyAccessForm />
               <Link href="/subscription">
-                <Button size="lg" variant="outline" className="border-black text-black hover:bg-black/5 transition-all duration-300">
+                <Button size="lg" variant="outline" className="border-gray-300 text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-all duration-300">
                   View Pricing
                 </Button>
               </Link>
@@ -796,15 +796,27 @@ export default function LandingPage() {
             </motion.div>
           </motion.div>
 
-          {/* Savings Summary */}
+          {/* Pricing Summary */}
           <motion.div variants={fadeIn} className="bg-gradient-to-r from-green-500 to-emerald-600 rounded-2xl p-8 text-white text-center">
-            <h3 className="text-2xl font-bold mb-2">Total Potential Savings</h3>
-            <div className="flex items-center justify-center gap-4 mb-4">
-              <span className="text-4xl font-bold line-through opacity-60">$315-713/mo</span>
-              <ArrowRight className="h-8 w-8" />
-              <span className="text-5xl font-bold">$49.95/mo</span>
+            <h3 className="text-2xl font-bold mb-2">All-In-One Platform Pricing</h3>
+            <p className="text-base opacity-80 mb-6">Get everything listed above in a single subscription</p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6 max-w-2xl mx-auto">
+              <div className="bg-white/15 rounded-xl p-4">
+                <p className="text-sm opacity-80 mb-1">Starter</p>
+                <p className="text-3xl font-bold">$49.95</p>
+                <p className="text-sm opacity-70">/month</p>
+              </div>
+              <div className="bg-white/25 rounded-xl p-4 ring-2 ring-white/50">
+                <p className="text-sm opacity-80 mb-1">Premium</p>
+                <p className="text-3xl font-bold">$149.99</p>
+                <p className="text-sm opacity-70">/month</p>
+              </div>
+              <div className="bg-white/15 rounded-xl p-4">
+                <p className="text-sm opacity-80 mb-1">Yearly</p>
+                <p className="text-3xl font-bold">$999.99</p>
+                <p className="text-sm opacity-70">/year</p>
+              </div>
             </div>
-            <p className="text-lg opacity-90 mb-6">Premium $149.99/mo | Yearly $999.99 - Save up to $12,700 per year!</p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <Link href="/subscription">
                 <Button size="lg" variant="secondary" className="bg-white text-green-600 hover:bg-gray-100">
@@ -1105,7 +1117,7 @@ export default function LandingPage() {
               <EarlyAccessForm />
               
               <Link href="/subscription">
-                <Button size="lg" variant="outline" className="border-white text-white hover:bg-white/10">
+                <Button size="lg" variant="outline" className="border-white/40 text-white/60 hover:bg-white/10 hover:text-white transition-all duration-300">
                   View Pricing
                 </Button>
               </Link>
