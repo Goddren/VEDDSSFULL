@@ -178,8 +178,8 @@ export const openai = new OpenAI({
 export const AVAILABLE_VISION_MODELS = [
   { id: 'gpt-4o', name: 'GPT-4o', description: 'Best accuracy for chart analysis', tier: 'premium', provider: 'openai' },
   { id: 'gpt-4o-mini', name: 'GPT-4o Mini', description: 'Budget-friendly, good accuracy', tier: 'budget', provider: 'openai' },
-  { id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4', description: 'Excellent reasoning and analysis', tier: 'premium', provider: 'anthropic' },
-  { id: 'claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku', description: 'Fast and affordable', tier: 'budget', provider: 'anthropic' },
+  { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6', description: 'Excellent reasoning and analysis', tier: 'premium', provider: 'anthropic' },
+  { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5', description: 'Fast and affordable', tier: 'budget', provider: 'anthropic' },
   { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', description: 'Fast multimodal analysis', tier: 'budget', provider: 'google' },
   { id: 'gemini-1.5-pro-latest', name: 'Gemini 1.5 Pro', description: 'Advanced reasoning', tier: 'premium', provider: 'google' },
   { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B', description: 'Ultra-fast inference', tier: 'budget', provider: 'groq' },
@@ -196,8 +196,21 @@ export function setUserModelPreference(userId: number, model: string) {
   userModelPreferences.set(userId, model);
 }
 
+const DEPRECATED_MODEL_MAP: Record<string, string> = {
+  'claude-3-5-haiku-20241022': 'claude-haiku-4-5-20251001',
+  'claude-sonnet-4-20250514': 'claude-sonnet-4-6',
+  'claude-3-5-sonnet-20241022': 'claude-sonnet-4-6',
+};
+
 export function getUserModelPreference(userId: number): string {
-  return userModelPreferences.get(userId) || 'gpt-4o';
+  const pref = userModelPreferences.get(userId) || 'gpt-4o';
+  if (DEPRECATED_MODEL_MAP[pref]) {
+    const updated = DEPRECATED_MODEL_MAP[pref];
+    userModelPreferences.set(userId, updated);
+    console.log(`[AI Model] Migrated user ${userId} from deprecated ${pref} to ${updated}`);
+    return updated;
+  }
+  return pref;
 }
 
 function getModelProvider(modelId: string): string {
