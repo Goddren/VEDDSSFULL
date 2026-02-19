@@ -63,7 +63,7 @@ input string   _conn_header = "========== API CONNECTION =========="; // *** CON
 input string   API_URL = "https://your-app-url.replit.app/api/mt5/chart-data";  // API URL (CHANGE THIS!)
 input string   API_TOKEN = "";                    // API Token from AI Trading Vault
 input int      CANDLES_TO_SEND = 50;              // Candles to Send
-input int      SEND_INTERVAL_SECONDS = 60;        // Send Interval (seconds)
+input int      SEND_INTERVAL_SECONDS = 300;       // Send Interval (seconds) - 5 min recommended
 input bool     INCLUDE_INDICATORS = true;         // Include Technical Indicators
 input bool     SHOW_CHART_COMMENT = true;         // Show Analysis on Chart
 input int      TIMEOUT = 15000;                   // Request Timeout (ms)

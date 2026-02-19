@@ -2157,7 +2157,7 @@ export default function MT5ChartDataPage() {
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-amber-400 font-mono">SEND_INTERVAL_SECONDS</span>
-                      <span>How often to send data (default: 60)</span>
+                      <span>How often to send data (default: 300 = 5 min)</span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-amber-400 font-mono">INCLUDE_INDICATORS</span>
