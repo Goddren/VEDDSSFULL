@@ -557,13 +557,29 @@ export async function getAiVisionConfirmation(
       adjustedStopLoss: typeof result.adjustedStopLoss === 'number' ? result.adjustedStopLoss : undefined,
       adjustedTakeProfit: typeof result.adjustedTakeProfit === 'number' ? result.adjustedTakeProfit : undefined,
     };
-  } catch (error) {
-    console.error('[AI Vision Confirmation] Error:', error);
+  } catch (error: any) {
+    const errMsg = error?.message || String(error);
+    const statusCode = error?.status || error?.statusCode || error?.response?.status;
+    let userReason = 'AI confirmation error';
+    if (statusCode === 401 || errMsg.includes('auth') || errMsg.includes('API key') || errMsg.includes('Unauthorized')) {
+      userReason = 'Invalid API key — check your key on the AI Provider Keys page';
+    } else if (statusCode === 429 || errMsg.includes('rate') || errMsg.includes('quota') || errMsg.includes('limit')) {
+      userReason = 'AI rate limit or quota exceeded — try again in a few minutes or switch providers';
+    } else if (errMsg.includes('model') || errMsg.includes('not found') || errMsg.includes('does not exist')) {
+      userReason = `Model not available — try switching to a different AI model`;
+    } else if (errMsg.includes('timeout') || errMsg.includes('ECONNREFUSED') || errMsg.includes('network')) {
+      userReason = 'Network error reaching AI provider — will retry on next interval';
+    } else if (errMsg.includes('JSON') || errMsg.includes('parse')) {
+      userReason = 'AI returned an unparseable response — will retry on next interval';
+    } else {
+      userReason = `AI error: ${errMsg.substring(0, 120)}`;
+    }
+    console.error(`[AI Vision Confirmation] ERROR (${statusCode || 'no status'}): ${errMsg}`);
     return {
       confirmed: false,
       aiDirection: 'NEUTRAL',
       aiConfidence: 0,
-      reasoning: 'AI confirmation unavailable - blocking trade for safety (disable AI Second Opinion to trade without confirmation)',
+      reasoning: userReason,
     };
   }
 }
