@@ -6202,20 +6202,21 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               newsContextForAI
             );
             
-            // Dual confidence gate: AI >= user's threshold AND EA >= 80% to execute
+            // Confidence gate: AI can override low EA confidence if AI is confident enough
+            // - Both pass (EA >= 80% AND AI >= threshold) → APPROVED
+            // - AI passes but EA doesn't (AI >= threshold) → AI OVERRIDE (trade allowed)
+            // - AI fails (regardless of EA) → BLOCKED
             const { getAiMinConfidence } = await import('./openai');
             const AI_MIN_CONFIDENCE = getAiMinConfidence(token.userId);
             const EA_MIN_CONFIDENCE_FOR_AI_GATE = 80;
             const aiPasses = aiConfirmation.aiConfidence >= AI_MIN_CONFIDENCE;
             const eaPasses = preConfirmConfidence >= EA_MIN_CONFIDENCE_FOR_AI_GATE;
-            const dualConfidencePassed = aiPasses && eaPasses;
+            const tradeAllowed = aiPasses; // AI confidence is the deciding factor
 
-            if (!dualConfidencePassed) {
-              const reason = !aiPasses && !eaPasses 
+            if (!tradeAllowed) {
+              const reason = !eaPasses
                 ? `Both below threshold (AI: ${aiConfirmation.aiConfidence}% < ${AI_MIN_CONFIDENCE}%, EA: ${preConfirmConfidence}% < ${EA_MIN_CONFIDENCE_FOR_AI_GATE}%)`
-                : !aiPasses 
-                  ? `AI confidence too low (AI: ${aiConfirmation.aiConfidence}% < ${AI_MIN_CONFIDENCE}%, EA: ${preConfirmConfidence}%)`
-                  : `EA confidence too low (EA: ${preConfirmConfidence}% < ${EA_MIN_CONFIDENCE_FOR_AI_GATE}%, AI: ${aiConfirmation.aiConfidence}%)`;
+                : `AI confidence too low (AI: ${aiConfirmation.aiConfidence}% < ${AI_MIN_CONFIDENCE}%, EA: ${preConfirmConfidence}%)`;
               console.log(`[AI Vision Confirmation] BLOCKED trade on ${sanitizedSymbol} - ${reason}: ${aiConfirmation.reasoning}`);
               analysis.alerts.push(`TRADE BLOCKED: ${reason} - ${aiConfirmation.reasoning}`);
               aiConfirmation.confirmed = false;
@@ -6231,8 +6232,10 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 modelUsed: modelInfo?.name || selectedModelId,
               });
             } else {
-              console.log(`[AI Vision Confirmation] APPROVED trade on ${sanitizedSymbol} (EA: ${preConfirmConfidence}% | AI: ${aiConfirmation.aiConfidence}%): ${aiConfirmation.reasoning}`);
-              analysis.alerts.push(`TRADE APPROVED (EA: ${preConfirmConfidence}% | AI: ${aiConfirmation.aiConfidence}%) - ${aiConfirmation.reasoning}`);
+              const isAiOverride = aiPasses && !eaPasses;
+              const approvalLabel = isAiOverride ? 'AI OVERRIDE' : 'APPROVED';
+              console.log(`[AI Vision Confirmation] ${approvalLabel} trade on ${sanitizedSymbol} (EA: ${preConfirmConfidence}% | AI: ${aiConfirmation.aiConfidence}%)${isAiOverride ? ' - AI confidence overriding low EA' : ''}: ${aiConfirmation.reasoning}`);
+              analysis.alerts.push(`TRADE ${approvalLabel} (EA: ${preConfirmConfidence}% | AI: ${aiConfirmation.aiConfidence}%)${isAiOverride ? ' [AI overrode low EA]' : ''} - ${aiConfirmation.reasoning}`);
               aiConfirmation.confirmed = true;
               const currentPrice = indicators?.price?.bid || candles[0]?.c || 0;
               const maxDeviation = currentPrice * 0.05;
@@ -6257,7 +6260,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 symbol: sanitizedSymbol, timeframe: sanitizedTimeframe,
                 proposedSignal: preConfirmSignal, proposedConfidence: preConfirmConfidence,
                 proposedEntry: preConfirmEntry, proposedSL: preConfirmSL, proposedTP: preConfirmTP,
-                aiDecision: hasAdjustments ? 'ADJUSTED' : 'APPROVED',
+                aiDecision: isAiOverride ? 'AI_OVERRIDE' : (hasAdjustments ? 'ADJUSTED' : 'APPROVED'),
                 aiDirection: aiConfirmation.aiDirection,
                 aiConfidence: aiConfirmation.aiConfidence, reasoning: aiConfirmation.reasoning,
                 adjustedEntry: aiConfirmation.adjustedEntry, adjustedSL: aiConfirmation.adjustedStopLoss,

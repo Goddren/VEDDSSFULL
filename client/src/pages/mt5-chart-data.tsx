@@ -1272,7 +1272,7 @@ export default function MT5ChartDataPage() {
     proposedEntry?: number;
     proposedSL?: number;
     proposedTP?: number;
-    aiDecision: 'APPROVED' | 'REJECTED' | 'ADJUSTED' | 'ERROR';
+    aiDecision: 'APPROVED' | 'REJECTED' | 'ADJUSTED' | 'AI_OVERRIDE' | 'ERROR';
     aiDirection: string;
     aiConfidence: number;
     reasoning: string;
@@ -1570,7 +1570,7 @@ export default function MT5ChartDataPage() {
                   {aiConfirmationSetting?.enabled && (
                     <p className="text-xs text-purple-300 mt-2 flex items-center gap-1">
                       <CheckCircle className="w-3 h-3" />
-                      Trades require EA 80%+ AND AI {aiConfirmationSetting.aiMinConfidence}%+
+                      AI {aiConfirmationSetting.aiMinConfidence}%+ required — can override low EA
                     </p>
                   )}
                 </div>
@@ -1661,6 +1661,7 @@ export default function MT5ChartDataPage() {
               {aiConfirmationLogs.map((log) => (
                 <div key={log.id} className={`rounded-lg border p-3 space-y-2 ${
                   log.aiDecision === 'APPROVED' ? 'border-green-500/30 bg-green-500/5' :
+                  log.aiDecision === 'AI_OVERRIDE' ? 'border-blue-500/30 bg-blue-500/5' :
                   log.aiDecision === 'ADJUSTED' ? 'border-amber-500/30 bg-amber-500/5' :
                   log.aiDecision === 'REJECTED' ? 'border-red-500/30 bg-red-500/5' :
                   'border-gray-500/30 bg-gray-500/5'
@@ -1669,15 +1670,17 @@ export default function MT5ChartDataPage() {
                     <div className="flex items-center gap-2">
                       <Badge className={`text-xs ${
                         log.aiDecision === 'APPROVED' ? 'bg-green-500/20 text-green-400 border-green-500/30' :
+                        log.aiDecision === 'AI_OVERRIDE' ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' :
                         log.aiDecision === 'ADJUSTED' ? 'bg-amber-500/20 text-amber-400 border-amber-500/30' :
                         log.aiDecision === 'REJECTED' ? 'bg-red-500/20 text-red-400 border-red-500/30' :
                         'bg-gray-500/20 text-gray-400 border-gray-500/30'
                       }`}>
                         {log.aiDecision === 'APPROVED' && <CheckCircle className="w-3 h-3 mr-1" />}
+                        {log.aiDecision === 'AI_OVERRIDE' && <CheckCircle className="w-3 h-3 mr-1" />}
                         {log.aiDecision === 'ADJUSTED' && <Target className="w-3 h-3 mr-1" />}
                         {log.aiDecision === 'REJECTED' && <XCircle className="w-3 h-3 mr-1" />}
                         {log.aiDecision === 'ERROR' && <AlertCircle className="w-3 h-3 mr-1" />}
-                        {log.aiDecision}
+                        {log.aiDecision === 'AI_OVERRIDE' ? 'AI OVERRIDE' : log.aiDecision}
                       </Badge>
                       <span className="font-semibold text-white text-sm">{log.symbol}</span>
                       <Badge variant="outline" className="text-[10px] text-gray-400">{log.timeframe}</Badge>
