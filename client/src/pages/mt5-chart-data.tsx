@@ -36,7 +36,8 @@ import {
   Brain,
   Lightbulb,
   Calendar,
-  Search
+  Search,
+  Power
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { ConnectedPairs } from "@/components/mt5/connected-pairs";
@@ -1262,6 +1263,26 @@ export default function MT5ChartDataPage() {
   });
   const firstActiveSymbol = connectedPairsData?.activePairs?.[0]?.symbol;
 
+  const { data: eaEnabledData } = useQuery<{ enabled: boolean }>({
+    queryKey: ['/api/mt5/ea-enabled'],
+  });
+
+  const toggleEaMutation = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      const res = await apiRequest('POST', '/api/mt5/ea-enabled', { enabled });
+      return res.json();
+    },
+    onSuccess: (data: { enabled: boolean }) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/mt5/ea-enabled'] });
+      toast({
+        title: data.enabled ? 'EA Enabled' : 'EA Disabled',
+        description: data.enabled 
+          ? 'Your EA will resume sending data and receiving signals' 
+          : 'Your EA is now paused — no trades will be processed',
+      });
+    },
+  });
+
   interface AiConfirmationLog {
     id: number;
     timestamp: string;
@@ -1404,12 +1425,30 @@ export default function MT5ChartDataPage() {
                     }
                   </Badge>
                 )}
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gray-800/80 border border-gray-700">
+                  <span className={`text-xs font-medium ${eaEnabledData?.enabled !== false ? 'text-green-400' : 'text-red-400'}`}>
+                    EA {eaEnabledData?.enabled !== false ? 'ON' : 'OFF'}
+                  </span>
+                  <Switch
+                    checked={eaEnabledData?.enabled !== false}
+                    onCheckedChange={(checked) => toggleEaMutation.mutate(checked)}
+                    disabled={toggleEaMutation.isPending}
+                  />
+                </div>
                 <Button variant="outline" size="sm" onClick={() => refetchConnectionStatus()}>
                   <RefreshCw className="w-4 h-4" />
                 </Button>
               </div>
             </div>
-            {mt5ConnectionStatus?.connected && (
+            {eaEnabledData?.enabled === false && (
+              <div className="mt-4 pt-4 border-t border-red-700/50">
+                <p className="text-sm text-red-400 font-medium flex items-center gap-2">
+                  <Power className="w-4 h-4" />
+                  EA is turned OFF — no trades will be processed. Toggle the switch above to resume.
+                </p>
+              </div>
+            )}
+            {mt5ConnectionStatus?.connected && eaEnabledData?.enabled !== false && (
               <div className="mt-4 pt-4 border-t border-gray-700/50">
                 <p className="text-sm text-green-300">
                   Hey G, VEDD AI is receiving live data from your chart! Analysis updates appear in your MT5 Experts tab.

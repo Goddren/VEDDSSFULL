@@ -4915,6 +4915,16 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       if (!token.isActive) {
         return res.status(403).json({ error: "API key is disabled" });
       }
+
+      // Check EA kill switch - user can disable EA remotely from the app
+      (global as any).mt5EaEnabled = (global as any).mt5EaEnabled || {};
+      const eaIsEnabled = (global as any).mt5EaEnabled[token.userId] !== false; // default: enabled
+      if (!eaIsEnabled) {
+        return res.status(403).json({ 
+          error: "EA is disabled remotely from VEDD AI dashboard. Enable it from the app to resume trading.",
+          eaDisabled: true
+        });
+      }
       
       const { symbol, timeframe, broker, timestamp, candles, indicators, account, eaSettings } = req.body;
       
@@ -7074,6 +7084,32 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         errors: independentMonitor.errors,
       } : null,
     });
+  });
+
+  // EA Kill Switch - enable/disable EA remotely from the app
+  app.get("/api/mt5/ea-enabled", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const userId = (req.user as User).id;
+    (global as any).mt5EaEnabled = (global as any).mt5EaEnabled || {};
+    const enabled = (global as any).mt5EaEnabled[userId] !== false;
+    res.json({ enabled });
+  });
+
+  app.post("/api/mt5/ea-enabled", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const userId = (req.user as User).id;
+    const { enabled } = req.body;
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({ error: "enabled (boolean) required" });
+    }
+    (global as any).mt5EaEnabled = (global as any).mt5EaEnabled || {};
+    (global as any).mt5EaEnabled[userId] = enabled;
+    console.log(`[EA Kill Switch] User ${userId} ${enabled ? 'ENABLED' : 'DISABLED'} EA remotely`);
+    res.json({ enabled });
   });
 
   app.get("/api/mt5/breakout-settings", async (req: Request, res: Response) => {
