@@ -9,11 +9,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { FeatureToggle } from "@/components/ui/switch";
 import {
   ArrowLeft, Target, TrendingUp, DollarSign, BarChart3,
   Calendar, Clock, Shield, Brain, RefreshCw, Trash2,
   CheckCircle, AlertCircle, Zap, ChevronRight, Star,
-  Rocket, Flame, ArrowUpRight, Power, Radio
+  Rocket, Flame, ArrowUpRight, Power
 } from "lucide-react";
 import { motion } from "framer-motion";
 
@@ -166,58 +167,52 @@ export default function WeeklyStrategyPage() {
           <div className="space-y-6">
             {/* LIVE TRADING SWITCH */}
             <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ duration: 0.3 }}
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.4, ease: "easeOut" }}
             >
               <Card className={`border-2 transition-all duration-500 ${
                 liveMode?.live 
-                  ? 'border-green-500 bg-gradient-to-r from-green-900/30 to-emerald-900/30 shadow-lg shadow-green-500/20' 
-                  : 'border-gray-600 bg-gray-800/50'
+                  ? 'border-green-500/60 bg-gradient-to-r from-green-950/40 to-emerald-950/40 shadow-lg shadow-green-500/10' 
+                  : 'border-gray-700/50 bg-gray-900/40'
               }`}>
-                <CardContent className="p-6">
+                <CardContent className="p-5">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">
-                      <div className={`p-3 rounded-full ${liveMode?.live ? 'bg-green-500/20' : 'bg-gray-700/50'}`}>
-                        <Power className={`w-8 h-8 ${liveMode?.live ? 'text-green-400' : 'text-gray-500'}`} />
+                      <div className={`relative p-3 rounded-xl transition-all duration-500 ${liveMode?.live ? 'bg-green-500/15' : 'bg-gray-800/60'}`}>
+                        <Power className={`w-7 h-7 transition-colors duration-300 ${liveMode?.live ? 'text-green-400' : 'text-gray-500'}`} />
+                        {liveMode?.live && (
+                          <div className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-green-400 rounded-full animate-pulse shadow-lg shadow-green-400/50" />
+                        )}
                       </div>
                       <div>
-                        <h3 className={`text-xl font-bold ${liveMode?.live ? 'text-green-400' : 'text-gray-400'}`}>
-                          {liveMode?.live ? 'LIVE - Trading Active' : 'OFFLINE - Plan Ready'}
-                        </h3>
-                        <p className="text-gray-400 text-sm">
+                        <div className="flex items-center gap-2">
+                          <h3 className={`text-lg font-bold transition-colors duration-300 ${liveMode?.live ? 'text-green-400' : 'text-gray-400'}`}>
+                            VEDD SS AI
+                          </h3>
+                          {liveMode?.live && (
+                            <Badge className="bg-green-500/20 text-green-400 border-green-500/30 text-[10px] animate-pulse">
+                              LIVE
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-gray-500 text-sm mt-0.5">
                           {liveMode?.live 
-                            ? 'VEDD SS AI is guiding your EA trades in real-time'
-                            : 'Turn on to let VEDD SS AI guide your EA automatically'}
+                            ? 'Guiding your EA trades in real-time'
+                            : 'Toggle to activate AI trade guidance'}
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-3">
-                      {liveMode?.live && (
-                        <div className="flex items-center gap-2">
-                          <Radio className="w-4 h-4 text-green-400 animate-pulse" />
-                          <span className="text-green-400 text-sm font-medium">Connected</span>
-                        </div>
-                      )}
-                      <Button
-                        size="lg"
-                        className={`px-8 py-3 font-bold text-lg transition-all ${
-                          liveMode?.live
-                            ? 'bg-red-600 hover:bg-red-700 text-white'
-                            : 'bg-green-600 hover:bg-green-700 text-white'
-                        }`}
-                        onClick={() => toggleLiveMutation.mutate(!liveMode?.live)}
-                        disabled={toggleLiveMutation.isPending || !strategy?.hasStrategy}
-                      >
-                        {toggleLiveMutation.isPending ? (
-                          <RefreshCw className="w-5 h-5 animate-spin" />
-                        ) : liveMode?.live ? (
-                          'STOP'
-                        ) : (
-                          'GO LIVE'
-                        )}
-                      </Button>
-                    </div>
+                    <FeatureToggle
+                      checked={liveMode?.live || false}
+                      onCheckedChange={(checked) => toggleLiveMutation.mutate(checked)}
+                      activeColor="green"
+                      size="lg"
+                      showLabel
+                      activeLabel="LIVE"
+                      inactiveLabel="OFF"
+                      disabled={toggleLiveMutation.isPending || !strategy?.hasStrategy}
+                    />
                   </div>
                 </CardContent>
               </Card>

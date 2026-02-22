@@ -5647,7 +5647,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           const perPairSettings = (global as any).mt5BreakoutSettings?.[token.userId] || {};
           const pairBreakoutKey = sanitizedSymbol.toUpperCase().replace('/', '');
           const perPairEnabled = perPairSettings[pairBreakoutKey];
-          const breakoutEnabled = perPairEnabled !== false && eaSettings?.breakoutStrategy !== false;
+          const globalBreakoutEnabled = (global as any).mt5BreakoutGlobal?.[token.userId] !== false;
+          const breakoutEnabled = globalBreakoutEnabled && perPairEnabled !== false && eaSettings?.breakoutStrategy !== false;
           if (breakoutEnabled && advanced.breakoutDetection?.isBreakoutWindow) {
             if (advanced.breakoutDetection.breakoutDetected) {
               const breakoutWeight = advanced.breakoutDetection.breakoutStrength === 'STRONG' ? 3 : 
@@ -7189,7 +7190,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
     }
     const userId = (req.user as User).id;
     const settings = (global as any).mt5BreakoutSettings?.[userId] || {};
-    res.json({ settings });
+    const globalEnabled = (global as any).mt5BreakoutGlobal?.[userId] !== false;
+    res.json({ settings, globalEnabled });
   });
 
   app.post("/api/mt5/breakout-settings", async (req: Request, res: Response) => {
@@ -7207,6 +7209,30 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
     }
     (global as any).mt5BreakoutSettings[userId][symbol.toUpperCase().replace('/', '')] = enabled;
     res.json({ symbol, enabled, settings: (global as any).mt5BreakoutSettings[userId] });
+  });
+
+  app.get("/api/mt5/breakout-global", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const userId = (req.user as User).id;
+    const enabled = (global as any).mt5BreakoutGlobal?.[userId] !== false;
+    res.json({ enabled });
+  });
+
+  app.post("/api/mt5/breakout-global", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const userId = (req.user as User).id;
+    const { enabled } = req.body;
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({ error: "enabled (boolean) required" });
+    }
+    (global as any).mt5BreakoutGlobal = (global as any).mt5BreakoutGlobal || {};
+    (global as any).mt5BreakoutGlobal[userId] = enabled;
+    console.log(`[BREAKOUT] Global breakout strategy ${enabled ? 'ENABLED' : 'DISABLED'} for user ${userId}`);
+    res.json({ enabled, message: enabled ? 'Breakout strategy activated' : 'Breakout strategy deactivated' });
   });
 
   // Get Trade History Learning recommendations for EA settings per symbol

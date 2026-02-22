@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'wouter';
-import { Home, LineChart, Scan, Coins, Menu } from 'lucide-react';
+import { Home, LineChart, Scan, BarChart3, Menu } from 'lucide-react';
 import { useState } from 'react';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
@@ -17,7 +17,7 @@ import {
   BookOpen, 
   GraduationCap, 
   Lightbulb, 
-  BarChart3, 
+  Coins,
   Webhook, 
   Wallet,
   User,
@@ -30,7 +30,7 @@ const primaryNavItems = [
   { name: 'Home', path: '/dashboard', icon: Home },
   { name: 'Analysis', path: '/analysis', icon: LineChart },
   { name: 'SOL Scanner', path: '/solana-scanner', icon: Scan },
-  { name: 'Tokenomics', path: '/vedd-tokenomics', icon: Coins },
+  { name: 'MT5 Data', path: '/mt5-chart-data', icon: BarChart3 },
 ];
 
 const allNavItems = [

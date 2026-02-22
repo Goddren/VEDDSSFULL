@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
+import { Switch, FeatureToggle } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { 
@@ -999,6 +999,26 @@ type AccountData = BrokerAccount & {
 };
 
 function BreakoutLiveStatus() {
+  const { toast } = useToast();
+  const { data: globalBreakout } = useQuery<{ enabled: boolean }>({
+    queryKey: ['/api/mt5/breakout-global'],
+  });
+
+  const toggleGlobalBreakout = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      const res = await apiRequest('POST', '/api/mt5/breakout-global', { enabled });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/mt5/breakout-global'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/mt5/breakout-status'] });
+      toast({
+        title: data.enabled ? "Breakout Strategy ON" : "Breakout Strategy OFF",
+        description: data.message,
+      });
+    },
+  });
+
   const { data, isLoading } = useQuery<{
     serverTime: string;
     serverTimeUTC: string;
@@ -1092,24 +1112,53 @@ function BreakoutLiveStatus() {
     return mins > 0 ? `${h}h ${mins}m` : `${h}h`;
   };
 
+  const isGlobalOn = globalBreakout?.enabled !== false;
+
   return (
-    <Card className="bg-gradient-to-br from-amber-900/20 to-yellow-900/20 border-amber-500/20">
+    <Card className={`bg-gradient-to-br border transition-all duration-300 ${
+      isGlobalOn 
+        ? 'from-amber-900/20 to-yellow-900/20 border-amber-500/20' 
+        : 'from-gray-900/20 to-gray-800/20 border-gray-700/30 opacity-75'
+    }`}>
       <CardContent className="p-5">
         <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <div className="relative">
-              <Activity className="w-5 h-5 text-amber-400" />
-              <div className={`absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full ${data.currentWindow ? 'bg-green-400 animate-pulse' : 'bg-gray-500'}`} />
+              <Activity className={`w-5 h-5 ${isGlobalOn ? 'text-amber-400' : 'text-gray-500'}`} />
+              {isGlobalOn && (
+                <div className={`absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full ${data.currentWindow ? 'bg-green-400 animate-pulse' : 'bg-gray-500'}`} />
+              )}
             </div>
-            <h3 className="font-semibold text-white">Live Breakout Status</h3>
+            <div>
+              <h3 className={`font-semibold ${isGlobalOn ? 'text-white' : 'text-gray-500'}`}>Breakout Strategy</h3>
+              <p className="text-[10px] text-gray-500">{isGlobalOn ? 'Detecting session open breakouts' : 'Strategy paused'}</p>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Clock className="w-3.5 h-3.5 text-gray-500" />
-            <span className="text-xs text-gray-500">{data.serverTimeUTC}</span>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <Clock className="w-3.5 h-3.5 text-gray-500" />
+              <span className="text-xs text-gray-500">{data.serverTimeUTC}</span>
+            </div>
+            <FeatureToggle
+              checked={isGlobalOn}
+              onCheckedChange={(checked) => toggleGlobalBreakout.mutate(checked)}
+              activeColor="amber"
+              size="md"
+              showLabel
+              activeLabel="ON"
+              inactiveLabel="OFF"
+              disabled={toggleGlobalBreakout.isPending}
+            />
           </div>
         </div>
 
-        {data.isWeekend ? (
+        {!isGlobalOn ? (
+          <div className="rounded-lg bg-gray-800/40 border border-gray-700/30 p-4 text-center">
+            <Activity className="w-8 h-8 text-gray-600 mx-auto mb-2" />
+            <p className="text-sm text-gray-400">Breakout strategy is turned off</p>
+            <p className="text-xs text-gray-600 mt-1">Toggle the switch above to enable session breakout detection</p>
+          </div>
+        ) : data.isWeekend ? (
           <div className="rounded-lg bg-gray-800/60 border border-gray-700/50 p-4 text-center">
             <Calendar className="w-8 h-8 text-gray-600 mx-auto mb-2" />
             <p className="text-sm text-gray-400">Markets are closed for the weekend</p>
