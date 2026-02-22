@@ -13,7 +13,7 @@ import {
   ArrowLeft, Target, TrendingUp, DollarSign, BarChart3,
   Calendar, Clock, Shield, Brain, RefreshCw, Trash2,
   CheckCircle, AlertCircle, Zap, ChevronRight, Star,
-  Rocket, Flame, ArrowUpRight
+  Rocket, Flame, ArrowUpRight, Power, Radio
 } from "lucide-react";
 import { motion } from "framer-motion";
 
@@ -48,6 +48,28 @@ export default function WeeklyStrategyPage() {
 
   const { data: strategy, isLoading } = useQuery<WeeklyStrategy>({
     queryKey: ['/api/weekly-strategy'],
+  });
+
+  const { data: liveMode } = useQuery<{ live: boolean; hasStrategy: boolean }>({
+    queryKey: ['/api/weekly-strategy/live-mode'],
+  });
+
+  const toggleLiveMutation = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      const res = await apiRequest('POST', '/api/weekly-strategy/live-mode', { enabled });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/weekly-strategy/live-mode'] });
+      toast({
+        title: data.live ? "LIVE MODE ACTIVATED" : "Live Mode Off",
+        description: data.message,
+        variant: data.live ? "default" : "destructive",
+      });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
   });
 
   const generateMutation = useMutation({
@@ -142,6 +164,65 @@ export default function WeeklyStrategyPage() {
 
         {strategy?.hasStrategy && plan ? (
           <div className="space-y-6">
+            {/* LIVE TRADING SWITCH */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.3 }}
+            >
+              <Card className={`border-2 transition-all duration-500 ${
+                liveMode?.live 
+                  ? 'border-green-500 bg-gradient-to-r from-green-900/30 to-emerald-900/30 shadow-lg shadow-green-500/20' 
+                  : 'border-gray-600 bg-gray-800/50'
+              }`}>
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className={`p-3 rounded-full ${liveMode?.live ? 'bg-green-500/20' : 'bg-gray-700/50'}`}>
+                        <Power className={`w-8 h-8 ${liveMode?.live ? 'text-green-400' : 'text-gray-500'}`} />
+                      </div>
+                      <div>
+                        <h3 className={`text-xl font-bold ${liveMode?.live ? 'text-green-400' : 'text-gray-400'}`}>
+                          {liveMode?.live ? 'LIVE - Trading Active' : 'OFFLINE - Plan Ready'}
+                        </h3>
+                        <p className="text-gray-400 text-sm">
+                          {liveMode?.live 
+                            ? 'VEDD SS AI is guiding your EA trades in real-time'
+                            : 'Turn on to let VEDD SS AI guide your EA automatically'}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      {liveMode?.live && (
+                        <div className="flex items-center gap-2">
+                          <Radio className="w-4 h-4 text-green-400 animate-pulse" />
+                          <span className="text-green-400 text-sm font-medium">Connected</span>
+                        </div>
+                      )}
+                      <Button
+                        size="lg"
+                        className={`px-8 py-3 font-bold text-lg transition-all ${
+                          liveMode?.live
+                            ? 'bg-red-600 hover:bg-red-700 text-white'
+                            : 'bg-green-600 hover:bg-green-700 text-white'
+                        }`}
+                        onClick={() => toggleLiveMutation.mutate(!liveMode?.live)}
+                        disabled={toggleLiveMutation.isPending || !strategy?.hasStrategy}
+                      >
+                        {toggleLiveMutation.isPending ? (
+                          <RefreshCw className="w-5 h-5 animate-spin" />
+                        ) : liveMode?.live ? (
+                          'STOP'
+                        ) : (
+                          'GO LIVE'
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </motion.div>
+
             {/* Growth Progress Header */}
             <Card className="border-2 border-orange-500/30 bg-gradient-to-r from-orange-900/20 to-red-900/20">
               <CardContent className="p-6">

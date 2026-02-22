@@ -6181,6 +6181,60 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         console.log(`[News Context] Error fetching news for ${sanitizedSymbol}:`, newsErr instanceof Error ? newsErr.message : 'Unknown');
       }
       
+      // VEDD SS AI Plan Integration: Check if live mode is active and adjust trading based on plan
+      let veddSSAIActive = false;
+      let veddSSAIMatch: any = null;
+      try {
+        (global as any).mt5VeddSSAILive = (global as any).mt5VeddSSAILive || {};
+        const isVeddLive = (global as any).mt5VeddSSAILive[token.userId] === true;
+        const veddStrategy = (global as any).mt5WeeklyStrategies?.[token.userId];
+        
+        if (isVeddLive && veddStrategy?.plan?.weeklyPlan) {
+          veddSSAIActive = true;
+          const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+          const todayName = dayNames[new Date().getUTCDay()];
+          const todayPlan = veddStrategy.plan.weeklyPlan[todayName];
+          
+          if (todayPlan?.pairs) {
+            const normalizedSymbol = sanitizedSymbol.toUpperCase().replace('/', '');
+            const matchingPairPlan = todayPlan.pairs.find((p: any) => 
+              (p.symbol || '').toUpperCase().replace('/', '') === normalizedSymbol
+            );
+            
+            if (matchingPairPlan) {
+              veddSSAIMatch = matchingPairPlan;
+              const planDirection = matchingPairPlan.direction;
+              const planConfidence = matchingPairPlan.confidence || 70;
+              const planLotSize = matchingPairPlan.lotSize;
+              
+              // If EA signal aligns with VEDD SS AI plan, boost confidence
+              if (planDirection === 'BOTH' || planDirection === analysis.signal) {
+                const boostAmount = Math.min(15, Math.round(planConfidence * 0.15));
+                const boostedConfidence = Math.min(98, analysis.confidence + boostAmount);
+                console.log(`[VEDD SS AI] Plan MATCH on ${sanitizedSymbol}: ${analysis.signal} aligns with plan (${planDirection}). Confidence ${analysis.confidence}% → ${boostedConfidence}% (+${boostAmount})`);
+                analysis.confidence = boostedConfidence;
+                analysis.alerts.push(`VEDD SS AI: Trade matches your weekly plan (${planDirection} ${normalizedSymbol} - ${matchingPairPlan.session}). Confidence boosted +${boostAmount}%`);
+              } else if (planDirection && planDirection !== analysis.signal && analysis.signal !== 'NEUTRAL') {
+                // Signal conflicts with plan direction - add warning but don't block
+                console.log(`[VEDD SS AI] Plan CONFLICT on ${sanitizedSymbol}: EA says ${analysis.signal}, Plan says ${planDirection}`);
+                analysis.alerts.push(`VEDD SS AI WARNING: Plan recommends ${planDirection} but EA detected ${analysis.signal}. Proceeding with caution.`);
+              }
+
+              // Apply plan's lot size if specified and larger than default
+              if (planLotSize && planLotSize > 0) {
+                (global as any).veddSSAILotOverride = (global as any).veddSSAILotOverride || {};
+                (global as any).veddSSAILotOverride[`${token.userId}_${normalizedSymbol}`] = planLotSize;
+              }
+            } else {
+              // Pair not in today's plan
+              console.log(`[VEDD SS AI] ${sanitizedSymbol} not in today's plan (${todayName}). Plan has: ${todayPlan.pairs.map((p: any) => p.symbol).join(', ')}`);
+            }
+          }
+        }
+      } catch (veddErr) {
+        console.error('[VEDD SS AI] Error checking plan:', veddErr);
+      }
+
       // AI Vision Confirmation: Get second opinion from AI before trading (if enabled)
       // ADVISORY MODE: AI provides its confidence and reasoning but does NOT block trades.
       // The EA signal, confidence, and trade plan remain intact regardless of AI decision.
@@ -6461,9 +6515,17 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       
       // Calculate lot size based on settings
       let mt5Volume = fixedVolumeSetting; // Start with fixed lot size
+
+      // Check for VEDD SS AI lot size override
+      const veddLotKey = `${token.userId}_${sanitizedSymbol.toUpperCase().replace('/', '')}`;
+      const veddLotOverride = (global as any).veddSSAILotOverride?.[veddLotKey];
+      if (veddSSAIActive && veddLotOverride && veddLotOverride > 0) {
+        mt5Volume = veddLotOverride;
+        console.log(`[VEDD SS AI] Using plan lot size for ${sanitizedSymbol}: ${mt5Volume} lots`);
+      }
       
-      // Only calculate risk-based sizing if enabled
-      if (useRiskPercent && analysis.tradePlan && analysis.tradePlan.entry && analysis.tradePlan.stopLoss) {
+      // Only calculate risk-based sizing if enabled and not overridden by VEDD SS AI
+      if (!(veddSSAIActive && veddLotOverride > 0) && useRiskPercent && analysis.tradePlan && analysis.tradePlan.entry && analysis.tradePlan.stopLoss) {
         const entry = analysis.tradePlan.entry;
         const sl = analysis.tradePlan.stopLoss;
         const slDistance = Math.abs(entry - sl);
@@ -6680,6 +6742,15 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           aiDirection: aiConfirmation.aiDirection,
           aiConfidence: aiConfirmation.aiConfidence,
           reasoning: aiConfirmation.reasoning,
+        } : null,
+        // VEDD SS AI plan status
+        mt5VeddSSAIActive: veddSSAIActive,
+        mt5VeddSSAIPlanMatch: veddSSAIMatch ? {
+          direction: veddSSAIMatch.direction,
+          session: veddSSAIMatch.session,
+          confidence: veddSSAIMatch.confidence,
+          lotSize: veddSSAIMatch.lotSize,
+          entryCondition: veddSSAIMatch.entryCondition,
         } : null,
         // News alerts and economic events context
         newsAlerts,
@@ -7459,10 +7530,45 @@ Respond with ONLY valid JSON:
     });
   });
 
+  // VEDD SS AI Live Mode - toggle live trading guided by the plan
+  (global as any).mt5VeddSSAILive = (global as any).mt5VeddSSAILive || {};
+
+  app.get("/api/weekly-strategy/live-mode", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const isLive = (global as any).mt5VeddSSAILive[userId] === true;
+    const strategy = (global as any).mt5WeeklyStrategies?.[userId];
+    res.json({ live: isLive, hasStrategy: !!strategy });
+  });
+
+  app.post("/api/weekly-strategy/live-mode", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { enabled } = req.body;
+    const strategy = (global as any).mt5WeeklyStrategies?.[userId];
+    if (!strategy) {
+      return res.status(400).json({ error: "No active VEDD SS AI plan. Generate a plan first." });
+    }
+    (global as any).mt5VeddSSAILive[userId] = !!enabled;
+    if (!enabled) {
+      (global as any).veddSSAILotOverride = (global as any).veddSSAILotOverride || {};
+      for (const key of Object.keys((global as any).veddSSAILotOverride)) {
+        if (key.startsWith(`${userId}_`)) delete (global as any).veddSSAILotOverride[key];
+      }
+    }
+    console.log(`[VEDD SS AI] Live mode ${enabled ? 'ACTIVATED' : 'DEACTIVATED'} for user ${userId}`);
+    res.json({ live: !!enabled, message: enabled ? 'VEDD SS AI is now guiding your EA trades' : 'VEDD SS AI live mode disabled' });
+  });
+
   app.delete("/api/weekly-strategy", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
     delete (global as any).mt5WeeklyStrategies[userId];
+    (global as any).mt5VeddSSAILive[userId] = false;
+    (global as any).veddSSAILotOverride = (global as any).veddSSAILotOverride || {};
+    for (const key of Object.keys((global as any).veddSSAILotOverride)) {
+      if (key.startsWith(`${userId}_`)) delete (global as any).veddSSAILotOverride[key];
+    }
     res.json({ success: true });
   });
 
