@@ -258,7 +258,7 @@ export interface AiConfirmationLogEntry {
   proposedEntry?: number;
   proposedSL?: number;
   proposedTP?: number;
-  aiDecision: 'APPROVED' | 'REJECTED' | 'ADJUSTED' | 'ERROR';
+  aiDecision: 'APPROVED' | 'REJECTED' | 'ADJUSTED' | 'AI_OVERRIDE' | 'ERROR';
   aiDirection: string;
   aiConfidence: number;
   reasoning: string;
@@ -266,6 +266,23 @@ export interface AiConfirmationLogEntry {
   adjustedSL?: number;
   adjustedTP?: number;
   modelUsed: string;
+  newsSentiment?: string;
+  newsScore?: number;
+  newsHeadlines?: string[];
+  upcomingEvents?: Array<{ event: string; impact: string; time: string }>;
+  newsConflict?: boolean;
+  veddSSAIActive?: boolean;
+  veddSSAIPlanMatch?: {
+    direction: string;
+    session: string;
+    confidence: number;
+    lotSize: number;
+    entryCondition: string;
+  } | null;
+  breakoutActive?: boolean;
+  breakoutDetected?: boolean;
+  breakoutDirection?: string;
+  breakoutStrength?: string;
 }
 
 const aiConfirmationLogs: Map<number, AiConfirmationLogEntry[]> = new Map();

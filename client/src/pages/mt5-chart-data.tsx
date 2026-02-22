@@ -38,7 +38,9 @@ import {
   Calendar,
   Search,
   Power,
-  ChevronRight
+  ChevronRight,
+  Newspaper,
+  Radio
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { ConnectedPairs } from "@/components/mt5/connected-pairs";
@@ -1351,6 +1353,23 @@ export default function MT5ChartDataPage() {
     adjustedSL?: number;
     adjustedTP?: number;
     modelUsed: string;
+    newsSentiment?: string;
+    newsScore?: number;
+    newsHeadlines?: string[];
+    upcomingEvents?: Array<{ event: string; impact: string; time: string }>;
+    newsConflict?: boolean;
+    veddSSAIActive?: boolean;
+    veddSSAIPlanMatch?: {
+      direction: string;
+      session: string;
+      confidence: number;
+      lotSize: number;
+      entryCondition: string;
+    } | null;
+    breakoutActive?: boolean;
+    breakoutDetected?: boolean;
+    breakoutDirection?: string;
+    breakoutStrength?: string;
   }
 
   const { data: aiConfirmationLogs = [] } = useQuery<AiConfirmationLog[]>({
@@ -1747,30 +1766,36 @@ export default function MT5ChartDataPage() {
           </CardContent>
         </Card>
 
-        {/* AI Confirmation Activity Log */}
+        {/* AI Strategy Action Feed */}
         {aiConfirmationSetting?.enabled && aiConfirmationLogs.length > 0 && (
           <Card className="bg-gradient-to-br from-gray-800/80 to-gray-900/80 border-purple-500/30">
             <CardHeader className="pb-2">
               <CardTitle className="text-white flex items-center gap-2 text-lg">
                 <Brain className="w-5 h-5 text-purple-400" />
-                AI Second Opinion Log
+                AI Strategy Action Feed
                 <Badge variant="outline" className="text-purple-400 border-purple-500/40 text-[10px]">
                   Last {aiConfirmationLogs.length}
                 </Badge>
               </CardTitle>
               <CardDescription>
-                Real-time log of AI trade confirmations — see what was approved, rejected, or adjusted and why.
+                Live feed of how the AI is thinking — news awareness, strategy alignment, and trade decisions in real-time.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3 max-h-[500px] overflow-y-auto">
+            <CardContent className="space-y-3 max-h-[600px] overflow-y-auto">
               {aiConfirmationLogs.map((log) => (
-                <div key={log.id} className={`rounded-lg border p-3 space-y-2 ${
-                  log.aiDecision === 'APPROVED' ? 'border-green-500/30 bg-green-500/5' :
-                  log.aiDecision === 'AI_OVERRIDE' ? 'border-blue-500/30 bg-blue-500/5' :
-                  log.aiDecision === 'ADJUSTED' ? 'border-amber-500/30 bg-amber-500/5' :
-                  log.aiDecision === 'REJECTED' ? 'border-red-500/30 bg-red-500/5' :
-                  'border-gray-500/30 bg-gray-500/5'
-                }`}>
+                <motion.div
+                  key={log.id}
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.3 }}
+                  className={`rounded-lg border p-3 space-y-2.5 ${
+                    log.aiDecision === 'APPROVED' ? 'border-green-500/30 bg-green-500/5' :
+                    log.aiDecision === 'AI_OVERRIDE' ? 'border-blue-500/30 bg-blue-500/5' :
+                    log.aiDecision === 'ADJUSTED' ? 'border-amber-500/30 bg-amber-500/5' :
+                    log.aiDecision === 'REJECTED' ? 'border-red-500/30 bg-red-500/5' :
+                    'border-gray-500/30 bg-gray-500/5'
+                  }`}
+                >
                   <div className="flex items-center justify-between flex-wrap gap-2">
                     <div className="flex items-center gap-2">
                       <Badge className={`text-xs ${
@@ -1794,6 +1819,34 @@ export default function MT5ChartDataPage() {
                       <span>{log.modelUsed}</span>
                       <span>{new Date(log.timestamp).toLocaleTimeString()}</span>
                     </div>
+                  </div>
+
+                  {/* Strategy Context Badges */}
+                  <div className="flex flex-wrap gap-1.5">
+                    {log.veddSSAIActive && (
+                      <Badge className={`text-[10px] ${log.veddSSAIPlanMatch ? 'bg-green-500/15 text-green-400 border-green-500/30' : 'bg-gray-500/15 text-gray-400 border-gray-600'}`}>
+                        <Radio className="w-2.5 h-2.5 mr-1" />
+                        VEDD SS AI {log.veddSSAIPlanMatch ? 'ALIGNED' : 'Active'}
+                      </Badge>
+                    )}
+                    {log.newsSentiment && (
+                      <Badge className={`text-[10px] ${
+                        log.newsConflict ? 'bg-red-500/15 text-red-400 border-red-500/30' :
+                        log.newsSentiment === 'bullish' ? 'bg-green-500/15 text-green-400 border-green-500/30' :
+                        log.newsSentiment === 'bearish' ? 'bg-red-500/15 text-red-400 border-red-500/30' :
+                        'bg-gray-500/15 text-gray-400 border-gray-600'
+                      }`}>
+                        <Newspaper className="w-2.5 h-2.5 mr-1" />
+                        News: {log.newsSentiment}{log.newsScore ? ` (${log.newsScore > 0 ? '+' : ''}${log.newsScore.toFixed(1)})` : ''}
+                        {log.newsConflict ? ' CONFLICT' : ''}
+                      </Badge>
+                    )}
+                    {log.breakoutActive && (
+                      <Badge className={`text-[10px] ${log.breakoutDetected ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' : 'bg-gray-500/15 text-gray-400 border-gray-600'}`}>
+                        <Activity className="w-2.5 h-2.5 mr-1" />
+                        Breakout {log.breakoutDetected ? `${log.breakoutDirection} (${log.breakoutStrength})` : 'Window'}
+                      </Badge>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-2 gap-2 text-xs">
@@ -1823,13 +1876,51 @@ export default function MT5ChartDataPage() {
                     </div>
                   </div>
 
-                  <div className="bg-black/30 rounded p-2 mt-1">
+                  {/* VEDD SS AI Plan Match Detail */}
+                  {log.veddSSAIPlanMatch && (
+                    <div className="rounded bg-green-900/20 border border-green-500/20 p-2 text-xs">
+                      <p className="text-green-400 font-medium flex items-center gap-1 mb-1">
+                        <Power className="w-3 h-3" /> VEDD SS AI Plan Match
+                      </p>
+                      <div className="grid grid-cols-3 gap-2 text-gray-400">
+                        <span>Direction: <span className="text-white">{log.veddSSAIPlanMatch.direction}</span></span>
+                        <span>Session: <span className="text-white">{log.veddSSAIPlanMatch.session}</span></span>
+                        <span>Lot: <span className="text-white">{log.veddSSAIPlanMatch.lotSize}</span></span>
+                      </div>
+                      <p className="text-gray-500 mt-1">Entry: {log.veddSSAIPlanMatch.entryCondition}</p>
+                    </div>
+                  )}
+
+                  {/* News Headlines */}
+                  {log.newsHeadlines && log.newsHeadlines.length > 0 && (
+                    <div className="rounded bg-gray-900/40 border border-gray-700/30 p-2 text-xs">
+                      <p className="text-gray-500 font-medium flex items-center gap-1 mb-1">
+                        <Newspaper className="w-3 h-3" /> News Context
+                      </p>
+                      {log.newsHeadlines.map((headline, i) => (
+                        <p key={i} className="text-gray-400 truncate">• {headline}</p>
+                      ))}
+                      {log.upcomingEvents && log.upcomingEvents.length > 0 && (
+                        <div className="mt-1 pt-1 border-t border-gray-700/30">
+                          {log.upcomingEvents.map((evt, i) => (
+                            <p key={i} className={`text-[11px] ${evt.impact === 'high' ? 'text-red-400' : evt.impact === 'medium' ? 'text-amber-400' : 'text-gray-500'}`}>
+                              <Calendar className="w-2.5 h-2.5 inline mr-1" />
+                              {evt.event} ({evt.impact} impact) {evt.time}
+                            </p>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* AI Reasoning */}
+                  <div className="bg-black/30 rounded p-2">
                     <p className="text-xs text-gray-400 flex items-start gap-1.5">
                       <Lightbulb className="w-3.5 h-3.5 text-purple-400 mt-0.5 flex-shrink-0" />
                       <span className="italic">{log.reasoning}</span>
                     </p>
                   </div>
-                </div>
+                </motion.div>
               ))}
             </CardContent>
           </Card>
@@ -1841,8 +1932,8 @@ export default function MT5ChartDataPage() {
               <div className="flex items-center gap-3 text-gray-400">
                 <Brain className="w-5 h-5 text-purple-400/50" />
                 <div>
-                  <p className="text-sm font-medium text-white/70">AI Second Opinion Log</p>
-                  <p className="text-xs text-gray-500">No confirmations yet. The log will appear here when the EA sends a trade signal for AI review.</p>
+                  <p className="text-sm font-medium text-white/70">AI Strategy Action Feed</p>
+                  <p className="text-xs text-gray-500">No activity yet. The feed will appear here when the EA sends a trade signal for AI review — showing news context, strategy alignment, and reasoning.</p>
                 </div>
               </div>
             </CardContent>

@@ -6245,6 +6245,29 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       const preConfirmEntry = analysis.tradePlan?.entry;
       const preConfirmSL = analysis.tradePlan?.stopLoss;
       const preConfirmTP = analysis.tradePlan?.takeProfit;
+      const logExtraContext = {
+        newsSentiment: newsAlerts?.sentiment?.label || undefined,
+        newsScore: typeof newsAlerts?.sentiment?.score === 'number' ? newsAlerts.sentiment.score : undefined,
+        newsHeadlines: newsAlerts?.topHeadlines?.slice(0, 3) || newsContextForAI?.topHeadlines?.slice(0, 3) || undefined,
+        upcomingEvents: newsAlerts?.upcomingEvents?.slice(0, 3)?.map((e: any) => ({
+          event: e.title || e.event || 'Unknown',
+          impact: e.impact || 'unknown',
+          time: e.time || e.date || '',
+        })) || undefined,
+        newsConflict: analysis.alerts?.some((a: string) => a.includes('NEWS WARNING') || a.includes('NEWS CONFLICT')) || false,
+        veddSSAIActive,
+        veddSSAIPlanMatch: veddSSAIMatch ? {
+          direction: veddSSAIMatch.direction,
+          session: veddSSAIMatch.session,
+          confidence: veddSSAIMatch.confidence,
+          lotSize: veddSSAIMatch.lotSize,
+          entryCondition: veddSSAIMatch.entryCondition,
+        } : null,
+        breakoutActive: advanced.breakoutDetection?.isBreakoutWindow || false,
+        breakoutDetected: advanced.breakoutDetection?.breakoutDetected || false,
+        breakoutDirection: advanced.breakoutDetection?.breakoutDirection || undefined,
+        breakoutStrength: advanced.breakoutDetection?.breakoutStrength || undefined,
+      };
       if (analysis.signal !== 'NEUTRAL' && 
           analysis.confidence >= MIN_CONFIDENCE_FOR_AUTO_TRADE && 
           analysis.tradePlan) {
@@ -6295,6 +6318,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 aiDecision: 'REJECTED', aiDirection: aiConfirmation.aiDirection,
                 aiConfidence: aiConfirmation.aiConfidence, reasoning: `${reason} | ${aiConfirmation.reasoning}`,
                 modelUsed: modelInfo?.name || selectedModelId,
+                ...logExtraContext,
               });
             } else {
               const isAiOverride = aiPasses && !eaPasses;
@@ -6331,6 +6355,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 adjustedEntry: aiConfirmation.adjustedEntry, adjustedSL: aiConfirmation.adjustedStopLoss,
                 adjustedTP: aiConfirmation.adjustedTakeProfit,
                 modelUsed: modelInfo?.name || selectedModelId,
+                ...logExtraContext,
               });
             }
           }
@@ -6348,6 +6373,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             aiDecision: 'ERROR', aiDirection: 'NEUTRAL', aiConfidence: 0,
             reasoning: `AI confirmation error: ${confirmError instanceof Error ? confirmError.message : 'Unknown error'} - trade proceeding with EA analysis`,
             modelUsed: errModelInfo?.name || errModelId,
+            ...logExtraContext,
           });
           aiConfirmation = {
             confirmed: false,
