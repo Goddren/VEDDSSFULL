@@ -1459,14 +1459,14 @@ export default function MT5ChartDataPage() {
           </CardContent>
         </Card>
 
-        {/* Weekly Profit Strategist Link */}
+        {/* VEDD SS AI Link */}
         <Link href="/weekly-strategy">
           <Card className="border border-amber-500/30 bg-gradient-to-r from-amber-900/20 to-orange-900/20 hover:border-amber-500/50 transition-all cursor-pointer">
             <CardContent className="p-4 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <Target className="w-6 h-6 text-amber-400" />
                 <div>
-                  <h3 className="text-white font-semibold">Weekly Profit Strategist</h3>
+                  <h3 className="text-white font-semibold">VEDD SS AI</h3>
                   <p className="text-gray-400 text-xs">Set a profit goal — AI builds a plan using your trade history & confidence grades</p>
                 </div>
               </div>

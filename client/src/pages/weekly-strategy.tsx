@@ -63,7 +63,7 @@ export default function WeeklyStrategyPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/weekly-strategy'] });
-      toast({ title: "Growth Plan Ready", description: "Your AI-powered account growth strategy is live!" });
+      toast({ title: "VEDD SS AI Plan Ready", description: "Your AI-powered growth strategy is live!" });
     },
     onError: (err: any) => {
       const msg = err.message || "Failed to generate strategy";
@@ -89,7 +89,7 @@ export default function WeeklyStrategyPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/weekly-strategy'] });
-      toast({ title: "Strategy Cleared", description: "Ready to create a new growth plan" });
+      toast({ title: "Plan Cleared", description: "Ready to create a new VEDD SS AI plan" });
     },
   });
 
@@ -132,7 +132,7 @@ export default function WeeklyStrategyPage() {
         <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="text-center space-y-2">
           <div className="inline-flex items-center gap-3 px-6 py-3 rounded-full bg-gradient-to-r from-orange-500/20 to-red-500/20 border border-orange-500/30">
             <Rocket className="w-8 h-8 text-orange-400" />
-            <h1 className="text-3xl font-bold text-white">Weekly Profit Strategist</h1>
+            <h1 className="text-3xl font-bold text-white">VEDD SS AI</h1>
             <Flame className="w-6 h-6 text-red-400" />
           </div>
           <p className="text-gray-400 text-lg max-w-2xl mx-auto">
