@@ -14,7 +14,8 @@ import {
   ArrowLeft, Target, TrendingUp, DollarSign, BarChart3,
   Calendar, Clock, Shield, Brain, RefreshCw, Trash2,
   CheckCircle, AlertCircle, Zap, ChevronRight, Star,
-  Rocket, Flame, ArrowUpRight, Power
+  Rocket, Flame, ArrowUpRight, Power, XCircle, Lightbulb,
+  Newspaper, Radio, Activity
 } from "lucide-react";
 import { motion } from "framer-motion";
 
@@ -53,6 +54,12 @@ export default function WeeklyStrategyPage() {
 
   const { data: liveMode } = useQuery<{ live: boolean; hasStrategy: boolean }>({
     queryKey: ['/api/weekly-strategy/live-mode'],
+  });
+
+  const { data: aiLogs = [] } = useQuery<any[]>({
+    queryKey: ['/api/ai-confirmation-logs'],
+    refetchInterval: 10000,
+    enabled: !!strategy?.hasStrategy,
   });
 
   const toggleLiveMutation = useMutation({
@@ -552,6 +559,144 @@ export default function WeeklyStrategyPage() {
                 </CardContent>
               </Card>
             )}
+
+            {/* EA Strategy Activity Feed */}
+            <Card className="bg-gradient-to-br from-gray-800/80 to-gray-900/80 border-purple-500/30">
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-white flex items-center gap-2 text-lg">
+                    <Brain className="w-5 h-5 text-purple-400" />
+                    EA Strategy Feed
+                    {liveMode?.live && (
+                      <Badge className="bg-green-500/20 text-green-400 border-green-500/30 text-[10px] animate-pulse">
+                        LIVE
+                      </Badge>
+                    )}
+                    {aiLogs.length > 0 && (
+                      <Badge variant="outline" className="text-purple-400 border-purple-500/40 text-[10px]">
+                        {aiLogs.length} decisions
+                      </Badge>
+                    )}
+                  </CardTitle>
+                  <Link href="/mt5-chart-data">
+                    <Button variant="ghost" size="sm" className="text-purple-400 hover:text-purple-300 text-xs">
+                      Full Feed <ChevronRight className="w-3 h-3 ml-1" />
+                    </Button>
+                  </Link>
+                </div>
+                <CardDescription>
+                  See how the EA is thinking and making decisions toward your ${strategy.profitTarget} weekly goal.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {aiLogs.length > 0 ? (
+                  <div className="space-y-2.5 max-h-[400px] overflow-y-auto">
+                    {aiLogs.slice(0, 10).map((log: any) => {
+                      const isPlanPair = strategy?.pairs?.includes(log.symbol);
+                      return (
+                        <motion.div
+                          key={log.id}
+                          initial={{ opacity: 0, x: -10 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ duration: 0.3 }}
+                          className={`rounded-lg border p-3 space-y-2 ${
+                            log.aiDecision === 'APPROVED' ? 'border-green-500/30 bg-green-500/5' :
+                            log.aiDecision === 'AI_OVERRIDE' ? 'border-blue-500/30 bg-blue-500/5' :
+                            log.aiDecision === 'ADJUSTED' ? 'border-amber-500/30 bg-amber-500/5' :
+                            log.aiDecision === 'REJECTED' ? 'border-red-500/30 bg-red-500/5' :
+                            'border-gray-500/30 bg-gray-500/5'
+                          }`}
+                        >
+                          {/* Header row */}
+                          <div className="flex items-center justify-between flex-wrap gap-2">
+                            <div className="flex items-center gap-2">
+                              <Badge className={`text-xs ${
+                                log.aiDecision === 'APPROVED' ? 'bg-green-500/20 text-green-400 border-green-500/30' :
+                                log.aiDecision === 'AI_OVERRIDE' ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' :
+                                log.aiDecision === 'ADJUSTED' ? 'bg-amber-500/20 text-amber-400 border-amber-500/30' :
+                                log.aiDecision === 'REJECTED' ? 'bg-red-500/20 text-red-400 border-red-500/30' :
+                                'bg-gray-500/20 text-gray-400 border-gray-500/30'
+                              }`}>
+                                {log.aiDecision === 'APPROVED' && <CheckCircle className="w-3 h-3 mr-1" />}
+                                {log.aiDecision === 'AI_OVERRIDE' && <CheckCircle className="w-3 h-3 mr-1" />}
+                                {log.aiDecision === 'ADJUSTED' && <Target className="w-3 h-3 mr-1" />}
+                                {log.aiDecision === 'REJECTED' && <XCircle className="w-3 h-3 mr-1" />}
+                                {log.aiDecision === 'ERROR' && <AlertCircle className="w-3 h-3 mr-1" />}
+                                {log.aiDecision === 'AI_OVERRIDE' ? 'AI OVERRIDE' : log.aiDecision}
+                              </Badge>
+                              <span className="font-semibold text-white text-sm">{log.symbol}</span>
+                              <Badge variant="outline" className="text-[10px] text-gray-400">{log.timeframe}</Badge>
+                              {isPlanPair && (
+                                <Badge className="bg-orange-500/15 text-orange-400 border-orange-500/30 text-[10px]">
+                                  <Target className="w-2.5 h-2.5 mr-0.5" /> Plan Pair
+                                </Badge>
+                              )}
+                            </div>
+                            <span className="text-[11px] text-gray-500">{new Date(log.timestamp).toLocaleTimeString()}</span>
+                          </div>
+
+                          {/* Context badges */}
+                          <div className="flex flex-wrap gap-1.5">
+                            {log.veddSSAIActive && (
+                              <Badge className={`text-[10px] ${log.veddSSAIPlanMatch ? 'bg-green-500/15 text-green-400 border-green-500/30' : 'bg-gray-500/15 text-gray-400 border-gray-600'}`}>
+                                <Radio className="w-2.5 h-2.5 mr-1" />
+                                VEDD SS AI {log.veddSSAIPlanMatch ? 'ALIGNED' : 'Active'}
+                              </Badge>
+                            )}
+                            {log.newsSentiment && (
+                              <Badge className={`text-[10px] ${
+                                log.newsConflict ? 'bg-red-500/15 text-red-400 border-red-500/30' :
+                                log.newsSentiment === 'bullish' ? 'bg-green-500/15 text-green-400 border-green-500/30' :
+                                log.newsSentiment === 'bearish' ? 'bg-red-500/15 text-red-400 border-red-500/30' :
+                                'bg-gray-500/15 text-gray-400 border-gray-600'
+                              }`}>
+                                <Newspaper className="w-2.5 h-2.5 mr-1" />
+                                News: {log.newsSentiment}{log.newsConflict ? ' CONFLICT' : ''}
+                              </Badge>
+                            )}
+                            {log.breakoutDetected && (
+                              <Badge className="bg-amber-500/15 text-amber-400 border-amber-500/30 text-[10px]">
+                                <Activity className="w-2.5 h-2.5 mr-1" />
+                                Breakout {log.breakoutDirection}
+                              </Badge>
+                            )}
+                          </div>
+
+                          {/* Trade details compact */}
+                          <div className="flex items-center gap-4 text-xs">
+                            <span className="text-gray-500">EA:</span>
+                            <Badge variant="outline" className={`text-[10px] ${log.proposedSignal === 'BUY' ? 'text-green-400 border-green-500/40' : 'text-red-400 border-red-500/40'}`}>
+                              {log.proposedSignal}
+                            </Badge>
+                            <span className="text-gray-400">{log.proposedConfidence}%</span>
+                            <span className="text-gray-600">→</span>
+                            <span className="text-gray-500">AI:</span>
+                            <Badge variant="outline" className={`text-[10px] ${log.aiDirection === 'BUY' ? 'text-green-400 border-green-500/40' : log.aiDirection === 'SELL' ? 'text-red-400 border-red-500/40' : 'text-gray-400 border-gray-500/40'}`}>
+                              {log.aiDirection}
+                            </Badge>
+                            <span className="text-gray-400">{log.aiConfidence}%</span>
+                          </div>
+
+                          {/* AI Reasoning */}
+                          <div className="bg-black/30 rounded p-2">
+                            <p className="text-xs text-gray-400 flex items-start gap-1.5">
+                              <Lightbulb className="w-3.5 h-3.5 text-purple-400 mt-0.5 flex-shrink-0" />
+                              <span className="italic">{log.reasoning}</span>
+                            </p>
+                          </div>
+                        </motion.div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="text-center py-6 text-gray-500">
+                    <Brain className="w-8 h-8 text-purple-400/30 mx-auto mb-2" />
+                    <p className="text-sm">No EA decisions yet.</p>
+                    <p className="text-xs text-gray-600">When the EA sends trade signals, you'll see how the AI thinks and decides right here.</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
 
             <div className="text-center">
               <Button variant="outline" onClick={() => deleteMutation.mutate()} className="text-gray-400">
