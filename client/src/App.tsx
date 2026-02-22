@@ -64,6 +64,7 @@ import SolanaScanner from "@/pages/solana-scanner";
 import SolScannerLanding from "@/pages/sol-scanner-landing";
 import SolScannerTrades from "@/pages/sol-scanner-trades";
 import VeddTokenomics from "@/pages/vedd-tokenomics";
+import WeeklyStrategyPage from "@/pages/weekly-strategy";
 import StreakBanner from "@/components/StreakBanner";
 import { MobileFAB } from "@/components/mobile-fab";
 import { MobileBottomNav } from "@/components/mobile-bottom-nav";
@@ -167,6 +168,7 @@ function AppLayout() {
             <ProtectedRoute path="/what-if" component={WhatIfAnalysisPage} />
             <ProtectedRoute path="/webhooks" component={WebhooksPage} />
             <ProtectedRoute path="/mt5-chart-data" component={MT5ChartDataPage} />
+            <ProtectedRoute path="/weekly-strategy" component={WeeklyStrategyPage} />
             <ProtectedRoute path="/notification-settings" component={NotificationSettings} />
             <ProtectedRoute path="/ai-api-keys" component={AiApiKeysPage} />
             

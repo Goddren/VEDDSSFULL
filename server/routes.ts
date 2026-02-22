@@ -7168,6 +7168,274 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
     });
   });
 
+  // Weekly Profit Strategy - AI-powered weekly trading plan
+  (global as any).mt5WeeklyStrategies = (global as any).mt5WeeklyStrategies || {};
+
+  app.get("/api/weekly-strategy", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const strategy = (global as any).mt5WeeklyStrategies[userId];
+    if (!strategy) return res.json({ hasStrategy: false });
+    res.json({ hasStrategy: true, ...strategy });
+  });
+
+  app.post("/api/weekly-strategy/generate", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { profitTarget, pairs, accountBalance, riskLevel, lotSize } = req.body;
+
+    if (!profitTarget || !pairs || !Array.isArray(pairs) || pairs.length === 0 || !accountBalance) {
+      return res.status(400).json({ error: "profitTarget, pairs (array), and accountBalance are required" });
+    }
+
+    try {
+      // Gather existing trade history data
+      const closedTradesCache = (global as any).mt5ClosedTrades || {};
+      const closedTrades = closedTradesCache[userId]?.trades || [];
+      const learningData = (global as any).mt5LearningRecommendations?.[userId];
+      const accountDataCache = (global as any).mt5AccountData?.[userId];
+      const connectedPairs = (global as any).mt5ConnectedPairs?.[userId] || {};
+
+      // Get current EA settings dynamically
+      const { isAiVisionConfirmationEnabled: isAiEnabled, getAiMinConfidence: getMinConf, getUserModelPreference: getModelPref, getOpenAIInstanceForUser: getAiInstance } = await import('./openai');
+      const aiEnabled = isAiEnabled(userId);
+      const aiMinConf = getMinConf(userId);
+      const eaEnabled = (global as any).mt5EaEnabled?.[userId] !== false;
+      const aiOverrideActive = aiEnabled; // AI override is active when AI confirmation is enabled
+      const breakoutSettings = (global as any).mt5BreakoutSettings?.[userId] || {};
+
+      // Build per-pair historical stats
+      const pairStats: Record<string, any> = {};
+      const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+      const sessionWindows = [
+        { name: 'Asian', startHour: 0, endHour: 7 },
+        { name: 'London', startHour: 7, endHour: 13 },
+        { name: 'New York', startHour: 13, endHour: 20 },
+        { name: 'Late NY', startHour: 20, endHour: 24 },
+      ];
+
+      for (const pair of pairs) {
+        const pairUpper = pair.toUpperCase().replace('/', '');
+        const trades = closedTrades.filter((t: any) => (t.symbol || '').toUpperCase().replace('/', '') === pairUpper);
+        const wins = trades.filter((t: any) => t.profit > 0);
+        const losses = trades.filter((t: any) => t.profit < 0);
+        const totalTrades = wins.length + losses.length;
+        const winRate = totalTrades > 0 ? Math.round((wins.length / totalTrades) * 100) : 50;
+        const avgWin = wins.length > 0 ? wins.reduce((s: number, t: any) => s + t.profit, 0) / wins.length : 0;
+        const avgLoss = losses.length > 0 ? Math.abs(losses.reduce((s: number, t: any) => s + t.profit, 0) / losses.length) : 0;
+
+        // Daily performance
+        const dailyPerf: Record<string, { wins: number; losses: number; winRate: number }> = {};
+        for (let d = 0; d < 7; d++) {
+          const dayTrades = trades.filter((t: any) => t.closeDay === d);
+          const dWins = dayTrades.filter((t: any) => t.profit > 0).length;
+          const dLosses = dayTrades.filter((t: any) => t.profit < 0).length;
+          const dTotal = dWins + dLosses;
+          dailyPerf[dayNames[d]] = { wins: dWins, losses: dLosses, winRate: dTotal > 0 ? Math.round((dWins / dTotal) * 100) : 0 };
+        }
+
+        // Session performance
+        const sessionPerf: Record<string, { wins: number; losses: number; winRate: number }> = {};
+        for (const session of sessionWindows) {
+          const sTrades = trades.filter((t: any) => {
+            const h = t.closeHour || 0;
+            return h >= session.startHour && h < session.endHour;
+          });
+          const sWins = sTrades.filter((t: any) => t.profit > 0).length;
+          const sLosses = sTrades.filter((t: any) => t.profit < 0).length;
+          const sTotal = sWins + sLosses;
+          sessionPerf[session.name] = { wins: sWins, losses: sLosses, winRate: sTotal > 0 ? Math.round((sWins / sTotal) * 100) : 0 };
+        }
+
+        // Direction stats
+        const buyTrades = trades.filter((t: any) => t.direction === 'BUY');
+        const sellTrades = trades.filter((t: any) => t.direction === 'SELL');
+        const buyWinRate = buyTrades.length > 0 ? Math.round(buyTrades.filter((t: any) => t.profit > 0).length / buyTrades.length * 100) : 50;
+        const sellWinRate = sellTrades.length > 0 ? Math.round(sellTrades.filter((t: any) => t.profit > 0).length / sellTrades.length * 100) : 50;
+
+        // Get latest connected pair data for current conditions
+        const pairData = Object.values(connectedPairs).find((p: any) => 
+          (p.symbol || '').toUpperCase().replace('/', '') === pairUpper
+        ) as any;
+
+        pairStats[pairUpper] = {
+          totalTrades, winRate, avgWin: Math.round(avgWin * 100) / 100, avgLoss: Math.round(avgLoss * 100) / 100,
+          dailyPerf, sessionPerf, buyWinRate, sellWinRate,
+          currentSpread: pairData?.spread || 'unknown',
+          lastSignal: pairData?.signal || 'none',
+          lastConfidence: pairData?.confidence || 0,
+        };
+      }
+
+      // Build AI prompt with all gathered data
+      const prompt = `You are an expert trading strategist. Create a detailed weekly profit plan.
+
+GOAL: Earn $${profitTarget} profit this week.
+ACCOUNT BALANCE: $${accountBalance}
+RISK LEVEL: ${riskLevel || 'moderate'} (conservative=1-2% risk/trade, moderate=2-3%, aggressive=3-5%)
+PREFERRED LOT SIZE: ${lotSize || 'auto-calculate based on risk'}
+PAIRS TO TRADE: ${pairs.join(', ')}
+AI CONFIRMATION: ${aiEnabled ? `Enabled (min ${aiMinConf}% confidence)` : 'Disabled'}
+EA STATUS: ${eaEnabled ? 'Active' : 'Disabled'}
+
+HISTORICAL PERFORMANCE DATA:
+${JSON.stringify(pairStats, null, 2)}
+
+CURRENT EA SETTINGS CONTEXT:
+- AI Second Opinion: ${aiEnabled ? 'Enabled' : 'Disabled'}
+- AI Override: ${aiOverrideActive ? 'Active (AI can approve trades even with low EA scores)' : 'Inactive'}
+- AI Min Confidence Threshold: ${aiMinConf}%
+- EA Remote Switch: ${eaEnabled ? 'ON' : 'OFF'}
+- Breakout Detection: ${Object.keys(breakoutSettings).length > 0 ? 'Configured for ' + Object.keys(breakoutSettings).filter(k => breakoutSettings[k]).join(', ') : 'Default'}
+
+INSTRUCTIONS:
+Based on the historical data, create a realistic weekly trading plan. Consider:
+1. Which pairs perform best on which days and sessions
+2. Win rates and average profit/loss per pair
+3. Direction biases (BUY vs SELL performance)
+4. How many trades at what risk are needed to hit the target
+5. If the target is unrealistic, say so and suggest a realistic one
+
+Respond with ONLY valid JSON:
+{
+  "feasibility": "HIGH" | "MEDIUM" | "LOW",
+  "feasibilityReason": "Brief explanation of why the target is or isn't realistic",
+  "suggestedTarget": number (if target is unrealistic, suggest a better one, otherwise same as target),
+  "weeklyPlan": {
+    "Monday": { "pairs": [{"symbol": "EURUSD", "direction": "BUY or SELL or BOTH", "confidence": 0-100, "session": "London/New York/Asian", "reason": "why", "estimatedPips": number, "lotSize": number, "maxTrades": number}], "dailyTarget": number },
+    "Tuesday": { ... },
+    "Wednesday": { ... },
+    "Thursday": { ... },
+    "Friday": { ... }
+  },
+  "pairRankings": [{"symbol": "EURUSD", "overallScore": 0-100, "bestDay": "Tuesday", "bestSession": "London", "winRate": number, "recommendation": "Primary/Secondary/Avoid"}],
+  "riskManagement": {
+    "maxDailyLoss": number,
+    "maxDailyTrades": number,
+    "riskPerTrade": number,
+    "trailingStopRecommendation": "TIGHT/STANDARD/WIDE",
+    "aiConfidenceMinimum": number
+  },
+  "keyInsights": ["insight1", "insight2", "insight3"],
+  "weeklyProjection": {
+    "bestCase": number,
+    "expected": number,
+    "worstCase": number
+  }
+}`;
+
+      const openaiInstance = await getAiInstance(userId);
+      const selectedModel = getModelPref(userId);
+
+      const response = await openaiInstance.chat.completions.create({
+        model: selectedModel.startsWith('gpt') ? selectedModel : 'gpt-4o-mini',
+        messages: [
+          { role: "system", content: "You are an expert trading strategist. Always respond with valid JSON only." },
+          { role: "user", content: prompt }
+        ],
+        response_format: { type: "json_object" },
+        max_tokens: 2000,
+        temperature: 0.4,
+      });
+
+      const content = response.choices[0]?.message?.content || '';
+      let plan: any;
+      try {
+        plan = JSON.parse(content);
+      } catch {
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) throw new Error('AI returned invalid response format');
+        plan = JSON.parse(jsonMatch[0]);
+      }
+      if (!plan || typeof plan !== 'object' || !plan.weeklyPlan) {
+        throw new Error('AI response missing required weeklyPlan structure');
+      }
+
+      const strategy = {
+        profitTarget,
+        pairs,
+        accountBalance,
+        riskLevel: riskLevel || 'moderate',
+        lotSize: lotSize || 'auto',
+        plan,
+        pairStats,
+        generatedAt: new Date().toISOString(),
+        weekStart: getWeekStart(),
+        progressTrades: [],
+        currentProfit: 0,
+      };
+
+      (global as any).mt5WeeklyStrategies[userId] = strategy;
+      console.log(`[Weekly Strategy] Generated plan for user ${userId}: $${profitTarget} target across ${pairs.length} pairs`);
+      res.json({ hasStrategy: true, ...strategy });
+    } catch (error: any) {
+      console.error('[Weekly Strategy] Error:', error);
+      res.status(500).json({ error: `Failed to generate strategy: ${error.message || 'Unknown error'}` });
+    }
+  });
+
+  app.post("/api/weekly-strategy/update-progress", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const strategy = (global as any).mt5WeeklyStrategies?.[userId];
+    if (!strategy) return res.status(404).json({ error: "No active strategy" });
+
+    // Pull latest closed trades and calculate progress
+    const closedTradesCache = (global as any).mt5ClosedTrades || {};
+    const closedTrades = closedTradesCache[userId]?.trades || [];
+    const weekStart = new Date(strategy.weekStart);
+    
+    const weekTrades = closedTrades.filter((t: any) => {
+      const tradeDate = new Date(t.closeTime || t.timestamp || 0);
+      return tradeDate >= weekStart && strategy.pairs.some((p: string) => 
+        (t.symbol || '').toUpperCase().replace('/', '') === p.toUpperCase().replace('/', '')
+      );
+    });
+
+    const currentProfit = weekTrades.reduce((sum: number, t: any) => sum + (t.profit || 0), 0);
+    const tradeCount = weekTrades.length;
+    const wins = weekTrades.filter((t: any) => t.profit > 0).length;
+    const winRate = tradeCount > 0 ? Math.round((wins / tradeCount) * 100) : 0;
+
+    strategy.currentProfit = Math.round(currentProfit * 100) / 100;
+    strategy.progressTrades = weekTrades.length;
+    strategy.progressWinRate = winRate;
+    strategy.progressPercentage = Math.min(100, Math.round((currentProfit / strategy.profitTarget) * 100));
+
+    res.json({
+      currentProfit: strategy.currentProfit,
+      progressTrades: tradeCount,
+      progressWinRate: winRate,
+      progressPercentage: strategy.progressPercentage,
+      targetRemaining: Math.round((strategy.profitTarget - currentProfit) * 100) / 100,
+      daysRemaining: getDaysRemainingInWeek(),
+    });
+  });
+
+  app.delete("/api/weekly-strategy", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    delete (global as any).mt5WeeklyStrategies[userId];
+    res.json({ success: true });
+  });
+
+  function getWeekStart(): string {
+    const now = new Date();
+    const dayOfWeek = now.getUTCDay();
+    const diff = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+    const monday = new Date(now);
+    monday.setUTCDate(now.getUTCDate() - diff);
+    monday.setUTCHours(0, 0, 0, 0);
+    return monday.toISOString();
+  }
+
+  function getDaysRemainingInWeek(): number {
+    const now = new Date();
+    const dayOfWeek = now.getUTCDay();
+    if (dayOfWeek === 0 || dayOfWeek === 6) return 0;
+    return 5 - dayOfWeek;
+  }
+
   // TradeLocker Connection Routes
   app.get("/api/tradelocker/connection", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) {

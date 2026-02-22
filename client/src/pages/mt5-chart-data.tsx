@@ -37,7 +37,8 @@ import {
   Lightbulb,
   Calendar,
   Search,
-  Power
+  Power,
+  ChevronRight
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { ConnectedPairs } from "@/components/mt5/connected-pairs";
@@ -1457,6 +1458,22 @@ export default function MT5ChartDataPage() {
             )}
           </CardContent>
         </Card>
+
+        {/* Weekly Profit Strategist Link */}
+        <Link href="/weekly-strategy">
+          <Card className="border border-amber-500/30 bg-gradient-to-r from-amber-900/20 to-orange-900/20 hover:border-amber-500/50 transition-all cursor-pointer">
+            <CardContent className="p-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Target className="w-6 h-6 text-amber-400" />
+                <div>
+                  <h3 className="text-white font-semibold">Weekly Profit Strategist</h3>
+                  <p className="text-gray-400 text-xs">Set a profit goal — AI builds a plan using your trade history & confidence grades</p>
+                </div>
+              </div>
+              <ChevronRight className="w-5 h-5 text-amber-400" />
+            </CardContent>
+          </Card>
+        </Link>
 
         {/* Connected Pairs Display */}
         <ConnectedPairs />
