@@ -7267,56 +7267,69 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         };
       }
 
-      // Build AI prompt with all gathered data
-      const prompt = `You are an expert trading strategist. Create a detailed weekly profit plan.
+      // Build AI prompt - full AI control, no EA restraints
+      const growthMultiplier = ((accountBalance + profitTarget) / accountBalance).toFixed(1);
+      const prompt = `You are an elite AI trading strategist with FULL CONTROL over all trading decisions. No EA restraints - you are the primary decision-maker.
 
-GOAL: Earn $${profitTarget} profit this week.
-ACCOUNT BALANCE: $${accountBalance}
-RISK LEVEL: ${riskLevel || 'moderate'} (conservative=1-2% risk/trade, moderate=2-3%, aggressive=3-5%)
-PREFERRED LOT SIZE: ${lotSize || 'auto-calculate based on risk'}
-PAIRS TO TRADE: ${pairs.join(', ')}
-AI CONFIRMATION: ${aiEnabled ? `Enabled (min ${aiMinConf}% confidence)` : 'Disabled'}
-EA STATUS: ${eaEnabled ? 'Active' : 'Disabled'}
+ACCOUNT GROWTH CHALLENGE:
+- Starting Balance: $${accountBalance}
+- Weekly Profit Target: $${profitTarget}
+- Goal Balance: $${accountBalance + profitTarget} (${growthMultiplier}x growth)
+- Preferred Lot Size: ${lotSize || 'AI decides optimal sizing'}
+- Selected Pairs: ${pairs.join(', ')}
 
-HISTORICAL PERFORMANCE DATA:
+AI CONTROL STATUS: FULL CONTROL
+- You have complete authority over trade entries, exits, lot sizing, and risk
+- No EA score gates or minimum thresholds restrict you
+- AI Override: ALWAYS ON - your decision is final
+- Trailing Stop: You decide (TIGHT/STANDARD/WIDE/AGGRESSIVE/OFF)
+- Breakout Detection: ${Object.keys(breakoutSettings).length > 0 ? 'Active for ' + Object.keys(breakoutSettings).filter(k => breakoutSettings[k]).join(', ') : 'Available'}
+
+TRADER'S HISTORICAL PERFORMANCE DATA:
 ${JSON.stringify(pairStats, null, 2)}
 
-CURRENT EA SETTINGS CONTEXT:
-- AI Second Opinion: ${aiEnabled ? 'Enabled' : 'Disabled'}
-- AI Override: ${aiOverrideActive ? 'Active (AI can approve trades even with low EA scores)' : 'Inactive'}
-- AI Min Confidence Threshold: ${aiMinConf}%
-- EA Remote Switch: ${eaEnabled ? 'ON' : 'OFF'}
-- Breakout Detection: ${Object.keys(breakoutSettings).length > 0 ? 'Configured for ' + Object.keys(breakoutSettings).filter(k => breakoutSettings[k]).join(', ') : 'Default'}
-
-INSTRUCTIONS:
-Based on the historical data, create a realistic weekly trading plan. Consider:
-1. Which pairs perform best on which days and sessions
-2. Win rates and average profit/loss per pair
-3. Direction biases (BUY vs SELL performance)
-4. How many trades at what risk are needed to hit the target
-5. If the target is unrealistic, say so and suggest a realistic one
+STRATEGY REQUIREMENTS:
+1. Create an AGGRESSIVE but CALCULATED growth plan to hit $${profitTarget} profit
+2. For small accounts ($50-$500), recommend appropriate micro/mini lot sizes
+3. Use COMPOUND GROWTH: reinvest profits each day to accelerate returns
+4. Identify the BEST high-probability setups per pair per day
+5. Factor in session volatility (London open, NY open, overlap sessions)
+6. Include specific entry conditions, lot sizes, and pip targets
+7. Recommend how many trades per day and when to STOP trading (daily loss limit)
+8. If the target requires over 100% account growth in a week, acknowledge the high risk but still provide the plan
+9. Use historical win rates and direction biases to maximize edge
+10. Include a compound growth projection showing daily balance growth
 
 Respond with ONLY valid JSON:
 {
-  "feasibility": "HIGH" | "MEDIUM" | "LOW",
-  "feasibilityReason": "Brief explanation of why the target is or isn't realistic",
-  "suggestedTarget": number (if target is unrealistic, suggest a better one, otherwise same as target),
+  "feasibility": "ACHIEVABLE" | "AGGRESSIVE" | "EXTREME",
+  "feasibilityReason": "Honest assessment with specific reasoning",
+  "suggestedTarget": number,
+  "growthStrategy": "Description of the compound growth approach",
   "weeklyPlan": {
-    "Monday": { "pairs": [{"symbol": "EURUSD", "direction": "BUY or SELL or BOTH", "confidence": 0-100, "session": "London/New York/Asian", "reason": "why", "estimatedPips": number, "lotSize": number, "maxTrades": number}], "dailyTarget": number },
+    "Monday": { "pairs": [{"symbol": "EURUSD", "direction": "BUY or SELL or BOTH", "confidence": 0-100, "session": "London/New York/Asian/Overlap", "reason": "specific reason based on data", "estimatedPips": number, "lotSize": number, "maxTrades": number, "entryCondition": "specific condition to enter"}], "dailyTarget": number, "projectedBalance": number },
     "Tuesday": { ... },
     "Wednesday": { ... },
     "Thursday": { ... },
     "Friday": { ... }
   },
-  "pairRankings": [{"symbol": "EURUSD", "overallScore": 0-100, "bestDay": "Tuesday", "bestSession": "London", "winRate": number, "recommendation": "Primary/Secondary/Avoid"}],
+  "pairRankings": [{"symbol": "EURUSD", "overallScore": 0-100, "bestDay": "Tuesday", "bestSession": "London", "winRate": number, "recommendation": "Primary/Secondary/Avoid", "optimalLotSize": number, "avgPipsPerTrade": number}],
   "riskManagement": {
     "maxDailyLoss": number,
     "maxDailyTrades": number,
     "riskPerTrade": number,
-    "trailingStopRecommendation": "TIGHT/STANDARD/WIDE",
+    "trailingStopMode": "TIGHT/STANDARD/WIDE/AGGRESSIVE",
+    "dailyStopRule": "When to stop trading for the day",
     "aiConfidenceMinimum": number
   },
-  "keyInsights": ["insight1", "insight2", "insight3"],
+  "compoundGrowth": {
+    "monday": {"startBalance": number, "endBalance": number, "trades": number},
+    "tuesday": {"startBalance": number, "endBalance": number, "trades": number},
+    "wednesday": {"startBalance": number, "endBalance": number, "trades": number},
+    "thursday": {"startBalance": number, "endBalance": number, "trades": number},
+    "friday": {"startBalance": number, "endBalance": number, "trades": number}
+  },
+  "keyInsights": ["insight1", "insight2", "insight3", "insight4"],
   "weeklyProjection": {
     "bestCase": number,
     "expected": number,
@@ -7324,38 +7337,72 @@ Respond with ONLY valid JSON:
   }
 }`;
 
-      const openaiInstance = await getAiInstance(userId);
-      const selectedModel = getModelPref(userId);
+      let openaiInstance: any;
+      let selectedModel: string;
+      try {
+        openaiInstance = await getAiInstance(userId);
+        selectedModel = getModelPref(userId);
+      } catch (e: any) {
+        console.error('[Weekly Strategy] Failed to get AI instance:', e.message);
+        return res.status(500).json({ error: 'No AI API key configured. Please add an API key in the AI API Keys page.' });
+      }
 
-      const response = await openaiInstance.chat.completions.create({
-        model: selectedModel.startsWith('gpt') ? selectedModel : 'gpt-4o-mini',
-        messages: [
-          { role: "system", content: "You are an expert trading strategist. Always respond with valid JSON only." },
-          { role: "user", content: prompt }
-        ],
-        response_format: { type: "json_object" },
-        max_tokens: 2000,
-        temperature: 0.4,
-      });
+      const modelToUse = selectedModel.startsWith('gpt') ? selectedModel : 'gpt-4o-mini';
+      const supportsJsonFormat = modelToUse.startsWith('gpt');
+
+      let response: any;
+      try {
+        response = await openaiInstance.chat.completions.create({
+          model: modelToUse,
+          messages: [
+            { role: "system", content: "You are an expert trading strategist. Always respond with valid JSON only. No markdown, no explanation, just the JSON object." },
+            { role: "user", content: prompt }
+          ],
+          ...(supportsJsonFormat ? { response_format: { type: "json_object" } } : {}),
+          max_tokens: 3000,
+          temperature: 0.4,
+        });
+      } catch (aiError: any) {
+        const errMsg = aiError.message || '';
+        if (errMsg.includes('rate') || errMsg.includes('quota') || errMsg.includes('429')) {
+          return res.status(429).json({ error: 'AI rate limit hit. Please wait a moment and try again, or switch to a different AI provider.' });
+        }
+        if (errMsg.includes('key') || errMsg.includes('auth') || errMsg.includes('401')) {
+          return res.status(401).json({ error: 'AI API key is invalid or expired. Please update your API key.' });
+        }
+        throw aiError;
+      }
 
       const content = response.choices[0]?.message?.content || '';
+      if (!content.trim()) {
+        return res.status(500).json({ error: 'AI returned empty response. Please try again.' });
+      }
+
       let plan: any;
       try {
         plan = JSON.parse(content);
       } catch {
         const jsonMatch = content.match(/\{[\s\S]*\}/);
-        if (!jsonMatch) throw new Error('AI returned invalid response format');
-        plan = JSON.parse(jsonMatch[0]);
+        if (!jsonMatch) {
+          console.error('[Weekly Strategy] AI returned non-JSON:', content.substring(0, 200));
+          return res.status(500).json({ error: 'AI returned an invalid format. Please try again.' });
+        }
+        try {
+          plan = JSON.parse(jsonMatch[0]);
+        } catch {
+          return res.status(500).json({ error: 'AI returned malformed data. Please try again.' });
+        }
       }
       if (!plan || typeof plan !== 'object' || !plan.weeklyPlan) {
-        throw new Error('AI response missing required weeklyPlan structure');
+        console.error('[Weekly Strategy] AI response missing weeklyPlan:', JSON.stringify(plan).substring(0, 200));
+        return res.status(500).json({ error: 'AI response was incomplete. Please try again.' });
       }
 
       const strategy = {
         profitTarget,
         pairs,
         accountBalance,
-        riskLevel: riskLevel || 'moderate',
+        riskLevel: riskLevel || 'ai-controlled',
         lotSize: lotSize || 'auto',
         plan,
         pairStats,
