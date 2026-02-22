@@ -5,6 +5,8 @@ import { useToast } from "@/hooks/use-toast";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -15,8 +17,11 @@ import {
   Calendar, Clock, Shield, Brain, RefreshCw, Trash2,
   CheckCircle, AlertCircle, Zap, ChevronRight, Star,
   Rocket, Flame, ArrowUpRight, Power, XCircle, Lightbulb,
-  Newspaper, Radio, Activity
+  Newspaper, Radio, Activity, Share2, Loader2, Copy, Download,
+  Sparkles, ExternalLink
 } from "lucide-react";
+import { SiX, SiFacebook, SiLinkedin } from "react-icons/si";
+import VeddLogo from "@/components/ui/vedd-logo";
 import { motion } from "framer-motion";
 
 const POPULAR_PAIRS = [
@@ -122,6 +127,71 @@ export default function WeeklyStrategyPage() {
       toast({ title: "Plan Cleared", description: "Ready to create a new VEDD SS AI plan" });
     },
   });
+
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareCardUrl, setShareCardUrl] = useState<string | null>(null);
+  const [sharePost, setSharePost] = useState('');
+  const [selectedSharePlatform, setSelectedSharePlatform] = useState('twitter');
+
+  const shareCardMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest('POST', '/api/weekly-strategy/share-card', {});
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setShareCardUrl(data.imageUrl);
+    },
+    onError: () => {
+      toast({ title: "Card generation failed", variant: "destructive" });
+    },
+  });
+
+  const generatePostMutation = useMutation({
+    mutationFn: async (platform: string) => {
+      const res = await apiRequest('POST', '/api/weekly-strategy/generate-post', { platform });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setSharePost(data.post);
+      toast({ title: "AI post generated!" });
+    },
+    onError: () => {
+      toast({ title: "Post generation failed", variant: "destructive" });
+    },
+  });
+
+  const openShareDialog = () => {
+    setShareOpen(true);
+    setShareCardUrl(null);
+    setSharePost('');
+    shareCardMutation.mutate();
+  };
+
+  const handleShareToNative = (platform: string) => {
+    const text = sharePost || `Tracking my trading progress with VEDD SS AI! ${strategy?.progressPercentage || 0}% toward my weekly goal. #VEDDAi #AITrading`;
+    const shareUrls: Record<string, string> = {
+      twitter: `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`,
+      facebook: `https://www.facebook.com/sharer/sharer.php?quote=${encodeURIComponent(text)}`,
+      linkedin: `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(window.location.href)}&summary=${encodeURIComponent(text)}`,
+    };
+    if (shareUrls[platform]) {
+      window.open(shareUrls[platform], '_blank', 'width=600,height=400');
+    }
+  };
+
+  const handleCopyPost = async () => {
+    const text = sharePost || 'Check out my VEDD SS AI trading progress!';
+    await navigator.clipboard.writeText(text);
+    toast({ title: "Copied to clipboard!" });
+  };
+
+  const handleDownloadCard = () => {
+    if (!shareCardUrl) return;
+    const a = document.createElement('a');
+    a.href = shareCardUrl;
+    a.download = 'vedd-ss-ai-progress.png';
+    a.click();
+  };
 
   const togglePair = (pair: string) => {
     setSelectedPairs(prev =>
@@ -239,6 +309,10 @@ export default function WeeklyStrategyPage() {
                     </p>
                   </div>
                   <div className="flex gap-2">
+                    <Button size="sm" variant="outline" onClick={openShareDialog} className="text-purple-400 border-purple-500/30 hover:bg-purple-500/10">
+                      <Share2 className="w-4 h-4 mr-1" />
+                      Share
+                    </Button>
                     <Button size="sm" variant="outline" onClick={() => updateProgressMutation.mutate()} disabled={updateProgressMutation.isPending}>
                       <RefreshCw className={`w-4 h-4 mr-1 ${updateProgressMutation.isPending ? 'animate-spin' : ''}`} />
                       Sync Progress
@@ -870,6 +944,125 @@ export default function WeeklyStrategyPage() {
           </Card>
         )}
       </div>
+
+      {/* Share Progress Dialog */}
+      <Dialog open={shareOpen} onOpenChange={setShareOpen}>
+        <DialogContent className="sm:max-w-lg bg-gray-900 border-gray-700">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3 text-white">
+              <VeddLogo height={32} />
+              Share VEDD SS AI Progress
+            </DialogTitle>
+            <DialogDescription>
+              Share your AI-powered trading journey with your network.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            {/* Share Card Preview */}
+            <div className="rounded-lg overflow-hidden border border-gray-700 bg-gray-800">
+              {shareCardMutation.isPending ? (
+                <div className="flex items-center justify-center h-48 text-gray-400">
+                  <Loader2 className="w-6 h-6 animate-spin mr-2" />
+                  Generating share card...
+                </div>
+              ) : shareCardUrl ? (
+                <div className="relative">
+                  <img src={shareCardUrl} alt="VEDD SS AI Progress" className="w-full" />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleDownloadCard}
+                    className="absolute top-2 right-2 bg-gray-900/80 border-gray-600 text-white hover:bg-gray-800"
+                  >
+                    <Download className="w-3.5 h-3.5 mr-1" />
+                    Save
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex items-center justify-center h-48 text-gray-500">
+                  Card preview
+                </div>
+              )}
+            </div>
+
+            {/* AI Post Generator */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="text-gray-300 text-sm">Post Caption</Label>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => generatePostMutation.mutate(selectedSharePlatform)}
+                  disabled={generatePostMutation.isPending}
+                  className="text-purple-400 hover:text-purple-300 text-xs h-7"
+                >
+                  {generatePostMutation.isPending ? (
+                    <Loader2 className="w-3 h-3 animate-spin mr-1" />
+                  ) : (
+                    <Sparkles className="w-3 h-3 mr-1" />
+                  )}
+                  AI Generate
+                </Button>
+              </div>
+              <Textarea
+                value={sharePost}
+                onChange={(e) => setSharePost(e.target.value)}
+                placeholder="Write your post or click 'AI Generate' to create one automatically..."
+                className="min-h-[80px] bg-gray-800 border-gray-700 text-white placeholder:text-gray-500"
+              />
+              <div className="flex flex-wrap gap-1">
+                {['#VEDDAi', '#VEDDSSAI', '#AITrading', '#TradingAI'].map(tag => (
+                  <Badge key={tag} variant="outline" className="text-[10px] text-purple-400 border-purple-500/30 cursor-pointer hover:bg-purple-500/10"
+                    onClick={() => setSharePost(prev => prev.includes(tag) ? prev : prev + ' ' + tag)}>
+                    {tag}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+
+            {/* Social Platform Buttons */}
+            <div className="space-y-2">
+              <Label className="text-gray-300 text-sm">Share To</Label>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  size="sm"
+                  onClick={() => { setSelectedSharePlatform('twitter'); handleShareToNative('twitter'); }}
+                  className="bg-black hover:bg-gray-900 text-white gap-2"
+                >
+                  <SiX className="w-4 h-4" />
+                  X (Twitter)
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => { setSelectedSharePlatform('facebook'); handleShareToNative('facebook'); }}
+                  className="bg-blue-600 hover:bg-blue-700 text-white gap-2"
+                >
+                  <SiFacebook className="w-4 h-4" />
+                  Facebook
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => { setSelectedSharePlatform('linkedin'); handleShareToNative('linkedin'); }}
+                  className="bg-blue-700 hover:bg-blue-800 text-white gap-2"
+                >
+                  <SiLinkedin className="w-4 h-4" />
+                  LinkedIn
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={handleCopyPost}
+                  variant="outline"
+                  className="border-gray-600 text-gray-300 gap-2"
+                >
+                  <Copy className="w-4 h-4" />
+                  Copy Text
+                </Button>
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

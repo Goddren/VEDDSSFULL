@@ -7624,6 +7624,252 @@ Respond with ONLY valid JSON:
     res.json({ success: true });
   });
 
+  app.post("/api/weekly-strategy/share-card", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const strategies = (global as any).mt5WeeklyStrategies || {};
+    const strat = strategies[userId];
+    if (!strat?.plan) return res.status(404).json({ error: "No active VEDD SS AI plan" });
+
+    try {
+      const { createCanvas, loadImage } = await import('canvas');
+      const path = await import('path');
+      const fs = await import('fs');
+
+      const W = 1080, H = 1080;
+      const canvas = createCanvas(W, H);
+      const ctx = canvas.getContext('2d');
+
+      const bg = ctx.createLinearGradient(0, 0, W, H);
+      bg.addColorStop(0, '#0f172a');
+      bg.addColorStop(0.5, '#1a1033');
+      bg.addColorStop(1, '#0f172a');
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, W, H);
+
+      const headerGrad = ctx.createLinearGradient(0, 0, W, 220);
+      headerGrad.addColorStop(0, '#ea580c');
+      headerGrad.addColorStop(1, '#dc2626');
+      ctx.fillStyle = headerGrad;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(W, 0);
+      ctx.lineTo(W, 180);
+      ctx.quadraticCurveTo(W / 2, 240, 0, 180);
+      ctx.closePath();
+      ctx.fill();
+
+      try {
+        const logoPath = path.default.join(process.cwd(), 'attached_assets', 'IMG_3645.png');
+        if (fs.default.existsSync(logoPath)) {
+          const logo = await loadImage(logoPath);
+          const lh = 60, lw = (logo.width / logo.height) * lh;
+          ctx.drawImage(logo, 40, 30, lw, lh);
+        }
+      } catch {}
+
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 42px Arial, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('VEDD SS AI', W / 2, 130);
+      ctx.font = '20px Arial, sans-serif';
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.fillText('AI-Powered Growth Strategy', W / 2, 160);
+
+      let y = 260;
+
+      const drawRoundRect = (cx: any, rx: number, ry: number, rw: number, rh: number, r: number) => {
+        cx.beginPath();
+        cx.moveTo(rx + r, ry);
+        cx.lineTo(rx + rw - r, ry);
+        cx.arcTo(rx + rw, ry, rx + rw, ry + r, r);
+        cx.lineTo(rx + rw, ry + rh - r);
+        cx.arcTo(rx + rw, ry + rh, rx + rw - r, ry + rh, r);
+        cx.lineTo(rx + r, ry + rh);
+        cx.arcTo(rx, ry + rh, rx, ry + rh - r, r);
+        cx.lineTo(rx, ry + r);
+        cx.arcTo(rx, ry, rx + r, ry, r);
+        cx.closePath();
+      };
+
+      const progress = strat.progressPercentage || 0;
+      const barW = W - 120, barH = 36;
+      const barX = 60;
+      ctx.fillStyle = '#1e293b';
+      drawRoundRect(ctx, barX, y, barW, barH, 18);
+      ctx.fill();
+      const fillW = Math.max(0, Math.min(barW, barW * progress / 100));
+      if (fillW > 0) {
+        const pGrad = ctx.createLinearGradient(barX, y, barX + fillW, y);
+        pGrad.addColorStop(0, '#f97316');
+        pGrad.addColorStop(1, '#ef4444');
+        ctx.fillStyle = pGrad;
+        drawRoundRect(ctx, barX, y, fillW, barH, 18);
+        ctx.fill();
+      }
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 16px Arial, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(`${progress}%`, W / 2, y + 24);
+
+      y += 70;
+
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 54px Arial, sans-serif';
+      ctx.fillText(`$${strat.accountBalance || 0}  →  $${(strat.accountBalance || 0) + (strat.profitTarget || 0)}`, W / 2, y);
+      y += 30;
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = '20px Arial, sans-serif';
+      const multiplier = strat.accountBalance > 0 ? ((strat.accountBalance + strat.profitTarget) / strat.accountBalance).toFixed(1) : '1.0';
+      ctx.fillText(`${multiplier}x Growth Target`, W / 2, y);
+      y += 55;
+
+      const stats = [
+        { label: 'Current Profit', value: `$${strat.currentProfit || 0}`, color: '#22c55e' },
+        { label: 'Target', value: `$${strat.profitTarget || 0}`, color: '#f97316' },
+        { label: 'Trades', value: `${strat.progressTrades || 0}`, color: '#a78bfa' },
+        { label: 'Win Rate', value: `${strat.progressWinRate || 0}%`, color: '#38bdf8' },
+      ];
+      const boxW = (W - 120 - 30) / 2;
+      const boxH = 90;
+      stats.forEach((s, i) => {
+        const col = i % 2;
+        const row = Math.floor(i / 2);
+        const bx = 60 + col * (boxW + 30);
+        const by = y + row * (boxH + 15);
+        ctx.fillStyle = '#1e293b';
+        drawRoundRect(ctx, bx, by, boxW, boxH, 12);
+        ctx.fill();
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = '16px Arial, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(s.label, bx + boxW / 2, by + 32);
+        ctx.fillStyle = s.color;
+        ctx.font = 'bold 30px Arial, sans-serif';
+        ctx.fillText(s.value, bx + boxW / 2, by + 68);
+      });
+      y += boxH * 2 + 50;
+
+      if (strat.plan?.feasibility) {
+        ctx.fillStyle = strat.plan.feasibility === 'ACHIEVABLE' ? '#22c55e' : strat.plan.feasibility === 'AGGRESSIVE' ? '#f97316' : '#ef4444';
+        ctx.font = 'bold 24px Arial, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(`AI Assessment: ${strat.plan.feasibility}`, W / 2, y);
+        y += 35;
+      }
+
+      if (strat.pairs?.length) {
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = '18px Arial, sans-serif';
+        ctx.fillText(`Trading: ${strat.pairs.join(' | ')}`, W / 2, y);
+        y += 40;
+      }
+
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(60, y, W - 120, 2);
+      y += 30;
+
+      const user = req.user as User;
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = '16px Arial, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(`${user.username} | Generated ${new Date().toLocaleDateString()}`, W / 2, y);
+      y += 30;
+      ctx.fillStyle = '#64748b';
+      ctx.font = '14px Arial, sans-serif';
+      ctx.fillText('vedd.ai | AI Trading Vault', W / 2, y);
+
+      const buffer = canvas.toBuffer('image/png');
+      const fileName = `vedd-ss-ai-progress-${userId}-${Date.now()}.png`;
+      const outDir = path.default.join(process.cwd(), 'uploads', 'share-cards');
+      if (!fs.default.existsSync(outDir)) fs.default.mkdirSync(outDir, { recursive: true });
+      const filePath = path.default.join(outDir, fileName);
+      fs.default.writeFileSync(filePath, buffer);
+
+      res.json({
+        success: true,
+        imageUrl: `/uploads/share-cards/${fileName}`,
+        stats: {
+          accountBalance: strat.accountBalance,
+          profitTarget: strat.profitTarget,
+          currentProfit: strat.currentProfit || 0,
+          progressPercentage: progress,
+          progressTrades: strat.progressTrades || 0,
+          progressWinRate: strat.progressWinRate || 0,
+          pairs: strat.pairs,
+          feasibility: strat.plan?.feasibility,
+        }
+      });
+    } catch (err: any) {
+      console.error('[VEDD SS AI Share Card] Error:', err);
+      res.status(500).json({ error: 'Failed to generate share card' });
+    }
+  });
+
+  app.post("/api/weekly-strategy/generate-post", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const strategies = (global as any).mt5WeeklyStrategies || {};
+    const strat = strategies[userId];
+    if (!strat?.plan) return res.status(404).json({ error: "No active VEDD SS AI plan" });
+
+    const { platform = 'twitter' } = req.body;
+
+    try {
+      const { getOpenAIInstanceForUser } = await import('./openai');
+      const progress = strat.progressPercentage || 0;
+      const multiplier = strat.accountBalance > 0 ? ((strat.accountBalance + strat.profitTarget) / strat.accountBalance).toFixed(1) : '1.0';
+
+      const prompt = `You are a social media content creator for VEDD AI Trading Vault. Generate a single engaging ${platform === 'twitter' ? 'tweet (max 250 chars)' : 'social media post (2-3 short paragraphs)'} about the user's VEDD SS AI weekly trading progress.
+
+Stats:
+- Account: $${strat.accountBalance} → $${(strat.accountBalance || 0) + (strat.profitTarget || 0)} (${multiplier}x target)
+- Progress: ${progress}% complete ($${strat.currentProfit || 0} of $${strat.profitTarget} target)
+- Trades: ${strat.progressTrades || 0}
+- Win Rate: ${strat.progressWinRate || 0}%
+- AI Assessment: ${strat.plan.feasibility || 'N/A'}
+- Pairs: ${strat.pairs?.join(', ') || 'N/A'}
+
+Rules:
+- Be motivational and authentic, not salesy
+- Mention VEDD AI or VEDD SS AI naturally
+- Include 2-3 relevant hashtags at the end
+- Focus on the AI-guided journey, not guarantees
+- Don't mention specific dollar amounts — use percentages and multipliers instead
+- Keep it professional but exciting
+- Output ONLY the post text, nothing else`;
+
+      const ai = await getOpenAIInstanceForUser(userId);
+      const completion = await ai.chat.completions.create({
+        model: 'gpt-4o',
+        messages: [
+          { role: 'system', content: 'You generate social media posts. Output only the post text.' },
+          { role: 'user', content: prompt }
+        ],
+        max_tokens: 300,
+        temperature: 0.8,
+      });
+      let result = completion.choices[0]?.message?.content || '';
+      result = result.replace(/\$[\d,]+(\.\d{1,2})?/g, '[amount]').replace(/\[amount\]/g, 'my target');
+
+      res.json({
+        success: true,
+        post: result.trim(),
+        platform,
+        hashtags: ['#VEDDAi', '#TradingAI', '#VEDDSSAI', '#AITrading']
+      });
+    } catch (err: any) {
+      console.error('[VEDD SS AI Post Gen] Error:', err);
+      res.json({
+        success: true,
+        post: `${progress}% toward my weekly goal with VEDD SS AI 🚀 AI-guided trading keeping me on track. The future of trading is here.\n\n#VEDDAi #AITrading #VEDDSSAI`,
+        platform,
+        hashtags: ['#VEDDAi', '#TradingAI', '#VEDDSSAI'],
+        fallback: true
+      });
+    }
+  });
+
   function getWeekStart(): string {
     const now = new Date();
     const dayOfWeek = now.getUTCDay();
