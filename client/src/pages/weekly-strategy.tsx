@@ -138,6 +138,7 @@ export default function WeeklyStrategyPage() {
   const [unrealizedPnL, setUnrealizedPnL] = useState(0);
   const [lastPositionUpdate, setLastPositionUpdate] = useState<string | null>(null);
   const [selectedSignalMode, setSelectedSignalMode] = useState("aggressive");
+  const [autoExecuteSignals, setAutoExecuteSignals] = useState(false);
 
   const { data: brainStatus } = useQuery<any>({
     queryKey: ['/api/vedd-brain/status'],
@@ -169,13 +170,18 @@ export default function WeeklyStrategyPage() {
   });
 
   const generateSignalsMutation = useMutation({
-    mutationFn: async (mode: string) => {
-      const res = await apiRequest('POST', '/api/vedd-brain/autonomous-signals', { strategyMode: mode });
+    mutationFn: async ({ mode, autoExec }: { mode: string; autoExec: boolean }) => {
+      const res = await apiRequest('POST', '/api/vedd-brain/autonomous-signals', { strategyMode: mode, autoExecute: autoExec });
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ['/api/vedd-brain/autonomous-signals'] });
-      toast({ title: "Autonomous Signals Generated", description: "AI generated trade signals from learned patterns" });
+      const executed = data?.executionResults?.filter((r: any) => r.status === 'executed')?.length || 0;
+      if (data?.autoExecuted && executed > 0) {
+        toast({ title: `${executed} Trade${executed > 1 ? 's' : ''} Executed!`, description: `AI signals auto-executed on TradeLocker` });
+      } else {
+        toast({ title: "Autonomous Signals Generated", description: "AI generated trade signals from learned patterns" });
+      }
     },
     onError: (err: any) => {
       toast({ title: "Signal Generation Failed", description: err.message, variant: "destructive" });
@@ -569,35 +575,58 @@ export default function WeeklyStrategyPage() {
                 {/* Autonomous Signal Generation */}
                 {brainStatus?.learned && (
                   <div className="border-t border-purple-500/20 pt-4 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <h4 className="text-sm font-semibold text-white flex items-center gap-2">
-                        <Zap className="w-4 h-4 text-yellow-400" />
-                        Autonomous Signals
-                      </h4>
-                      <div className="flex items-center gap-2">
-                        <select
-                          value={selectedSignalMode}
-                          onChange={(e) => setSelectedSignalMode(e.target.value)}
-                          className="bg-gray-900 border border-gray-700 text-white text-xs rounded px-2 py-1"
-                        >
-                          {(strategyModes?.modes || []).map((m: any) => (
-                            <option key={m.id} value={m.id}>{m.name}</option>
-                          ))}
-                        </select>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => generateSignalsMutation.mutate(selectedSignalMode)}
-                          disabled={generateSignalsMutation.isPending}
-                          className="text-yellow-400 border-yellow-500/30 hover:bg-yellow-500/10 text-xs"
-                        >
-                          {generateSignalsMutation.isPending ? (
-                            <><RefreshCw className="w-3.5 h-3.5 mr-1 animate-spin" /> Generating...</>
-                          ) : (
-                            <><Zap className="w-3.5 h-3.5 mr-1" /> Generate Signals</>
-                          )}
-                        </Button>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-sm font-semibold text-white flex items-center gap-2">
+                          <Zap className="w-4 h-4 text-yellow-400" />
+                          Autonomous Signals
+                        </h4>
+                        <div className="flex items-center gap-2">
+                          <select
+                            value={selectedSignalMode}
+                            onChange={(e) => setSelectedSignalMode(e.target.value)}
+                            className="bg-gray-900 border border-gray-700 text-white text-xs rounded px-2 py-1"
+                          >
+                            {(strategyModes?.modes || []).map((m: any) => (
+                              <option key={m.id} value={m.id}>{m.name}</option>
+                            ))}
+                          </select>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => generateSignalsMutation.mutate({ mode: selectedSignalMode, autoExec: autoExecuteSignals })}
+                            disabled={generateSignalsMutation.isPending}
+                            className="text-yellow-400 border-yellow-500/30 hover:bg-yellow-500/10 text-xs"
+                          >
+                            {generateSignalsMutation.isPending ? (
+                              <><RefreshCw className="w-3.5 h-3.5 mr-1 animate-spin" /> {autoExecuteSignals ? 'Executing...' : 'Generating...'}</>
+                            ) : (
+                              <><Zap className="w-3.5 h-3.5 mr-1" /> {autoExecuteSignals ? 'Generate & Execute' : 'Generate Signals'}</>
+                            )}
+                          </Button>
+                        </div>
                       </div>
+                      <div className="flex items-center justify-between bg-black/30 rounded-lg px-3 py-2">
+                        <div className="flex items-center gap-2">
+                          <Power className={`w-4 h-4 ${autoExecuteSignals ? 'text-green-400' : 'text-gray-500'}`} />
+                          <span className="text-xs text-gray-300">Auto-Execute on TradeLocker</span>
+                          {autoExecuteSignals && (
+                            <Badge className="bg-green-500/15 text-green-400 border-green-500/30 text-[10px]">LIVE</Badge>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => setAutoExecuteSignals(!autoExecuteSignals)}
+                          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${autoExecuteSignals ? 'bg-green-600' : 'bg-gray-700'}`}
+                        >
+                          <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${autoExecuteSignals ? 'translate-x-4.5' : 'translate-x-0.5'}`} />
+                        </button>
+                      </div>
+                      {autoExecuteSignals && (
+                        <div className="text-[10px] text-orange-400 bg-orange-500/10 rounded px-2 py-1 flex items-center gap-1">
+                          <AlertCircle className="w-3 h-3 flex-shrink-0" />
+                          Signals with 60%+ confidence will be auto-executed as real trades via your TradeLocker connection
+                        </div>
+                      )}
                     </div>
 
                     {autonomousSignals?.signals?.length > 0 ? (
@@ -645,8 +674,34 @@ export default function WeeklyStrategyPage() {
                                 <Brain className="w-3 h-3" /> Edge: {sig.learnedEdge}
                               </div>
                             )}
+                            {autonomousSignals.executionResults && (() => {
+                              const sigId = `${sig.symbol}_${sig.direction}_${i}`;
+                              const execResult = autonomousSignals.executionResults.find((r: any) => r.sigId === sigId) || autonomousSignals.executionResults.find((r: any) => r.symbol === sig.symbol && r.direction === sig.direction);
+                              if (!execResult) return null;
+                              return (
+                                <div className={`mt-2 text-[10px] rounded px-2 py-1 flex items-center gap-1 ${
+                                  execResult.status === 'executed' ? 'bg-green-500/15 text-green-400' :
+                                  execResult.status === 'skipped' ? 'bg-yellow-500/15 text-yellow-400' :
+                                  'bg-red-500/15 text-red-400'
+                                }`}>
+                                  {execResult.status === 'executed' ? (
+                                    <><CheckCircle className="w-3 h-3" /> Executed on TradeLocker{execResult.orderId ? ` | Order: ${execResult.orderId}` : ''}</>
+                                  ) : execResult.status === 'skipped' ? (
+                                    <><AlertCircle className="w-3 h-3" /> Skipped: {execResult.reason}</>
+                                  ) : (
+                                    <><XCircle className="w-3 h-3" /> Failed: {execResult.error}</>
+                                  )}
+                                </div>
+                              );
+                            })()}
                           </motion.div>
                         ))}
+                        {autonomousSignals.executionResults && autonomousSignals.executionResults.some((r: any) => r.status === 'executed') && (
+                          <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-2 text-xs text-green-400 flex items-center gap-2">
+                            <CheckCircle className="w-4 h-4" />
+                            {autonomousSignals.executionResults.filter((r: any) => r.status === 'executed').length} trade(s) auto-executed on TradeLocker
+                          </div>
+                        )}
                         {autonomousSignals.nextBestSetup && (
                           <div className="text-xs text-gray-500 bg-black/20 rounded p-2 flex items-center gap-2">
                             <Clock className="w-3.5 h-3.5 text-blue-400" />

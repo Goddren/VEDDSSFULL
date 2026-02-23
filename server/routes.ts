@@ -8834,7 +8834,7 @@ Format each recommendation as a clear, concise action item.`;
       return res.status(400).json({ error: "Brain hasn't learned yet. Run learning first." });
     }
 
-    const { strategyMode = 'aggressive' } = req.body;
+    const { strategyMode = 'aggressive', autoExecute = false } = req.body;
 
     try {
       const { getOpenAIInstanceForUser, getUserModelPreference } = await import('./openai');
@@ -8962,20 +8962,131 @@ Respond with ONLY valid JSON:
         else return res.status(500).json({ error: 'AI returned invalid response' });
       }
 
+      const executionResults: any[] = [];
+
+      if (autoExecute && signals.signals && signals.signals.length > 0) {
+        const tlConnection = await storage.getUserTradelockerConnection(userId);
+        if (tlConnection && tlConnection.isActive && tlConnection.autoExecute) {
+          console.log(`[VEDD Brain AutoExec] Executing ${signals.signals.length} autonomous signals on TradeLocker for user ${userId}`);
+          
+          for (let sigIdx = 0; sigIdx < signals.signals.length; sigIdx++) {
+            const sig = signals.signals[sigIdx];
+            if (!sig.symbol || !sig.direction) continue;
+            const sigId = `${sig.symbol}_${sig.direction}_${sigIdx}`;
+            const confidence = typeof sig.confidence === 'number' ? sig.confidence : parseFloat(sig.confidence) || 0;
+            if (confidence < 60) {
+              executionResults.push({ sigId, symbol: sig.symbol, direction: sig.direction, status: 'skipped', reason: `Confidence ${confidence}% below 60% threshold` });
+              continue;
+            }
+
+            const parseNum = (v: any): number | undefined => {
+              if (typeof v === 'number') return v;
+              if (typeof v === 'string') { const n = parseFloat(v.replace(/[^0-9.\-]/g, '')); return isNaN(n) ? undefined : n; }
+              return undefined;
+            };
+            const entryPrice = parseNum(sig.entryZone);
+            const stopLoss = parseNum(sig.stopLoss);
+            const takeProfit = parseNum(sig.takeProfit);
+            const lotSize = parseNum(sig.lotSize) || 0.01;
+
+            try {
+              const signalLog = await storage.createMt5SignalLog({
+                userId,
+                symbol: sig.symbol,
+                direction: sig.direction,
+                action: 'OPEN',
+                volume: lotSize,
+                entryPrice: entryPrice || null,
+                stopLoss: stopLoss || null,
+                takeProfit: takeProfit || null,
+                confidence,
+                source: 'vedd_brain_autonomous',
+              });
+
+              const tradeResult = await executeMT5SignalOnTradeLocker(tlConnection, {
+                action: 'OPEN',
+                symbol: sig.symbol,
+                direction: sig.direction,
+                volume: lotSize,
+                entryPrice,
+                stopLoss,
+                takeProfit,
+              });
+
+              await storage.createTradelockerTradeLog({
+                connectionId: tlConnection.id,
+                userId,
+                sourceSignalId: signalLog.id,
+                action: 'OPEN',
+                symbol: sig.symbol,
+                direction: sig.direction,
+                volume: lotSize,
+                entryPrice,
+                stopLoss,
+                takeProfit,
+                tradelockerOrderId: tradeResult.orderId || null,
+                status: tradeResult.success ? 'executed' : 'failed',
+                errorMessage: tradeResult.error || null,
+              });
+
+              if (tradeResult.success) {
+                await storage.updateTradelockerConnection(tlConnection.id, {
+                  tradeCount: tlConnection.tradeCount + 1,
+                  lastConnectedAt: new Date(),
+                  lastError: null,
+                });
+                console.log(`[VEDD Brain AutoExec] EXECUTED ${sig.direction} ${sig.symbol} @ lot ${sig.lotSize || 0.01} | Order: ${tradeResult.orderId}`);
+              }
+
+              executionResults.push({
+                sigId,
+                symbol: sig.symbol,
+                direction: sig.direction,
+                status: tradeResult.success ? 'executed' : 'failed',
+                orderId: tradeResult.orderId || null,
+                error: tradeResult.error || null,
+              });
+            } catch (execErr: any) {
+              console.error(`[VEDD Brain AutoExec] Error executing ${sig.symbol}:`, execErr.message);
+              executionResults.push({
+                sigId,
+                symbol: sig.symbol,
+                direction: sig.direction,
+                status: 'error',
+                error: execErr.message,
+              });
+            }
+          }
+
+          triggerWebhooks(userId, 'vedd_brain_signals', {
+            type: 'autonomous_signals',
+            strategyMode,
+            signals: signals.signals,
+            executionResults,
+          }).catch(err => console.error('Webhook trigger error:', err));
+        } else {
+          console.log(`[VEDD Brain AutoExec] No active TradeLocker connection with autoExecute for user ${userId}`);
+          executionResults.push({ status: 'skipped', reason: 'No active TradeLocker connection with auto-execute enabled' });
+        }
+      }
+
       (global as any).veddAutonomousSignals = (global as any).veddAutonomousSignals || {};
       (global as any).veddAutonomousSignals[userId] = {
         ...signals,
         generatedAt: new Date().toISOString(),
         strategyMode,
         tradesLearned: brain.totalTradesAnalyzed,
+        executionResults: executionResults.length > 0 ? executionResults : undefined,
       };
 
-      console.log(`[VEDD Brain] Generated ${signals.signals?.length || 0} autonomous signals (${strategyMode}) for user ${userId}`);
+      console.log(`[VEDD Brain] Generated ${signals.signals?.length || 0} autonomous signals (${strategyMode}) for user ${userId}${autoExecute ? ` | Auto-executed: ${executionResults.filter(r => r.status === 'executed').length}` : ''}`);
       res.json({
         ...signals,
         generatedAt: new Date().toISOString(),
         strategyMode,
         tradesLearned: brain.totalTradesAnalyzed,
+        autoExecuted: autoExecute,
+        executionResults: executionResults.length > 0 ? executionResults : undefined,
       });
     } catch (error: any) {
       console.error('[VEDD Brain] Autonomous signal error:', error);
