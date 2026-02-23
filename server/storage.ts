@@ -44,7 +44,8 @@ import {
   type AiTradeResult, type InsertAiTradeResult,
   type UserApiKey, type InsertUserApiKey,
   veddPoolWallets, veddTransferJobs, ambassadorActionRewards,
-  internalWallets, withdrawalRequests, aiTradeResults, userApiKeys
+  internalWallets, withdrawalRequests, aiTradeResults, userApiKeys,
+  weeklyStrategies, type WeeklyStrategy
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, sql, desc, isNull } from "drizzle-orm";
@@ -2352,6 +2353,54 @@ export class DatabaseStorage implements IStorage {
       return { ...result, apiKey: decryptApiKey(result.apiKey) };
     }
     return result;
+  }
+  async getActiveWeeklyStrategy(userId: number): Promise<WeeklyStrategy | undefined> {
+    const [result] = await db.select().from(weeklyStrategies)
+      .where(and(eq(weeklyStrategies.userId, userId), eq(weeklyStrategies.isActive, true)))
+      .limit(1);
+    return result;
+  }
+
+  async saveWeeklyStrategy(userId: number, data: any): Promise<WeeklyStrategy> {
+    await db.update(weeklyStrategies)
+      .set({ isActive: false })
+      .where(and(eq(weeklyStrategies.userId, userId), eq(weeklyStrategies.isActive, true)));
+
+    const [result] = await db.insert(weeklyStrategies).values({
+      userId,
+      profitTarget: data.profitTarget,
+      accountBalance: data.accountBalance,
+      pairs: data.pairs,
+      riskLevel: data.riskLevel || 'ai-controlled',
+      lotSize: data.lotSize || 'auto',
+      plan: data.plan,
+      pairStats: data.pairStats || null,
+      generatedAt: data.generatedAt,
+      weekStart: data.weekStart,
+      currentProfit: 0,
+      progressTrades: 0,
+      progressWinRate: 0,
+      progressPercentage: 0,
+      isActive: true,
+    }).returning();
+    return result;
+  }
+
+  async updateWeeklyStrategyProgress(userId: number, progress: { currentProfit: number; progressTrades: number; progressWinRate: number; progressPercentage: number }): Promise<void> {
+    await db.update(weeklyStrategies)
+      .set({
+        currentProfit: progress.currentProfit,
+        progressTrades: progress.progressTrades,
+        progressWinRate: progress.progressWinRate,
+        progressPercentage: progress.progressPercentage,
+      })
+      .where(and(eq(weeklyStrategies.userId, userId), eq(weeklyStrategies.isActive, true)));
+  }
+
+  async deleteWeeklyStrategy(userId: number): Promise<void> {
+    await db.update(weeklyStrategies)
+      .set({ isActive: false })
+      .where(and(eq(weeklyStrategies.userId, userId), eq(weeklyStrategies.isActive, true)));
   }
 }
 

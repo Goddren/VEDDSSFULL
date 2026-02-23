@@ -7299,7 +7299,28 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
   app.get("/api/weekly-strategy", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
-    const strategy = (global as any).mt5WeeklyStrategies[userId];
+    let strategy = (global as any).mt5WeeklyStrategies[userId];
+    if (!strategy) {
+      const dbStrategy = await storage.getActiveWeeklyStrategy(userId);
+      if (dbStrategy) {
+        strategy = {
+          profitTarget: dbStrategy.profitTarget,
+          accountBalance: dbStrategy.accountBalance,
+          pairs: dbStrategy.pairs,
+          riskLevel: dbStrategy.riskLevel,
+          lotSize: dbStrategy.lotSize,
+          plan: dbStrategy.plan,
+          pairStats: dbStrategy.pairStats,
+          generatedAt: dbStrategy.generatedAt,
+          weekStart: dbStrategy.weekStart,
+          currentProfit: dbStrategy.currentProfit || 0,
+          progressTrades: dbStrategy.progressTrades || 0,
+          progressWinRate: dbStrategy.progressWinRate || 0,
+          progressPercentage: dbStrategy.progressPercentage || 0,
+        };
+        (global as any).mt5WeeklyStrategies[userId] = strategy;
+      }
+    }
     if (!strategy) return res.json({ hasStrategy: false });
     res.json({ hasStrategy: true, ...strategy });
   });
@@ -7538,6 +7559,11 @@ Respond with ONLY valid JSON:
       };
 
       (global as any).mt5WeeklyStrategies[userId] = strategy;
+      try {
+        await storage.saveWeeklyStrategy(userId, strategy);
+      } catch (dbErr) {
+        console.error('[Weekly Strategy] DB save error (continuing with in-memory):', dbErr);
+      }
       console.log(`[Weekly Strategy] Generated plan for user ${userId}: $${profitTarget} target across ${pairs.length} pairs`);
       res.json({ hasStrategy: true, ...strategy });
     } catch (error: any) {
@@ -7615,6 +7641,17 @@ Respond with ONLY valid JSON:
     strategy.progressWinRate = winRate;
     strategy.progressPercentage = Math.min(100, Math.max(0, Math.round((closedProfit / strategy.profitTarget) * 100)));
 
+    try {
+      await storage.updateWeeklyStrategyProgress(userId, {
+        currentProfit: strategy.currentProfit,
+        progressTrades: strategy.progressTrades,
+        progressWinRate: strategy.progressWinRate,
+        progressPercentage: strategy.progressPercentage,
+      });
+    } catch (dbErr) {
+      console.error('[Weekly Strategy] DB progress update error:', dbErr);
+    }
+
     res.json({
       currentProfit: strategy.currentProfit,
       progressTrades: tradeCount,
@@ -7669,6 +7706,11 @@ Respond with ONLY valid JSON:
     (global as any).veddSSAILotOverride = (global as any).veddSSAILotOverride || {};
     for (const key of Object.keys((global as any).veddSSAILotOverride)) {
       if (key.startsWith(`${userId}_`)) delete (global as any).veddSSAILotOverride[key];
+    }
+    try {
+      await storage.deleteWeeklyStrategy(userId);
+    } catch (dbErr) {
+      console.error('[Weekly Strategy] DB delete error:', dbErr);
     }
     res.json({ success: true });
   });

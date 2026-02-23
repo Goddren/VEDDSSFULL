@@ -1558,3 +1558,25 @@ export const insertUserApiKeySchema = createInsertSchema(userApiKeys).omit({
 
 export type UserApiKey = typeof userApiKeys.$inferSelect;
 export type InsertUserApiKey = z.infer<typeof insertUserApiKeySchema>;
+
+export const weeklyStrategies = pgTable("weekly_strategies", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  profitTarget: real("profit_target").notNull(),
+  accountBalance: real("account_balance").notNull(),
+  pairs: text("pairs").array().notNull(),
+  riskLevel: text("risk_level").default('ai-controlled'),
+  lotSize: text("lot_size").default('auto'),
+  plan: jsonb("plan").notNull(),
+  pairStats: jsonb("pair_stats"),
+  generatedAt: text("generated_at").notNull(),
+  weekStart: text("week_start").notNull(),
+  currentProfit: real("current_profit").default(0),
+  progressTrades: integer("progress_trades").default(0),
+  progressWinRate: integer("progress_win_rate").default(0),
+  progressPercentage: integer("progress_percentage").default(0),
+  isActive: boolean("is_active").default(true),
+});
+
+export type WeeklyStrategy = typeof weeklyStrategies.$inferSelect;
+export type InsertWeeklyStrategy = typeof weeklyStrategies.$inferInsert;
