@@ -441,6 +441,19 @@ async function processDecision(userId: number, decision: any): Promise<void> {
       return;
     }
 
+    const existingSignals = pendingMT5Signals[userId] || [];
+    const hasPendingForPair = existingSignals.some(
+      s => s.symbol === decision.symbol && s.status === 'pending' && (Date.now() - new Date(s.timestamp).getTime()) < 5 * 60 * 1000
+    );
+    if (hasPendingForPair) {
+      addActivity(userId, {
+        type: 'info',
+        symbol: decision.symbol,
+        message: `Trade skipped - ${decision.symbol} already has a pending signal waiting for MT5 execution`,
+      });
+      return;
+    }
+
     state.signalsGenerated++;
 
     addActivity(userId, {
