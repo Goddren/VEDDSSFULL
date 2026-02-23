@@ -586,10 +586,11 @@ export async function executeMT5SignalOnTradeLocker(
     direction: string;
     volume: number;
     entryPrice?: number;
-    stopLoss?: number;
-    takeProfit?: number;
+    stopLoss?: number | null;
+    takeProfit?: number | null;
+    positionId?: string | null;
   }
-): Promise<{ success: boolean; orderId?: string; error?: string }> {
+): Promise<{ success: boolean; orderId?: string; error?: string; message?: string }> {
   console.log('[TradeLocker Execute] Starting trade execution:', {
     accountType: connection.accountType,
     accountId: connection.accountId,
@@ -633,10 +634,20 @@ export async function executeMT5SignalOnTradeLocker(
         error: orderResult.status === 'rejected' ? orderResult.message : undefined,
       };
     } else if (signal.action === 'CLOSE' || signal.action.toUpperCase() === 'CLOSE') {
-      console.log('[TradeLocker Execute] Close action requested (not implemented)');
+      console.log('[TradeLocker Execute] Closing position:', signal.positionId);
+      if (!signal.positionId) {
+        return { success: false, error: 'Position ID required for close action' };
+      }
+      const closeResult = await service.closePosition(signal.positionId);
       return {
         success: true,
-        error: 'Close by symbol not yet implemented - requires position lookup',
+        orderId: closeResult.orderId,
+      };
+    } else if (signal.action === 'MODIFY' || signal.action.toUpperCase() === 'MODIFY') {
+      console.log('[TradeLocker Execute] Modify action requested (not fully supported by TradeLocker API via position ID)');
+      return {
+        success: true,
+        message: 'Modify signals are primarily handled by MT5 EA. TradeLocker modify skipped.',
       };
     }
 

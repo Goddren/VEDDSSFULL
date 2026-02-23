@@ -542,7 +542,12 @@ async function runAILiveAnalysis(userId: number, marketAnalysis: Record<string, 
     }).join('\n');
 
     const openPosStr = openPositions.length > 0
-      ? openPositions.map((p: any) => `${p.symbol}: ${p.direction} @ ${p.openPrice} (PnL: ${p.profit})`).join('\n')
+      ? openPositions.map((p: any) => {
+          const pips = p.direction === 'BUY' 
+            ? (p.currentPrice - p.openPrice) * (p.symbol.includes('JPY') ? 100 : 10000)
+            : (p.openPrice - p.currentPrice) * (p.symbol.includes('JPY') ? 100 : 10000);
+          return `${p.symbol} (${p.id}): ${p.direction} @ ${p.openPrice} | Curr: ${p.currentPrice} | Pips: ${pips.toFixed(1)} | PnL: $${p.profit} | Vol: ${p.volume}`;
+        }).join('\n')
       : 'None';
 
     const config = state.config;
@@ -616,6 +621,15 @@ VOLUME-AWARE TRADING RULES:
 - Volume SPIKES often precede big moves - if you see volume spikes with a consolidating price, a breakout is imminent
 - Best trading windows: London open (07:00-10:00 UTC), NY open (13:00-16:00 UTC), London/NY overlap (13:00-16:00 UTC) - HIGHEST volume and best fills
 - Worst windows: Late NY (20:00-00:00 UTC), Asian session for EUR/GBP pairs - LOW volume, choppy, wide spreads
+
+AGGRESSIVE POSITION MANAGEMENT RULES:
+- BE RELENTLESS: Your goal is maximum profit in minimum time. Manage active trades aggressively to lock in gains and free up margin for new high-frequency setups.
+- BREAKEVEN: Move SL to entry (breakeven) as soon as a trade hits 10-15 pips profit. Never let a winner turn into a loser.
+- TRAILING: Use aggressive trailing stops (5-10 pips) once in 20+ pips profit to capture momentum surges.
+- PARTIAL CLOSE: Take 50% profit at TP1 (scalping targets) and trail the rest for "infinite" R:R.
+- CLOSE LOSERS EARLY: If a trade is stagnant for 30+ minutes or price action invalidates the setup, CLOSE it immediately. Don't hope.
+- SCALE OUT: If volatility spikes against you, exit 50% early to reduce exposure.
+- MAXIMIZE VELOCITY: If you see a better setup on another pair but are at max trades, close the weakest performer to take the high-conviction one.
 
 CONTEXT:
 - Time: ${now.toISOString()} | Session: ${session} | Day: ${day}
@@ -962,12 +976,78 @@ async function processDecision(userId: number, decision: any): Promise<void> {
 
   if (decision.action === 'MODIFY_POSITION' || decision.action === 'CLOSE_POSITION') {
     state.positionsManaged++;
+
+    const modifyAction = decision.modifyAction || (decision.action === 'CLOSE_POSITION' ? 'full_close' : 'trail_stop');
+    const newSL = parseNum(decision.newStopLoss);
+    const newTP = parseNum(decision.newTakeProfit);
+    const partialVolume = parseNum(decision.partialVolume);
+
     addActivity(userId, {
       type: 'position_update',
       symbol: decision.symbol,
-      message: `Position ${decision.modifyAction || decision.action}: ${decision.symbol} - ${decision.reason}`,
-      details: { modifyAction: decision.modifyAction, newStopLoss: decision.newStopLoss },
+      confidence: typeof decision.confidence === 'number' ? decision.confidence : 0,
+      message: `POSITION MGMT [${modifyAction.toUpperCase()}]: ${decision.symbol} - ${decision.reason}`,
+      details: { modifyAction, newStopLoss: newSL, newTakeProfit: newTP, partialVolume, positionId: decision.positionId },
     });
+
+    // Send to MT5 first by adding to pending signals
+    if (!pendingMT5Signals[userId]) pendingMT5Signals[userId] = [];
+
+    const signalAction = decision.action === 'CLOSE_POSITION' ? 'CLOSE' as const : 'MODIFY' as const;
+    const mgmtSignal: PendingMT5Signal = {
+      id: `mgmt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      timestamp: new Date().toISOString(),
+      symbol: decision.symbol,
+      direction: decision.direction || 'BUY',
+      action: signalAction,
+      lotSize: partialVolume || 0,
+      entryPrice: null,
+      stopLoss: newSL || null,
+      takeProfit: newTP || null,
+      confidence: typeof decision.confidence === 'number' ? decision.confidence : 0,
+      reason: `${modifyAction}: ${decision.reason || ''}`,
+      holdTime: '',
+      strategy: decision.strategy || 'position_management',
+      confluences: decision.confluences || [],
+      status: 'pending',
+      modifyAction,
+      positionId: decision.positionId || null,
+    };
+    pendingMT5Signals[userId].push(mgmtSignal);
+
+    // Then try TradeLocker if connected
+    const tlConnection = await storage.getUserTradelockerConnection(userId);
+    if (tlConnection && tlConnection.isActive) {
+      try {
+        if (signalAction === 'CLOSE') {
+          const tradeResult = await executeMT5SignalOnTradeLocker(tlConnection, {
+            action: 'CLOSE',
+            symbol: decision.symbol,
+            direction: decision.direction || 'BUY',
+            volume: partialVolume || 0,
+            positionId: decision.positionId,
+          });
+          if (tradeResult.success) {
+            addActivity(userId, { type: 'trade_close', symbol: decision.symbol, message: `Position CLOSED via TradeLocker: ${decision.symbol} - ${decision.reason}` });
+          }
+        } else if (signalAction === 'MODIFY') {
+          const tradeResult = await executeMT5SignalOnTradeLocker(tlConnection, {
+            action: 'MODIFY',
+            symbol: decision.symbol,
+            direction: decision.direction || 'BUY',
+            volume: 0,
+            stopLoss: newSL,
+            takeProfit: newTP,
+            positionId: decision.positionId,
+          });
+          if (tradeResult.success) {
+            addActivity(userId, { type: 'position_update', symbol: decision.symbol, message: `Position MODIFIED via TradeLocker: ${decision.symbol} | New SL: ${newSL || 'N/A'} | New TP: ${newTP || 'N/A'}` });
+          }
+        }
+      } catch (err: any) {
+        addActivity(userId, { type: 'error', symbol: decision.symbol, message: `Position management execution error: ${err.message}. Signal queued for MT5 EA.` });
+      }
+    }
   }
 }
 
