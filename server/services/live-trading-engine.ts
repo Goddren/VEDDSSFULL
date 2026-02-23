@@ -262,22 +262,61 @@ CONTEXT:
 - Position management: ${config.enablePositionManagement ? 'ACTIVE' : 'OFF'}
 - IMPORTANT: Market data comes from Twelve Data. User's broker may have slightly different prices (spread, feed differences). Use ZONE-BASED entries rather than exact prices. Set SL/TP as DISTANCES from entry (e.g. 15 pips SL) so the EA can adjust to broker prices automatically.
 
-LIVE ENGINE RULES:
-1. Analyze ALL indicators together - ADX, Stochastic, VWAP, OBV, S/R, Fibonacci, candle patterns, volume
-2. Only signal when multiple indicators CONFIRM the same direction (minimum 3 confluences)
-3. Use brain knowledge to AVOID historically bad setups (wrong hours, wrong sessions, wrong direction bias)
-4. Factor in current open positions - don't overexpose to one pair or correlated pairs
-5. If volatility percentile >80, widen stops. If <20, use tighter targets.
-6. Session context matters - trade pairs during their historically best sessions
-7. Check support/resistance proximity - don't BUY at resistance or SELL at support
-8. Manage existing positions: suggest trailing stop moves, partial closes, or full exits when conditions change
-9. Be a GENIUS - combine all data points like an institutional trader
+TRADING STRATEGY ARSENAL (use ALL that apply to maximize opportunities):
 
-Respond ONLY with valid JSON:
+SCALPING (3-8 pip targets, high frequency):
+- Trade micro-moves on 1min/5min momentum bursts
+- Look for RSI divergence + Stochastic crossovers in overbought/oversold zones
+- Quick entries on VWAP bounces - price touching VWAP and reversing with volume confirmation
+- Tight stops (5-10 pips), fast targets (3-8 pips), high win rate focus
+- Best during high-volume sessions (London, NY overlap)
+
+MOMENTUM SURFING (15-40 pip rides):
+- Catch breakouts from consolidation zones when ADX crosses above 25
+- Ride strong directional moves confirmed by OBV trend alignment
+- Enter on pullbacks to moving averages in trending markets
+- Use trailing stops to let winners run - move SL to breakeven after 15 pips profit
+
+SESSION BREAKOUT STRATEGY:
+- Watch for range breakouts at London open (07:00 UTC), NY open (13:00 UTC), Tokyo open (00:00 UTC)
+- Calculate prior session high/low range, enter on confirmed break with volume
+- Strongest breakouts happen in first 30 minutes of new session
+- Use pre-session range as SL reference, target 1:2 or 1:3 R:R
+
+SNIPER MODE (surgical precision, 2-4 trades):
+- Only take the highest probability setups with 5+ confluences
+- Wait for price at key Fibonacci levels (38.2%, 61.8%) + S/R confluence
+- Candlestick reversal patterns (Engulfing, Morning/Evening Star) at key zones
+- Wider targets, tighter risk - aim for 1:3+ reward-to-risk
+
+AGGRESSIVE COMPOUND GROWTH:
+- Combine ALL strategies above simultaneously across multiple pairs
+- Scale lot sizes up on winning streaks (increase by 25% after 3 consecutive wins)
+- Pyramid into winning positions - add to trades that move 10+ pips in your favor
+- Trade correlated pairs in the same direction when macro trend aligns (e.g., short USD = long EURUSD + GBPUSD)
+- Use partial closes to lock in profit (close 50% at TP1, trail the rest)
+- Re-enter quickly after taking profit if conditions still hold
+
+LIVE ENGINE RULES:
+1. Use ALL strategies simultaneously - scan for scalps, momentum, breakouts, and sniper setups on EVERY scan
+2. Generate MULTIPLE signals per scan when opportunities exist across different pairs
+3. Only signal when multiple indicators CONFIRM the same direction (minimum 2-3 confluences depending on strategy)
+4. Use brain knowledge to AVOID historically bad setups (wrong hours, wrong sessions, wrong direction bias)
+5. Factor in current open positions - diversify across uncorrelated pairs for maximum exposure
+6. If volatility percentile >80, widen stops and increase targets. If <20, use scalping with tight targets
+7. Session context matters - trade pairs during their historically best sessions
+8. Check support/resistance proximity - don't BUY at resistance or SELL at support
+9. Manage existing positions: trail stops aggressively, partial close at TP1, let runners ride
+10. Be AGGRESSIVE but INTELLIGENT - the goal is rapid account growth using every edge available
+11. Scale lot sizes based on confidence: 65-75% = base lot, 75-85% = 1.5x, 85%+ = 2x base lot
+12. Look for RE-ENTRY opportunities after taking profit - the trend may still have legs
+
+Respond ONLY with valid JSON. Generate MULTIPLE decisions when opportunities exist - don't hold back:
 {
   "decisions": [
     {
       "action": "OPEN_TRADE" | "MODIFY_POSITION" | "CLOSE_POSITION" | "NO_ACTION",
+      "strategy": "scalping" | "momentum" | "session_breakout" | "sniper" | "compound",
       "symbol": "EURUSD",
       "direction": "BUY" | "SELL",
       "confidence": 85,
@@ -286,19 +325,22 @@ Respond ONLY with valid JSON:
       "entryPrice": number,
       "stopLoss": number,
       "takeProfit": number,
+      "takeProfit2": number,
       "lotSize": number,
       "holdTime": "5min|15min|1hr|4hr",
       "positionId": "for modify/close actions",
       "modifyAction": "trail_stop|move_sl|partial_close|full_close",
       "newStopLoss": number,
-      "urgency": "IMMEDIATE" | "WAIT_FOR_PULLBACK" | "MONITORING"
+      "urgency": "IMMEDIATE" | "WAIT_FOR_PULLBACK" | "MONITORING",
+      "pyramidOf": "signal ID if adding to existing winning trade"
     }
   ],
   "marketOverview": "Current market read across all pairs",
   "hotPairs": ["pairs showing strongest signals right now"],
   "dangerZones": ["pairs or setups to avoid and why"],
   "nextScanFocus": "What to focus on in the next scan cycle",
-  "engineConfidence": 0-100
+  "engineConfidence": 0-100,
+  "activeStrategies": ["which strategies found setups this scan"]
 }`;
 
     const modelToUse = model.startsWith('gpt') ? model : 'gpt-4o-mini';
@@ -307,12 +349,12 @@ Respond ONLY with valid JSON:
     const response = await openai.chat.completions.create({
       model: modelToUse,
       messages: [
-        { role: 'system', content: 'You are VEDD SS AI - a live autonomous trading engine operating in real-time. Analyze market data with institutional precision. Every decision impacts real money. Be surgical. Respond with valid JSON only.' },
+        { role: 'system', content: 'You are VEDD SS AI - a live autonomous HIGH-FREQUENCY trading engine built for RAPID ACCOUNT GROWTH. Use every strategy in your arsenal simultaneously: scalping, momentum surfing, session breakouts, sniper setups, and aggressive compounding. Generate MULTIPLE trade signals per scan when opportunities exist across different pairs and strategies. Be aggressive but intelligent - maximize trade frequency while maintaining edge. Respond with valid JSON only.' },
         { role: 'user', content: prompt },
       ],
       ...(supportsJson ? { response_format: { type: 'json_object' } } : {}),
-      max_tokens: 3000,
-      temperature: 0.2,
+      max_tokens: 4000,
+      temperature: 0.3,
     });
 
     const content = response.choices[0]?.message?.content || '';
@@ -404,12 +446,15 @@ async function processDecision(userId: number, decision: any): Promise<void> {
       symbol: decision.symbol,
       direction: decision.direction,
       confidence,
-      message: `LIVE SIGNAL: ${decision.direction} ${decision.symbol} @ ${confidence}% confidence`,
+      message: `LIVE SIGNAL [${(decision.strategy || 'auto').toUpperCase()}]: ${decision.direction} ${decision.symbol} @ ${confidence}% confidence`,
       details: {
+        strategy: decision.strategy,
         confluences: decision.confluences,
         reason: decision.reason,
         urgency: decision.urgency,
         holdTime: decision.holdTime,
+        takeProfit2: decision.takeProfit2,
+        pyramidOf: decision.pyramidOf,
       },
     });
 
