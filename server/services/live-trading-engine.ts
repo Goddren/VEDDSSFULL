@@ -2,6 +2,133 @@ import { marketDataService } from '../market-data/service';
 import { executeMT5SignalOnTradeLocker } from '../tradelocker';
 import { computeAllAdvancedIndicators, type CandleData } from '../indicators';
 import { storage } from '../storage';
+import { newsService } from '../news-service';
+
+interface VolumeMetrics {
+  currentVolume: number;
+  avgVolume: number;
+  relativeVolume: number;
+  volumeTrend: 'surging' | 'above_average' | 'average' | 'below_average' | 'dry';
+  volumeSpikes: number;
+  isHighActivity: boolean;
+}
+
+function computeVolumeMetrics(bars: Array<{ volume: number }>): VolumeMetrics {
+  if (!bars || bars.length < 5) {
+    return { currentVolume: 0, avgVolume: 0, relativeVolume: 0, volumeTrend: 'below_average', volumeSpikes: 0, isHighActivity: false };
+  }
+
+  const volumes = bars.map(b => b.volume);
+  const currentVolume = volumes[volumes.length - 1] || 0;
+  const avgVolume = volumes.reduce((a, b) => a + b, 0) / volumes.length;
+  const relativeVolume = avgVolume > 0 ? Math.round((currentVolume / avgVolume) * 100) / 100 : 1;
+
+  const stdDev = Math.sqrt(volumes.reduce((sum, v) => sum + Math.pow(v - avgVolume, 2), 0) / volumes.length);
+  const spikeThreshold = avgVolume + 2 * stdDev;
+  const volumeSpikes = volumes.filter(v => v > spikeThreshold).length;
+
+  const recentAvg = volumes.slice(-5).reduce((a, b) => a + b, 0) / 5;
+  const olderAvg = volumes.slice(0, -5).reduce((a, b) => a + b, 0) / Math.max(volumes.length - 5, 1);
+  const volumeRatio = olderAvg > 0 ? recentAvg / olderAvg : 1;
+
+  let volumeTrend: VolumeMetrics['volumeTrend'] = 'average';
+  if (relativeVolume >= 2.0 || volumeRatio >= 1.8) volumeTrend = 'surging';
+  else if (relativeVolume >= 1.3) volumeTrend = 'above_average';
+  else if (relativeVolume <= 0.5) volumeTrend = 'dry';
+  else if (relativeVolume <= 0.7) volumeTrend = 'below_average';
+
+  return {
+    currentVolume,
+    avgVolume: Math.round(avgVolume),
+    relativeVolume,
+    volumeTrend,
+    volumeSpikes,
+    isHighActivity: relativeVolume >= 1.3,
+  };
+}
+
+interface NewsContext {
+  headlines: string[];
+  economicEvents: string[];
+  highImpactSoon: boolean;
+  marketSentiment: string;
+  tradingWindowWarning: string | null;
+}
+
+async function fetchNewsContext(pairs: string[]): Promise<NewsContext> {
+  const context: NewsContext = {
+    headlines: [],
+    economicEvents: [],
+    highImpactSoon: false,
+    marketSentiment: 'neutral',
+    tradingWindowWarning: null,
+  };
+
+  try {
+    if (!newsService.isInitialized()) {
+      newsService.initialize();
+    }
+
+    const [marketNews, calendar] = await Promise.all([
+      newsService.fetchMarketNews('forex').catch(() => []),
+      newsService.fetchEconomicCalendar(1).catch(() => []),
+    ]);
+
+    if (marketNews && marketNews.length > 0) {
+      context.headlines = marketNews.slice(0, 8).map((n: any) => n.headline);
+
+      let bullish = 0, bearish = 0;
+      for (const n of marketNews.slice(0, 10)) {
+        const h = (n.headline || '').toLowerCase();
+        if (h.includes('rally') || h.includes('surge') || h.includes('gain') || h.includes('rise') || h.includes('bullish') || h.includes('boost')) bullish++;
+        if (h.includes('fall') || h.includes('drop') || h.includes('crash') || h.includes('bear') || h.includes('decline') || h.includes('slump')) bearish++;
+      }
+      context.marketSentiment = bullish > bearish + 1 ? 'bullish' : bearish > bullish + 1 ? 'bearish' : 'neutral';
+    }
+
+    if (calendar && calendar.length > 0) {
+      const now = Date.now();
+      const twoHoursMs = 2 * 60 * 60 * 1000;
+
+      const relevantCurrencies = new Set<string>();
+      for (const pair of pairs) {
+        relevantCurrencies.add(pair.substring(0, 3));
+        relevantCurrencies.add(pair.substring(3, 6));
+      }
+
+      for (const event of calendar) {
+        const eventCurrency = (event.currency || '').toUpperCase();
+        const isRelevant = relevantCurrencies.has(eventCurrency) || eventCurrency === 'USD';
+        if (!isRelevant && event.impact !== 'high') continue;
+
+        const eventStr = `[${event.impact?.toUpperCase() || 'LOW'}] ${event.country || ''} ${event.event || ''} (${event.time || 'TBD'})${event.forecast ? ` F:${event.forecast}` : ''}${event.previous ? ` P:${event.previous}` : ''}`;
+        context.economicEvents.push(eventStr);
+
+        if (event.impact === 'high') {
+          const timeStr = event.time || '';
+          if (timeStr) {
+            const [h, m] = timeStr.split(':').map(Number);
+            if (!isNaN(h) && h >= 0 && h <= 23) {
+              const today = new Date();
+              const eventDate = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), h, m || 0, 0, 0));
+              const diff = eventDate.getTime() - now;
+              if (diff > -5 * 60000 && diff < twoHoursMs) {
+                context.highImpactSoon = true;
+                const minsAway = Math.round(diff / 60000);
+                context.tradingWindowWarning = `HIGH IMPACT EVENT ${minsAway > 0 ? `in ${minsAway} minutes` : 'HAPPENING NOW'}: ${event.event} (${eventCurrency}). Consider widening stops or avoiding new entries for affected pairs.`;
+              }
+            }
+          }
+        }
+      }
+      context.economicEvents = context.economicEvents.slice(0, 12);
+    }
+  } catch (err) {
+    console.log('News context fetch error (non-fatal):', (err as any)?.message);
+  }
+
+  return context;
+}
 
 interface LiveEngineConfig {
   userId: number;
@@ -309,6 +436,8 @@ async function scanMarkets(userId: number): Promise<void> {
         const rsi = indicators.stochastic?.k || 50;
         const atr = indicators.volatilityContext?.currentATR || 0;
 
+        const volumeMetrics = computeVolumeMetrics(result.bars);
+
         state.marketSnapshot[symbol] = {
           price: currentPrice,
           change: Math.round(change * 100) / 100,
@@ -334,6 +463,7 @@ async function scanMarkets(userId: number): Promise<void> {
           volatilityContext: indicators.volatilityContext,
           volumeProfile: indicators.volumeProfile,
           swingPoints: indicators.swingPoints,
+          volumeMetrics,
         };
 
         await new Promise(r => setTimeout(r, 8500));
@@ -349,9 +479,24 @@ async function scanMarkets(userId: number): Promise<void> {
       return;
     }
 
-    addActivity(userId, { type: 'info', message: `Market data collected for ${analyzedPairs.length} pairs. Running AI analysis...` });
+    addActivity(userId, { type: 'info', message: `Market data collected for ${analyzedPairs.length} pairs. Fetching news & volume context...` });
 
-    await runAILiveAnalysis(userId, marketAnalysis, brain);
+    const newsContext = await fetchNewsContext(pairsToScan);
+    if (newsContext.tradingWindowWarning) {
+      addActivity(userId, { type: 'info', message: `⚠ ${newsContext.tradingWindowWarning}` });
+    }
+    if (newsContext.headlines.length > 0) {
+      addActivity(userId, { type: 'info', message: `News sentiment: ${newsContext.marketSentiment.toUpperCase()} | ${newsContext.headlines.length} headlines | ${newsContext.economicEvents.length} upcoming events` });
+    }
+
+    const volumeSummary = Object.entries(marketAnalysis)
+      .filter(([_, d]: [string, any]) => d.volumeMetrics?.isHighActivity)
+      .map(([sym]: [string, any]) => sym);
+    if (volumeSummary.length > 0) {
+      addActivity(userId, { type: 'info', message: `High volume detected: ${volumeSummary.join(', ')}` });
+    }
+
+    await runAILiveAnalysis(userId, marketAnalysis, brain, newsContext);
 
   } catch (err: any) {
     addActivity(userId, { type: 'error', message: `Scan cycle error: ${err.message}` });
@@ -360,7 +505,7 @@ async function scanMarkets(userId: number): Promise<void> {
   }
 }
 
-async function runAILiveAnalysis(userId: number, marketAnalysis: Record<string, any>, brain: any): Promise<void> {
+async function runAILiveAnalysis(userId: number, marketAnalysis: Record<string, any>, brain: any, newsContext?: NewsContext): Promise<void> {
   const state = engineStates[userId];
   if (!state) return;
 
@@ -392,7 +537,8 @@ async function runAILiveAnalysis(userId: number, marketAnalysis: Record<string, 
       const sr = data.supportResistance;
       const fib = data.fibonacci;
       const vol = data.volatilityContext;
-      return `${sym}: Price=${data.currentPrice}, Trend=${data.trend}, ADX=${data.adx?.adx?.toFixed(1) || 'N/A'}, Stoch K=${data.stochastic?.k?.toFixed(1) || 'N/A'} D=${data.stochastic?.d?.toFixed(1) || 'N/A'}, VWAP=${data.vwap?.value?.toFixed(5) || 'N/A'}, OBV Trend=${data.obv?.trend || 'N/A'}, Patterns=[${(data.candlePatterns || []).join(',')}], Session=${data.sessionContext?.currentSession || 'N/A'}, Volatility=${vol?.percentile?.toFixed(0) || 'N/A'}%, Support=${sr?.supports?.[0]?.toFixed(5) || 'N/A'}, Resistance=${sr?.resistances?.[0]?.toFixed(5) || 'N/A'}, Fib 38.2%=${fib?.retracementLevels?.['38.2']?.toFixed(5) || 'N/A'}`;
+      const vm = data.volumeMetrics as VolumeMetrics | undefined;
+      return `${sym}: Price=${data.currentPrice}, Trend=${data.trend}, ADX=${data.adx?.adx?.toFixed(1) || 'N/A'}, Stoch K=${data.stochastic?.k?.toFixed(1) || 'N/A'} D=${data.stochastic?.d?.toFixed(1) || 'N/A'}, VWAP=${data.vwap?.value?.toFixed(5) || 'N/A'}, OBV Trend=${data.obv?.trend || 'N/A'}, Patterns=[${(data.candlePatterns || []).join(',')}], Session=${data.sessionContext?.currentSession || 'N/A'}, Volatility=${vol?.percentile?.toFixed(0) || 'N/A'}%, Support=${sr?.supports?.[0]?.toFixed(5) || 'N/A'}, Resistance=${sr?.resistances?.[0]?.toFixed(5) || 'N/A'}, Fib 38.2%=${fib?.retracementLevels?.['38.2']?.toFixed(5) || 'N/A'}, Volume=${vm ? `RelVol=${vm.relativeVolume}x (${vm.volumeTrend}), Spikes=${vm.volumeSpikes}` : 'N/A'}`;
     }).join('\n');
 
     const openPosStr = openPositions.length > 0
@@ -444,6 +590,33 @@ ${brainInsights}
 PAIR-SPECIFIC KNOWLEDGE:
 ${pairKnowledge}
 ${goalSection}
+REAL-TIME NEWS & MARKET SENTIMENT:
+${newsContext && newsContext.headlines.length > 0 ? `Market Sentiment: ${newsContext.marketSentiment.toUpperCase()}
+Recent Headlines:
+${newsContext.headlines.map(h => `- ${h}`).join('\n')}` : 'No live news data available - trade based on technicals only'}
+
+ECONOMIC CALENDAR (upcoming events affecting your pairs):
+${newsContext && newsContext.economicEvents.length > 0 ? newsContext.economicEvents.join('\n') : 'No major events detected'}
+${newsContext?.highImpactSoon ? `\n*** WARNING: ${newsContext.tradingWindowWarning} ***` : ''}
+
+NEWS-AWARE TRADING RULES:
+- BEFORE high-impact news (NFP, CPI, FOMC, rate decisions): AVOID opening new positions on affected currency pairs within 30 min of the event. Widen stops on existing positions or close them
+- AFTER high-impact news: Wait for the initial spike to settle (5-10 min), then trade the follow-through direction with momentum strategy
+- If market sentiment is BULLISH: favor BUY setups on correlated pairs, tighten risk on SELL trades
+- If market sentiment is BEARISH: favor SELL setups, tighten risk on BUY trades
+- If sentiment is NEUTRAL or no news: trade purely on technicals
+
+VOLUME-AWARE TRADING RULES:
+- SURGING volume (RelVol 2x+): PRIORITY pairs - breakouts and momentum moves are most reliable here. Increase lot sizes on these pairs
+- ABOVE AVERAGE volume (RelVol 1.3x+): Good trading conditions. Use standard strategies
+- AVERAGE volume: Normal conditions. Focus on higher-confluence setups
+- BELOW AVERAGE volume (RelVol <0.7x): REDUCE activity on these pairs. Tighter stops, smaller lots. Avoid breakout strategies - they fail in low volume
+- DRY volume (RelVol <0.5x): AVOID trading these pairs entirely unless sniper setup with 5+ confluences. Low volume = fake breakouts, poor fills, wide spreads
+- UNKNOWN volume (RelVol=0): Insufficient data - treat as BELOW AVERAGE. Do NOT use aggressive strategies on these pairs
+- Volume SPIKES often precede big moves - if you see volume spikes with a consolidating price, a breakout is imminent
+- Best trading windows: London open (07:00-10:00 UTC), NY open (13:00-16:00 UTC), London/NY overlap (13:00-16:00 UTC) - HIGHEST volume and best fills
+- Worst windows: Late NY (20:00-00:00 UTC), Asian session for EUR/GBP pairs - LOW volume, choppy, wide spreads
+
 CONTEXT:
 - Time: ${now.toISOString()} | Session: ${session} | Day: ${day}
 - Strategy: ${config.strategyMode.toUpperCase()} | Min Confidence: ${config.minConfidence}%
@@ -507,6 +680,9 @@ LIVE ENGINE RULES:
 11. COMPOUND ON WINS: After consecutive wins, increase lot size using compound multiplier. After losses, reduce to protect gains
 12. Look for RE-ENTRY opportunities after taking profit - the trend may still have legs
 13. THINK IN DOLLAR TARGETS: Each scalp at ${adjustedBaseLot} lots = ~$${(adjustedBaseLot * 3).toFixed(2)}-$${(adjustedBaseLot * 8).toFixed(2)} profit. Need ~${dailyTarget > 0 ? Math.ceil(dailyTarget / (adjustedBaseLot * 5)) : 'N/A'} wins/day at avg $${(adjustedBaseLot * 5).toFixed(2)}/trade to hit daily target
+14. NEWS-FIRST: Check the news headlines and economic calendar BEFORE entering. If a high-impact event is imminent on a currency, SKIP that pair or close existing positions. Trade WITH news sentiment, not against it
+15. VOLUME-FIRST: Prioritize pairs with SURGING or ABOVE_AVERAGE relative volume. AVOID pairs with DRY volume. Volume confirms price action - no volume = unreliable signals
+16. OPTIMAL TIMING: During London/NY overlap (13:00-16:00 UTC) be MOST aggressive. During Asian session, focus only on JPY/AUD pairs. During low-volume windows, reduce position sizes by 50% or skip entirely
 
 Respond ONLY with valid JSON. Generate MULTIPLE decisions when opportunities exist - don't hold back:
 {
@@ -537,7 +713,10 @@ Respond ONLY with valid JSON. Generate MULTIPLE decisions when opportunities exi
   "dangerZones": ["pairs or setups to avoid and why"],
   "nextScanFocus": "What to focus on in the next scan cycle",
   "engineConfidence": 0-100,
-  "activeStrategies": ["which strategies found setups this scan"]
+  "activeStrategies": ["which strategies found setups this scan"],
+  "newsImpact": "how current news is affecting trading decisions",
+  "volumeAssessment": "overall market volume quality and which pairs have best liquidity",
+  "tradingWindowQuality": "excellent|good|fair|poor - based on session time + volume + news"
 }`;
 
     const modelToUse = model.startsWith('gpt') ? model : 'gpt-4o-mini';
@@ -546,7 +725,7 @@ Respond ONLY with valid JSON. Generate MULTIPLE decisions when opportunities exi
     const response = await openai.chat.completions.create({
       model: modelToUse,
       messages: [
-        { role: 'system', content: 'You are VEDD SS AI - a live autonomous HIGH-FREQUENCY trading engine built for RAPID ACCOUNT GROWTH. Use every strategy in your arsenal simultaneously: scalping, momentum surfing, session breakouts, sniper setups, and aggressive compounding. Generate MULTIPLE trade signals per scan when opportunities exist across different pairs and strategies. Be aggressive but intelligent - maximize trade frequency while maintaining edge. Respond with valid JSON only.' },
+        { role: 'system', content: 'You are VEDD SS AI - a live autonomous HIGH-FREQUENCY trading engine built for RAPID ACCOUNT GROWTH. Use every strategy in your arsenal simultaneously: scalping, momentum surfing, session breakouts, sniper setups, and aggressive compounding. Generate MULTIPLE trade signals per scan when opportunities exist across different pairs and strategies. Be aggressive but intelligent - maximize trade frequency while maintaining edge. CRITICAL: Always factor in NEWS events and VOLUME levels before entering trades. Avoid pairs with upcoming high-impact news. Prioritize pairs with strong volume. Trade during optimal market hours for best fills. Respond with valid JSON only.' },
         { role: 'user', content: prompt },
       ],
       ...(supportsJson ? { response_format: { type: 'json_object' } } : {}),
@@ -567,15 +746,19 @@ Respond ONLY with valid JSON. Generate MULTIPLE decisions when opportunities exi
       }
     }
 
+    const windowQuality = decisions.tradingWindowQuality || 'N/A';
     addActivity(userId, {
       type: 'ai_decision',
-      message: `AI Analysis Complete | Engine Confidence: ${decisions.engineConfidence || 'N/A'}% | ${decisions.decisions?.length || 0} decisions`,
+      message: `AI Analysis Complete | Confidence: ${decisions.engineConfidence || 'N/A'}% | Window: ${windowQuality} | ${decisions.decisions?.length || 0} decisions`,
       details: {
         marketOverview: decisions.marketOverview,
         hotPairs: decisions.hotPairs,
         dangerZones: decisions.dangerZones,
         nextScanFocus: decisions.nextScanFocus,
         engineConfidence: decisions.engineConfidence,
+        newsImpact: decisions.newsImpact,
+        volumeAssessment: decisions.volumeAssessment,
+        tradingWindowQuality: windowQuality,
       },
     });
 
