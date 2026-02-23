@@ -538,27 +538,25 @@ async function processDecision(userId: number, decision: any): Promise<void> {
       if (tradeResult.success) {
         state.tradesExecuted++;
         state.openPositionCount++;
-        mt5Signal.status = 'executed';
         addActivity(userId, {
           type: 'trade_open',
           symbol: decision.symbol,
           direction: decision.direction,
           confidence,
-          message: `TRADE EXECUTED: ${decision.direction} ${decision.symbol} | Lot: ${lotSize} | SL: ${stopLoss || 'N/A'} | TP: ${takeProfit || 'N/A'} | Order: ${tradeResult.orderId}`,
+          message: `TRADE EXECUTED via TradeLocker: ${decision.direction} ${decision.symbol} | Lot: ${lotSize} | SL: ${stopLoss || 'N/A'} | TP: ${takeProfit || 'N/A'} | Order: ${tradeResult.orderId}`,
           details: { orderId: tradeResult.orderId, lotSize, stopLoss, takeProfit, confluences: decision.confluences },
         });
       } else {
         state.tradesFailed++;
-        mt5Signal.status = 'rejected';
         addActivity(userId, {
           type: 'error',
           symbol: decision.symbol,
-          message: `Trade FAILED: ${decision.direction} ${decision.symbol} - ${tradeResult.error}`,
+          message: `TradeLocker execution failed: ${decision.direction} ${decision.symbol} - ${tradeResult.error}. Signal still available for MT5 EA.`,
         });
       }
     } catch (err: any) {
       state.tradesFailed++;
-      addActivity(userId, { type: 'error', symbol: decision.symbol, message: `Execution error: ${err.message}` });
+      addActivity(userId, { type: 'error', symbol: decision.symbol, message: `Execution error: ${err.message}. Signal still available for MT5 EA.` });
     }
   }
 
