@@ -188,6 +188,56 @@ export default function WeeklyStrategyPage() {
     },
   });
 
+  const [liveEngineTab, setLiveEngineTab] = useState<'activity' | 'config' | 'market'>('activity');
+  const [enginePairs, setEnginePairs] = useState<string[]>(['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'BTCUSD']);
+  const [engineMode, setEngineMode] = useState('aggressive');
+  const [engineMinConf, setEngineMinConf] = useState(65);
+  const [engineMaxTrades, setEngineMaxTrades] = useState(5);
+  const [engineInterval, setEngineInterval] = useState(60);
+
+  const { data: liveEngineStatus, refetch: refetchEngine } = useQuery<any>({
+    queryKey: ['/api/vedd-live-engine/status'],
+    refetchInterval: 5000,
+  });
+
+  const { data: liveEngineActivityData, refetch: refetchActivity } = useQuery<any>({
+    queryKey: ['/api/vedd-live-engine/activity'],
+    refetchInterval: 5000,
+    enabled: liveEngineStatus?.status === 'running',
+  });
+
+  const startEngineMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest('POST', '/api/vedd-live-engine/start', {
+        pairs: enginePairs,
+        strategyMode: engineMode,
+        scanIntervalMs: engineInterval * 1000,
+        maxOpenTrades: engineMaxTrades,
+        minConfidence: engineMinConf,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/vedd-live-engine/status'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/vedd-live-engine/activity'] });
+      toast({ title: "VEDD AI Live Engine ACTIVATED", description: "AI is now monitoring markets and trading in real-time" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Engine Start Failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const stopEngineMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest('POST', '/api/vedd-live-engine/stop', {});
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/vedd-live-engine/status'] });
+      toast({ title: "Live Engine Stopped" });
+    },
+  });
+
   const [shareOpen, setShareOpen] = useState(false);
   const [shareCardUrl, setShareCardUrl] = useState<string | null>(null);
   const [sharePost, setSharePost] = useState('');
@@ -351,6 +401,258 @@ export default function WeeklyStrategyPage() {
                       disabled={toggleLiveMutation.isPending || !strategy?.hasStrategy}
                     />
                   </div>
+                </CardContent>
+              </Card>
+            </motion.div>
+
+            {/* VEDD AI LIVE TRADING ENGINE */}
+            <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
+              <Card className={`border-2 transition-all duration-500 ${
+                liveEngineStatus?.status === 'running'
+                  ? 'border-cyan-500/60 bg-gradient-to-r from-cyan-950/30 to-blue-950/30 shadow-lg shadow-cyan-500/10'
+                  : 'border-gray-700/40 bg-gray-900/30'
+              }`}>
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className={`p-2.5 rounded-xl ${liveEngineStatus?.status === 'running' ? 'bg-cyan-500/20' : 'bg-gray-800/60'}`}>
+                        <Activity className={`w-6 h-6 ${liveEngineStatus?.status === 'running' ? 'text-cyan-400 animate-pulse' : 'text-gray-500'}`} />
+                      </div>
+                      <div>
+                        <CardTitle className="text-lg flex items-center gap-2">
+                          <span className={liveEngineStatus?.status === 'running' ? 'text-cyan-400' : 'text-gray-400'}>VEDD AI Live Engine</span>
+                          {liveEngineStatus?.status === 'running' && (
+                            <Badge className="bg-cyan-500/20 text-cyan-400 border-cyan-500/30 text-[10px] animate-pulse">LIVE</Badge>
+                          )}
+                          {liveEngineStatus?.currentlyScanning && (
+                            <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30 text-[10px]">
+                              <Loader2 className="w-3 h-3 mr-1 animate-spin" />SCANNING
+                            </Badge>
+                          )}
+                        </CardTitle>
+                        <CardDescription className="text-gray-500">
+                          {liveEngineStatus?.status === 'running'
+                            ? `Monitoring markets in real-time | ${liveEngineStatus.scanCount || 0} scans | ${liveEngineStatus.tradesExecuted || 0} trades executed`
+                            : 'Start the AI engine to monitor live markets and auto-trade'}
+                        </CardDescription>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {liveEngineStatus?.status === 'running' ? (
+                        <Button size="sm" variant="destructive" onClick={() => stopEngineMutation.mutate()} disabled={stopEngineMutation.isPending}
+                          className="gap-1">
+                          <XCircle className="w-4 h-4" /> Stop
+                        </Button>
+                      ) : (
+                        <Button size="sm" onClick={() => startEngineMutation.mutate()} disabled={startEngineMutation.isPending}
+                          className="gap-1 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500">
+                          {startEngineMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+                          Launch Engine
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="pt-0 space-y-4">
+                  {liveEngineStatus?.status === 'running' && (
+                    <>
+                      <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+                        {[
+                          { label: 'Scans', value: liveEngineStatus.scanCount || 0, icon: <RefreshCw className="w-3 h-3" />, color: 'text-blue-400' },
+                          { label: 'Signals', value: liveEngineStatus.signalsGenerated || 0, icon: <Radio className="w-3 h-3" />, color: 'text-purple-400' },
+                          { label: 'Executed', value: liveEngineStatus.tradesExecuted || 0, icon: <CheckCircle className="w-3 h-3" />, color: 'text-green-400' },
+                          { label: 'Failed', value: liveEngineStatus.tradesFailed || 0, icon: <XCircle className="w-3 h-3" />, color: 'text-red-400' },
+                          { label: 'Open Pos', value: liveEngineStatus.openPositionCount || 0, icon: <Target className="w-3 h-3" />, color: 'text-yellow-400' },
+                        ].map((stat) => (
+                          <div key={stat.label} className="bg-gray-800/50 rounded-lg p-2 text-center">
+                            <div className={`text-lg font-bold ${stat.color} flex items-center justify-center gap-1`}>
+                              {stat.icon} {stat.value}
+                            </div>
+                            <div className="text-[10px] text-gray-500">{stat.label}</div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="flex gap-1 border-b border-gray-700/50">
+                        {(['activity', 'market', 'config'] as const).map(tab => (
+                          <button key={tab} onClick={() => setLiveEngineTab(tab)}
+                            className={`px-3 py-1.5 text-xs font-medium rounded-t transition-colors ${
+                              liveEngineTab === tab ? 'bg-gray-800 text-cyan-400 border-b-2 border-cyan-400' : 'text-gray-500 hover:text-gray-300'
+                            }`}>
+                            {tab === 'activity' ? 'Live Feed' : tab === 'market' ? 'Market Data' : 'Settings'}
+                          </button>
+                        ))}
+                      </div>
+
+                      {liveEngineTab === 'activity' && (
+                        <div className="max-h-[300px] overflow-y-auto space-y-1 pr-1 scrollbar-thin">
+                          {(liveEngineActivityData?.activity || []).length === 0 ? (
+                            <div className="text-center py-6 text-gray-500 text-sm">
+                              <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2" />
+                              Waiting for first scan...
+                            </div>
+                          ) : (
+                            (liveEngineActivityData?.activity || []).map((act: any) => (
+                              <div key={act.id} className={`px-3 py-2 rounded-lg text-xs flex items-start gap-2 ${
+                                act.type === 'trade_open' ? 'bg-green-500/10 border border-green-500/20' :
+                                act.type === 'trade_close' ? 'bg-blue-500/10 border border-blue-500/20' :
+                                act.type === 'signal' ? 'bg-purple-500/10 border border-purple-500/20' :
+                                act.type === 'ai_decision' ? 'bg-cyan-500/10 border border-cyan-500/20' :
+                                act.type === 'error' ? 'bg-red-500/10 border border-red-500/20' :
+                                'bg-gray-800/30 border border-gray-700/20'
+                              }`}>
+                                <div className="flex-shrink-0 mt-0.5">
+                                  {act.type === 'trade_open' ? <CheckCircle className="w-3.5 h-3.5 text-green-400" /> :
+                                   act.type === 'signal' ? <Radio className="w-3.5 h-3.5 text-purple-400" /> :
+                                   act.type === 'ai_decision' ? <Brain className="w-3.5 h-3.5 text-cyan-400" /> :
+                                   act.type === 'error' ? <AlertCircle className="w-3.5 h-3.5 text-red-400" /> :
+                                   act.type === 'scan' ? <RefreshCw className="w-3.5 h-3.5 text-blue-400" /> :
+                                   <Activity className="w-3.5 h-3.5 text-gray-400" />}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    {act.symbol && <Badge variant="outline" className="text-[9px] px-1 py-0 border-gray-600">{act.symbol}</Badge>}
+                                    {act.direction && (
+                                      <Badge className={`text-[9px] px-1 py-0 ${act.direction === 'BUY' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+                                        {act.direction}
+                                      </Badge>
+                                    )}
+                                    {act.confidence && <span className="text-yellow-400 text-[9px]">{act.confidence}%</span>}
+                                  </div>
+                                  <p className={`mt-0.5 leading-tight ${
+                                    act.type === 'error' ? 'text-red-300' : act.type === 'trade_open' ? 'text-green-300' : 'text-gray-300'
+                                  }`}>{act.message}</p>
+                                  {act.details?.confluences && (
+                                    <div className="mt-1 flex flex-wrap gap-1">
+                                      {act.details.confluences.slice(0, 3).map((c: string, ci: number) => (
+                                        <span key={ci} className="text-[8px] bg-gray-700/50 text-gray-400 px-1.5 py-0.5 rounded">{c}</span>
+                                      ))}
+                                    </div>
+                                  )}
+                                  {act.details?.marketOverview && (
+                                    <p className="mt-1 text-[10px] text-cyan-300/80 italic">{act.details.marketOverview}</p>
+                                  )}
+                                </div>
+                                <span className="text-[9px] text-gray-600 flex-shrink-0 whitespace-nowrap">
+                                  {new Date(act.timestamp).toLocaleTimeString()}
+                                </span>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      )}
+
+                      {liveEngineTab === 'market' && (
+                        <div className="space-y-1">
+                          {Object.keys(liveEngineStatus.marketSnapshot || {}).length === 0 ? (
+                            <div className="text-center py-6 text-gray-500 text-sm">No market data yet. Waiting for first scan...</div>
+                          ) : (
+                            Object.entries(liveEngineStatus.marketSnapshot || {}).map(([sym, data]: [string, any]) => (
+                              <div key={sym} className="flex items-center justify-between px-3 py-2 bg-gray-800/30 rounded-lg">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-white font-mono text-sm font-bold">{sym}</span>
+                                  <Badge className={`text-[9px] ${
+                                    data.trend === 'BULLISH' ? 'bg-green-500/20 text-green-400' :
+                                    data.trend === 'BEARISH' ? 'bg-red-500/20 text-red-400' :
+                                    'bg-gray-500/20 text-gray-400'
+                                  }`}>{data.trend}</Badge>
+                                </div>
+                                <div className="flex items-center gap-4 text-xs">
+                                  <span className="text-white font-mono">{data.price?.toFixed(data.price > 100 ? 2 : 5)}</span>
+                                  <span className={data.change >= 0 ? 'text-green-400' : 'text-red-400'}>
+                                    {data.change >= 0 ? '+' : ''}{data.change}%
+                                  </span>
+                                  <span className="text-gray-500">RSI: {data.rsi}</span>
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      )}
+
+                      {liveEngineTab === 'config' && (
+                        <div className="grid grid-cols-2 gap-3 text-xs">
+                          <div>
+                            <Label className="text-gray-400 text-xs">Strategy</Label>
+                            <div className="mt-1 text-white font-medium">{liveEngineStatus.config?.strategyMode?.toUpperCase()}</div>
+                          </div>
+                          <div>
+                            <Label className="text-gray-400 text-xs">Scan Interval</Label>
+                            <div className="mt-1 text-white font-medium">{(liveEngineStatus.config?.scanIntervalMs || 60000) / 1000}s</div>
+                          </div>
+                          <div>
+                            <Label className="text-gray-400 text-xs">Min Confidence</Label>
+                            <div className="mt-1 text-white font-medium">{liveEngineStatus.config?.minConfidence || 65}%</div>
+                          </div>
+                          <div>
+                            <Label className="text-gray-400 text-xs">Max Open Trades</Label>
+                            <div className="mt-1 text-white font-medium">{liveEngineStatus.config?.maxOpenTrades || 5}</div>
+                          </div>
+                          <div className="col-span-2">
+                            <Label className="text-gray-400 text-xs">Pairs</Label>
+                            <div className="mt-1 flex flex-wrap gap-1">
+                              {(liveEngineStatus.config?.pairs || []).map((p: string) => (
+                                <Badge key={p} variant="outline" className="text-[10px] text-cyan-400 border-cyan-500/30">{p}</Badge>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="col-span-2">
+                            <Label className="text-gray-400 text-xs">Started</Label>
+                            <div className="mt-1 text-white font-medium text-[11px]">{liveEngineStatus.startedAt ? new Date(liveEngineStatus.startedAt).toLocaleString() : 'N/A'}</div>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {liveEngineStatus?.status !== 'running' && (
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <Label className="text-gray-400 text-xs">Strategy Mode</Label>
+                          <select value={engineMode} onChange={e => setEngineMode(e.target.value)}
+                            className="w-full mt-1 bg-gray-800 border border-gray-700 rounded-md px-2 py-1.5 text-sm text-white">
+                            <option value="aggressive">Aggressive</option>
+                            <option value="scalping">Scalping</option>
+                            <option value="momentum">Momentum</option>
+                            <option value="session_breakout">Session Breakout</option>
+                            <option value="sniper">Sniper</option>
+                          </select>
+                        </div>
+                        <div>
+                          <Label className="text-gray-400 text-xs">Scan Interval (sec)</Label>
+                          <Input type="number" value={engineInterval} onChange={e => setEngineInterval(Number(e.target.value))}
+                            min={30} max={300} className="mt-1 bg-gray-800 border-gray-700 text-white h-8" />
+                        </div>
+                        <div>
+                          <Label className="text-gray-400 text-xs">Min Confidence %</Label>
+                          <Input type="number" value={engineMinConf} onChange={e => setEngineMinConf(Number(e.target.value))}
+                            min={50} max={95} className="mt-1 bg-gray-800 border-gray-700 text-white h-8" />
+                        </div>
+                        <div>
+                          <Label className="text-gray-400 text-xs">Max Open Trades</Label>
+                          <Input type="number" value={engineMaxTrades} onChange={e => setEngineMaxTrades(Number(e.target.value))}
+                            min={1} max={20} className="mt-1 bg-gray-800 border-gray-700 text-white h-8" />
+                        </div>
+                      </div>
+                      <div>
+                        <Label className="text-gray-400 text-xs">Trading Pairs</Label>
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {POPULAR_PAIRS.slice(0, 14).map(pair => (
+                            <Badge key={pair} variant="outline"
+                              className={`text-[10px] cursor-pointer transition-colors ${
+                                enginePairs.includes(pair)
+                                  ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/40'
+                                  : 'text-gray-500 border-gray-700 hover:border-gray-500'
+                              }`}
+                              onClick={() => setEnginePairs(prev => prev.includes(pair) ? prev.filter(p => p !== pair) : [...prev, pair])}>
+                              {pair}
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </motion.div>

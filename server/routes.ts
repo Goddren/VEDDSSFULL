@@ -9157,6 +9157,62 @@ Respond with ONLY valid JSON:
     });
   });
 
+  // ==================== VEDD AI LIVE TRADING ENGINE ====================
+  const { startLiveEngine, stopLiveEngine, getLiveEngineState, getLiveEngineActivity, updateLiveEngineConfig } = await import('./services/live-trading-engine');
+
+  app.post("/api/vedd-live-engine/start", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { pairs, strategyMode, scanIntervalMs, maxOpenTrades, riskPerTrade, minConfidence, enablePositionManagement, trailingStopEnabled, trailingStopATRMultiplier } = req.body;
+    try {
+      const state = startLiveEngine(userId, {
+        pairs: pairs || undefined,
+        strategyMode: strategyMode || undefined,
+        scanIntervalMs: scanIntervalMs ? Math.max(30000, Number(scanIntervalMs)) : undefined,
+        maxOpenTrades: maxOpenTrades ? Number(maxOpenTrades) : undefined,
+        riskPerTrade: riskPerTrade ? Number(riskPerTrade) : undefined,
+        minConfidence: minConfidence ? Number(minConfidence) : undefined,
+        enablePositionManagement: enablePositionManagement !== undefined ? enablePositionManagement : undefined,
+        trailingStopEnabled: trailingStopEnabled !== undefined ? trailingStopEnabled : undefined,
+        trailingStopATRMultiplier: trailingStopATRMultiplier ? Number(trailingStopATRMultiplier) : undefined,
+      });
+      res.json({ success: true, state });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/vedd-live-engine/stop", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const state = stopLiveEngine(userId);
+    res.json({ success: true, state });
+  });
+
+  app.get("/api/vedd-live-engine/status", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const state = getLiveEngineState(userId);
+    if (!state) return res.json({ status: 'stopped', message: 'Live engine not started' });
+    res.json(state);
+  });
+
+  app.get("/api/vedd-live-engine/activity", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const limit = Math.min(100, Number(req.query.limit) || 50);
+    const activity = getLiveEngineActivity(userId, limit);
+    res.json({ activity });
+  });
+
+  app.patch("/api/vedd-live-engine/config", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const state = updateLiveEngineConfig(userId, req.body);
+    if (!state) return res.status(400).json({ error: 'Engine not running' });
+    res.json({ success: true, state });
+  });
+
   // Flip Trade - Close current position and open reverse to recover loss + profit
   app.post("/api/flip-trade", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) {
