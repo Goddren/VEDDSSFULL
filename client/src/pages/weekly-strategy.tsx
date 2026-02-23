@@ -52,6 +52,7 @@ export default function WeeklyStrategyPage() {
   const [lotSize, setLotSize] = useState("");
   const [selectedPairs, setSelectedPairs] = useState<string[]>(["XAUUSD", "GBPJPY", "NAS100"]);
   const [pairInput, setPairInput] = useState("");
+  const [strategyMode, setStrategyMode] = useState("aggressive");
 
   const { data: strategy, isLoading } = useQuery<WeeklyStrategy>({
     queryKey: ['/api/weekly-strategy'],
@@ -93,6 +94,7 @@ export default function WeeklyStrategyPage() {
         accountBalance: parseFloat(accountBalance),
         riskLevel: 'ai-controlled',
         lotSize: lotSize || undefined,
+        strategyMode,
       });
       return res.json();
     },
@@ -135,6 +137,50 @@ export default function WeeklyStrategyPage() {
   const [activeTrades, setActiveTrades] = useState<any[]>([]);
   const [unrealizedPnL, setUnrealizedPnL] = useState(0);
   const [lastPositionUpdate, setLastPositionUpdate] = useState<string | null>(null);
+  const [selectedSignalMode, setSelectedSignalMode] = useState("aggressive");
+
+  const { data: brainStatus } = useQuery<any>({
+    queryKey: ['/api/vedd-brain/status'],
+  });
+
+  const { data: autonomousSignals } = useQuery<any>({
+    queryKey: ['/api/vedd-brain/autonomous-signals'],
+    enabled: !!brainStatus?.learned,
+    refetchInterval: 30000,
+  });
+
+  const { data: strategyModes } = useQuery<any>({
+    queryKey: ['/api/vedd-brain/strategy-modes'],
+  });
+
+  const learnMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest('POST', '/api/vedd-brain/learn', {});
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/vedd-brain/status'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/vedd-brain/strategy-modes'] });
+      toast({ title: "Brain Updated", description: "AI has learned from all your trade history" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Learning Failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const generateSignalsMutation = useMutation({
+    mutationFn: async (mode: string) => {
+      const res = await apiRequest('POST', '/api/vedd-brain/autonomous-signals', { strategyMode: mode });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/vedd-brain/autonomous-signals'] });
+      toast({ title: "Autonomous Signals Generated", description: "AI generated trade signals from learned patterns" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Signal Generation Failed", description: err.message, variant: "destructive" });
+    },
+  });
 
   const [shareOpen, setShareOpen] = useState(false);
   const [shareCardUrl, setShareCardUrl] = useState<string | null>(null);
@@ -244,7 +290,7 @@ export default function WeeklyStrategyPage() {
             <Flame className="w-6 h-6 text-red-400" />
           </div>
           <p className="text-gray-400 text-lg max-w-2xl mx-auto">
-            Full AI control - no EA restraints. Set your growth target and let AI map the path.
+            Self-learning AI engine. Learns from your trades, generates signals autonomously, and uses HFT strategies to grow accounts fast.
           </p>
         </motion.div>
 
@@ -445,6 +491,182 @@ export default function WeeklyStrategyPage() {
                 </CardContent>
               </Card>
             )}
+
+            {/* AI Brain Learning & Autonomous Signals */}
+            <Card className="bg-gradient-to-br from-purple-900/20 to-indigo-900/20 border-purple-500/30">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-white flex items-center gap-2 text-lg">
+                  <Brain className="w-5 h-5 text-purple-400" />
+                  Self-Learning Brain
+                  {brainStatus?.learned && (
+                    <Badge className="bg-purple-500/20 text-purple-400 border-purple-500/30 text-[10px]">
+                      {brainStatus.totalTradesAnalyzed} trades learned
+                    </Badge>
+                  )}
+                </CardTitle>
+                <CardDescription>
+                  AI educates itself from your trade history and generates signals autonomously
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center gap-3">
+                  <Button
+                    size="sm"
+                    onClick={() => learnMutation.mutate()}
+                    disabled={learnMutation.isPending}
+                    className="bg-purple-600 hover:bg-purple-500 text-white"
+                  >
+                    {learnMutation.isPending ? (
+                      <><RefreshCw className="w-4 h-4 mr-1 animate-spin" /> Learning...</>
+                    ) : (
+                      <><Brain className="w-4 h-4 mr-1" /> {brainStatus?.learned ? 'Re-Learn' : 'Train Brain'}</>
+                    )}
+                  </Button>
+                  {brainStatus?.learned && (
+                    <span className="text-xs text-gray-500">
+                      Last learned: {new Date(brainStatus.lastLearned).toLocaleString()}
+                    </span>
+                  )}
+                </div>
+
+                {brainStatus?.learned && (
+                  <>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                      <div className="bg-black/20 rounded-lg p-3 text-center">
+                        <p className="text-lg font-bold text-purple-400">{brainStatus.overallWinRate}%</p>
+                        <p className="text-[10px] text-gray-500">Win Rate</p>
+                      </div>
+                      <div className="bg-black/20 rounded-lg p-3 text-center">
+                        <p className="text-lg font-bold text-white">{brainStatus.pairsLearned}</p>
+                        <p className="text-[10px] text-gray-500">Pairs Learned</p>
+                      </div>
+                      <div className="bg-black/20 rounded-lg p-3 text-center">
+                        <p className={`text-lg font-bold ${brainStatus.totalProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                          ${brainStatus.totalProfit}
+                        </p>
+                        <p className="text-[10px] text-gray-500">Total P&L</p>
+                      </div>
+                      <div className="bg-black/20 rounded-lg p-3 text-center">
+                        <p className="text-lg font-bold text-orange-400">{brainStatus.totalTradesAnalyzed}</p>
+                        <p className="text-[10px] text-gray-500">Trades Analyzed</p>
+                      </div>
+                    </div>
+
+                    {brainStatus.learningInsights?.length > 0 && (
+                      <div className="space-y-1">
+                        <p className="text-xs text-gray-400 font-semibold">Brain Insights:</p>
+                        {brainStatus.learningInsights.slice(0, 5).map((insight: string, i: number) => (
+                          <div key={i} className="flex items-start gap-2 text-xs text-gray-300 bg-black/20 rounded p-2">
+                            <Lightbulb className="w-3.5 h-3.5 text-yellow-400 mt-0.5 flex-shrink-0" />
+                            {insight}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* Autonomous Signal Generation */}
+                {brainStatus?.learned && (
+                  <div className="border-t border-purple-500/20 pt-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-sm font-semibold text-white flex items-center gap-2">
+                        <Zap className="w-4 h-4 text-yellow-400" />
+                        Autonomous Signals
+                      </h4>
+                      <div className="flex items-center gap-2">
+                        <select
+                          value={selectedSignalMode}
+                          onChange={(e) => setSelectedSignalMode(e.target.value)}
+                          className="bg-gray-900 border border-gray-700 text-white text-xs rounded px-2 py-1"
+                        >
+                          {(strategyModes?.modes || []).map((m: any) => (
+                            <option key={m.id} value={m.id}>{m.name}</option>
+                          ))}
+                        </select>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => generateSignalsMutation.mutate(selectedSignalMode)}
+                          disabled={generateSignalsMutation.isPending}
+                          className="text-yellow-400 border-yellow-500/30 hover:bg-yellow-500/10 text-xs"
+                        >
+                          {generateSignalsMutation.isPending ? (
+                            <><RefreshCw className="w-3.5 h-3.5 mr-1 animate-spin" /> Generating...</>
+                          ) : (
+                            <><Zap className="w-3.5 h-3.5 mr-1" /> Generate Signals</>
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+
+                    {autonomousSignals?.signals?.length > 0 ? (
+                      <div className="space-y-2">
+                        {autonomousSignals.marketRead && (
+                          <div className="bg-black/30 rounded p-2 text-xs text-gray-400 italic flex items-start gap-2">
+                            <Brain className="w-3.5 h-3.5 text-purple-400 mt-0.5 flex-shrink-0" />
+                            {autonomousSignals.marketRead}
+                          </div>
+                        )}
+                        {autonomousSignals.signals.map((sig: any, i: number) => (
+                          <motion.div
+                            key={i}
+                            initial={{ opacity: 0, x: -10 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ delay: i * 0.1 }}
+                            className={`rounded-lg border p-3 ${
+                              sig.direction === 'BUY' ? 'border-green-500/30 bg-green-500/5' : 'border-red-500/30 bg-red-500/5'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between mb-1">
+                              <div className="flex items-center gap-2">
+                                <span className="font-semibold text-white text-sm">{sig.symbol}</span>
+                                <Badge variant="outline" className={`text-[10px] ${sig.direction === 'BUY' ? 'text-green-400 border-green-500/40' : 'text-red-400 border-red-500/40'}`}>
+                                  {sig.direction}
+                                </Badge>
+                                <Badge className="bg-purple-500/15 text-purple-400 border-purple-500/30 text-[10px]">
+                                  {sig.confidence}%
+                                </Badge>
+                                <Badge className="bg-gray-500/15 text-gray-400 border-gray-600 text-[10px]">
+                                  {sig.strategy}
+                                </Badge>
+                              </div>
+                              <span className="text-[10px] text-gray-500">Hold: {sig.holdTime}</span>
+                            </div>
+                            <p className="text-xs text-gray-300 mb-1">{sig.reason}</p>
+                            <div className="flex flex-wrap gap-3 text-[11px] text-gray-500">
+                              {sig.entryZone && <span>Entry: {sig.entryZone}</span>}
+                              {sig.stopLoss && <span>SL: {sig.stopLoss}</span>}
+                              {sig.takeProfit && <span>TP: {sig.takeProfit}</span>}
+                              {sig.lotSize && <span>Lot: {sig.lotSize}</span>}
+                            </div>
+                            {sig.learnedEdge && (
+                              <div className="mt-1 text-[10px] text-purple-400 flex items-center gap-1">
+                                <Brain className="w-3 h-3" /> Edge: {sig.learnedEdge}
+                              </div>
+                            )}
+                          </motion.div>
+                        ))}
+                        {autonomousSignals.nextBestSetup && (
+                          <div className="text-xs text-gray-500 bg-black/20 rounded p-2 flex items-center gap-2">
+                            <Clock className="w-3.5 h-3.5 text-blue-400" />
+                            Next setup: {autonomousSignals.nextBestSetup}
+                          </div>
+                        )}
+                        <p className="text-[10px] text-gray-600">
+                          Generated: {autonomousSignals.generatedAt ? new Date(autonomousSignals.generatedAt).toLocaleString() : 'N/A'} | Mode: {autonomousSignals.strategyMode} | Brain: {autonomousSignals.tradesLearned} trades
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="text-center py-4 text-gray-500">
+                        <Zap className="w-6 h-6 text-yellow-400/30 mx-auto mb-1" />
+                        <p className="text-xs">No autonomous signals yet. Click "Generate Signals" to let the AI create trade signals from learned patterns.</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
 
             {/* Feasibility & Growth Strategy */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -992,6 +1214,45 @@ export default function WeeklyStrategyPage() {
                 />
               </div>
 
+              {/* HFT Strategy Mode Selector */}
+              <div className="space-y-2">
+                <Label className="text-gray-300">Growth Strategy Mode</Label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                  {[
+                    { id: 'scalping', name: 'Scalping (HFT)', icon: '⚡', desc: '10-20+ trades/day, 3-8 pip targets', risk: 'HIGH' },
+                    { id: 'momentum', name: 'Momentum Surfing', icon: '🌊', desc: '5-15 trades/day, ride big moves', risk: 'MED-HIGH' },
+                    { id: 'session_breakout', name: 'Session Breakout', icon: '🚀', desc: '3-6 trades at London/NY open', risk: 'MEDIUM' },
+                    { id: 'aggressive', name: 'Aggressive Compound', icon: '🔥', desc: 'All strategies combined, max growth', risk: 'EXTREME' },
+                    { id: 'sniper', name: 'Sniper Mode', icon: '🎯', desc: '2-4 perfect setups, larger lots', risk: 'MEDIUM' },
+                  ].map(mode => (
+                    <button
+                      key={mode.id}
+                      className={`text-left p-3 rounded-lg border transition-all ${
+                        strategyMode === mode.id
+                          ? 'border-orange-500 bg-orange-500/10 ring-1 ring-orange-500/30'
+                          : 'border-gray-700 bg-gray-900/50 hover:border-gray-500'
+                      }`}
+                      onClick={() => setStrategyMode(mode.id)}
+                    >
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-base">{mode.icon}</span>
+                        <span className={`text-sm font-semibold ${strategyMode === mode.id ? 'text-orange-400' : 'text-gray-300'}`}>
+                          {mode.name}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-gray-500">{mode.desc}</p>
+                      <Badge className={`mt-1 text-[9px] ${
+                        mode.risk === 'EXTREME' ? 'bg-red-500/20 text-red-400' :
+                        mode.risk === 'HIGH' ? 'bg-orange-500/20 text-orange-400' :
+                        'bg-yellow-500/20 text-yellow-400'
+                      }`}>
+                        {mode.risk} RISK
+                      </Badge>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div className="space-y-2">
                 <Label className="text-gray-300">Select Pairs to Trade</Label>
                 <div className="flex flex-wrap gap-2">
@@ -1030,14 +1291,14 @@ export default function WeeklyStrategyPage() {
               <div className="bg-gray-900/50 rounded-lg p-4 border border-orange-500/20">
                 <h4 className="text-sm text-orange-300 mb-2 flex items-center gap-2">
                   <Brain className="w-4 h-4 text-orange-400" />
-                  Full AI Control Mode
+                  Self-Learning AI + HFT Growth Engine
                 </h4>
                 <ul className="text-xs text-gray-400 space-y-1">
-                  <li className="flex items-center gap-1"><Flame className="w-3 h-3 text-orange-500" /> AI decides all trade entries, exits, and lot sizing</li>
-                  <li className="flex items-center gap-1"><Flame className="w-3 h-3 text-orange-500" /> No EA score gates - AI is the sole decision maker</li>
-                  <li className="flex items-center gap-1"><Flame className="w-3 h-3 text-orange-500" /> Compound growth strategy (profits reinvested daily)</li>
-                  <li className="flex items-center gap-1"><Flame className="w-3 h-3 text-orange-500" /> Specific entry conditions and session timing for each trade</li>
-                  <li className="flex items-center gap-1"><Flame className="w-3 h-3 text-orange-500" /> Uses your actual trade history for edge optimization</li>
+                  <li className="flex items-center gap-1"><Flame className="w-3 h-3 text-orange-500" /> AI learns from ALL your trade history and adapts strategies</li>
+                  <li className="flex items-center gap-1"><Flame className="w-3 h-3 text-orange-500" /> Generates signals autonomously - no need to wait for MT5 data</li>
+                  <li className="flex items-center gap-1"><Flame className="w-3 h-3 text-orange-500" /> HFT strategies: scalping, momentum, breakout, sniper modes</li>
+                  <li className="flex items-center gap-1"><Flame className="w-3 h-3 text-orange-500" /> Compound growth: profits reinvested to accelerate returns</li>
+                  <li className="flex items-center gap-1"><Flame className="w-3 h-3 text-orange-500" /> Full AI control over entries, exits, lot sizing, and risk</li>
                 </ul>
               </div>
 

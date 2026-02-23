@@ -7328,11 +7328,13 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
   app.post("/api/weekly-strategy/generate", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
-    const { profitTarget, pairs, accountBalance, riskLevel, lotSize } = req.body;
+    const { profitTarget, pairs, accountBalance, riskLevel, lotSize, strategyMode } = req.body;
 
     if (!profitTarget || !pairs || !Array.isArray(pairs) || pairs.length === 0 || !accountBalance) {
       return res.status(400).json({ error: "profitTarget, pairs (array), and accountBalance are required" });
     }
+
+    const hftMode = strategyMode || 'aggressive';
 
     try {
       // Gather existing trade history data
@@ -7413,9 +7415,27 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         };
       }
 
-      // Build AI prompt - full AI control, no EA restraints
+      // Build AI prompt - full AI control, HFT-aware strategy
       const growthMultiplier = ((accountBalance + profitTarget) / accountBalance).toFixed(1);
-      const prompt = `You are an elite AI trading strategist with FULL CONTROL over all trading decisions. No EA restraints - you are the primary decision-maker.
+      const brain = (global as any).veddAIBrain?.[userId];
+      const brainInsights = brain?.learningInsights?.join('\n') || 'No prior learning data available';
+      const brainKnowledge = brain?.pairKnowledge ? JSON.stringify(
+        Object.fromEntries(pairs.map(p => [p.toUpperCase().replace('/', ''), brain.pairKnowledge[p.toUpperCase().replace('/', '')] || 'No data'])),
+        null, 2
+      ) : 'Brain not yet trained';
+
+      const hftDescriptions: Record<string, string> = {
+        scalping: `SCALPING (HFT) MODE: Design for 10-20+ trades/day with 3-8 pip targets. Quick in/out within 5-30 minutes. Tight stops. Compound after every 3-5 winning trades. Focus on spread-efficient pairs.`,
+        momentum: `MOMENTUM SURFING MODE: 5-15 trades/day riding strong directional moves. 15-40 pip targets, hold 15min-2hrs. Enter on breakouts/continuations. Trail stops aggressively. Stack winning positions.`,
+        session_breakout: `SESSION BREAKOUT MODE: 3-6 trades targeting London/NY session opens. Capture initial 30-60 min volatility. 20-50 pip targets. Pre-position before opens based on learned patterns.`,
+        aggressive: `AGGRESSIVE COMPOUND GROWTH: Maximum growth focus. Dynamically combine scalping, momentum, and breakout strategies. Increase lot sizes as balance grows intraday. Target 5-20% daily growth. High frequency.`,
+        sniper: `SNIPER MODE: 2-4 surgical trades only. Wait for perfect confluence of ALL learned patterns. Larger positions, precise entries, tight risk. Each trade is a calculated kill shot.`,
+      };
+
+      const prompt = `You are VEDD SS AI - a SELF-LEARNING autonomous trading engine with FULL CONTROL. You have studied this trader's entire history and evolved your strategy.
+
+STRATEGY MODE: ${hftMode.toUpperCase()}
+${hftDescriptions[hftMode] || hftDescriptions.aggressive}
 
 ACCOUNT GROWTH CHALLENGE:
 - Starting Balance: $${accountBalance}
@@ -7424,14 +7444,21 @@ ACCOUNT GROWTH CHALLENGE:
 - Preferred Lot Size: ${lotSize || 'AI decides optimal sizing'}
 - Selected Pairs: ${pairs.join(', ')}
 
-AI CONTROL STATUS: FULL CONTROL
+AI CONTROL STATUS: FULL AUTONOMOUS CONTROL
 - You have complete authority over trade entries, exits, lot sizing, and risk
-- No EA score gates or minimum thresholds restrict you
+- You LEARN from past trades and ADAPT your strategy
 - AI Override: ALWAYS ON - your decision is final
+- You can generate signals WITHOUT waiting for MT5 data
 - Trailing Stop: You decide (TIGHT/STANDARD/WIDE/AGGRESSIVE/OFF)
 - Breakout Detection: ${Object.keys(breakoutSettings).length > 0 ? 'Active for ' + Object.keys(breakoutSettings).filter(k => breakoutSettings[k]).join(', ') : 'Available'}
 
-TRADER'S HISTORICAL PERFORMANCE DATA:
+SELF-LEARNED BRAIN INSIGHTS:
+${brainInsights}
+
+DEEP PAIR KNOWLEDGE (from brain learning):
+${brainKnowledge}
+
+TRADER'S REAL-TIME PERFORMANCE DATA:
 ${JSON.stringify(pairStats, null, 2)}
 
 STRATEGY REQUIREMENTS:
@@ -7550,6 +7577,7 @@ Respond with ONLY valid JSON:
         accountBalance,
         riskLevel: riskLevel || 'ai-controlled',
         lotSize: lotSize || 'auto',
+        strategyMode: hftMode,
         plan,
         pairStats,
         generatedAt: new Date().toISOString(),
@@ -8610,6 +8638,411 @@ Format each recommendation as a clear, concise action item.`;
       console.error("Error generating strategy improvements:", error);
       res.status(500).json({ error: "Failed to generate strategy improvements" });
     }
+  });
+
+  // ═══════════════════════════════════════════════════════════════════
+  // VEDD SS AI SELF-LEARNING BRAIN ENGINE
+  // Analyzes ALL trade history to build knowledge, learns patterns,
+  // generates autonomous signals, and supports HFT growth strategies
+  // ═══════════════════════════════════════════════════════════════════
+
+  (global as any).veddAIBrain = (global as any).veddAIBrain || {};
+
+  app.post("/api/vedd-brain/learn", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+
+    try {
+      const allTrades = await storage.getAiTradeResults(userId, 1000);
+      const closedTradesCache = (global as any).mt5ClosedTrades?.[userId]?.trades || [];
+      const connectedPairs = (global as any).mt5ConnectedPairs?.[userId] || {};
+      const lastChartData = (global as any).mt5LastChartData?.[userId] || {};
+
+      const combinedTrades = [
+        ...allTrades.map(t => ({
+          symbol: t.symbol, direction: t.direction, result: t.result,
+          profit: t.profitLoss || 0, pips: t.profitLossPips || 0,
+          confidence: t.aiConfidence || 0, entry: t.entryPrice, exit: t.exitPrice,
+          sl: t.stopLoss, tp: t.takeProfit, timeframe: t.timeframe,
+          timestamp: t.createdAt ? new Date(t.createdAt).getTime() : 0,
+          hour: t.createdAt ? new Date(t.createdAt).getUTCHours() : 0,
+          day: t.createdAt ? new Date(t.createdAt).getUTCDay() : 0,
+          notes: t.notes,
+        })),
+        ...closedTrades.map((t: any) => ({
+          symbol: (t.symbol || '').toUpperCase().replace('/', ''),
+          direction: t.direction, result: t.profit > 0 ? 'WIN' : t.profit < 0 ? 'LOSS' : 'BREAKEVEN',
+          profit: t.profit || 0, pips: t.pips || 0, confidence: 0,
+          entry: t.openPrice, exit: t.closePrice, sl: t.sl, tp: t.tp,
+          timeframe: t.timeframe || 'M15', timestamp: t.closeTime ? new Date(t.closeTime).getTime() : 0,
+          hour: t.closeTime ? new Date(t.closeTime).getUTCHours() : 0,
+          day: t.closeTime ? new Date(t.closeTime).getUTCDay() : 0,
+          notes: '',
+        }))
+      ];
+
+      const uniqueSymbols = [...new Set(combinedTrades.map(t => t.symbol).filter(Boolean))];
+      const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+      const sessions = [
+        { name: 'Asian', start: 0, end: 7 },
+        { name: 'London', start: 7, end: 13 },
+        { name: 'NY', start: 13, end: 20 },
+        { name: 'Late', start: 20, end: 24 },
+      ];
+
+      const pairKnowledge: Record<string, any> = {};
+      for (const sym of uniqueSymbols) {
+        const symTrades = combinedTrades.filter(t => t.symbol === sym);
+        const wins = symTrades.filter(t => t.result === 'WIN');
+        const losses = symTrades.filter(t => t.result === 'LOSS');
+        const totalCompleted = wins.length + losses.length;
+        const winRate = totalCompleted > 0 ? Math.round((wins.length / totalCompleted) * 100) : 0;
+        const avgWinPips = wins.length > 0 ? Math.round(wins.reduce((s, t) => s + (t.pips || 0), 0) / wins.length * 10) / 10 : 0;
+        const avgLossPips = losses.length > 0 ? Math.round(Math.abs(losses.reduce((s, t) => s + (t.pips || 0), 0) / losses.length) * 10) / 10 : 0;
+        const avgWinProfit = wins.length > 0 ? Math.round(wins.reduce((s, t) => s + t.profit, 0) / wins.length * 100) / 100 : 0;
+
+        const bestHours: Record<number, { wins: number; losses: number }> = {};
+        const bestDays: Record<number, { wins: number; losses: number }> = {};
+        const bestSessions: Record<string, { wins: number; losses: number }> = {};
+        const dirStats = { BUY: { wins: 0, losses: 0 }, SELL: { wins: 0, losses: 0 } };
+
+        symTrades.forEach(t => {
+          if (!bestHours[t.hour]) bestHours[t.hour] = { wins: 0, losses: 0 };
+          if (!bestDays[t.day]) bestDays[t.day] = { wins: 0, losses: 0 };
+          if (t.result === 'WIN') { bestHours[t.hour].wins++; bestDays[t.day].wins++; }
+          if (t.result === 'LOSS') { bestHours[t.hour].losses++; bestDays[t.day].losses++; }
+
+          const sess = sessions.find(s => t.hour >= s.start && t.hour < s.end);
+          if (sess) {
+            if (!bestSessions[sess.name]) bestSessions[sess.name] = { wins: 0, losses: 0 };
+            if (t.result === 'WIN') bestSessions[sess.name].wins++;
+            if (t.result === 'LOSS') bestSessions[sess.name].losses++;
+          }
+
+          const dir = t.direction as 'BUY' | 'SELL';
+          if (dirStats[dir]) {
+            if (t.result === 'WIN') dirStats[dir].wins++;
+            if (t.result === 'LOSS') dirStats[dir].losses++;
+          }
+        });
+
+        const topHours = Object.entries(bestHours)
+          .map(([h, s]) => ({ hour: parseInt(h), winRate: s.wins + s.losses > 0 ? Math.round(s.wins / (s.wins + s.losses) * 100) : 0, total: s.wins + s.losses }))
+          .filter(h => h.total >= 2)
+          .sort((a, b) => b.winRate - a.winRate);
+
+        const topDays = Object.entries(bestDays)
+          .map(([d, s]) => ({ day: dayNames[parseInt(d)], winRate: s.wins + s.losses > 0 ? Math.round(s.wins / (s.wins + s.losses) * 100) : 0, total: s.wins + s.losses }))
+          .filter(d => d.total >= 2)
+          .sort((a, b) => b.winRate - a.winRate);
+
+        const topSessions = Object.entries(bestSessions)
+          .map(([name, s]) => ({ session: name, winRate: s.wins + s.losses > 0 ? Math.round(s.wins / (s.wins + s.losses) * 100) : 0, total: s.wins + s.losses }))
+          .sort((a, b) => b.winRate - a.winRate);
+
+        const buyWR = dirStats.BUY.wins + dirStats.BUY.losses > 0 ? Math.round(dirStats.BUY.wins / (dirStats.BUY.wins + dirStats.BUY.losses) * 100) : 50;
+        const sellWR = dirStats.SELL.wins + dirStats.SELL.losses > 0 ? Math.round(dirStats.SELL.wins / (dirStats.SELL.wins + dirStats.SELL.losses) * 100) : 50;
+        const preferredDirection = buyWR > sellWR + 15 ? 'BUY' : sellWR > buyWR + 15 ? 'SELL' : 'BOTH';
+
+        const highConfTrades = symTrades.filter(t => t.confidence >= 80);
+        const highConfWR = highConfTrades.length > 0 ? Math.round(highConfTrades.filter(t => t.result === 'WIN').length / highConfTrades.length * 100) : 0;
+
+        let maxWinStreak = 0, maxLossStreak = 0, curWin = 0, curLoss = 0;
+        symTrades.sort((a, b) => a.timestamp - b.timestamp).forEach(t => {
+          if (t.result === 'WIN') { curWin++; curLoss = 0; maxWinStreak = Math.max(maxWinStreak, curWin); }
+          else if (t.result === 'LOSS') { curLoss++; curWin = 0; maxLossStreak = Math.max(maxLossStreak, curLoss); }
+        });
+
+        const pairConnected = Object.values(connectedPairs).find((p: any) =>
+          (p.symbol || '').toUpperCase().replace('/', '') === sym
+        ) as any;
+
+        pairKnowledge[sym] = {
+          totalTrades: totalCompleted, winRate, avgWinPips, avgLossPips, avgWinProfit,
+          riskRewardRatio: avgLossPips > 0 ? Math.round(avgWinPips / avgLossPips * 100) / 100 : 0,
+          preferredDirection, buyWinRate: buyWR, sellWinRate: sellWR,
+          topHours: topHours.slice(0, 3), worstHours: topHours.slice(-2).reverse(),
+          topDays: topDays.slice(0, 3), topSessions,
+          highConfidenceWinRate: highConfWR, maxWinStreak, maxLossStreak,
+          lastSignal: pairConnected?.signal || null,
+          lastConfidence: pairConnected?.confidence || null,
+          currentSpread: pairConnected?.spread || null,
+          lastPrice: pairConnected?.price || lastChartData[sym]?.close || null,
+        };
+      }
+
+      const overallWins = combinedTrades.filter(t => t.result === 'WIN').length;
+      const overallLosses = combinedTrades.filter(t => t.result === 'LOSS').length;
+      const overallTotal = overallWins + overallLosses;
+      const overallWR = overallTotal > 0 ? Math.round(overallWins / overallTotal * 100) : 0;
+      const totalProfit = combinedTrades.reduce((s, t) => s + t.profit, 0);
+
+      const brain = {
+        lastLearned: new Date().toISOString(),
+        totalTradesAnalyzed: combinedTrades.length,
+        overallWinRate: overallWR,
+        totalProfit: Math.round(totalProfit * 100) / 100,
+        pairsLearned: uniqueSymbols.length,
+        pairKnowledge,
+        hftReadiness: {
+          hasEnoughData: combinedTrades.length >= 20,
+          scalpingViable: Object.values(pairKnowledge).some((p: any) => p.winRate >= 55 && p.avgWinPips > 0),
+          momentumViable: Object.values(pairKnowledge).some((p: any) => p.maxWinStreak >= 3),
+          bestScalpPair: Object.entries(pairKnowledge).sort((a: any, b: any) => b[1].winRate - a[1].winRate)[0]?.[0] || null,
+          bestMomentumPair: Object.entries(pairKnowledge).sort((a: any, b: any) => b[1].maxWinStreak - a[1].maxWinStreak)[0]?.[0] || null,
+        },
+        learningInsights: [] as string[],
+      };
+
+      if (overallWR >= 60) brain.learningInsights.push(`Strong edge detected: ${overallWR}% overall win rate across ${overallTotal} trades`);
+      if (overallWR < 50 && overallTotal >= 10) brain.learningInsights.push(`Win rate below 50% - AI will prioritize higher-confidence setups only`);
+      for (const [sym, k] of Object.entries(pairKnowledge) as any[]) {
+        if (k.topSessions.length > 0 && k.topSessions[0].winRate >= 70) {
+          brain.learningInsights.push(`${sym}: ${k.topSessions[0].session} session is a goldmine (${k.topSessions[0].winRate}% WR)`);
+        }
+        if (k.preferredDirection !== 'BOTH') {
+          brain.learningInsights.push(`${sym}: Strong ${k.preferredDirection} bias detected (${k.preferredDirection === 'BUY' ? k.buyWinRate : k.sellWinRate}% WR)`);
+        }
+        if (k.worstHours.length > 0 && k.worstHours[0].winRate < 30 && k.worstHours[0].total >= 3) {
+          brain.learningInsights.push(`${sym}: Avoid ${k.worstHours[0].hour}:00 UTC (${k.worstHours[0].winRate}% WR - loss zone)`);
+        }
+      }
+
+      (global as any).veddAIBrain[userId] = brain;
+      console.log(`[VEDD Brain] Learned from ${combinedTrades.length} trades across ${uniqueSymbols.length} pairs for user ${userId}`);
+      res.json(brain);
+    } catch (error: any) {
+      console.error('[VEDD Brain] Learning error:', error);
+      res.status(500).json({ error: 'Brain learning failed: ' + (error.message || 'Unknown error') });
+    }
+  });
+
+  app.get("/api/vedd-brain/status", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const brain = (global as any).veddAIBrain?.[userId];
+    if (!brain) return res.json({ learned: false, message: "Brain has not learned yet. Trigger learning first." });
+    res.json({ learned: true, ...brain });
+  });
+
+  // Autonomous Signal Generator - AI generates trade signals from learned data
+  app.post("/api/vedd-brain/autonomous-signals", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const brain = (global as any).veddAIBrain?.[userId];
+    if (!brain || !brain.pairKnowledge || Object.keys(brain.pairKnowledge).length === 0) {
+      return res.status(400).json({ error: "Brain hasn't learned yet. Run learning first." });
+    }
+
+    const { strategyMode = 'aggressive' } = req.body;
+
+    try {
+      const { getOpenAIInstanceForUser, getUserModelPreference } = await import('./openai');
+      let openaiInstance: any, selectedModel: string;
+      try {
+        openaiInstance = await getOpenAIInstanceForUser(userId);
+        selectedModel = getUserModelPreference(userId);
+      } catch {
+        return res.status(500).json({ error: 'No AI API key configured.' });
+      }
+
+      const connectedPairs = (global as any).mt5ConnectedPairs?.[userId] || {};
+      const lastChartData = (global as any).mt5LastChartData?.[userId] || {};
+      const openPositions = (global as any).mt5OpenPositions?.[userId]?.positions || [];
+
+      const liveContext: Record<string, any> = {};
+      for (const [sym, knowledge] of Object.entries(brain.pairKnowledge) as any[]) {
+        const pairData = Object.values(connectedPairs).find((p: any) =>
+          (p.symbol || '').toUpperCase().replace('/', '') === sym
+        ) as any;
+        const chartSnap = lastChartData[sym];
+        const hasOpenPos = openPositions.some((p: any) =>
+          (p.symbol || '').toUpperCase().replace('/', '') === sym
+        );
+
+        liveContext[sym] = {
+          ...knowledge,
+          currentPrice: pairData?.price || chartSnap?.close || null,
+          currentSignal: pairData?.signal || null,
+          currentConfidence: pairData?.confidence || null,
+          spread: pairData?.spread || null,
+          atr: chartSnap?.atr || null,
+          rsi: chartSnap?.rsi || null,
+          trend: chartSnap?.trend || null,
+          hasOpenPosition: hasOpenPos,
+          lastUpdateAge: pairData?.lastUpdated ? Math.round((Date.now() - new Date(pairData.lastUpdated).getTime()) / 60000) : null,
+        };
+      }
+
+      const nowUTC = new Date();
+      const currentHour = nowUTC.getUTCHours();
+      const currentDay = dayNames[nowUTC.getUTCDay()];
+      const currentSession = currentHour < 7 ? 'Asian' : currentHour < 13 ? 'London' : currentHour < 20 ? 'New York' : 'Late NY';
+
+      const strategyDescriptions: Record<string, string> = {
+        scalping: `SCALPING MODE (HFT): Target 3-8 pips per trade, 10-20+ trades/day. Quick entries/exits within 5-30 minutes. Use tight stops (5-10 pips). Focus on spread-friendly pairs. Exploit micro-movements during high-volatility sessions.`,
+        momentum: `MOMENTUM SURFING: Ride strong directional moves. 5-15 trades/day, hold 15min-2hrs. Enter on breakouts and continuations. Larger pip targets (15-40 pips). Trail stops aggressively. Stack positions when momentum confirms.`,
+        session_breakout: `SESSION OPEN BREAKOUT: Trade the first 30-60 minutes of London/NY opens. 3-6 high-conviction trades. Capture the initial move from session open. Wide targets (20-50 pips), tight relative stops.`,
+        aggressive: `AGGRESSIVE COMPOUND GROWTH: Maximum growth focus. Combine scalping, momentum, and breakout strategies dynamically. Increase lot sizes as balance grows intraday. Push for 5-20% daily account growth. High trade frequency.`,
+        sniper: `SNIPER MODE: 2-4 ultra-high-confidence trades only. Wait for perfect confluence of learned patterns. Larger position sizes, precise entries, tight risk. Quality over quantity - each trade is a kill shot.`,
+      };
+
+      const prompt = `You are VEDD SS AI - a self-learning autonomous trading engine. You have analyzed the trader's entire history and built deep knowledge. Now GENERATE PROACTIVE TRADE SIGNALS using what you've learned.
+
+CURRENT CONTEXT:
+- Time: ${nowUTC.toISOString()} (${currentSession} session)
+- Day: ${currentDay}
+- Hour: ${currentHour} UTC
+- Strategy Mode: ${strategyMode.toUpperCase()}
+- ${strategyDescriptions[strategyMode] || strategyDescriptions.aggressive}
+
+LEARNED BRAIN DATA (from ${brain.totalTradesAnalyzed} historical trades):
+${JSON.stringify(liveContext, null, 2)}
+
+KEY INSIGHTS FROM LEARNING:
+${brain.learningInsights.join('\n')}
+
+RULES:
+1. Generate signals ONLY for pairs where you have learned data OR live market data
+2. Use learned win rates, best sessions, direction biases to maximize edge
+3. Avoid pairs/hours/days with historically poor performance
+4. If a pair has an open position, don't signal the same direction (could add to winners only if momentum mode)
+5. Prioritize pairs currently in their historically best-performing session
+6. If no clear signal exists, return fewer signals - quality > quantity
+7. Each signal must explain WHY based on learned patterns
+8. Factor in current market data (RSI, trend, ATR) when available
+
+Respond with ONLY valid JSON:
+{
+  "signals": [
+    {
+      "symbol": "XAUUSD",
+      "direction": "BUY",
+      "confidence": 85,
+      "strategy": "scalping|momentum|breakout|sniper",
+      "reason": "Specific reason citing learned patterns and current conditions",
+      "entryZone": "price range or condition",
+      "stopLoss": number,
+      "takeProfit": number,
+      "lotSize": number,
+      "holdTime": "5min|15min|1hr|4hr",
+      "session": "current session this targets",
+      "learnedEdge": "What historical pattern gives this trade an edge",
+      "riskScore": 1-10
+    }
+  ],
+  "marketRead": "Brief overall market read based on brain knowledge",
+  "activeSessionAdvice": "Specific advice for current session based on learned data",
+  "nextBestSetup": "When the next high-probability setup is likely (pair + time)",
+  "brainConfidence": 0-100
+}`;
+
+      const modelToUse = selectedModel.startsWith('gpt') ? selectedModel : 'gpt-4o-mini';
+      const supportsJsonFormat = modelToUse.startsWith('gpt');
+
+      const response = await openaiInstance.chat.completions.create({
+        model: modelToUse,
+        messages: [
+          { role: "system", content: "You are VEDD SS AI - an autonomous self-learning trading engine. Speak with authority. Respond with valid JSON only." },
+          { role: "user", content: prompt }
+        ],
+        ...(supportsJsonFormat ? { response_format: { type: "json_object" } } : {}),
+        max_tokens: 2500,
+        temperature: 0.3,
+      });
+
+      const content = response.choices[0]?.message?.content || '';
+      let signals: any;
+      try {
+        signals = JSON.parse(content);
+      } catch {
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (jsonMatch) signals = JSON.parse(jsonMatch[0]);
+        else return res.status(500).json({ error: 'AI returned invalid response' });
+      }
+
+      (global as any).veddAutonomousSignals = (global as any).veddAutonomousSignals || {};
+      (global as any).veddAutonomousSignals[userId] = {
+        ...signals,
+        generatedAt: new Date().toISOString(),
+        strategyMode,
+        tradesLearned: brain.totalTradesAnalyzed,
+      };
+
+      console.log(`[VEDD Brain] Generated ${signals.signals?.length || 0} autonomous signals (${strategyMode}) for user ${userId}`);
+      res.json({
+        ...signals,
+        generatedAt: new Date().toISOString(),
+        strategyMode,
+        tradesLearned: brain.totalTradesAnalyzed,
+      });
+    } catch (error: any) {
+      console.error('[VEDD Brain] Autonomous signal error:', error);
+      res.status(500).json({ error: 'Signal generation failed: ' + (error.message || 'Unknown error') });
+    }
+  });
+
+  app.get("/api/vedd-brain/autonomous-signals", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const signals = (global as any).veddAutonomousSignals?.[userId];
+    if (!signals) return res.json({ signals: [], message: "No autonomous signals generated yet." });
+    res.json(signals);
+  });
+
+  // HFT Strategy Modes - available strategies for autonomous trading
+  app.get("/api/vedd-brain/strategy-modes", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const brain = (global as any).veddAIBrain?.[userId];
+
+    res.json({
+      modes: [
+        {
+          id: 'scalping', name: 'Scalping (HFT)', icon: 'Zap',
+          description: 'High-frequency micro-trades: 3-8 pip targets, 10-20+ trades/day',
+          recommended: brain?.hftReadiness?.scalpingViable || false,
+          bestFor: 'Small accounts looking for quick compound growth',
+          riskLevel: 'HIGH',
+          expectedDailyTrades: '10-20+',
+        },
+        {
+          id: 'momentum', name: 'Momentum Surfing', icon: 'TrendingUp',
+          description: 'Ride strong moves: 15-40 pip targets, hold 15min-2hrs',
+          recommended: brain?.hftReadiness?.momentumViable || false,
+          bestFor: 'Catching big moves and trend continuation',
+          riskLevel: 'MEDIUM-HIGH',
+          expectedDailyTrades: '5-15',
+        },
+        {
+          id: 'session_breakout', name: 'Session Open Breakout', icon: 'Rocket',
+          description: 'London/NY open breakouts: 20-50 pip targets, 3-6 trades',
+          recommended: true,
+          bestFor: 'Exploiting session volatility spikes',
+          riskLevel: 'MEDIUM',
+          expectedDailyTrades: '3-6',
+        },
+        {
+          id: 'aggressive', name: 'Aggressive Compound', icon: 'Flame',
+          description: 'All-out growth: combines scalping + momentum + breakouts dynamically',
+          recommended: (brain?.totalTradesAnalyzed || 0) >= 20,
+          bestFor: 'Maximum account growth (5-20% daily target)',
+          riskLevel: 'EXTREME',
+          expectedDailyTrades: '15-30+',
+        },
+        {
+          id: 'sniper', name: 'Sniper Mode', icon: 'Target',
+          description: '2-4 perfect-setup trades with larger lots. Surgical precision.',
+          recommended: (brain?.overallWinRate || 0) >= 55,
+          bestFor: 'High win-rate traders who prefer quality over quantity',
+          riskLevel: 'MEDIUM',
+          expectedDailyTrades: '2-4',
+        },
+      ],
+      brainReady: !!(brain && brain.totalTradesAnalyzed >= 5),
+      tradesLearned: brain?.totalTradesAnalyzed || 0,
+      recommendedMode: brain?.overallWinRate >= 60 ? 'aggressive' : brain?.hftReadiness?.scalpingViable ? 'scalping' : 'session_breakout',
+    });
   });
 
   // Flip Trade - Close current position and open reverse to recover loss + profit
