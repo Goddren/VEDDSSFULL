@@ -82,19 +82,31 @@ export class TradeLockerService {
   private tokenExpiresAt: Date | null = null;
   private accountId: string;
   private serverId: string;
-  private accNum: string = '0'; // The account order number (0, 1, 2...) from API, different from accountId
+  private accNum: string = '0';
+  private accNumResolved: boolean = false;
 
-  constructor(accountType: 'demo' | 'live', accountId: string, serverId: string) {
+  constructor(accountType: 'demo' | 'live', accountId: string, serverId: string, cachedAccNum?: string) {
     this.baseUrl = accountType === 'demo' 
       ? 'https://demo.tradelocker.com/backend-api'
       : 'https://live.tradelocker.com/backend-api';
     this.accountId = accountId;
     this.serverId = serverId;
+    if (cachedAccNum && cachedAccNum !== '0') {
+      this.accNum = cachedAccNum;
+      this.accNumResolved = true;
+      console.log('[TradeLocker] Using cached accNum:', cachedAccNum);
+    }
+  }
+
+  getResolvedAccNum(): string {
+    return this.accNum;
   }
   
-  // Fetch and cache the correct accNum for this account
-  // The accNum is returned by the all-accounts endpoint - use that value directly
   async resolveAccNum(): Promise<string> {
+    if (this.accNumResolved && this.accNum !== '0') {
+      return this.accNum;
+    }
+
     await this.ensureAuthenticated();
     
     try {
@@ -110,11 +122,9 @@ export class TradeLockerService {
         const data = await response.json();
         console.log('[TradeLocker] All accounts raw response:', JSON.stringify(data));
         
-        // Handle both array directly and {accounts: [...]} wrapper formats
-        const accounts = Array.isArray(data) ? data : (data.accounts || []);
+        const accounts = Array.isArray(data) ? data : (data.accounts || data.d?.accounts || []);
         
         if (accounts.length > 0) {
-          // Find the account matching our stored accountId
           const account = accounts.find((acc: any) => 
             acc.id?.toString() === this.accountId || 
             acc.accountId?.toString() === this.accountId
@@ -122,18 +132,49 @@ export class TradeLockerService {
           
           if (account && account.accNum !== undefined) {
             this.accNum = account.accNum.toString();
-            console.log('[TradeLocker] Found matching account, using accNum:', this.accNum, 'for accountId:', this.accountId);
+            this.accNumResolved = true;
+            console.log('[TradeLocker] Found matching account, using accNum:', this.accNum);
+            return this.accNum;
           } else {
-            // If account not found by ID, use first account's accNum (usually 0)
-            this.accNum = accounts[0].accNum?.toString() ?? '0';
-            console.log('[TradeLocker] Account not found by ID, using first account accNum:', this.accNum);
+            this.accNum = accounts[0].accNum?.toString() ?? '1';
+            this.accNumResolved = true;
+            console.log('[TradeLocker] Using first account accNum:', this.accNum);
+            return this.accNum;
           }
         }
       }
     } catch (error) {
-      console.log('[TradeLocker] Could not resolve accNum, using default:', this.accNum);
+      console.log('[TradeLocker] All-accounts endpoint failed:', error);
     }
     
+    console.log('[TradeLocker] All-accounts returned empty, probing accNum values...');
+    for (const testNum of ['1', '2', '3', '4', '5']) {
+      try {
+        const testResponse = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/instruments`, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${this.accessToken}`,
+            'Content-Type': 'application/json',
+            'accNum': testNum,
+          },
+        });
+        
+        if (testResponse.ok) {
+          this.accNum = testNum;
+          this.accNumResolved = true;
+          console.log('[TradeLocker] Probing found valid accNum:', testNum);
+          return this.accNum;
+        } else {
+          const errText = await testResponse.text();
+          console.log(`[TradeLocker] accNum ${testNum} failed:`, testResponse.status);
+        }
+      } catch (err) {
+        console.log(`[TradeLocker] accNum ${testNum} probe error`);
+      }
+    }
+    
+    this.accNum = '1';
+    console.log('[TradeLocker] Could not resolve accNum, defaulting to 1');
     return this.accNum;
   }
 
@@ -576,9 +617,11 @@ export async function executeMT5SignalOnTradeLocker(
     serverId: string;
     accountId: string;
     accountType: string;
+    accNum?: string | null;
     accessToken?: string | null;
     refreshToken?: string | null;
     tokenExpiresAt?: Date | null;
+    id?: number;
   },
   signal: {
     action: string;
@@ -602,14 +645,25 @@ export async function executeMT5SignalOnTradeLocker(
     const service = new TradeLockerService(
       connection.accountType as 'demo' | 'live',
       connection.accountId,
-      connection.serverId
+      connection.serverId,
+      connection.accNum || undefined
     );
 
-    // Always authenticate fresh to ensure accNum is resolved correctly
     console.log('[TradeLocker Execute] Authenticating with credentials');
     const password = decryptPassword(connection.encryptedPassword);
     await service.authenticate(connection.email, password);
     console.log('[TradeLocker Execute] Authentication successful');
+
+    const resolvedAccNum = service.getResolvedAccNum();
+    if (connection.id && resolvedAccNum && resolvedAccNum !== '0' && resolvedAccNum !== connection.accNum) {
+      try {
+        const { storage } = await import('./storage');
+        await storage.updateTradelockerConnection(connection.id, { accNum: resolvedAccNum } as any);
+        console.log('[TradeLocker Execute] Cached accNum:', resolvedAccNum, 'to database');
+      } catch (e) {
+        console.log('[TradeLocker Execute] Could not cache accNum to database');
+      }
+    }
 
     if (signal.action === 'OPEN' || signal.action.toUpperCase() === 'OPEN') {
       console.log('[TradeLocker Execute] Placing order:', {

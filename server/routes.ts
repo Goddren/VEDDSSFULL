@@ -8117,15 +8117,21 @@ Rules:
       const service = new TradeLockerService(
         connection.accountType as 'demo' | 'live',
         connection.accountId,
-        connection.serverId
+        connection.serverId,
+        connection.accNum || undefined
       );
       await service.authenticate(connection.email, password);
       const accountInfo = await service.getAccountInfo();
       
-      await storage.updateTradelockerConnection(connection.id, {
+      const resolvedAccNum = service.getResolvedAccNum();
+      const updateData: any = {
         lastConnectedAt: new Date(),
         lastError: null,
-      });
+      };
+      if (resolvedAccNum && resolvedAccNum !== '0' && resolvedAccNum !== connection.accNum) {
+        updateData.accNum = resolvedAccNum;
+      }
+      await storage.updateTradelockerConnection(connection.id, updateData);
       
       res.json({ success: true, account: accountInfo });
     } catch (err) {
@@ -9331,11 +9337,11 @@ Respond with ONLY valid JSON:
         return res.status(400).json({ error: "No TradeLocker connection found. Please connect your account first." });
       }
       
-      // Initialize TradeLocker service for position operations
       const tlService = new TradeLockerService(
         connection.accountType as 'demo' | 'live',
         connection.accountId,
-        connection.serverId
+        connection.serverId,
+        connection.accNum || undefined
       );
       const password = decryptPassword(connection.encryptedPassword);
       await tlService.authenticate(connection.email, password);

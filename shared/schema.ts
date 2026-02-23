@@ -655,6 +655,7 @@ export const tradelockerConnections = pgTable("tradelocker_connections", {
   accountType: text("account_type").notNull().default('live'), // 'demo' or 'live'
   isActive: boolean("is_active").notNull().default(true),
   autoExecute: boolean("auto_execute").notNull().default(false), // Auto-execute MT5 signals
+  accNum: text("acc_num"), // Cached TradeLocker account number for API calls
   accessToken: text("access_token"), // Cached JWT token
   refreshToken: text("refresh_token"), // Refresh token
   tokenExpiresAt: timestamp("token_expires_at"),

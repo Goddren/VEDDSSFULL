@@ -857,7 +857,12 @@ ${headlines}`
       const response = await fetch(url);
       
       if (!response.ok) {
-        console.log('Finnhub economic calendar error');
+        const status = response.status;
+        if (status === 429) {
+          console.log('[Finnhub] Economic calendar rate limited (429) - will retry next cycle');
+        } else {
+          console.log(`[Finnhub] Economic calendar HTTP ${status} - skipping this cycle`);
+        }
         return [];
       }
 
