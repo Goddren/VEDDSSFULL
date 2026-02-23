@@ -326,7 +326,7 @@ Respond ONLY with valid JSON. Generate MULTIPLE decisions when opportunities exi
       "stopLoss": number,
       "takeProfit": number,
       "takeProfit2": number,
-      "lotSize": number,
+      "lotSize": 0.01-0.05,
       "holdTime": "5min|15min|1hr|4hr",
       "positionId": "for modify/close actions",
       "modifyAction": "trail_stop|move_sl|partial_close|full_close",
@@ -466,7 +466,8 @@ async function processDecision(userId: number, decision: any): Promise<void> {
     const entryPrice = parseNum(decision.entryPrice);
     const stopLoss = parseNum(decision.stopLoss);
     const takeProfit = parseNum(decision.takeProfit);
-    const lotSize = parseNum(decision.lotSize) || 0.01;
+    const rawLotSize = parseNum(decision.lotSize) || 0.01;
+    const lotSize = Math.min(rawLotSize, 0.10);
 
     if (!pendingMT5Signals[userId]) pendingMT5Signals[userId] = [];
     const mt5Signal: PendingMT5Signal = {
