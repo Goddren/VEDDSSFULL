@@ -655,6 +655,34 @@ export default function WeeklyStrategyPage() {
                   )}
                 </CardContent>
               </Card>
+
+              <Card className="border border-emerald-500/30 bg-gradient-to-r from-emerald-900/10 to-cyan-900/10 mt-3">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-sm font-bold text-emerald-400 flex items-center gap-2">
+                        <Download className="w-4 h-4" />
+                        MT5 Signal Receiver EA
+                      </h4>
+                      <p className="text-[11px] text-gray-400 mt-1">
+                        Auto-executes Live Engine signals on your MT5 account. Runs alongside your Chart Data EA.
+                      </p>
+                    </div>
+                    <a href="/downloads/VEDD_Signal_Receiver_EA.mq5" download>
+                      <Button size="sm" variant="outline" className="text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/10">
+                        <Download className="w-3 h-3 mr-1" />
+                        Download EA
+                      </Button>
+                    </a>
+                  </div>
+                  <div className="mt-3 text-[10px] text-gray-500 space-y-1">
+                    <p>1. Download the .mq5 file and copy to MT5: File &rarr; Open Data Folder &rarr; MQL5 &rarr; Experts</p>
+                    <p>2. Compile in MetaEditor (F7), then drag onto any chart</p>
+                    <p>3. Set your <span className="text-emerald-400">Server URL</span> (this site's URL) and <span className="text-emerald-400">API Key</span> (from MT5 Settings)</p>
+                    <p>4. Enable: Tools &rarr; Options &rarr; Expert Advisors &rarr; Allow WebRequest for this URL</p>
+                  </div>
+                </CardContent>
+              </Card>
             </motion.div>
 
             {/* Growth Progress Header */}

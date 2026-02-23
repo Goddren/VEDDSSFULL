@@ -33,6 +33,7 @@ Preferred communication style: Simple, everyday language.
 - **VEDD AI Live Trading Engine**: Autonomous background engine that monitors live markets, computes indicators, uses GPT-4o for analysis, and auto-executes trades via TradeLocker.
 - **Advanced Indicator Engine**: Server-side computation of 12+ advanced indicators from raw candle data, feeding into a weighted consensus voting system.
 - **News-Aware AI Confirmation**: AI Second Opinion system fetches real-time news sentiment and economic events, integrating a 14-point institutional checklist for confirmation decisions.
+- **MT5 Signal Receiver EA** (`public/downloads/VEDD_Signal_Receiver_EA.mq5`): MetaTrader 5 Expert Advisor that polls the VEDD AI Live Trading Engine for pending trade signals and auto-executes them on the user's MT5 account. Polls every 5 seconds (configurable), authenticates via MT5 API token, normalizes symbol names with broker suffix detection, supports configurable max lot size and slippage, confirms execution back to server. Runs alongside the Chart Data EA without conflicts. Magic number 202500. Signals expire after 5 minutes if not picked up. API endpoints: `GET /api/vedd-live-engine/mt5-signals` (EA poll), `POST /api/vedd-live-engine/mt5-signal-confirm` (execution confirmation), `GET /api/vedd-live-engine/mt5-signal-history` (signal history). Download available on VEDD SS AI page with setup instructions.
 
 ### System Design Choices
 - **Architecture Pattern**: Full-stack monorepo with clear separation between client and server.

@@ -27,6 +27,24 @@ interface LiveActivity {
   confidence?: number;
 }
 
+export interface PendingMT5Signal {
+  id: string;
+  timestamp: string;
+  symbol: string;
+  direction: 'BUY' | 'SELL';
+  action: 'OPEN' | 'CLOSE' | 'MODIFY';
+  lotSize: number;
+  entryPrice: number | null;
+  stopLoss: number | null;
+  takeProfit: number | null;
+  confidence: number;
+  reason: string;
+  holdTime: string;
+  status: 'pending' | 'executed' | 'rejected' | 'expired';
+}
+
+const pendingMT5Signals: Record<number, PendingMT5Signal[]> = {};
+
 interface EngineState {
   status: 'stopped' | 'running' | 'paused';
   startedAt: string | null;
@@ -399,16 +417,37 @@ async function processDecision(userId: number, decision: any): Promise<void> {
       return;
     }
 
-    const tlConnection = await storage.getUserTradelockerConnection(userId);
-    if (!tlConnection || !tlConnection.isActive) {
-      addActivity(userId, { type: 'info', symbol: decision.symbol, message: 'TradeLocker not connected. Signal logged but not executed.' });
-      return;
-    }
-
     const entryPrice = parseNum(decision.entryPrice);
     const stopLoss = parseNum(decision.stopLoss);
     const takeProfit = parseNum(decision.takeProfit);
     const lotSize = parseNum(decision.lotSize) || 0.01;
+
+    if (!pendingMT5Signals[userId]) pendingMT5Signals[userId] = [];
+    const mt5Signal: PendingMT5Signal = {
+      id: `sig_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      timestamp: new Date().toISOString(),
+      symbol: decision.symbol,
+      direction: decision.direction,
+      action: 'OPEN',
+      lotSize,
+      entryPrice: entryPrice || null,
+      stopLoss: stopLoss || null,
+      takeProfit: takeProfit || null,
+      confidence,
+      reason: decision.reason || '',
+      holdTime: decision.holdTime || '',
+      status: 'pending',
+    };
+    pendingMT5Signals[userId].push(mt5Signal);
+    if (pendingMT5Signals[userId].length > 200) {
+      pendingMT5Signals[userId] = pendingMT5Signals[userId].slice(-100);
+    }
+
+    const tlConnection = await storage.getUserTradelockerConnection(userId);
+    if (!tlConnection || !tlConnection.isActive) {
+      addActivity(userId, { type: 'info', symbol: decision.symbol, message: 'TradeLocker not connected. Signal queued for MT5 EA pickup.' });
+      return;
+    }
 
     try {
       const signalLog = await storage.createMt5SignalLog({
@@ -453,6 +492,7 @@ async function processDecision(userId: number, decision: any): Promise<void> {
       if (tradeResult.success) {
         state.tradesExecuted++;
         state.openPositionCount++;
+        mt5Signal.status = 'executed';
         addActivity(userId, {
           type: 'trade_open',
           symbol: decision.symbol,
@@ -463,6 +503,7 @@ async function processDecision(userId: number, decision: any): Promise<void> {
         });
       } else {
         state.tradesFailed++;
+        mt5Signal.status = 'rejected';
         addActivity(userId, {
           type: 'error',
           symbol: decision.symbol,
@@ -573,4 +614,44 @@ export function updateLiveEngineConfig(userId: number, updates: Partial<LiveEngi
   });
 
   return state;
+}
+
+export function getPendingMT5Signals(userId: number): PendingMT5Signal[] {
+  if (!pendingMT5Signals[userId]) return [];
+  const now = Date.now();
+  pendingMT5Signals[userId].forEach(s => {
+    if (s.status === 'pending' && now - new Date(s.timestamp).getTime() > 5 * 60 * 1000) {
+      s.status = 'expired';
+    }
+  });
+  return pendingMT5Signals[userId].filter(s => s.status === 'pending');
+}
+
+export function confirmMT5Signal(userId: number, signalId: string, executed: boolean): PendingMT5Signal | null {
+  if (!pendingMT5Signals[userId]) return null;
+  const signal = pendingMT5Signals[userId].find(s => s.id === signalId);
+  if (!signal) return null;
+  signal.status = executed ? 'executed' : 'rejected';
+  addActivity(userId, {
+    type: executed ? 'trade_open' : 'info',
+    symbol: signal.symbol,
+    direction: signal.direction,
+    confidence: signal.confidence,
+    message: executed
+      ? `MT5 EXECUTED: ${signal.direction} ${signal.symbol} via Signal Receiver EA`
+      : `MT5 signal rejected by EA: ${signal.symbol}`,
+  });
+  if (executed) {
+    const state = engineStates[userId];
+    if (state) {
+      state.tradesExecuted++;
+      state.openPositionCount++;
+    }
+  }
+  return signal;
+}
+
+export function getAllMT5Signals(userId: number, limit: number = 50): PendingMT5Signal[] {
+  if (!pendingMT5Signals[userId]) return [];
+  return pendingMT5Signals[userId].slice(-limit).reverse();
 }

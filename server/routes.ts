@@ -9158,7 +9158,7 @@ Respond with ONLY valid JSON:
   });
 
   // ==================== VEDD AI LIVE TRADING ENGINE ====================
-  const { startLiveEngine, stopLiveEngine, getLiveEngineState, getLiveEngineActivity, updateLiveEngineConfig } = await import('./services/live-trading-engine');
+  const { startLiveEngine, stopLiveEngine, getLiveEngineState, getLiveEngineActivity, updateLiveEngineConfig, getPendingMT5Signals, confirmMT5Signal, getAllMT5Signals } = await import('./services/live-trading-engine');
 
   app.post("/api/vedd-live-engine/start", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
@@ -9211,6 +9211,46 @@ Respond with ONLY valid JSON:
     const state = updateLiveEngineConfig(userId, req.body);
     if (!state) return res.status(400).json({ error: 'Engine not running' });
     res.json({ success: true, state });
+  });
+
+  app.get("/api/vedd-live-engine/mt5-signals", async (req: Request, res: Response) => {
+    const apiKey = req.headers['x-api-key'] as string || req.query.apiKey as string;
+    if (!apiKey) {
+      if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+      const userId = (req.user as User).id;
+      const signals = getPendingMT5Signals(userId);
+      return res.json({ signals });
+    }
+    const token = await storage.getMt5ApiTokenByToken(apiKey);
+    if (!token) return res.status(401).json({ error: "Invalid API key" });
+    const signals = getPendingMT5Signals(token.userId);
+    res.json({ signals });
+  });
+
+  app.post("/api/vedd-live-engine/mt5-signal-confirm", async (req: Request, res: Response) => {
+    const apiKey = req.headers['x-api-key'] as string || req.body.apiKey;
+    if (!apiKey) {
+      if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+      const userId = (req.user as User).id;
+      const { signalId, executed } = req.body;
+      const result = confirmMT5Signal(userId, signalId, executed !== false);
+      if (!result) return res.status(404).json({ error: "Signal not found" });
+      return res.json({ success: true, signal: result });
+    }
+    const token = await storage.getMt5ApiTokenByToken(apiKey);
+    if (!token) return res.status(401).json({ error: "Invalid API key" });
+    const { signalId, executed } = req.body;
+    const result = confirmMT5Signal(token.userId, signalId, executed !== false);
+    if (!result) return res.status(404).json({ error: "Signal not found" });
+    res.json({ success: true, signal: result });
+  });
+
+  app.get("/api/vedd-live-engine/mt5-signal-history", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const limit = Math.min(100, Number(req.query.limit) || 50);
+    const signals = getAllMT5Signals(userId, limit);
+    res.json({ signals });
   });
 
   // Flip Trade - Close current position and open reverse to recover loss + profit
