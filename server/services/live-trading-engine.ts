@@ -41,6 +41,8 @@ export interface PendingMT5Signal {
   confidence: number;
   reason: string;
   holdTime: string;
+  strategy: string;
+  confluences: string[];
   status: 'pending' | 'executed' | 'rejected' | 'expired';
 }
 
@@ -442,14 +444,15 @@ async function processDecision(userId: number, decision: any): Promise<void> {
     }
 
     const existingSignals = pendingMT5Signals[userId] || [];
-    const hasPendingForPair = existingSignals.some(
-      s => s.symbol === decision.symbol && s.status === 'pending' && (Date.now() - new Date(s.timestamp).getTime()) < 5 * 60 * 1000
+    const cooldownMs = Math.max(config.scanIntervalMs * 3, 3 * 60 * 1000);
+    const hasRecentForPair = existingSignals.some(
+      s => s.symbol === decision.symbol && (Date.now() - new Date(s.timestamp).getTime()) < cooldownMs
     );
-    if (hasPendingForPair) {
+    if (hasRecentForPair) {
       addActivity(userId, {
         type: 'info',
         symbol: decision.symbol,
-        message: `Trade skipped - ${decision.symbol} already has a pending signal waiting for MT5 execution`,
+        message: `Trade skipped - ${decision.symbol} already has a recent signal (cooldown ${Math.round(cooldownMs / 60000)}min)`,
       });
       return;
     }
@@ -498,6 +501,8 @@ async function processDecision(userId: number, decision: any): Promise<void> {
       confidence,
       reason: decision.reason || '',
       holdTime: decision.holdTime || '',
+      strategy: decision.strategy || 'auto',
+      confluences: decision.confluences || [],
       status: 'pending',
     };
     pendingMT5Signals[userId].push(mt5Signal);

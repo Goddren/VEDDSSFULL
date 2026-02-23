@@ -520,6 +520,11 @@ export default function WeeklyStrategyPage() {
                                       </Badge>
                                     )}
                                     {act.confidence && <span className="text-yellow-400 text-[9px]">{act.confidence}%</span>}
+                                    {act.details?.strategy && (
+                                      <Badge variant="outline" className="text-[9px] px-1 py-0 border-purple-500/40 text-purple-300">
+                                        {act.details.strategy.toUpperCase()}
+                                      </Badge>
+                                    )}
                                   </div>
                                   <p className={`mt-0.5 leading-tight ${
                                     act.type === 'error' ? 'text-red-300' : act.type === 'trade_open' ? 'text-green-300' : 'text-gray-300'
