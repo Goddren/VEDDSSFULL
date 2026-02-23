@@ -13,7 +13,7 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
-import { Menu, Bell, User, LogOut, Settings, History, LineChart, CreditCard, Award, Users, Newspaper, Wand2, Clock, Briefcase, Zap, HelpCircle, BookOpen, GraduationCap, FileText, Lightbulb, ChevronDown, MoreHorizontal, BarChart3, Webhook, Wallet, Scan, Coins, KeyRound, Rocket } from 'lucide-react';
+import { Menu, Bell, User, LogOut, Settings, History, LineChart, CreditCard, Award, Users, Newspaper, Wand2, Clock, Briefcase, Zap, HelpCircle, BookOpen, GraduationCap, FileText, Lightbulb, ChevronDown, MoreHorizontal, BarChart3, Webhook, Wallet, Scan, Coins, KeyRound, Rocket, Brain } from 'lucide-react';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 
 const Header: React.FC = () => {
@@ -200,6 +200,14 @@ const Header: React.FC = () => {
                   <div className="flex items-center w-full">
                     <KeyRound className="mr-2 h-4 w-4" />
                     <span>AI API Keys</span>
+                  </div>
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem className="cursor-pointer" asChild>
+                <Link href="/ai-trading-models">
+                  <div className="flex items-center w-full">
+                    <Brain className="mr-2 h-4 w-4" />
+                    <span>AI Trading Models</span>
                   </div>
                 </Link>
               </DropdownMenuItem>

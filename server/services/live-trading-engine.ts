@@ -745,30 +745,82 @@ Respond ONLY with valid JSON. Generate MULTIPLE decisions when opportunities exi
   "tradingWindowQuality": "excellent|good|fair|poor - based on session time + volume + news"
 }`;
 
-    const modelToUse = model.startsWith('gpt') ? model : 'gpt-4o-mini';
-    const supportsJson = modelToUse.startsWith('gpt');
+    const systemPrompt = 'You are VEDD SS AI - a live autonomous HIGH-FREQUENCY trading engine built for RAPID ACCOUNT GROWTH. Use every strategy in your arsenal simultaneously: scalping, momentum surfing, session breakouts, sniper setups, and aggressive compounding. Generate MULTIPLE trade signals per scan when opportunities exist across different pairs and strategies. Be aggressive but intelligent - maximize trade frequency while maintaining edge. CRITICAL: Always factor in NEWS events and VOLUME levels before entering trades. Avoid pairs with upcoming high-impact news. Prioritize pairs with strong volume. Trade during optimal market hours for best fills. Respond with valid JSON only.';
 
-    const response = await openai.chat.completions.create({
-      model: modelToUse,
-      messages: [
-        { role: 'system', content: 'You are VEDD SS AI - a live autonomous HIGH-FREQUENCY trading engine built for RAPID ACCOUNT GROWTH. Use every strategy in your arsenal simultaneously: scalping, momentum surfing, session breakouts, sniper setups, and aggressive compounding. Generate MULTIPLE trade signals per scan when opportunities exist across different pairs and strategies. Be aggressive but intelligent - maximize trade frequency while maintaining edge. CRITICAL: Always factor in NEWS events and VOLUME levels before entering trades. Avoid pairs with upcoming high-impact news. Prioritize pairs with strong volume. Trade during optimal market hours for best fills. Respond with valid JSON only.' },
-        { role: 'user', content: prompt },
-      ],
-      ...(supportsJson ? { response_format: { type: 'json_object' } } : {}),
-      max_tokens: 4000,
-      temperature: 0.3,
-    });
+    const { runMultiModelAnalysis, DEFAULT_ROUTING_CONFIG } = await import('./ai-model-service');
+    const modelConfig = await storage.getAiModelConfig(userId);
 
-    const content = response.choices[0]?.message?.content || '';
     let decisions: any;
-    try {
-      decisions = JSON.parse(content);
-    } catch {
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (jsonMatch) decisions = JSON.parse(jsonMatch[0]);
-      else {
-        addActivity(userId, { type: 'error', message: 'AI returned invalid response' });
-        return;
+    let usedMultiModel = false;
+
+    const ensembleIds = Array.isArray(modelConfig?.ensembleModelIds) ? modelConfig.ensembleModelIds as string[] : [];
+    const hasValidMultiModelConfig = modelConfig &&
+      modelConfig.isActive &&
+      modelConfig.routingMode !== 'single' &&
+      (modelConfig.routingMode !== 'ensemble' || ensembleIds.length >= 2);
+
+    if (hasValidMultiModelConfig) {
+      try {
+        const routingConfig = {
+          mode: modelConfig.routingMode as any,
+          primaryModelId: modelConfig.primaryModelId || 'openai-gpt4o',
+          ensembleModelIds: ensembleIds,
+          strategyAssignments: (modelConfig.strategyAssignments as Record<string, string>) || {},
+          fallbackOrder: Array.isArray(modelConfig.fallbackOrder) ? modelConfig.fallbackOrder as string[] : [],
+          ensembleMinAgreement: modelConfig.ensembleMinAgreement || 60,
+          enabled: modelConfig.isActive,
+        };
+
+        addActivity(userId, { type: 'info', message: `Multi-Model: Using ${routingConfig.mode} mode with ${routingConfig.mode === 'ensemble' ? routingConfig.ensembleModelIds.length + ' models' : routingConfig.primaryModelId}` });
+
+        const ensembleResult = await runMultiModelAnalysis(userId, systemPrompt, prompt, routingConfig, openai);
+
+        if (ensembleResult.consensusDecisions.length > 0 || ensembleResult.decisions.length > 0) {
+          decisions = {
+            decisions: ensembleResult.consensusDecisions.length > 0 ? ensembleResult.consensusDecisions : ensembleResult.decisions,
+            engineConfidence: ensembleResult.agreementPercent,
+            marketOverview: `Multi-model ${routingConfig.mode} analysis`,
+            activeStrategies: [...new Set(ensembleResult.decisions.map((d: any) => d.strategy).filter(Boolean))],
+          };
+
+          if (routingConfig.mode === 'ensemble' && Object.keys(ensembleResult.modelVotes).length > 0) {
+            addActivity(userId, {
+              type: 'info',
+              message: `Ensemble: ${ensembleResult.agreementPercent}% agreement | ${ensembleResult.consensusDecisions.length} consensus trades from ${Object.keys(ensembleResult.modelVotes).length} model votes`,
+            });
+          }
+          usedMultiModel = true;
+        }
+      } catch (err: any) {
+        addActivity(userId, { type: 'error', message: `Multi-model error: ${err.message}. Falling back to primary model.` });
+      }
+    }
+
+    if (!usedMultiModel) {
+      const modelToUse = model.startsWith('gpt') ? model : 'gpt-4o-mini';
+      const supportsJson = modelToUse.startsWith('gpt');
+
+      const response = await openai.chat.completions.create({
+        model: modelToUse,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: prompt },
+        ],
+        ...(supportsJson ? { response_format: { type: 'json_object' } } : {}),
+        max_tokens: 4000,
+        temperature: 0.3,
+      });
+
+      const content = response.choices[0]?.message?.content || '';
+      try {
+        decisions = JSON.parse(content);
+      } catch {
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (jsonMatch) decisions = JSON.parse(jsonMatch[0]);
+        else {
+          addActivity(userId, { type: 'error', message: 'AI returned invalid response' });
+          return;
+        }
       }
     }
 

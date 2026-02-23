@@ -43,9 +43,11 @@ import {
   type SocialPost, type InsertSocialPost,
   type AiTradeResult, type InsertAiTradeResult,
   type UserApiKey, type InsertUserApiKey,
+  type AiModelConfig, type InsertAiModelConfig,
   veddPoolWallets, veddTransferJobs, ambassadorActionRewards,
   internalWallets, withdrawalRequests, aiTradeResults, userApiKeys,
-  weeklyStrategies, type WeeklyStrategy
+  weeklyStrategies, type WeeklyStrategy,
+  aiModelConfigs,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, sql, desc, isNull } from "drizzle-orm";
@@ -376,6 +378,8 @@ export interface IStorage {
   deleteUserApiKey(userId: number, provider: string): Promise<boolean>;
   updateUserApiKeyUsage(userId: number, provider: string): Promise<void>;
   getActiveUserApiKey(userId: number, provider: string): Promise<UserApiKey | undefined>;
+  getAiModelConfig(userId: number): Promise<AiModelConfig | undefined>;
+  upsertAiModelConfig(userId: number, data: Partial<InsertAiModelConfig>): Promise<AiModelConfig>;
 }
 
 // Create PostgreSQL session store
@@ -2401,6 +2405,28 @@ export class DatabaseStorage implements IStorage {
     await db.update(weeklyStrategies)
       .set({ isActive: false })
       .where(and(eq(weeklyStrategies.userId, userId), eq(weeklyStrategies.isActive, true)));
+  }
+
+  async getAiModelConfig(userId: number): Promise<AiModelConfig | undefined> {
+    const [result] = await db.select().from(aiModelConfigs)
+      .where(and(eq(aiModelConfigs.userId, userId), eq(aiModelConfigs.isActive, true)))
+      .limit(1);
+    return result;
+  }
+
+  async upsertAiModelConfig(userId: number, data: Partial<InsertAiModelConfig>): Promise<AiModelConfig> {
+    const existing = await this.getAiModelConfig(userId);
+    if (existing) {
+      const [updated] = await db.update(aiModelConfigs)
+        .set({ ...data, updatedAt: new Date() })
+        .where(eq(aiModelConfigs.id, existing.id))
+        .returning();
+      return updated;
+    }
+    const [created] = await db.insert(aiModelConfigs)
+      .values({ userId, ...data } as any)
+      .returning();
+    return created;
   }
 }
 

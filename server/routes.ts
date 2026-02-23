@@ -13416,6 +13416,63 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     res.json(logs);
   });
 
+  app.get("/api/ai-trading-models", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const { AVAILABLE_TRADING_MODELS } = await import('./services/ai-model-service');
+    const userId = (req.user as User).id;
+    const config = await storage.getAiModelConfig(userId);
+    const userKeys = await storage.getUserApiKeys(userId);
+    const availableProviders = ['openai', ...userKeys.filter(k => k.isActive).map(k => k.provider)];
+    const models = AVAILABLE_TRADING_MODELS.map(m => ({
+      ...m,
+      available: availableProviders.includes(m.provider),
+      hasApiKey: m.provider === 'openai' || userKeys.some(k => k.provider === m.provider && k.isActive),
+    }));
+    res.json({
+      models,
+      config: config || null,
+      availableProviders,
+    });
+  });
+
+  app.get("/api/ai-trading-models/config", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const userId = (req.user as User).id;
+    const config = await storage.getAiModelConfig(userId);
+    const { DEFAULT_ROUTING_CONFIG } = await import('./services/ai-model-service');
+    res.json(config || { ...DEFAULT_ROUTING_CONFIG, userId });
+  });
+
+  app.post("/api/ai-trading-models/config", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const userId = (req.user as User).id;
+    const { routingMode, primaryModelId, ensembleModelIds, strategyAssignments, fallbackOrder, ensembleMinAgreement } = req.body;
+    const validModes = ['single', 'fallback', 'ensemble', 'strategy_split'];
+    if (routingMode && !validModes.includes(routingMode)) {
+      return res.status(400).json({ error: `Invalid routing mode. Must be one of: ${validModes.join(', ')}` });
+    }
+    if (ensembleMinAgreement !== undefined && (typeof ensembleMinAgreement !== 'number' || ensembleMinAgreement < 40 || ensembleMinAgreement > 100)) {
+      return res.status(400).json({ error: "ensembleMinAgreement must be a number between 40 and 100" });
+    }
+    if (ensembleModelIds && !Array.isArray(ensembleModelIds)) {
+      return res.status(400).json({ error: "ensembleModelIds must be an array" });
+    }
+    try {
+      const config = await storage.upsertAiModelConfig(userId, {
+        routingMode: routingMode || 'single',
+        primaryModelId: primaryModelId || 'openai-gpt4o',
+        ensembleModelIds: ensembleModelIds || [],
+        strategyAssignments: strategyAssignments || {},
+        fallbackOrder: fallbackOrder || [],
+        ensembleMinAgreement: ensembleMinAgreement || 60,
+        isActive: true,
+      });
+      res.json({ success: true, config });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   const httpServer = createServer(app);
   
   streamingService.initialize(httpServer);

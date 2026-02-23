@@ -1583,3 +1583,26 @@ export const weeklyStrategies = pgTable("weekly_strategies", {
 
 export type WeeklyStrategy = typeof weeklyStrategies.$inferSelect;
 export type InsertWeeklyStrategy = typeof weeklyStrategies.$inferInsert;
+
+export const aiModelConfigs = pgTable("ai_model_configs", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  routingMode: text("routing_mode").notNull().default('single'),
+  primaryModelId: text("primary_model_id").notNull().default('openai-gpt4o'),
+  ensembleModelIds: jsonb("ensemble_model_ids").$type<string[]>().default([]),
+  strategyAssignments: jsonb("strategy_assignments").$type<Record<string, string>>().default({}),
+  fallbackOrder: jsonb("fallback_order").$type<string[]>().default([]),
+  ensembleMinAgreement: integer("ensemble_min_agreement").notNull().default(60),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertAiModelConfigSchema = createInsertSchema(aiModelConfigs).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type AiModelConfig = typeof aiModelConfigs.$inferSelect;
+export type InsertAiModelConfig = z.infer<typeof insertAiModelConfigSchema>;
