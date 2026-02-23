@@ -127,6 +127,7 @@ void PollForSignals()
    string signalIds[];
    string symbols[];
    string directions[];
+   string actions[];
    double lotSizes[];
    double entryPrices[];
    double stopLosses[];
@@ -320,136 +321,6 @@ bool ExecuteModifySignal(string symbol, double sl, double tp)
    }
    return false;
 }
-{
-   string mt5Symbol = NormalizeSymbol(symbol);
-   
-   if(!SymbolSelect(mt5Symbol, true))
-   {
-      lastError = "Symbol not found: " + mt5Symbol;
-      return false;
-   }
-   
-   double lotSize = UseSignalLotSize ? lots : DefaultLotSize;
-   if(lotSize > MaxLotSize) lotSize = MaxLotSize;
-   if(lotSize < SymbolInfoDouble(mt5Symbol, SYMBOL_VOLUME_MIN))
-      lotSize = SymbolInfoDouble(mt5Symbol, SYMBOL_VOLUME_MIN);
-   
-   double lotStep = SymbolInfoDouble(mt5Symbol, SYMBOL_VOLUME_STEP);
-   if(lotStep > 0)
-      lotSize = MathFloor(lotSize / lotStep) * lotStep;
-   
-   ENUM_ORDER_TYPE orderType;
-   double brokerPrice;
-   
-   if(direction == "BUY")
-   {
-      orderType = ORDER_TYPE_BUY;
-      brokerPrice = SymbolInfoDouble(mt5Symbol, SYMBOL_ASK);
-   }
-   else if(direction == "SELL")
-   {
-      orderType = ORDER_TYPE_SELL;
-      brokerPrice = SymbolInfoDouble(mt5Symbol, SYMBOL_BID);
-   }
-   else
-   {
-      lastError = "Invalid direction: " + direction;
-      return false;
-   }
-   
-   double point = SymbolInfoDouble(mt5Symbol, SYMBOL_POINT);
-   int digits = (int)SymbolInfoInteger(mt5Symbol, SYMBOL_DIGITS);
-   double pipSize = (digits == 3 || digits == 5) ? point * 10 : point;
-   
-   if(signalEntry > 0 && MaxPriceDeviationPips > 0)
-   {
-      double priceDiffPips = MathAbs(brokerPrice - signalEntry) / pipSize;
-      if(EnableLogging)
-         Print("Price check: Signal=", DoubleToString(signalEntry, digits), 
-               " Broker=", DoubleToString(brokerPrice, digits),
-               " Diff=", DoubleToString(priceDiffPips, 1), " pips",
-               " Max=", DoubleToString(MaxPriceDeviationPips, 1), " pips");
-      
-      if(priceDiffPips > MaxPriceDeviationPips)
-      {
-         lastError = "Price deviation too large: " + DoubleToString(priceDiffPips, 1) + 
-                     " pips (max " + DoubleToString(MaxPriceDeviationPips, 1) + ")";
-         return false;
-      }
-   }
-   
-   double finalSL = 0;
-   double finalTP = 0;
-   
-   if(UseSignalSLTP && (sl > 0 || tp > 0))
-   {
-      if(AdjustSLTPToBrokerPrice && signalEntry > 0)
-      {
-         double priceShift = brokerPrice - signalEntry;
-         if(sl > 0) finalSL = NormalizeDouble(sl + priceShift, digits);
-         if(tp > 0) finalTP = NormalizeDouble(tp + priceShift, digits);
-         if(EnableLogging && MathAbs(priceShift) > point)
-            Print("SL/TP adjusted by ", DoubleToString(priceShift / pipSize, 1), 
-                  " pips to match broker price | SL: ", DoubleToString(finalSL, digits),
-                  " TP: ", DoubleToString(finalTP, digits));
-      }
-      else
-      {
-         if(sl > 0) finalSL = sl;
-         if(tp > 0) finalTP = tp;
-      }
-   }
-   
-   double price = brokerPrice;
-   
-   MqlTradeRequest request;
-   MqlTradeResult result;
-   ZeroMemory(request);
-   ZeroMemory(result);
-   
-   request.action = TRADE_ACTION_DEAL;
-   request.symbol = mt5Symbol;
-   request.volume = lotSize;
-   request.type = orderType;
-   request.price = price;
-   request.sl = finalSL;
-   request.tp = finalTP;
-   request.deviation = MaxSlippage;
-   request.magic = 202500;
-   request.comment = "VEDD AI Live Signal";
-   request.type_filling = ORDER_FILLING_IOC;
-   
-   for(int attempt = 0; attempt < RetryAttempts; attempt++)
-   {
-      if(OrderSend(request, result))
-      {
-         if(result.retcode == TRADE_RETCODE_DONE || result.retcode == TRADE_RETCODE_PLACED)
-         {
-            Print("Order executed successfully. Ticket: ", result.order, 
-                  " Deal: ", result.deal, " Price: ", result.price);
-            return true;
-         }
-      }
-      
-      lastError = "Retcode: " + IntegerToString(result.retcode) + " - " + result.comment;
-      
-      if(result.retcode == TRADE_RETCODE_REQUOTE)
-      {
-         if(direction == "BUY")
-            request.price = SymbolInfoDouble(mt5Symbol, SYMBOL_ASK);
-         else
-            request.price = SymbolInfoDouble(mt5Symbol, SYMBOL_BID);
-      }
-      
-      if(attempt < RetryAttempts - 1)
-      {
-         Print("Retry ", attempt + 1, "/", RetryAttempts, " after error: ", lastError);
-         Sleep(RetryDelayMs);
-      }
-   }
-   
-   return false;
-}
 
 //+------------------------------------------------------------------+
 string NormalizeSymbol(string symbol)
@@ -500,7 +371,7 @@ void ConfirmSignal(string signalId, bool executed)
 }
 
 //+------------------------------------------------------------------+
-int ParseSignals(string json, string &ids[], string &syms[], string &dirs[],
+int ParseSignals(string json, string &ids[], string &syms[], string &dirs[], string &acts[],
                  double &lots[], double &entries[], double &sls[], double &tps[],
                  double &confs[], string &rsns[])
 {
@@ -509,6 +380,7 @@ int ParseSignals(string json, string &ids[], string &syms[], string &dirs[],
    ArrayResize(ids, maxSignals);
    ArrayResize(syms, maxSignals);
    ArrayResize(dirs, maxSignals);
+   ArrayResize(acts, maxSignals);
    ArrayResize(lots, maxSignals);
    ArrayResize(entries, maxSignals);
    ArrayResize(sls, maxSignals);
@@ -526,6 +398,8 @@ int ParseSignals(string json, string &ids[], string &syms[], string &dirs[],
       ids[count] = ExtractStringValue(json, "id", idPos);
       syms[count] = ExtractStringValue(json, "symbol", idPos);
       dirs[count] = ExtractStringValue(json, "direction", idPos);
+      acts[count] = ExtractStringValue(json, "action", idPos);
+      if(StringLen(acts[count]) == 0) acts[count] = "OPEN";
       lots[count] = ExtractNumericValue(json, "lotSize", idPos);
       entries[count] = ExtractNumericValue(json, "entryPrice", idPos);
       sls[count] = ExtractNumericValue(json, "stopLoss", idPos);
@@ -544,6 +418,7 @@ int ParseSignals(string json, string &ids[], string &syms[], string &dirs[],
    ArrayResize(ids, count);
    ArrayResize(syms, count);
    ArrayResize(dirs, count);
+   ArrayResize(acts, count);
    ArrayResize(lots, count);
    ArrayResize(entries, count);
    ArrayResize(sls, count);
