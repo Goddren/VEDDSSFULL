@@ -620,16 +620,18 @@ export type InsertMt5ApiToken = z.infer<typeof insertMt5ApiTokenSchema>;
 // MT5 Signal Logs for tracking incoming signals
 export const mt5SignalLogs = pgTable("mt5_signal_logs", {
   id: serial("id").primaryKey(),
-  tokenId: integer("token_id").references(() => mt5ApiTokens.id).notNull(),
+  tokenId: integer("token_id").references(() => mt5ApiTokens.id),
   userId: integer("user_id").references(() => users.id).notNull(),
   action: text("action").notNull(), // 'OPEN', 'CLOSE', 'MODIFY'
   symbol: text("symbol").notNull(),
   direction: text("direction").notNull(), // 'BUY', 'SELL'
   volume: real("volume").notNull(),
-  entryPrice: real("entry_price").notNull(),
+  entryPrice: real("entry_price"),
   stopLoss: real("stop_loss"),
   takeProfit: real("take_profit"),
   ticket: text("ticket"), // MT5 ticket number
+  source: text("source"), // 'mt5_ea', 'vedd_live_engine', etc.
+  confidence: real("confidence"),
   relayedToWebhooks: boolean("relayed_to_webhooks").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
