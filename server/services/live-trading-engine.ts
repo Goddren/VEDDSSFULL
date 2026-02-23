@@ -638,6 +638,18 @@ CONTEXT:
 - Max trades allowed: ${config.maxOpenTrades} | Currently open: ${currentOpenCount}
 - Position management: ${config.enablePositionManagement ? 'ACTIVE' : 'OFF'}
 - Compounding: ${config.enableCompounding ? 'ON' : 'OFF'} | Compound Multiplier: ${compMult}x
+${config.accountBalance > 0 && config.accountBalance < 500 ? `
+SMALL ACCOUNT PROTECTION ($${config.accountBalance}):
+- CRITICAL: This is a small account. CAPITAL PRESERVATION is the #1 priority.
+- Use ONLY 0.01 lot size. Never suggest more than 0.01 for any trade.
+- Maximum 2-3 open trades at a time - fewer trades = lower risk exposure.
+- Only take A+ setups with 75%+ confidence. Skip marginal setups.
+- Favor SNIPER and MOMENTUM strategies over rapid scalping - scalping spreads eat small accounts alive.
+- Set tight stops (10-15 pips max for forex) but ensure R:R is at least 1:2.
+- NEVER increase lot size until account is above $500. Compounding is capped.
+- Close losing trades FAST - a $5 loss on a $100 account is already 5%.
+- If account has dropped below starting balance, switch to ULTRA-CONSERVATIVE: only 1 trade at a time, 80%+ confidence only.
+` : ''}
 - IMPORTANT: Market data comes from Twelve Data. User's broker may have slightly different prices (spread, feed differences). Use ZONE-BASED entries rather than exact prices. Set SL/TP as DISTANCES from entry (e.g. 15 pips SL) so the EA can adjust to broker prices automatically.
 
 HFT TRADING STRATEGY ARSENAL - USE ALL SIMULTANEOUSLY TO HIT THE WEEKLY GOAL:
@@ -824,11 +836,27 @@ async function processDecision(userId: number, decision: any): Promise<void> {
       return;
     }
 
-    if (state.openPositionCount >= config.maxOpenTrades) {
+    const isSmallAcct = config.accountBalance > 0 && config.accountBalance < 500;
+    const effectiveMaxTrades = isSmallAcct ? Math.min(config.maxOpenTrades, 3) : config.maxOpenTrades;
+    const effectiveMinConf = isSmallAcct ? Math.max(config.minConfidence, 75) : config.minConfidence;
+
+    if (isSmallAcct && confidence < effectiveMinConf) {
+      addActivity(userId, {
+        type: 'signal',
+        symbol: decision.symbol,
+        direction: decision.direction,
+        confidence,
+        message: `Small account protection: skipped (${confidence}% < ${effectiveMinConf}% required for accounts under $500)`,
+      });
+      state.signalsGenerated++;
+      return;
+    }
+
+    if (state.openPositionCount >= effectiveMaxTrades) {
       addActivity(userId, {
         type: 'info',
         symbol: decision.symbol,
-        message: `Trade skipped - max open trades reached (${state.openPositionCount}/${config.maxOpenTrades})`,
+        message: `Trade skipped - max open trades reached (${state.openPositionCount}/${effectiveMaxTrades}${isSmallAcct ? ' small-account cap' : ''})`,
       });
       return;
     }
@@ -875,10 +903,17 @@ async function processDecision(userId: number, decision: any): Promise<void> {
     const stopLoss = parseNum(decision.stopLoss);
     const takeProfit = parseNum(decision.takeProfit);
     const rawLotSize = parseNum(decision.lotSize) || config.baseLotSize || 0.01;
+    const isSmallAccount = config.accountBalance > 0 && config.accountBalance < 500;
+    const safeMaxLot = isSmallAccount 
+      ? Math.min(0.02, config.maxLotSize || 0.10)
+      : (config.maxLotSize || 0.10);
+    const safeCompoundMult = isSmallAccount
+      ? Math.min(state.goalTracker.compoundMultiplier, 1.25)
+      : state.goalTracker.compoundMultiplier;
     const compoundedLot = config.enableCompounding
-      ? Math.round(rawLotSize * state.goalTracker.compoundMultiplier * 100) / 100
+      ? Math.round(rawLotSize * safeCompoundMult * 100) / 100
       : rawLotSize;
-    const lotSize = Math.max(0.01, Math.min(compoundedLot, state.config.maxLotSize || 0.10));
+    const lotSize = Math.max(0.01, Math.min(compoundedLot, safeMaxLot));
 
     if (!pendingMT5Signals[userId]) pendingMT5Signals[userId] = [];
     const mt5Signal: PendingMT5Signal = {
