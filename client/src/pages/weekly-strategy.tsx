@@ -193,6 +193,7 @@ export default function WeeklyStrategyPage() {
   const [engineMode, setEngineMode] = useState('aggressive');
   const [engineMinConf, setEngineMinConf] = useState(65);
   const [engineMaxTrades, setEngineMaxTrades] = useState(5);
+  const [engineMaxLotSize, setEngineMaxLotSize] = useState(0.10);
   const [engineInterval, setEngineInterval] = useState(60);
 
   const { data: liveEngineStatus, refetch: refetchEngine } = useQuery<any>({
@@ -214,6 +215,7 @@ export default function WeeklyStrategyPage() {
         scanIntervalMs: engineInterval * 1000,
         maxOpenTrades: engineMaxTrades,
         minConfidence: engineMinConf,
+        maxLotSize: engineMaxLotSize,
       });
       return res.json();
     },
@@ -588,6 +590,10 @@ export default function WeeklyStrategyPage() {
                             <Label className="text-gray-400 text-xs">Max Open Trades</Label>
                             <div className="mt-1 text-white font-medium">{liveEngineStatus.config?.maxOpenTrades || 5}</div>
                           </div>
+                          <div>
+                            <Label className="text-gray-400 text-xs">Max Lot Size</Label>
+                            <div className="mt-1 text-white font-medium">{liveEngineStatus.config?.maxLotSize || 0.10}</div>
+                          </div>
                           <div className="col-span-2">
                             <Label className="text-gray-400 text-xs">Pairs</Label>
                             <div className="mt-1 flex flex-wrap gap-1">
@@ -633,6 +639,11 @@ export default function WeeklyStrategyPage() {
                           <Label className="text-gray-400 text-xs">Max Open Trades</Label>
                           <Input type="number" value={engineMaxTrades} onChange={e => setEngineMaxTrades(Number(e.target.value))}
                             min={1} max={20} className="mt-1 bg-gray-800 border-gray-700 text-white h-8" />
+                        </div>
+                        <div>
+                          <Label className="text-gray-400 text-xs">Max Lot Size</Label>
+                          <Input type="number" value={engineMaxLotSize} onChange={e => setEngineMaxLotSize(Number(e.target.value))}
+                            min={0.01} max={10} step={0.01} className="mt-1 bg-gray-800 border-gray-700 text-white h-8" />
                         </div>
                       </div>
                       <div>

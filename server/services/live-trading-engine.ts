@@ -11,6 +11,7 @@ interface LiveEngineConfig {
   maxOpenTrades: number;
   riskPerTrade: number;
   minConfidence: number;
+  maxLotSize: number;
   enablePositionManagement: boolean;
   trailingStopEnabled: boolean;
   trailingStopATRMultiplier: number;
@@ -87,6 +88,7 @@ function getDefaultConfig(userId: number): LiveEngineConfig {
     maxOpenTrades: 5,
     riskPerTrade: 1,
     minConfidence: 65,
+    maxLotSize: 0.10,
     enablePositionManagement: true,
     trailingStopEnabled: true,
     trailingStopATRMultiplier: 1.5,
@@ -467,7 +469,7 @@ async function processDecision(userId: number, decision: any): Promise<void> {
     const stopLoss = parseNum(decision.stopLoss);
     const takeProfit = parseNum(decision.takeProfit);
     const rawLotSize = parseNum(decision.lotSize) || 0.01;
-    const lotSize = Math.min(rawLotSize, 0.10);
+    const lotSize = Math.min(rawLotSize, state.config.maxLotSize || 0.10);
 
     if (!pendingMT5Signals[userId]) pendingMT5Signals[userId] = [];
     const mt5Signal: PendingMT5Signal = {
