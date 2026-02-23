@@ -8669,7 +8669,7 @@ Format each recommendation as a clear, concise action item.`;
           day: t.createdAt ? new Date(t.createdAt).getUTCDay() : 0,
           notes: t.notes,
         })),
-        ...closedTrades.map((t: any) => ({
+        ...closedTradesCache.map((t: any) => ({
           symbol: (t.symbol || '').toUpperCase().replace('/', ''),
           direction: t.direction, result: t.profit > 0 ? 'WIN' : t.profit < 0 ? 'LOSS' : 'BREAKEVEN',
           profit: t.profit || 0, pips: t.pips || 0, confidence: 0,
