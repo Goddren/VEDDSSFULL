@@ -8876,7 +8876,8 @@ Format each recommendation as a clear, concise action item.`;
 
       const nowUTC = new Date();
       const currentHour = nowUTC.getUTCHours();
-      const currentDay = dayNames[nowUTC.getUTCDay()];
+      const signalDayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+      const currentDay = signalDayNames[nowUTC.getUTCDay()];
       const currentSession = currentHour < 7 ? 'Asian' : currentHour < 13 ? 'London' : currentHour < 20 ? 'New York' : 'Late NY';
 
       const strategyDescriptions: Record<string, string> = {
