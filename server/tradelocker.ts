@@ -483,7 +483,7 @@ export class TradeLockerService {
         console.log('[TradeLocker] Order rejected - Full response:', responseText);
         console.log('[TradeLocker] Parsed error:', errorMsg);
         return {
-          orderId: undefined,
+          orderId: '',
           status: 'rejected',
           message: errorMsg,
         };
@@ -494,7 +494,7 @@ export class TradeLockerService {
       if (!orderId) {
         console.log('[TradeLocker] No orderId in response:', data);
         return {
-          orderId: undefined,
+          orderId: '',
           status: 'rejected',
           message: 'No order ID returned - order may not have been placed',
         };
@@ -623,8 +623,8 @@ export async function executeMT5SignalOnTradeLocker(
         side: signal.direction.toLowerCase() as 'buy' | 'sell',
         type: 'market',
         quantity: signal.volume,
-        stopLoss: signal.stopLoss,
-        takeProfit: signal.takeProfit,
+        stopLoss: signal.stopLoss || undefined,
+        takeProfit: signal.takeProfit || undefined,
       });
       console.log('[TradeLocker Execute] Order result:', orderResult);
 

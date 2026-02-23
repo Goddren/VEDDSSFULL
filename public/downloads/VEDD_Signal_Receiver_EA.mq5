@@ -186,11 +186,90 @@ bool ExecuteOpenSignal(string symbol, string direction, double lots,
                    double signalEntry, double sl, double tp)
 {
    string mt5Symbol = NormalizeSymbol(symbol);
-   if(!SymbolSelect(mt5Symbol, true)) return false;
+   if(!SymbolSelect(mt5Symbol, true))
+   {
+      lastError = "Symbol not found: " + mt5Symbol;
+      return false;
+   }
    
    double lotSize = UseSignalLotSize ? lots : DefaultLotSize;
-   // ... rest of open logic ...
-   return true; // placeholder for actual implementation
+   if(lotSize > MaxLotSize) lotSize = MaxLotSize;
+   if(lotSize < SymbolInfoDouble(mt5Symbol, SYMBOL_VOLUME_MIN))
+      lotSize = SymbolInfoDouble(mt5Symbol, SYMBOL_VOLUME_MIN);
+   
+   double lotStep = SymbolInfoDouble(mt5Symbol, SYMBOL_VOLUME_STEP);
+   if(lotStep > 0)
+      lotSize = MathFloor(lotSize / lotStep) * lotStep;
+   
+   ENUM_ORDER_TYPE orderType;
+   double brokerPrice;
+   
+   if(direction == "BUY")
+   {
+      orderType = ORDER_TYPE_BUY;
+      brokerPrice = SymbolInfoDouble(mt5Symbol, SYMBOL_ASK);
+   }
+   else if(direction == "SELL")
+   {
+      orderType = ORDER_TYPE_SELL;
+      brokerPrice = SymbolInfoDouble(mt5Symbol, SYMBOL_BID);
+   }
+   else
+   {
+      lastError = "Invalid direction: " + direction;
+      return false;
+   }
+   
+   double point = SymbolInfoDouble(mt5Symbol, SYMBOL_POINT);
+   int digits = (int)SymbolInfoInteger(mt5Symbol, SYMBOL_DIGITS);
+   double pipSize = (digits == 3 || digits == 5) ? point * 10 : point;
+   
+   if(signalEntry > 0 && MaxPriceDeviationPips > 0)
+   {
+      double priceDiffPips = MathAbs(brokerPrice - signalEntry) / pipSize;
+      if(priceDiffPips > MaxPriceDeviationPips)
+      {
+         lastError = "Price deviation too large: " + DoubleToString(priceDiffPips, 1) + " pips";
+         return false;
+      }
+   }
+   
+   double finalSL = 0;
+   double finalTP = 0;
+   
+   if(UseSignalSLTP && (sl > 0 || tp > 0))
+   {
+      if(AdjustSLTPToBrokerPrice && signalEntry > 0)
+      {
+         double priceShift = brokerPrice - signalEntry;
+         if(sl > 0) finalSL = NormalizeDouble(sl + priceShift, digits);
+         if(tp > 0) finalTP = NormalizeDouble(tp + priceShift, digits);
+      }
+      else
+      {
+         if(sl > 0) finalSL = sl;
+         if(tp > 0) finalTP = tp;
+      }
+   }
+   
+   MqlTradeRequest request;
+   MqlTradeResult result;
+   ZeroMemory(request);
+   ZeroMemory(result);
+   
+   request.action = TRADE_ACTION_DEAL;
+   request.symbol = mt5Symbol;
+   request.volume = lotSize;
+   request.type = orderType;
+   request.price = brokerPrice;
+   request.sl = finalSL;
+   request.tp = finalTP;
+   request.deviation = MaxSlippage;
+   request.magic = 202500;
+   request.comment = "VEDD AI Live Signal";
+   request.type_filling = ORDER_FILLING_IOC;
+   
+   return OrderSend(request, result);
 }
 
 //+------------------------------------------------------------------+
