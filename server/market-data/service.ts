@@ -108,6 +108,11 @@ class MarketDataService {
   detectAssetType(symbol: string): AssetType {
     const upper = symbol.toUpperCase();
     
+    const metals = ['XAU', 'XAG', 'XPT', 'XPD'];
+    if (metals.some(m => upper.startsWith(m))) {
+      return 'forex';
+    }
+    
     const forexPairs = ['EUR', 'GBP', 'USD', 'JPY', 'CHF', 'AUD', 'CAD', 'NZD'];
     const forexPattern = forexPairs.some(c => upper.startsWith(c) || upper.includes(`/${c}`));
     if (forexPattern && (upper.length === 6 || upper.includes('/'))) {

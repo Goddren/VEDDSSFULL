@@ -4,7 +4,8 @@ import { rateLimiter } from '../rate-limiter';
 const TWELVE_DATA_BASE_URL = 'https://api.twelvedata.com';
 
 const FOREX_PAIRS = ['EUR/USD', 'GBP/USD', 'USD/JPY', 'USD/CHF', 'AUD/USD', 'USD/CAD', 'NZD/USD', 
-  'EUR/GBP', 'EUR/JPY', 'GBP/JPY', 'AUD/JPY', 'EUR/AUD', 'EUR/CAD', 'EUR/CHF'];
+  'EUR/GBP', 'EUR/JPY', 'GBP/JPY', 'AUD/JPY', 'EUR/AUD', 'EUR/CAD', 'EUR/CHF',
+  'XAU/USD', 'XAG/USD', 'XPT/USD', 'XPD/USD'];
 
 const CRYPTO_PAIRS = ['BTC/USD', 'ETH/USD', 'XRP/USD', 'LTC/USD', 'ADA/USD', 'DOT/USD', 'DOGE/USD',
   'SOL/USD', 'AVAX/USD', 'MATIC/USD'];
