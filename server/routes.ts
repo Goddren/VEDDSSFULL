@@ -5312,6 +5312,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         alerts: [] as string[],
       };
       
+      let advanced: any = {};
+      
       if (indicators && typeof indicators === 'object') {
         try {
           const rsi = typeof indicators.rsi === 'number' ? indicators.rsi : null;
@@ -5456,7 +5458,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           
           // Advanced indicators (ADX, Stochastic, VWAP, OBV, Pivot Points, Fibonacci, S/R, Candle Patterns, Session Context)
           const { computeAllAdvancedIndicators } = await import('./indicators');
-          const advanced = computeAllAdvancedIndicators(candles, atr || 0, sanitizedSymbol, sanitizedTimeframe);
+          advanced = computeAllAdvancedIndicators(candles, atr || 0, sanitizedSymbol, sanitizedTimeframe);
           
           if (advanced.adx) {
             analysis.indicators.adx = advanced.adx;
