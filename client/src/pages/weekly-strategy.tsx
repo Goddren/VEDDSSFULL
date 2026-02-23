@@ -195,6 +195,10 @@ export default function WeeklyStrategyPage() {
   const [engineMaxTrades, setEngineMaxTrades] = useState(5);
   const [engineMaxLotSize, setEngineMaxLotSize] = useState(0.10);
   const [engineInterval, setEngineInterval] = useState(60);
+  const [engineWeeklyTarget, setEngineWeeklyTarget] = useState(100);
+  const [engineAccountBalance, setEngineAccountBalance] = useState(1000);
+  const [engineBaseLotSize, setEngineBaseLotSize] = useState(0.01);
+  const [engineCompounding, setEngineCompounding] = useState(true);
 
   const { data: liveEngineStatus, refetch: refetchEngine } = useQuery<any>({
     queryKey: ['/api/vedd-live-engine/status'],
@@ -216,6 +220,10 @@ export default function WeeklyStrategyPage() {
         maxOpenTrades: engineMaxTrades,
         minConfidence: engineMinConf,
         maxLotSize: engineMaxLotSize,
+        weeklyProfitTarget: engineWeeklyTarget,
+        accountBalance: engineAccountBalance,
+        baseLotSize: engineBaseLotSize,
+        enableCompounding: engineCompounding,
       });
       return res.json();
     },
@@ -434,9 +442,20 @@ export default function WeeklyStrategyPage() {
                         </CardTitle>
                         <CardDescription className="text-gray-500">
                           {liveEngineStatus?.status === 'running'
-                            ? `Monitoring markets in real-time | ${liveEngineStatus.scanCount || 0} scans | ${liveEngineStatus.tradesExecuted || 0} trades executed`
-                            : 'Start the AI engine to monitor live markets and auto-trade'}
+                            ? (liveEngineStatus.goalTracker?.weeklyTarget > 0
+                              ? `Goal: $${liveEngineStatus.goalTracker.currentProfit?.toFixed(2)}/$${liveEngineStatus.goalTracker.weeklyTarget} (${liveEngineStatus.goalTracker.progressPercent}%) | ${liveEngineStatus.scanCount || 0} scans | ${liveEngineStatus.tradesExecuted || 0} trades`
+                              : `Monitoring markets in real-time | ${liveEngineStatus.scanCount || 0} scans | ${liveEngineStatus.tradesExecuted || 0} trades executed`)
+                            : 'Configure weekly profit goal and launch the HFT engine to auto-trade'}
                         </CardDescription>
+                        {liveEngineStatus?.status === 'running' && liveEngineStatus.goalTracker?.weeklyTarget > 0 && (
+                          <div className="w-full bg-gray-700 rounded-full h-1.5 mt-1">
+                            <div className={`h-1.5 rounded-full transition-all ${
+                              liveEngineStatus.goalTracker.progressPercent >= 100 ? 'bg-green-500' :
+                              liveEngineStatus.goalTracker.progressPercent >= 50 ? 'bg-yellow-500' :
+                              'bg-cyan-500'
+                            }`} style={{ width: `${Math.min(100, liveEngineStatus.goalTracker.progressPercent)}%` }} />
+                          </div>
+                        )}
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -578,38 +597,117 @@ export default function WeeklyStrategyPage() {
                       )}
 
                       {liveEngineTab === 'config' && (
-                        <div className="grid grid-cols-2 gap-3 text-xs">
-                          <div>
-                            <Label className="text-gray-400 text-xs">Strategy</Label>
-                            <div className="mt-1 text-white font-medium">{liveEngineStatus.config?.strategyMode?.toUpperCase()}</div>
-                          </div>
-                          <div>
-                            <Label className="text-gray-400 text-xs">Scan Interval</Label>
-                            <div className="mt-1 text-white font-medium">{(liveEngineStatus.config?.scanIntervalMs || 60000) / 1000}s</div>
-                          </div>
-                          <div>
-                            <Label className="text-gray-400 text-xs">Min Confidence</Label>
-                            <div className="mt-1 text-white font-medium">{liveEngineStatus.config?.minConfidence || 65}%</div>
-                          </div>
-                          <div>
-                            <Label className="text-gray-400 text-xs">Max Open Trades</Label>
-                            <div className="mt-1 text-white font-medium">{liveEngineStatus.config?.maxOpenTrades || 5}</div>
-                          </div>
-                          <div>
-                            <Label className="text-gray-400 text-xs">Max Lot Size</Label>
-                            <div className="mt-1 text-white font-medium">{liveEngineStatus.config?.maxLotSize || 0.10}</div>
-                          </div>
-                          <div className="col-span-2">
-                            <Label className="text-gray-400 text-xs">Pairs</Label>
-                            <div className="mt-1 flex flex-wrap gap-1">
-                              {(liveEngineStatus.config?.pairs || []).map((p: string) => (
-                                <Badge key={p} variant="outline" className="text-[10px] text-cyan-400 border-cyan-500/30">{p}</Badge>
-                              ))}
+                        <div className="space-y-3">
+                          {liveEngineStatus.goalTracker && liveEngineStatus.config?.weeklyProfitTarget > 0 && (
+                            <div className="bg-gradient-to-r from-yellow-900/20 to-orange-900/20 border border-yellow-500/30 rounded-lg p-3">
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-yellow-400 text-xs font-bold flex items-center gap-1">
+                                  <Target className="w-3.5 h-3.5" /> WEEKLY GOAL
+                                </span>
+                                <Badge className={`text-[9px] px-1.5 py-0 ${
+                                  liveEngineStatus.goalTracker.currentPhase === 'target_reached' ? 'bg-green-500/20 text-green-400' :
+                                  liveEngineStatus.goalTracker.currentPhase === 'pushing' ? 'bg-orange-500/20 text-orange-400' :
+                                  liveEngineStatus.goalTracker.currentPhase === 'accelerating' ? 'bg-cyan-500/20 text-cyan-400' :
+                                  'bg-gray-500/20 text-gray-400'
+                                }`}>
+                                  {liveEngineStatus.goalTracker.currentPhase?.replace('_', ' ').toUpperCase()}
+                                </Badge>
+                              </div>
+                              <div className="flex items-center justify-between text-xs mb-1">
+                                <span className="text-gray-400">${liveEngineStatus.goalTracker.currentProfit?.toFixed(2)} / ${liveEngineStatus.config.weeklyProfitTarget}</span>
+                                <span className="text-yellow-300 font-bold">{liveEngineStatus.goalTracker.progressPercent}%</span>
+                              </div>
+                              <div className="w-full bg-gray-700 rounded-full h-2">
+                                <div className={`h-2 rounded-full transition-all duration-500 ${
+                                  liveEngineStatus.goalTracker.progressPercent >= 100 ? 'bg-green-500' :
+                                  liveEngineStatus.goalTracker.progressPercent >= 75 ? 'bg-yellow-500' :
+                                  liveEngineStatus.goalTracker.progressPercent >= 50 ? 'bg-cyan-500' :
+                                  'bg-purple-500'
+                                }`} style={{ width: `${Math.min(100, liveEngineStatus.goalTracker.progressPercent)}%` }} />
+                              </div>
+                              <div className="grid grid-cols-3 gap-2 mt-2 text-[10px]">
+                                <div className="text-center">
+                                  <div className="text-green-400 font-bold">{liveEngineStatus.goalTracker.wins}W</div>
+                                  <div className="text-gray-500">Wins</div>
+                                </div>
+                                <div className="text-center">
+                                  <div className="text-red-400 font-bold">{liveEngineStatus.goalTracker.losses}L</div>
+                                  <div className="text-gray-500">Losses</div>
+                                </div>
+                                <div className="text-center">
+                                  <div className="text-yellow-400 font-bold">{liveEngineStatus.goalTracker.winRate}%</div>
+                                  <div className="text-gray-500">Win Rate</div>
+                                </div>
+                              </div>
+                              {liveEngineStatus.goalTracker.consecutiveWins > 0 && (
+                                <div className="mt-1 text-[9px] text-green-400">Streak: {liveEngineStatus.goalTracker.consecutiveWins} consecutive wins | Compound: {liveEngineStatus.goalTracker.compoundMultiplier}x</div>
+                              )}
+                              {liveEngineStatus.goalTracker.consecutiveLosses > 0 && (
+                                <div className="mt-1 text-[9px] text-red-400">Losing streak: {liveEngineStatus.goalTracker.consecutiveLosses} | Lot reduced to {liveEngineStatus.goalTracker.compoundMultiplier}x</div>
+                              )}
+                              {Object.keys(liveEngineStatus.goalTracker.strategyBreakdown || {}).length > 0 && (
+                                <div className="mt-2 border-t border-gray-700/50 pt-2">
+                                  <div className="text-[9px] text-gray-500 mb-1">Strategy Performance</div>
+                                  {Object.entries(liveEngineStatus.goalTracker.strategyBreakdown).map(([strat, data]: [string, any]) => (
+                                    <div key={strat} className="flex items-center justify-between text-[9px]">
+                                      <span className="text-purple-300">{strat}</span>
+                                      <span className={data.pnl >= 0 ? 'text-green-400' : 'text-red-400'}>
+                                        {data.wins}/{data.trades} wins | ${data.pnl?.toFixed(2)}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              {Object.keys(liveEngineStatus.goalTracker.dailyPnL || {}).length > 0 && (
+                                <div className="mt-2 border-t border-gray-700/50 pt-2">
+                                  <div className="text-[9px] text-gray-500 mb-1">Daily P&L</div>
+                                  {Object.entries(liveEngineStatus.goalTracker.dailyPnL).slice(-5).map(([day, pnl]: [string, any]) => (
+                                    <div key={day} className="flex items-center justify-between text-[9px]">
+                                      <span className="text-gray-400">{day}</span>
+                                      <span className={pnl >= 0 ? 'text-green-400' : 'text-red-400'}>${pnl?.toFixed(2)}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
                             </div>
-                          </div>
-                          <div className="col-span-2">
-                            <Label className="text-gray-400 text-xs">Started</Label>
-                            <div className="mt-1 text-white font-medium text-[11px]">{liveEngineStatus.startedAt ? new Date(liveEngineStatus.startedAt).toLocaleString() : 'N/A'}</div>
+                          )}
+                          <div className="grid grid-cols-2 gap-3 text-xs">
+                            <div>
+                              <Label className="text-gray-400 text-xs">Strategy</Label>
+                              <div className="mt-1 text-white font-medium">{liveEngineStatus.config?.strategyMode?.toUpperCase()}</div>
+                            </div>
+                            <div>
+                              <Label className="text-gray-400 text-xs">Scan Interval</Label>
+                              <div className="mt-1 text-white font-medium">{(liveEngineStatus.config?.scanIntervalMs || 60000) / 1000}s</div>
+                            </div>
+                            <div>
+                              <Label className="text-gray-400 text-xs">Min Confidence</Label>
+                              <div className="mt-1 text-white font-medium">{liveEngineStatus.config?.minConfidence || 65}%</div>
+                            </div>
+                            <div>
+                              <Label className="text-gray-400 text-xs">Max Open Trades</Label>
+                              <div className="mt-1 text-white font-medium">{liveEngineStatus.config?.maxOpenTrades || 5}</div>
+                            </div>
+                            <div>
+                              <Label className="text-gray-400 text-xs">Max Lot Size</Label>
+                              <div className="mt-1 text-white font-medium">{liveEngineStatus.config?.maxLotSize || 0.10}</div>
+                            </div>
+                            <div>
+                              <Label className="text-gray-400 text-xs">Base Lot / Compound</Label>
+                              <div className="mt-1 text-white font-medium">{liveEngineStatus.config?.baseLotSize || 0.01} / {liveEngineStatus.config?.enableCompounding ? 'ON' : 'OFF'}</div>
+                            </div>
+                            <div className="col-span-2">
+                              <Label className="text-gray-400 text-xs">Pairs</Label>
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                {(liveEngineStatus.config?.pairs || []).map((p: string) => (
+                                  <Badge key={p} variant="outline" className="text-[10px] text-cyan-400 border-cyan-500/30">{p}</Badge>
+                                ))}
+                              </div>
+                            </div>
+                            <div className="col-span-2">
+                              <Label className="text-gray-400 text-xs">Started</Label>
+                              <div className="mt-1 text-white font-medium text-[11px]">{liveEngineStatus.startedAt ? new Date(liveEngineStatus.startedAt).toLocaleString() : 'N/A'}</div>
+                            </div>
                           </div>
                         </div>
                       )}
@@ -618,16 +716,50 @@ export default function WeeklyStrategyPage() {
 
                   {liveEngineStatus?.status !== 'running' && (
                     <div className="space-y-4">
+                      <div className="bg-gradient-to-r from-yellow-900/20 to-orange-900/20 border border-yellow-500/30 rounded-lg p-3">
+                        <div className="text-yellow-400 text-xs font-bold flex items-center gap-1 mb-2">
+                          <Target className="w-3.5 h-3.5" /> Weekly Profit Goal
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <Label className="text-gray-400 text-xs">Account Balance ($)</Label>
+                            <Input type="number" value={engineAccountBalance} onChange={e => setEngineAccountBalance(Number(e.target.value))}
+                              min={10} step={10} className="mt-1 bg-gray-800 border-gray-700 text-white h-8" />
+                          </div>
+                          <div>
+                            <Label className="text-gray-400 text-xs">Weekly Target ($)</Label>
+                            <Input type="number" value={engineWeeklyTarget} onChange={e => setEngineWeeklyTarget(Number(e.target.value))}
+                              min={0} step={10} className="mt-1 bg-gray-800 border-gray-700 text-white h-8" />
+                          </div>
+                          <div>
+                            <Label className="text-gray-400 text-xs">Base Lot Size</Label>
+                            <Input type="number" value={engineBaseLotSize} onChange={e => setEngineBaseLotSize(Number(e.target.value))}
+                              min={0.01} max={1} step={0.01} className="mt-1 bg-gray-800 border-gray-700 text-white h-8" />
+                          </div>
+                          <div className="flex items-end">
+                            <label className="flex items-center gap-2 cursor-pointer pb-1">
+                              <input type="checkbox" checked={engineCompounding} onChange={e => setEngineCompounding(e.target.checked)}
+                                className="w-4 h-4 rounded bg-gray-800 border-gray-600" />
+                              <span className="text-xs text-gray-300">Auto-Compound</span>
+                            </label>
+                          </div>
+                        </div>
+                        {engineWeeklyTarget > 0 && engineAccountBalance > 0 && (
+                          <div className="mt-2 text-[10px] text-yellow-300/80">
+                            Goal: ${engineAccountBalance} → ${engineAccountBalance + engineWeeklyTarget} ({((engineAccountBalance + engineWeeklyTarget) / engineAccountBalance).toFixed(1)}x growth) | ~${Math.round(engineWeeklyTarget / 5)}/day
+                          </div>
+                        )}
+                      </div>
                       <div className="grid grid-cols-2 gap-3">
                         <div>
                           <Label className="text-gray-400 text-xs">Strategy Mode</Label>
                           <select value={engineMode} onChange={e => setEngineMode(e.target.value)}
                             className="w-full mt-1 bg-gray-800 border border-gray-700 rounded-md px-2 py-1.5 text-sm text-white">
-                            <option value="aggressive">Aggressive</option>
-                            <option value="scalping">Scalping</option>
-                            <option value="momentum">Momentum</option>
+                            <option value="aggressive">Aggressive HFT</option>
+                            <option value="scalping">Scalping (Quick Wins)</option>
+                            <option value="momentum">Momentum Surfing</option>
                             <option value="session_breakout">Session Breakout</option>
-                            <option value="sniper">Sniper</option>
+                            <option value="sniper">Sniper (Precision)</option>
                           </select>
                         </div>
                         <div>

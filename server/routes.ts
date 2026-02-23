@@ -9158,12 +9158,12 @@ Respond with ONLY valid JSON:
   });
 
   // ==================== VEDD AI LIVE TRADING ENGINE ====================
-  const { startLiveEngine, stopLiveEngine, getLiveEngineState, getLiveEngineActivity, updateLiveEngineConfig, getPendingMT5Signals, confirmMT5Signal, getAllMT5Signals } = await import('./services/live-trading-engine');
+  const { startLiveEngine, stopLiveEngine, getLiveEngineState, getLiveEngineActivity, updateLiveEngineConfig, getPendingMT5Signals, confirmMT5Signal, getAllMT5Signals, recordTradeResult } = await import('./services/live-trading-engine');
 
   app.post("/api/vedd-live-engine/start", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
-    const { pairs, strategyMode, scanIntervalMs, maxOpenTrades, riskPerTrade, minConfidence, enablePositionManagement, trailingStopEnabled, trailingStopATRMultiplier } = req.body;
+    const { pairs, strategyMode, scanIntervalMs, maxOpenTrades, riskPerTrade, minConfidence, enablePositionManagement, trailingStopEnabled, trailingStopATRMultiplier, weeklyProfitTarget, accountBalance, enableCompounding, baseLotSize } = req.body;
     try {
       const state = startLiveEngine(userId, {
         pairs: pairs || undefined,
@@ -9175,6 +9175,10 @@ Respond with ONLY valid JSON:
         enablePositionManagement: enablePositionManagement !== undefined ? enablePositionManagement : undefined,
         trailingStopEnabled: trailingStopEnabled !== undefined ? trailingStopEnabled : undefined,
         trailingStopATRMultiplier: trailingStopATRMultiplier ? Number(trailingStopATRMultiplier) : undefined,
+        weeklyProfitTarget: weeklyProfitTarget ? Number(weeklyProfitTarget) : undefined,
+        accountBalance: accountBalance ? Number(accountBalance) : undefined,
+        enableCompounding: enableCompounding !== undefined ? enableCompounding : undefined,
+        baseLotSize: baseLotSize ? Number(baseLotSize) : undefined,
       });
       res.json({ success: true, state });
     } catch (err: any) {
@@ -9251,6 +9255,34 @@ Respond with ONLY valid JSON:
     const limit = Math.min(100, Number(req.query.limit) || 50);
     const signals = getAllMT5Signals(userId, limit);
     res.json({ signals });
+  });
+
+  app.post("/api/vedd-live-engine/record-result", async (req: Request, res: Response) => {
+    const apiKey = req.headers['x-api-key'] as string || req.body.apiKey;
+    let userId: number;
+    if (apiKey) {
+      const token = await storage.getMt5ApiTokenByToken(apiKey);
+      if (!token) return res.status(401).json({ error: "Invalid API key" });
+      userId = token.userId;
+    } else {
+      if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+      userId = (req.user as User).id;
+    }
+    const { symbol, profit, strategy, session } = req.body;
+    if (symbol === undefined || profit === undefined) {
+      return res.status(400).json({ error: "symbol and profit are required" });
+    }
+    const now = new Date();
+    const hour = now.getUTCHours();
+    const detectedSession = session || (hour < 7 ? 'Asian' : hour < 13 ? 'London' : hour < 20 ? 'New York' : 'Late NY');
+    recordTradeResult(userId, {
+      symbol,
+      profit: Number(profit),
+      strategy: strategy || 'auto',
+      session: detectedSession,
+    });
+    const state = getLiveEngineState(userId);
+    res.json({ success: true, goalTracker: state?.goalTracker || null });
   });
 
   // Flip Trade - Close current position and open reverse to recover loss + profit

@@ -15,6 +15,10 @@ interface LiveEngineConfig {
   enablePositionManagement: boolean;
   trailingStopEnabled: boolean;
   trailingStopATRMultiplier: number;
+  weeklyProfitTarget: number;
+  accountBalance: number;
+  enableCompounding: boolean;
+  baseLotSize: number;
 }
 
 interface LiveActivity {
@@ -48,6 +52,27 @@ export interface PendingMT5Signal {
 
 const pendingMT5Signals: Record<number, PendingMT5Signal[]> = {};
 
+interface GoalTracker {
+  weeklyTarget: number;
+  startBalance: number;
+  currentProfit: number;
+  progressPercent: number;
+  weekStartedAt: string;
+  dailyPnL: Record<string, number>;
+  wins: number;
+  losses: number;
+  winRate: number;
+  consecutiveWins: number;
+  consecutiveLosses: number;
+  bestTrade: { symbol: string; profit: number; strategy: string } | null;
+  worstTrade: { symbol: string; profit: number; strategy: string } | null;
+  strategyBreakdown: Record<string, { trades: number; wins: number; pnl: number }>;
+  sessionBreakdown: Record<string, { trades: number; wins: number; pnl: number }>;
+  compoundMultiplier: number;
+  currentPhase: 'warming_up' | 'building' | 'accelerating' | 'cruising' | 'pushing' | 'target_reached';
+  phasePlan: string;
+}
+
 interface EngineState {
   status: 'stopped' | 'running' | 'paused';
   startedAt: string | null;
@@ -64,6 +89,7 @@ interface EngineState {
   openPositionCount: number;
   pnlSession: number;
   marketSnapshot: Record<string, { price: number; change: number; trend: string; rsi: number; atr: number; updatedAt: string }>;
+  goalTracker: GoalTracker;
 }
 
 const engineStates: Record<number, EngineState> = {};
@@ -94,7 +120,138 @@ function getDefaultConfig(userId: number): LiveEngineConfig {
     enablePositionManagement: true,
     trailingStopEnabled: true,
     trailingStopATRMultiplier: 1.5,
+    weeklyProfitTarget: 0,
+    accountBalance: 0,
+    enableCompounding: true,
+    baseLotSize: 0.01,
   };
+}
+
+function createGoalTracker(config: LiveEngineConfig): GoalTracker {
+  return {
+    weeklyTarget: config.weeklyProfitTarget,
+    startBalance: config.accountBalance,
+    currentProfit: 0,
+    progressPercent: 0,
+    weekStartedAt: new Date().toISOString(),
+    dailyPnL: {},
+    wins: 0,
+    losses: 0,
+    winRate: 0,
+    consecutiveWins: 0,
+    consecutiveLosses: 0,
+    bestTrade: null,
+    worstTrade: null,
+    strategyBreakdown: {},
+    sessionBreakdown: {},
+    compoundMultiplier: 1.0,
+    currentPhase: 'warming_up',
+    phasePlan: '',
+  };
+}
+
+function getGoalPhase(tracker: GoalTracker): GoalTracker['currentPhase'] {
+  if (tracker.weeklyTarget <= 0) return 'building';
+  const pct = tracker.progressPercent;
+  if (pct >= 100) return 'target_reached';
+  if (pct >= 80) return 'pushing';
+  if (pct >= 50) return 'cruising';
+  if (pct >= 25) return 'accelerating';
+  if (tracker.wins >= 3) return 'building';
+  return 'warming_up';
+}
+
+function getCompoundMultiplier(tracker: GoalTracker, enableCompounding: boolean): number {
+  if (!enableCompounding) return 1.0;
+  let mult = 1.0;
+  if (tracker.consecutiveWins >= 5) mult = 2.0;
+  else if (tracker.consecutiveWins >= 3) mult = 1.5;
+  else if (tracker.consecutiveWins >= 2) mult = 1.25;
+  if (tracker.consecutiveLosses >= 3) mult = 0.5;
+  else if (tracker.consecutiveLosses >= 2) mult = 0.75;
+  if (tracker.progressPercent >= 80) mult *= 0.8;
+  return Math.round(mult * 100) / 100;
+}
+
+function getDaysRemaining(): number {
+  const now = new Date();
+  const dayOfWeek = now.getUTCDay();
+  const daysLeft = dayOfWeek === 0 ? 5 : dayOfWeek === 6 ? 5 : 5 - dayOfWeek;
+  return Math.max(1, daysLeft);
+}
+
+function getDailyTargetFromGoal(tracker: GoalTracker): number {
+  if (tracker.weeklyTarget <= 0) return 0;
+  const remaining = tracker.weeklyTarget - tracker.currentProfit;
+  const daysLeft = getDaysRemaining();
+  return Math.max(0, Math.round((remaining / daysLeft) * 100) / 100);
+}
+
+export function recordTradeResult(userId: number, result: {
+  symbol: string;
+  profit: number;
+  strategy: string;
+  session: string;
+}) {
+  const state = engineStates[userId];
+  if (!state) return;
+  const tracker = state.goalTracker;
+
+  tracker.currentProfit = Math.round((tracker.currentProfit + result.profit) * 100) / 100;
+  tracker.progressPercent = tracker.weeklyTarget > 0
+    ? Math.min(100, Math.max(0, Math.round((tracker.currentProfit / tracker.weeklyTarget) * 100)))
+    : 0;
+
+  const today = new Date().toISOString().split('T')[0];
+  tracker.dailyPnL[today] = Math.round(((tracker.dailyPnL[today] || 0) + result.profit) * 100) / 100;
+
+  if (result.profit > 0) {
+    tracker.wins++;
+    tracker.consecutiveWins++;
+    tracker.consecutiveLosses = 0;
+  } else {
+    tracker.losses++;
+    tracker.consecutiveLosses++;
+    tracker.consecutiveWins = 0;
+  }
+  tracker.winRate = tracker.wins + tracker.losses > 0
+    ? Math.round((tracker.wins / (tracker.wins + tracker.losses)) * 100)
+    : 0;
+
+  if (!tracker.bestTrade || result.profit > tracker.bestTrade.profit) {
+    tracker.bestTrade = { symbol: result.symbol, profit: result.profit, strategy: result.strategy };
+  }
+  if (!tracker.worstTrade || result.profit < tracker.worstTrade.profit) {
+    tracker.worstTrade = { symbol: result.symbol, profit: result.profit, strategy: result.strategy };
+  }
+
+  if (!tracker.strategyBreakdown[result.strategy]) {
+    tracker.strategyBreakdown[result.strategy] = { trades: 0, wins: 0, pnl: 0 };
+  }
+  const sb = tracker.strategyBreakdown[result.strategy];
+  sb.trades++;
+  if (result.profit > 0) sb.wins++;
+  sb.pnl = Math.round((sb.pnl + result.profit) * 100) / 100;
+
+  if (!tracker.sessionBreakdown[result.session]) {
+    tracker.sessionBreakdown[result.session] = { trades: 0, wins: 0, pnl: 0 };
+  }
+  const sessB = tracker.sessionBreakdown[result.session];
+  sessB.trades++;
+  if (result.profit > 0) sessB.wins++;
+  sessB.pnl = Math.round((sessB.pnl + result.profit) * 100) / 100;
+
+  tracker.compoundMultiplier = getCompoundMultiplier(tracker, state.config.enableCompounding);
+  tracker.currentPhase = getGoalPhase(tracker);
+
+  if (tracker.currentPhase === 'target_reached') {
+    addActivity(userId, {
+      type: 'info',
+      message: `WEEKLY TARGET REACHED! $${tracker.currentProfit} profit achieved (target: $${tracker.weeklyTarget}). Switching to capital preservation mode.`,
+    });
+  }
+
+  state.pnlSession = tracker.currentProfit;
 }
 
 function convertToCandles(bars: Array<{ timestamp: number; open: number; high: number; low: number; close: number; volume: number }>): CandleData[] {
@@ -243,8 +400,37 @@ async function runAILiveAnalysis(userId: number, marketAnalysis: Record<string, 
       : 'None';
 
     const config = state.config;
+    const tracker = state.goalTracker;
+    const dailyTarget = getDailyTargetFromGoal(tracker);
+    const daysLeft = getDaysRemaining();
+    const compMult = tracker.compoundMultiplier;
+    const adjustedBaseLot = Math.round((config.baseLotSize * compMult) * 100) / 100;
+    const effectiveMaxLot = config.maxLotSize;
 
-    const prompt = `You are VEDD SS AI LIVE TRADING ENGINE - operating in REAL-TIME autonomous mode. You are directly monitoring live market data and making INSTANT trading decisions.
+    const goalSection = config.weeklyProfitTarget > 0 ? `
+WEEKLY PROFIT GOAL SYSTEM:
+- Weekly Target: $${config.weeklyProfitTarget} | Current Profit: $${tracker.currentProfit} | Progress: ${tracker.progressPercent}%
+- Account Balance: $${config.accountBalance} | Goal Balance: $${config.accountBalance + config.weeklyProfitTarget}
+- Days Remaining: ${daysLeft} trading days | Daily Target: $${dailyTarget}/day to stay on track
+- Today's P&L: $${tracker.dailyPnL[new Date().toISOString().split('T')[0]] || 0}
+- Win Rate: ${tracker.winRate}% (${tracker.wins}W / ${tracker.losses}L) | Streak: ${tracker.consecutiveWins > 0 ? tracker.consecutiveWins + ' wins' : tracker.consecutiveLosses + ' losses'}
+- Phase: ${tracker.currentPhase.toUpperCase()} | Compound Multiplier: ${compMult}x
+- Base Lot: ${config.baseLotSize} → Adjusted: ${adjustedBaseLot} (after compounding)
+${tracker.currentPhase === 'warming_up' ? '- PHASE INSTRUCTIONS: Start conservative. Take only high-confidence setups (80%+). Build momentum with small wins. Use minimum lot sizes.' : ''}
+${tracker.currentPhase === 'building' ? '- PHASE INSTRUCTIONS: Good progress. Use base lots. Mix scalping for quick wins with momentum for bigger moves. Aim for 3-5 trades/session.' : ''}
+${tracker.currentPhase === 'accelerating' ? '- PHASE INSTRUCTIONS: 25%+ done. INCREASE frequency - use all strategies. Scale lot sizes up with compound multiplier. Target 5-8 trades/session.' : ''}
+${tracker.currentPhase === 'cruising' ? '- PHASE INSTRUCTIONS: Halfway there. Maintain pace. Balance risk - dont blow gains. Use the compound multiplier but cap exposure.' : ''}
+${tracker.currentPhase === 'pushing' ? '- PHASE INSTRUCTIONS: 80%+ done! Almost there. REDUCE risk now - smaller lots, only A+ setups. Protect gains. Avoid revenge trading.' : ''}
+${tracker.currentPhase === 'target_reached' ? '- PHASE INSTRUCTIONS: TARGET HIT! Switch to PRESERVATION mode. Only take ultra-high confidence sniper setups. Minimum lot sizes. Protect the bag.' : ''}
+
+STRATEGY PERFORMANCE THIS WEEK:
+${Object.entries(tracker.strategyBreakdown).map(([s, d]) => `- ${s}: ${d.trades} trades, ${d.wins} wins, $${d.pnl} P&L`).join('\n') || '- No trades yet'}
+
+SESSION PERFORMANCE:
+${Object.entries(tracker.sessionBreakdown).map(([s, d]) => `- ${s}: ${d.trades} trades, ${d.wins} wins, $${d.pnl} P&L`).join('\n') || '- No session data yet'}
+` : '';
+
+    const prompt = `You are VEDD SS AI LIVE TRADING ENGINE - operating in REAL-TIME autonomous HIGH-FREQUENCY mode. You are directly monitoring live market data and making INSTANT trading decisions to hit a weekly profit goal.
 
 LIVE MARKET DATA (just fetched):
 ${marketSummary}
@@ -257,47 +443,53 @@ ${brainInsights}
 
 PAIR-SPECIFIC KNOWLEDGE:
 ${pairKnowledge}
-
+${goalSection}
 CONTEXT:
 - Time: ${now.toISOString()} | Session: ${session} | Day: ${day}
 - Strategy: ${config.strategyMode.toUpperCase()} | Min Confidence: ${config.minConfidence}%
 - Risk per trade: ${config.riskPerTrade}% | Trailing stops: ${config.trailingStopEnabled ? 'ON' : 'OFF'}
 - Max trades allowed: ${config.maxOpenTrades} | Currently open: ${currentOpenCount}
 - Position management: ${config.enablePositionManagement ? 'ACTIVE' : 'OFF'}
+- Compounding: ${config.enableCompounding ? 'ON' : 'OFF'} | Compound Multiplier: ${compMult}x
 - IMPORTANT: Market data comes from Twelve Data. User's broker may have slightly different prices (spread, feed differences). Use ZONE-BASED entries rather than exact prices. Set SL/TP as DISTANCES from entry (e.g. 15 pips SL) so the EA can adjust to broker prices automatically.
 
-TRADING STRATEGY ARSENAL (use ALL that apply to maximize opportunities):
+HFT TRADING STRATEGY ARSENAL - USE ALL SIMULTANEOUSLY TO HIT THE WEEKLY GOAL:
 
-SCALPING (3-8 pip targets, high frequency):
-- Trade micro-moves on 1min/5min momentum bursts
+SCALPING (3-8 pip targets, high frequency - PRIMARY for quick profit accumulation):
+- Trade micro-moves on 1min/5min momentum bursts - THIS IS YOUR BREAD AND BUTTER
 - Look for RSI divergence + Stochastic crossovers in overbought/oversold zones
 - Quick entries on VWAP bounces - price touching VWAP and reversing with volume confirmation
 - Tight stops (5-10 pips), fast targets (3-8 pips), high win rate focus
 - Best during high-volume sessions (London, NY overlap)
+- GOAL: Stack small wins rapidly. 5-10+ scalps per session to compound gains
 
-MOMENTUM SURFING (15-40 pip rides):
+MOMENTUM SURFING (15-40 pip rides - SECONDARY for bigger chunks):
 - Catch breakouts from consolidation zones when ADX crosses above 25
 - Ride strong directional moves confirmed by OBV trend alignment
 - Enter on pullbacks to moving averages in trending markets
 - Use trailing stops to let winners run - move SL to breakeven after 15 pips profit
+- GOAL: Capture 2-3 big moves per day to boost daily P&L significantly
 
-SESSION BREAKOUT STRATEGY:
+SESSION BREAKOUT STRATEGY (session-open captures):
 - Watch for range breakouts at London open (07:00 UTC), NY open (13:00 UTC), Tokyo open (00:00 UTC)
 - Calculate prior session high/low range, enter on confirmed break with volume
 - Strongest breakouts happen in first 30 minutes of new session
 - Use pre-session range as SL reference, target 1:2 or 1:3 R:R
+- GOAL: Catch the big session-opening move. One good breakout can deliver $20-50+ in profit
 
-SNIPER MODE (surgical precision, 2-4 trades):
+SNIPER MODE (surgical precision, big targets):
 - Only take the highest probability setups with 5+ confluences
 - Wait for price at key Fibonacci levels (38.2%, 61.8%) + S/R confluence
 - Candlestick reversal patterns (Engulfing, Morning/Evening Star) at key zones
 - Wider targets, tighter risk - aim for 1:3+ reward-to-risk
+- GOAL: Quality over quantity. One perfect sniper trade can make the whole day
 
-AGGRESSIVE COMPOUND GROWTH:
+AGGRESSIVE COMPOUND GROWTH (tie it all together):
 - Combine ALL strategies above simultaneously across multiple pairs
-- Scale lot sizes up on winning streaks (increase by 25% after 3 consecutive wins)
+- Scale lot sizes: base=${adjustedBaseLot} | With confidence scaling: 65-75%=${adjustedBaseLot}, 75-85%=${Math.round(adjustedBaseLot * 1.5 * 100) / 100}, 85%+=${Math.round(adjustedBaseLot * 2 * 100) / 100}
+- Max lot size cap: ${effectiveMaxLot} (never exceed this)
 - Pyramid into winning positions - add to trades that move 10+ pips in your favor
-- Trade correlated pairs in the same direction when macro trend aligns (e.g., short USD = long EURUSD + GBPUSD)
+- Trade correlated pairs in the same direction when macro trend aligns
 - Use partial closes to lock in profit (close 50% at TP1, trail the rest)
 - Re-enter quickly after taking profit if conditions still hold
 
@@ -311,9 +503,10 @@ LIVE ENGINE RULES:
 7. Session context matters - trade pairs during their historically best sessions
 8. Check support/resistance proximity - don't BUY at resistance or SELL at support
 9. Manage existing positions: trail stops aggressively, partial close at TP1, let runners ride
-10. Be AGGRESSIVE but INTELLIGENT - the goal is rapid account growth using every edge available
-11. Scale lot sizes based on confidence: 65-75% = base lot, 75-85% = 1.5x, 85%+ = 2x base lot
+10. GOAL-DRIVEN: Every decision must move toward the weekly target. Calculate estimated profit per trade and compare to daily target remaining
+11. COMPOUND ON WINS: After consecutive wins, increase lot size using compound multiplier. After losses, reduce to protect gains
 12. Look for RE-ENTRY opportunities after taking profit - the trend may still have legs
+13. THINK IN DOLLAR TARGETS: Each scalp at ${adjustedBaseLot} lots = ~$${(adjustedBaseLot * 3).toFixed(2)}-$${(adjustedBaseLot * 8).toFixed(2)} profit. Need ~${dailyTarget > 0 ? Math.ceil(dailyTarget / (adjustedBaseLot * 5)) : 'N/A'} wins/day at avg $${(adjustedBaseLot * 5).toFixed(2)}/trade to hit daily target
 
 Respond ONLY with valid JSON. Generate MULTIPLE decisions when opportunities exist - don't hold back:
 {
@@ -484,8 +677,11 @@ async function processDecision(userId: number, decision: any): Promise<void> {
     const entryPrice = parseNum(decision.entryPrice);
     const stopLoss = parseNum(decision.stopLoss);
     const takeProfit = parseNum(decision.takeProfit);
-    const rawLotSize = parseNum(decision.lotSize) || 0.01;
-    const lotSize = Math.min(rawLotSize, state.config.maxLotSize || 0.10);
+    const rawLotSize = parseNum(decision.lotSize) || config.baseLotSize || 0.01;
+    const compoundedLot = config.enableCompounding
+      ? Math.round(rawLotSize * state.goalTracker.compoundMultiplier * 100) / 100
+      : rawLotSize;
+    const lotSize = Math.max(0.01, Math.min(compoundedLot, state.config.maxLotSize || 0.10));
 
     if (!pendingMT5Signals[userId]) pendingMT5Signals[userId] = [];
     const mt5Signal: PendingMT5Signal = {
@@ -616,11 +812,15 @@ export function startLiveEngine(userId: number, config?: Partial<LiveEngineConfi
     openPositionCount: 0,
     pnlSession: 0,
     marketSnapshot: {},
+    goalTracker: createGoalTracker(fullConfig),
   };
 
+  const goalMsg = fullConfig.weeklyProfitTarget > 0
+    ? ` | Weekly Goal: $${fullConfig.weeklyProfitTarget} (${((fullConfig.accountBalance + fullConfig.weeklyProfitTarget) / Math.max(fullConfig.accountBalance, 1)).toFixed(1)}x growth)`
+    : '';
   addActivity(userId, {
     type: 'info',
-    message: `VEDD AI Live Engine STARTED | Strategy: ${fullConfig.strategyMode} | Pairs: ${fullConfig.pairs.join(', ')} | Scan interval: ${fullConfig.scanIntervalMs / 1000}s | Min confidence: ${fullConfig.minConfidence}%`,
+    message: `VEDD AI Live Engine STARTED | Strategy: ${fullConfig.strategyMode} | Pairs: ${fullConfig.pairs.join(', ')} | Scan interval: ${fullConfig.scanIntervalMs / 1000}s | Min confidence: ${fullConfig.minConfidence}%${goalMsg}`,
   });
 
   setTimeout(() => scanMarkets(userId), 2000);
