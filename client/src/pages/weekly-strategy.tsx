@@ -113,7 +113,11 @@ export default function WeeklyStrategyPage() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['/api/weekly-strategy'] });
-      toast({ title: "Progress Updated", description: `$${data.currentProfit} earned so far` });
+      setActiveTrades(data.activeTrades || []);
+      setUnrealizedPnL(data.unrealizedPnL || 0);
+      setLastPositionUpdate(data.lastPositionUpdate || null);
+      const activeMsg = data.activeTradeCount > 0 ? ` | ${data.activeTradeCount} active trade(s)` : '';
+      toast({ title: "Progress Synced", description: `$${data.currentProfit} closed P&L | $${data.unrealizedPnL || 0} unrealized${activeMsg}` });
     },
   });
 
@@ -127,6 +131,10 @@ export default function WeeklyStrategyPage() {
       toast({ title: "Plan Cleared", description: "Ready to create a new VEDD SS AI plan" });
     },
   });
+
+  const [activeTrades, setActiveTrades] = useState<any[]>([]);
+  const [unrealizedPnL, setUnrealizedPnL] = useState(0);
+  const [lastPositionUpdate, setLastPositionUpdate] = useState<string | null>(null);
 
   const [shareOpen, setShareOpen] = useState(false);
   const [shareCardUrl, setShareCardUrl] = useState<string | null>(null);
@@ -332,10 +340,111 @@ export default function WeeklyStrategyPage() {
                     <span>Trades: {strategy.progressTrades || 0}</span>
                     <span>Win Rate: {strategy.progressWinRate || 0}%</span>
                     <span>Started: {new Date(strategy.generatedAt || '').toLocaleDateString()}</span>
+                    {activeTrades.length > 0 && (
+                      <>
+                        <span className="text-blue-400">Active: {activeTrades.length}</span>
+                        <span className={unrealizedPnL >= 0 ? 'text-green-400' : 'text-red-400'}>
+                          Unrealized: ${unrealizedPnL.toFixed(2)}
+                        </span>
+                      </>
+                    )}
                   </div>
                 </div>
               </CardContent>
             </Card>
+
+            {/* Active Trades - What VEDD SS AI is doing */}
+            {activeTrades.length > 0 && (
+              <Card className="bg-gradient-to-br from-blue-900/20 to-purple-900/20 border-blue-500/30">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-white flex items-center gap-2 text-lg">
+                    <Activity className="w-5 h-5 text-blue-400" />
+                    Active Trades
+                    <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/30 text-[10px]">
+                      {activeTrades.length} open
+                    </Badge>
+                    {lastPositionUpdate && (
+                      <span className="text-[10px] text-gray-500 font-normal ml-auto">
+                        Last sync: {new Date(lastPositionUpdate).toLocaleTimeString()}
+                      </span>
+                    )}
+                  </CardTitle>
+                  <CardDescription>
+                    What VEDD SS AI is doing with your currently running trades
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    {activeTrades.map((trade: any, idx: number) => (
+                      <div key={trade.ticket || idx} className={`rounded-lg border p-3 ${
+                        trade.veddAction === 'ALIGNED' ? 'border-green-500/30 bg-green-500/5' :
+                        trade.veddAction === 'CONFLICT' ? 'border-red-500/30 bg-red-500/5' :
+                        trade.veddAction === 'NOT_IN_PLAN' ? 'border-amber-500/30 bg-amber-500/5' :
+                        'border-gray-600 bg-gray-800/30'
+                      }`}>
+                        <div className="flex items-center justify-between flex-wrap gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-white text-sm">{trade.symbol}</span>
+                            <Badge variant="outline" className={`text-[10px] ${trade.direction === 'BUY' ? 'text-green-400 border-green-500/40' : 'text-red-400 border-red-500/40'}`}>
+                              {trade.direction}
+                            </Badge>
+                            <span className="text-xs text-gray-400">{trade.lots} lots</span>
+                          </div>
+                          <span className={`text-sm font-bold ${trade.currentProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                            {trade.currentProfit >= 0 ? '+' : ''}${trade.currentProfit.toFixed(2)}
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5 mt-2">
+                          {trade.veddAction === 'ALIGNED' && (
+                            <Badge className="bg-green-500/15 text-green-400 border-green-500/30 text-[10px]">
+                              <CheckCircle className="w-2.5 h-2.5 mr-1" />
+                              Plan Aligned ({trade.planDirection} {trade.planSession})
+                            </Badge>
+                          )}
+                          {trade.veddAction === 'CONFLICT' && (
+                            <Badge className="bg-red-500/15 text-red-400 border-red-500/30 text-[10px]">
+                              <AlertCircle className="w-2.5 h-2.5 mr-1" />
+                              Plan Conflict (Plan: {trade.planDirection}, Trade: {trade.direction})
+                            </Badge>
+                          )}
+                          {trade.veddAction === 'NOT_IN_PLAN' && (
+                            <Badge className="bg-amber-500/15 text-amber-400 border-amber-500/30 text-[10px]">
+                              <AlertCircle className="w-2.5 h-2.5 mr-1" />
+                              Not in Today's Plan
+                            </Badge>
+                          )}
+                          {trade.veddAction === 'LIVE_OFF' && (
+                            <Badge className="bg-gray-500/15 text-gray-400 border-gray-600 text-[10px]">
+                              <Power className="w-2.5 h-2.5 mr-1" />
+                              Live Mode Off
+                            </Badge>
+                          )}
+                          {trade.lotOverrideApplied && (
+                            <Badge className="bg-purple-500/15 text-purple-400 border-purple-500/30 text-[10px]">
+                              <Zap className="w-2.5 h-2.5 mr-1" />
+                              Lot Override: {trade.lotOverrideValue}
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="flex gap-4 text-[11px] text-gray-500 mt-1.5">
+                          <span>Entry: {trade.openPrice}</span>
+                          {trade.sl > 0 && <span>SL: {trade.sl}</span>}
+                          {trade.tp > 0 && <span>TP: {trade.tp}</span>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-3 p-2 bg-black/20 rounded text-xs text-gray-500 flex items-center gap-2">
+                    <Brain className="w-3.5 h-3.5 text-purple-400" />
+                    {activeTrades.filter(t => t.veddAction === 'ALIGNED').length > 0
+                      ? `${activeTrades.filter(t => t.veddAction === 'ALIGNED').length} trade(s) aligned with your VEDD SS AI plan. AI boosted confidence on these entries.`
+                      : activeTrades.some(t => t.veddAction === 'LIVE_OFF')
+                        ? 'Turn on Live Mode to let VEDD SS AI guide lot sizing and confidence on your active trades.'
+                        : 'VEDD SS AI is monitoring these trades against your weekly plan.'}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             {/* Feasibility & Growth Strategy */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -667,6 +776,7 @@ export default function WeeklyStrategyPage() {
                   <div className="space-y-2.5 max-h-[400px] overflow-y-auto">
                     {aiLogs.slice(0, 10).map((log: any) => {
                       const isPlanPair = strategy?.pairs?.includes(log.symbol);
+                      const activeForSymbol = activeTrades.find(t => t.symbol === log.symbol);
                       return (
                         <motion.div
                           key={log.id}
@@ -732,6 +842,18 @@ export default function WeeklyStrategyPage() {
                               <Badge className="bg-amber-500/15 text-amber-400 border-amber-500/30 text-[10px]">
                                 <Activity className="w-2.5 h-2.5 mr-1" />
                                 Breakout {log.breakoutDirection}
+                              </Badge>
+                            )}
+                            {activeForSymbol && (
+                              <Badge className="bg-blue-500/15 text-blue-400 border-blue-500/30 text-[10px]">
+                                <Zap className="w-2.5 h-2.5 mr-1" />
+                                Trade Running ({activeForSymbol.direction} {activeForSymbol.currentProfit >= 0 ? '+' : ''}${activeForSymbol.currentProfit.toFixed(2)})
+                              </Badge>
+                            )}
+                            {log.veddSSAIPlanMatch && (
+                              <Badge className="bg-orange-500/15 text-orange-300 border-orange-500/30 text-[10px]">
+                                <Target className="w-2.5 h-2.5 mr-1" />
+                                Lot: {log.veddSSAIPlanMatch.lotSize} | {log.veddSSAIPlanMatch.session}
                               </Badge>
                             )}
                           </div>

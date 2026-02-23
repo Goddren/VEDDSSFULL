@@ -7552,7 +7552,6 @@ Respond with ONLY valid JSON:
     const strategy = (global as any).mt5WeeklyStrategies?.[userId];
     if (!strategy) return res.status(404).json({ error: "No active strategy" });
 
-    // Pull latest closed trades and calculate progress
     const closedTradesCache = (global as any).mt5ClosedTrades || {};
     const closedTrades = closedTradesCache[userId]?.trades || [];
     const weekStart = new Date(strategy.weekStart);
@@ -7564,23 +7563,71 @@ Respond with ONLY valid JSON:
       );
     });
 
-    const currentProfit = weekTrades.reduce((sum: number, t: any) => sum + (t.profit || 0), 0);
+    const closedProfit = weekTrades.reduce((sum: number, t: any) => sum + (t.profit || 0), 0);
     const tradeCount = weekTrades.length;
     const wins = weekTrades.filter((t: any) => t.profit > 0).length;
     const winRate = tradeCount > 0 ? Math.round((wins / tradeCount) * 100) : 0;
 
-    strategy.currentProfit = Math.round(currentProfit * 100) / 100;
+    const openPosData = (global as any).mt5OpenPositions?.[userId];
+    const allOpenPositions = openPosData?.positions || [];
+    const planPairs = (strategy.pairs || []).map((p: string) => p.toUpperCase().replace('/', ''));
+    const activeTrades = allOpenPositions.filter((p: any) => {
+      const sym = (p.symbol || '').toUpperCase().replace('/', '');
+      return planPairs.includes(sym);
+    });
+    const unrealizedPnL = activeTrades.reduce((s: number, p: any) => s + (p.profit || 0), 0);
+
+    const isLive = (global as any).mt5VeddSSAILive?.[userId] === true;
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const todayName = dayNames[new Date().getUTCDay()];
+    const todayPlan = strategy.plan?.weeklyPlan?.[todayName];
+
+    const activeTradeDetails = activeTrades.map((p: any) => {
+      const sym = (p.symbol || '').toUpperCase().replace('/', '');
+      const matchingPlanPair = todayPlan?.pairs?.find((pp: any) =>
+        (pp.symbol || '').toUpperCase().replace('/', '') === sym
+      );
+      const planAligned = matchingPlanPair
+        ? (matchingPlanPair.direction === 'BOTH' || matchingPlanPair.direction === p.direction)
+        : null;
+      const lotOverride = (global as any).veddSSAILotOverride?.[`${userId}_${sym}`];
+      return {
+        symbol: sym,
+        direction: p.direction,
+        lots: p.lots || 0,
+        openPrice: p.openPrice || 0,
+        currentProfit: p.profit || 0,
+        ticket: p.ticket,
+        sl: p.sl || 0,
+        tp: p.tp || 0,
+        veddAction: isLive && matchingPlanPair ? (planAligned ? 'ALIGNED' : 'CONFLICT') : (isLive ? 'NOT_IN_PLAN' : 'LIVE_OFF'),
+        planDirection: matchingPlanPair?.direction || null,
+        planSession: matchingPlanPair?.session || null,
+        planLotSize: matchingPlanPair?.lotSize || null,
+        lotOverrideApplied: lotOverride ? true : false,
+        lotOverrideValue: lotOverride || null,
+      };
+    });
+
+    const totalProfit = closedProfit + unrealizedPnL;
+    strategy.currentProfit = Math.round(closedProfit * 100) / 100;
     strategy.progressTrades = weekTrades.length;
     strategy.progressWinRate = winRate;
-    strategy.progressPercentage = Math.min(100, Math.round((currentProfit / strategy.profitTarget) * 100));
+    strategy.progressPercentage = Math.min(100, Math.max(0, Math.round((closedProfit / strategy.profitTarget) * 100)));
 
     res.json({
       currentProfit: strategy.currentProfit,
       progressTrades: tradeCount,
       progressWinRate: winRate,
       progressPercentage: strategy.progressPercentage,
-      targetRemaining: Math.round((strategy.profitTarget - currentProfit) * 100) / 100,
+      targetRemaining: Math.round((strategy.profitTarget - closedProfit) * 100) / 100,
       daysRemaining: getDaysRemainingInWeek(),
+      activeTrades: activeTradeDetails,
+      activeTradeCount: activeTrades.length,
+      unrealizedPnL: Math.round(unrealizedPnL * 100) / 100,
+      totalPnL: Math.round(totalProfit * 100) / 100,
+      veddSSAILive: isLive,
+      lastPositionUpdate: openPosData?.lastUpdated || null,
     });
   });
 
