@@ -17,6 +17,8 @@ input int      PollIntervalSeconds = 5;
 input double   MaxLotSize = 1.0;
 input double   DefaultLotSize = 0.01;
 input int      MaxSlippage = 30;
+input double   MaxPriceDeviationPips = 15.0;
+input bool     AdjustSLTPToBrokerPrice = true;
 input bool     AutoExecute = true;
 input bool     UseSignalLotSize = true;
 input bool     UseSignalSLTP = true;
@@ -184,7 +186,7 @@ void PollForSignals()
 
 //+------------------------------------------------------------------+
 bool ExecuteSignal(string symbol, string direction, double lots, 
-                   double entryPrice, double sl, double tp)
+                   double signalEntry, double sl, double tp)
 {
    string mt5Symbol = NormalizeSymbol(symbol);
    
@@ -204,17 +206,17 @@ bool ExecuteSignal(string symbol, string direction, double lots,
       lotSize = MathFloor(lotSize / lotStep) * lotStep;
    
    ENUM_ORDER_TYPE orderType;
-   double price;
+   double brokerPrice;
    
    if(direction == "BUY")
    {
       orderType = ORDER_TYPE_BUY;
-      price = SymbolInfoDouble(mt5Symbol, SYMBOL_ASK);
+      brokerPrice = SymbolInfoDouble(mt5Symbol, SYMBOL_ASK);
    }
    else if(direction == "SELL")
    {
       orderType = ORDER_TYPE_SELL;
-      price = SymbolInfoDouble(mt5Symbol, SYMBOL_BID);
+      brokerPrice = SymbolInfoDouble(mt5Symbol, SYMBOL_BID);
    }
    else
    {
@@ -222,14 +224,50 @@ bool ExecuteSignal(string symbol, string direction, double lots,
       return false;
    }
    
+   double point = SymbolInfoDouble(mt5Symbol, SYMBOL_POINT);
+   int digits = (int)SymbolInfoInteger(mt5Symbol, SYMBOL_DIGITS);
+   double pipSize = (digits == 3 || digits == 5) ? point * 10 : point;
+   
+   if(signalEntry > 0 && MaxPriceDeviationPips > 0)
+   {
+      double priceDiffPips = MathAbs(brokerPrice - signalEntry) / pipSize;
+      if(EnableLogging)
+         Print("Price check: Signal=", DoubleToString(signalEntry, digits), 
+               " Broker=", DoubleToString(brokerPrice, digits),
+               " Diff=", DoubleToString(priceDiffPips, 1), " pips",
+               " Max=", DoubleToString(MaxPriceDeviationPips, 1), " pips");
+      
+      if(priceDiffPips > MaxPriceDeviationPips)
+      {
+         lastError = "Price deviation too large: " + DoubleToString(priceDiffPips, 1) + 
+                     " pips (max " + DoubleToString(MaxPriceDeviationPips, 1) + ")";
+         return false;
+      }
+   }
+   
    double finalSL = 0;
    double finalTP = 0;
    
-   if(UseSignalSLTP)
+   if(UseSignalSLTP && (sl > 0 || tp > 0))
    {
-      if(sl > 0) finalSL = sl;
-      if(tp > 0) finalTP = tp;
+      if(AdjustSLTPToBrokerPrice && signalEntry > 0)
+      {
+         double priceShift = brokerPrice - signalEntry;
+         if(sl > 0) finalSL = NormalizeDouble(sl + priceShift, digits);
+         if(tp > 0) finalTP = NormalizeDouble(tp + priceShift, digits);
+         if(EnableLogging && MathAbs(priceShift) > point)
+            Print("SL/TP adjusted by ", DoubleToString(priceShift / pipSize, 1), 
+                  " pips to match broker price | SL: ", DoubleToString(finalSL, digits),
+                  " TP: ", DoubleToString(finalTP, digits));
+      }
+      else
+      {
+         if(sl > 0) finalSL = sl;
+         if(tp > 0) finalTP = tp;
+      }
    }
+   
+   double price = brokerPrice;
    
    MqlTradeRequest request;
    MqlTradeResult result;

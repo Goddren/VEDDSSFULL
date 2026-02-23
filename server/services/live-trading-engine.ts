@@ -260,6 +260,7 @@ CONTEXT:
 - Risk per trade: ${config.riskPerTrade}% | Trailing stops: ${config.trailingStopEnabled ? 'ON' : 'OFF'}
 - Max trades allowed: ${config.maxOpenTrades} | Currently open: ${currentOpenCount}
 - Position management: ${config.enablePositionManagement ? 'ACTIVE' : 'OFF'}
+- IMPORTANT: Market data comes from Twelve Data. User's broker may have slightly different prices (spread, feed differences). Use ZONE-BASED entries rather than exact prices. Set SL/TP as DISTANCES from entry (e.g. 15 pips SL) so the EA can adjust to broker prices automatically.
 
 LIVE ENGINE RULES:
 1. Analyze ALL indicators together - ADX, Stochastic, VWAP, OBV, S/R, Fibonacci, candle patterns, volume
