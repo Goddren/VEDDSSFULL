@@ -58,11 +58,16 @@ const ROUTING_MODES = [
 ];
 
 const STRATEGIES = [
-  { id: 'scalping', name: 'Scalping', description: 'Quick in-and-out trades' },
-  { id: 'momentum', name: 'Momentum Surfing', description: 'Ride strong price moves' },
-  { id: 'session_breakout', name: 'Session Breakout', description: 'Trade key session opens' },
-  { id: 'sniper', name: 'Sniper Mode', description: 'High-confidence precision entries' },
-  { id: 'compound', name: 'Compound Growth', description: 'Aggressive compounding on wins' },
+  { id: 'scalping', name: 'Scalping', description: 'Quick in-and-out trades', category: 'HFT' },
+  { id: 'momentum', name: 'Momentum Surfing', description: 'Ride strong price moves', category: 'HFT' },
+  { id: 'session_breakout', name: 'Session Breakout', description: 'Trade key session opens', category: 'HFT' },
+  { id: 'sniper', name: 'Sniper Mode', description: 'High-confidence precision entries', category: 'HFT' },
+  { id: 'compound', name: 'Compound Growth', description: 'Aggressive compounding on wins', category: 'HFT' },
+  { id: 'ict_order_blocks', name: 'ICT Order Blocks', description: 'Trade institutional supply/demand zones', category: 'ICT' },
+  { id: 'ict_fvg', name: 'ICT Fair Value Gaps', description: 'Exploit price imbalance fills', category: 'ICT' },
+  { id: 'ict_liquidity_sweep', name: 'ICT Liquidity Sweeps', description: 'Trade reversals after stop hunts', category: 'ICT' },
+  { id: 'ict_bos', name: 'ICT Break of Structure', description: 'BOS/CHOCH trend shifts', category: 'ICT' },
+  { id: 'ict_ote', name: 'ICT Optimal Trade Entry', description: 'Precision Fibonacci OTE zone entries', category: 'ICT' },
 ];
 
 export default function AiTradingModels() {
@@ -339,31 +344,45 @@ export default function AiTradingModels() {
               </CardTitle>
               <CardDescription>Assign a specific AI model to each trading strategy for specialized analysis</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              {STRATEGIES.map(strategy => (
-                <div key={strategy.id} className="flex items-center gap-4 p-3 rounded-lg bg-gray-800/50 border border-gray-700">
-                  <div className="flex-1">
-                    <div className="text-white font-medium">{strategy.name}</div>
-                    <div className="text-xs text-gray-400">{strategy.description}</div>
+            <CardContent className="space-y-6">
+              {['HFT', 'ICT'].map(category => (
+                <div key={category}>
+                  <div className="flex items-center gap-2 mb-3">
+                    <Badge className={category === 'ICT' ? 'bg-cyan-600/20 text-cyan-400' : 'bg-orange-600/20 text-orange-400'}>
+                      {category}
+                    </Badge>
+                    <span className="text-xs text-gray-500">
+                      {category === 'ICT' ? 'Inner Circle Trader Strategies' : 'High-Frequency Trading Strategies'}
+                    </span>
                   </div>
-                  <Select
-                    value={strategyAssignments[strategy.id] || 'openai-gpt4o'}
-                    onValueChange={(v) => {
-                      setStrategyAssignments(prev => ({ ...prev, [strategy.id]: v }));
-                      setHasChanges(true);
-                    }}
-                  >
-                    <SelectTrigger className="w-48 bg-gray-800 border-gray-700 text-white text-sm">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {models.map((m: any) => (
-                        <SelectItem key={m.id} value={m.id} disabled={!m.available}>
-                          {m.name} {!m.available && '(No Key)'}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <div className="space-y-3">
+                    {STRATEGIES.filter(s => s.category === category).map(strategy => (
+                      <div key={strategy.id} className="flex items-center gap-4 p-3 rounded-lg bg-gray-800/50 border border-gray-700">
+                        <div className="flex-1">
+                          <div className="text-white font-medium">{strategy.name}</div>
+                          <div className="text-xs text-gray-400">{strategy.description}</div>
+                        </div>
+                        <Select
+                          value={strategyAssignments[strategy.id] || 'openai-gpt4o'}
+                          onValueChange={(v) => {
+                            setStrategyAssignments(prev => ({ ...prev, [strategy.id]: v }));
+                            setHasChanges(true);
+                          }}
+                        >
+                          <SelectTrigger className="w-48 bg-gray-800 border-gray-700 text-white text-sm">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {models.map((m: any) => (
+                              <SelectItem key={m.id} value={m.id} disabled={!m.available}>
+                                {m.name} {!m.available && '(No Key)'}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               ))}
             </CardContent>

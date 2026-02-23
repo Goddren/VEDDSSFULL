@@ -683,6 +683,48 @@ SNIPER MODE (surgical precision, big targets):
 - Wider targets, tighter risk - aim for 1:3+ reward-to-risk
 - GOAL: Quality over quantity. One perfect sniper trade can make the whole day
 
+ICT ORDER BLOCKS (institutional footprint trading):
+- Identify BULLISH ORDER BLOCKS: Last bearish candle before a strong bullish move that breaks structure. Price returns to this zone = BUY opportunity
+- Identify BEARISH ORDER BLOCKS: Last bullish candle before a strong bearish move that breaks structure. Price returns to this zone = SELL opportunity
+- Order blocks are most valid when they caused a Break of Structure (BOS) or Change of Character (CHOCH)
+- Use H1/H4 order blocks for direction, M15/M5 order blocks for precision entries
+- Best entries: Price wicks into the OB zone, shows rejection (wick/pin bar), then closes outside the zone
+- GOAL: Trade with institutional money flow. Order blocks reveal where smart money placed orders
+
+ICT FAIR VALUE GAPS (imbalance fills):
+- FVG = 3-candle pattern where there is a gap between candle 1's wick and candle 3's wick (the middle candle moved so fast it left an imbalance)
+- Bullish FVG: Gap between candle 1's HIGH and candle 3's LOW (candle 2 was strongly bullish). Price drops into this gap → BUY
+- Bearish FVG: Gap between candle 1's LOW and candle 3's HIGH (candle 2 was strongly bearish). Price rallies into this gap → SELL
+- FVGs act as magnets - price tends to fill them before continuing in the original direction
+- Most reliable when FVG appears on H1/H4 timeframe and aligns with overall trend
+- Enter when price touches the 50% level of the FVG (consequent encroachment)
+- GOAL: Exploit market inefficiencies. FVGs on higher timeframes are institutional targets
+
+ICT LIQUIDITY SWEEPS (stop hunt reversals):
+- Liquidity pools form above equal highs and below equal lows - institutions target these to fill large orders
+- SELL setup: Price spikes ABOVE a key high (sweeping buy-side liquidity), then reverses sharply with displacement
+- BUY setup: Price drops BELOW a key low (sweeping sell-side liquidity), then reverses sharply with displacement
+- Confirm with: displacement candle (large body, small wicks), followed by FVG creation
+- Best during Kill Zone hours (London open 07:00-09:00 UTC, NY open 13:00-15:00 UTC, London close 15:00-17:00 UTC)
+- Look for sweeps of Asian session highs/lows during London or NY sessions
+- GOAL: Trade the reversal after smart money grabs liquidity. These produce the cleanest, highest R:R setups
+
+ICT BREAK OF STRUCTURE (trend continuation/reversal):
+- BOS (Break of Structure): Price breaks a recent swing high (bullish BOS) or swing low (bearish BOS) = trend continuation
+- CHOCH (Change of Character): Price breaks structure in the OPPOSITE direction of the current trend = potential reversal
+- After BOS: Wait for price to pull back to an order block or FVG within the broken structure, then enter in the BOS direction
+- After CHOCH: Wait for confirmation (a second lower high or higher low) before entering the new direction
+- Use M15 BOS/CHOCH for entry timing, H1/H4 for overall direction
+- GOAL: Align trades with the current market structure. Never trade against structure unless CHOCH confirms reversal
+
+ICT OPTIMAL TRADE ENTRY (precision Fibonacci entries):
+- OTE zone = 61.8%-78.6% Fibonacci retracement of the most recent impulse leg
+- After a BOS or liquidity sweep, measure the impulse move and enter at the OTE zone
+- Combine with order blocks that sit within the OTE zone for maximum confluence
+- SL goes beyond the swing point (the low of a bullish OTE or high of a bearish OTE)
+- TP targets: 127.2% Fibonacci extension, 161.8% extension, or next liquidity pool
+- GOAL: Enter at the optimal price within a confirmed setup. ICT's "sweet spot" for institutional entries
+
 AGGRESSIVE COMPOUND GROWTH (tie it all together):
 - Combine ALL strategies above simultaneously across multiple pairs
 - Scale lot sizes: base=${adjustedBaseLot} | With confidence scaling: 65-75%=${adjustedBaseLot}, 75-85%=${Math.round(adjustedBaseLot * 1.5 * 100) / 100}, 85%+=${Math.round(adjustedBaseLot * 2 * 100) / 100}
@@ -693,7 +735,7 @@ AGGRESSIVE COMPOUND GROWTH (tie it all together):
 - Re-enter quickly after taking profit if conditions still hold
 
 LIVE ENGINE RULES:
-1. Use ALL strategies simultaneously - scan for scalps, momentum, breakouts, and sniper setups on EVERY scan
+1. Use ALL strategies simultaneously - scan for scalps, momentum, breakouts, sniper setups, AND ICT setups (order blocks, FVGs, liquidity sweeps, BOS/CHOCH, OTE) on EVERY scan
 2. Generate MULTIPLE signals per scan when opportunities exist across different pairs
 3. Only signal when multiple indicators CONFIRM the same direction (minimum 2-3 confluences depending on strategy)
 4. Use brain knowledge to AVOID historically bad setups (wrong hours, wrong sessions, wrong direction bias)
@@ -715,7 +757,7 @@ Respond ONLY with valid JSON. Generate MULTIPLE decisions when opportunities exi
   "decisions": [
     {
       "action": "OPEN_TRADE" | "MODIFY_POSITION" | "CLOSE_POSITION" | "NO_ACTION",
-      "strategy": "scalping" | "momentum" | "session_breakout" | "sniper" | "compound",
+      "strategy": "scalping" | "momentum" | "session_breakout" | "sniper" | "compound" | "ict_order_blocks" | "ict_fvg" | "ict_liquidity_sweep" | "ict_bos" | "ict_ote",
       "symbol": "EURUSD",
       "direction": "BUY" | "SELL",
       "confidence": 85,
@@ -745,7 +787,7 @@ Respond ONLY with valid JSON. Generate MULTIPLE decisions when opportunities exi
   "tradingWindowQuality": "excellent|good|fair|poor - based on session time + volume + news"
 }`;
 
-    const systemPrompt = 'You are VEDD SS AI - a live autonomous HIGH-FREQUENCY trading engine built for RAPID ACCOUNT GROWTH. Use every strategy in your arsenal simultaneously: scalping, momentum surfing, session breakouts, sniper setups, and aggressive compounding. Generate MULTIPLE trade signals per scan when opportunities exist across different pairs and strategies. Be aggressive but intelligent - maximize trade frequency while maintaining edge. CRITICAL: Always factor in NEWS events and VOLUME levels before entering trades. Avoid pairs with upcoming high-impact news. Prioritize pairs with strong volume. Trade during optimal market hours for best fills. Respond with valid JSON only.';
+    const systemPrompt = 'You are VEDD SS AI - a live autonomous HIGH-FREQUENCY trading engine built for RAPID ACCOUNT GROWTH. Use every strategy in your arsenal simultaneously: scalping, momentum surfing, session breakouts, sniper setups, aggressive compounding, AND ICT strategies (order blocks, fair value gaps, liquidity sweeps, break of structure, optimal trade entry). ICT strategies are CORE to your analysis - always scan for order blocks, FVGs, liquidity grabs, and market structure shifts alongside traditional indicators. Generate MULTIPLE trade signals per scan when opportunities exist across different pairs and strategies. Be aggressive but intelligent - maximize trade frequency while maintaining edge. CRITICAL: Always factor in NEWS events and VOLUME levels before entering trades. Avoid pairs with upcoming high-impact news. Prioritize pairs with strong volume. Trade during optimal market hours for best fills. Respond with valid JSON only.';
 
     const { runMultiModelAnalysis, DEFAULT_ROUTING_CONFIG } = await import('./ai-model-service');
     const modelConfig = await storage.getAiModelConfig(userId);
