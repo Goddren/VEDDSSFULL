@@ -63,6 +63,7 @@ const STRATEGIES = [
   { id: 'session_breakout', name: 'Session Breakout', description: 'Trade key session opens', category: 'HFT' },
   { id: 'sniper', name: 'Sniper Mode', description: 'High-confidence precision entries', category: 'HFT' },
   { id: 'compound', name: 'Compound Growth', description: 'Aggressive compounding on wins', category: 'HFT' },
+  { id: 'chart_pattern', name: 'Chart Patterns', description: 'Head & shoulders, double tops, triangles, flags, wedges', category: 'Classic' },
   { id: 'ict_order_blocks', name: 'ICT Order Blocks', description: 'Trade institutional supply/demand zones', category: 'ICT' },
   { id: 'ict_fvg', name: 'ICT Fair Value Gaps', description: 'Exploit price imbalance fills', category: 'ICT' },
   { id: 'ict_liquidity_sweep', name: 'ICT Liquidity Sweeps', description: 'Trade reversals after stop hunts', category: 'ICT' },
@@ -345,14 +346,14 @@ export default function AiTradingModels() {
               <CardDescription>Assign a specific AI model to each trading strategy for specialized analysis</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              {['HFT', 'ICT'].map(category => (
+              {['HFT', 'Classic', 'ICT'].map(category => (
                 <div key={category}>
                   <div className="flex items-center gap-2 mb-3">
-                    <Badge className={category === 'ICT' ? 'bg-cyan-600/20 text-cyan-400' : 'bg-orange-600/20 text-orange-400'}>
+                    <Badge className={category === 'ICT' ? 'bg-cyan-600/20 text-cyan-400' : category === 'Classic' ? 'bg-violet-600/20 text-violet-400' : 'bg-orange-600/20 text-orange-400'}>
                       {category}
                     </Badge>
                     <span className="text-xs text-gray-500">
-                      {category === 'ICT' ? 'Inner Circle Trader Strategies' : 'High-Frequency Trading Strategies'}
+                      {category === 'ICT' ? 'Inner Circle Trader Strategies' : category === 'Classic' ? 'Classic Chart Pattern Strategies' : 'High-Frequency Trading Strategies'}
                     </span>
                   </div>
                   <div className="space-y-3">

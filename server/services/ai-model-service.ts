@@ -16,7 +16,7 @@ export const AVAILABLE_TRADING_MODELS: AIModelProvider[] = [
     provider: 'openai',
     model: 'gpt-4o',
     strengths: ['Fast reasoning', 'Strong at JSON output', 'Good pattern recognition'],
-    bestFor: ['scalping', 'momentum', 'session_breakout', 'sniper', 'compound', 'ict_order_blocks', 'ict_fvg', 'ict_liquidity_sweep', 'ict_bos', 'ict_ote'],
+    bestFor: ['scalping', 'momentum', 'session_breakout', 'sniper', 'compound', 'chart_pattern', 'ict_order_blocks', 'ict_fvg', 'ict_liquidity_sweep', 'ict_bos', 'ict_ote'],
   },
   {
     id: 'openai-gpt4o-mini',
@@ -32,7 +32,7 @@ export const AVAILABLE_TRADING_MODELS: AIModelProvider[] = [
     provider: 'anthropic',
     model: 'claude-3-5-sonnet-20241022',
     strengths: ['Deep analytical reasoning', 'Risk assessment', 'Pattern complexity', 'Excellent at ICT concepts'],
-    bestFor: ['sniper', 'momentum', 'session_breakout', 'ict_order_blocks', 'ict_liquidity_sweep', 'ict_bos', 'ict_ote'],
+    bestFor: ['sniper', 'momentum', 'session_breakout', 'chart_pattern', 'ict_order_blocks', 'ict_liquidity_sweep', 'ict_bos', 'ict_ote'],
   },
   {
     id: 'anthropic-claude-haiku',
@@ -48,7 +48,7 @@ export const AVAILABLE_TRADING_MODELS: AIModelProvider[] = [
     provider: 'google',
     model: 'gemini-2.0-flash',
     strengths: ['Multi-modal analysis', 'Strong at data synthesis', 'Good at numerical reasoning'],
-    bestFor: ['session_breakout', 'momentum', 'sniper', 'ict_order_blocks', 'ict_bos'],
+    bestFor: ['session_breakout', 'momentum', 'sniper', 'chart_pattern', 'ict_order_blocks', 'ict_bos'],
   },
   {
     id: 'groq-llama',
@@ -72,7 +72,7 @@ export const AVAILABLE_TRADING_MODELS: AIModelProvider[] = [
     provider: 'deepseek',
     model: 'deepseek-chat',
     strengths: ['Strong analytical capability', 'Cost-effective', 'Good at complex reasoning', 'Market structure analysis'],
-    bestFor: ['sniper', 'momentum', 'session_breakout', 'ict_order_blocks', 'ict_bos', 'ict_ote'],
+    bestFor: ['sniper', 'momentum', 'session_breakout', 'chart_pattern', 'ict_order_blocks', 'ict_bos', 'ict_ote'],
   },
 ];
 

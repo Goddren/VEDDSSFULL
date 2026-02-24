@@ -683,6 +683,20 @@ SNIPER MODE (surgical precision, big targets):
 - Wider targets, tighter risk - aim for 1:3+ reward-to-risk
 - GOAL: Quality over quantity. One perfect sniper trade can make the whole day
 
+CLASSIC CHART PATTERNS (pattern recognition trading):
+- HEAD AND SHOULDERS: Three peaks where the middle peak (head) is highest. Neckline break = SELL. Inverse H&S (three troughs, middle lowest) neckline break = BUY. Target = distance from head to neckline projected from breakout
+- DOUBLE TOP: Price hits same resistance twice and fails. Break below the valley between the two tops = SELL. Target = height of pattern projected down
+- DOUBLE BOTTOM: Price hits same support twice and holds. Break above the peak between the two bottoms = BUY. Target = height of pattern projected up
+- TRIPLE TOP/BOTTOM: Same as double but with three touches - even stronger signal when the pattern finally breaks
+- ASCENDING TRIANGLE: Flat resistance + rising lows. Breakout above resistance = BUY. Volume should increase on breakout
+- DESCENDING TRIANGLE: Flat support + lower highs. Breakdown below support = SELL. Volume confirms the break
+- SYMMETRICAL TRIANGLE: Converging trendlines (lower highs + higher lows). Trade the breakout direction. Usually continues the prior trend
+- BULL/BEAR FLAG: Strong move followed by a small counter-trend channel (the flag). Breakout in the original trend direction = continuation trade. Quick, high-probability setups
+- RISING/FALLING WEDGE: Rising wedge = bearish reversal (breaks down). Falling wedge = bullish reversal (breaks up). Opposite of what the slope suggests
+- CUP AND HANDLE: Rounded bottom (cup) followed by small pullback (handle). Break above the handle = BUY. Strong bullish continuation pattern
+- CHANNEL TRADING: Price bouncing between parallel support and resistance lines. Buy at channel bottom, sell at channel top. Break out of channel = strong trend signal
+- GOAL: Identify these patterns early and trade the confirmed breakout/breakdown. Always wait for the break + volume confirmation before entering. Measure the pattern height for profit targets
+
 ICT ORDER BLOCKS (institutional footprint trading):
 - Identify BULLISH ORDER BLOCKS: Last bearish candle before a strong bullish move that breaks structure. Price returns to this zone = BUY opportunity
 - Identify BEARISH ORDER BLOCKS: Last bullish candle before a strong bearish move that breaks structure. Price returns to this zone = SELL opportunity
@@ -757,7 +771,7 @@ Respond ONLY with valid JSON. Generate MULTIPLE decisions when opportunities exi
   "decisions": [
     {
       "action": "OPEN_TRADE" | "MODIFY_POSITION" | "CLOSE_POSITION" | "NO_ACTION",
-      "strategy": "scalping" | "momentum" | "session_breakout" | "sniper" | "compound" | "ict_order_blocks" | "ict_fvg" | "ict_liquidity_sweep" | "ict_bos" | "ict_ote",
+      "strategy": "scalping" | "momentum" | "session_breakout" | "sniper" | "compound" | "chart_pattern" | "ict_order_blocks" | "ict_fvg" | "ict_liquidity_sweep" | "ict_bos" | "ict_ote",
       "symbol": "EURUSD",
       "direction": "BUY" | "SELL",
       "confidence": 85,
@@ -787,7 +801,7 @@ Respond ONLY with valid JSON. Generate MULTIPLE decisions when opportunities exi
   "tradingWindowQuality": "excellent|good|fair|poor - based on session time + volume + news"
 }`;
 
-    const systemPrompt = 'You are VEDD SS AI - a live autonomous HIGH-FREQUENCY trading engine built for RAPID ACCOUNT GROWTH. Use every strategy in your arsenal simultaneously: scalping, momentum surfing, session breakouts, sniper setups, aggressive compounding, AND ICT strategies (order blocks, fair value gaps, liquidity sweeps, break of structure, optimal trade entry). ICT strategies are CORE to your analysis - always scan for order blocks, FVGs, liquidity grabs, and market structure shifts alongside traditional indicators. Generate MULTIPLE trade signals per scan when opportunities exist across different pairs and strategies. Be aggressive but intelligent - maximize trade frequency while maintaining edge. CRITICAL: Always factor in NEWS events and VOLUME levels before entering trades. Avoid pairs with upcoming high-impact news. Prioritize pairs with strong volume. Trade during optimal market hours for best fills. Respond with valid JSON only.';
+    const systemPrompt = 'You are VEDD SS AI - a live autonomous HIGH-FREQUENCY trading engine built for RAPID ACCOUNT GROWTH. Use every strategy in your arsenal simultaneously: scalping, momentum surfing, session breakouts, sniper setups, aggressive compounding, CLASSIC CHART PATTERNS (head and shoulders, double tops/bottoms, triangles, flags, wedges, cup and handle), AND ICT strategies (order blocks, fair value gaps, liquidity sweeps, break of structure, optimal trade entry). Always scan for chart patterns, order blocks, FVGs, liquidity grabs, and market structure shifts alongside traditional indicators. Generate MULTIPLE trade signals per scan when opportunities exist across different pairs and strategies. Be aggressive but intelligent - maximize trade frequency while maintaining edge. CRITICAL: Always factor in NEWS events and VOLUME levels before entering trades. Avoid pairs with upcoming high-impact news. Prioritize pairs with strong volume. Trade during optimal market hours for best fills. Respond with valid JSON only.';
 
     const { runMultiModelAnalysis, DEFAULT_ROUTING_CONFIG } = await import('./ai-model-service');
     const modelConfig = await storage.getAiModelConfig(userId);
