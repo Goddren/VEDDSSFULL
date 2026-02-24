@@ -195,6 +195,7 @@ interface GoalTracker {
   worstTrade: { symbol: string; profit: number; strategy: string } | null;
   strategyBreakdown: Record<string, { trades: number; wins: number; pnl: number }>;
   sessionBreakdown: Record<string, { trades: number; wins: number; pnl: number }>;
+  symbolBreakdown: Record<string, { trades: number; wins: number; losses: number; pnl: number; bestTrade: number; worstTrade: number }>;
   compoundMultiplier: number;
   currentPhase: 'warming_up' | 'building' | 'accelerating' | 'cruising' | 'pushing' | 'target_reached';
   phasePlan: string;
@@ -273,6 +274,7 @@ function createGoalTracker(config: LiveEngineConfig): GoalTracker {
     worstTrade: null,
     strategyBreakdown: {},
     sessionBreakdown: {},
+    symbolBreakdown: {},
     compoundMultiplier: 1.0,
     currentPhase: 'warming_up',
     phasePlan: '',
@@ -369,6 +371,17 @@ export function recordTradeResult(userId: number, result: {
   sessB.trades++;
   if (result.profit > 0) sessB.wins++;
   sessB.pnl = Math.round((sessB.pnl + result.profit) * 100) / 100;
+
+  if (!tracker.symbolBreakdown) tracker.symbolBreakdown = {};
+  if (!tracker.symbolBreakdown[result.symbol]) {
+    tracker.symbolBreakdown[result.symbol] = { trades: 0, wins: 0, losses: 0, pnl: 0, bestTrade: 0, worstTrade: 0 };
+  }
+  const sym = tracker.symbolBreakdown[result.symbol];
+  sym.trades++;
+  if (result.profit > 0) sym.wins++; else sym.losses++;
+  sym.pnl = Math.round((sym.pnl + result.profit) * 100) / 100;
+  if (result.profit > sym.bestTrade) sym.bestTrade = result.profit;
+  if (result.profit < sym.worstTrade) sym.worstTrade = result.profit;
 
   tracker.compoundMultiplier = getCompoundMultiplier(tracker, state.config.enableCompounding);
   tracker.currentPhase = getGoalPhase(tracker);

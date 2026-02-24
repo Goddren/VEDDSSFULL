@@ -190,6 +190,7 @@ export default function WeeklyStrategyPage() {
 
   const [liveEngineTab, setLiveEngineTab] = useState<'activity' | 'config' | 'market'>('activity');
   const [enginePairs, setEnginePairs] = useState<string[]>(['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'BTCUSD']);
+  const [enginePairInput, setEnginePairInput] = useState('');
   const [engineMode, setEngineMode] = useState('aggressive');
   const [engineMinConf, setEngineMinConf] = useState(65);
   const [engineMaxTrades, setEngineMaxTrades] = useState(5);
@@ -317,6 +318,18 @@ export default function WeeklyStrategyPage() {
     setSelectedPairs(prev =>
       prev.includes(pair) ? prev.filter(p => p !== pair) : [...prev, pair]
     );
+  };
+
+  const addEnginePair = () => {
+    const pair = enginePairInput.toUpperCase().replace('/', '').trim();
+    if (pair && !enginePairs.includes(pair)) {
+      setEnginePairs(prev => [...prev, pair]);
+      setEnginePairInput('');
+    }
+  };
+
+  const removeEnginePair = (pair: string) => {
+    setEnginePairs(prev => prev.filter(p => p !== pair));
   };
 
   const addCustomPair = () => {
@@ -645,6 +658,26 @@ export default function WeeklyStrategyPage() {
                               {liveEngineStatus.goalTracker.consecutiveLosses > 0 && (
                                 <div className="mt-1 text-[9px] text-red-400">Losing streak: {liveEngineStatus.goalTracker.consecutiveLosses} | Lot reduced to {liveEngineStatus.goalTracker.compoundMultiplier}x</div>
                               )}
+                              {Object.keys(liveEngineStatus.goalTracker.symbolBreakdown || {}).length > 0 && (
+                                <div className="mt-2 border-t border-gray-700/50 pt-2">
+                                  <div className="text-[9px] text-gray-500 mb-1 font-semibold">Pair Performance</div>
+                                  {Object.entries(liveEngineStatus.goalTracker.symbolBreakdown)
+                                    .sort(([,a]: [string, any], [,b]: [string, any]) => b.pnl - a.pnl)
+                                    .map(([symbol, data]: [string, any]) => {
+                                      const winRate = data.trades > 0 ? Math.round((data.wins / data.trades) * 100) : 0;
+                                      return (
+                                        <div key={symbol} className="flex items-center justify-between text-[9px] py-0.5">
+                                          <span className="text-cyan-300 font-medium w-16">{symbol}</span>
+                                          <span className="text-gray-400">{data.wins}W/{data.losses}L</span>
+                                          <span className="text-gray-500">{winRate}%</span>
+                                          <span className={`font-semibold ${data.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                            {data.pnl >= 0 ? '+' : ''}${data.pnl?.toFixed(2)}
+                                          </span>
+                                        </div>
+                                      );
+                                    })}
+                                </div>
+                              )}
                               {Object.keys(liveEngineStatus.goalTracker.strategyBreakdown || {}).length > 0 && (
                                 <div className="mt-2 border-t border-gray-700/50 pt-2">
                                   <div className="text-[9px] text-gray-500 mb-1">Strategy Performance</div>
@@ -797,6 +830,26 @@ export default function WeeklyStrategyPage() {
                               {pair}
                             </Badge>
                           ))}
+                        </div>
+                        {enginePairs.filter(p => !POPULAR_PAIRS.slice(0, 14).includes(p)).length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {enginePairs.filter(p => !POPULAR_PAIRS.slice(0, 14).includes(p)).map(pair => (
+                              <Badge key={pair} className="text-[10px] bg-emerald-500/20 text-emerald-400 border-emerald-500/40 cursor-pointer"
+                                onClick={() => removeEnginePair(pair)}>
+                                {pair} ×
+                              </Badge>
+                            ))}
+                          </div>
+                        )}
+                        <div className="flex gap-1 mt-1">
+                          <Input
+                            value={enginePairInput}
+                            onChange={e => setEnginePairInput(e.target.value)}
+                            placeholder="Add pair (e.g. GBPCHF)"
+                            className="h-7 text-[10px] bg-gray-900 border-gray-700 text-white flex-1"
+                            onKeyDown={e => e.key === 'Enter' && addEnginePair()}
+                          />
+                          <Button variant="outline" size="sm" className="h-7 text-[10px] px-2" onClick={addEnginePair}>Add</Button>
                         </div>
                       </div>
                     </div>
