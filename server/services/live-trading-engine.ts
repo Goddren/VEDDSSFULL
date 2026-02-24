@@ -217,10 +217,12 @@ interface EngineState {
   pnlSession: number;
   marketSnapshot: Record<string, { price: number; change: number; trend: string; rsi: number; atr: number; updatedAt: string }>;
   goalTracker: GoalTracker;
+  modelLocked: boolean;
 }
 
 const engineStates: Record<number, EngineState> = {};
 const engineIntervals: Record<number, ReturnType<typeof setInterval>> = {};
+const goalTrackerCache: Record<string, GoalTracker> = {};
 
 function addActivity(userId: number, activity: Omit<LiveActivity, 'id' | 'timestamp'>) {
   const state = engineStates[userId];
@@ -379,6 +381,17 @@ export function recordTradeResult(userId: number, result: {
   }
 
   state.pnlSession = tracker.currentProfit;
+
+  const weekKey = `${userId}_${tracker.weekStartedAt.split('T')[0].substring(0, 8)}`;
+  goalTrackerCache[weekKey] = { ...tracker };
+
+  if (state.modelLocked && state.openPositionCount === 0) {
+    state.modelLocked = false;
+    addActivity(userId, {
+      type: 'info',
+      message: 'All positions closed — AI model switch lock released. You can now change models.',
+    });
+  }
 }
 
 function convertToCandles(bars: Array<{ timestamp: number; open: number; high: number; low: number; close: number; volume: number }>): CandleData[] {
@@ -1202,6 +1215,13 @@ export function startLiveEngine(userId: number, config?: Partial<LiveEngineConfi
 
   const fullConfig = { ...getDefaultConfig(userId), ...(config || {}) };
 
+  const weekStart = new Date().toISOString().substring(0, 8);
+  const weekKey = `${userId}_${weekStart}`;
+  const cachedTracker = goalTrackerCache[weekKey];
+  const restoredTracker = cachedTracker
+    ? { ...cachedTracker, weeklyTarget: fullConfig.weeklyProfitTarget || cachedTracker.weeklyTarget }
+    : createGoalTracker(fullConfig);
+
   engineStates[userId] = {
     status: 'running',
     startedAt: new Date().toISOString(),
@@ -1216,9 +1236,10 @@ export function startLiveEngine(userId: number, config?: Partial<LiveEngineConfi
     currentlyScanning: false,
     activityLog: [],
     openPositionCount: 0,
-    pnlSession: 0,
+    pnlSession: restoredTracker.currentProfit,
     marketSnapshot: {},
-    goalTracker: createGoalTracker(fullConfig),
+    goalTracker: restoredTracker,
+    modelLocked: false,
   };
 
   const goalMsg = fullConfig.weeklyProfitTarget > 0
@@ -1325,4 +1346,23 @@ export function confirmMT5Signal(userId: number, signalId: string, executed: boo
 export function getAllMT5Signals(userId: number, limit: number = 50): PendingMT5Signal[] {
   if (!pendingMT5Signals[userId]) return [];
   return pendingMT5Signals[userId].slice(-limit).reverse();
+}
+
+export function setModelLock(userId: number, locked: boolean): boolean {
+  const state = engineStates[userId];
+  if (!state) return false;
+  state.modelLocked = locked;
+  if (locked) {
+    addActivity(userId, {
+      type: 'info',
+      message: 'AI model locked until all open positions are closed. Switch will apply automatically when flat.',
+    });
+  }
+  return true;
+}
+
+export function getModelLockStatus(userId: number): { locked: boolean; openPositions: number } {
+  const state = engineStates[userId];
+  if (!state) return { locked: false, openPositions: 0 };
+  return { locked: state.modelLocked, openPositions: state.openPositionCount };
 }

@@ -9,9 +9,17 @@ import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
 import { Label } from "@/components/ui/label";
 import {
-  ArrowLeft, Brain, Cpu, Zap, Shield, GitBranch,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  ArrowLeft, Brain, Cpu, Shield, GitBranch,
   Layers, CheckCircle2, AlertTriangle, Loader2, Save, RotateCcw,
-  Network
+  Network, Lock
 } from "lucide-react";
 import { Link } from "wouter";
 import {
@@ -80,6 +88,8 @@ export default function AiTradingModels() {
   const [fallbackOrder, setFallbackOrder] = useState<string[]>([]);
   const [ensembleMinAgreement, setEnsembleMinAgreement] = useState(60);
   const [hasChanges, setHasChanges] = useState(false);
+  const [showSwitchWarning, setShowSwitchWarning] = useState(false);
+  const [pendingConfig, setPendingConfig] = useState<any>(null);
 
   const { data: modelsData, isLoading } = useQuery<any>({
     queryKey: ['/api/ai-trading-models'],
@@ -88,6 +98,18 @@ export default function AiTradingModels() {
   const { data: configData } = useQuery<any>({
     queryKey: ['/api/ai-trading-models/config'],
     refetchOnMount: true,
+  });
+
+  const { data: engineStatus } = useQuery<any>({
+    queryKey: ['/api/vedd-live-engine/status'],
+    refetchInterval: 10000,
+  });
+
+  const lockMutation = useMutation({
+    mutationFn: async (locked: boolean) => {
+      const res = await apiRequest('POST', '/api/vedd-live-engine/model-lock', { locked });
+      return res.json();
+    },
   });
 
   const saveMutation = useMutation({
@@ -100,6 +122,8 @@ export default function AiTradingModels() {
       queryClient.invalidateQueries({ queryKey: ['/api/ai-trading-models/config'] });
       toast({ title: "Configuration Saved", description: "Your AI model routing has been updated." });
       setHasChanges(false);
+      setShowSwitchWarning(false);
+      setPendingConfig(null);
     },
     onError: (err: any) => {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -122,6 +146,9 @@ export default function AiTradingModels() {
   const models = modelsData?.models || [];
   const availableModels = models.filter((m: any) => m.available);
 
+  const openPositions = engineStatus?.openPositionCount || 0;
+  const engineRunning = engineStatus?.status === 'running';
+
   const toggleEnsembleModel = (modelId: string) => {
     setHasChanges(true);
     setEnsembleModelIds(prev =>
@@ -131,14 +158,39 @@ export default function AiTradingModels() {
     );
   };
 
+  const buildConfig = () => ({
+    routingMode,
+    primaryModelId,
+    ensembleModelIds,
+    strategyAssignments,
+    fallbackOrder: fallbackOrder.length > 0 ? fallbackOrder : availableModels.map((m: any) => m.id),
+    ensembleMinAgreement,
+  });
+
   const handleSave = () => {
-    saveMutation.mutate({
-      routingMode,
-      primaryModelId,
-      ensembleModelIds,
-      strategyAssignments,
-      fallbackOrder: fallbackOrder.length > 0 ? fallbackOrder : availableModels.map((m: any) => m.id),
-      ensembleMinAgreement,
+    const config = buildConfig();
+    if (engineRunning && openPositions > 0) {
+      setPendingConfig(config);
+      setShowSwitchWarning(true);
+      return;
+    }
+    saveMutation.mutate(config);
+  };
+
+  const handleSwitchAnyway = () => {
+    if (pendingConfig) saveMutation.mutate(pendingConfig);
+  };
+
+  const handleLockUntilFlat = () => {
+    lockMutation.mutate(true, {
+      onSuccess: () => {
+        toast({
+          title: "Model Locked",
+          description: `Current AI model will stay active until all ${openPositions} position${openPositions !== 1 ? 's' : ''} close. The switch will apply automatically when flat.`,
+        });
+        setShowSwitchWarning(false);
+        setPendingConfig(null);
+      },
     });
   };
 
@@ -152,6 +204,52 @@ export default function AiTradingModels() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950">
+
+      <Dialog open={showSwitchWarning} onOpenChange={setShowSwitchWarning}>
+        <DialogContent className="bg-gray-900 border-amber-500/40 text-white">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-amber-400">
+              <AlertTriangle className="h-5 w-5" />
+              Active Trades Detected
+            </DialogTitle>
+            <DialogDescription className="text-gray-300 pt-2">
+              You have <span className="text-amber-400 font-bold">{openPositions} open position{openPositions !== 1 ? 's' : ''}</span> being managed by the current AI model.
+              Switching now will hand over control of these trades to the new model on the very next scan cycle — it may adjust stop losses, take profits, or close positions based on its own analysis.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 p-3 text-sm text-amber-200">
+              <strong>Switch Anyway</strong> — The new model immediately takes over all open positions. It will re-evaluate and manage them on the next scan.
+            </div>
+            <div className="rounded-lg bg-blue-500/10 border border-blue-500/30 p-3 text-sm text-blue-200">
+              <strong>Lock Until Flat</strong> — Keep the current model active until all positions close. The switch will apply automatically once you are flat. Model switching will be disabled until then.
+            </div>
+          </div>
+          <DialogFooter className="flex gap-2 sm:justify-start">
+            <Button
+              variant="outline"
+              onClick={handleSwitchAnyway}
+              disabled={saveMutation.isPending}
+              className="border-amber-500/50 text-amber-400 hover:bg-amber-500/10"
+            >
+              {saveMutation.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : null}
+              Switch Anyway
+            </Button>
+            <Button
+              onClick={handleLockUntilFlat}
+              disabled={lockMutation.isPending}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              <Lock className="h-4 w-4 mr-1" />
+              Lock Until Flat
+            </Button>
+            <Button variant="ghost" onClick={() => setShowSwitchWarning(false)} className="text-gray-400">
+              Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <div className="max-w-5xl mx-auto px-4 py-8">
         <div className="flex items-center gap-4 mb-8">
           <Link href="/vedd-ss-ai">
@@ -168,18 +266,41 @@ export default function AiTradingModels() {
               Configure how multiple AI models work together for your trading decisions
             </p>
           </div>
+          {engineRunning && openPositions > 0 && (
+            <Badge className="ml-2 bg-amber-500/20 text-amber-400 border border-amber-500/40">
+              <AlertTriangle className="h-3 w-3 mr-1" />
+              {openPositions} Active Trade{openPositions !== 1 ? 's' : ''}
+            </Badge>
+          )}
+          {engineStatus?.modelLocked && (
+            <Badge className="ml-1 bg-blue-500/20 text-blue-400 border border-blue-500/40">
+              <Lock className="h-3 w-3 mr-1" />
+              Model Locked
+            </Badge>
+          )}
           {hasChanges && (
             <div className="ml-auto flex gap-2">
               <Button variant="outline" size="sm" onClick={() => { setHasChanges(false); queryClient.invalidateQueries({ queryKey: ['/api/ai-trading-models/config'] }); }}>
                 <RotateCcw className="h-4 w-4 mr-1" /> Reset
               </Button>
-              <Button size="sm" onClick={handleSave} disabled={saveMutation.isPending} className="bg-purple-600 hover:bg-purple-700">
+              <Button size="sm" onClick={handleSave} disabled={saveMutation.isPending || engineStatus?.modelLocked} className="bg-purple-600 hover:bg-purple-700 disabled:opacity-50">
                 {saveMutation.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}
                 Save Changes
               </Button>
             </div>
           )}
         </div>
+        {engineStatus?.modelLocked && (
+          <div className="mb-4 rounded-lg bg-blue-500/10 border border-blue-500/30 p-3 flex items-center gap-3">
+            <Lock className="h-4 w-4 text-blue-400 flex-shrink-0" />
+            <p className="text-sm text-blue-300">
+              Model switching is locked until all open positions close. The switch will apply automatically when you are flat.
+            </p>
+            <Button size="sm" variant="outline" className="ml-auto border-blue-500/40 text-blue-400 hover:bg-blue-500/10" onClick={() => lockMutation.mutate(false)}>
+              Unlock
+            </Button>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
           {ROUTING_MODES.map(mode => (

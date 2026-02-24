@@ -5092,6 +5092,11 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         };
         
         // Update AI trade results with WIN/LOSS based on closed trades
+        const { recordTradeResult: recordEngineResult } = await import('./services/live-trading-engine');
+        const now = new Date();
+        const hour = now.getUTCHours();
+        const detectedSession = hour < 7 ? 'Asian' : hour < 13 ? 'London' : hour < 20 ? 'New York' : 'Late NY';
+
         for (const closedTrade of closedTrades) {
           if (closedTrade.ticket) {
             const existingResult = await storage.getAiTradeResultByTicket(token.userId, closedTrade.ticket.toString());
@@ -5103,6 +5108,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 exitPrice: closedTrade.closePrice || 0,
                 profitLoss: closedTrade.profit || 0,
                 closedAt: new Date(),
+              });
+              recordEngineResult(token.userId, {
+                symbol: (closedTrade.symbol || existingResult.symbol || 'UNKNOWN').toUpperCase(),
+                profit: closedTrade.profit || 0,
+                strategy: existingResult.notes?.includes('strategy:') ? existingResult.notes.split('strategy:')[1].trim().split(' ')[0] : 'auto',
+                session: detectedSession,
               });
             }
           }
@@ -9289,6 +9300,23 @@ Respond with ONLY valid JSON:
     });
     const state = getLiveEngineState(userId);
     res.json({ success: true, goalTracker: state?.goalTracker || null });
+  });
+
+  app.get("/api/vedd-live-engine/model-lock", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { getModelLockStatus } = await import('./services/live-trading-engine');
+    res.json(getModelLockStatus(userId));
+  });
+
+  app.post("/api/vedd-live-engine/model-lock", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { locked } = req.body;
+    if (typeof locked !== 'boolean') return res.status(400).json({ error: "locked (boolean) is required" });
+    const { setModelLock, getModelLockStatus } = await import('./services/live-trading-engine');
+    setModelLock(userId, locked);
+    res.json({ success: true, ...getModelLockStatus(userId) });
   });
 
   // Flip Trade - Close current position and open reverse to recover loss + profit
