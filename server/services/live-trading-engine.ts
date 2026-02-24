@@ -196,6 +196,7 @@ interface GoalTracker {
   strategyBreakdown: Record<string, { trades: number; wins: number; pnl: number }>;
   sessionBreakdown: Record<string, { trades: number; wins: number; pnl: number }>;
   symbolBreakdown: Record<string, { trades: number; wins: number; losses: number; pnl: number; bestTrade: number; worstTrade: number }>;
+  pairStrategyBreakdown: Record<string, { trades: number; wins: number; losses: number; pnl: number }>;
   compoundMultiplier: number;
   currentPhase: 'warming_up' | 'building' | 'accelerating' | 'cruising' | 'pushing' | 'target_reached';
   phasePlan: string;
@@ -275,6 +276,7 @@ function createGoalTracker(config: LiveEngineConfig): GoalTracker {
     strategyBreakdown: {},
     sessionBreakdown: {},
     symbolBreakdown: {},
+    pairStrategyBreakdown: {},
     compoundMultiplier: 1.0,
     currentPhase: 'warming_up',
     phasePlan: '',
@@ -382,6 +384,16 @@ export function recordTradeResult(userId: number, result: {
   sym.pnl = Math.round((sym.pnl + result.profit) * 100) / 100;
   if (result.profit > sym.bestTrade) sym.bestTrade = result.profit;
   if (result.profit < sym.worstTrade) sym.worstTrade = result.profit;
+
+  if (!tracker.pairStrategyBreakdown) tracker.pairStrategyBreakdown = {};
+  const psKey = `${result.symbol}|${result.strategy}`;
+  if (!tracker.pairStrategyBreakdown[psKey]) {
+    tracker.pairStrategyBreakdown[psKey] = { trades: 0, wins: 0, losses: 0, pnl: 0 };
+  }
+  const ps = tracker.pairStrategyBreakdown[psKey];
+  ps.trades++;
+  if (result.profit > 0) ps.wins++; else ps.losses++;
+  ps.pnl = Math.round((ps.pnl + result.profit) * 100) / 100;
 
   tracker.compoundMultiplier = getCompoundMultiplier(tracker, state.config.enableCompounding);
   tracker.currentPhase = getGoalPhase(tracker);
@@ -628,6 +640,22 @@ ${Object.keys(tracker.symbolBreakdown || {}).length > 0
       }).join('\n')
   : '- No pair data yet this week. Treat all pairs equally until performance data builds up.'}
 INSTRUCTION: Use the FAVOUR/NEUTRAL/AVOID ratings above to weight your decisions. Double down on pairs that are working. Be highly selective or skip pairs that are losing money.
+
+PAIR + STRATEGY COMBINATIONS THIS WEEK (use this to pick the right strategy for each pair):
+${Object.keys(tracker.pairStrategyBreakdown || {}).length > 0
+  ? Object.entries(tracker.pairStrategyBreakdown)
+      .sort(([, a], [, b]) => b.pnl - a.pnl)
+      .map(([key, d]) => {
+        const [symbol, strategy] = key.split('|');
+        const winRate = d.trades > 0 ? Math.round((d.wins / d.trades) * 100) : 0;
+        let label: string;
+        if (winRate >= 60 && d.pnl > 0) label = 'BEST COMBO';
+        else if (d.trades >= 2 && (winRate < 40 || d.pnl < 0)) label = 'POOR COMBO - AVOID';
+        else label = 'NEUTRAL';
+        return `- ${symbol} + ${strategy}: ${d.trades} trades | ${d.wins}W/${d.losses}L | ${winRate}% | $${d.pnl >= 0 ? '+' : ''}${d.pnl} → [${label}]`;
+      }).join('\n')
+  : '- No pair+strategy data yet. Build history over several trades.'}
+INSTRUCTION: When deciding which strategy to apply to a pair, PRIORITISE combinations labelled BEST COMBO. AVOID combinations labelled POOR COMBO even if the pair or strategy looks good individually.
 ` : '';
 
     const prompt = `You are VEDD SS AI LIVE TRADING ENGINE - operating in REAL-TIME autonomous HIGH-FREQUENCY mode. You are directly monitoring live market data and making INSTANT trading decisions to hit a weekly profit goal.
