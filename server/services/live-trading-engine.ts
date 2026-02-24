@@ -605,6 +605,29 @@ ${Object.entries(tracker.strategyBreakdown).map(([s, d]) => `- ${s}: ${d.trades}
 
 SESSION PERFORMANCE:
 ${Object.entries(tracker.sessionBreakdown).map(([s, d]) => `- ${s}: ${d.trades} trades, ${d.wins} wins, $${d.pnl} P&L`).join('\n') || '- No session data yet'}
+
+PAIR PERFORMANCE THIS WEEK (use this to self-correct your trading):
+${Object.keys(tracker.symbolBreakdown || {}).length > 0
+  ? Object.entries(tracker.symbolBreakdown)
+      .sort(([, a], [, b]) => b.pnl - a.pnl)
+      .map(([symbol, d]) => {
+        const winRate = d.trades > 0 ? Math.round((d.wins / d.trades) * 100) : 0;
+        let label: string;
+        let instruction: string;
+        if (winRate >= 60 && d.pnl > 0) {
+          label = 'FAVOUR';
+          instruction = 'This pair is profitable this week - you can be slightly more aggressive on high-confidence setups.';
+        } else if (d.trades >= 3 && (winRate < 40 || d.pnl < 0)) {
+          label = 'AVOID';
+          instruction = 'This pair has been underperforming. Require 85%+ confidence before entering, or skip marginal setups entirely.';
+        } else {
+          label = 'NEUTRAL';
+          instruction = 'Trade with standard confidence thresholds.';
+        }
+        return `- ${symbol}: ${d.trades} trades | ${d.wins}W/${d.losses}L | ${winRate}% win rate | $${d.pnl >= 0 ? '+' : ''}${d.pnl} P&L → [${label}] ${instruction}`;
+      }).join('\n')
+  : '- No pair data yet this week. Treat all pairs equally until performance data builds up.'}
+INSTRUCTION: Use the FAVOUR/NEUTRAL/AVOID ratings above to weight your decisions. Double down on pairs that are working. Be highly selective or skip pairs that are losing money.
 ` : '';
 
     const prompt = `You are VEDD SS AI LIVE TRADING ENGINE - operating in REAL-TIME autonomous HIGH-FREQUENCY mode. You are directly monitoring live market data and making INSTANT trading decisions to hit a weekly profit goal.
