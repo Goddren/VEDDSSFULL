@@ -148,6 +148,11 @@ interface LiveEngineConfig {
   baseLotSize: number;
   propFirmMode: boolean;
   propFirmDailyDrawdownLimit: number;
+  // Acceleration features
+  adaptiveScanInterval: boolean;
+  enablePyramiding: boolean;
+  useKellyCriterion: boolean;
+  drawdownShieldThreshold: number;
 }
 
 interface LiveActivity {
@@ -202,6 +207,16 @@ interface GoalTracker {
   compoundMultiplier: number;
   currentPhase: 'warming_up' | 'building' | 'accelerating' | 'cruising' | 'pushing' | 'target_reached';
   phasePlan: string;
+  kellyStats: Record<string, { wins: number; losses: number; totalRR: number }>;
+}
+
+interface PyramidEntry {
+  positionId: string;
+  entryPrice: number;
+  direction: string;
+  symbol: string;
+  lotSize: number;
+  pyramidCount: number;
 }
 
 interface EngineState {
@@ -226,11 +241,49 @@ interface EngineState {
   asiaRangeLow: Record<string, number>;
   asiaRangeDate: string | null;
   lastHighImpactNewsAt: string | null;
+  // Acceleration features
+  strategyPerformanceWeights: Record<string, number>;
+  sessionHighWatermark: number;
+  drawdownShieldActive: boolean;
+  openPyramidPositions: Record<string, PyramidEntry>;
+  lastFridayClose: Record<string, number>;
+  lastIndicatorSnapshot: Record<string, any>;
+  lastTriggerAt: Record<string, number>;
 }
 
 const engineStates: Record<number, EngineState> = {};
 const engineIntervals: Record<number, ReturnType<typeof setInterval>> = {};
+const engineTimers: Record<number, ReturnType<typeof setTimeout>> = {};
 const goalTrackerCache: Record<string, GoalTracker> = {};
+
+// All 16 strategy keys for weight initialisation
+const ALL_STRATEGY_KEYS = [
+  'scalping','momentum','session_breakout','aggressive','sniper','compound',
+  'chart_pattern','ict_order_blocks','ict_fvg','ict_liquidity_sweep','ict_bos','ict_ote',
+  'smc_demand_supply','asia_range_breakout','vwap_mean_reversion','news_fade',
+  'prop_firm_sniper','sunday_gap',
+];
+
+function getAdaptiveScanInterval(config: LiveEngineConfig): number {
+  if (!config.adaptiveScanInterval) return config.scanIntervalMs;
+  const hourUtc = new Date().getUTCHours();
+  const dayUtc = new Date().getUTCDay(); // 0=Sun, 6=Sat
+  if (dayUtc === 0 || dayUtc === 6) return 180000; // weekends
+  if (hourUtc >= 13 && hourUtc < 16) return 15000;  // London/NY overlap
+  if ((hourUtc >= 7 && hourUtc < 13) || (hourUtc >= 16 && hourUtc < 20)) return 30000; // London or NY
+  if (hourUtc >= 0 && hourUtc < 7) return 90000;    // Asian session
+  return 180000; // off-hours
+}
+
+function calculateKellyFraction(wins: number, losses: number, totalRR: number): number {
+  const total = wins + losses;
+  if (total < 5) return 0.01; // need at least 5 trades before Kelly kicks in
+  const winRate = wins / total;
+  const avgRR = wins > 0 ? totalRR / wins : 1.5;
+  const kelly = winRate - (1 - winRate) / Math.max(avgRR, 0.1);
+  const fractionalKelly = kelly * 0.25; // 25% fractional Kelly for safety
+  return Math.min(0.03, Math.max(0.005, fractionalKelly)); // clamp 0.5%–3%
+}
 
 function addActivity(userId: number, activity: Omit<LiveActivity, 'id' | 'timestamp'>) {
   const state = engineStates[userId];
@@ -263,6 +316,10 @@ function getDefaultConfig(userId: number): LiveEngineConfig {
     baseLotSize: 0.01,
     propFirmMode: false,
     propFirmDailyDrawdownLimit: 4,
+    adaptiveScanInterval: true,
+    enablePyramiding: false,
+    useKellyCriterion: false,
+    drawdownShieldThreshold: 3,
   };
 }
 
@@ -288,6 +345,7 @@ function createGoalTracker(config: LiveEngineConfig): GoalTracker {
     compoundMultiplier: 1.0,
     currentPhase: 'warming_up',
     phasePlan: '',
+    kellyStats: {},
   };
 }
 
@@ -415,6 +473,54 @@ export function recordTradeResult(userId: number, result: {
 
   state.pnlSession = tracker.currentProfit;
 
+  // ── Strategy Performance Weights (self-correction loop) ────────────
+  if (!state.strategyPerformanceWeights) {
+    state.strategyPerformanceWeights = Object.fromEntries(ALL_STRATEGY_KEYS.map(k => [k, 1.0]));
+  }
+  const strat = result.strategy;
+  const weights = state.strategyPerformanceWeights;
+  if (weights[strat] !== undefined) {
+    weights[strat] = result.profit > 0
+      ? Math.min(2.0, weights[strat] + 0.05)
+      : Math.max(0.2, weights[strat] - 0.08);
+  }
+  // Mean-reversion decay — all weights drift back toward 1.0 by 1% per trade
+  for (const k of Object.keys(weights)) {
+    weights[k] = Math.round((weights[k] * 0.99 + 1.0 * 0.01) * 1000) / 1000;
+  }
+
+  // ── Kelly Criterion Stats Update ────────────────────────────────────
+  if (!tracker.kellyStats) tracker.kellyStats = {};
+  if (!tracker.kellyStats[strat]) tracker.kellyStats[strat] = { wins: 0, losses: 0, totalRR: 0 };
+  const ks = tracker.kellyStats[strat];
+  if (result.profit > 0) {
+    ks.wins++;
+    ks.totalRR += Math.abs(result.profit / Math.max(state.config.baseLotSize * 10, 0.01));
+  } else {
+    ks.losses++;
+  }
+
+  // ── Drawdown Shield ─────────────────────────────────────────────────
+  if (!state.sessionHighWatermark) state.sessionHighWatermark = 0;
+  if (state.pnlSession > state.sessionHighWatermark) {
+    state.sessionHighWatermark = state.pnlSession;
+  }
+  const shieldThresholdDollar = state.config.accountBalance * (state.config.drawdownShieldThreshold || 3) / 100;
+  const wasShieldActive = state.drawdownShieldActive;
+  if (!state.drawdownShieldActive && state.pnlSession < state.sessionHighWatermark - shieldThresholdDollar && state.sessionHighWatermark > 0) {
+    state.drawdownShieldActive = true;
+    addActivity(userId, {
+      type: 'info',
+      message: `🛡️ DRAWDOWN SHIELD ACTIVATED — session dropped $${Math.abs(state.pnlSession - state.sessionHighWatermark).toFixed(2)} from peak $${state.sessionHighWatermark.toFixed(2)}. Switching to Sniper-only, 0.25% risk to protect gains.`,
+    });
+  } else if (wasShieldActive && state.pnlSession >= state.sessionHighWatermark - state.config.accountBalance * 0.01) {
+    state.drawdownShieldActive = false;
+    addActivity(userId, {
+      type: 'info',
+      message: `✅ Drawdown shield disengaged — session P&L recovered. Full strategy arsenal resuming.`,
+    });
+  }
+
   const weekKey = `${userId}_${tracker.weekStartedAt.split('T')[0].substring(0, 8)}`;
   goalTrackerCache[weekKey] = { ...tracker };
 
@@ -449,6 +555,21 @@ async function scanMarkets(userId: number): Promise<void> {
     const brain = (global as any).veddAIBrain?.[userId];
     const config = state.config;
     const pairsToScan = config.pairs.slice(0, 8);
+
+    // ── Friday close capture (for Sunday gap scanner) ──────────────────
+    const nowUtc2 = new Date();
+    const dayOfWeek = nowUtc2.getUTCDay(); // 5=Friday
+    const hourOfDay = nowUtc2.getUTCHours();
+    const isFridayClose = dayOfWeek === 5 && hourOfDay >= 21 && hourOfDay < 22;
+
+    // ── Adaptive scan interval log ─────────────────────────────────────
+    const adaptiveMs = getAdaptiveScanInterval(config);
+    const prevMs = (state as any)._lastAdaptiveMs || config.scanIntervalMs;
+    if (adaptiveMs !== prevMs && config.adaptiveScanInterval) {
+      (state as any)._lastAdaptiveMs = adaptiveMs;
+      const windowName = adaptiveMs === 15000 ? 'London/NY overlap' : adaptiveMs === 30000 ? 'active session' : adaptiveMs === 90000 ? 'Asian session' : 'off-hours';
+      addActivity(userId, { type: 'info', message: `⚡ Knowledge: ${windowName} — scanning every ${adaptiveMs / 1000}s for maximum opportunity` });
+    }
 
     addActivity(userId, { type: 'scan', message: `Scanning ${pairsToScan.length} pairs: ${pairsToScan.join(', ')}` });
 
@@ -518,6 +639,68 @@ async function scanMarkets(userId: number): Promise<void> {
       }
     }
 
+    // ── Friday close capture ───────────────────────────────────────────
+    if (isFridayClose) {
+      for (const [sym, data] of Object.entries(marketAnalysis) as [string, any][]) {
+        if (data.currentPrice > 0) state.lastFridayClose[sym] = data.currentPrice;
+      }
+    }
+
+    // ── Cross-Asset Leading Indicators ─────────────────────────────────
+    const crossAssets: Record<string, any> = {};
+    for (const crossSym of ['USDI', 'XAUUSD', 'US30']) {
+      if (pairsToScan.includes(crossSym)) continue; // already have it
+      try {
+        const assetType = marketDataService.detectAssetType(crossSym);
+        const result = await marketDataService.fetchMarketData({ symbol: crossSym, assetType, timeframe: '15m', limit: 25 });
+        if (result.bars && result.bars.length >= 10) {
+          const bars = result.bars;
+          const current = bars[bars.length - 1].close;
+          const ma10 = bars.slice(-10).reduce((s: number, b: any) => s + b.close, 0) / 10;
+          crossAssets[crossSym] = { price: current, trend: current > ma10 * 1.001 ? 'UP' : current < ma10 * 0.999 ? 'DOWN' : 'FLAT' };
+        }
+        await new Promise(r => setTimeout(r, 3000));
+      } catch { /* skip if unavailable */ }
+    }
+
+    // ── Event-Triggered Scan Detection ────────────────────────────────
+    const triggerPairs: string[] = [];
+    const prevSnapshot = state.lastIndicatorSnapshot || {};
+    const now2 = Date.now();
+    for (const [sym, data] of Object.entries(marketAnalysis) as [string, any][]) {
+      const prev = prevSnapshot[sym];
+      const lastTrigger = state.lastTriggerAt[sym] || 0;
+      if (now2 - lastTrigger < 30000) continue; // cooldown
+      if (!prev) continue;
+      const rsiNow = data.rsi?.value || data.stochastic?.k || 50;
+      const rsiPrev = prev.rsi || 50;
+      const vm = data.volumeMetrics as VolumeMetrics | undefined;
+      const adxNow = (data.adx as any)?.adx || 0;
+      const adxPrev = prev.adx || 0;
+      let triggerReason = '';
+      if (rsiPrev > 32 && rsiNow <= 30) triggerReason = `RSI crossed oversold (${rsiNow.toFixed(1)}) on ${sym} — evaluate BUY entry`;
+      else if (rsiPrev < 68 && rsiNow >= 70) triggerReason = `RSI crossed overbought (${rsiNow.toFixed(1)}) on ${sym} — evaluate SELL entry`;
+      else if (vm && vm.relativeVolume >= 2 && (prev.relVol || 0) < 2) triggerReason = `Volume SURGE on ${sym} (${vm.relativeVolume}x) — momentum breakout likely`;
+      else if (adxPrev < 25 && adxNow >= 25) triggerReason = `ADX crossed 25 on ${sym} — trend emerging, enter with momentum`;
+      if (triggerReason) {
+        triggerPairs.push(triggerReason);
+        state.lastTriggerAt[sym] = now2;
+        addActivity(userId, { type: 'info', symbol: sym, message: `🚨 TRIGGER: ${triggerReason}` });
+      }
+    }
+    // Save snapshot for next scan comparison
+    state.lastIndicatorSnapshot = Object.fromEntries(
+      Object.entries(marketAnalysis).map(([sym, data]: [string, any]) => [sym, {
+        rsi: data.rsi?.value || data.stochastic?.k || 50,
+        adx: (data.adx as any)?.adx || 0,
+        relVol: (data.volumeMetrics as VolumeMetrics | undefined)?.relativeVolume || 1,
+      }])
+    );
+    // Schedule an extra triggered scan in 12 seconds if triggers fired
+    if (triggerPairs.length > 0 && !state.currentlyScanning) {
+      setTimeout(() => scanMarkets(userId), 12000);
+    }
+
     const analyzedPairs = Object.keys(marketAnalysis);
     if (analyzedPairs.length === 0) {
       addActivity(userId, { type: 'info', message: 'No market data available for any pair. Waiting for next scan.' });
@@ -542,7 +725,7 @@ async function scanMarkets(userId: number): Promise<void> {
       addActivity(userId, { type: 'info', message: `High volume detected: ${volumeSummary.join(', ')}` });
     }
 
-    await runAILiveAnalysis(userId, marketAnalysis, brain, newsContext);
+    await runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, crossAssets, triggerPairs);
 
   } catch (err: any) {
     addActivity(userId, { type: 'error', message: `Scan cycle error: ${err.message}` });
@@ -551,7 +734,7 @@ async function scanMarkets(userId: number): Promise<void> {
   }
 }
 
-async function runAILiveAnalysis(userId: number, marketAnalysis: Record<string, any>, brain: any, newsContext?: NewsContext): Promise<void> {
+async function runAILiveAnalysis(userId: number, marketAnalysis: Record<string, any>, brain: any, newsContext?: NewsContext, crossAssets?: Record<string, any>, triggerAlerts?: string[]): Promise<void> {
   const state = engineStates[userId];
   if (!state) return;
 
@@ -704,8 +887,69 @@ ${Object.keys(tracker.pairStrategyBreakdown || {}).length > 0
 INSTRUCTION: When deciding which strategy to apply to a pair, PRIORITISE combinations labelled BEST COMBO. AVOID combinations labelled POOR COMBO even if the pair or strategy looks good individually.
 ` : '';
 
-    const prompt = `You are VEDD SS AI LIVE TRADING ENGINE - operating in REAL-TIME autonomous HIGH-FREQUENCY mode. You are directly monitoring live market data and making INSTANT trading decisions to hit a weekly profit goal.
+    // ── Cross-Asset Context Block ──────────────────────────────────────
+    let crossAssetSection = '';
+    if (crossAssets && Object.keys(crossAssets).length > 0) {
+      const dxy = crossAssets['USDI'];
+      const gold = crossAssets['XAUUSD'];
+      const us30 = crossAssets['US30'];
+      const sentimentScore =
+        (dxy ? (dxy.trend === 'UP' ? 1 : dxy.trend === 'DOWN' ? -1 : 0) : 0) * -1 + // DXY up = USD bullish, negative for risk pairs
+        (gold ? (gold.trend === 'UP' ? -1 : gold.trend === 'DOWN' ? 1 : 0) : 0) + // Gold up = risk-off
+        (us30 ? (us30.trend === 'UP' ? 1 : us30.trend === 'DOWN' ? -1 : 0) : 0);   // US30 up = risk-on
+      const sentimentLabel = sentimentScore >= 2 ? 'RISK-ON (strong)' : sentimentScore >= 1 ? 'RISK-ON (mild)' : sentimentScore <= -2 ? 'RISK-OFF (strong)' : sentimentScore <= -1 ? 'RISK-OFF (mild)' : 'NEUTRAL';
+      crossAssetSection = `
+MACRO CROSS-ASSET SIGNALS:
+${dxy ? `DXY (USD Index): ${dxy.trend} → ${dxy.trend === 'UP' ? 'USD strengthening — favour selling EUR/GBP/AUD, buying USD pairs' : dxy.trend === 'DOWN' ? 'USD weakening — favour buying EUR/GBP/AUD, selling USD pairs' : 'USD flat — neutral bias on USD pairs'}` : ''}
+${gold ? `Gold (XAUUSD): ${gold.trend} → ${gold.trend === 'UP' ? 'Risk-OFF — flight to safety, favour JPY/CHF/Gold buys, avoid risk assets' : gold.trend === 'DOWN' ? 'Risk-ON — appetite for risk, favour AUD/NZD/equities, reduce JPY/CHF longs' : 'Gold flat — neutral risk environment'}` : ''}
+${us30 ? `US30 (Dow Jones): ${us30.trend} → ${us30.trend === 'UP' ? 'Equities bid — risk-on, USD mixed, favour commodity currencies' : us30.trend === 'DOWN' ? 'Equities selling — risk-off, favour JPY/CHF/Gold, reduce exposure' : 'Equities flat — neutral macro environment'}` : ''}
+Risk Sentiment Score: ${sentimentScore > 0 ? '+' : ''}${sentimentScore}/3 — ${sentimentLabel}
+INSTRUCTION: Entries that align with this macro bias get +5% confidence. Entries opposing the bias need 80%+ base confidence before firing. If risk-off, avoid AUDJPY/AUDUSD buys. If risk-on, avoid USDJPY/CHF buys unless technically exceptional.
+`;
+    }
 
+    // ── Strategy Performance Weights Block ────────────────────────────
+    let weightsSection = '';
+    if (state.strategyPerformanceWeights && Object.keys(state.strategyPerformanceWeights).length > 0) {
+      const wEntries = Object.entries(state.strategyPerformanceWeights)
+        .sort(([, a], [, b]) => (b as number) - (a as number))
+        .map(([k, v]) => {
+          const vn = v as number;
+          const tag = vn >= 1.5 ? '🔥HOT' : vn >= 1.2 ? '✅WARM' : vn <= 0.3 ? '❌COLD' : vn <= 0.6 ? '⚠️COOL' : '◻️OK';
+          return `${k}=${vn.toFixed(2)}${tag}`;
+        }).join(', ');
+      weightsSection = `
+STRATEGY PERFORMANCE WEIGHTS (real-time, updated after every trade result):
+${wEntries}
+INSTRUCTION: Strategies marked 🔥HOT (≥1.5) or ✅WARM (≥1.2) — prioritise these, lower confidence threshold by 5%. Strategies ⚠️COOL (≤0.6) — only take if 85%+ confidence. Strategies ❌COLD (≤0.3) — skip entirely this session. This reflects actual live market performance — trust it.
+`;
+    }
+
+    // ── Shield Override Block ──────────────────────────────────────────
+    let shieldSection = '';
+    if (state.drawdownShieldActive) {
+      shieldSection = `
+⚠️ DRAWDOWN SHIELD ACTIVE: Session has pulled back from its peak. PROTECT MODE ENGAGED.
+ONLY trade these strategies: prop_firm_sniper, ict_ote, ict_order_blocks, sniper
+Risk MAXIMUM 0.25% per trade (0.0025 × account balance)
+NO scalping, NO momentum, NO compound, NO session_breakout strategies
+REQUIRED confidence: 80%+ minimum before ANY entry
+Your job is to protect what's been built and claw back to the peak methodically.
+`;
+    }
+
+    // ── Trigger Alert Block ─────────────────────────────────────────────
+    let triggerSection = '';
+    if (triggerAlerts && triggerAlerts.length > 0) {
+      triggerSection = `
+🚨 LIVE TRIGGER ALERTS (priority pairs for this scan):
+${triggerAlerts.map(t => `- ${t}`).join('\n')}
+INSTRUCTION: This scan was triggered by real-time indicator events above. Prioritise evaluation of the flagged pairs immediately. High-probability entries may be forming RIGHT NOW.
+`;
+    }
+
+    const prompt = `You are VEDD SS AI LIVE TRADING ENGINE - operating in REAL-TIME autonomous HIGH-FREQUENCY mode. You are directly monitoring live market data and making INSTANT trading decisions to hit a weekly profit goal.
+${triggerSection}${crossAssetSection}
 LIVE MARKET DATA (just fetched):
 ${marketSummary}
 
@@ -717,7 +961,7 @@ ${brainInsights}
 
 PAIR-SPECIFIC KNOWLEDGE:
 ${pairKnowledge}
-${goalSection}
+${weightsSection}${shieldSection}${goalSection}
 REAL-TIME NEWS & MARKET SENTIMENT:
 ${newsContext && newsContext.headlines.length > 0 ? `Market Sentiment: ${newsContext.marketSentiment.toUpperCase()}
 Recent Headlines:
@@ -1123,6 +1367,28 @@ async function processDecision(userId: number, decision: any): Promise<void> {
   }
 
   if (decision.action === 'OPEN_TRADE') {
+    // ── Drawdown Shield Enforcement ───────────────────────────────────
+    if (state.drawdownShieldActive) {
+      const shieldStrategies = ['prop_firm_sniper', 'ict_ote', 'ict_order_blocks', 'sniper'];
+      const decisionStrategy = (decision.strategy || '').toLowerCase();
+      if (!shieldStrategies.includes(decisionStrategy)) {
+        addActivity(userId, {
+          type: 'info',
+          symbol: decision.symbol,
+          message: `🛡️ SHIELD BLOCK: ${decisionStrategy || 'unknown'} strategy rejected during drawdown protection. Only sniper/ICT allowed.`,
+        });
+        return;
+      }
+      if (confidence < 80) {
+        addActivity(userId, {
+          type: 'info',
+          symbol: decision.symbol,
+          message: `🛡️ SHIELD BLOCK: ${confidence}% confidence too low during shield mode (need 80%+). Skipping.`,
+        });
+        return;
+      }
+    }
+
     if (confidence < config.minConfidence) {
       addActivity(userId, {
         type: 'signal',
@@ -1203,15 +1469,72 @@ async function processDecision(userId: number, decision: any): Promise<void> {
     const takeProfit = parseNum(decision.takeProfit);
     const rawLotSize = parseNum(decision.lotSize) || config.baseLotSize || 0.01;
     const isSmallAccount = config.accountBalance > 0 && config.accountBalance < 500;
-    const safeMaxLot = isSmallAccount 
+    const safeMaxLot = isSmallAccount
       ? Math.min(0.02, config.maxLotSize || 0.10)
       : (config.maxLotSize || 0.10);
+
+    // ── Drawdown Shield Lot Override ──────────────────────────────────
+    if (state.drawdownShieldActive && config.accountBalance > 0) {
+      const shieldLot = Math.max(0.01, Math.round(config.accountBalance * 0.0025 / 1000 * 100) / 100);
+      const shieldFinal = Math.min(shieldLot, safeMaxLot);
+      if (!pendingMT5Signals[userId]) pendingMT5Signals[userId] = [];
+      const mt5SigShield: PendingMT5Signal = {
+        id: `sig_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        timestamp: new Date().toISOString(),
+        symbol: decision.symbol,
+        direction: decision.direction,
+        action: 'OPEN',
+        lotSize: shieldFinal,
+        entryPrice: entryPrice || null,
+        stopLoss: stopLoss || null,
+        takeProfit: takeProfit || null,
+        confidence,
+        reason: `[SHIELD MODE] ${decision.reason || ''}`,
+        holdTime: decision.holdTime || '',
+        strategy: decision.strategy || 'sniper',
+        confluences: decision.confluences || [],
+        status: 'pending',
+      };
+      pendingMT5Signals[userId].push(mt5SigShield);
+      state.signalsGenerated++;
+      addActivity(userId, {
+        type: 'signal',
+        symbol: decision.symbol,
+        direction: decision.direction,
+        confidence,
+        message: `🛡️ SHIELD SIGNAL: ${decision.direction} ${decision.symbol} at reduced lot ${shieldFinal} (0.25% risk). ${decision.reason || ''}`,
+      });
+      return;
+    }
+
+    // ── Kelly Criterion Lot Sizing ─────────────────────────────────────
+    let kellyLot = rawLotSize;
+    if (config.useKellyCriterion && config.accountBalance > 0) {
+      const strat = (decision.strategy || 'auto').toLowerCase();
+      const ks = state.goalTracker.kellyStats?.[strat];
+      const wins = ks?.wins || 0;
+      const losses = ks?.losses || 0;
+      const totalRR = ks?.totalRR || 0;
+      const kellyFraction = calculateKellyFraction(wins, losses, totalRR);
+      kellyLot = Math.round((config.accountBalance * kellyFraction / 1000) * 100) / 100;
+      if (wins + losses >= 5) {
+        const winRate = Math.round(wins / (wins + losses) * 100);
+        const avgRR = wins > 0 ? (totalRR / wins).toFixed(1) : '1.5';
+        addActivity(userId, {
+          type: 'info',
+          symbol: decision.symbol,
+          message: `📐 Kelly: ${strat} win rate ${winRate}%, avg R:R ${avgRR} → ${(kellyFraction * 100).toFixed(1)}% risk → ${kellyLot} lots`,
+        });
+      }
+    }
+
     const safeCompoundMult = isSmallAccount
       ? Math.min(state.goalTracker.compoundMultiplier, 1.25)
       : state.goalTracker.compoundMultiplier;
+    const baseLotForCalc = config.useKellyCriterion ? kellyLot : rawLotSize;
     const compoundedLot = config.enableCompounding
-      ? Math.round(rawLotSize * safeCompoundMult * 100) / 100
-      : rawLotSize;
+      ? Math.round(baseLotForCalc * safeCompoundMult * 100) / 100
+      : baseLotForCalc;
     const lotSize = Math.max(0.01, Math.min(compoundedLot, safeMaxLot));
 
     if (!pendingMT5Signals[userId]) pendingMT5Signals[userId] = [];
@@ -1385,10 +1708,116 @@ async function processDecision(userId: number, decision: any): Promise<void> {
   }
 }
 
+// ── Self-scheduling scan loop ──────────────────────────────────────────
+function scheduleScan(userId: number): void {
+  const state = engineStates[userId];
+  if (!state || state.status !== 'running') return;
+  const interval = getAdaptiveScanInterval(state.config);
+  engineTimers[userId] = setTimeout(async () => {
+    await scanMarkets(userId);
+    scheduleScan(userId); // reschedule after scan completes
+  }, interval);
+}
+
+// ── Sunday Gap Scanner ─────────────────────────────────────────────────
+function scheduleGapScanner(userId: number): void {
+  const state = engineStates[userId];
+  if (!state) return;
+
+  const now = new Date();
+  const dayUtc = now.getUTCDay(); // 0=Sun
+  const hourUtc = now.getUTCHours();
+  const minUtc = now.getUTCMinutes();
+
+  // Calculate ms until next Sunday 22:05 UTC
+  let daysUntilSunday = (7 - dayUtc) % 7;
+  if (dayUtc === 0 && (hourUtc < 22 || (hourUtc === 22 && minUtc < 5))) daysUntilSunday = 0;
+  else if (daysUntilSunday === 0) daysUntilSunday = 7;
+
+  const targetSunday = new Date(now);
+  targetSunday.setUTCDate(targetSunday.getUTCDate() + daysUntilSunday);
+  targetSunday.setUTCHours(22, 5, 0, 0);
+  const msUntilScan = Math.max(1000, targetSunday.getTime() - now.getTime());
+
+  setTimeout(async () => {
+    const latestState = engineStates[userId];
+    if (!latestState || latestState.status !== 'running') return;
+    await runSundayGapScanner(userId);
+    scheduleGapScanner(userId); // reschedule weekly
+  }, msUntilScan);
+
+  addActivity(userId, {
+    type: 'info',
+    message: `🌙 Sunday gap scanner scheduled for ${targetSunday.toISOString().slice(0, 16)} UTC (${Math.round(msUntilScan / 3600000)}h away)`,
+  });
+}
+
+async function runSundayGapScanner(userId: number): Promise<void> {
+  const state = engineStates[userId];
+  if (!state) return;
+  const config = state.config;
+  const gapPairs = ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'GBPJPY'].filter(p => config.pairs.includes(p) || config.pairs.length === 0);
+
+  addActivity(userId, { type: 'scan', message: `🌙 Sunday gap scan running for ${gapPairs.join(', ')}` });
+
+  for (const symbol of gapPairs) {
+    const fridayClose = state.lastFridayClose[symbol];
+    if (!fridayClose) continue;
+    try {
+      const assetType = marketDataService.detectAssetType(symbol);
+      const result = await marketDataService.fetchMarketData({ symbol, assetType, timeframe: '1m', limit: 5 });
+      if (!result.bars || result.bars.length === 0) continue;
+      const sundayOpen = result.bars[result.bars.length - 1].open;
+      const isJPY = symbol.includes('JPY');
+      const isGold = symbol === 'XAUUSD';
+      const gapPips = Math.abs(sundayOpen - fridayClose) * (isJPY ? 100 : isGold ? 10 : 10000);
+      const gapThreshold = isGold ? 30 : 5;
+      if (gapPips < gapThreshold) continue;
+
+      const direction: 'BUY' | 'SELL' = sundayOpen < fridayClose ? 'BUY' : 'SELL';
+      const gapSize = Math.abs(sundayOpen - fridayClose);
+      const tp1 = direction === 'BUY' ? sundayOpen + gapSize * 0.618 : sundayOpen - gapSize * 0.618;
+      const tp2 = fridayClose; // 100% fill
+      const slPips = isGold ? 300 : isJPY ? 20 : 0.0020;
+      const sl = direction === 'BUY' ? sundayOpen - slPips : sundayOpen + slPips;
+      const confidence = Math.min(88, 72 + gapPips * 0.8);
+
+      addActivity(userId, {
+        type: 'info',
+        symbol,
+        message: `🌙 SUNDAY GAP: ${symbol} opened ${gapPips.toFixed(1)} pips ${sundayOpen > fridayClose ? 'above' : 'below'} Friday close → gap fill ${direction} (confidence: ${confidence.toFixed(0)}%)`,
+      });
+
+      await processDecision(userId, {
+        action: 'OPEN_TRADE',
+        symbol,
+        direction,
+        confidence,
+        strategy: 'sunday_gap',
+        entryPrice: sundayOpen,
+        stopLoss: sl,
+        takeProfit: tp1,
+        takeProfit2: tp2,
+        reason: `Sunday gap ${gapPips.toFixed(1)} pips — gap fill trade toward Friday close at ${fridayClose}`,
+        confluences: ['sunday_gap', 'gap_fill_probability', 'mean_reversion'],
+        holdTime: '2-8 hours',
+        urgency: 'ENTER_NOW',
+      });
+    } catch (err: any) {
+      addActivity(userId, { type: 'error', symbol, message: `Gap scan error: ${err.message}` });
+    }
+    await new Promise(r => setTimeout(r, 2000));
+  }
+}
+
 export function startLiveEngine(userId: number, config?: Partial<LiveEngineConfig>): EngineState {
   if (engineIntervals[userId]) {
     clearInterval(engineIntervals[userId]);
     delete engineIntervals[userId];
+  }
+  if (engineTimers[userId]) {
+    clearTimeout(engineTimers[userId]);
+    delete engineTimers[userId];
   }
 
   const fullConfig = { ...getDefaultConfig(userId), ...(config || {}) };
@@ -1399,6 +1828,9 @@ export function startLiveEngine(userId: number, config?: Partial<LiveEngineConfi
   const restoredTracker = cachedTracker
     ? { ...cachedTracker, weeklyTarget: fullConfig.weeklyProfitTarget || cachedTracker.weeklyTarget }
     : createGoalTracker(fullConfig);
+
+  // Initialise strategy performance weights for all 16 strategies
+  const initWeights: Record<string, number> = Object.fromEntries(ALL_STRATEGY_KEYS.map(k => [k, 1.0]));
 
   engineStates[userId] = {
     status: 'running',
@@ -1422,23 +1854,47 @@ export function startLiveEngine(userId: number, config?: Partial<LiveEngineConfi
     asiaRangeLow: {},
     asiaRangeDate: null,
     lastHighImpactNewsAt: null,
+    // Acceleration feature state
+    strategyPerformanceWeights: initWeights,
+    openPyramidPositions: {},
+    sessionHighWatermark: 0,
+    drawdownShieldActive: false,
+    lastFridayClose: {},
+    lastIndicatorSnapshot: {},
+    lastTriggerAt: {},
   };
+
+  const adaptiveInterval = getAdaptiveScanInterval(fullConfig);
+  const intervalDisplay = fullConfig.adaptiveScanInterval
+    ? `adaptive (${adaptiveInterval / 1000}s now)`
+    : `${fullConfig.scanIntervalMs / 1000}s`;
 
   const goalMsg = fullConfig.weeklyProfitTarget > 0
     ? ` | Weekly Goal: $${fullConfig.weeklyProfitTarget} (${((fullConfig.accountBalance + fullConfig.weeklyProfitTarget) / Math.max(fullConfig.accountBalance, 1)).toFixed(1)}x growth)`
     : '';
+
+  const featFlags = [
+    fullConfig.adaptiveScanInterval && '⚡ Adaptive Scan',
+    fullConfig.enablePyramiding && '📈 Pyramiding',
+    fullConfig.useKellyCriterion && '📐 Kelly Sizing',
+    fullConfig.drawdownShieldThreshold > 0 && `🛡️ Shield @${fullConfig.drawdownShieldThreshold}%`,
+    fullConfig.propFirmMode && '🏆 PropFirm',
+  ].filter(Boolean).join(' | ');
+
   addActivity(userId, {
     type: 'info',
-    message: `VEDD AI Live Engine STARTED | Strategy: ${fullConfig.strategyMode} | Pairs: ${fullConfig.pairs.join(', ')} | Scan interval: ${fullConfig.scanIntervalMs / 1000}s | Min confidence: ${fullConfig.minConfidence}%${goalMsg}`,
+    message: `VEDD AI Live Engine STARTED | Strategy: ${fullConfig.strategyMode} | Pairs: ${fullConfig.pairs.join(', ')} | Interval: ${intervalDisplay} | Min confidence: ${fullConfig.minConfidence}%${goalMsg}${featFlags ? ` | Features: ${featFlags}` : ''}`,
   });
 
-  setTimeout(() => scanMarkets(userId), 2000);
+  // Kick off first scan in 2 seconds, then self-schedule
+  setTimeout(() => {
+    scanMarkets(userId).then(() => scheduleScan(userId));
+  }, 2000);
 
-  engineIntervals[userId] = setInterval(() => {
-    scanMarkets(userId);
-  }, fullConfig.scanIntervalMs);
+  // Schedule Sunday gap scanner
+  scheduleGapScanner(userId);
 
-  console.log(`[VEDD Live Engine] Started for user ${userId} | Strategy: ${fullConfig.strategyMode} | Interval: ${fullConfig.scanIntervalMs}ms`);
+  console.log(`[VEDD Live Engine] Started for user ${userId} | Strategy: ${fullConfig.strategyMode} | Interval: ${intervalDisplay}`);
 
   return engineStates[userId];
 }
@@ -1447,6 +1903,10 @@ export function stopLiveEngine(userId: number): EngineState | null {
   if (engineIntervals[userId]) {
     clearInterval(engineIntervals[userId]);
     delete engineIntervals[userId];
+  }
+  if (engineTimers[userId]) {
+    clearTimeout(engineTimers[userId]);
+    delete engineTimers[userId];
   }
 
   const state = engineStates[userId];

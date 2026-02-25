@@ -9369,7 +9369,7 @@ Respond with ONLY valid JSON:
   app.post("/api/vedd-live-engine/start", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
-    const { pairs, strategyMode, scanIntervalMs, maxOpenTrades, riskPerTrade, minConfidence, enablePositionManagement, trailingStopEnabled, trailingStopATRMultiplier, weeklyProfitTarget, accountBalance, enableCompounding, baseLotSize, propFirmMode, propFirmDailyDrawdownLimit, maxLotSize } = req.body;
+    const { pairs, strategyMode, scanIntervalMs, maxOpenTrades, riskPerTrade, minConfidence, enablePositionManagement, trailingStopEnabled, trailingStopATRMultiplier, weeklyProfitTarget, accountBalance, enableCompounding, baseLotSize, propFirmMode, propFirmDailyDrawdownLimit, maxLotSize, adaptiveScanInterval, enablePyramiding, useKellyCriterion, drawdownShieldThreshold } = req.body;
     try {
       const state = startLiveEngine(userId, {
         pairs: pairs || undefined,
@@ -9388,6 +9388,10 @@ Respond with ONLY valid JSON:
         baseLotSize: baseLotSize ? Number(baseLotSize) : undefined,
         propFirmMode: propFirmMode !== undefined ? Boolean(propFirmMode) : undefined,
         propFirmDailyDrawdownLimit: propFirmDailyDrawdownLimit ? Number(propFirmDailyDrawdownLimit) : undefined,
+        adaptiveScanInterval: adaptiveScanInterval !== undefined ? Boolean(adaptiveScanInterval) : undefined,
+        enablePyramiding: enablePyramiding !== undefined ? Boolean(enablePyramiding) : undefined,
+        useKellyCriterion: useKellyCriterion !== undefined ? Boolean(useKellyCriterion) : undefined,
+        drawdownShieldThreshold: drawdownShieldThreshold !== undefined ? Number(drawdownShieldThreshold) : undefined,
       });
       res.json({ success: true, state });
     } catch (err: any) {

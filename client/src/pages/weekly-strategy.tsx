@@ -206,6 +206,11 @@ export default function WeeklyStrategyPage() {
   const [engineCompounding, setEngineCompounding] = useState(true);
   const [enginePropFirmMode, setEnginePropFirmMode] = useState(false);
   const [enginePropFirmDrawdown, setEnginePropFirmDrawdown] = useState(4);
+  const [enginePyramiding, setEnginePyramiding] = useState(false);
+  const [engineKellyCriterion, setEngineKellyCriterion] = useState(false);
+  const [engineDrawdownShield, setEngineDrawdownShield] = useState(true);
+  const [engineShieldThreshold, setEngineShieldThreshold] = useState(3);
+  const [engineAdaptiveScan, setEngineAdaptiveScan] = useState(true);
 
   const { data: liveEngineStatus, refetch: refetchEngine } = useQuery<any>({
     queryKey: ['/api/vedd-live-engine/status'],
@@ -233,6 +238,10 @@ export default function WeeklyStrategyPage() {
         enableCompounding: engineCompounding,
         propFirmMode: enginePropFirmMode,
         propFirmDailyDrawdownLimit: enginePropFirmDrawdown,
+        enablePyramiding: enginePyramiding,
+        useKellyCriterion: engineKellyCriterion,
+        drawdownShieldThreshold: engineDrawdownShield ? engineShieldThreshold : 0,
+        adaptiveScanInterval: engineAdaptiveScan,
       });
       return res.json();
     },
@@ -730,6 +739,77 @@ export default function WeeklyStrategyPage() {
                       </p>
                     )}
                   </div>
+
+                  {/* ── Auto-Pyramid Winners ── */}
+                  <div className={`rounded-xl border p-3 transition-all ${enginePyramiding ? 'border-emerald-500/60 bg-emerald-500/10' : 'border-gray-700 bg-gray-900/30'}`}>
+                    <label className="flex items-center gap-2 cursor-pointer" onClick={() => setEnginePyramiding(p => !p)}>
+                      <input type="checkbox" checked={enginePyramiding} onChange={() => {}} className="accent-emerald-500" />
+                      <div>
+                        <span className="text-xs font-semibold text-emerald-300">Auto-Pyramid Winners</span>
+                        {enginePyramiding && <Badge className="ml-2 bg-emerald-500/30 text-emerald-300 border-emerald-500/50 text-[9px]">SCALING ON</Badge>}
+                      </div>
+                    </label>
+                    {enginePyramiding && (
+                      <p className="text-[10px] text-emerald-400/80 mt-1.5">📈 Adds 50% lot at +15 pips profit, parent SL moves to breakeven. Max 2 layers.</p>
+                    )}
+                  </div>
+
+                  {/* ── Kelly Criterion Sizing ── */}
+                  <div className={`rounded-xl border p-3 transition-all ${engineKellyCriterion ? 'border-blue-500/60 bg-blue-500/10' : 'border-gray-700 bg-gray-900/30'}`}>
+                    <label className="flex items-center gap-2 cursor-pointer" onClick={() => setEngineKellyCriterion(k => !k)}>
+                      <input type="checkbox" checked={engineKellyCriterion} onChange={() => {}} className="accent-blue-500" />
+                      <div>
+                        <span className="text-xs font-semibold text-blue-300">Kelly Criterion Sizing</span>
+                        {engineKellyCriterion && <Badge className="ml-2 bg-blue-500/30 text-blue-300 border-blue-500/50 text-[9px]">SMART LOTS</Badge>}
+                      </div>
+                    </label>
+                    {engineKellyCriterion && (
+                      <p className="text-[10px] text-blue-400/80 mt-1.5">📐 Lot sizes auto-calculated from your per-strategy win rate and R:R history. Smarter than fixed sizing.</p>
+                    )}
+                  </div>
+
+                  {/* ── Drawdown Shield ── */}
+                  <div className={`rounded-xl border p-3 transition-all ${engineDrawdownShield ? 'border-orange-500/60 bg-orange-500/10' : 'border-gray-700 bg-gray-900/30'}`}>
+                    <div className="flex items-center justify-between">
+                      <label className="flex items-center gap-2 cursor-pointer" onClick={() => setEngineDrawdownShield(d => !d)}>
+                        <input type="checkbox" checked={engineDrawdownShield} onChange={() => {}} className="accent-orange-500" />
+                        <div>
+                          <span className="text-xs font-semibold text-orange-300">Drawdown Shield</span>
+                          {engineDrawdownShield && <Badge className="ml-2 bg-orange-500/30 text-orange-300 border-orange-500/50 text-[9px]">PROTECTING</Badge>}
+                        </div>
+                      </label>
+                      {engineDrawdownShield && (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] text-gray-400">Trigger at:</span>
+                          <input
+                            type="number"
+                            value={engineShieldThreshold}
+                            onChange={e => setEngineShieldThreshold(Number(e.target.value))}
+                            min={1} max={10} step={0.5}
+                            className="w-14 h-6 bg-gray-800 border border-orange-700 text-orange-300 text-[11px] px-1 rounded"
+                          />
+                          <span className="text-[10px] text-gray-400">% DD</span>
+                        </div>
+                      )}
+                    </div>
+                    {engineDrawdownShield && (
+                      <p className="text-[10px] text-orange-400/80 mt-1.5">🛡️ Auto-switches to Sniper-only if session drops {engineShieldThreshold}% from peak. Protects your gains.</p>
+                    )}
+                  </div>
+
+                  {/* ── Adaptive Scan Speed ── */}
+                  <div className={`rounded-xl border p-3 transition-all ${engineAdaptiveScan ? 'border-violet-500/60 bg-violet-500/10' : 'border-gray-700 bg-gray-900/30'}`}>
+                    <label className="flex items-center gap-2 cursor-pointer" onClick={() => setEngineAdaptiveScan(a => !a)}>
+                      <input type="checkbox" checked={engineAdaptiveScan} onChange={() => {}} className="accent-violet-500" />
+                      <div>
+                        <span className="text-xs font-semibold text-violet-300">Adaptive Scan Speed</span>
+                        {engineAdaptiveScan && <Badge className="ml-2 bg-violet-500/30 text-violet-300 border-violet-500/50 text-[9px]">AUTO-FREQ</Badge>}
+                      </div>
+                    </label>
+                    {engineAdaptiveScan && (
+                      <p className="text-[10px] text-violet-400/80 mt-1.5">⚡ 15s during London/NY overlap, 30s active sessions, 90s overnight. Catches more setups during peak hours.</p>
+                    )}
+                  </div>
                 </CardContent>
               </Card>
             </motion.div>
@@ -749,9 +829,18 @@ export default function WeeklyStrategyPage() {
                 <Card className="bg-gray-900/60 border-gray-700/60 h-full">
                   <CardHeader className="pb-2">
                     <div className="flex items-center justify-between">
-                      <CardTitle className="text-base flex items-center gap-2 text-white">
+                      <CardTitle className="text-base flex items-center gap-2 text-white flex-wrap">
                         <Brain className="w-4 h-4 text-cyan-400" /> AI Strategy Feed
                         <Badge className="bg-cyan-500/20 text-cyan-400 border-cyan-500/30 text-[10px] animate-pulse">LIVE</Badge>
+                        {liveEngineStatus?.drawdownShieldActive && (
+                          <Badge className="bg-amber-500/30 text-amber-300 border-amber-500/50 text-[10px] animate-pulse">🛡️ SHIELD ON</Badge>
+                        )}
+                        {liveEngineStatus?.strategyPerformanceWeights && (() => {
+                          const hot = Object.entries(liveEngineStatus.strategyPerformanceWeights).filter(([, v]) => (v as number) >= 1.5);
+                          return hot.length > 0 ? (
+                            <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/40 text-[10px]">🔥 {hot.length} HOT</Badge>
+                          ) : null;
+                        })()}
                       </CardTitle>
                       <div className="flex gap-1">
                         {(['activity', 'market', 'pairs', 'combos'] as const).map(tab => (
