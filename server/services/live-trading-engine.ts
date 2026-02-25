@@ -146,6 +146,8 @@ interface LiveEngineConfig {
   accountBalance: number;
   enableCompounding: boolean;
   baseLotSize: number;
+  propFirmMode: boolean;
+  propFirmDailyDrawdownLimit: number;
 }
 
 interface LiveActivity {
@@ -220,6 +222,10 @@ interface EngineState {
   marketSnapshot: Record<string, { price: number; change: number; trend: string; rsi: number; atr: number; updatedAt: string }>;
   goalTracker: GoalTracker;
   modelLocked: boolean;
+  asiaRangeHigh: Record<string, number>;
+  asiaRangeLow: Record<string, number>;
+  asiaRangeDate: string | null;
+  lastHighImpactNewsAt: string | null;
 }
 
 const engineStates: Record<number, EngineState> = {};
@@ -255,6 +261,8 @@ function getDefaultConfig(userId: number): LiveEngineConfig {
     accountBalance: 0,
     enableCompounding: true,
     baseLotSize: 0.01,
+    propFirmMode: false,
+    propFirmDailyDrawdownLimit: 4,
   };
 }
 
@@ -571,12 +579,50 @@ async function runAILiveAnalysis(userId: number, marketAnalysis: Record<string, 
     const brainInsights = brain?.learningInsights?.join('\n') || 'No prior learning data';
     const pairKnowledge = brain?.pairKnowledge ? JSON.stringify(brain.pairKnowledge, null, 1) : '{}';
 
+    // ── Asia Range Tracking ────────────────────────────────────────────
+    const nowUtc = new Date();
+    const todayStr = nowUtc.toISOString().substring(0, 10);
+    const hourUtc = nowUtc.getUTCHours();
+    const isAsianSession = hourUtc >= 0 && hourUtc < 7;
+
+    // Reset range each new day
+    if (state.asiaRangeDate !== todayStr) {
+      state.asiaRangeHigh = {};
+      state.asiaRangeLow = {};
+      state.asiaRangeDate = todayStr;
+    }
+
+    // Track Asia high/low per pair during Asian session
+    if (isAsianSession) {
+      for (const [sym, data] of Object.entries(marketAnalysis) as [string, any][]) {
+        const price = data.currentPrice;
+        if (typeof price === 'number' && price > 0) {
+          if (state.asiaRangeHigh[sym] === undefined || price > state.asiaRangeHigh[sym]) {
+            state.asiaRangeHigh[sym] = price;
+          }
+          if (state.asiaRangeLow[sym] === undefined || price < state.asiaRangeLow[sym]) {
+            state.asiaRangeLow[sym] = price;
+          }
+        }
+      }
+    }
+
+    // Track last high-impact news timestamp for news fade strategy
+    if (newsContext?.highImpactSoon) {
+      state.lastHighImpactNewsAt = new Date().toISOString();
+    }
+
     const marketSummary = Object.entries(marketAnalysis).map(([sym, data]: [string, any]) => {
       const sr = data.supportResistance;
       const fib = data.fibonacci;
       const vol = data.volatilityContext;
       const vm = data.volumeMetrics as VolumeMetrics | undefined;
-      return `${sym}: Price=${data.currentPrice}, Trend=${data.trend}, ADX=${data.adx?.adx?.toFixed(1) || 'N/A'}, Stoch K=${data.stochastic?.k?.toFixed(1) || 'N/A'} D=${data.stochastic?.d?.toFixed(1) || 'N/A'}, VWAP=${data.vwap?.value?.toFixed(5) || 'N/A'}, OBV Trend=${data.obv?.trend || 'N/A'}, Patterns=[${(data.candlePatterns || []).join(',')}], Session=${data.sessionContext?.currentSession || 'N/A'}, Volatility=${vol?.percentile?.toFixed(0) || 'N/A'}%, Support=${sr?.supports?.[0]?.toFixed(5) || 'N/A'}, Resistance=${sr?.resistances?.[0]?.toFixed(5) || 'N/A'}, Fib 38.2%=${fib?.retracementLevels?.['38.2']?.toFixed(5) || 'N/A'}, Volume=${vm ? `RelVol=${vm.relativeVolume}x (${vm.volumeTrend}), Spikes=${vm.volumeSpikes}` : 'N/A'}`;
+      const asiaH = state.asiaRangeHigh[sym];
+      const asiaL = state.asiaRangeLow[sym];
+      const asiaRangeStr = (asiaH && asiaL) ? `, AsiaHigh=${asiaH}, AsiaLow=${asiaL}, AsiaRange=${(Math.abs(asiaH - asiaL) * (sym.includes('JPY') ? 100 : 10000)).toFixed(1)}pips` : '';
+      const vwapVal = data.vwap?.value;
+      const vwapDev = (vwapVal && data.currentPrice) ? ((data.currentPrice - vwapVal) / vwapVal * 100).toFixed(3) : 'N/A';
+      return `${sym}: Price=${data.currentPrice}, Trend=${data.trend}, ADX=${data.adx?.adx?.toFixed(1) || 'N/A'}, RSI=${data.rsi?.value?.toFixed(1) || 'N/A'}, Stoch K=${data.stochastic?.k?.toFixed(1) || 'N/A'} D=${data.stochastic?.d?.toFixed(1) || 'N/A'}, VWAP=${vwapVal?.toFixed(5) || 'N/A'} (Dev${vwapDev}%), OBV Trend=${data.obv?.trend || 'N/A'}, Patterns=[${(data.candlePatterns || []).join(',')}], Session=${data.sessionContext?.currentSession || 'N/A'}, Volatility=${vol?.percentile?.toFixed(0) || 'N/A'}%, Support=${sr?.supports?.[0]?.toFixed(5) || 'N/A'}, Resistance=${sr?.resistances?.[0]?.toFixed(5) || 'N/A'}, Fib 38.2%=${fib?.retracementLevels?.['38.2']?.toFixed(5) || 'N/A'}, Volume=${vm ? `RelVol=${vm.relativeVolume}x (${vm.volumeTrend}), Spikes=${vm.volumeSpikes}` : 'N/A'}${asiaRangeStr}`;
     }).join('\n');
 
     const openPosStr = openPositions.length > 0
@@ -816,6 +862,53 @@ ICT OPTIMAL TRADE ENTRY (precision Fibonacci entries):
 - TP targets: 127.2% Fibonacci extension, 161.8% extension, or next liquidity pool
 - GOAL: Enter at the optimal price within a confirmed setup. ICT's "sweet spot" for institutional entries
 
+SMC DEMAND/SUPPLY ZONES (smart money footprint — institutional zone trading):
+- DEMAND ZONE: Area where buyers overwhelmed sellers, launching price up sharply (impulsive move). When price returns to this zone = BUY opportunity. Enter at the 50–75% level inside the zone (the "sweet spot")
+- SUPPLY ZONE: Area where sellers overwhelmed buyers, dropping price sharply. When price returns = SELL opportunity. Enter at the 50–75% level inside the zone
+- ZONE VALIDITY: Fresh (not previously revisited), caused a BOS or CHOCH, aligns with higher timeframe (H1/H4) structure. Spent zones that have been revisited multiple times are invalid
+- PRECISION ENTRY: Look for FVGs or order blocks INSIDE the zone for highest-precision entry. These are zones within zones — the ultimate confluence
+- RISK MANAGEMENT: SL goes just below the demand zone (or above supply zone) — beyond where smart money would have their orders. TP targets the next opposing zone
+- MULTI-TIMEFRAME: Use H4/H1 zones for directional bias, M15/M5 zones for entry timing
+- Strategy label: smc_demand_supply
+- GOAL: Trade FROM zones, not THROUGH them. Zones print the map of institutional order flow
+
+ASIA RANGE BREAKOUT (session-range capture — one of the cleanest strategies in forex):
+- SETUP: The Asian session (00:00–07:00 UTC) typically consolidates in a defined range. The market is building liquidity above and below this range for London to sweep
+- TRACK: AsiaHigh and AsiaLow are provided for each pair in the market data above
+- LONDON OPEN BREAKOUT (07:00–08:30 UTC): When price breaks convincingly ABOVE AsiaHigh = BUY. Break BELOW AsiaLow = SELL
+- CONFIRMATION: (1) Candle closes outside the Asia range, (2) Volume surges on the break, (3) Price retests the broken level (old resistance becomes support, or vice versa)
+- TARGETS: Minimum target = 50% of the Asia range size projected in the break direction. Full target = 100% of the Asia range size. Let runner ride to 150% with trailing stop
+- STOP LOSS: 10–15 pips inside the Asia range from the break level (protect against false breakouts)
+- PAIRS: All major forex pairs + XAUUSD. Most reliable on GBPUSD, EURUSD, GBPJPY
+- FALSE BREAKOUT FILTER: If price breaks out but immediately reverses back inside the range within 2 candles, it's a false breakout — don't chase. Wait for clear London direction
+- Strategy label: asia_range_breakout
+- GOAL: Catch the London open momentum move. These setups often deliver 50–150+ pips in the first 1–2 hours
+
+VWAP MEAN REVERSION (deviation fades — particularly powerful on indices):
+- SETUP: When price deviates 2+ standard deviations from VWAP, it becomes statistically likely to revert back toward VWAP
+- VWAP and VWAP deviation are visible in the market data (Dev% shown for each pair)
+- BUY SIGNAL: Price is significantly BELOW VWAP (Dev% very negative, price at -2 SD or lower) + RSI oversold (<35) + volume declining on the drop = buy the reversion toward VWAP
+- SELL SIGNAL: Price is significantly ABOVE VWAP (Dev% very positive, price at +2 SD or higher) + RSI overbought (>65) + volume declining on the rise = sell the reversion toward VWAP
+- TARGET: VWAP itself is the primary target. Second target: the opposing SD level for extended moves
+- STOP LOSS: Beyond the extreme (2.5 SD or recent wick extreme). Minimum 1:2 R:R required
+- BEST MARKETS: US30, NAS100, SPX500 during NY session (13:00–20:00 UTC). Also valid on XAUUSD and currency majors in high-volume sessions
+- CONFIRMATION: RSI divergence (price making new extreme but RSI declining), Stochastic crossover from extreme zone, OBV not confirming the price extreme
+- Strategy label: vwap_mean_reversion
+- GOAL: Exploit the rubber band effect — extreme deviations snap back. High win rate, consistent R:R
+
+NEWS FADE / POST-NEWS REVERSAL (fading the crowd after high-impact events):
+- CONCEPT: When major news hits (NFP, CPI, FOMC, Rate Decisions), retail traders chase the initial spike. Smart money fades the spike after liquidity is grabbed
+- TIMING: Wait 5–15 minutes AFTER the news release for the spike to exhaust. The fade window is ONLY valid for 10–30 minutes after the event. After 30 min, the window closes
+- FADE SIGNAL — all three needed: (1) RSI at extreme (>72 overbought or <28 oversold) on the spiked candle, (2) Sharp wick on the spike candle (long wick showing rejection), (3) Volume declining after the initial spike surge
+- ENTRY: Enter in the OPPOSITE direction of the news spike. If news spiked price up → SELL. If news crashed price → BUY
+- STOP LOSS: At or just beyond the wick extreme of the spike candle (where the spike peaked)
+- TARGET: Pre-news consolidation zone (where price was trading before the news). Often a 50–100% retrace of the spike
+- VALID PAIRS: The affected currency pairs. NFP affects USD pairs. CPI affects GBP (UK CPI), EUR (EU CPI), USD (US CPI)
+- INVALID SETUP: If the news CONFIRMS the prior trend strongly (e.g., much better-than-expected jobs data in a USD bull market), skip the fade — the trend may continue
+- Check lastHighImpactNewsAt context: if a high-impact event was flagged recently (within 30 min), actively look for fade setups on affected pairs
+- Strategy label: news_fade
+- GOAL: Let retail traders gift you the liquidity. The fade after exhaustion is one of the cleanest and most institutional setups available
+
 AGGRESSIVE COMPOUND GROWTH (tie it all together):
 - Combine ALL strategies above simultaneously across multiple pairs
 - Scale lot sizes: base=${adjustedBaseLot} | With confidence scaling: 65-75%=${adjustedBaseLot}, 75-85%=${Math.round(adjustedBaseLot * 1.5 * 100) / 100}, 85%+=${Math.round(adjustedBaseLot * 2 * 100) / 100}
@@ -842,13 +935,27 @@ LIVE ENGINE RULES:
 14. NEWS-FIRST: Check the news headlines and economic calendar BEFORE entering. If a high-impact event is imminent on a currency, SKIP that pair or close existing positions. Trade WITH news sentiment, not against it
 15. VOLUME-FIRST: Prioritize pairs with SURGING or ABOVE_AVERAGE relative volume. AVOID pairs with DRY volume. Volume confirms price action - no volume = unreliable signals
 16. OPTIMAL TIMING: During London/NY overlap (13:00-16:00 UTC) be MOST aggressive. During Asian session, focus only on JPY/AUD pairs. During low-volume windows, reduce position sizes by 50% or skip entirely
-
+17. ASIA RANGE: If AsiaHigh/AsiaLow data is present and it's London open window (07:00–08:30 UTC), PRIORITIZE asia_range_breakout setups on forex pairs. This is a prime time for large moves
+18. VWAP DEVIATION: Check the VWAP Dev% for each pair. If any pair is >0.15% or <-0.15% deviation, assess for vwap_mean_reversion on indices. >0.3% deviation = strong signal
+19. SMC ZONES: When you see a pair returning to a prior impulsive origin (demand/supply), use smc_demand_supply and combine with FVG or order block inside the zone for precision
+20. NEWS FADE: If a high-impact news event occurred recently (within 30 minutes), check for exhaustion signals (extreme RSI + declining volume + wick rejection) on affected pairs for news_fade setups
+${config.propFirmMode ? `
+⚠️ PROP FIRM CHALLENGE MODE ACTIVE — STRICT RULES APPLY:
+- MAXIMUM RISK: 0.5% of account balance per trade. Lot sizes must reflect this
+- MAXIMUM 2 open trades at any time
+- MINIMUM 78% confidence required for ANY entry — skip everything below this threshold
+- NO SCALPING — every trade must have minimum 1:2 Risk:Reward ratio. No exceptions
+- PREFERRED STRATEGIES: prop_firm_sniper, sniper, ict_order_blocks, smc_demand_supply only
+- ALL SIGNALS must use strategy label: prop_firm_sniper
+- DAILY DRAWDOWN LIMIT: ${config.propFirmDailyDrawdownLimit}% of account. Today's P&L is $${tracker.dailyPnL[new Date().toISOString().substring(0, 10)] || 0}. If you are at or near this limit, output NO_ACTION for all pairs
+- VIOLATION = FAILING THE CHALLENGE. Be surgical, patient, and precise. Quality beats quantity every time in a prop firm challenge
+` : ''}
 Respond ONLY with valid JSON. Generate MULTIPLE decisions when opportunities exist - don't hold back:
 {
   "decisions": [
     {
       "action": "OPEN_TRADE" | "MODIFY_POSITION" | "CLOSE_POSITION" | "NO_ACTION",
-      "strategy": "scalping" | "momentum" | "session_breakout" | "sniper" | "compound" | "chart_pattern" | "ict_order_blocks" | "ict_fvg" | "ict_liquidity_sweep" | "ict_bos" | "ict_ote",
+      "strategy": "scalping" | "momentum" | "session_breakout" | "sniper" | "compound" | "chart_pattern" | "ict_order_blocks" | "ict_fvg" | "ict_liquidity_sweep" | "ict_bos" | "ict_ote" | "smc_demand_supply" | "asia_range_breakout" | "vwap_mean_reversion" | "news_fade" | "prop_firm_sniper",
       "symbol": "EURUSD",
       "direction": "BUY" | "SELL",
       "confidence": 85,
@@ -1311,6 +1418,10 @@ export function startLiveEngine(userId: number, config?: Partial<LiveEngineConfi
     marketSnapshot: {},
     goalTracker: restoredTracker,
     modelLocked: false,
+    asiaRangeHigh: {},
+    asiaRangeLow: {},
+    asiaRangeDate: null,
+    lastHighImpactNewsAt: null,
   };
 
   const goalMsg = fullConfig.weeklyProfitTarget > 0

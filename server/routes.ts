@@ -9180,7 +9180,7 @@ Respond with ONLY valid JSON:
   app.post("/api/vedd-live-engine/start", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
-    const { pairs, strategyMode, scanIntervalMs, maxOpenTrades, riskPerTrade, minConfidence, enablePositionManagement, trailingStopEnabled, trailingStopATRMultiplier, weeklyProfitTarget, accountBalance, enableCompounding, baseLotSize } = req.body;
+    const { pairs, strategyMode, scanIntervalMs, maxOpenTrades, riskPerTrade, minConfidence, enablePositionManagement, trailingStopEnabled, trailingStopATRMultiplier, weeklyProfitTarget, accountBalance, enableCompounding, baseLotSize, propFirmMode, propFirmDailyDrawdownLimit, maxLotSize } = req.body;
     try {
       const state = startLiveEngine(userId, {
         pairs: pairs || undefined,
@@ -9189,6 +9189,7 @@ Respond with ONLY valid JSON:
         maxOpenTrades: maxOpenTrades ? Number(maxOpenTrades) : undefined,
         riskPerTrade: riskPerTrade ? Number(riskPerTrade) : undefined,
         minConfidence: minConfidence ? Number(minConfidence) : undefined,
+        maxLotSize: maxLotSize ? Number(maxLotSize) : undefined,
         enablePositionManagement: enablePositionManagement !== undefined ? enablePositionManagement : undefined,
         trailingStopEnabled: trailingStopEnabled !== undefined ? trailingStopEnabled : undefined,
         trailingStopATRMultiplier: trailingStopATRMultiplier ? Number(trailingStopATRMultiplier) : undefined,
@@ -9196,6 +9197,8 @@ Respond with ONLY valid JSON:
         accountBalance: accountBalance ? Number(accountBalance) : undefined,
         enableCompounding: enableCompounding !== undefined ? enableCompounding : undefined,
         baseLotSize: baseLotSize ? Number(baseLotSize) : undefined,
+        propFirmMode: propFirmMode !== undefined ? Boolean(propFirmMode) : undefined,
+        propFirmDailyDrawdownLimit: propFirmDailyDrawdownLimit ? Number(propFirmDailyDrawdownLimit) : undefined,
       });
       res.json({ success: true, state });
     } catch (err: any) {

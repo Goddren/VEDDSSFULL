@@ -204,6 +204,8 @@ export default function WeeklyStrategyPage() {
   const [engineAccountBalance, setEngineAccountBalance] = useState(1000);
   const [engineBaseLotSize, setEngineBaseLotSize] = useState(0.01);
   const [engineCompounding, setEngineCompounding] = useState(true);
+  const [enginePropFirmMode, setEnginePropFirmMode] = useState(false);
+  const [enginePropFirmDrawdown, setEnginePropFirmDrawdown] = useState(4);
 
   const { data: liveEngineStatus, refetch: refetchEngine } = useQuery<any>({
     queryKey: ['/api/vedd-live-engine/status'],
@@ -229,6 +231,8 @@ export default function WeeklyStrategyPage() {
         accountBalance: engineAccountBalance,
         baseLotSize: engineBaseLotSize,
         enableCompounding: engineCompounding,
+        propFirmMode: enginePropFirmMode,
+        propFirmDailyDrawdownLimit: enginePropFirmDrawdown,
       });
       return res.json();
     },
@@ -657,7 +661,7 @@ export default function WeeklyStrategyPage() {
                           { id: 'session_breakout', name: 'Session Breakout' },
                           { id: 'aggressive', name: 'Aggressive Compound' },
                           { id: 'sniper', name: 'Sniper Mode' },
-                        ].map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                        ].map(m => <option key={m.id} value={m.id}>{m.name}{enginePropFirmMode && m.id === 'sniper' ? ' (Prop Firm)' : ''}</option>)}
                       </select>
                     </div>
                   </div>
@@ -689,6 +693,41 @@ export default function WeeklyStrategyPage() {
                         {startEngineMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
                         Launch Engine
                       </Button>
+                    )}
+                  </div>
+                  <div className={`rounded-xl border p-3 transition-all ${enginePropFirmMode ? 'border-amber-500/60 bg-amber-500/10' : 'border-gray-700 bg-gray-900/30'}`}>
+                    <div className="flex items-center justify-between">
+                      <label className="flex items-center gap-2 cursor-pointer" onClick={() => {
+                        const next = !enginePropFirmMode;
+                        setEnginePropFirmMode(next);
+                        if (next) setEngineMode('sniper');
+                      }}>
+                        <input type="checkbox" checked={enginePropFirmMode} onChange={() => {}} className="accent-amber-500" />
+                        <div>
+                          <span className="text-xs font-semibold text-amber-300">Prop Firm Challenge Mode</span>
+                          {enginePropFirmMode && (
+                            <Badge className="ml-2 bg-amber-500/30 text-amber-300 border-amber-500/50 text-[9px] animate-pulse">CHALLENGE RULES ACTIVE</Badge>
+                          )}
+                        </div>
+                      </label>
+                      {enginePropFirmMode && (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] text-gray-400">Daily DD Limit:</span>
+                          <Input
+                            type="number"
+                            value={enginePropFirmDrawdown}
+                            onChange={e => setEnginePropFirmDrawdown(Number(e.target.value))}
+                            min={1} max={10} step={0.5}
+                            className="w-16 h-6 bg-gray-800 border-amber-700 text-amber-300 text-[11px] px-1"
+                          />
+                          <span className="text-[10px] text-gray-400">%</span>
+                        </div>
+                      )}
+                    </div>
+                    {enginePropFirmMode && (
+                      <p className="text-[10px] text-amber-400/80 mt-1.5">
+                        🛡️ 0.5% risk/trade · Max 2 trades · 78%+ confidence · 1:2+ R:R · No scalping · Sniper setups only
+                      </p>
                     )}
                   </div>
                 </CardContent>
@@ -1385,19 +1424,34 @@ export default function WeeklyStrategyPage() {
                 <Label className="text-gray-300 text-sm">Strategy Mode</Label>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mt-1">
                   {[
-                    { id: 'scalping', name: 'Scalping HFT', icon: '⚡', risk: 'HIGH' },
-                    { id: 'momentum', name: 'Momentum', icon: '🌊', risk: 'MED-HIGH' },
-                    { id: 'session_breakout', name: 'Session Breakout', icon: '🚀', risk: 'MEDIUM' },
-                    { id: 'aggressive', name: 'Aggressive Compound', icon: '🔥', risk: 'EXTREME' },
-                    { id: 'sniper', name: 'Sniper Mode', icon: '🎯', risk: 'MEDIUM' },
+                    { id: 'scalping', name: 'Scalping HFT', icon: '⚡', risk: 'HIGH', desc: 'Ultra-fast entries, tight stops, high frequency' },
+                    { id: 'momentum', name: 'Momentum', icon: '🌊', risk: 'MED-HIGH', desc: 'Ride strong trending moves with confluence' },
+                    { id: 'session_breakout', name: 'Session Breakout', icon: '🚀', risk: 'MEDIUM', desc: 'London/NY open range breakout captures' },
+                    { id: 'aggressive', name: 'Aggressive Compound', icon: '🔥', risk: 'EXTREME', desc: 'All strategies, max frequency, compound sizing' },
+                    { id: 'sniper', name: 'Sniper Mode', icon: '🎯', risk: 'MEDIUM', desc: 'ICT precision entries, high-quality setups only' },
+                    { id: 'prop_firm', name: 'Prop Firm Challenge', icon: '🛡️', risk: 'PROTECTED', desc: 'Challenge-safe rules, 0.5% risk, 1:2+ R:R only' },
                   ].map(mode => (
-                    <button key={mode.id} onClick={() => setStrategyMode(mode.id)}
-                      className={`text-left p-3 rounded-xl border transition-all text-xs ${strategyMode === mode.id ? 'border-orange-500 bg-orange-500/10 text-orange-300' : 'border-gray-700 bg-gray-900/50 text-gray-400 hover:border-gray-500'}`}>
+                    <button key={mode.id} onClick={() => {
+                      setStrategyMode(mode.id === 'prop_firm' ? 'sniper' : mode.id);
+                      if (mode.id === 'prop_firm') setEnginePropFirmMode(true);
+                      else setEnginePropFirmMode(false);
+                    }}
+                      className={`text-left p-3 rounded-xl border transition-all text-xs ${
+                        (mode.id === 'prop_firm' ? enginePropFirmMode : strategyMode === mode.id && !enginePropFirmMode)
+                          ? mode.id === 'prop_firm' ? 'border-amber-500 bg-amber-500/10 text-amber-300' : 'border-orange-500 bg-orange-500/10 text-orange-300'
+                          : 'border-gray-700 bg-gray-900/50 text-gray-400 hover:border-gray-500'
+                      }`}>
                       <div className="flex items-center gap-1.5 mb-1">
                         <span>{mode.icon}</span>
                         <span className="font-semibold">{mode.name}</span>
                       </div>
-                      <Badge className={`text-[9px] ${mode.risk === 'EXTREME' ? 'bg-red-500/20 text-red-400' : mode.risk === 'HIGH' ? 'bg-orange-500/20 text-orange-400' : 'bg-yellow-500/20 text-yellow-400'}`}>{mode.risk}</Badge>
+                      <p className="text-[9px] text-gray-500 mb-1 leading-tight">{mode.desc}</p>
+                      <Badge className={`text-[9px] ${
+                        mode.risk === 'EXTREME' ? 'bg-red-500/20 text-red-400' :
+                        mode.risk === 'HIGH' ? 'bg-orange-500/20 text-orange-400' :
+                        mode.risk === 'PROTECTED' ? 'bg-amber-500/20 text-amber-400' :
+                        'bg-yellow-500/20 text-yellow-400'
+                      }`}>{mode.risk}</Badge>
                     </button>
                   ))}
                 </div>
