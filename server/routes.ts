@@ -7765,149 +7765,353 @@ Respond with ONLY valid JSON:
       const { createCanvas, loadImage } = await import('canvas');
       const path = await import('path');
       const fs = await import('fs');
+      const { getLiveEngineState } = await import('./services/live-trading-engine');
 
-      const W = 1080, H = 1080;
+      // Pull live engine state for rich AI engine data on the card
+      const engineState = getLiveEngineState(userId);
+      const engineRunning = engineState?.status === 'running';
+      const engineMode = (engineState?.config?.strategyMode || 'N/A').toUpperCase().replace('_', ' ');
+      const propFirm = engineState?.config?.propFirmMode || false;
+      const scanCount = engineState?.scanCount || 0;
+      const signalsGenerated = engineState?.signalsGenerated || 0;
+      const tradesExecuted = engineState?.tradesExecuted || 0;
+      const pnlSession = engineState?.pnlSession || 0;
+      const openPositions = engineState?.openPositionCount || 0;
+      const goalTracker = engineState?.goalTracker;
+      const weeklyGoal = goalTracker?.weeklyTarget || strat.profitTarget || 0;
+      const weeklyProgress = goalTracker ? Math.min(100, Math.round((goalTracker.currentProfit / Math.max(weeklyGoal, 1)) * 100)) : (strat.progressPercentage || 0);
+      const enginePhase = goalTracker?.phase ? goalTracker.phase.replace('_', ' ').toUpperCase() : null;
+      const compoundMultiplier = goalTracker?.compoundMultiplier || 1;
+      const consecutiveWins = goalTracker?.consecutiveWins || 0;
+      const modelConfig = await storage.getAiModelConfig(userId);
+      const aiModelLabel = modelConfig?.routingMode === 'ensemble' ? `Ensemble (${(modelConfig.ensembleModelIds as string[] || []).length} models)` :
+        modelConfig?.routingMode === 'fallback' ? 'Fallback Chain' :
+        modelConfig?.primaryModelId ? modelConfig.primaryModelId.replace('openai-', 'GPT-').replace('anthropic-', 'Claude ').replace('gpt4o', '4o').replace('gpt4-turbo', '4 Turbo') :
+        'GPT-4o';
+
+      const strategyMap: Record<string, string> = {
+        scalping: '⚡ Scalping HFT', momentum: '🌊 Momentum', session_breakout: '🚀 Session Breakout',
+        aggressive: '🔥 Aggressive', sniper: '🎯 Sniper', compound: '💰 Compound',
+        ict_order_blocks: '📦 ICT Blocks', ict_fvg: '🔲 FVG', ict_liquidity_sweep: '💧 Liquidity',
+        ict_bos: '🔱 BOS/CHOCH', ict_ote: '🎯 OTE', chart_pattern: '📐 Patterns',
+        smc_demand_supply: '🏛️ SMC Zones', asia_range_breakout: '🌏 Asia Range',
+        vwap_mean_reversion: '📊 VWAP Rev', news_fade: '📰 News Fade', prop_firm_sniper: '🛡️ Prop Sniper',
+      };
+
+      const W = 1080, H = 1350;
       const canvas = createCanvas(W, H);
       const ctx = canvas.getContext('2d');
 
+      // ── Background ──────────────────────────────────────────────────
       const bg = ctx.createLinearGradient(0, 0, W, H);
-      bg.addColorStop(0, '#0f172a');
-      bg.addColorStop(0.5, '#1a1033');
-      bg.addColorStop(1, '#0f172a');
+      bg.addColorStop(0, '#080e1c');
+      bg.addColorStop(0.4, '#0f172a');
+      bg.addColorStop(0.7, '#130a2a');
+      bg.addColorStop(1, '#080e1c');
       ctx.fillStyle = bg;
       ctx.fillRect(0, 0, W, H);
 
-      const headerGrad = ctx.createLinearGradient(0, 0, W, 220);
-      headerGrad.addColorStop(0, '#ea580c');
+      // Subtle grid lines for depth
+      ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+      ctx.lineWidth = 1;
+      for (let gx = 0; gx < W; gx += 60) { ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, H); ctx.stroke(); }
+      for (let gy = 0; gy < H; gy += 60) { ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(W, gy); ctx.stroke(); }
+
+      // ── Header banner ───────────────────────────────────────────────
+      const headerGrad = ctx.createLinearGradient(0, 0, W, 210);
+      headerGrad.addColorStop(0, '#7c3aed');
+      headerGrad.addColorStop(0.5, '#ea580c');
       headerGrad.addColorStop(1, '#dc2626');
       ctx.fillStyle = headerGrad;
       ctx.beginPath();
-      ctx.moveTo(0, 0);
-      ctx.lineTo(W, 0);
-      ctx.lineTo(W, 180);
-      ctx.quadraticCurveTo(W / 2, 240, 0, 180);
+      ctx.moveTo(0, 0); ctx.lineTo(W, 0); ctx.lineTo(W, 190);
+      ctx.quadraticCurveTo(W / 2, 250, 0, 190);
       ctx.closePath();
       ctx.fill();
 
+      // Header glow overlay
+      const glowGrad = ctx.createRadialGradient(W / 2, 80, 10, W / 2, 80, 300);
+      glowGrad.addColorStop(0, 'rgba(255,255,255,0.12)');
+      glowGrad.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = glowGrad;
+      ctx.beginPath();
+      ctx.moveTo(0, 0); ctx.lineTo(W, 0); ctx.lineTo(W, 190);
+      ctx.quadraticCurveTo(W / 2, 250, 0, 190);
+      ctx.closePath();
+      ctx.fill();
+
+      // Logo
       try {
         const logoPath = path.default.join(process.cwd(), 'attached_assets', 'IMG_3645.png');
         if (fs.default.existsSync(logoPath)) {
           const logo = await loadImage(logoPath);
-          const lh = 60, lw = (logo.width / logo.height) * lh;
-          ctx.drawImage(logo, 40, 30, lw, lh);
+          const lh = 64, lw = (logo.width / logo.height) * lh;
+          ctx.drawImage(logo, 44, 26, lw, lh);
         }
       } catch {}
 
+      // VEDD title
       ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 42px Arial, sans-serif';
+      ctx.font = 'bold 52px Arial, sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('VEDD SS AI', W / 2, 130);
-      ctx.font = '20px Arial, sans-serif';
-      ctx.fillStyle = 'rgba(255,255,255,0.85)';
-      ctx.fillText('AI-Powered Growth Strategy', W / 2, 160);
+      ctx.fillText('VEDD SS AI', W / 2, 120);
+      ctx.font = '22px Arial, sans-serif';
+      ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      ctx.fillText('Live AI Trading Engine  •  Intelligence × Markets', W / 2, 158);
 
-      let y = 260;
-
+      // Engine status badge (top right)
+      const badgeX = W - 190, badgeY = 28, badgeW = 150, badgeH = 36;
       const drawRoundRect = (cx: any, rx: number, ry: number, rw: number, rh: number, r: number) => {
-        cx.beginPath();
-        cx.moveTo(rx + r, ry);
-        cx.lineTo(rx + rw - r, ry);
-        cx.arcTo(rx + rw, ry, rx + rw, ry + r, r);
-        cx.lineTo(rx + rw, ry + rh - r);
-        cx.arcTo(rx + rw, ry + rh, rx + rw - r, ry + rh, r);
-        cx.lineTo(rx + r, ry + rh);
-        cx.arcTo(rx, ry + rh, rx, ry + rh - r, r);
-        cx.lineTo(rx, ry + r);
-        cx.arcTo(rx, ry, rx + r, ry, r);
-        cx.closePath();
+        cx.beginPath(); cx.moveTo(rx + r, ry); cx.lineTo(rx + rw - r, ry);
+        cx.arcTo(rx + rw, ry, rx + rw, ry + r, r); cx.lineTo(rx + rw, ry + rh - r);
+        cx.arcTo(rx + rw, ry + rh, rx + rw - r, ry + rh, r); cx.lineTo(rx + r, ry + rh);
+        cx.arcTo(rx, ry + rh, rx, ry + rh - r, r); cx.lineTo(rx, ry + r);
+        cx.arcTo(rx, ry, rx + r, ry, r); cx.closePath();
       };
+      ctx.fillStyle = engineRunning ? 'rgba(34,197,94,0.3)' : 'rgba(100,116,139,0.3)';
+      drawRoundRect(ctx, badgeX, badgeY, badgeW, badgeH, 18);
+      ctx.fill();
+      ctx.strokeStyle = engineRunning ? 'rgba(34,197,94,0.8)' : 'rgba(100,116,139,0.5)';
+      ctx.lineWidth = 1.5;
+      drawRoundRect(ctx, badgeX, badgeY, badgeW, badgeH, 18);
+      ctx.stroke();
+      // Pulsing dot
+      ctx.fillStyle = engineRunning ? '#22c55e' : '#64748b';
+      ctx.beginPath();
+      ctx.arc(badgeX + 18, badgeY + badgeH / 2, 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 14px Arial, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText(engineRunning ? 'LIVE ENGINE' : 'ENGINE OFF', badgeX + 30, badgeY + 23);
 
-      const progress = strat.progressPercentage || 0;
-      const barW = W - 120, barH = 36;
+      let y = 270;
+
+      // ── Progress section ─────────────────────────────────────────────
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 58px Arial, sans-serif';
+      ctx.textAlign = 'center';
+      const balStr = `$${(strat.accountBalance || 0).toLocaleString()}  →  $${((strat.accountBalance || 0) + (strat.profitTarget || 0)).toLocaleString()}`;
+      ctx.fillText(balStr, W / 2, y);
+      y += 36;
+      const multiplier = strat.accountBalance > 0 ? ((strat.accountBalance + strat.profitTarget) / strat.accountBalance).toFixed(2) : '1.00';
+      ctx.fillStyle = '#f97316';
+      ctx.font = 'bold 24px Arial, sans-serif';
+      ctx.fillText(`${multiplier}x Growth Target`, W / 2, y);
+      y += 44;
+
+      // Progress bar
+      const barW = W - 120, barH = 38;
       const barX = 60;
       ctx.fillStyle = '#1e293b';
-      drawRoundRect(ctx, barX, y, barW, barH, 18);
+      drawRoundRect(ctx, barX, y, barW, barH, 19);
       ctx.fill();
-      const fillW = Math.max(0, Math.min(barW, barW * progress / 100));
-      if (fillW > 0) {
+      const fillW = Math.max(0, Math.min(barW, barW * weeklyProgress / 100));
+      if (fillW > 36) {
         const pGrad = ctx.createLinearGradient(barX, y, barX + fillW, y);
-        pGrad.addColorStop(0, '#f97316');
+        pGrad.addColorStop(0, '#7c3aed');
+        pGrad.addColorStop(0.5, '#ea580c');
         pGrad.addColorStop(1, '#ef4444');
         ctx.fillStyle = pGrad;
-        drawRoundRect(ctx, barX, y, fillW, barH, 18);
+        drawRoundRect(ctx, barX, y, fillW, barH, 19);
         ctx.fill();
       }
       ctx.fillStyle = '#ffffff';
       ctx.font = 'bold 16px Arial, sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText(`${progress}%`, W / 2, y + 24);
+      ctx.fillText(`${weeklyProgress}% of weekly goal`, W / 2, y + 25);
+      y += 62;
 
-      y += 70;
-
-      ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 54px Arial, sans-serif';
-      ctx.fillText(`$${strat.accountBalance || 0}  →  $${(strat.accountBalance || 0) + (strat.profitTarget || 0)}`, W / 2, y);
-      y += 30;
-      ctx.fillStyle = '#94a3b8';
-      ctx.font = '20px Arial, sans-serif';
-      const multiplier = strat.accountBalance > 0 ? ((strat.accountBalance + strat.profitTarget) / strat.accountBalance).toFixed(1) : '1.0';
-      ctx.fillText(`${multiplier}x Growth Target`, W / 2, y);
-      y += 55;
-
+      // ── 4 Stat boxes ─────────────────────────────────────────────────
       const stats = [
-        { label: 'Current Profit', value: `$${strat.currentProfit || 0}`, color: '#22c55e' },
-        { label: 'Target', value: `$${strat.profitTarget || 0}`, color: '#f97316' },
-        { label: 'Trades', value: `${strat.progressTrades || 0}`, color: '#a78bfa' },
+        { label: 'Session P&L', value: `${pnlSession >= 0 ? '+' : ''}$${pnlSession.toFixed(2)}`, color: pnlSession >= 0 ? '#22c55e' : '#ef4444' },
+        { label: 'Weekly Target', value: `$${weeklyGoal.toLocaleString()}`, color: '#f97316' },
+        { label: 'Signals Fired', value: `${signalsGenerated}`, color: '#a78bfa' },
         { label: 'Win Rate', value: `${strat.progressWinRate || 0}%`, color: '#38bdf8' },
       ];
       const boxW = (W - 120 - 30) / 2;
-      const boxH = 90;
+      const boxH = 96;
       stats.forEach((s, i) => {
-        const col = i % 2;
-        const row = Math.floor(i / 2);
-        const bx = 60 + col * (boxW + 30);
-        const by = y + row * (boxH + 15);
-        ctx.fillStyle = '#1e293b';
-        drawRoundRect(ctx, bx, by, boxW, boxH, 12);
+        const col = i % 2, row = Math.floor(i / 2);
+        const bx = 60 + col * (boxW + 30), by = y + row * (boxH + 14);
+        ctx.fillStyle = '#0f1f3a';
+        drawRoundRect(ctx, bx, by, boxW, boxH, 14);
         ctx.fill();
-        ctx.fillStyle = '#94a3b8';
+        ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+        ctx.lineWidth = 1;
+        drawRoundRect(ctx, bx, by, boxW, boxH, 14);
+        ctx.stroke();
+        ctx.fillStyle = '#64748b';
         ctx.font = '16px Arial, sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText(s.label, bx + boxW / 2, by + 32);
+        ctx.fillText(s.label, bx + boxW / 2, by + 34);
         ctx.fillStyle = s.color;
-        ctx.font = 'bold 30px Arial, sans-serif';
-        ctx.fillText(s.value, bx + boxW / 2, by + 68);
+        ctx.font = 'bold 32px Arial, sans-serif';
+        ctx.fillText(s.value, bx + boxW / 2, by + 74);
       });
-      y += boxH * 2 + 50;
+      y += boxH * 2 + 14 + 38;
 
-      if (strat.plan?.feasibility) {
-        ctx.fillStyle = strat.plan.feasibility === 'ACHIEVABLE' ? '#22c55e' : strat.plan.feasibility === 'AGGRESSIVE' ? '#f97316' : '#ef4444';
-        ctx.font = 'bold 24px Arial, sans-serif';
+      // ── AI Engine Status Bar ─────────────────────────────────────────
+      const engineBgGrad = ctx.createLinearGradient(60, y, W - 60, y + 80);
+      engineBgGrad.addColorStop(0, '#1a0a3a');
+      engineBgGrad.addColorStop(0.5, '#0f1a3a');
+      engineBgGrad.addColorStop(1, '#1a0a3a');
+      ctx.fillStyle = engineBgGrad;
+      drawRoundRect(ctx, 60, y, W - 120, 82, 14);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(124,58,237,0.4)';
+      ctx.lineWidth = 1.5;
+      drawRoundRect(ctx, 60, y, W - 120, 82, 14);
+      ctx.stroke();
+
+      const colW3 = (W - 120) / 3;
+      const engineStats = [
+        { label: 'AI MODEL', value: aiModelLabel, color: '#a78bfa' },
+        { label: 'STRATEGY MODE', value: propFirm ? '🛡️ PROP FIRM' : engineMode, color: propFirm ? '#fbbf24' : '#38bdf8' },
+        { label: 'ENGINE PHASE', value: enginePhase || (engineRunning ? 'ACTIVE' : 'OFFLINE'), color: engineRunning ? '#22c55e' : '#64748b' },
+      ];
+      engineStats.forEach((es, i) => {
+        const ex = 60 + i * colW3;
+        if (i > 0) {
+          ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(ex, y + 16);
+          ctx.lineTo(ex, y + 66);
+          ctx.stroke();
+        }
+        ctx.fillStyle = '#475569';
+        ctx.font = '13px Arial, sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText(`AI Assessment: ${strat.plan.feasibility}`, W / 2, y);
-        y += 35;
+        ctx.fillText(es.label, ex + colW3 / 2, y + 30);
+        ctx.fillStyle = es.color;
+        ctx.font = 'bold 20px Arial, sans-serif';
+        const val = es.value.length > 18 ? es.value.substring(0, 17) + '…' : es.value;
+        ctx.fillText(val, ex + colW3 / 2, y + 62);
+      });
+      y += 100;
+
+      // ── Engine scan stats row ─────────────────────────────────────────
+      const scanStats = [
+        { label: 'Market Scans', value: `${scanCount}`, color: '#94a3b8' },
+        { label: 'Trades Executed', value: `${tradesExecuted}`, color: '#94a3b8' },
+        { label: 'Open Positions', value: `${openPositions}`, color: '#94a3b8' },
+        { label: 'Compound', value: `${compoundMultiplier}x (${consecutiveWins}W)`, color: consecutiveWins >= 3 ? '#22c55e' : '#94a3b8' },
+      ];
+      const smW = (W - 120 - 45) / 4;
+      scanStats.forEach((ss, i) => {
+        const sx = 60 + i * (smW + 15), sy = y;
+        ctx.fillStyle = '#0c1628';
+        drawRoundRect(ctx, sx, sy, smW, 70, 10);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+        ctx.lineWidth = 1;
+        drawRoundRect(ctx, sx, sy, smW, 70, 10);
+        ctx.stroke();
+        ctx.fillStyle = '#475569';
+        ctx.font = '13px Arial, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(ss.label, sx + smW / 2, sy + 24);
+        ctx.fillStyle = ss.color;
+        ctx.font = 'bold 22px Arial, sans-serif';
+        ctx.fillText(ss.value, sx + smW / 2, sy + 54);
+      });
+      y += 90;
+
+      // ── Active Strategies ─────────────────────────────────────────────
+      const allStrategyKeys = Object.keys(strategyMap);
+      const displayStrats = allStrategyKeys.slice(0, 8);
+      ctx.fillStyle = '#475569';
+      ctx.font = '14px Arial, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('FULL STRATEGY ARSENAL — ALL ACTIVE', W / 2, y);
+      y += 22;
+
+      // Draw strategy pills in 2 rows
+      const pillH = 36, pillPad = 18;
+      const pillRows = [displayStrats.slice(0, 4), displayStrats.slice(4, 8)];
+      pillRows.forEach((row) => {
+        const totalPillW = row.reduce((acc, key) => {
+          const txt = strategyMap[key] || key;
+          const tw = txt.length * 11 + pillPad * 2;
+          return acc + tw + 12;
+        }, -12);
+        let px = (W - totalPillW) / 2;
+        row.forEach((key) => {
+          const label = strategyMap[key] || key;
+          const tw = label.length * 11 + pillPad * 2;
+          const pillColors: Record<string, string> = {
+            scalping: '#1a2a0a', momentum: '#0a1a2a', session_breakout: '#0a1a2a',
+            aggressive: '#2a0a0a', sniper: '#1a1a2a', compound: '#1a2a0a',
+            ict_order_blocks: '#1a0a2a', ict_fvg: '#0a1a2a', ict_liquidity_sweep: '#0a2a2a',
+            ict_bos: '#1a0a2a', ict_ote: '#1a1a2a', chart_pattern: '#2a1a0a',
+            smc_demand_supply: '#0a1a2a', asia_range_breakout: '#0a2a1a',
+            vwap_mean_reversion: '#0a1a2a', news_fade: '#2a1a0a', prop_firm_sniper: '#2a2a0a',
+          };
+          const borderColors: Record<string, string> = {
+            scalping: '#84cc16', momentum: '#38bdf8', session_breakout: '#22d3ee',
+            aggressive: '#ef4444', sniper: '#a78bfa', compound: '#22c55e',
+            ict_order_blocks: '#c084fc', ict_fvg: '#60a5fa', ict_liquidity_sweep: '#2dd4bf',
+            ict_bos: '#a78bfa', ict_ote: '#818cf8', chart_pattern: '#fb923c',
+            smc_demand_supply: '#38bdf8', asia_range_breakout: '#34d399',
+            vwap_mean_reversion: '#60a5fa', news_fade: '#f97316', prop_firm_sniper: '#fbbf24',
+          };
+          ctx.fillStyle = pillColors[key] || '#0a1a2a';
+          drawRoundRect(ctx, px, y, tw, pillH, pillH / 2);
+          ctx.fill();
+          ctx.strokeStyle = (borderColors[key] || '#475569') + '99';
+          ctx.lineWidth = 1.5;
+          drawRoundRect(ctx, px, y, tw, pillH, pillH / 2);
+          ctx.stroke();
+          ctx.fillStyle = borderColors[key] || '#94a3b8';
+          ctx.font = 'bold 13px Arial, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(label, px + tw / 2, y + 24);
+          px += tw + 12;
+        });
+        y += pillH + 10;
+      });
+      y += 18;
+
+      // ── AI Assessment + pairs ──────────────────────────────────────
+      if (strat.plan?.feasibility) {
+        const fcol = strat.plan.feasibility === 'ACHIEVABLE' ? '#22c55e' : strat.plan.feasibility === 'AGGRESSIVE' ? '#f97316' : '#ef4444';
+        ctx.fillStyle = fcol + '22';
+        drawRoundRect(ctx, 60, y, W - 120, 50, 12);
+        ctx.fill();
+        ctx.strokeStyle = fcol + '55';
+        ctx.lineWidth = 1;
+        drawRoundRect(ctx, 60, y, W - 120, 50, 12);
+        ctx.stroke();
+        ctx.fillStyle = fcol;
+        ctx.font = 'bold 22px Arial, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(`AI Assessment: ${strat.plan.feasibility}  •  Brain Confidence: HIGH`, W / 2, y + 33);
+        y += 64;
       }
 
       if (strat.pairs?.length) {
-        ctx.fillStyle = '#94a3b8';
+        ctx.fillStyle = '#334155';
         ctx.font = '18px Arial, sans-serif';
-        ctx.fillText(`Trading: ${strat.pairs.join(' | ')}`, W / 2, y);
-        y += 40;
+        ctx.textAlign = 'center';
+        ctx.fillText(`Monitoring: ${(strat.pairs as string[]).join(' · ')}`, W / 2, y);
+        y += 36;
       }
 
-      ctx.fillStyle = '#1e293b';
-      ctx.fillRect(60, y, W - 120, 2);
-      y += 30;
+      // ── Footer ────────────────────────────────────────────────────
+      ctx.fillStyle = 'rgba(255,255,255,0.06)';
+      ctx.fillRect(60, y + 10, W - 120, 1);
+      y += 26;
 
       const user = req.user as User;
-      ctx.fillStyle = '#94a3b8';
-      ctx.font = '16px Arial, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(`${user.username} | Generated ${new Date().toLocaleDateString()}`, W / 2, y);
-      y += 30;
       ctx.fillStyle = '#64748b';
-      ctx.font = '14px Arial, sans-serif';
-      ctx.fillText('vedd.ai | AI Trading Vault', W / 2, y);
+      ctx.font = '15px Arial, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(`${user.username}  ·  ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}  ·  VEDD AI Trading Vault`, W / 2, y);
+      y += 24;
+      ctx.fillStyle = '#334155';
+      ctx.font = '13px Arial, sans-serif';
+      ctx.fillText('Powered by GPT-4o  ·  ICT  ·  SMC  ·  Asia Range  ·  VWAP  ·  News Fade  ·  Prop Firm Protection', W / 2, y);
 
       const buffer = canvas.toBuffer('image/png');
       const fileName = `vedd-ss-ai-progress-${userId}-${Date.now()}.png`;
