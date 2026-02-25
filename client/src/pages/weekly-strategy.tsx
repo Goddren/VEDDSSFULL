@@ -768,6 +768,30 @@ export default function WeeklyStrategyPage() {
                     )}
                   </div>
 
+                  {/* ── Dual-Mode Arbitration Notice ── */}
+                  {enginePyramiding && engineKellyCriterion && (
+                    <div className="rounded-xl border border-purple-500/50 bg-purple-500/10 p-3">
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <span className="text-purple-300 text-sm">🧠</span>
+                        <span className="text-xs font-bold text-purple-200">Smart Arbitration Mode Active</span>
+                        <Badge className="ml-auto bg-purple-500/30 text-purple-300 border-purple-500/50 text-[9px]">AI DECIDES</Badge>
+                      </div>
+                      <p className="text-[10px] text-purple-300/80 leading-relaxed">
+                        Both Pyramid + Kelly are on. The AI engine will automatically choose per trade:
+                      </p>
+                      <div className="mt-1.5 space-y-1">
+                        <div className="flex items-start gap-1.5">
+                          <span className="text-[10px] text-emerald-400 font-bold mt-px">ADX ≥ 25</span>
+                          <span className="text-[10px] text-gray-300">— Trending market: Kelly sets the base lot, pyramid adds to winners at +15 pips</span>
+                        </div>
+                        <div className="flex items-start gap-1.5">
+                          <span className="text-[10px] text-blue-400 font-bold mt-px">ADX &lt; 25</span>
+                          <span className="text-[10px] text-gray-300">— Ranging market: Kelly only, pyramiding suppressed to protect capital</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {/* ── Drawdown Shield ── */}
                   <div className={`rounded-xl border p-3 transition-all ${engineDrawdownShield ? 'border-orange-500/60 bg-orange-500/10' : 'border-gray-700 bg-gray-900/30'}`}>
                     <div className="flex items-center justify-between">

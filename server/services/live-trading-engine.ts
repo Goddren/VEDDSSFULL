@@ -925,6 +925,22 @@ INSTRUCTION: Strategies marked 🔥HOT (≥1.5) or ✅WARM (≥1.2) — prioriti
 `;
     }
 
+    // ── Dual-Mode Arbitration Block ────────────────────────────────────
+    let dualModeSection = '';
+    if (config.useKellyCriterion && config.enablePyramiding) {
+      dualModeSection = `
+DUAL-MODE ACTIVE: Kelly Criterion + Auto-Pyramid are both enabled. You MUST choose which applies to each trade:
+• KELLY ONLY (use when ADX < 25 — ranging/choppy market): Output a standard OPEN_TRADE signal. The engine automatically sizes using Kelly. Do NOT recommend pyramiding on ranging markets — it increases risk with no momentum edge.
+• PYRAMID ALLOWED (use when ADX ≥ 25 — trending market): Include "pyramidAllowed": true in your JSON. The engine will add to winners automatically at +15 pips using Kelly-sized lots. Only recommend this on strongly trending setups with 5+ confluences.
+• RULE: Never output pyramiding on reversal strategies (ict_ote, smc_demand_supply, news_fade) — those are mean-reversion and conflate badly with pyramiding.
+• The engine will log its arbitration decision in the activity feed after every signal.
+`;
+    } else if (config.useKellyCriterion) {
+      dualModeSection = `KELLY CRITERION ACTIVE: All lot sizes are dynamically calculated from per-strategy win rate and R:R history. Your suggested lotSize will be overridden by Kelly math. Focus on confidence and direction — the engine handles sizing.\n`;
+    } else if (config.enablePyramiding) {
+      dualModeSection = `AUTO-PYRAMID ACTIVE: For trending setups (ADX ≥ 25) with strong momentum, the engine will automatically add to winning positions at +15 pips. Favour momentum and breakout strategies for pyramid-eligible setups.\n`;
+    }
+
     // ── Shield Override Block ──────────────────────────────────────────
     let shieldSection = '';
     if (state.drawdownShieldActive) {
@@ -961,7 +977,7 @@ ${brainInsights}
 
 PAIR-SPECIFIC KNOWLEDGE:
 ${pairKnowledge}
-${weightsSection}${shieldSection}${goalSection}
+${weightsSection}${shieldSection}${dualModeSection}${goalSection}
 REAL-TIME NEWS & MARKET SENTIMENT:
 ${newsContext && newsContext.headlines.length > 0 ? `Market Sentiment: ${newsContext.marketSentiment.toUpperCase()}
 Recent Headlines:
@@ -1507,9 +1523,34 @@ async function processDecision(userId: number, decision: any): Promise<void> {
       return;
     }
 
+    // ── Smart Dual-Mode Arbitration: Kelly + Pyramid ───────────────────
+    // When BOTH are enabled, the engine picks the right tool per trade:
+    //  • Kelly = conservative data-driven base (choppy/ranging markets)
+    //  • Pyramid = momentum-scaling (strongly trending markets only)
+    //  • Both ON = Kelly sets the base lot, pyramid fires only if ADX > 25
+
+    const bothEnabled = config.useKellyCriterion && config.enablePyramiding;
+    const snapshot = state.marketSnapshot?.[decision.symbol] || state.lastIndicatorSnapshot?.[decision.symbol];
+    const adxNow = (snapshot as any)?.adx || 0;
+    const isTrending = adxNow >= 25;
+
+    // Determine which sizing mode wins for this trade
+    let sizingMode: 'kelly' | 'pyramid' | 'kelly_base_pyramid_allowed' | 'default' = 'default';
+    if (bothEnabled) {
+      if (isTrending) {
+        sizingMode = 'kelly_base_pyramid_allowed';
+      } else {
+        sizingMode = 'kelly'; // Kelly only — no pyramiding in choppy markets
+      }
+    } else if (config.useKellyCriterion) {
+      sizingMode = 'kelly';
+    } else if (config.enablePyramiding) {
+      sizingMode = 'pyramid';
+    }
+
     // ── Kelly Criterion Lot Sizing ─────────────────────────────────────
     let kellyLot = rawLotSize;
-    if (config.useKellyCriterion && config.accountBalance > 0) {
+    if ((sizingMode === 'kelly' || sizingMode === 'kelly_base_pyramid_allowed') && config.accountBalance > 0) {
       const strat = (decision.strategy || 'auto').toLowerCase();
       const ks = state.goalTracker.kellyStats?.[strat];
       const wins = ks?.wins || 0;
@@ -1517,21 +1558,33 @@ async function processDecision(userId: number, decision: any): Promise<void> {
       const totalRR = ks?.totalRR || 0;
       const kellyFraction = calculateKellyFraction(wins, losses, totalRR);
       kellyLot = Math.round((config.accountBalance * kellyFraction / 1000) * 100) / 100;
-      if (wins + losses >= 5) {
-        const winRate = Math.round(wins / (wins + losses) * 100);
-        const avgRR = wins > 0 ? (totalRR / wins).toFixed(1) : '1.5';
-        addActivity(userId, {
-          type: 'info',
-          symbol: decision.symbol,
-          message: `📐 Kelly: ${strat} win rate ${winRate}%, avg R:R ${avgRR} → ${(kellyFraction * 100).toFixed(1)}% risk → ${kellyLot} lots`,
-        });
-      }
+      const winRate = wins + losses >= 5 ? Math.round(wins / (wins + losses) * 100) : null;
+      const avgRR = wins > 0 ? (totalRR / wins).toFixed(1) : '1.5';
+      const modeLabel = sizingMode === 'kelly_base_pyramid_allowed'
+        ? `Kelly base (ADX=${adxNow.toFixed(0)}, trending — pyramiding ALLOWED on this trade)`
+        : `Kelly only (ADX=${adxNow.toFixed(0)}, ranging — pyramiding SUPPRESSED)`;
+      addActivity(userId, {
+        type: 'info',
+        symbol: decision.symbol,
+        message: `📐 ${modeLabel}${winRate !== null ? ` | ${strat} ${winRate}% WR, R:R ${avgRR}` : ''} → ${kellyLot} lots`,
+      });
+    }
+
+    // Suppress pyramid if Kelly says market is choppy (both enabled + no trend)
+    const pyramidSuppressed = bothEnabled && !isTrending;
+    if (pyramidSuppressed && decision.pyramidOf) {
+      addActivity(userId, {
+        type: 'info',
+        symbol: decision.symbol,
+        message: `📐 Pyramid suppressed by Kelly mode — ADX ${adxNow.toFixed(0)} < 25, market ranging. Kelly sizing protects capital.`,
+      });
+      return;
     }
 
     const safeCompoundMult = isSmallAccount
       ? Math.min(state.goalTracker.compoundMultiplier, 1.25)
       : state.goalTracker.compoundMultiplier;
-    const baseLotForCalc = config.useKellyCriterion ? kellyLot : rawLotSize;
+    const baseLotForCalc = (sizingMode === 'kelly' || sizingMode === 'kelly_base_pyramid_allowed') ? kellyLot : rawLotSize;
     const compoundedLot = config.enableCompounding
       ? Math.round(baseLotForCalc * safeCompoundMult * 100) / 100
       : baseLotForCalc;
