@@ -177,6 +177,13 @@ void PollForSignals()
       {
          success = ExecuteModifySignal(symbols[i], stopLosses[i], takeProfits[i]);
       }
+      else if(actions[i] == "CLOSE_ALL")
+      {
+         Print("=== VEDD AI EMERGENCY STOP: CLOSING ALL POSITIONS ===");
+         Print("Reason: ", reasons[i]);
+         success = ExecuteCloseAllPositions();
+         Print("=== CLOSE_ALL result: ", success ? "SUCCESS" : "PARTIAL/FAILED", " ===");
+      }
       
       ConfirmSignal(signalIds[i], success);
    }
@@ -320,6 +327,70 @@ bool ExecuteModifySignal(string symbol, double sl, double tp)
       }
    }
    return false;
+}
+
+//+------------------------------------------------------------------+
+bool ExecuteCloseAllPositions()
+{
+   int total = PositionsTotal();
+   if(total == 0)
+   {
+      Print("CLOSE_ALL: No open positions found.");
+      return true;
+   }
+   
+   int closed = 0;
+   int failed = 0;
+   
+   for(int i = total - 1; i >= 0; i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(!PositionSelectByTicket(ticket)) continue;
+      
+      string sym = PositionGetString(POSITION_SYMBOL);
+      double vol = PositionGetDouble(POSITION_VOLUME);
+      ENUM_POSITION_TYPE posType = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+      
+      MqlTradeRequest request;
+      MqlTradeResult result;
+      ZeroMemory(request);
+      ZeroMemory(result);
+      
+      request.action   = TRADE_ACTION_DEAL;
+      request.position = ticket;
+      request.symbol   = sym;
+      request.volume   = vol;
+      request.type     = (posType == POSITION_TYPE_BUY) ? ORDER_TYPE_SELL : ORDER_TYPE_BUY;
+      request.price    = (request.type == ORDER_TYPE_SELL) ? SymbolInfoDouble(sym, SYMBOL_BID) : SymbolInfoDouble(sym, SYMBOL_ASK);
+      request.deviation = MaxSlippage;
+      request.magic    = 202500;
+      request.comment  = "VEDD_EMERGENCY_STOP";
+      
+      bool sent = OrderSend(request, result);
+      if(sent && result.retcode == TRADE_RETCODE_DONE)
+      {
+         Print("CLOSE_ALL: Closed ", sym, " ticket=", ticket, " vol=", vol);
+         closed++;
+      }
+      else
+      {
+         Print("CLOSE_ALL: Failed to close ", sym, " ticket=", ticket, " retcode=", result.retcode);
+         failed++;
+         // Retry once
+         Sleep(500);
+         ZeroMemory(result);
+         request.price = (request.type == ORDER_TYPE_SELL) ? SymbolInfoDouble(sym, SYMBOL_BID) : SymbolInfoDouble(sym, SYMBOL_ASK);
+         if(OrderSend(request, result) && result.retcode == TRADE_RETCODE_DONE)
+         {
+            Print("CLOSE_ALL: Retry succeeded for ", sym);
+            closed++;
+            failed--;
+         }
+      }
+   }
+   
+   Print("CLOSE_ALL complete: Closed=", closed, " Failed=", failed, " of ", total, " positions");
+   return (failed == 0);
 }
 
 //+------------------------------------------------------------------+

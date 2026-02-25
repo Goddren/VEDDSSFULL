@@ -211,6 +211,7 @@ export default function WeeklyStrategyPage() {
   const [engineDrawdownShield, setEngineDrawdownShield] = useState(true);
   const [engineShieldThreshold, setEngineShieldThreshold] = useState(3);
   const [engineAdaptiveScan, setEngineAdaptiveScan] = useState(true);
+  const [engineDailyLossLimit, setEngineDailyLossLimit] = useState(5);
 
   const { data: liveEngineStatus, refetch: refetchEngine } = useQuery<any>({
     queryKey: ['/api/vedd-live-engine/status'],
@@ -242,6 +243,7 @@ export default function WeeklyStrategyPage() {
         useKellyCriterion: engineKellyCriterion,
         drawdownShieldThreshold: engineDrawdownShield ? engineShieldThreshold : 0,
         adaptiveScanInterval: engineAdaptiveScan,
+        dailyLossLimit: engineDailyLossLimit,
       });
       return res.json();
     },
@@ -263,6 +265,25 @@ export default function WeeklyStrategyPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/vedd-live-engine/status'] });
       toast({ title: "Live Engine Stopped" });
+    },
+  });
+
+  const emergencyStopMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest('POST', '/api/vedd-live-engine/emergency-stop', {});
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/vedd-live-engine/status'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/vedd-live-engine/activity'] });
+      toast({
+        title: "EMERGENCY STOP EXECUTED",
+        description: "CLOSE ALL signal sent to MT5 EA. All positions will be closed immediately.",
+        variant: "destructive",
+      });
+    },
+    onError: (err: any) => {
+      toast({ title: "Emergency Stop Failed", description: err.message, variant: "destructive" });
     },
   });
 
@@ -559,12 +580,41 @@ export default function WeeklyStrategyPage() {
                     </div>
                   )}
                   {isRunning && (
-                    <Button size="sm" variant="destructive" onClick={() => stopEngineMutation.mutate()} disabled={stopEngineMutation.isPending} className="gap-1 text-xs">
-                      <XCircle className="w-3.5 h-3.5" /> Stop Engine
-                    </Button>
+                    <div className="flex flex-col gap-2 items-center">
+                      <Button size="sm" variant="destructive" onClick={() => stopEngineMutation.mutate()} disabled={stopEngineMutation.isPending || emergencyStopMutation.isPending} className="gap-1 text-xs">
+                        <XCircle className="w-3.5 h-3.5" /> Stop Engine
+                      </Button>
+                      <button
+                        onClick={() => {
+                          if (window.confirm('EMERGENCY STOP: This will immediately close ALL open positions on your MT5 account and halt the engine. Are you sure?')) {
+                            emergencyStopMutation.mutate();
+                          }
+                        }}
+                        disabled={emergencyStopMutation.isPending}
+                        className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-red-600 hover:bg-red-500 text-white border-2 border-red-400/60 shadow-lg shadow-red-500/30 animate-pulse hover:animate-none transition-all disabled:opacity-50"
+                      >
+                        {emergencyStopMutation.isPending ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <AlertCircle className="w-3 h-3" />
+                        )}
+                        🚨 CLOSE ALL & HALT
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>
+
+              {/* Daily loss halted warning */}
+              {liveEngineStatus?.dailyLossHalted && (
+                <div className="mt-3 mx-0 flex items-center gap-3 rounded-xl border-2 border-red-500/70 bg-red-950/40 px-4 py-3">
+                  <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0" />
+                  <div>
+                    <p className="text-red-400 font-bold text-sm">Daily Loss Limit Hit — Engine Halted</p>
+                    <p className="text-red-400/70 text-xs">CLOSE ALL signal sent to MT5 EA at {liveEngineStatus.dailyLossHaltedAt ? new Date(liveEngineStatus.dailyLossHaltedAt).toLocaleTimeString() : 'N/A'}. Restart engine tomorrow.</p>
+                  </div>
+                </div>
+              )}
 
               {/* Phase + win rate bar when running */}
               {isRunning && tracker && (
@@ -672,6 +722,14 @@ export default function WeeklyStrategyPage() {
                           { id: 'sniper', name: 'Sniper Mode' },
                         ].map(m => <option key={m.id} value={m.id}>{m.name}{enginePropFirmMode && m.id === 'sniper' ? ' (Prop Firm)' : ''}</option>)}
                       </select>
+                    </div>
+                    <div>
+                      <Label className="text-red-400 text-xs font-semibold flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3" /> Daily Loss Limit (%)
+                      </Label>
+                      <Input type="number" value={engineDailyLossLimit} onChange={e => setEngineDailyLossLimit(Number(e.target.value))}
+                        min={1} max={20} step={0.5} className="mt-1 bg-gray-800 border-red-900/50 text-white h-8 text-sm" />
+                      <p className="text-[10px] text-red-400/70 mt-0.5">Auto-closes all trades + halts engine</p>
                     </div>
                   </div>
                   <div>

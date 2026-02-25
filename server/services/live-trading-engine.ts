@@ -153,6 +153,8 @@ interface LiveEngineConfig {
   enablePyramiding: boolean;
   useKellyCriterion: boolean;
   drawdownShieldThreshold: number;
+  // Safety
+  dailyLossLimit: number;
 }
 
 interface LiveActivity {
@@ -171,7 +173,7 @@ export interface PendingMT5Signal {
   timestamp: string;
   symbol: string;
   direction: 'BUY' | 'SELL';
-  action: 'OPEN' | 'CLOSE' | 'MODIFY';
+  action: 'OPEN' | 'CLOSE' | 'MODIFY' | 'CLOSE_ALL';
   lotSize: number;
   entryPrice: number | null;
   stopLoss: number | null;
@@ -182,6 +184,8 @@ export interface PendingMT5Signal {
   strategy: string;
   confluences: string[];
   status: 'pending' | 'executed' | 'rejected' | 'expired';
+  modifyAction?: string;
+  positionId?: string | null;
 }
 
 const pendingMT5Signals: Record<number, PendingMT5Signal[]> = {};
@@ -249,6 +253,9 @@ interface EngineState {
   lastFridayClose: Record<string, number>;
   lastIndicatorSnapshot: Record<string, any>;
   lastTriggerAt: Record<string, number>;
+  pnlToday: number;
+  dailyLossHalted: boolean;
+  dailyLossHaltedAt: string | null;
 }
 
 const engineStates: Record<number, EngineState> = {};
@@ -320,6 +327,7 @@ function getDefaultConfig(userId: number): LiveEngineConfig {
     enablePyramiding: false,
     useKellyCriterion: false,
     drawdownShieldThreshold: 3,
+    dailyLossLimit: 5,
   };
 }
 
@@ -520,6 +528,10 @@ export function recordTradeResult(userId: number, result: {
       message: `✅ Drawdown shield disengaged — session P&L recovered. Full strategy arsenal resuming.`,
     });
   }
+
+  // ── Daily P&L tracking for loss limit ─────────────────────────────
+  state.pnlToday = Math.round((state.pnlToday + result.profit) * 100) / 100;
+  checkDailyLossLimit(userId);
 
   const weekKey = `${userId}_${tracker.weekStartedAt.split('T')[0].substring(0, 8)}`;
   goalTrackerCache[weekKey] = { ...tracker };
@@ -1915,6 +1927,9 @@ export function startLiveEngine(userId: number, config?: Partial<LiveEngineConfi
     lastFridayClose: {},
     lastIndicatorSnapshot: {},
     lastTriggerAt: {},
+    pnlToday: 0,
+    dailyLossHalted: false,
+    dailyLossHaltedAt: null,
   };
 
   const adaptiveInterval = getAdaptiveScanInterval(fullConfig);
@@ -1950,6 +1965,70 @@ export function startLiveEngine(userId: number, config?: Partial<LiveEngineConfi
   console.log(`[VEDD Live Engine] Started for user ${userId} | Strategy: ${fullConfig.strategyMode} | Interval: ${intervalDisplay}`);
 
   return engineStates[userId];
+}
+
+function queueCloseAllSignal(userId: number, reason: string): void {
+  if (!pendingMT5Signals[userId]) pendingMT5Signals[userId] = [];
+  const signal: PendingMT5Signal = {
+    id: `close_all_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    timestamp: new Date().toISOString(),
+    symbol: 'ALL',
+    direction: 'BUY',
+    action: 'CLOSE_ALL',
+    lotSize: 0,
+    entryPrice: null,
+    stopLoss: null,
+    takeProfit: null,
+    confidence: 100,
+    reason,
+    holdTime: '',
+    strategy: 'emergency_stop',
+    confluences: [],
+    status: 'pending',
+  };
+  pendingMT5Signals[userId].push(signal);
+}
+
+export function emergencyStopEngine(userId: number): EngineState | null {
+  if (engineIntervals[userId]) {
+    clearInterval(engineIntervals[userId]);
+    delete engineIntervals[userId];
+  }
+  if (engineTimers[userId]) {
+    clearTimeout(engineTimers[userId]);
+    delete engineTimers[userId];
+  }
+
+  const state = engineStates[userId];
+  if (state) {
+    state.status = 'stopped';
+    state.dailyLossHalted = true;
+    state.dailyLossHaltedAt = new Date().toISOString();
+    addActivity(userId, {
+      type: 'error',
+      message: `🚨 EMERGENCY STOP — CLOSE ALL signal sent to MT5 EA. Engine halted. All positions will be closed by the EA.`,
+    });
+  }
+
+  queueCloseAllSignal(userId, 'Emergency stop triggered from dashboard');
+  return state || null;
+}
+
+function checkDailyLossLimit(userId: number): void {
+  const state = engineStates[userId];
+  if (!state || state.dailyLossHalted) return;
+  const limit = state.config.dailyLossLimit;
+  if (!limit || limit <= 0) return;
+  const balance = state.config.accountBalance;
+  if (!balance || balance <= 0) return;
+  const lossPct = (state.pnlToday / balance) * 100;
+  if (lossPct <= -limit) {
+    addActivity(userId, {
+      type: 'error',
+      message: `🚨 DAILY LOSS LIMIT HIT — ${Math.abs(lossPct).toFixed(2)}% loss today exceeds ${limit}% limit. Sending CLOSE_ALL to MT5 and halting engine.`,
+    });
+    emergencyStopEngine(userId);
+  }
 }
 
 export function stopLiveEngine(userId: number): EngineState | null {

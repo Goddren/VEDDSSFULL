@@ -9364,12 +9364,12 @@ Respond with ONLY valid JSON:
   });
 
   // ==================== VEDD AI LIVE TRADING ENGINE ====================
-  const { startLiveEngine, stopLiveEngine, getLiveEngineState, getLiveEngineActivity, updateLiveEngineConfig, getPendingMT5Signals, confirmMT5Signal, getAllMT5Signals, recordTradeResult } = await import('./services/live-trading-engine');
+  const { startLiveEngine, stopLiveEngine, emergencyStopEngine, getLiveEngineState, getLiveEngineActivity, updateLiveEngineConfig, getPendingMT5Signals, confirmMT5Signal, getAllMT5Signals, recordTradeResult } = await import('./services/live-trading-engine');
 
   app.post("/api/vedd-live-engine/start", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
-    const { pairs, strategyMode, scanIntervalMs, maxOpenTrades, riskPerTrade, minConfidence, enablePositionManagement, trailingStopEnabled, trailingStopATRMultiplier, weeklyProfitTarget, accountBalance, enableCompounding, baseLotSize, propFirmMode, propFirmDailyDrawdownLimit, maxLotSize, adaptiveScanInterval, enablePyramiding, useKellyCriterion, drawdownShieldThreshold } = req.body;
+    const { pairs, strategyMode, scanIntervalMs, maxOpenTrades, riskPerTrade, minConfidence, enablePositionManagement, trailingStopEnabled, trailingStopATRMultiplier, weeklyProfitTarget, accountBalance, enableCompounding, baseLotSize, propFirmMode, propFirmDailyDrawdownLimit, maxLotSize, adaptiveScanInterval, enablePyramiding, useKellyCriterion, drawdownShieldThreshold, dailyLossLimit } = req.body;
     try {
       const state = startLiveEngine(userId, {
         pairs: pairs || undefined,
@@ -9392,6 +9392,7 @@ Respond with ONLY valid JSON:
         enablePyramiding: enablePyramiding !== undefined ? Boolean(enablePyramiding) : undefined,
         useKellyCriterion: useKellyCriterion !== undefined ? Boolean(useKellyCriterion) : undefined,
         drawdownShieldThreshold: drawdownShieldThreshold !== undefined ? Number(drawdownShieldThreshold) : undefined,
+        dailyLossLimit: dailyLossLimit !== undefined ? Number(dailyLossLimit) : undefined,
       });
       res.json({ success: true, state });
     } catch (err: any) {
@@ -9404,6 +9405,21 @@ Respond with ONLY valid JSON:
     const userId = (req.user as User).id;
     const state = stopLiveEngine(userId);
     res.json({ success: true, state });
+  });
+
+  app.post("/api/vedd-live-engine/emergency-stop", async (req: Request, res: Response) => {
+    const apiKey = req.headers['x-api-key'] as string || req.body?.apiKey;
+    let userId: number;
+    if (apiKey) {
+      const token = await storage.getMt5ApiTokenByToken(apiKey);
+      if (!token) return res.status(401).json({ error: "Invalid API key" });
+      userId = token.userId;
+    } else {
+      if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+      userId = (req.user as User).id;
+    }
+    const state = emergencyStopEngine(userId);
+    res.json({ success: true, halted: true, message: 'Emergency stop executed. CLOSE_ALL signal queued for MT5 EA.', state });
   });
 
   app.get("/api/vedd-live-engine/status", async (req: Request, res: Response) => {
