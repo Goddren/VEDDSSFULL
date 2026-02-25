@@ -7798,7 +7798,7 @@ Respond with ONLY valid JSON:
         vwap_mean_reversion: '📊 VWAP Rev', news_fade: '📰 News Fade', prop_firm_sniper: '🛡️ Prop Sniper',
       };
 
-      const W = 1080, H = 1350;
+      const W = 1080, H = 1280;
       const canvas = createCanvas(W, H);
       const ctx = canvas.getContext('2d');
 
@@ -8098,21 +8098,6 @@ Respond with ONLY valid JSON:
         y += 36;
       }
 
-      // ── Footer ────────────────────────────────────────────────────
-      ctx.fillStyle = 'rgba(255,255,255,0.06)';
-      ctx.fillRect(60, y + 10, W - 120, 1);
-      y += 26;
-
-      const user = req.user as User;
-      ctx.fillStyle = '#64748b';
-      ctx.font = '15px Arial, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(`${user.username}  ·  ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}  ·  VEDD AI Trading Vault`, W / 2, y);
-      y += 24;
-      ctx.fillStyle = '#334155';
-      ctx.font = '13px Arial, sans-serif';
-      ctx.fillText('Powered by GPT-4o  ·  ICT  ·  SMC  ·  Asia Range  ·  VWAP  ·  News Fade  ·  Prop Firm Protection', W / 2, y);
-
       const buffer = canvas.toBuffer('image/png');
       const fileName = `vedd-ss-ai-progress-${userId}-${Date.now()}.png`;
       const outDir = path.default.join(process.cwd(), 'uploads', 'share-cards');
@@ -8127,7 +8112,7 @@ Respond with ONLY valid JSON:
           accountBalance: strat.accountBalance,
           profitTarget: strat.profitTarget,
           currentProfit: strat.currentProfit || 0,
-          progressPercentage: progress,
+          progressPercentage: weeklyProgress,
           progressTrades: strat.progressTrades || 0,
           progressWinRate: strat.progressWinRate || 0,
           pairs: strat.pairs,
