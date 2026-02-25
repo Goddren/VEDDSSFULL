@@ -2564,12 +2564,15 @@ export default function SolanaScanner() {
   const [solPortfolioValue, setSolPortfolioValue] = useState('');
   const [solResultToken, setSolResultToken] = useState<{ address: string; dex: string; symbol: string } | null>(null);
   const [solResultGain, setSolResultGain] = useState('');
+  const [activeStrategyId, setActiveStrategyId] = useState('momentum_surfer');
+  const [weeklyGoalTargetSol, setWeeklyGoalTargetSol] = useState('');
+  const [weeklyGoalTargetPct, setWeeklyGoalTargetPct] = useState('');
   const { toast } = useToast();
   const { connected, walletData, signAndSendTransaction, getPublicKey, refreshWalletData } = useSolanaWallet();
 
   const { data: solEngineStatus, refetch: refetchEngineStatus } = useQuery<any>({
     queryKey: ['/api/sol-engine/status'],
-    refetchInterval: (data) => (data?.running ? 10000 : false),
+    refetchInterval: (data: any) => (data?.running ? 10000 : false),
     staleTime: 5000,
   });
 
@@ -2603,6 +2606,31 @@ export default function SolanaScanner() {
       toast({ title: msg });
       refetchEngineStatus();
     },
+  });
+
+  const setStrategyMutation = useMutation({
+    mutationFn: (strategyId: string) => apiRequest('POST', '/api/sol-engine/set-strategy', { strategyId }),
+    onSuccess: (_data: any, strategyId: string) => {
+      setActiveStrategyId(strategyId);
+      toast({ title: `Strategy switched` });
+      refetchEngineStatus();
+    },
+  });
+
+  const setWeeklyGoalMutation = useMutation({
+    mutationFn: (params: { targetSol?: number; targetPct?: number }) =>
+      apiRequest('POST', '/api/sol-engine/set-weekly-goal', params),
+    onSuccess: () => {
+      toast({ title: '🎯 Weekly goal set!', description: 'Auto-sizing will now adjust by phase' });
+      setWeeklyGoalTargetSol('');
+      setWeeklyGoalTargetPct('');
+      refetchEngineStatus();
+    },
+  });
+
+  const resetWeeklyGoalMutation = useMutation({
+    mutationFn: () => apiRequest('POST', '/api/sol-engine/reset-weekly-goal', {}),
+    onSuccess: () => { toast({ title: 'Weekly goal reset' }); refetchEngineStatus(); },
   });
   
   useEffect(() => {
@@ -2861,11 +2889,41 @@ export default function SolanaScanner() {
         const feed = solEngineStatus?.activityFeed || [];
         const macro = solEngineStatus?.lastMacro;
         const shieldOn = solEngineStatus?.shieldActive || false;
+        const weeklyGoal = solEngineStatus?.weeklyGoal || { phase: 'idle', targetSol: 0, currentProfitSol: 0, winStreak: 0, tradeHistory: [] };
+        const serverStrategy = solEngineStatus?.activeStrategy || activeStrategyId;
         const dexList = ['raydium', 'orca', 'meteora', 'pumpfun', 'jupiter'];
         const weightLabel = (w: number) => w >= 1.5 ? '🔥' : w >= 1.2 ? '✅' : w <= 0.3 ? '❌' : w <= 0.6 ? '⚠️' : '—';
+
+        const STRATEGIES = [
+          { id: 'momentum_surfer', name: 'Momentum Surfer', icon: '🏄', hold: '1–4h', conf: 70, risk: 'MEDIUM', base: 3 },
+          { id: 'breakout_hunter', name: 'Breakout Hunter', icon: '🚀', hold: '30m–2h', conf: 75, risk: 'MEDIUM', base: 2.5 },
+          { id: 'dip_sniper', name: 'Dip Sniper', icon: '🎯', hold: '2–8h', conf: 68, risk: 'LOW', base: 2 },
+          { id: 'meme_velocity', name: 'Meme Velocity', icon: '⚡', hold: '10–15m', conf: 65, risk: 'HIGH', base: 4 },
+          { id: 'whale_follower', name: 'Whale Follower', icon: '🐋', hold: '4–24h', conf: 72, risk: 'MEDIUM', base: 2 },
+          { id: 'volume_explosion', name: 'Volume Explosion', icon: '💥', hold: '20–45m', conf: 65, risk: 'MEDIUM', base: 3.5 },
+          { id: 'smart_money_flow', name: 'Smart Money', icon: '🧠', hold: '1–3d', conf: 78, risk: 'LOW', base: 2.5 },
+          { id: 'liquidity_sweep', name: 'Liquidity Sweep', icon: '🌊', hold: '10–30m', conf: 60, risk: 'HIGH', base: 1 },
+        ];
+
+        const phaseConfig: Record<string, { label: string; color: string; bg: string; mult: string }> = {
+          idle: { label: 'No goal set', color: 'text-gray-400', bg: 'bg-gray-700/30', mult: '—' },
+          warming_up: { label: 'Warming Up', color: 'text-blue-300', bg: 'bg-blue-500/20', mult: '0.8×' },
+          building: { label: 'Building', color: 'text-cyan-300', bg: 'bg-cyan-500/20', mult: '1.0×' },
+          accelerating: { label: 'Accelerating', color: 'text-amber-300', bg: 'bg-amber-500/20', mult: '1.25×' },
+          cruising: { label: 'Cruising', color: 'text-emerald-300', bg: 'bg-emerald-500/20', mult: '1.0×' },
+          pushing: { label: 'Pushing Hard', color: 'text-orange-300', bg: 'bg-orange-500/20', mult: '1.5×+' },
+          target_reached: { label: '🏆 Goal Reached!', color: 'text-yellow-300', bg: 'bg-yellow-500/20', mult: '0.5× coast' },
+        };
+        const phase = weeklyGoal.phase || 'idle';
+        const pc = phaseConfig[phase] || phaseConfig.idle;
+        const goalProgress = weeklyGoal.targetSol > 0 ? Math.min(1, weeklyGoal.currentProfitSol / weeklyGoal.targetSol) : 0;
+        const tradeCount = weeklyGoal.tradeHistory?.length || 0;
+        const wins = weeklyGoal.tradeHistory?.filter((t: any) => t.outcome === 'WIN').length || 0;
+        const winRate = tradeCount > 0 ? Math.round((wins / tradeCount) * 100) : 0;
+
         return (
           <div className={`rounded-2xl border transition-all duration-300 ${solEngineRunning ? 'border-purple-500/50 bg-gradient-to-r from-purple-950/30 to-violet-950/30' : 'border-gray-700/40 bg-gray-900/20'}`}>
-            {/* Header bar */}
+            {/* ── Header bar ── */}
             <div className="flex items-center justify-between p-4">
               <div className="flex items-center gap-3 flex-wrap">
                 <div className={`p-2 rounded-xl ${solEngineRunning ? 'bg-purple-500/20' : 'bg-gray-800/60'}`}>
@@ -2877,6 +2935,15 @@ export default function SolanaScanner() {
                     {solEngineRunning && <Badge className="bg-purple-500/20 text-purple-300 border-purple-500/30 text-[10px] animate-pulse">SCANNING</Badge>}
                     {!solEngineRunning && <Badge className="bg-gray-700/50 text-gray-500 border-gray-600/30 text-[10px]">IDLE</Badge>}
                     {shieldOn && <Badge className="bg-amber-500/20 text-amber-300 border-amber-500/30 text-[10px]">🛡️ SHIELD ON</Badge>}
+                    {phase !== 'idle' && (
+                      <Badge className={`${pc.bg} ${pc.color} border-0 text-[10px]`}>{pc.label} {pc.mult}</Badge>
+                    )}
+                    {solEngineRunning && (
+                      <span className="text-[10px] text-gray-500">
+                        {STRATEGIES.find(s => s.id === serverStrategy)?.icon}{' '}
+                        {STRATEGIES.find(s => s.id === serverStrategy)?.name}
+                      </span>
+                    )}
                   </div>
                   {macro && (
                     <p className="text-[10px] text-gray-400 mt-0.5">
@@ -2902,11 +2969,11 @@ export default function SolanaScanner() {
               </div>
             </div>
 
-            {/* Settings panel */}
+            {/* ── Settings panel ── */}
             {solEngineSettingsOpen && (
-              <div className="border-t border-gray-700/50 p-4 space-y-4">
+              <div className="border-t border-gray-700/50 p-4 space-y-5">
+                {/* Core toggles */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {/* Auto-Scan */}
                   <div className={`rounded-xl border p-3 ${solEngineAutoScan ? 'border-violet-500/50 bg-violet-500/10' : 'border-gray-700 bg-gray-900/30'}`}>
                     <label className="flex items-center gap-2 cursor-pointer" onClick={() => setSolEngineAutoScan(v => !v)}>
                       <input type="checkbox" checked={solEngineAutoScan} onChange={() => {}} className="accent-violet-500" />
@@ -2915,16 +2982,14 @@ export default function SolanaScanner() {
                     </label>
                     <p className="text-[10px] text-gray-400 mt-1">30s during peak hours (13–20 UTC), 2min overnight</p>
                   </div>
-                  {/* Kelly Sizing */}
                   <div className={`rounded-xl border p-3 ${solEngineKelly ? 'border-blue-500/50 bg-blue-500/10' : 'border-gray-700 bg-gray-900/30'}`}>
                     <label className="flex items-center gap-2 cursor-pointer" onClick={() => setSolEngineKelly(v => !v)}>
                       <input type="checkbox" checked={solEngineKelly} onChange={() => {}} className="accent-blue-500" />
-                      <span className="text-xs font-semibold text-blue-300">Kelly Sizing</span>
+                      <span className="text-xs font-semibold text-blue-300">Kelly Sizing Blend</span>
                       {solEngineKelly && <Badge className="ml-auto bg-blue-500/20 text-blue-300 border-blue-500/30 text-[9px]">ON</Badge>}
                     </label>
-                    <p className="text-[10px] text-gray-400 mt-1">Recommends SOL amount based on DEX win rate history</p>
+                    <p className="text-[10px] text-gray-400 mt-1">Blends Kelly criterion with strategy base size</p>
                   </div>
-                  {/* Drawdown Shield */}
                   <div className={`rounded-xl border p-3 ${solEngineShield ? 'border-amber-500/50 bg-amber-500/10' : 'border-gray-700 bg-gray-900/30'}`}>
                     <div className="flex items-center justify-between">
                       <label className="flex items-center gap-2 cursor-pointer" onClick={() => setSolEngineShield(v => !v)}>
@@ -2940,20 +3005,20 @@ export default function SolanaScanner() {
                     </div>
                     <p className="text-[10px] text-gray-400 mt-1">Restricts to LOW risk / 85%+ confidence when portfolio drops</p>
                   </div>
-                  {/* Min Confidence */}
                   <div className="rounded-xl border border-gray-700 bg-gray-900/30 p-3">
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-xs font-semibold text-gray-300">Min Confidence</span>
                       <span className="text-xs text-emerald-400 font-bold">{solEngineMinConf}%</span>
                     </div>
                     <input type="range" min={50} max={90} step={5} value={solEngineMinConf} onChange={e => setSolEngineMinConf(Number(e.target.value))} className="w-full accent-emerald-500" />
-                    <p className="text-[10px] text-gray-400 mt-1">Filters out tokens below this confidence threshold</p>
+                    <p className="text-[10px] text-gray-400 mt-1">Filter tokens below this threshold</p>
                   </div>
                 </div>
-                {/* Portfolio value for shield */}
+
+                {/* Portfolio value */}
                 <div className="flex items-center gap-2">
                   <div className="flex-1">
-                    <label className="text-xs text-gray-400 block mb-1">Current Portfolio Value (SOL) — for shield tracking</label>
+                    <label className="text-xs text-gray-400 block mb-1">Portfolio Value (SOL) — for auto-sizing &amp; shield</label>
                     <div className="flex gap-2">
                       <input type="number" min="0" step="0.1" value={solPortfolioValue} onChange={e => setSolPortfolioValue(e.target.value)} placeholder="e.g. 12.5" className="flex-1 h-8 bg-gray-800 border border-gray-600 text-white text-xs px-2 rounded" />
                       <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => { const v = parseFloat(solPortfolioValue); if (!isNaN(v) && v > 0) updatePortfolioMutation.mutate(v); }} disabled={updatePortfolioMutation.isPending}>Update</Button>
@@ -2966,10 +3031,126 @@ export default function SolanaScanner() {
                     </div>
                   )}
                 </div>
+
+                {/* ── Strategy Selector ── */}
+                <div>
+                  <p className="text-xs font-semibold text-purple-300 mb-2">Trading Strategy</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {STRATEGIES.map(s => {
+                      const isActive = serverStrategy === s.id;
+                      const riskColor = s.risk === 'LOW' ? 'text-emerald-400' : s.risk === 'HIGH' ? 'text-red-400' : 'text-yellow-400';
+                      return (
+                        <button
+                          key={s.id}
+                          onClick={() => setStrategyMutation.mutate(s.id)}
+                          disabled={setStrategyMutation.isPending}
+                          className={`rounded-xl border p-2.5 text-left transition-all duration-200 ${isActive ? 'border-purple-500 bg-purple-500/20 shadow-lg shadow-purple-500/10' : 'border-gray-700 bg-gray-900/30 hover:border-gray-500 hover:bg-gray-800/40'}`}
+                        >
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-base">{s.icon}</span>
+                            {isActive && <span className="text-[8px] text-purple-400 font-bold">ACTIVE</span>}
+                          </div>
+                          <p className={`text-[10px] font-semibold leading-tight ${isActive ? 'text-purple-200' : 'text-gray-300'}`}>{s.name}</p>
+                          <p className="text-[9px] text-gray-500 mt-0.5">{s.hold} • {s.conf}% min</p>
+                          <p className={`text-[9px] font-semibold mt-0.5 ${riskColor}`}>{s.risk} • {s.base}% base</p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[10px] text-gray-500 mt-1.5">Strategy sets base position size — auto-adjusts with phase multiplier each week</p>
+                </div>
               </div>
             )}
 
-            {/* DEX Weights row */}
+            {/* ── Weekly Goal Tracker ── */}
+            {solEngineRunning && (
+              <div className="border-t border-gray-700/50 p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-xs font-semibold text-gray-300">Weekly SOL Goal</p>
+                  {phase !== 'idle' && (
+                    <button onClick={() => resetWeeklyGoalMutation.mutate()} className="text-[10px] text-gray-500 hover:text-gray-300 transition-colors">Reset</button>
+                  )}
+                </div>
+
+                {phase === 'idle' ? (
+                  <div className="space-y-2">
+                    <p className="text-[10px] text-gray-400">Set a SOL profit target for this week. Position sizes will auto-scale through 6 phases as you progress.</p>
+                    <div className="flex gap-2 flex-wrap">
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="number" min="0" step="0.1" value={weeklyGoalTargetSol}
+                          onChange={e => { setWeeklyGoalTargetSol(e.target.value); setWeeklyGoalTargetPct(''); }}
+                          placeholder="Target SOL gain"
+                          className="w-32 h-8 bg-gray-800 border border-gray-600 text-white text-xs px-2 rounded"
+                        />
+                        <span className="text-[10px] text-gray-400">SOL</span>
+                      </div>
+                      <span className="text-[10px] text-gray-500 self-center">or</span>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="number" min="0" step="1" value={weeklyGoalTargetPct}
+                          onChange={e => { setWeeklyGoalTargetPct(e.target.value); setWeeklyGoalTargetSol(''); }}
+                          placeholder="Target %"
+                          className="w-24 h-8 bg-gray-800 border border-gray-600 text-white text-xs px-2 rounded"
+                        />
+                        <span className="text-[10px] text-gray-400">% gain</span>
+                      </div>
+                      <Button
+                        size="sm" className="h-8 text-xs bg-purple-600 hover:bg-purple-700"
+                        disabled={setWeeklyGoalMutation.isPending || (!weeklyGoalTargetSol && !weeklyGoalTargetPct)}
+                        onClick={() => {
+                          const params: any = {};
+                          if (weeklyGoalTargetSol) params.targetSol = parseFloat(weeklyGoalTargetSol);
+                          if (weeklyGoalTargetPct) params.targetPct = parseFloat(weeklyGoalTargetPct);
+                          setWeeklyGoalMutation.mutate(params);
+                        }}
+                      >Set Goal</Button>
+                    </div>
+                    <p className="text-[10px] text-gray-500">Requires portfolio value set above. Phases: Warming Up (0.8×) → Building (1×) → Accelerating (1.25×) → Cruising (1×) → Pushing (1.5×) → Coast (0.5×)</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Badge className={`${pc.bg} ${pc.color} border-0 text-xs px-2 py-0.5`}>{pc.label}</Badge>
+                      <span className="text-[10px] text-gray-400">Position size: <span className="font-bold text-white">{pc.mult}</span></span>
+                      {weeklyGoal.winStreak >= 3 && <Badge className="bg-orange-500/20 text-orange-300 border-0 text-[9px]">🔥 {weeklyGoal.winStreak} win streak</Badge>}
+                    </div>
+                    <div>
+                      <div className="flex justify-between text-[10px] text-gray-400 mb-1">
+                        <span>Progress</span>
+                        <span className={pc.color}>{(goalProgress * 100).toFixed(1)}% of target</span>
+                      </div>
+                      <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-500 ${phase === 'target_reached' ? 'bg-yellow-400' : phase === 'pushing' ? 'bg-orange-400' : phase === 'accelerating' ? 'bg-amber-400' : phase === 'cruising' ? 'bg-emerald-400' : phase === 'building' ? 'bg-cyan-400' : 'bg-blue-400'}`}
+                          style={{ width: `${goalProgress * 100}%` }}
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-4 gap-2">
+                      <div className="text-center">
+                        <p className="text-[9px] text-gray-500">Profit</p>
+                        <p className={`text-xs font-bold ${weeklyGoal.currentProfitSol >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{weeklyGoal.currentProfitSol >= 0 ? '+' : ''}{weeklyGoal.currentProfitSol.toFixed(3)} SOL</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-[9px] text-gray-500">Target</p>
+                        <p className="text-xs font-bold text-white">{weeklyGoal.targetSol.toFixed(3)} SOL</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-[9px] text-gray-500">Trades</p>
+                        <p className="text-xs font-bold text-white">{tradeCount}</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-[9px] text-gray-500">Win Rate</p>
+                        <p className={`text-xs font-bold ${winRate >= 60 ? 'text-emerald-400' : winRate >= 45 ? 'text-yellow-400' : 'text-red-400'}`}>{winRate}%</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── DEX Weights row ── */}
             {solEngineRunning && Object.keys(weights).length > 0 && (
               <div className="border-t border-gray-700/50 px-4 py-2 flex flex-wrap gap-3">
                 {dexList.map(dex => {
@@ -2986,13 +3167,13 @@ export default function SolanaScanner() {
               </div>
             )}
 
-            {/* Activity feed */}
+            {/* ── Activity feed ── */}
             {solEngineRunning && feed.length > 0 && (
-              <div className="border-t border-gray-700/50 p-3 space-y-1 max-h-36 overflow-y-auto">
-                {feed.slice(0, 8).map((entry: any, i: number) => (
+              <div className="border-t border-gray-700/50 p-3 space-y-1 max-h-40 overflow-y-auto">
+                {feed.slice(0, 10).map((entry: any, i: number) => (
                   <div key={i} className="flex items-start gap-2">
                     <span className="text-[9px] text-gray-600 shrink-0 mt-0.5">{new Date(entry.timestamp).toLocaleTimeString()}</span>
-                    <span className={`text-[10px] leading-relaxed ${entry.type === 'shield' ? 'text-amber-300' : entry.type === 'trigger' ? 'text-yellow-300' : entry.type === 'kelly' ? 'text-blue-300' : entry.type === 'signal' ? 'text-emerald-300' : 'text-gray-300'}`}>{entry.message}</span>
+                    <span className={`text-[10px] leading-relaxed ${entry.type === 'shield' ? 'text-amber-300' : entry.type === 'trigger' ? 'text-yellow-300' : entry.type === 'kelly' ? 'text-blue-300' : entry.type === 'signal' ? 'text-emerald-300' : entry.type === 'goal' ? 'text-purple-300' : entry.type === 'strategy' ? 'text-violet-300' : 'text-gray-300'}`}>{entry.message}</span>
                   </div>
                 ))}
               </div>
@@ -3141,12 +3322,30 @@ export default function SolanaScanner() {
               <TokenCard analysis={analysis} onBuy={handleBuyToken} isBuying={buyingToken === analysis.token.address} />
               {/* Sol Engine extras */}
               {solEngineRunning && (
-                <div className="mt-1.5 flex items-center gap-2 px-1">
-                  {analysis.recommendedSolAmount && analysis.recommendedSolAmount > 0 && (
-                    <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/30 text-[10px]">
-                      📐 Rec: {analysis.recommendedSolAmount.toFixed(3)} SOL
-                    </Badge>
-                  )}
+                <div className="mt-1.5 flex items-center gap-2 px-1 flex-wrap">
+                  {(() => {
+                    const goalPhase = solEngineStatus?.weeklyGoal?.phase || 'idle';
+                    const shieldOn = solEngineStatus?.shieldActive;
+                    const phaseMultMap: Record<string, string> = { warming_up: '0.8×', building: '1.0×', accelerating: '1.25×', cruising: '1.0×', pushing: '1.5×+', target_reached: '0.5×' };
+                    const mult = phaseMultMap[goalPhase] || '';
+                    if (goalPhase === 'target_reached') {
+                      return <Badge className="bg-yellow-500/20 text-yellow-300 border-yellow-500/30 text-[10px]">🎯 Goal hit — coast mode</Badge>;
+                    }
+                    if (shieldOn) {
+                      return <Badge className="bg-amber-500/20 text-amber-300 border-amber-500/30 text-[10px]">🛡️ Min size active</Badge>;
+                    }
+                    if (analysis.recommendedSolAmount && analysis.recommendedSolAmount > 0) {
+                      return (
+                        <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/30 text-[10px]">
+                          📐 Auto: {analysis.recommendedSolAmount.toFixed(3)} SOL{mult ? ` (${mult})` : ''}
+                        </Badge>
+                      );
+                    }
+                    if (solEngineStatus?.currentPortfolioValue > 0) {
+                      return <span className="text-[9px] text-gray-600">Set goal for auto-sizing</span>;
+                    }
+                    return null;
+                  })()}
                   <div className="ml-auto flex gap-1.5">
                     <button
                       onClick={() => recordResultMutation.mutate({ dex: analysis.token.dexId?.split('_')[0] || 'unknown', outcome: 'WIN', gainPct: 25 })}

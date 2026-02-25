@@ -12986,7 +12986,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
 
   // ============= SOL ENGINE =============
   {
-    const { startSolEngine, stopSolEngine, getSolEngineStatus, recordSolSignalResult, updateSolPortfolioValue } = await import('./services/sol-engine');
+    const { startSolEngine, stopSolEngine, getSolEngineStatus, recordSolSignalResult, updateSolPortfolioValue, setSolWeeklyGoal, resetSolWeeklyGoal, setSolStrategy, getSolStrategies } = await import('./services/sol-engine');
 
     app.post("/api/sol-engine/start", async (req: Request, res: Response) => {
       if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
@@ -13032,6 +13032,36 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         return res.status(400).json({ error: "solValue (number) required" });
       }
       const result = updateSolPortfolioValue((req.user as User).id, solValue);
+      res.json(result);
+    });
+
+    app.get("/api/sol-engine/strategies", async (_req: Request, res: Response) => {
+      res.json({ success: true, strategies: getSolStrategies() });
+    });
+
+    app.post("/api/sol-engine/set-strategy", async (req: Request, res: Response) => {
+      if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+      const { strategyId } = req.body;
+      if (!strategyId) return res.status(400).json({ error: "strategyId required" });
+      const result = setSolStrategy((req.user as User).id, strategyId);
+      if (!result.success) return res.status(400).json({ error: "Invalid strategyId" });
+      res.json(result);
+    });
+
+    app.post("/api/sol-engine/set-weekly-goal", async (req: Request, res: Response) => {
+      if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+      const { targetSol, targetPct } = req.body;
+      if (!targetSol && !targetPct) return res.status(400).json({ error: "targetSol or targetPct required" });
+      const result = setSolWeeklyGoal((req.user as User).id, {
+        targetSol: targetSol ? Number(targetSol) : undefined,
+        targetPct: targetPct ? Number(targetPct) : undefined,
+      });
+      res.json(result);
+    });
+
+    app.post("/api/sol-engine/reset-weekly-goal", async (req: Request, res: Response) => {
+      if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+      const result = resetSolWeeklyGoal((req.user as User).id);
       res.json(result);
     });
   }
