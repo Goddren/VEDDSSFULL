@@ -122,6 +122,16 @@ export interface EnsembleResult {
   modelVotes: Record<string, { action: string; direction: string; confidence: number; modelName: string }>;
   agreementPercent: number;
   mode: RoutingMode;
+  commentary?: {
+    marketOverview?: string;
+    nextScanFocus?: string;
+    newsImpact?: string;
+    volumeAssessment?: string;
+    tradingWindowQuality?: string;
+    hotPairs?: string[];
+    dangerZones?: string[];
+    engineConfidence?: number;
+  };
 }
 
 async function callProvider(
@@ -353,6 +363,19 @@ export async function runMultiModelAnalysis(
     const parsed = parseTradeResponse(content);
     if (!parsed) throw new Error(`Failed to parse JSON from ${modelDef.name}`);
 
+    if (!capturedCommentary && parsed.marketOverview) {
+      capturedCommentary = {
+        marketOverview: parsed.marketOverview,
+        nextScanFocus: parsed.nextScanFocus,
+        newsImpact: parsed.newsImpact,
+        volumeAssessment: parsed.volumeAssessment,
+        tradingWindowQuality: parsed.tradingWindowQuality,
+        hotPairs: parsed.hotPairs,
+        dangerZones: parsed.dangerZones,
+        engineConfidence: parsed.engineConfidence,
+      };
+    }
+
     const decisions = parsed.decisions || parsed.trades || [];
     return decisions.map((d: any) => ({
       ...d,
@@ -368,6 +391,8 @@ export async function runMultiModelAnalysis(
     agreementPercent: 100,
     mode: routingConfig.mode,
   };
+
+  let capturedCommentary: EnsembleResult['commentary'] = undefined;
 
   try {
     switch (routingConfig.mode) {
@@ -474,5 +499,6 @@ export async function runMultiModelAnalysis(
     console.error(`[Multi-Model] Fatal error in ${routingConfig.mode} mode:`, err.message);
   }
 
+  result.commentary = capturedCommentary;
   return result;
 }

@@ -909,10 +909,17 @@ Respond ONLY with valid JSON. Generate MULTIPLE decisions when opportunities exi
         const ensembleResult = await runMultiModelAnalysis(userId, systemPrompt, prompt, routingConfig, openai);
 
         if (ensembleResult.consensusDecisions.length > 0 || ensembleResult.decisions.length > 0) {
+          const mc = ensembleResult.commentary;
           decisions = {
             decisions: ensembleResult.consensusDecisions.length > 0 ? ensembleResult.consensusDecisions : ensembleResult.decisions,
-            engineConfidence: ensembleResult.agreementPercent,
-            marketOverview: `Multi-model ${routingConfig.mode} analysis`,
+            engineConfidence: mc?.engineConfidence || ensembleResult.agreementPercent,
+            marketOverview: mc?.marketOverview || `Multi-model ${routingConfig.mode} analysis — ${ensembleResult.agreementPercent}% agreement`,
+            hotPairs: mc?.hotPairs,
+            dangerZones: mc?.dangerZones,
+            nextScanFocus: mc?.nextScanFocus,
+            newsImpact: mc?.newsImpact,
+            volumeAssessment: mc?.volumeAssessment,
+            tradingWindowQuality: mc?.tradingWindowQuality,
             activeStrategies: [...new Set(ensembleResult.decisions.map((d: any) => d.strategy).filter(Boolean))],
           };
 

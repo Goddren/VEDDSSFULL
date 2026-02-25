@@ -18,11 +18,12 @@ import {
   CheckCircle, AlertCircle, Zap, ChevronRight, Star,
   Rocket, Flame, ArrowUpRight, Power, XCircle, Lightbulb,
   Newspaper, Radio, Activity, Share2, Loader2, Copy, Download,
-  Sparkles, ExternalLink
+  Sparkles, ExternalLink, Settings, ChevronDown, ChevronUp,
+  TrendingDown, Crosshair, BookOpen, Swords
 } from "lucide-react";
 import { SiX, SiFacebook, SiLinkedin } from "react-icons/si";
 import VeddLogo from "@/components/ui/vedd-logo";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 
 const POPULAR_PAIRS = [
   "EURUSD", "GBPUSD", "USDJPY", "USDCHF", "AUDUSD", "NZDUSD", "USDCAD",
@@ -53,6 +54,10 @@ export default function WeeklyStrategyPage() {
   const [selectedPairs, setSelectedPairs] = useState<string[]>(["XAUUSD", "GBPJPY", "NAS100"]);
   const [pairInput, setPairInput] = useState("");
   const [strategyMode, setStrategyMode] = useState("aggressive");
+  const [showConfig, setShowConfig] = useState(false);
+  const [showBrain, setShowBrain] = useState(false);
+  const [showWeeklyPlan, setShowWeeklyPlan] = useState(false);
+  const [liveEngineTab, setLiveEngineTab] = useState<'activity' | 'market' | 'pairs' | 'combos'>('activity');
 
   const { data: strategy, isLoading } = useQuery<WeeklyStrategy>({
     queryKey: ['/api/weekly-strategy'],
@@ -188,7 +193,6 @@ export default function WeeklyStrategyPage() {
     },
   });
 
-  const [liveEngineTab, setLiveEngineTab] = useState<'activity' | 'config' | 'market'>('activity');
   const [enginePairs, setEnginePairs] = useState<string[]>(['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'BTCUSD']);
   const [enginePairInput, setEnginePairInput] = useState('');
   const [engineMode, setEngineMode] = useState('aggressive');
@@ -206,7 +210,7 @@ export default function WeeklyStrategyPage() {
     refetchInterval: 5000,
   });
 
-  const { data: liveEngineActivityData, refetch: refetchActivity } = useQuery<any>({
+  const { data: liveEngineActivityData } = useQuery<any>({
     queryKey: ['/api/vedd-live-engine/activity'],
     refetchInterval: 5000,
     enabled: liveEngineStatus?.status === 'running',
@@ -259,12 +263,8 @@ export default function WeeklyStrategyPage() {
       const res = await apiRequest('POST', '/api/weekly-strategy/share-card', {});
       return res.json();
     },
-    onSuccess: (data) => {
-      setShareCardUrl(data.imageUrl);
-    },
-    onError: () => {
-      toast({ title: "Card generation failed", variant: "destructive" });
-    },
+    onSuccess: (data) => { setShareCardUrl(data.imageUrl); },
+    onError: () => { toast({ title: "Card generation failed", variant: "destructive" }); },
   });
 
   const generatePostMutation = useMutation({
@@ -272,13 +272,8 @@ export default function WeeklyStrategyPage() {
       const res = await apiRequest('POST', '/api/weekly-strategy/generate-post', { platform });
       return res.json();
     },
-    onSuccess: (data) => {
-      setSharePost(data.post);
-      toast({ title: "AI post generated!" });
-    },
-    onError: () => {
-      toast({ title: "Post generation failed", variant: "destructive" });
-    },
+    onSuccess: (data) => { setSharePost(data.post); toast({ title: "AI post generated!" }); },
+    onError: () => { toast({ title: "Post generation failed", variant: "destructive" }); },
   });
 
   const openShareDialog = () => {
@@ -295,9 +290,7 @@ export default function WeeklyStrategyPage() {
       facebook: `https://www.facebook.com/sharer/sharer.php?quote=${encodeURIComponent(text)}`,
       linkedin: `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(window.location.href)}&summary=${encodeURIComponent(text)}`,
     };
-    if (shareUrls[platform]) {
-      window.open(shareUrls[platform], '_blank', 'width=600,height=400');
-    }
+    if (shareUrls[platform]) window.open(shareUrls[platform], '_blank', 'width=600,height=400');
   };
 
   const handleCopyPost = async () => {
@@ -315,9 +308,7 @@ export default function WeeklyStrategyPage() {
   };
 
   const togglePair = (pair: string) => {
-    setSelectedPairs(prev =>
-      prev.includes(pair) ? prev.filter(p => p !== pair) : [...prev, pair]
-    );
+    setSelectedPairs(prev => prev.includes(pair) ? prev.filter(p => p !== pair) : [...prev, pair]);
   };
 
   const addEnginePair = () => {
@@ -340,1694 +331,1339 @@ export default function WeeklyStrategyPage() {
     }
   };
 
-  const formGrowthMultiplier = accountBalance && profitTarget && parseFloat(accountBalance) > 0
-    ? ((parseFloat(accountBalance) + parseFloat(profitTarget)) / parseFloat(accountBalance)).toFixed(1)
-    : '1.0';
-
-  const strategyGrowthMultiplier = strategy?.accountBalance && strategy?.profitTarget && strategy.accountBalance > 0
-    ? (((strategy.accountBalance + strategy.profitTarget) / strategy.accountBalance)).toFixed(1)
-    : '1.0';
-
+  const isRunning = liveEngineStatus?.status === 'running';
+  const tracker = liveEngineStatus?.goalTracker;
   const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
   const plan = strategy?.plan;
+  const formGrowthMultiplier = accountBalance && profitTarget && parseFloat(accountBalance) > 0
+    ? ((parseFloat(accountBalance) + parseFloat(profitTarget)) / parseFloat(accountBalance)).toFixed(1) : '1.0';
+
+  const getPairRating = (symbol: string, data: any) => {
+    const wr = data.trades > 0 ? Math.round((data.wins / data.trades) * 100) : 0;
+    if (wr >= 60 && data.pnl > 0) return { label: 'FAVOUR', color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/30' };
+    if (data.trades >= 3 && (wr < 40 || data.pnl < 0)) return { label: 'AVOID', color: 'text-red-400', bg: 'bg-red-500/10 border-red-500/30' };
+    return { label: 'NEUTRAL', color: 'text-yellow-400', bg: 'bg-yellow-500/10 border-yellow-500/30' };
+  };
+
+  const getComboRating = (data: any) => {
+    const wr = data.trades > 0 ? Math.round((data.wins / data.trades) * 100) : 0;
+    if (wr >= 60 && data.pnl > 0) return { label: 'BEST COMBO', color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/30' };
+    if (data.trades >= 2 && (wr < 40 || data.pnl < 0)) return { label: 'POOR', color: 'text-red-400', bg: 'bg-red-500/10 border-red-500/30' };
+    return { label: 'NEUTRAL', color: 'text-yellow-400', bg: 'bg-yellow-500/10 border-yellow-500/30' };
+  };
+
+  const buildDailyBattlePlan = () => {
+    if (!tracker) return null;
+    const symbolBd = tracker.symbolBreakdown || {};
+    const pairStratBd = tracker.pairStrategyBreakdown || {};
+    const phase = tracker.currentPhase || 'warming_up';
+    const remaining = tracker.weeklyTarget > 0 ? Math.max(0, tracker.weeklyTarget - tracker.currentProfit) : 0;
+    const nowHour = new Date().getUTCHours();
+    const session = nowHour >= 7 && nowHour < 12 ? 'London' : nowHour >= 12 && nowHour < 17 ? 'London/NY Overlap' : nowHour >= 17 && nowHour < 21 ? 'New York' : nowHour >= 0 && nowHour < 7 ? 'Asian' : 'Off-Session';
+
+    const favourPairs = Object.entries(symbolBd).filter(([, d]: [string, any]) => {
+      const wr = d.trades > 0 ? Math.round((d.wins / d.trades) * 100) : 0;
+      return wr >= 60 && d.pnl > 0;
+    }).map(([s]) => s);
+
+    const avoidPairs = Object.entries(symbolBd).filter(([, d]: [string, any]) => {
+      const wr = d.trades > 0 ? Math.round((d.wins / d.trades) * 100) : 0;
+      return d.trades >= 3 && (wr < 40 || d.pnl < 0);
+    }).map(([s]) => s);
+
+    const bestCombos = Object.entries(pairStratBd)
+      .filter(([, d]: [string, any]) => {
+        const wr = d.trades > 0 ? Math.round((d.wins / d.trades) * 100) : 0;
+        return wr >= 60 && d.pnl > 0;
+      })
+      .sort(([, a]: [string, any], [, b]: [string, any]) => b.pnl - a.pnl)
+      .slice(0, 3)
+      .map(([k]) => k.replace('|', ' + '));
+
+    const riskInstruction =
+      phase === 'target_reached' ? 'LOCK IN PROFITS — engine on cruise control, only A+ setups' :
+      phase === 'pushing' ? 'PUSH HARD — aggressive entries, compound lot sizes enabled' :
+      phase === 'accelerating' ? 'STEP ON IT — medium-high confidence threshold, scale into winners' :
+      phase === 'building' ? 'BUILD STEADY — standard risk, stack consistent wins' :
+      'WARM UP — conservative approach, 75%+ confidence only, learn the market';
+
+    return { favourPairs, avoidPairs, bestCombos, session, remaining, riskInstruction, phase };
+  };
+
+  const battlePlan = buildDailyBattlePlan();
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-950 via-gray-900 to-gray-950 p-4 md:p-6">
-      <div className="max-w-6xl mx-auto space-y-6">
+    <div className="min-h-screen bg-[#0a0b0f] text-white">
+      {/* Top nav */}
+      <div className="border-b border-gray-800/60 px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Link href="/mt5-chart-data">
-            <Button variant="ghost" size="sm" className="text-gray-400 hover:text-white">
-              <ArrowLeft className="w-4 h-4 mr-1" /> Back to MT5
+            <Button variant="ghost" size="sm" className="text-gray-400 hover:text-white gap-1">
+              <ArrowLeft className="w-4 h-4" /> Back
             </Button>
           </Link>
-        </div>
-
-        <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="text-center space-y-2">
-          <div className="inline-flex items-center gap-3 px-6 py-3 rounded-full bg-gradient-to-r from-orange-500/20 to-red-500/20 border border-orange-500/30">
-            <Rocket className="w-8 h-8 text-orange-400" />
-            <h1 className="text-3xl font-bold text-white">VEDD SS AI</h1>
-            <Flame className="w-6 h-6 text-red-400" />
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" style={{ display: isRunning ? 'block' : 'none' }} />
+            <span className="text-sm font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
+              VEDD SS AI ENGINE
+            </span>
+            {isRunning && (
+              <Badge className="bg-cyan-500/20 text-cyan-400 border-cyan-500/30 text-[10px] animate-pulse">LIVE</Badge>
+            )}
           </div>
-          <p className="text-gray-400 text-lg max-w-2xl mx-auto">
-            Self-learning AI engine. Learns from your trades, generates signals autonomously, and uses HFT strategies to grow accounts fast.
-          </p>
-        </motion.div>
+        </div>
+        <div className="flex items-center gap-2">
+          {strategy?.hasStrategy && (
+            <Button size="sm" variant="ghost" onClick={openShareDialog} className="text-purple-400 gap-1 text-xs">
+              <Share2 className="w-3.5 h-3.5" /> Share
+            </Button>
+          )}
+        </div>
+      </div>
 
-        {strategy?.hasStrategy && plan ? (
-          <div className="space-y-6">
-            {/* LIVE TRADING SWITCH */}
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.4, ease: "easeOut" }}
-            >
-              <Card className={`border-2 transition-all duration-500 ${
-                liveMode?.live 
-                  ? 'border-green-500/60 bg-gradient-to-r from-green-950/40 to-emerald-950/40 shadow-lg shadow-green-500/10' 
-                  : 'border-gray-700/50 bg-gray-900/40'
-              }`}>
-                <CardContent className="p-5">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div className={`relative p-3 rounded-xl transition-all duration-500 ${liveMode?.live ? 'bg-green-500/15' : 'bg-gray-800/60'}`}>
-                        <Power className={`w-7 h-7 transition-colors duration-300 ${liveMode?.live ? 'text-green-400' : 'text-gray-500'}`} />
-                        {liveMode?.live && (
-                          <div className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-green-400 rounded-full animate-pulse shadow-lg shadow-green-400/50" />
-                        )}
+      <div className="max-w-7xl mx-auto p-4 space-y-4">
+
+        {/* ═══════════════════════════════════════════════════════
+            HERO ENGINE TOGGLE — ALWAYS FRONT AND CENTER
+        ═══════════════════════════════════════════════════════ */}
+        <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }}>
+          <div className={`relative overflow-hidden rounded-2xl border-2 transition-all duration-700 ${
+            isRunning
+              ? 'border-cyan-500/70 shadow-[0_0_60px_rgba(6,182,212,0.15)]'
+              : 'border-gray-700/60'
+          }`}>
+            {isRunning && (
+              <div className="absolute inset-0 bg-gradient-to-br from-cyan-950/40 via-blue-950/30 to-purple-950/20" />
+            )}
+            {!isRunning && (
+              <div className="absolute inset-0 bg-gradient-to-br from-gray-900/80 to-gray-950/80" />
+            )}
+
+            <div className="relative p-6 md:p-8">
+              <div className="flex flex-col md:flex-row items-center gap-6 md:gap-8">
+
+                {/* Power Button */}
+                <div className="flex-shrink-0">
+                  <button
+                    onClick={() => isRunning ? stopEngineMutation.mutate() : startEngineMutation.mutate()}
+                    disabled={startEngineMutation.isPending || stopEngineMutation.isPending}
+                    className={`relative w-24 h-24 md:w-28 md:h-28 rounded-full flex items-center justify-center transition-all duration-500 group ${
+                      isRunning
+                        ? 'bg-cyan-500/20 border-2 border-cyan-400/60 shadow-[0_0_30px_rgba(6,182,212,0.4)] hover:shadow-[0_0_50px_rgba(6,182,212,0.6)]'
+                        : 'bg-gray-800/80 border-2 border-gray-600/60 hover:border-gray-400/60 hover:bg-gray-700/80'
+                    }`}
+                  >
+                    {startEngineMutation.isPending || stopEngineMutation.isPending ? (
+                      <Loader2 className="w-10 h-10 animate-spin text-cyan-400" />
+                    ) : (
+                      <Power className={`w-10 h-10 transition-colors duration-300 ${
+                        isRunning ? 'text-cyan-400' : 'text-gray-400 group-hover:text-white'
+                      }`} />
+                    )}
+                    {isRunning && (
+                      <>
+                        <div className="absolute inset-0 rounded-full border-2 border-cyan-400/30 animate-ping" style={{ animationDuration: '2s' }} />
+                        <div className="absolute -top-1 -right-1 w-4 h-4 bg-emerald-400 rounded-full border-2 border-gray-900 shadow-lg shadow-emerald-400/50" />
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {/* Engine status text */}
+                <div className="flex-1 text-center md:text-left">
+                  <div className="flex items-center gap-3 justify-center md:justify-start mb-1">
+                    <h1 className={`text-2xl md:text-3xl font-black tracking-tight transition-colors duration-500 ${
+                      isRunning ? 'text-cyan-400' : 'text-gray-300'
+                    }`}>
+                      {isRunning ? 'ENGINE ACTIVE' : 'VEDD SS AI ENGINE'}
+                    </h1>
+                    {isRunning && liveEngineStatus?.currentlyScanning && (
+                      <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30 text-[10px]">
+                        <Loader2 className="w-3 h-3 mr-1 animate-spin" /> SCANNING
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="text-gray-400 text-sm md:text-base">
+                    {isRunning
+                      ? `Scanning ${(liveEngineStatus?.config?.pairs || []).length} pairs every ${(liveEngineStatus?.config?.scanIntervalMs || 60000) / 1000}s — Supreme Mathematics in the cipher`
+                      : 'Self-learning AI engine. Configure your settings and ignite it to auto-trade in real-time.'}
+                  </p>
+                  {isRunning && tracker?.weeklyTarget > 0 && (
+                    <div className="mt-3 space-y-1 max-w-md">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-gray-400">Weekly Goal: ${tracker.currentProfit?.toFixed(2)} / ${tracker.weeklyTarget}</span>
+                        <span className={`font-bold ${
+                          tracker.progressPercent >= 100 ? 'text-emerald-400' :
+                          tracker.progressPercent >= 75 ? 'text-yellow-400' : 'text-cyan-400'
+                        }`}>{tracker.progressPercent}%</span>
                       </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h3 className={`text-lg font-bold transition-colors duration-300 ${liveMode?.live ? 'text-green-400' : 'text-gray-400'}`}>
-                            VEDD SS AI
-                          </h3>
-                          {liveMode?.live && (
-                            <Badge className="bg-green-500/20 text-green-400 border-green-500/30 text-[10px] animate-pulse">
-                              LIVE
-                            </Badge>
-                          )}
-                        </div>
-                        <p className="text-gray-500 text-sm mt-0.5">
-                          {liveMode?.live 
-                            ? 'Guiding your EA trades in real-time'
-                            : 'Toggle to activate AI trade guidance'}
-                        </p>
+                      <div className="w-full bg-gray-800 rounded-full h-2">
+                        <div className={`h-2 rounded-full transition-all duration-700 ${
+                          tracker.progressPercent >= 100 ? 'bg-emerald-500 shadow-[0_0_10px_rgba(52,211,153,0.5)]' :
+                          tracker.progressPercent >= 75 ? 'bg-yellow-500' :
+                          tracker.progressPercent >= 50 ? 'bg-cyan-500' : 'bg-purple-500'
+                        }`} style={{ width: `${Math.min(100, tracker.progressPercent)}%` }} />
                       </div>
                     </div>
-                    <FeatureToggle
-                      checked={liveMode?.live || false}
-                      onCheckedChange={(checked) => toggleLiveMutation.mutate(checked)}
-                      activeColor="green"
-                      size="lg"
-                      showLabel
-                      activeLabel="LIVE"
-                      inactiveLabel="OFF"
-                      disabled={toggleLiveMutation.isPending || !strategy?.hasStrategy}
-                    />
+                  )}
+                </div>
+
+                {/* Right side — quick stats or action */}
+                <div className="flex-shrink-0 flex flex-col items-center gap-3">
+                  {isRunning ? (
+                    <div className="grid grid-cols-3 gap-2 text-center">
+                      {[
+                        { label: 'Scans', value: liveEngineStatus?.scanCount || 0, color: 'text-blue-400' },
+                        { label: 'Signals', value: liveEngineStatus?.signalsGenerated || 0, color: 'text-purple-400' },
+                        { label: 'Trades', value: liveEngineStatus?.tradesExecuted || 0, color: 'text-emerald-400' },
+                        { label: 'Open', value: liveEngineStatus?.openPositionCount || 0, color: 'text-yellow-400' },
+                        { label: 'Wins', value: tracker?.wins || 0, color: 'text-emerald-400' },
+                        { label: 'Losses', value: tracker?.losses || 0, color: 'text-red-400' },
+                      ].map(s => (
+                        <div key={s.label} className="bg-gray-900/60 rounded-lg px-3 py-2 border border-gray-700/40">
+                          <div className={`text-lg font-bold ${s.color}`}>{s.value}</div>
+                          <div className="text-[10px] text-gray-500">{s.label}</div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="space-y-2 text-center">
+                      <Button
+                        onClick={() => startEngineMutation.mutate()}
+                        disabled={startEngineMutation.isPending}
+                        className="bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 font-bold px-8 py-3 text-base shadow-lg shadow-cyan-500/20"
+                      >
+                        {startEngineMutation.isPending ? (
+                          <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Activating...</>
+                        ) : (
+                          <><Zap className="w-4 h-4 mr-2" /> Ignite Engine</>
+                        )}
+                      </Button>
+                      <button onClick={() => setShowConfig(!showConfig)} className="text-xs text-gray-500 hover:text-gray-300 flex items-center gap-1 mx-auto">
+                        <Settings className="w-3 h-3" /> Configure Settings
+                        {showConfig ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                      </button>
+                    </div>
+                  )}
+                  {isRunning && (
+                    <Button size="sm" variant="destructive" onClick={() => stopEngineMutation.mutate()} disabled={stopEngineMutation.isPending} className="gap-1 text-xs">
+                      <XCircle className="w-3.5 h-3.5" /> Stop Engine
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              {/* Phase + win rate bar when running */}
+              {isRunning && tracker && (
+                <div className="mt-4 pt-4 border-t border-gray-700/40 flex flex-wrap gap-3 items-center">
+                  <Badge className={`text-xs px-2 py-1 ${
+                    tracker.currentPhase === 'target_reached' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' :
+                    tracker.currentPhase === 'pushing' ? 'bg-orange-500/20 text-orange-400 border-orange-500/30' :
+                    tracker.currentPhase === 'accelerating' ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' :
+                    tracker.currentPhase === 'cruising' ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30' :
+                    tracker.currentPhase === 'building' ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' :
+                    'bg-gray-500/20 text-gray-400 border-gray-600'
+                  }`}>
+                    ⚡ {tracker.currentPhase?.replace(/_/g, ' ').toUpperCase()}
+                  </Badge>
+                  <span className="text-xs text-gray-500">{tracker.winRate}% Win Rate</span>
+                  {tracker.consecutiveWins > 1 && (
+                    <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20 text-[10px]">
+                      <Flame className="w-3 h-3 mr-1" /> {tracker.consecutiveWins} win streak | {tracker.compoundMultiplier}x compound
+                    </Badge>
+                  )}
+                  {tracker.consecutiveLosses > 1 && (
+                    <Badge className="bg-red-500/10 text-red-400 border-red-500/20 text-[10px]">
+                      <AlertCircle className="w-3 h-3 mr-1" /> {tracker.consecutiveLosses} loss streak — lots reduced to {tracker.compoundMultiplier}x
+                    </Badge>
+                  )}
+                  <span className="ml-auto text-xs text-gray-600">
+                    Running since {liveEngineStatus?.startedAt ? new Date(liveEngineStatus.startedAt).toLocaleTimeString() : 'N/A'}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        </motion.div>
+
+        {/* ═══════════════════════════════════════════════════════
+            ENGINE CONFIG (collapsible when stopped, always accessible)
+        ═══════════════════════════════════════════════════════ */}
+        <AnimatePresence>
+          {(!isRunning || showConfig) && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.3 }}
+            >
+              <Card className="bg-gray-900/60 border-gray-700/60">
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-base flex items-center gap-2 text-gray-200">
+                      <Settings className="w-4 h-4 text-cyan-400" /> Engine Configuration
+                    </CardTitle>
+                    {isRunning && (
+                      <button onClick={() => setShowConfig(false)} className="text-gray-500 hover:text-gray-300">
+                        <XCircle className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div>
+                      <Label className="text-gray-400 text-xs">Account Balance ($)</Label>
+                      <Input type="number" value={engineAccountBalance} onChange={e => setEngineAccountBalance(Number(e.target.value))}
+                        min={10} step={10} className="mt-1 bg-gray-800 border-gray-700 text-white h-8 text-sm" />
+                    </div>
+                    <div>
+                      <Label className="text-gray-400 text-xs">Weekly Target ($)</Label>
+                      <Input type="number" value={engineWeeklyTarget} onChange={e => setEngineWeeklyTarget(Number(e.target.value))}
+                        min={0} step={10} className="mt-1 bg-gray-800 border-gray-700 text-white h-8 text-sm" />
+                    </div>
+                    <div>
+                      <Label className="text-gray-400 text-xs">Base Lot Size</Label>
+                      <Input type="number" value={engineBaseLotSize} onChange={e => setEngineBaseLotSize(Number(e.target.value))}
+                        min={0.01} step={0.01} className="mt-1 bg-gray-800 border-gray-700 text-white h-8 text-sm" />
+                    </div>
+                    <div>
+                      <Label className="text-gray-400 text-xs">Max Lot Size</Label>
+                      <Input type="number" value={engineMaxLotSize} onChange={e => setEngineMaxLotSize(Number(e.target.value))}
+                        min={0.01} step={0.01} className="mt-1 bg-gray-800 border-gray-700 text-white h-8 text-sm" />
+                    </div>
+                    <div>
+                      <Label className="text-gray-400 text-xs">Min Confidence (%)</Label>
+                      <Input type="number" value={engineMinConf} onChange={e => setEngineMinConf(Number(e.target.value))}
+                        min={50} max={95} className="mt-1 bg-gray-800 border-gray-700 text-white h-8 text-sm" />
+                    </div>
+                    <div>
+                      <Label className="text-gray-400 text-xs">Max Open Trades</Label>
+                      <Input type="number" value={engineMaxTrades} onChange={e => setEngineMaxTrades(Number(e.target.value))}
+                        min={1} max={20} className="mt-1 bg-gray-800 border-gray-700 text-white h-8 text-sm" />
+                    </div>
+                    <div>
+                      <Label className="text-gray-400 text-xs">Scan Interval (sec)</Label>
+                      <Input type="number" value={engineInterval} onChange={e => setEngineInterval(Number(e.target.value))}
+                        min={30} step={30} className="mt-1 bg-gray-800 border-gray-700 text-white h-8 text-sm" />
+                    </div>
+                    <div>
+                      <Label className="text-gray-400 text-xs">Strategy Mode</Label>
+                      <select value={engineMode} onChange={e => setEngineMode(e.target.value)}
+                        className="mt-1 w-full bg-gray-800 border border-gray-700 text-white text-sm rounded-md h-8 px-2">
+                        {[
+                          { id: 'scalping', name: 'Scalping HFT' },
+                          { id: 'momentum', name: 'Momentum Surfing' },
+                          { id: 'session_breakout', name: 'Session Breakout' },
+                          { id: 'aggressive', name: 'Aggressive Compound' },
+                          { id: 'sniper', name: 'Sniper Mode' },
+                        ].map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <Label className="text-gray-400 text-xs">Trading Pairs</Label>
+                    <div className="mt-1 flex flex-wrap gap-1.5">
+                      {enginePairs.map(p => (
+                        <Badge key={p} className="bg-cyan-500/10 text-cyan-300 border-cyan-500/30 text-[10px] cursor-pointer hover:bg-red-500/20 hover:text-red-300 hover:border-red-500/30 transition-colors"
+                          onClick={() => removeEnginePair(p)}>
+                          {p} ×
+                        </Badge>
+                      ))}
+                      <div className="flex gap-1">
+                        <Input value={enginePairInput} onChange={e => setEnginePairInput(e.target.value)}
+                          placeholder="Add pair..." className="h-6 w-24 bg-gray-800 border-gray-700 text-white text-[10px] px-2"
+                          onKeyDown={e => e.key === 'Enter' && addEnginePair()} />
+                        <Button size="sm" variant="outline" onClick={addEnginePair} className="h-6 px-2 text-[10px]">+</Button>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between pt-1">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" checked={engineCompounding} onChange={e => setEngineCompounding(e.target.checked)} className="accent-cyan-500" />
+                      <span className="text-xs text-gray-400">Auto-compound on win streaks</span>
+                    </label>
+                    {!isRunning && (
+                      <Button onClick={() => startEngineMutation.mutate()} disabled={startEngineMutation.isPending}
+                        className="bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 gap-1">
+                        {startEngineMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+                        Launch Engine
+                      </Button>
+                    )}
                   </div>
                 </CardContent>
               </Card>
             </motion.div>
+          )}
+        </AnimatePresence>
 
-            {/* VEDD AI LIVE TRADING ENGINE */}
-            <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-              <Card className={`border-2 transition-all duration-500 ${
-                liveEngineStatus?.status === 'running'
-                  ? 'border-cyan-500/60 bg-gradient-to-r from-cyan-950/30 to-blue-950/30 shadow-lg shadow-cyan-500/10'
-                  : 'border-gray-700/40 bg-gray-900/30'
-              }`}>
-                <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className={`p-2.5 rounded-xl ${liveEngineStatus?.status === 'running' ? 'bg-cyan-500/20' : 'bg-gray-800/60'}`}>
-                        <Activity className={`w-6 h-6 ${liveEngineStatus?.status === 'running' ? 'text-cyan-400 animate-pulse' : 'text-gray-500'}`} />
-                      </div>
-                      <div>
-                        <CardTitle className="text-lg flex items-center gap-2">
-                          <span className={liveEngineStatus?.status === 'running' ? 'text-cyan-400' : 'text-gray-400'}>VEDD AI Live Engine</span>
-                          {liveEngineStatus?.status === 'running' && (
-                            <Badge className="bg-cyan-500/20 text-cyan-400 border-cyan-500/30 text-[10px] animate-pulse">LIVE</Badge>
-                          )}
-                          {liveEngineStatus?.currentlyScanning && (
-                            <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30 text-[10px]">
-                              <Loader2 className="w-3 h-3 mr-1 animate-spin" />SCANNING
-                            </Badge>
-                          )}
-                        </CardTitle>
-                        <CardDescription className="text-gray-500">
-                          {liveEngineStatus?.status === 'running'
-                            ? (liveEngineStatus.goalTracker?.weeklyTarget > 0
-                              ? `Goal: $${liveEngineStatus.goalTracker.currentProfit?.toFixed(2)}/$${liveEngineStatus.goalTracker.weeklyTarget} (${liveEngineStatus.goalTracker.progressPercent}%) | ${liveEngineStatus.scanCount || 0} scans | ${liveEngineStatus.tradesExecuted || 0} trades`
-                              : `Monitoring markets in real-time | ${liveEngineStatus.scanCount || 0} scans | ${liveEngineStatus.tradesExecuted || 0} trades executed`)
-                            : 'Configure weekly profit goal and launch the HFT engine to auto-trade'}
-                        </CardDescription>
-                        {liveEngineStatus?.status === 'running' && liveEngineStatus.goalTracker?.weeklyTarget > 0 && (
-                          <div className="w-full bg-gray-700 rounded-full h-1.5 mt-1">
-                            <div className={`h-1.5 rounded-full transition-all ${
-                              liveEngineStatus.goalTracker.progressPercent >= 100 ? 'bg-green-500' :
-                              liveEngineStatus.goalTracker.progressPercent >= 50 ? 'bg-yellow-500' :
-                              'bg-cyan-500'
-                            }`} style={{ width: `${Math.min(100, liveEngineStatus.goalTracker.progressPercent)}%` }} />
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {liveEngineStatus?.status === 'running' ? (
-                        <Button size="sm" variant="destructive" onClick={() => stopEngineMutation.mutate()} disabled={stopEngineMutation.isPending}
-                          className="gap-1">
-                          <XCircle className="w-4 h-4" /> Stop
-                        </Button>
-                      ) : (
-                        <Button size="sm" onClick={() => startEngineMutation.mutate()} disabled={startEngineMutation.isPending}
-                          className="gap-1 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500">
-                          {startEngineMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
-                          Launch Engine
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="pt-0 space-y-4">
-                  {liveEngineStatus?.status === 'running' && (
-                    <>
-                      <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-                        {[
-                          { label: 'Scans', value: liveEngineStatus.scanCount || 0, icon: <RefreshCw className="w-3 h-3" />, color: 'text-blue-400' },
-                          { label: 'Signals', value: liveEngineStatus.signalsGenerated || 0, icon: <Radio className="w-3 h-3" />, color: 'text-purple-400' },
-                          { label: 'Executed', value: liveEngineStatus.tradesExecuted || 0, icon: <CheckCircle className="w-3 h-3" />, color: 'text-green-400' },
-                          { label: 'Failed', value: liveEngineStatus.tradesFailed || 0, icon: <XCircle className="w-3 h-3" />, color: 'text-red-400' },
-                          { label: 'Open Pos', value: liveEngineStatus.openPositionCount || 0, icon: <Target className="w-3 h-3" />, color: 'text-yellow-400' },
-                        ].map((stat) => (
-                          <div key={stat.label} className="bg-gray-800/50 rounded-lg p-2 text-center">
-                            <div className={`text-lg font-bold ${stat.color} flex items-center justify-center gap-1`}>
-                              {stat.icon} {stat.value}
-                            </div>
-                            <div className="text-[10px] text-gray-500">{stat.label}</div>
-                          </div>
-                        ))}
-                      </div>
+        {/* ═══════════════════════════════════════════════════════
+            COMMAND CENTER — shown when engine is running
+        ═══════════════════════════════════════════════════════ */}
+        {isRunning && (
+          <>
+            {/* Main 2-col grid: Activity Feed + Goal/Market */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
-                      <div className="flex gap-1 border-b border-gray-700/50">
-                        {(['activity', 'market', 'config'] as const).map(tab => (
+              {/* LEFT: Live Activity Feed — 2/3 width */}
+              <div className="lg:col-span-2">
+                <Card className="bg-gray-900/60 border-gray-700/60 h-full">
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-base flex items-center gap-2 text-white">
+                        <Brain className="w-4 h-4 text-cyan-400" /> AI Strategy Feed
+                        <Badge className="bg-cyan-500/20 text-cyan-400 border-cyan-500/30 text-[10px] animate-pulse">LIVE</Badge>
+                      </CardTitle>
+                      <div className="flex gap-1">
+                        {(['activity', 'market', 'pairs', 'combos'] as const).map(tab => (
                           <button key={tab} onClick={() => setLiveEngineTab(tab)}
-                            className={`px-3 py-1.5 text-xs font-medium rounded-t transition-colors ${
-                              liveEngineTab === tab ? 'bg-gray-800 text-cyan-400 border-b-2 border-cyan-400' : 'text-gray-500 hover:text-gray-300'
+                            className={`px-2 py-1 text-[10px] font-medium rounded transition-colors ${
+                              liveEngineTab === tab ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30' : 'text-gray-500 hover:text-gray-300'
                             }`}>
-                            {tab === 'activity' ? 'Live Feed' : tab === 'market' ? 'Market Data' : 'Settings'}
+                            {tab === 'activity' ? 'Live Feed' : tab === 'market' ? 'Market' : tab === 'pairs' ? 'Pair Ratings' : 'Combos'}
                           </button>
                         ))}
                       </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="pt-0">
 
-                      {liveEngineTab === 'activity' && (
-                        <div className="max-h-[300px] overflow-y-auto space-y-1 pr-1 scrollbar-thin">
-                          {(liveEngineActivityData?.activity || []).length === 0 ? (
-                            <div className="text-center py-6 text-gray-500 text-sm">
-                              <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2" />
-                              Waiting for first scan...
-                            </div>
-                          ) : (
-                            (liveEngineActivityData?.activity || []).map((act: any) => (
-                              <div key={act.id} className={`px-3 py-2 rounded-lg text-xs flex items-start gap-2 ${
-                                act.type === 'trade_open' ? 'bg-green-500/10 border border-green-500/20' :
-                                act.type === 'trade_close' ? 'bg-blue-500/10 border border-blue-500/20' :
-                                act.type === 'signal' ? 'bg-purple-500/10 border border-purple-500/20' :
-                                act.type === 'ai_decision' ? 'bg-cyan-500/10 border border-cyan-500/20' :
-                                act.type === 'error' ? 'bg-red-500/10 border border-red-500/20' :
-                                'bg-gray-800/30 border border-gray-700/20'
+                    {/* LIVE FEED TAB */}
+                    {liveEngineTab === 'activity' && (
+                      <div className="max-h-[420px] overflow-y-auto space-y-1.5 pr-1">
+                        {(liveEngineActivityData?.activity || []).length === 0 ? (
+                          <div className="text-center py-10 text-gray-500">
+                            <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2 text-cyan-400" />
+                            <p className="text-sm">Waiting for first scan...</p>
+                          </div>
+                        ) : (
+                          (liveEngineActivityData?.activity || []).map((act: any) => (
+                            <motion.div key={act.id} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}
+                              className={`px-3 py-2.5 rounded-xl text-xs flex items-start gap-2.5 border ${
+                                act.type === 'trade_open' ? 'bg-emerald-500/8 border-emerald-500/25' :
+                                act.type === 'trade_close' ? 'bg-blue-500/8 border-blue-500/25' :
+                                act.type === 'signal' ? 'bg-purple-500/8 border-purple-500/25' :
+                                act.type === 'ai_decision' ? 'bg-cyan-500/8 border-cyan-500/25' :
+                                act.type === 'error' ? 'bg-red-500/8 border-red-500/25' :
+                                'bg-gray-800/30 border-gray-700/20'
                               }`}>
-                                <div className="flex-shrink-0 mt-0.5">
-                                  {act.type === 'trade_open' ? <CheckCircle className="w-3.5 h-3.5 text-green-400" /> :
-                                   act.type === 'signal' ? <Radio className="w-3.5 h-3.5 text-purple-400" /> :
-                                   act.type === 'ai_decision' ? <Brain className="w-3.5 h-3.5 text-cyan-400" /> :
-                                   act.type === 'error' ? <AlertCircle className="w-3.5 h-3.5 text-red-400" /> :
-                                   act.type === 'scan' ? <RefreshCw className="w-3.5 h-3.5 text-blue-400" /> :
-                                   <Activity className="w-3.5 h-3.5 text-gray-400" />}
+                              <div className="flex-shrink-0 mt-0.5">
+                                {act.type === 'trade_open' ? <CheckCircle className="w-3.5 h-3.5 text-emerald-400" /> :
+                                 act.type === 'signal' ? <Radio className="w-3.5 h-3.5 text-purple-400" /> :
+                                 act.type === 'ai_decision' ? <Brain className="w-3.5 h-3.5 text-cyan-400" /> :
+                                 act.type === 'error' ? <AlertCircle className="w-3.5 h-3.5 text-red-400" /> :
+                                 act.type === 'scan' ? <RefreshCw className="w-3.5 h-3.5 text-blue-400" /> :
+                                 <Activity className="w-3.5 h-3.5 text-gray-400" />}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
+                                  {act.symbol && <Badge variant="outline" className="text-[9px] px-1 py-0 border-gray-600 font-mono">{act.symbol}</Badge>}
+                                  {act.direction && (
+                                    <Badge className={`text-[9px] px-1 py-0 ${act.direction === 'BUY' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
+                                      {act.direction}
+                                    </Badge>
+                                  )}
+                                  {act.confidence && <span className="text-yellow-400 text-[9px] font-bold">{act.confidence}%</span>}
+                                  {act.details?.strategy && (
+                                    <Badge variant="outline" className="text-[9px] px-1 py-0 border-purple-500/40 text-purple-300">
+                                      {act.details.strategy.replace(/_/g, ' ').toUpperCase()}
+                                    </Badge>
+                                  )}
                                 </div>
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-2">
-                                    {act.symbol && <Badge variant="outline" className="text-[9px] px-1 py-0 border-gray-600">{act.symbol}</Badge>}
-                                    {act.direction && (
-                                      <Badge className={`text-[9px] px-1 py-0 ${act.direction === 'BUY' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
-                                        {act.direction}
-                                      </Badge>
-                                    )}
-                                    {act.confidence && <span className="text-yellow-400 text-[9px]">{act.confidence}%</span>}
-                                    {act.details?.strategy && (
-                                      <Badge variant="outline" className="text-[9px] px-1 py-0 border-purple-500/40 text-purple-300">
-                                        {act.details.strategy.toUpperCase()}
-                                      </Badge>
-                                    )}
+                                <p className={`leading-snug ${
+                                  act.type === 'error' ? 'text-red-300' :
+                                  act.type === 'trade_open' ? 'text-emerald-300' :
+                                  'text-gray-300'
+                                }`}>{act.message}</p>
+                                {act.details?.confluences && (
+                                  <div className="mt-1 flex flex-wrap gap-1">
+                                    {act.details.confluences.slice(0, 3).map((c: string, ci: number) => (
+                                      <span key={ci} className="text-[8px] bg-gray-700/60 text-gray-400 px-1.5 py-0.5 rounded">{c}</span>
+                                    ))}
                                   </div>
-                                  <p className={`mt-0.5 leading-tight ${
-                                    act.type === 'error' ? 'text-red-300' : act.type === 'trade_open' ? 'text-green-300' : 'text-gray-300'
-                                  }`}>{act.message}</p>
-                                  {act.details?.confluences && (
-                                    <div className="mt-1 flex flex-wrap gap-1">
-                                      {act.details.confluences.slice(0, 3).map((c: string, ci: number) => (
-                                        <span key={ci} className="text-[8px] bg-gray-700/50 text-gray-400 px-1.5 py-0.5 rounded">{c}</span>
-                                      ))}
-                                    </div>
-                                  )}
-                                  {act.details?.marketOverview && (
-                                    <p className="mt-1 text-[10px] text-cyan-300/80 italic">{act.details.marketOverview}</p>
-                                  )}
-                                </div>
-                                <span className="text-[9px] text-gray-600 flex-shrink-0 whitespace-nowrap">
-                                  {new Date(act.timestamp).toLocaleTimeString()}
-                                </span>
+                                )}
+                                {act.details?.marketOverview && (
+                                  <p className="mt-1 text-[10px] text-cyan-300/80 italic border-l border-cyan-500/30 pl-2">{act.details.marketOverview}</p>
+                                )}
                               </div>
-                            ))
-                          )}
-                        </div>
-                      )}
-
-                      {liveEngineTab === 'market' && (
-                        <div className="space-y-1">
-                          {Object.keys(liveEngineStatus.marketSnapshot || {}).length === 0 ? (
-                            <div className="text-center py-6 text-gray-500 text-sm">No market data yet. Waiting for first scan...</div>
-                          ) : (
-                            Object.entries(liveEngineStatus.marketSnapshot || {}).map(([sym, data]: [string, any]) => (
-                              <div key={sym} className="flex items-center justify-between px-3 py-2 bg-gray-800/30 rounded-lg">
-                                <div className="flex items-center gap-2">
-                                  <span className="text-white font-mono text-sm font-bold">{sym}</span>
-                                  <Badge className={`text-[9px] ${
-                                    data.trend === 'BULLISH' ? 'bg-green-500/20 text-green-400' :
-                                    data.trend === 'BEARISH' ? 'bg-red-500/20 text-red-400' :
-                                    'bg-gray-500/20 text-gray-400'
-                                  }`}>{data.trend}</Badge>
-                                </div>
-                                <div className="flex items-center gap-4 text-xs">
-                                  <span className="text-white font-mono">{data.price?.toFixed(data.price > 100 ? 2 : 5)}</span>
-                                  <span className={data.change >= 0 ? 'text-green-400' : 'text-red-400'}>
-                                    {data.change >= 0 ? '+' : ''}{data.change}%
-                                  </span>
-                                  <span className="text-gray-500">RSI: {data.rsi}</span>
-                                </div>
-                              </div>
-                            ))
-                          )}
-                        </div>
-                      )}
-
-                      {liveEngineTab === 'config' && (
-                        <div className="space-y-3">
-                          {liveEngineStatus.goalTracker && liveEngineStatus.config?.weeklyProfitTarget > 0 && (
-                            <div className="bg-gradient-to-r from-yellow-900/20 to-orange-900/20 border border-yellow-500/30 rounded-lg p-3">
-                              <div className="flex items-center justify-between mb-2">
-                                <span className="text-yellow-400 text-xs font-bold flex items-center gap-1">
-                                  <Target className="w-3.5 h-3.5" /> WEEKLY GOAL
-                                </span>
-                                <Badge className={`text-[9px] px-1.5 py-0 ${
-                                  liveEngineStatus.goalTracker.currentPhase === 'target_reached' ? 'bg-green-500/20 text-green-400' :
-                                  liveEngineStatus.goalTracker.currentPhase === 'pushing' ? 'bg-orange-500/20 text-orange-400' :
-                                  liveEngineStatus.goalTracker.currentPhase === 'accelerating' ? 'bg-cyan-500/20 text-cyan-400' :
-                                  'bg-gray-500/20 text-gray-400'
-                                }`}>
-                                  {liveEngineStatus.goalTracker.currentPhase?.replace('_', ' ').toUpperCase()}
-                                </Badge>
-                              </div>
-                              <div className="flex items-center justify-between text-xs mb-1">
-                                <span className="text-gray-400">${liveEngineStatus.goalTracker.currentProfit?.toFixed(2)} / ${liveEngineStatus.config.weeklyProfitTarget}</span>
-                                <span className="text-yellow-300 font-bold">{liveEngineStatus.goalTracker.progressPercent}%</span>
-                              </div>
-                              <div className="w-full bg-gray-700 rounded-full h-2">
-                                <div className={`h-2 rounded-full transition-all duration-500 ${
-                                  liveEngineStatus.goalTracker.progressPercent >= 100 ? 'bg-green-500' :
-                                  liveEngineStatus.goalTracker.progressPercent >= 75 ? 'bg-yellow-500' :
-                                  liveEngineStatus.goalTracker.progressPercent >= 50 ? 'bg-cyan-500' :
-                                  'bg-purple-500'
-                                }`} style={{ width: `${Math.min(100, liveEngineStatus.goalTracker.progressPercent)}%` }} />
-                              </div>
-                              <div className="grid grid-cols-3 gap-2 mt-2 text-[10px]">
-                                <div className="text-center">
-                                  <div className="text-green-400 font-bold">{liveEngineStatus.goalTracker.wins}W</div>
-                                  <div className="text-gray-500">Wins</div>
-                                </div>
-                                <div className="text-center">
-                                  <div className="text-red-400 font-bold">{liveEngineStatus.goalTracker.losses}L</div>
-                                  <div className="text-gray-500">Losses</div>
-                                </div>
-                                <div className="text-center">
-                                  <div className="text-yellow-400 font-bold">{liveEngineStatus.goalTracker.winRate}%</div>
-                                  <div className="text-gray-500">Win Rate</div>
-                                </div>
-                              </div>
-                              {liveEngineStatus.goalTracker.consecutiveWins > 0 && (
-                                <div className="mt-1 text-[9px] text-green-400">Streak: {liveEngineStatus.goalTracker.consecutiveWins} consecutive wins | Compound: {liveEngineStatus.goalTracker.compoundMultiplier}x</div>
-                              )}
-                              {liveEngineStatus.goalTracker.consecutiveLosses > 0 && (
-                                <div className="mt-1 text-[9px] text-red-400">Losing streak: {liveEngineStatus.goalTracker.consecutiveLosses} | Lot reduced to {liveEngineStatus.goalTracker.compoundMultiplier}x</div>
-                              )}
-                              {Object.keys(liveEngineStatus.goalTracker.symbolBreakdown || {}).length > 0 && (
-                                <div className="mt-2 border-t border-gray-700/50 pt-2">
-                                  <div className="text-[9px] text-gray-500 mb-1 font-semibold">Pair Performance</div>
-                                  {Object.entries(liveEngineStatus.goalTracker.symbolBreakdown)
-                                    .sort(([,a]: [string, any], [,b]: [string, any]) => b.pnl - a.pnl)
-                                    .map(([symbol, data]: [string, any]) => {
-                                      const winRate = data.trades > 0 ? Math.round((data.wins / data.trades) * 100) : 0;
-                                      return (
-                                        <div key={symbol} className="flex items-center justify-between text-[9px] py-0.5">
-                                          <span className="text-cyan-300 font-medium w-16">{symbol}</span>
-                                          <span className="text-gray-400">{data.wins}W/{data.losses}L</span>
-                                          <span className="text-gray-500">{winRate}%</span>
-                                          <span className={`font-semibold ${data.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                            {data.pnl >= 0 ? '+' : ''}${data.pnl?.toFixed(2)}
-                                          </span>
-                                        </div>
-                                      );
-                                    })}
-                                </div>
-                              )}
-                              {Object.keys(liveEngineStatus.goalTracker.strategyBreakdown || {}).length > 0 && (
-                                <div className="mt-2 border-t border-gray-700/50 pt-2">
-                                  <div className="text-[9px] text-gray-500 mb-1">Strategy Performance</div>
-                                  {Object.entries(liveEngineStatus.goalTracker.strategyBreakdown).map(([strat, data]: [string, any]) => (
-                                    <div key={strat} className="flex items-center justify-between text-[9px]">
-                                      <span className="text-purple-300">{strat}</span>
-                                      <span className={data.pnl >= 0 ? 'text-green-400' : 'text-red-400'}>
-                                        {data.wins}/{data.trades} wins | ${data.pnl?.toFixed(2)}
-                                      </span>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                              {Object.keys(liveEngineStatus.goalTracker.dailyPnL || {}).length > 0 && (
-                                <div className="mt-2 border-t border-gray-700/50 pt-2">
-                                  <div className="text-[9px] text-gray-500 mb-1">Daily P&L</div>
-                                  {Object.entries(liveEngineStatus.goalTracker.dailyPnL).slice(-5).map(([day, pnl]: [string, any]) => (
-                                    <div key={day} className="flex items-center justify-between text-[9px]">
-                                      <span className="text-gray-400">{day}</span>
-                                      <span className={pnl >= 0 ? 'text-green-400' : 'text-red-400'}>${pnl?.toFixed(2)}</span>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          )}
-                          <div className="grid grid-cols-2 gap-3 text-xs">
-                            <div>
-                              <Label className="text-gray-400 text-xs">Strategy</Label>
-                              <div className="mt-1 text-white font-medium">{liveEngineStatus.config?.strategyMode?.toUpperCase()}</div>
-                            </div>
-                            <div>
-                              <Label className="text-gray-400 text-xs">Scan Interval</Label>
-                              <div className="mt-1 text-white font-medium">{(liveEngineStatus.config?.scanIntervalMs || 60000) / 1000}s</div>
-                            </div>
-                            <div>
-                              <Label className="text-gray-400 text-xs">Min Confidence</Label>
-                              <div className="mt-1 text-white font-medium">{liveEngineStatus.config?.minConfidence || 65}%</div>
-                            </div>
-                            <div>
-                              <Label className="text-gray-400 text-xs">Max Open Trades</Label>
-                              <div className="mt-1 text-white font-medium">{liveEngineStatus.config?.maxOpenTrades || 5}</div>
-                            </div>
-                            <div>
-                              <Label className="text-gray-400 text-xs">Max Lot Size</Label>
-                              <div className="mt-1 text-white font-medium">{liveEngineStatus.config?.maxLotSize || 0.10}</div>
-                            </div>
-                            <div>
-                              <Label className="text-gray-400 text-xs">Base Lot / Compound</Label>
-                              <div className="mt-1 text-white font-medium">{liveEngineStatus.config?.baseLotSize || 0.01} / {liveEngineStatus.config?.enableCompounding ? 'ON' : 'OFF'}</div>
-                            </div>
-                            <div className="col-span-2">
-                              <Label className="text-gray-400 text-xs">Pairs</Label>
-                              <div className="mt-1 flex flex-wrap gap-1">
-                                {(liveEngineStatus.config?.pairs || []).map((p: string) => (
-                                  <Badge key={p} variant="outline" className="text-[10px] text-cyan-400 border-cyan-500/30">{p}</Badge>
-                                ))}
-                              </div>
-                            </div>
-                            <div className="col-span-2">
-                              <Label className="text-gray-400 text-xs">Started</Label>
-                              <div className="mt-1 text-white font-medium text-[11px]">{liveEngineStatus.startedAt ? new Date(liveEngineStatus.startedAt).toLocaleString() : 'N/A'}</div>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                    </>
-                  )}
-
-                  {liveEngineStatus?.status !== 'running' && (
-                    <div className="space-y-4">
-                      <div className="bg-gradient-to-r from-yellow-900/20 to-orange-900/20 border border-yellow-500/30 rounded-lg p-3">
-                        <div className="text-yellow-400 text-xs font-bold flex items-center gap-1 mb-2">
-                          <Target className="w-3.5 h-3.5" /> Weekly Profit Goal
-                        </div>
-                        <div className="grid grid-cols-2 gap-3">
-                          <div>
-                            <Label className="text-gray-400 text-xs">Account Balance ($)</Label>
-                            <Input type="number" value={engineAccountBalance} onChange={e => setEngineAccountBalance(Number(e.target.value))}
-                              min={10} step={10} className="mt-1 bg-gray-800 border-gray-700 text-white h-8" />
-                          </div>
-                          <div>
-                            <Label className="text-gray-400 text-xs">Weekly Target ($)</Label>
-                            <Input type="number" value={engineWeeklyTarget} onChange={e => setEngineWeeklyTarget(Number(e.target.value))}
-                              min={0} step={10} className="mt-1 bg-gray-800 border-gray-700 text-white h-8" />
-                          </div>
-                          <div>
-                            <Label className="text-gray-400 text-xs">Base Lot Size</Label>
-                            <Input type="number" value={engineBaseLotSize} onChange={e => setEngineBaseLotSize(Number(e.target.value))}
-                              min={0.01} max={1} step={0.01} className="mt-1 bg-gray-800 border-gray-700 text-white h-8" />
-                          </div>
-                          <div className="flex items-end">
-                            <label className="flex items-center gap-2 cursor-pointer pb-1">
-                              <input type="checkbox" checked={engineCompounding} onChange={e => setEngineCompounding(e.target.checked)}
-                                className="w-4 h-4 rounded bg-gray-800 border-gray-600" />
-                              <span className="text-xs text-gray-300">Auto-Compound</span>
-                            </label>
-                          </div>
-                        </div>
-                        {engineWeeklyTarget > 0 && engineAccountBalance > 0 && (
-                          <div className="mt-2 text-[10px] text-yellow-300/80">
-                            Goal: ${engineAccountBalance} → ${engineAccountBalance + engineWeeklyTarget} ({((engineAccountBalance + engineWeeklyTarget) / engineAccountBalance).toFixed(1)}x growth) | ~${Math.round(engineWeeklyTarget / 5)}/day
-                          </div>
+                              <span className="text-[9px] text-gray-600 flex-shrink-0 whitespace-nowrap font-mono">
+                                {new Date(act.timestamp).toLocaleTimeString()}
+                              </span>
+                            </motion.div>
+                          ))
                         )}
                       </div>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <Label className="text-gray-400 text-xs">Strategy Mode</Label>
-                          <select value={engineMode} onChange={e => setEngineMode(e.target.value)}
-                            className="w-full mt-1 bg-gray-800 border border-gray-700 rounded-md px-2 py-1.5 text-sm text-white">
-                            <option value="aggressive">Aggressive HFT</option>
-                            <option value="scalping">Scalping (Quick Wins)</option>
-                            <option value="momentum">Momentum Surfing</option>
-                            <option value="session_breakout">Session Breakout</option>
-                            <option value="sniper">Sniper (Precision)</option>
-                          </select>
-                        </div>
-                        <div>
-                          <Label className="text-gray-400 text-xs">Scan Interval (sec)</Label>
-                          <Input type="number" value={engineInterval} onChange={e => setEngineInterval(Number(e.target.value))}
-                            min={30} max={300} className="mt-1 bg-gray-800 border-gray-700 text-white h-8" />
-                        </div>
-                        <div>
-                          <Label className="text-gray-400 text-xs">Min Confidence %</Label>
-                          <Input type="number" value={engineMinConf} onChange={e => setEngineMinConf(Number(e.target.value))}
-                            min={50} max={95} className="mt-1 bg-gray-800 border-gray-700 text-white h-8" />
-                        </div>
-                        <div>
-                          <Label className="text-gray-400 text-xs">Max Open Trades</Label>
-                          <Input type="number" value={engineMaxTrades} onChange={e => setEngineMaxTrades(Number(e.target.value))}
-                            min={1} max={20} className="mt-1 bg-gray-800 border-gray-700 text-white h-8" />
-                        </div>
-                        <div>
-                          <Label className="text-gray-400 text-xs">Max Lot Size</Label>
-                          <Input type="number" value={engineMaxLotSize} onChange={e => setEngineMaxLotSize(Number(e.target.value))}
-                            min={0.01} max={10} step={0.01} className="mt-1 bg-gray-800 border-gray-700 text-white h-8" />
-                        </div>
+                    )}
+
+                    {/* MARKET DATA TAB */}
+                    {liveEngineTab === 'market' && (
+                      <div className="space-y-1.5 max-h-[420px] overflow-y-auto">
+                        {Object.keys(liveEngineStatus?.marketSnapshot || {}).length === 0 ? (
+                          <div className="text-center py-10 text-gray-500 text-sm">No market data yet. Waiting for first scan...</div>
+                        ) : (
+                          Object.entries(liveEngineStatus.marketSnapshot || {}).map(([sym, data]: [string, any]) => (
+                            <div key={sym} className="flex items-center justify-between px-3 py-2.5 bg-gray-800/40 rounded-xl border border-gray-700/30">
+                              <div className="flex items-center gap-3">
+                                <span className="text-white font-mono text-sm font-bold w-16">{sym}</span>
+                                <Badge className={`text-[9px] px-1.5 ${
+                                  data.trend === 'BULLISH' ? 'bg-emerald-500/20 text-emerald-400' :
+                                  data.trend === 'BEARISH' ? 'bg-red-500/20 text-red-400' :
+                                  'bg-gray-500/20 text-gray-400'
+                                }`}>{data.trend}</Badge>
+                              </div>
+                              <div className="flex items-center gap-4 text-xs">
+                                <span className="text-white font-mono font-bold">{data.price?.toFixed(data.price > 100 ? 2 : 5)}</span>
+                                <span className={`font-medium ${data.change >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                  {data.change >= 0 ? '+' : ''}{data.change}%
+                                </span>
+                                <span className="text-gray-500">RSI {data.rsi}</span>
+                                {data.relativeVolume && (
+                                  <Badge className={`text-[8px] px-1 py-0 ${
+                                    data.relativeVolume === 'surging' ? 'bg-emerald-500/20 text-emerald-400' :
+                                    data.relativeVolume === 'above_average' ? 'bg-blue-500/20 text-blue-400' :
+                                    data.relativeVolume === 'dry' ? 'bg-red-500/20 text-red-400' :
+                                    'bg-gray-500/20 text-gray-400'
+                                  }`}>{data.relativeVolume?.replace('_', ' ')}</Badge>
+                                )}
+                              </div>
+                            </div>
+                          ))
+                        )}
                       </div>
-                      <div>
-                        <Label className="text-gray-400 text-xs">Trading Pairs</Label>
-                        <div className="flex flex-wrap gap-1 mt-1">
-                          {POPULAR_PAIRS.slice(0, 14).map(pair => (
-                            <Badge key={pair} variant="outline"
-                              className={`text-[10px] cursor-pointer transition-colors ${
-                                enginePairs.includes(pair)
-                                  ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/40'
-                                  : 'text-gray-500 border-gray-700 hover:border-gray-500'
-                              }`}
-                              onClick={() => setEnginePairs(prev => prev.includes(pair) ? prev.filter(p => p !== pair) : [...prev, pair])}>
-                              {pair}
+                    )}
+
+                    {/* PAIR RATINGS TAB */}
+                    {liveEngineTab === 'pairs' && (
+                      <div className="space-y-2 max-h-[420px] overflow-y-auto">
+                        {Object.keys(tracker?.symbolBreakdown || {}).length === 0 ? (
+                          <div className="text-center py-10 text-gray-500">
+                            <BarChart3 className="w-8 h-8 mx-auto mb-2 text-gray-700" />
+                            <p className="text-sm">No pair data yet. Ratings build up as trades close.</p>
+                          </div>
+                        ) : (
+                          Object.entries(tracker.symbolBreakdown)
+                            .sort(([, a]: [string, any], [, b]: [string, any]) => b.pnl - a.pnl)
+                            .map(([symbol, data]: [string, any]) => {
+                              const wr = data.trades > 0 ? Math.round((data.wins / data.trades) * 100) : 0;
+                              const rating = getPairRating(symbol, data);
+                              return (
+                                <div key={symbol} className={`px-4 py-3 rounded-xl border ${rating.bg}`}>
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-3">
+                                      <span className="font-mono font-bold text-white text-sm w-16">{symbol}</span>
+                                      <Badge className={`text-[10px] px-2 border ${rating.bg} ${rating.color}`}>{rating.label}</Badge>
+                                    </div>
+                                    <span className={`text-sm font-bold ${data.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                      {data.pnl >= 0 ? '+' : ''}${data.pnl?.toFixed(2)}
+                                    </span>
+                                  </div>
+                                  <div className="mt-2 flex items-center gap-3 text-xs text-gray-500">
+                                    <span className="text-emerald-400">{data.wins}W</span>
+                                    <span className="text-red-400">{data.losses}L</span>
+                                    <span>{wr}% WR</span>
+                                    <span>{data.trades} trades</span>
+                                    {data.bestTrade > 0 && <span className="text-gray-600">Best: +${data.bestTrade?.toFixed(2)}</span>}
+                                  </div>
+                                  <div className="mt-1.5 w-full bg-gray-800 rounded-full h-1">
+                                    <div className={`h-1 rounded-full ${wr >= 60 ? 'bg-emerald-500' : wr >= 40 ? 'bg-yellow-500' : 'bg-red-500'}`}
+                                      style={{ width: `${wr}%` }} />
+                                  </div>
+                                </div>
+                              );
+                            })
+                        )}
+                      </div>
+                    )}
+
+                    {/* COMBOS TAB */}
+                    {liveEngineTab === 'combos' && (
+                      <div className="space-y-2 max-h-[420px] overflow-y-auto">
+                        {Object.keys(tracker?.pairStrategyBreakdown || {}).length === 0 ? (
+                          <div className="text-center py-10 text-gray-500">
+                            <Crosshair className="w-8 h-8 mx-auto mb-2 text-gray-700" />
+                            <p className="text-sm">No combo data yet. Build up by running trades.</p>
+                          </div>
+                        ) : (
+                          Object.entries(tracker.pairStrategyBreakdown)
+                            .sort(([, a]: [string, any], [, b]: [string, any]) => b.pnl - a.pnl)
+                            .map(([key, data]: [string, any]) => {
+                              const [symbol, strategy] = key.split('|');
+                              const wr = data.trades > 0 ? Math.round((data.wins / data.trades) * 100) : 0;
+                              const rating = getComboRating(data);
+                              return (
+                                <div key={key} className={`px-4 py-3 rounded-xl border ${rating.bg}`}>
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <span className="font-mono font-bold text-white text-sm">{symbol}</span>
+                                      <span className="text-gray-600">+</span>
+                                      <span className="text-xs text-gray-300">{strategy?.replace(/_/g, ' ')}</span>
+                                      <Badge className={`text-[9px] px-1.5 border ${rating.bg} ${rating.color}`}>{rating.label}</Badge>
+                                    </div>
+                                    <span className={`text-sm font-bold ${data.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                      {data.pnl >= 0 ? '+' : ''}${data.pnl?.toFixed(2)}
+                                    </span>
+                                  </div>
+                                  <div className="mt-1 flex items-center gap-3 text-xs text-gray-500">
+                                    <span className="text-emerald-400">{data.wins}W</span>
+                                    <span className="text-red-400">{data.losses}L</span>
+                                    <span>{wr}% WR</span>
+                                    <span>{data.trades} trades</span>
+                                  </div>
+                                </div>
+                              );
+                            })
+                        )}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* RIGHT: Goal tracker + phase + daily stats — 1/3 width */}
+              <div className="space-y-4">
+                {/* Goal Tracker */}
+                <Card className="bg-gray-900/60 border-gray-700/60">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base flex items-center gap-2 text-white">
+                      <Target className="w-4 h-4 text-yellow-400" /> Weekly Goal
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {tracker?.weeklyTarget > 0 ? (
+                      <>
+                        <div className="text-center py-2">
+                          <div className={`text-4xl font-black ${
+                            tracker.progressPercent >= 100 ? 'text-emerald-400' :
+                            tracker.progressPercent >= 75 ? 'text-yellow-400' : 'text-cyan-400'
+                          }`}>{tracker.progressPercent}%</div>
+                          <div className="text-gray-400 text-xs mt-1">${tracker.currentProfit?.toFixed(2)} of ${tracker.weeklyTarget}</div>
+                        </div>
+                        <div className="w-full bg-gray-800 rounded-full h-3">
+                          <div className={`h-3 rounded-full transition-all duration-700 ${
+                            tracker.progressPercent >= 100 ? 'bg-emerald-500 shadow-[0_0_10px_rgba(52,211,153,0.4)]' :
+                            tracker.progressPercent >= 75 ? 'bg-yellow-500' :
+                            tracker.progressPercent >= 50 ? 'bg-cyan-500' : 'bg-purple-500'
+                          }`} style={{ width: `${Math.min(100, tracker.progressPercent)}%` }} />
+                        </div>
+                        <div className="grid grid-cols-3 gap-2 text-center">
+                          <div className="bg-gray-800/60 rounded-lg p-2">
+                            <div className="text-emerald-400 font-bold text-lg">{tracker.wins}</div>
+                            <div className="text-gray-500 text-[10px]">Wins</div>
+                          </div>
+                          <div className="bg-gray-800/60 rounded-lg p-2">
+                            <div className="text-red-400 font-bold text-lg">{tracker.losses}</div>
+                            <div className="text-gray-500 text-[10px]">Losses</div>
+                          </div>
+                          <div className="bg-gray-800/60 rounded-lg p-2">
+                            <div className="text-yellow-400 font-bold text-lg">{tracker.winRate}%</div>
+                            <div className="text-gray-500 text-[10px]">Win Rate</div>
+                          </div>
+                        </div>
+                        {Object.keys(tracker.dailyPnL || {}).length > 0 && (
+                          <div className="border-t border-gray-700/50 pt-2 space-y-1">
+                            <div className="text-[10px] text-gray-500 font-semibold">Daily P&L</div>
+                            {Object.entries(tracker.dailyPnL).slice(-5).map(([day, pnl]: [string, any]) => (
+                              <div key={day} className="flex justify-between text-[10px]">
+                                <span className="text-gray-400">{day}</span>
+                                <span className={pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}>{pnl >= 0 ? '+' : ''}${pnl?.toFixed(2)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div className="text-center py-4 text-gray-500 text-sm">No weekly target set. Configure one in engine settings.</div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Strategy Performance */}
+                {Object.keys(tracker?.strategyBreakdown || {}).length > 0 && (
+                  <Card className="bg-gray-900/60 border-gray-700/60">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-base flex items-center gap-2 text-white">
+                        <BarChart3 className="w-4 h-4 text-purple-400" /> Strategy Performance
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-1.5">
+                      {Object.entries(tracker.strategyBreakdown)
+                        .sort(([, a]: [string, any], [, b]: [string, any]) => b.pnl - a.pnl)
+                        .map(([strat, data]: [string, any]) => (
+                          <div key={strat} className="flex items-center justify-between py-1.5 border-b border-gray-800/60 last:border-0">
+                            <div>
+                              <span className="text-xs text-gray-300 font-medium">{strat.replace(/_/g, ' ')}</span>
+                              <div className="text-[10px] text-gray-600">{data.wins}/{data.trades} wins</div>
+                            </div>
+                            <span className={`text-xs font-bold ${data.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                              {data.pnl >= 0 ? '+' : ''}${data.pnl?.toFixed(2)}
+                            </span>
+                          </div>
+                        ))}
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            </div>
+
+            {/* ═══════════════════════════════════════════════════════
+                DAILY BATTLE PLAN — AI-generated from live engine data
+            ═══════════════════════════════════════════════════════ */}
+            {battlePlan && (
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+                <Card className="bg-gradient-to-br from-gray-900/80 via-gray-900/60 to-gray-950/80 border-orange-500/30">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base flex items-center gap-2 text-white">
+                      <Swords className="w-4 h-4 text-orange-400" /> Daily Battle Plan
+                      <Badge className="bg-orange-500/20 text-orange-400 border-orange-500/30 text-[10px]">AI Generated</Badge>
+                      <span className="text-xs text-gray-500 font-normal ml-2">{battlePlan.session} Session</span>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+
+                      {/* Risk instruction */}
+                      <div className={`rounded-xl p-4 border col-span-1 md:col-span-2 ${
+                        tracker?.currentPhase === 'target_reached' ? 'bg-emerald-500/10 border-emerald-500/30' :
+                        tracker?.currentPhase === 'pushing' ? 'bg-orange-500/10 border-orange-500/30' :
+                        'bg-blue-500/10 border-blue-500/30'
+                      }`}>
+                        <div className="flex items-center gap-2 mb-2">
+                          <Shield className={`w-4 h-4 ${
+                            tracker?.currentPhase === 'target_reached' ? 'text-emerald-400' :
+                            tracker?.currentPhase === 'pushing' ? 'text-orange-400' : 'text-blue-400'
+                          }`} />
+                          <span className="text-xs font-bold text-gray-300">PHASE INSTRUCTION</span>
+                        </div>
+                        <p className="text-sm text-white font-medium">{battlePlan.riskInstruction}</p>
+                        {battlePlan.remaining > 0 && (
+                          <p className="text-xs text-gray-400 mt-2">${battlePlan.remaining.toFixed(2)} remaining to weekly target</p>
+                        )}
+                      </div>
+
+                      {/* Pairs to favour */}
+                      <div className="rounded-xl p-4 bg-emerald-500/8 border border-emerald-500/25">
+                        <div className="flex items-center gap-2 mb-2">
+                          <TrendingUp className="w-4 h-4 text-emerald-400" />
+                          <span className="text-xs font-bold text-emerald-400">FAVOUR TODAY</span>
+                        </div>
+                        {battlePlan.favourPairs.length > 0 ? (
+                          <div className="space-y-1">
+                            {battlePlan.favourPairs.map(p => (
+                              <div key={p} className="flex items-center gap-1.5">
+                                <CheckCircle className="w-3 h-3 text-emerald-400 flex-shrink-0" />
+                                <span className="text-sm font-mono font-bold text-white">{p}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-gray-500">Building performance data...</p>
+                        )}
+                      </div>
+
+                      {/* Pairs to avoid */}
+                      <div className="rounded-xl p-4 bg-red-500/8 border border-red-500/25">
+                        <div className="flex items-center gap-2 mb-2">
+                          <TrendingDown className="w-4 h-4 text-red-400" />
+                          <span className="text-xs font-bold text-red-400">AVOID TODAY</span>
+                        </div>
+                        {battlePlan.avoidPairs.length > 0 ? (
+                          <div className="space-y-1">
+                            {battlePlan.avoidPairs.map(p => (
+                              <div key={p} className="flex items-center gap-1.5">
+                                <XCircle className="w-3 h-3 text-red-400 flex-shrink-0" />
+                                <span className="text-sm font-mono font-bold text-white">{p}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-gray-500">No pairs flagged yet</p>
+                        )}
+                      </div>
+                    </div>
+
+                    {battlePlan.bestCombos.length > 0 && (
+                      <div className="mt-3 pt-3 border-t border-gray-700/40">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Star className="w-3.5 h-3.5 text-yellow-400" />
+                          <span className="text-xs font-bold text-yellow-400">BEST COMBOS TO RUN TODAY</span>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {battlePlan.bestCombos.map(combo => (
+                            <Badge key={combo} className="bg-yellow-500/10 text-yellow-300 border-yellow-500/30 text-[10px] font-mono">
+                              ⚡ {combo}
                             </Badge>
                           ))}
                         </div>
-                        {enginePairs.filter(p => !POPULAR_PAIRS.slice(0, 14).includes(p)).length > 0 && (
-                          <div className="flex flex-wrap gap-1 mt-1">
-                            {enginePairs.filter(p => !POPULAR_PAIRS.slice(0, 14).includes(p)).map(pair => (
-                              <Badge key={pair} className="text-[10px] bg-emerald-500/20 text-emerald-400 border-emerald-500/40 cursor-pointer"
-                                onClick={() => removeEnginePair(pair)}>
-                                {pair} ×
-                              </Badge>
-                            ))}
-                          </div>
-                        )}
-                        <div className="flex gap-1 mt-1">
-                          <Input
-                            value={enginePairInput}
-                            onChange={e => setEnginePairInput(e.target.value)}
-                            placeholder="Add pair (e.g. GBPCHF)"
-                            className="h-7 text-[10px] bg-gray-900 border-gray-700 text-white flex-1"
-                            onKeyDown={e => e.key === 'Enter' && addEnginePair()}
-                          />
-                          <Button variant="outline" size="sm" className="h-7 text-[10px] px-2" onClick={addEnginePair}>Add</Button>
-                        </div>
                       </div>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+                    )}
+                  </CardContent>
+                </Card>
+              </motion.div>
+            )}
 
-              <Card className="border border-emerald-500/30 bg-gradient-to-r from-emerald-900/10 to-cyan-900/10 mt-3">
-                <CardContent className="p-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h4 className="text-sm font-bold text-emerald-400 flex items-center gap-2">
-                        <Download className="w-4 h-4" />
-                        MT5 Signal Receiver EA
-                      </h4>
-                      <p className="text-[11px] text-gray-400 mt-1">
-                        Auto-executes Live Engine signals on your MT5 account. Runs alongside your Chart Data EA.
-                      </p>
-                    </div>
-                    <a href="/downloads/VEDD_Signal_Receiver_EA.mq5" download>
-                      <Button size="sm" variant="outline" className="text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/10">
-                        <Download className="w-3 h-3 mr-1" />
-                        Download EA
-                      </Button>
-                    </a>
-                  </div>
-                  <div className="mt-3 text-[10px] text-gray-500 space-y-1">
-                    <p>1. Download the .mq5 file and copy to MT5: File &rarr; Open Data Folder &rarr; MQL5 &rarr; Experts</p>
-                    <p>2. Compile in MetaEditor (F7), then drag onto any chart</p>
-                    <p>3. Set your <span className="text-emerald-400">Server URL</span> (this site's URL) and <span className="text-emerald-400">API Key</span> (from MT5 Settings)</p>
-                    <p>4. Enable: Tools &rarr; Options &rarr; Expert Advisors &rarr; Allow WebRequest for this URL</p>
-                  </div>
-                </CardContent>
-              </Card>
-            </motion.div>
+            {/* Settings toggle when running */}
+            {!showConfig && (
+              <div className="text-center">
+                <button onClick={() => setShowConfig(true)} className="text-xs text-gray-500 hover:text-gray-300 flex items-center gap-1 mx-auto">
+                  <Settings className="w-3 h-3" /> Show Engine Settings
+                </button>
+              </div>
+            )}
+          </>
+        )}
 
-            {/* Growth Progress Header */}
-            <Card className="border-2 border-orange-500/30 bg-gradient-to-r from-orange-900/20 to-red-900/20">
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between mb-4">
+        {/* ═══════════════════════════════════════════════════════
+            VEDD SS AI LIVE MODE (EA Guidance toggle)
+        ═══════════════════════════════════════════════════════ */}
+        {strategy?.hasStrategy && plan && (
+          <Card className={`border transition-all duration-500 ${
+            liveMode?.live
+              ? 'border-emerald-500/50 bg-gradient-to-r from-emerald-950/30 to-green-950/30'
+              : 'border-gray-700/40 bg-gray-900/30'
+          }`}>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className={`relative p-2.5 rounded-xl ${liveMode?.live ? 'bg-emerald-500/15' : 'bg-gray-800/60'}`}>
+                    <Power className={`w-5 h-5 ${liveMode?.live ? 'text-emerald-400' : 'text-gray-500'}`} />
+                    {liveMode?.live && <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-400 rounded-full animate-pulse" />}
+                  </div>
                   <div>
-                    <h3 className="text-xl font-bold text-orange-400 flex items-center gap-2">
-                      <Rocket className="w-5 h-5" />
-                      ${strategy.accountBalance} <ArrowUpRight className="w-4 h-4" /> ${(strategy.accountBalance || 0) + (strategy.profitTarget || 0)}
-                    </h3>
-                    <p className="text-gray-400 text-sm">
-                      {strategy.pairs?.join(', ')} | {strategyGrowthMultiplier}x Growth Target | Full AI Control
-                    </p>
+                    <div className="flex items-center gap-2">
+                      <span className={`font-bold text-sm ${liveMode?.live ? 'text-emerald-400' : 'text-gray-400'}`}>VEDD SS AI — EA Guidance</span>
+                      {liveMode?.live && <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-[10px] animate-pulse">LIVE</Badge>}
+                    </div>
+                    <p className="text-gray-500 text-xs">{liveMode?.live ? 'Guiding your MT5 EA trades in real-time' : 'Toggle to activate AI trade guidance for MT5 EA'}</p>
+                  </div>
+                </div>
+                <FeatureToggle
+                  checked={liveMode?.live || false}
+                  onCheckedChange={(checked) => toggleLiveMutation.mutate(checked)}
+                  activeColor="green" size="lg" showLabel activeLabel="LIVE" inactiveLabel="OFF"
+                  disabled={toggleLiveMutation.isPending}
+                />
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* ═══════════════════════════════════════════════════════
+            WEEKLY STRATEGY PLAN — collapsed by default
+        ═══════════════════════════════════════════════════════ */}
+        {strategy?.hasStrategy && plan ? (
+          <div className="space-y-3">
+            {/* Weekly goal progress */}
+            <Card className="bg-gray-900/50 border-gray-700/50">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <TrendingUp className="w-4 h-4 text-orange-400" />
+                    <span className="font-semibold text-sm text-white">Weekly Growth Plan</span>
+                    <Badge className={`text-[10px] ${
+                      plan.feasibility === 'ACHIEVABLE' ? 'bg-emerald-500/20 text-emerald-400' :
+                      plan.feasibility === 'AGGRESSIVE' ? 'bg-orange-500/20 text-orange-400' :
+                      'bg-red-500/20 text-red-400'
+                    }`}>{plan.feasibility}</Badge>
                   </div>
                   <div className="flex gap-2">
-                    <Button size="sm" variant="outline" onClick={openShareDialog} className="text-purple-400 border-purple-500/30 hover:bg-purple-500/10">
-                      <Share2 className="w-4 h-4 mr-1" />
-                      Share
+                    <Button size="sm" variant="outline" onClick={() => updateProgressMutation.mutate()} disabled={updateProgressMutation.isPending} className="text-xs h-7">
+                      <RefreshCw className={`w-3 h-3 mr-1 ${updateProgressMutation.isPending ? 'animate-spin' : ''}`} /> Sync
                     </Button>
-                    <Button size="sm" variant="outline" onClick={() => updateProgressMutation.mutate()} disabled={updateProgressMutation.isPending}>
-                      <RefreshCw className={`w-4 h-4 mr-1 ${updateProgressMutation.isPending ? 'animate-spin' : ''}`} />
-                      Sync Progress
+                    <Button size="sm" variant="outline" className="text-red-400 border-red-500/30 h-7 px-2" onClick={() => deleteMutation.mutate()}>
+                      <Trash2 className="w-3 h-3" />
                     </Button>
-                    <Button size="sm" variant="outline" className="text-red-400 border-red-500/30" onClick={() => deleteMutation.mutate()}>
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
+                    <button onClick={() => setShowWeeklyPlan(!showWeeklyPlan)} className="text-gray-500 hover:text-gray-300">
+                      {showWeeklyPlan ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                    </button>
                   </div>
                 </div>
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-400">Progress: ${strategy.currentProfit || 0} / ${strategy.profitTarget}</span>
-                    <span className="text-orange-400 font-bold">{strategy.progressPercentage || 0}%</span>
-                  </div>
-                  <Progress value={strategy.progressPercentage || 0} className="h-3" />
-                  <div className="flex gap-4 text-xs text-gray-500 mt-2">
-                    <span>Trades: {strategy.progressTrades || 0}</span>
-                    <span>Win Rate: {strategy.progressWinRate || 0}%</span>
-                    <span>Started: {new Date(strategy.generatedAt || '').toLocaleDateString()}</span>
-                    {activeTrades.length > 0 && (
-                      <>
-                        <span className="text-blue-400">Active: {activeTrades.length}</span>
-                        <span className={unrealizedPnL >= 0 ? 'text-green-400' : 'text-red-400'}>
-                          Unrealized: ${unrealizedPnL.toFixed(2)}
-                        </span>
-                      </>
-                    )}
-                  </div>
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="text-gray-400">${strategy.currentProfit || 0} / ${strategy.profitTarget}</span>
+                  <span className="text-orange-400 font-bold">{strategy.progressPercentage || 0}%</span>
                 </div>
+                <Progress value={strategy.progressPercentage || 0} className="h-2" />
               </CardContent>
             </Card>
 
-            {/* Active Trades - What VEDD SS AI is doing */}
-            {activeTrades.length > 0 && (
-              <Card className="bg-gradient-to-br from-blue-900/20 to-purple-900/20 border-blue-500/30">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-white flex items-center gap-2 text-lg">
-                    <Activity className="w-5 h-5 text-blue-400" />
-                    Active Trades
-                    <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/30 text-[10px]">
-                      {activeTrades.length} open
-                    </Badge>
-                    {lastPositionUpdate && (
-                      <span className="text-[10px] text-gray-500 font-normal ml-auto">
-                        Last sync: {new Date(lastPositionUpdate).toLocaleTimeString()}
-                      </span>
-                    )}
-                  </CardTitle>
-                  <CardDescription>
-                    What VEDD SS AI is doing with your currently running trades
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2">
-                    {activeTrades.map((trade: any, idx: number) => (
-                      <div key={trade.ticket || idx} className={`rounded-lg border p-3 ${
-                        trade.veddAction === 'ALIGNED' ? 'border-green-500/30 bg-green-500/5' :
-                        trade.veddAction === 'CONFLICT' ? 'border-red-500/30 bg-red-500/5' :
-                        trade.veddAction === 'NOT_IN_PLAN' ? 'border-amber-500/30 bg-amber-500/5' :
-                        'border-gray-600 bg-gray-800/30'
-                      }`}>
-                        <div className="flex items-center justify-between flex-wrap gap-2">
-                          <div className="flex items-center gap-2">
-                            <span className="font-semibold text-white text-sm">{trade.symbol}</span>
-                            <Badge variant="outline" className={`text-[10px] ${trade.direction === 'BUY' ? 'text-green-400 border-green-500/40' : 'text-red-400 border-red-500/40'}`}>
-                              {trade.direction}
-                            </Badge>
-                            <span className="text-xs text-gray-400">{trade.lots} lots</span>
-                          </div>
-                          <span className={`text-sm font-bold ${trade.currentProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                            {trade.currentProfit >= 0 ? '+' : ''}${trade.currentProfit.toFixed(2)}
-                          </span>
-                        </div>
-                        <div className="flex flex-wrap gap-1.5 mt-2">
-                          {trade.veddAction === 'ALIGNED' && (
-                            <Badge className="bg-green-500/15 text-green-400 border-green-500/30 text-[10px]">
-                              <CheckCircle className="w-2.5 h-2.5 mr-1" />
-                              Plan Aligned ({trade.planDirection} {trade.planSession})
-                            </Badge>
-                          )}
-                          {trade.veddAction === 'CONFLICT' && (
-                            <Badge className="bg-red-500/15 text-red-400 border-red-500/30 text-[10px]">
-                              <AlertCircle className="w-2.5 h-2.5 mr-1" />
-                              Plan Conflict (Plan: {trade.planDirection}, Trade: {trade.direction})
-                            </Badge>
-                          )}
-                          {trade.veddAction === 'NOT_IN_PLAN' && (
-                            <Badge className="bg-amber-500/15 text-amber-400 border-amber-500/30 text-[10px]">
-                              <AlertCircle className="w-2.5 h-2.5 mr-1" />
-                              Not in Today's Plan
-                            </Badge>
-                          )}
-                          {trade.veddAction === 'LIVE_OFF' && (
-                            <Badge className="bg-gray-500/15 text-gray-400 border-gray-600 text-[10px]">
-                              <Power className="w-2.5 h-2.5 mr-1" />
-                              Live Mode Off
-                            </Badge>
-                          )}
-                          {trade.lotOverrideApplied && (
-                            <Badge className="bg-purple-500/15 text-purple-400 border-purple-500/30 text-[10px]">
-                              <Zap className="w-2.5 h-2.5 mr-1" />
-                              Lot Override: {trade.lotOverrideValue}
-                            </Badge>
-                          )}
-                        </div>
-                        <div className="flex gap-4 text-[11px] text-gray-500 mt-1.5">
-                          <span>Entry: {trade.openPrice}</span>
-                          {trade.sl > 0 && <span>SL: {trade.sl}</span>}
-                          {trade.tp > 0 && <span>TP: {trade.tp}</span>}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="mt-3 p-2 bg-black/20 rounded text-xs text-gray-500 flex items-center gap-2">
-                    <Brain className="w-3.5 h-3.5 text-purple-400" />
-                    {activeTrades.filter(t => t.veddAction === 'ALIGNED').length > 0
-                      ? `${activeTrades.filter(t => t.veddAction === 'ALIGNED').length} trade(s) aligned with your VEDD SS AI plan. AI boosted confidence on these entries.`
-                      : activeTrades.some(t => t.veddAction === 'LIVE_OFF')
-                        ? 'Turn on Live Mode to let VEDD SS AI guide lot sizing and confidence on your active trades.'
-                        : 'VEDD SS AI is monitoring these trades against your weekly plan.'}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
+            <AnimatePresence>
+              {showWeeklyPlan && (
+                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="space-y-3">
 
-            {/* AI Brain Learning & Autonomous Signals */}
-            <Card className="bg-gradient-to-br from-purple-900/20 to-indigo-900/20 border-purple-500/30">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-white flex items-center gap-2 text-lg">
-                  <Brain className="w-5 h-5 text-purple-400" />
-                  Self-Learning Brain
-                  {brainStatus?.learned && (
-                    <Badge className="bg-purple-500/20 text-purple-400 border-purple-500/30 text-[10px]">
-                      {brainStatus.totalTradesAnalyzed} trades learned
-                    </Badge>
-                  )}
-                </CardTitle>
-                <CardDescription>
-                  AI educates itself from your trade history and generates signals autonomously
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-center gap-3">
-                  <Button
-                    size="sm"
-                    onClick={() => learnMutation.mutate()}
-                    disabled={learnMutation.isPending}
-                    className="bg-purple-600 hover:bg-purple-500 text-white"
-                  >
-                    {learnMutation.isPending ? (
-                      <><RefreshCw className="w-4 h-4 mr-1 animate-spin" /> Learning...</>
-                    ) : (
-                      <><Brain className="w-4 h-4 mr-1" /> {brainStatus?.learned ? 'Re-Learn' : 'Train Brain'}</>
-                    )}
-                  </Button>
-                  {brainStatus?.learned && (
-                    <span className="text-xs text-gray-500">
-                      Last learned: {new Date(brainStatus.lastLearned).toLocaleString()}
-                    </span>
-                  )}
-                </div>
-
-                {brainStatus?.learned && (
-                  <>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                      <div className="bg-black/20 rounded-lg p-3 text-center">
-                        <p className="text-lg font-bold text-purple-400">{brainStatus.overallWinRate}%</p>
-                        <p className="text-[10px] text-gray-500">Win Rate</p>
-                      </div>
-                      <div className="bg-black/20 rounded-lg p-3 text-center">
-                        <p className="text-lg font-bold text-white">{brainStatus.pairsLearned}</p>
-                        <p className="text-[10px] text-gray-500">Pairs Learned</p>
-                      </div>
-                      <div className="bg-black/20 rounded-lg p-3 text-center">
-                        <p className={`text-lg font-bold ${brainStatus.totalProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                          ${brainStatus.totalProfit}
-                        </p>
-                        <p className="text-[10px] text-gray-500">Total P&L</p>
-                      </div>
-                      <div className="bg-black/20 rounded-lg p-3 text-center">
-                        <p className="text-lg font-bold text-orange-400">{brainStatus.totalTradesAnalyzed}</p>
-                        <p className="text-[10px] text-gray-500">Trades Analyzed</p>
-                      </div>
-                    </div>
-
-                    {brainStatus.learningInsights?.length > 0 && (
-                      <div className="space-y-1">
-                        <p className="text-xs text-gray-400 font-semibold">Brain Insights:</p>
-                        {brainStatus.learningInsights.slice(0, 5).map((insight: string, i: number) => (
-                          <div key={i} className="flex items-start gap-2 text-xs text-gray-300 bg-black/20 rounded p-2">
-                            <Lightbulb className="w-3.5 h-3.5 text-yellow-400 mt-0.5 flex-shrink-0" />
-                            {insight}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </>
-                )}
-
-                {/* Autonomous Signal Generation */}
-                {brainStatus?.learned && (
-                  <div className="border-t border-purple-500/20 pt-4 space-y-3">
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <h4 className="text-sm font-semibold text-white flex items-center gap-2">
-                          <Zap className="w-4 h-4 text-yellow-400" />
-                          Autonomous Signals
-                        </h4>
-                        <div className="flex items-center gap-2">
-                          <select
-                            value={selectedSignalMode}
-                            onChange={(e) => setSelectedSignalMode(e.target.value)}
-                            className="bg-gray-900 border border-gray-700 text-white text-xs rounded px-2 py-1"
-                          >
-                            {(strategyModes?.modes || []).map((m: any) => (
-                              <option key={m.id} value={m.id}>{m.name}</option>
-                            ))}
-                          </select>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => generateSignalsMutation.mutate({ mode: selectedSignalMode, autoExec: autoExecuteSignals })}
-                            disabled={generateSignalsMutation.isPending}
-                            className="text-yellow-400 border-yellow-500/30 hover:bg-yellow-500/10 text-xs"
-                          >
-                            {generateSignalsMutation.isPending ? (
-                              <><RefreshCw className="w-3.5 h-3.5 mr-1 animate-spin" /> {autoExecuteSignals ? 'Executing...' : 'Generating...'}</>
-                            ) : (
-                              <><Zap className="w-3.5 h-3.5 mr-1" /> {autoExecuteSignals ? 'Generate & Execute' : 'Generate Signals'}</>
-                            )}
-                          </Button>
-                        </div>
-                      </div>
-                      <div className="flex items-center justify-between bg-black/30 rounded-lg px-3 py-2">
-                        <div className="flex items-center gap-2">
-                          <Power className={`w-4 h-4 ${autoExecuteSignals ? 'text-green-400' : 'text-gray-500'}`} />
-                          <span className="text-xs text-gray-300">Auto-Execute on TradeLocker</span>
-                          {autoExecuteSignals && (
-                            <Badge className="bg-green-500/15 text-green-400 border-green-500/30 text-[10px]">LIVE</Badge>
-                          )}
-                        </div>
-                        <button
-                          onClick={() => setAutoExecuteSignals(!autoExecuteSignals)}
-                          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${autoExecuteSignals ? 'bg-green-600' : 'bg-gray-700'}`}
-                        >
-                          <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${autoExecuteSignals ? 'translate-x-4.5' : 'translate-x-0.5'}`} />
-                        </button>
-                      </div>
-                      {autoExecuteSignals && (
-                        <div className="text-[10px] text-orange-400 bg-orange-500/10 rounded px-2 py-1 flex items-center gap-1">
-                          <AlertCircle className="w-3 h-3 flex-shrink-0" />
-                          Signals with 60%+ confidence will be auto-executed as real trades via your TradeLocker connection
-                        </div>
-                      )}
-                    </div>
-
-                    {autonomousSignals?.signals?.length > 0 ? (
-                      <div className="space-y-2">
-                        {autonomousSignals.marketRead && (
-                          <div className="bg-black/30 rounded p-2 text-xs text-gray-400 italic flex items-start gap-2">
-                            <Brain className="w-3.5 h-3.5 text-purple-400 mt-0.5 flex-shrink-0" />
-                            {autonomousSignals.marketRead}
-                          </div>
-                        )}
-                        {autonomousSignals.signals.map((sig: any, i: number) => (
-                          <motion.div
-                            key={i}
-                            initial={{ opacity: 0, x: -10 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            transition={{ delay: i * 0.1 }}
-                            className={`rounded-lg border p-3 ${
-                              sig.direction === 'BUY' ? 'border-green-500/30 bg-green-500/5' : 'border-red-500/30 bg-red-500/5'
-                            }`}
-                          >
-                            <div className="flex items-center justify-between mb-1">
-                              <div className="flex items-center gap-2">
-                                <span className="font-semibold text-white text-sm">{sig.symbol}</span>
-                                <Badge variant="outline" className={`text-[10px] ${sig.direction === 'BUY' ? 'text-green-400 border-green-500/40' : 'text-red-400 border-red-500/40'}`}>
-                                  {sig.direction}
-                                </Badge>
-                                <Badge className="bg-purple-500/15 text-purple-400 border-purple-500/30 text-[10px]">
-                                  {sig.confidence}%
-                                </Badge>
-                                <Badge className="bg-gray-500/15 text-gray-400 border-gray-600 text-[10px]">
-                                  {sig.strategy}
-                                </Badge>
-                              </div>
-                              <span className="text-[10px] text-gray-500">Hold: {sig.holdTime}</span>
-                            </div>
-                            <p className="text-xs text-gray-300 mb-1">{sig.reason}</p>
-                            <div className="flex flex-wrap gap-3 text-[11px] text-gray-500">
-                              {sig.entryZone && <span>Entry: {sig.entryZone}</span>}
-                              {sig.stopLoss && <span>SL: {sig.stopLoss}</span>}
-                              {sig.takeProfit && <span>TP: {sig.takeProfit}</span>}
-                              {sig.lotSize && <span>Lot: {sig.lotSize}</span>}
-                            </div>
-                            {sig.learnedEdge && (
-                              <div className="mt-1 text-[10px] text-purple-400 flex items-center gap-1">
-                                <Brain className="w-3 h-3" /> Edge: {sig.learnedEdge}
-                              </div>
-                            )}
-                            {autonomousSignals.executionResults && (() => {
-                              const sigId = `${sig.symbol}_${sig.direction}_${i}`;
-                              const execResult = autonomousSignals.executionResults.find((r: any) => r.sigId === sigId) || autonomousSignals.executionResults.find((r: any) => r.symbol === sig.symbol && r.direction === sig.direction);
-                              if (!execResult) return null;
-                              return (
-                                <div className={`mt-2 text-[10px] rounded px-2 py-1 flex items-center gap-1 ${
-                                  execResult.status === 'executed' ? 'bg-green-500/15 text-green-400' :
-                                  execResult.status === 'skipped' ? 'bg-yellow-500/15 text-yellow-400' :
-                                  'bg-red-500/15 text-red-400'
-                                }`}>
-                                  {execResult.status === 'executed' ? (
-                                    <><CheckCircle className="w-3 h-3" /> Executed on TradeLocker{execResult.orderId ? ` | Order: ${execResult.orderId}` : ''}</>
-                                  ) : execResult.status === 'skipped' ? (
-                                    <><AlertCircle className="w-3 h-3" /> Skipped: {execResult.reason}</>
-                                  ) : (
-                                    <><XCircle className="w-3 h-3" /> Failed: {execResult.error}</>
-                                  )}
-                                </div>
-                              );
-                            })()}
-                          </motion.div>
-                        ))}
-                        {autonomousSignals.executionResults && autonomousSignals.executionResults.some((r: any) => r.status === 'executed') && (
-                          <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-2 text-xs text-green-400 flex items-center gap-2">
-                            <CheckCircle className="w-4 h-4" />
-                            {autonomousSignals.executionResults.filter((r: any) => r.status === 'executed').length} trade(s) auto-executed on TradeLocker
-                          </div>
-                        )}
-                        {autonomousSignals.nextBestSetup && (
-                          <div className="text-xs text-gray-500 bg-black/20 rounded p-2 flex items-center gap-2">
-                            <Clock className="w-3.5 h-3.5 text-blue-400" />
-                            Next setup: {autonomousSignals.nextBestSetup}
-                          </div>
-                        )}
-                        <p className="text-[10px] text-gray-600">
-                          Generated: {autonomousSignals.generatedAt ? new Date(autonomousSignals.generatedAt).toLocaleString() : 'N/A'} | Mode: {autonomousSignals.strategyMode} | Brain: {autonomousSignals.tradesLearned} trades
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="text-center py-4 text-gray-500">
-                        <Zap className="w-6 h-6 text-yellow-400/30 mx-auto mb-1" />
-                        <p className="text-xs">No autonomous signals yet. Click "Generate Signals" to let the AI create trade signals from learned patterns.</p>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Feasibility & Growth Strategy */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Card className="bg-gray-800/50 border-gray-700">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-white text-lg flex items-center gap-2">
-                    <Shield className="w-5 h-5 text-blue-400" />
-                    Feasibility
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <Badge className={`text-sm mb-2 ${
-                    plan.feasibility === 'ACHIEVABLE' ? 'bg-green-500/20 text-green-400' :
-                    plan.feasibility === 'AGGRESSIVE' ? 'bg-orange-500/20 text-orange-400' :
-                    'bg-red-500/20 text-red-400'
-                  }`}>
-                    {plan.feasibility}
-                  </Badge>
-                  <p className="text-gray-300 text-sm">{plan.feasibilityReason}</p>
-                  {plan.suggestedTarget && plan.suggestedTarget !== strategy.profitTarget && (
-                    <p className="text-amber-400 text-xs mt-2">AI suggests: ${plan.suggestedTarget}</p>
-                  )}
-                </CardContent>
-              </Card>
-
-              <Card className="bg-gray-800/50 border-gray-700">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-white text-lg flex items-center gap-2">
-                    <Brain className="w-5 h-5 text-purple-400" />
-                    AI Growth Strategy
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-gray-300 text-sm mb-3">{plan.growthStrategy}</p>
-                  <ul className="space-y-1">
-                    {(plan.keyInsights || []).map((insight: string, i: number) => (
-                      <li key={i} className="text-gray-300 text-sm flex items-start gap-2">
-                        <Zap className="w-3 h-3 text-orange-400 mt-1 flex-shrink-0" />
-                        {insight}
-                      </li>
-                    ))}
-                  </ul>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Compound Growth Projection */}
-            {plan.compoundGrowth && (
-              <Card className="bg-gray-800/50 border-gray-700">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-white text-lg flex items-center gap-2">
-                    <TrendingUp className="w-5 h-5 text-green-400" />
-                    Compound Growth Projection
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-5 gap-2">
-                    {dayNames.map(day => {
-                      const dayKey = day.toLowerCase();
-                      const cg = plan.compoundGrowth[dayKey];
-                      if (!cg) return null;
-                      return (
-                        <div key={day} className="bg-gray-900/50 rounded-lg p-3 text-center">
-                          <p className="text-gray-400 text-xs font-medium">{day.substring(0, 3)}</p>
-                          <p className="text-green-400 font-bold text-sm">${cg.endBalance}</p>
-                          <p className="text-gray-500 text-[10px]">+${(cg.endBalance - cg.startBalance).toFixed(0)}</p>
-                          <p className="text-gray-600 text-[10px]">{cg.trades} trades</p>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Weekly Projection */}
-            {plan.weeklyProjection && (
-              <Card className="bg-gray-800/50 border-gray-700">
-                <CardContent className="p-4">
-                  <div className="grid grid-cols-3 gap-4 text-center">
-                    <div>
-                      <p className="text-red-400 text-xs">Worst Case</p>
-                      <p className="text-white font-bold text-lg">${plan.weeklyProjection.worstCase}</p>
-                    </div>
-                    <div>
-                      <p className="text-orange-400 text-xs">Expected</p>
-                      <p className="text-white font-bold text-lg">${plan.weeklyProjection.expected}</p>
-                    </div>
-                    <div>
-                      <p className="text-green-400 text-xs">Best Case</p>
-                      <p className="text-white font-bold text-lg">${plan.weeklyProjection.bestCase}</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Risk Management */}
-            {plan.riskManagement && (
-              <Card className="bg-gray-800/50 border-gray-700">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-white text-lg flex items-center gap-2">
-                    <Shield className="w-5 h-5 text-red-400" />
-                    AI Risk Controls
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <div className="bg-gray-900/50 rounded-lg p-3 text-center">
-                      <p className="text-gray-400 text-xs">Max Daily Loss</p>
-                      <p className="text-red-400 font-bold">${plan.riskManagement.maxDailyLoss}</p>
-                    </div>
-                    <div className="bg-gray-900/50 rounded-lg p-3 text-center">
-                      <p className="text-gray-400 text-xs">Max Daily Trades</p>
-                      <p className="text-white font-bold">{plan.riskManagement.maxDailyTrades}</p>
-                    </div>
-                    <div className="bg-gray-900/50 rounded-lg p-3 text-center">
-                      <p className="text-gray-400 text-xs">Risk Per Trade</p>
-                      <p className="text-orange-400 font-bold">{plan.riskManagement.riskPerTrade}%</p>
-                    </div>
-                    <div className="bg-gray-900/50 rounded-lg p-3 text-center">
-                      <p className="text-gray-400 text-xs">Trailing Stop</p>
-                      <p className="text-purple-400 font-bold">{plan.riskManagement.trailingStopMode || plan.riskManagement.trailingStopRecommendation || 'AI'}</p>
-                    </div>
-                  </div>
-                  {plan.riskManagement.dailyStopRule && (
-                    <div className="mt-3 bg-red-900/20 border border-red-500/20 rounded-lg p-3">
-                      <p className="text-red-300 text-xs flex items-center gap-2">
-                        <AlertCircle className="w-3 h-3" />
-                        <strong>Stop Rule:</strong> {plan.riskManagement.dailyStopRule}
-                      </p>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Pair Rankings */}
-            {plan.pairRankings && (
-              <Card className="bg-gray-800/50 border-gray-700">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-white text-lg flex items-center gap-2">
-                    <Star className="w-5 h-5 text-amber-400" />
-                    Pair Rankings
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2">
-                    {plan.pairRankings.map((pr: any, i: number) => (
-                      <div key={i} className="flex items-center justify-between bg-gray-900/50 rounded-lg p-3">
-                        <div className="flex items-center gap-3">
-                          <span className="text-orange-400 font-bold text-lg">#{i + 1}</span>
-                          <div>
-                            <span className="text-white font-semibold">{pr.symbol}</span>
-                            <p className="text-gray-400 text-xs">Best: {pr.bestDay} / {pr.bestSession}</p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <div className="text-right">
-                            <p className="text-sm text-white">Score: {pr.overallScore}%</p>
-                            <p className="text-xs text-gray-400">
-                              {pr.optimalLotSize ? `${pr.optimalLotSize} lots` : `WR: ${pr.winRate}%`}
-                              {pr.avgPipsPerTrade ? ` | ~${pr.avgPipsPerTrade} pips` : ''}
-                            </p>
-                          </div>
-                          <Badge className={`text-xs ${
-                            pr.recommendation === 'Primary' ? 'bg-green-500/20 text-green-400' :
-                            pr.recommendation === 'Secondary' ? 'bg-amber-500/20 text-amber-400' :
-                            'bg-red-500/20 text-red-400'
-                          }`}>
-                            {pr.recommendation}
-                          </Badge>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Daily Plan */}
-            <Card className="bg-gray-800/50 border-gray-700">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-white text-lg flex items-center gap-2">
-                  <Calendar className="w-5 h-5 text-green-400" />
-                  Daily Battle Plan
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {dayNames.map(day => {
-                  const dayPlan = plan.weeklyPlan?.[day];
-                  if (!dayPlan) return null;
-                  return (
-                    <div key={day} className="bg-gray-900/50 rounded-lg p-4 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <h4 className="text-white font-semibold flex items-center gap-2">
-                          <ChevronRight className="w-4 h-4 text-orange-400" />
-                          {day}
-                        </h4>
-                        <div className="flex gap-2">
-                          {dayPlan.dailyTarget && (
-                            <Badge className="bg-green-500/20 text-green-400">
-                              Target: ${dayPlan.dailyTarget}
-                            </Badge>
-                          )}
-                          {dayPlan.projectedBalance && (
-                            <Badge className="bg-blue-500/20 text-blue-400">
-                              Balance: ${dayPlan.projectedBalance}
-                            </Badge>
-                          )}
-                        </div>
-                      </div>
-                      <div className="space-y-2">
-                        {(dayPlan.pairs || []).map((p: any, i: number) => (
-                          <div key={i} className="bg-gray-800/50 rounded p-3 text-sm space-y-1">
+                  {/* Daily Battle Plan from weekly strategy */}
+                  <Card className="bg-gray-800/50 border-gray-700">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-white text-base flex items-center gap-2">
+                        <Calendar className="w-4 h-4 text-emerald-400" /> Weekly Day-by-Day Plan
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      {dayNames.map(day => {
+                        const dayPlan = plan.weeklyPlan?.[day];
+                        if (!dayPlan) return null;
+                        return (
+                          <div key={day} className="bg-gray-900/50 rounded-xl p-4 space-y-2">
                             <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                <span className="text-white font-medium">{p.symbol}</span>
-                                <Badge className={`text-[10px] ${
-                                  p.direction === 'BUY' ? 'bg-green-500/20 text-green-400' :
-                                  p.direction === 'SELL' ? 'bg-red-500/20 text-red-400' :
-                                  'bg-gray-500/20 text-gray-400'
-                                }`}>
-                                  {p.direction}
-                                </Badge>
-                                <Badge variant="outline" className="text-[10px] text-gray-400">
-                                  <Clock className="w-2.5 h-2.5 mr-1" />
-                                  {p.session}
-                                </Badge>
-                              </div>
-                              <div className="flex items-center gap-3 text-xs">
-                                <span className="text-purple-400">AI: {p.confidence}%</span>
-                                <span className="text-gray-400">~{p.estimatedPips} pips</span>
-                                <span className="text-orange-400 font-medium">{p.lotSize} lots</span>
-                                <span className="text-gray-500">max {p.maxTrades}</span>
+                              <h4 className="text-white font-semibold flex items-center gap-2 text-sm">
+                                <ChevronRight className="w-3.5 h-3.5 text-orange-400" />{day}
+                              </h4>
+                              <div className="flex gap-2">
+                                {dayPlan.dailyTarget && <Badge className="bg-emerald-500/20 text-emerald-400 text-[10px]">Target: ${dayPlan.dailyTarget}</Badge>}
+                                {dayPlan.projectedBalance && <Badge className="bg-blue-500/20 text-blue-400 text-[10px]">Balance: ${dayPlan.projectedBalance}</Badge>}
                               </div>
                             </div>
-                            {p.entryCondition && (
-                              <p className="text-gray-500 text-xs pl-2 border-l-2 border-orange-500/30">
-                                Entry: {p.entryCondition}
-                              </p>
-                            )}
-                            {p.reason && (
-                              <p className="text-gray-600 text-xs italic pl-2">{p.reason}</p>
-                            )}
+                            {(dayPlan.pairs || []).map((p: any, i: number) => (
+                              <div key={i} className="bg-gray-800/50 rounded-lg p-3 text-xs space-y-1">
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-white font-medium">{p.symbol}</span>
+                                    <Badge className={`text-[9px] ${p.direction === 'BUY' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>{p.direction}</Badge>
+                                    <Badge variant="outline" className="text-[9px] text-gray-400"><Clock className="w-2 h-2 mr-0.5" />{p.session}</Badge>
+                                  </div>
+                                  <div className="flex gap-3 text-[10px]">
+                                    <span className="text-purple-400">{p.confidence}%</span>
+                                    <span className="text-gray-400">~{p.estimatedPips} pips</span>
+                                    <span className="text-orange-400">{p.lotSize} lots</span>
+                                  </div>
+                                </div>
+                                {p.entryCondition && <p className="text-gray-500 pl-2 border-l-2 border-orange-500/30">{p.entryCondition}</p>}
+                              </div>
+                            ))}
                           </div>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-              </CardContent>
-            </Card>
+                        );
+                      })}
+                    </CardContent>
+                  </Card>
 
-            {/* Historical Stats */}
-            {strategy.pairStats && Object.keys(strategy.pairStats).length > 0 && (
-              <Card className="bg-gray-800/50 border-gray-700">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-white text-lg flex items-center gap-2">
-                    <BarChart3 className="w-5 h-5 text-blue-400" />
-                    Your Data (Used by AI)
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {Object.entries(strategy.pairStats).map(([pair, stats]: [string, any]) => (
-                      <div key={pair} className="bg-gray-900/50 rounded-lg p-3">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-white font-semibold">{pair}</span>
-                          <Badge className={`text-xs ${stats.winRate >= 55 ? 'bg-green-500/20 text-green-400' : stats.winRate >= 45 ? 'bg-amber-500/20 text-amber-400' : 'bg-red-500/20 text-red-400'}`}>
-                            {stats.winRate}% WR
-                          </Badge>
-                        </div>
-                        <div className="grid grid-cols-3 gap-2 text-xs">
-                          <div>
-                            <p className="text-gray-500">Trades</p>
-                            <p className="text-white">{stats.totalTrades}</p>
-                          </div>
-                          <div>
-                            <p className="text-gray-500">Avg Win</p>
-                            <p className="text-green-400">${stats.avgWin}</p>
-                          </div>
-                          <div>
-                            <p className="text-gray-500">Avg Loss</p>
-                            <p className="text-red-400">-${stats.avgLoss}</p>
-                          </div>
-                        </div>
-                        <div className="flex gap-2 mt-2 text-[10px]">
-                          <span className="text-gray-500">BUY: {stats.buyWinRate}%</span>
-                          <span className="text-gray-500">SELL: {stats.sellWinRate}%</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* EA Strategy Activity Feed */}
-            <Card className="bg-gradient-to-br from-gray-800/80 to-gray-900/80 border-purple-500/30">
-              <CardHeader className="pb-2">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-white flex items-center gap-2 text-lg">
-                    <Brain className="w-5 h-5 text-purple-400" />
-                    EA Strategy Feed
-                    {liveMode?.live && (
-                      <Badge className="bg-green-500/20 text-green-400 border-green-500/30 text-[10px] animate-pulse">
-                        LIVE
-                      </Badge>
-                    )}
-                    {aiLogs.length > 0 && (
-                      <Badge variant="outline" className="text-purple-400 border-purple-500/40 text-[10px]">
-                        {aiLogs.length} decisions
-                      </Badge>
-                    )}
-                  </CardTitle>
-                  <Link href="/mt5-chart-data">
-                    <Button variant="ghost" size="sm" className="text-purple-400 hover:text-purple-300 text-xs">
-                      Full Feed <ChevronRight className="w-3 h-3 ml-1" />
-                    </Button>
-                  </Link>
-                </div>
-                <CardDescription>
-                  See how the EA is thinking and making decisions toward your ${strategy.profitTarget} weekly goal.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {aiLogs.length > 0 ? (
-                  <div className="space-y-2.5 max-h-[400px] overflow-y-auto">
-                    {aiLogs.slice(0, 10).map((log: any) => {
-                      const isPlanPair = strategy?.pairs?.includes(log.symbol);
-                      const activeForSymbol = activeTrades.find(t => t.symbol === log.symbol);
-                      return (
-                        <motion.div
-                          key={log.id}
-                          initial={{ opacity: 0, x: -10 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          transition={{ duration: 0.3 }}
-                          className={`rounded-lg border p-3 space-y-2 ${
-                            log.aiDecision === 'APPROVED' ? 'border-green-500/30 bg-green-500/5' :
-                            log.aiDecision === 'AI_OVERRIDE' ? 'border-blue-500/30 bg-blue-500/5' :
-                            log.aiDecision === 'ADJUSTED' ? 'border-amber-500/30 bg-amber-500/5' :
-                            log.aiDecision === 'REJECTED' ? 'border-red-500/30 bg-red-500/5' :
-                            'border-gray-500/30 bg-gray-500/5'
-                          }`}
-                        >
-                          {/* Header row */}
-                          <div className="flex items-center justify-between flex-wrap gap-2">
-                            <div className="flex items-center gap-2">
-                              <Badge className={`text-xs ${
-                                log.aiDecision === 'APPROVED' ? 'bg-green-500/20 text-green-400 border-green-500/30' :
-                                log.aiDecision === 'AI_OVERRIDE' ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' :
-                                log.aiDecision === 'ADJUSTED' ? 'bg-amber-500/20 text-amber-400 border-amber-500/30' :
-                                log.aiDecision === 'REJECTED' ? 'bg-red-500/20 text-red-400 border-red-500/30' :
-                                'bg-gray-500/20 text-gray-400 border-gray-500/30'
-                              }`}>
-                                {log.aiDecision === 'APPROVED' && <CheckCircle className="w-3 h-3 mr-1" />}
-                                {log.aiDecision === 'AI_OVERRIDE' && <CheckCircle className="w-3 h-3 mr-1" />}
-                                {log.aiDecision === 'ADJUSTED' && <Target className="w-3 h-3 mr-1" />}
-                                {log.aiDecision === 'REJECTED' && <XCircle className="w-3 h-3 mr-1" />}
-                                {log.aiDecision === 'ERROR' && <AlertCircle className="w-3 h-3 mr-1" />}
-                                {log.aiDecision === 'AI_OVERRIDE' ? 'AI OVERRIDE' : log.aiDecision}
-                              </Badge>
-                              <span className="font-semibold text-white text-sm">{log.symbol}</span>
-                              <Badge variant="outline" className="text-[10px] text-gray-400">{log.timeframe}</Badge>
-                              {isPlanPair && (
-                                <Badge className="bg-orange-500/15 text-orange-400 border-orange-500/30 text-[10px]">
-                                  <Target className="w-2.5 h-2.5 mr-0.5" /> Plan Pair
-                                </Badge>
-                              )}
+                  {/* Risk Management */}
+                  {plan.riskManagement && (
+                    <Card className="bg-gray-800/50 border-gray-700">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-white text-base flex items-center gap-2">
+                          <Shield className="w-4 h-4 text-red-400" /> AI Risk Controls
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                          {[
+                            { label: 'Max Daily Loss', value: `$${plan.riskManagement.maxDailyLoss}`, color: 'text-red-400' },
+                            { label: 'Max Daily Trades', value: plan.riskManagement.maxDailyTrades, color: 'text-white' },
+                            { label: 'Risk Per Trade', value: `${plan.riskManagement.riskPerTrade}%`, color: 'text-orange-400' },
+                            { label: 'Trailing Stop', value: plan.riskManagement.trailingStopMode || 'AI', color: 'text-purple-400' },
+                          ].map(item => (
+                            <div key={item.label} className="bg-gray-900/50 rounded-lg p-3 text-center">
+                              <p className="text-gray-400 text-xs mb-1">{item.label}</p>
+                              <p className={`font-bold ${item.color}`}>{item.value}</p>
                             </div>
-                            <span className="text-[11px] text-gray-500">{new Date(log.timestamp).toLocaleTimeString()}</span>
-                          </div>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
 
-                          {/* Context badges */}
-                          <div className="flex flex-wrap gap-1.5">
-                            {log.veddSSAIActive && (
-                              <Badge className={`text-[10px] ${log.veddSSAIPlanMatch ? 'bg-green-500/15 text-green-400 border-green-500/30' : 'bg-gray-500/15 text-gray-400 border-gray-600'}`}>
-                                <Radio className="w-2.5 h-2.5 mr-1" />
-                                VEDD SS AI {log.veddSSAIPlanMatch ? 'ALIGNED' : 'Active'}
-                              </Badge>
-                            )}
-                            {log.newsSentiment && (
-                              <Badge className={`text-[10px] ${
-                                log.newsConflict ? 'bg-red-500/15 text-red-400 border-red-500/30' :
-                                log.newsSentiment === 'bullish' ? 'bg-green-500/15 text-green-400 border-green-500/30' :
-                                log.newsSentiment === 'bearish' ? 'bg-red-500/15 text-red-400 border-red-500/30' :
-                                'bg-gray-500/15 text-gray-400 border-gray-600'
-                              }`}>
-                                <Newspaper className="w-2.5 h-2.5 mr-1" />
-                                News: {log.newsSentiment}{log.newsConflict ? ' CONFLICT' : ''}
-                              </Badge>
-                            )}
-                            {log.breakoutDetected && (
-                              <Badge className="bg-amber-500/15 text-amber-400 border-amber-500/30 text-[10px]">
-                                <Activity className="w-2.5 h-2.5 mr-1" />
-                                Breakout {log.breakoutDirection}
-                              </Badge>
-                            )}
-                            {activeForSymbol && (
-                              <Badge className="bg-blue-500/15 text-blue-400 border-blue-500/30 text-[10px]">
-                                <Zap className="w-2.5 h-2.5 mr-1" />
-                                Trade Running ({activeForSymbol.direction} {activeForSymbol.currentProfit >= 0 ? '+' : ''}${activeForSymbol.currentProfit.toFixed(2)})
-                              </Badge>
-                            )}
-                            {log.veddSSAIPlanMatch && (
-                              <Badge className="bg-orange-500/15 text-orange-300 border-orange-500/30 text-[10px]">
-                                <Target className="w-2.5 h-2.5 mr-1" />
-                                Lot: {log.veddSSAIPlanMatch.lotSize} | {log.veddSSAIPlanMatch.session}
-                              </Badge>
-                            )}
-                          </div>
+                  {/* Pair Rankings */}
+                  {plan.pairRankings && (
+                    <Card className="bg-gray-800/50 border-gray-700">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-white text-base flex items-center gap-2">
+                          <Star className="w-4 h-4 text-amber-400" /> AI Pair Rankings
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-2">
+                          {plan.pairRankings.map((pr: any, i: number) => (
+                            <div key={i} className="flex items-center justify-between bg-gray-900/50 rounded-lg p-3">
+                              <div className="flex items-center gap-3">
+                                <span className="text-orange-400 font-bold">#{i + 1}</span>
+                                <div>
+                                  <span className="text-white font-semibold text-sm">{pr.symbol}</span>
+                                  <p className="text-gray-500 text-[10px]">Best: {pr.bestDay} / {pr.bestSession}</p>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <div className="text-right">
+                                  <p className="text-xs text-white">Score: {pr.overallScore}%</p>
+                                  <p className="text-[10px] text-gray-500">{pr.optimalLotSize ? `${pr.optimalLotSize} lots` : `WR: ${pr.winRate}%`}</p>
+                                </div>
+                                <Badge className={`text-xs ${
+                                  pr.recommendation === 'Primary' ? 'bg-emerald-500/20 text-emerald-400' :
+                                  pr.recommendation === 'Secondary' ? 'bg-amber-500/20 text-amber-400' :
+                                  'bg-red-500/20 text-red-400'
+                                }`}>{pr.recommendation}</Badge>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
 
-                          {/* Trade details compact */}
-                          <div className="flex items-center gap-4 text-xs">
-                            <span className="text-gray-500">EA:</span>
-                            <Badge variant="outline" className={`text-[10px] ${log.proposedSignal === 'BUY' ? 'text-green-400 border-green-500/40' : 'text-red-400 border-red-500/40'}`}>
-                              {log.proposedSignal}
-                            </Badge>
-                            <span className="text-gray-400">{log.proposedConfidence}%</span>
-                            <span className="text-gray-600">→</span>
-                            <span className="text-gray-500">AI:</span>
-                            <Badge variant="outline" className={`text-[10px] ${log.aiDirection === 'BUY' ? 'text-green-400 border-green-500/40' : log.aiDirection === 'SELL' ? 'text-red-400 border-red-500/40' : 'text-gray-400 border-gray-500/40'}`}>
-                              {log.aiDirection}
-                            </Badge>
-                            <span className="text-gray-400">{log.aiConfidence}%</span>
+                  {/* Compound projection */}
+                  {plan.compoundGrowth && (
+                    <Card className="bg-gray-800/50 border-gray-700">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-white text-base flex items-center gap-2">
+                          <TrendingUp className="w-4 h-4 text-emerald-400" /> Compound Growth Projection
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="grid grid-cols-5 gap-2">
+                          {dayNames.map(day => {
+                            const cg = plan.compoundGrowth[day.toLowerCase()];
+                            if (!cg) return null;
+                            return (
+                              <div key={day} className="bg-gray-900/50 rounded-lg p-3 text-center">
+                                <p className="text-gray-400 text-xs font-medium">{day.substring(0, 3)}</p>
+                                <p className="text-emerald-400 font-bold text-sm">${cg.endBalance}</p>
+                                <p className="text-gray-500 text-[10px]">+${(cg.endBalance - cg.startBalance).toFixed(0)}</p>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        {plan.weeklyProjection && (
+                          <div className="grid grid-cols-3 gap-4 text-center mt-3 pt-3 border-t border-gray-700/40">
+                            <div><p className="text-red-400 text-xs">Worst</p><p className="text-white font-bold">${plan.weeklyProjection.worstCase}</p></div>
+                            <div><p className="text-orange-400 text-xs">Expected</p><p className="text-white font-bold">${plan.weeklyProjection.expected}</p></div>
+                            <div><p className="text-emerald-400 text-xs">Best Case</p><p className="text-white font-bold">${plan.weeklyProjection.bestCase}</p></div>
                           </div>
-
-                          {/* AI Reasoning */}
-                          <div className="bg-black/30 rounded p-2">
-                            <p className="text-xs text-gray-400 flex items-start gap-1.5">
-                              <Lightbulb className="w-3.5 h-3.5 text-purple-400 mt-0.5 flex-shrink-0" />
-                              <span className="italic">{log.reasoning}</span>
-                            </p>
-                          </div>
-                        </motion.div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="text-center py-6 text-gray-500">
-                    <Brain className="w-8 h-8 text-purple-400/30 mx-auto mb-2" />
-                    <p className="text-sm">No EA decisions yet.</p>
-                    <p className="text-xs text-gray-600">When the EA sends trade signals, you'll see how the AI thinks and decides right here.</p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            <div className="text-center">
-              <Button variant="outline" onClick={() => deleteMutation.mutate()} className="text-gray-400">
-                Clear & Create New Growth Plan
-              </Button>
-            </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
-        ) : (
+        ) : !isLoading && (
           /* Setup Form */
-          <Card className="bg-gray-800/50 border-gray-700 max-w-2xl mx-auto">
+          <Card className="bg-gray-900/60 border-gray-700 max-w-2xl mx-auto">
             <CardHeader>
               <CardTitle className="text-white flex items-center gap-2">
-                <Rocket className="w-5 h-5 text-orange-400" />
-                Set Your Account Growth Target
+                <Rocket className="w-5 h-5 text-orange-400" /> Set Your Weekly Growth Target
               </CardTitle>
-              <CardDescription>
-                Tell the AI where you are and where you want to be. It handles the rest - lot sizing, risk, entries, everything.
-              </CardDescription>
+              <CardDescription>Tell the AI where you want to go. It handles entries, exits, lot sizing, and risk.</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-6">
-              {/* Quick Presets */}
+            <CardContent className="space-y-5">
               <div className="space-y-2">
-                <Label className="text-gray-300">Quick Growth Presets</Label>
+                <Label className="text-gray-300 text-sm">Quick Presets</Label>
                 <div className="grid grid-cols-3 gap-2">
                   {[
                     { balance: '100', target: '400', label: '$100 → $500' },
                     { balance: '100', target: '700', label: '$100 → $800' },
                     { balance: '200', target: '800', label: '$200 → $1,000' },
                   ].map(preset => (
-                    <Button
-                      key={preset.label}
-                      variant="outline"
-                      size="sm"
-                      className={`text-xs ${
-                        accountBalance === preset.balance && profitTarget === preset.target
-                          ? 'border-orange-500 text-orange-400 bg-orange-500/10'
-                          : 'border-gray-700 text-gray-400'
-                      }`}
-                      onClick={() => { setAccountBalance(preset.balance); setProfitTarget(preset.target); }}
-                    >
+                    <Button key={preset.label} variant="outline" size="sm"
+                      className={`text-xs ${accountBalance === preset.balance && profitTarget === preset.target ? 'border-orange-500 text-orange-400 bg-orange-500/10' : 'border-gray-700 text-gray-400'}`}
+                      onClick={() => { setAccountBalance(preset.balance); setProfitTarget(preset.target); }}>
                       {preset.label}
                     </Button>
                   ))}
                 </div>
               </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label className="text-gray-300">Starting Balance ($)</Label>
-                  <Input
-                    type="number"
-                    value={accountBalance}
-                    onChange={(e) => setAccountBalance(e.target.value)}
-                    placeholder="100"
-                    className="bg-gray-900 border-gray-700 text-white"
-                  />
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-gray-300 text-sm">Starting Balance ($)</Label>
+                  <Input type="number" value={accountBalance} onChange={e => setAccountBalance(e.target.value)} placeholder="100" className="mt-1 bg-gray-900 border-gray-700 text-white" />
                 </div>
-                <div className="space-y-2">
-                  <Label className="text-gray-300">Profit Target ($)</Label>
-                  <Input
-                    type="number"
-                    value={profitTarget}
-                    onChange={(e) => setProfitTarget(e.target.value)}
-                    placeholder="400"
-                    className="bg-gray-900 border-gray-700 text-white"
-                  />
+                <div>
+                  <Label className="text-gray-300 text-sm">Profit Target ($)</Label>
+                  <Input type="number" value={profitTarget} onChange={e => setProfitTarget(e.target.value)} placeholder="400" className="mt-1 bg-gray-900 border-gray-700 text-white" />
                 </div>
               </div>
-
-              {/* Growth Preview */}
               {accountBalance && profitTarget && parseFloat(accountBalance) > 0 && (
-                <div className="bg-gradient-to-r from-orange-900/20 to-red-900/20 rounded-lg p-4 border border-orange-500/20">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-gray-400 text-xs">Growth Target</p>
-                      <p className="text-white font-bold text-xl">
-                        ${accountBalance} <ArrowUpRight className="w-4 h-4 inline text-orange-400" /> ${parseFloat(accountBalance) + parseFloat(profitTarget)}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-gray-400 text-xs">Multiplier</p>
-                      <p className="text-orange-400 font-bold text-xl">{formGrowthMultiplier}x</p>
-                    </div>
+                <div className="bg-gradient-to-r from-orange-900/20 to-red-900/20 rounded-lg p-4 border border-orange-500/20 flex justify-between items-center">
+                  <div>
+                    <p className="text-gray-400 text-xs">Growth Target</p>
+                    <p className="text-white font-bold text-xl">${accountBalance} <ArrowUpRight className="w-4 h-4 inline text-orange-400" /> ${parseFloat(accountBalance) + parseFloat(profitTarget)}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-gray-400 text-xs">Multiplier</p>
+                    <p className="text-orange-400 font-bold text-xl">{formGrowthMultiplier}x</p>
                   </div>
                 </div>
               )}
-
-              <div className="space-y-2">
-                <Label className="text-gray-300">Lot Size (optional - AI will decide if blank)</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  value={lotSize}
-                  onChange={(e) => setLotSize(e.target.value)}
-                  placeholder="Let AI decide"
-                  className="bg-gray-900 border-gray-700 text-white"
-                />
-              </div>
-
-              {/* HFT Strategy Mode Selector */}
-              <div className="space-y-2">
-                <Label className="text-gray-300">Growth Strategy Mode</Label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+              <div>
+                <Label className="text-gray-300 text-sm">Strategy Mode</Label>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mt-1">
                   {[
-                    { id: 'scalping', name: 'Scalping (HFT)', icon: '⚡', desc: '10-20+ trades/day, 3-8 pip targets', risk: 'HIGH' },
-                    { id: 'momentum', name: 'Momentum Surfing', icon: '🌊', desc: '5-15 trades/day, ride big moves', risk: 'MED-HIGH' },
-                    { id: 'session_breakout', name: 'Session Breakout', icon: '🚀', desc: '3-6 trades at London/NY open', risk: 'MEDIUM' },
-                    { id: 'aggressive', name: 'Aggressive Compound', icon: '🔥', desc: 'All strategies combined, max growth', risk: 'EXTREME' },
-                    { id: 'sniper', name: 'Sniper Mode', icon: '🎯', desc: '2-4 perfect setups, larger lots', risk: 'MEDIUM' },
+                    { id: 'scalping', name: 'Scalping HFT', icon: '⚡', risk: 'HIGH' },
+                    { id: 'momentum', name: 'Momentum', icon: '🌊', risk: 'MED-HIGH' },
+                    { id: 'session_breakout', name: 'Session Breakout', icon: '🚀', risk: 'MEDIUM' },
+                    { id: 'aggressive', name: 'Aggressive Compound', icon: '🔥', risk: 'EXTREME' },
+                    { id: 'sniper', name: 'Sniper Mode', icon: '🎯', risk: 'MEDIUM' },
                   ].map(mode => (
-                    <button
-                      key={mode.id}
-                      className={`text-left p-3 rounded-lg border transition-all ${
-                        strategyMode === mode.id
-                          ? 'border-orange-500 bg-orange-500/10 ring-1 ring-orange-500/30'
-                          : 'border-gray-700 bg-gray-900/50 hover:border-gray-500'
-                      }`}
-                      onClick={() => setStrategyMode(mode.id)}
-                    >
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-base">{mode.icon}</span>
-                        <span className={`text-sm font-semibold ${strategyMode === mode.id ? 'text-orange-400' : 'text-gray-300'}`}>
-                          {mode.name}
-                        </span>
+                    <button key={mode.id} onClick={() => setStrategyMode(mode.id)}
+                      className={`text-left p-3 rounded-xl border transition-all text-xs ${strategyMode === mode.id ? 'border-orange-500 bg-orange-500/10 text-orange-300' : 'border-gray-700 bg-gray-900/50 text-gray-400 hover:border-gray-500'}`}>
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <span>{mode.icon}</span>
+                        <span className="font-semibold">{mode.name}</span>
                       </div>
-                      <p className="text-[11px] text-gray-500">{mode.desc}</p>
-                      <Badge className={`mt-1 text-[9px] ${
-                        mode.risk === 'EXTREME' ? 'bg-red-500/20 text-red-400' :
-                        mode.risk === 'HIGH' ? 'bg-orange-500/20 text-orange-400' :
-                        'bg-yellow-500/20 text-yellow-400'
-                      }`}>
-                        {mode.risk} RISK
-                      </Badge>
+                      <Badge className={`text-[9px] ${mode.risk === 'EXTREME' ? 'bg-red-500/20 text-red-400' : mode.risk === 'HIGH' ? 'bg-orange-500/20 text-orange-400' : 'bg-yellow-500/20 text-yellow-400'}`}>{mode.risk}</Badge>
                     </button>
                   ))}
                 </div>
               </div>
-
-              <div className="space-y-2">
-                <Label className="text-gray-300">Select Pairs to Trade</Label>
-                <div className="flex flex-wrap gap-2">
+              <div>
+                <Label className="text-gray-300 text-sm">Select Pairs</Label>
+                <div className="flex flex-wrap gap-1.5 mt-1">
                   {POPULAR_PAIRS.map(pair => (
-                    <Badge
-                      key={pair}
-                      className={`cursor-pointer text-xs transition-all ${
-                        selectedPairs.includes(pair)
-                          ? 'bg-orange-500/30 text-orange-300 border-orange-500/50'
-                          : 'bg-gray-900 text-gray-500 border-gray-700 hover:border-gray-500'
-                      }`}
-                      onClick={() => togglePair(pair)}
-                    >
-                      {selectedPairs.includes(pair) && <CheckCircle className="w-3 h-3 mr-1" />}
-                      {pair}
+                    <Badge key={pair} className={`cursor-pointer text-xs transition-all ${selectedPairs.includes(pair) ? 'bg-orange-500/30 text-orange-300 border-orange-500/50' : 'bg-gray-900 text-gray-500 border-gray-700 hover:border-gray-500'}`}
+                      onClick={() => togglePair(pair)}>
+                      {selectedPairs.includes(pair) && <CheckCircle className="w-2.5 h-2.5 mr-1" />}{pair}
                     </Badge>
                   ))}
                 </div>
                 <div className="flex gap-2 mt-2">
-                  <Input
-                    value={pairInput}
-                    onChange={(e) => setPairInput(e.target.value)}
-                    placeholder="Add custom pair..."
-                    className="bg-gray-900 border-gray-700 text-white flex-1"
-                    onKeyDown={(e) => e.key === 'Enter' && addCustomPair()}
-                  />
+                  <Input value={pairInput} onChange={e => setPairInput(e.target.value)} placeholder="Add custom pair..."
+                    className="bg-gray-900 border-gray-700 text-white flex-1 text-sm" onKeyDown={e => e.key === 'Enter' && addCustomPair()} />
                   <Button variant="outline" size="sm" onClick={addCustomPair}>Add</Button>
                 </div>
-                {selectedPairs.length > 0 && (
-                  <p className="text-xs text-gray-500 mt-1">
-                    Selected: {selectedPairs.join(', ')}
-                  </p>
-                )}
               </div>
-
-              <div className="bg-gray-900/50 rounded-lg p-4 border border-orange-500/20">
-                <h4 className="text-sm text-orange-300 mb-2 flex items-center gap-2">
-                  <Brain className="w-4 h-4 text-orange-400" />
-                  Self-Learning AI + HFT Growth Engine
-                </h4>
-                <ul className="text-xs text-gray-400 space-y-1">
-                  <li className="flex items-center gap-1"><Flame className="w-3 h-3 text-orange-500" /> AI learns from ALL your trade history and adapts strategies</li>
-                  <li className="flex items-center gap-1"><Flame className="w-3 h-3 text-orange-500" /> Generates signals autonomously - no need to wait for MT5 data</li>
-                  <li className="flex items-center gap-1"><Flame className="w-3 h-3 text-orange-500" /> HFT strategies: scalping, momentum, breakout, sniper modes</li>
-                  <li className="flex items-center gap-1"><Flame className="w-3 h-3 text-orange-500" /> Compound growth: profits reinvested to accelerate returns</li>
-                  <li className="flex items-center gap-1"><Flame className="w-3 h-3 text-orange-500" /> Full AI control over entries, exits, lot sizing, and risk</li>
-                </ul>
-              </div>
-
-              <Button
-                className="w-full bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-500 hover:to-red-500 text-white font-semibold py-6 text-lg"
-                onClick={() => generateMutation.mutate()}
-                disabled={generateMutation.isPending || selectedPairs.length === 0}
-              >
-                {generateMutation.isPending ? (
-                  <>
-                    <RefreshCw className="w-5 h-5 mr-2 animate-spin" />
-                    AI is building your growth plan...
-                  </>
-                ) : (
-                  <>
-                    <Rocket className="w-5 h-5 mr-2" />
-                    Generate Growth Strategy
-                  </>
-                )}
+              <Button className="w-full bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-500 hover:to-red-500 text-white font-semibold py-5 text-base"
+                onClick={() => generateMutation.mutate()} disabled={generateMutation.isPending || selectedPairs.length === 0}>
+                {generateMutation.isPending ? <><RefreshCw className="w-4 h-4 mr-2 animate-spin" /> AI Building Plan...</> : <><Rocket className="w-4 h-4 mr-2" /> Generate Growth Strategy</>}
               </Button>
-
-              {selectedPairs.length === 0 && (
-                <p className="text-red-400 text-xs text-center">Select at least one pair to continue</p>
-              )}
             </CardContent>
           </Card>
         )}
+
+        {/* ═══════════════════════════════════════════════════════
+            SELF-LEARNING BRAIN — collapsible
+        ═══════════════════════════════════════════════════════ */}
+        <Card className="bg-gradient-to-br from-purple-900/20 to-indigo-900/20 border-purple-500/30">
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base text-white flex items-center gap-2">
+                <Brain className="w-4 h-4 text-purple-400" /> Self-Learning Brain
+                {brainStatus?.learned && (
+                  <Badge className="bg-purple-500/20 text-purple-400 border-purple-500/30 text-[10px]">{brainStatus.totalTradesAnalyzed} trades</Badge>
+                )}
+              </CardTitle>
+              <div className="flex items-center gap-2">
+                <Button size="sm" onClick={() => learnMutation.mutate()} disabled={learnMutation.isPending} className="bg-purple-600 hover:bg-purple-500 text-white h-7 text-xs">
+                  {learnMutation.isPending ? <><RefreshCw className="w-3 h-3 mr-1 animate-spin" /> Learning...</> : <><Brain className="w-3 h-3 mr-1" /> {brainStatus?.learned ? 'Re-Learn' : 'Train Brain'}</>}
+                </Button>
+                <button onClick={() => setShowBrain(!showBrain)} className="text-gray-500 hover:text-gray-300">
+                  {showBrain ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+            {brainStatus?.learned && (
+              <div className="grid grid-cols-4 gap-2 mt-2">
+                {[
+                  { label: 'Win Rate', value: `${brainStatus.overallWinRate}%`, color: 'text-purple-400' },
+                  { label: 'Pairs', value: brainStatus.pairsLearned, color: 'text-white' },
+                  { label: 'Total P&L', value: `$${brainStatus.totalProfit}`, color: brainStatus.totalProfit >= 0 ? 'text-emerald-400' : 'text-red-400' },
+                  { label: 'Analyzed', value: brainStatus.totalTradesAnalyzed, color: 'text-orange-400' },
+                ].map(s => (
+                  <div key={s.label} className="bg-black/20 rounded-lg p-2 text-center">
+                    <p className={`text-base font-bold ${s.color}`}>{s.value}</p>
+                    <p className="text-[9px] text-gray-500">{s.label}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardHeader>
+          <AnimatePresence>
+            {showBrain && brainStatus?.learned && (
+              <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
+                <CardContent className="pt-0 space-y-4">
+                  {brainStatus.learningInsights?.length > 0 && (
+                    <div className="space-y-1">
+                      <p className="text-xs text-gray-400 font-semibold">Brain Insights:</p>
+                      {brainStatus.learningInsights.slice(0, 5).map((insight: string, i: number) => (
+                        <div key={i} className="flex items-start gap-2 text-xs text-gray-300 bg-black/20 rounded p-2">
+                          <Lightbulb className="w-3.5 h-3.5 text-yellow-400 mt-0.5 flex-shrink-0" />
+                          {insight}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="border-t border-purple-500/20 pt-3 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-sm font-semibold text-white flex items-center gap-2">
+                        <Zap className="w-4 h-4 text-yellow-400" /> Autonomous Signals
+                      </h4>
+                      <div className="flex gap-2">
+                        <select value={selectedSignalMode} onChange={e => setSelectedSignalMode(e.target.value)}
+                          className="bg-gray-900 border border-gray-700 text-white text-xs rounded px-2 py-1">
+                          {(strategyModes?.modes || []).map((m: any) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                        </select>
+                        <Button size="sm" variant="outline" onClick={() => generateSignalsMutation.mutate({ mode: selectedSignalMode, autoExec: autoExecuteSignals })}
+                          disabled={generateSignalsMutation.isPending} className="text-yellow-400 border-yellow-500/30 hover:bg-yellow-500/10 text-xs h-7">
+                          {generateSignalsMutation.isPending ? <><RefreshCw className="w-3 h-3 mr-1 animate-spin" /> Generating...</> : <><Zap className="w-3 h-3 mr-1" /> Generate</>}
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between bg-black/30 rounded-lg px-3 py-2">
+                      <div className="flex items-center gap-2">
+                        <Power className={`w-4 h-4 ${autoExecuteSignals ? 'text-emerald-400' : 'text-gray-500'}`} />
+                        <span className="text-xs text-gray-300">Auto-Execute on TradeLocker</span>
+                        {autoExecuteSignals && <Badge className="bg-emerald-500/15 text-emerald-400 border-emerald-500/30 text-[10px]">LIVE</Badge>}
+                      </div>
+                      <button onClick={() => setAutoExecuteSignals(!autoExecuteSignals)}
+                        className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${autoExecuteSignals ? 'bg-emerald-600' : 'bg-gray-700'}`}>
+                        <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${autoExecuteSignals ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
+                      </button>
+                    </div>
+                    {autonomousSignals?.signals?.length > 0 && (
+                      <div className="space-y-2">
+                        {autonomousSignals.marketRead && (
+                          <div className="bg-black/30 rounded p-2 text-xs text-gray-400 italic flex gap-2">
+                            <Brain className="w-3.5 h-3.5 text-purple-400 mt-0.5 flex-shrink-0" />
+                            {autonomousSignals.marketRead}
+                          </div>
+                        )}
+                        {autonomousSignals.signals.map((sig: any, i: number) => (
+                          <div key={i} className={`rounded-xl border p-3 ${sig.direction === 'BUY' ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-red-500/30 bg-red-500/5'}`}>
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="font-semibold text-white text-sm">{sig.symbol}</span>
+                              <Badge variant="outline" className={`text-[10px] ${sig.direction === 'BUY' ? 'text-emerald-400 border-emerald-500/40' : 'text-red-400 border-red-500/40'}`}>{sig.direction}</Badge>
+                              <Badge className="bg-purple-500/15 text-purple-400 border-purple-500/30 text-[10px]">{sig.confidence}%</Badge>
+                              <Badge className="bg-gray-500/15 text-gray-400 border-gray-600 text-[10px]">{sig.strategy}</Badge>
+                              <span className="ml-auto text-[10px] text-gray-500">{sig.holdTime}</span>
+                            </div>
+                            <p className="text-xs text-gray-300">{sig.reason}</p>
+                            <div className="flex gap-3 text-[10px] text-gray-500 mt-1">
+                              {sig.entryZone && <span>Entry: {sig.entryZone}</span>}
+                              {sig.stopLoss && <span>SL: {sig.stopLoss}</span>}
+                              {sig.takeProfit && <span>TP: {sig.takeProfit}</span>}
+                              {sig.lotSize && <span>Lot: {sig.lotSize}</span>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </Card>
+
+        {/* ═══════════════════════════════════════════════════════
+            EA STRATEGY FEED
+        ═══════════════════════════════════════════════════════ */}
+        {strategy?.hasStrategy && aiLogs.length > 0 && (
+          <Card className="bg-gradient-to-br from-gray-800/80 to-gray-900/80 border-purple-500/30">
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base text-white flex items-center gap-2">
+                  <BookOpen className="w-4 h-4 text-purple-400" /> MT5 EA Decision Feed
+                  {liveMode?.live && <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-[10px] animate-pulse">LIVE</Badge>}
+                  <Badge variant="outline" className="text-purple-400 border-purple-500/40 text-[10px]">{aiLogs.length} decisions</Badge>
+                </CardTitle>
+                <Link href="/mt5-chart-data">
+                  <Button variant="ghost" size="sm" className="text-purple-400 text-xs">Full Feed <ChevronRight className="w-3 h-3 ml-1" /></Button>
+                </Link>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2.5 max-h-[350px] overflow-y-auto">
+                {aiLogs.slice(0, 8).map((log: any) => (
+                  <motion.div key={log.id} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}
+                    className={`rounded-xl border p-3 space-y-2 ${
+                      log.aiDecision === 'APPROVED' ? 'border-emerald-500/30 bg-emerald-500/5' :
+                      log.aiDecision === 'AI_OVERRIDE' ? 'border-blue-500/30 bg-blue-500/5' :
+                      log.aiDecision === 'ADJUSTED' ? 'border-amber-500/30 bg-amber-500/5' :
+                      log.aiDecision === 'REJECTED' ? 'border-red-500/30 bg-red-500/5' :
+                      'border-gray-500/30 bg-gray-500/5'
+                    }`}>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Badge className={`text-xs ${
+                          log.aiDecision === 'APPROVED' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' :
+                          log.aiDecision === 'AI_OVERRIDE' ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' :
+                          log.aiDecision === 'ADJUSTED' ? 'bg-amber-500/20 text-amber-400 border-amber-500/30' :
+                          log.aiDecision === 'REJECTED' ? 'bg-red-500/20 text-red-400 border-red-500/30' :
+                          'bg-gray-500/20 text-gray-400 border-gray-500/30'
+                        }`}>{log.aiDecision === 'AI_OVERRIDE' ? 'AI OVERRIDE' : log.aiDecision}</Badge>
+                        <span className="font-semibold text-white text-sm">{log.symbol}</span>
+                        <Badge variant="outline" className="text-[10px] text-gray-400">{log.timeframe}</Badge>
+                      </div>
+                      <span className="text-[10px] text-gray-500">{new Date(log.timestamp).toLocaleTimeString()}</span>
+                    </div>
+                    <div className="flex items-center gap-3 text-xs">
+                      <span className="text-gray-500">EA:</span>
+                      <Badge variant="outline" className={`text-[9px] ${log.proposedSignal === 'BUY' ? 'text-emerald-400 border-emerald-500/40' : 'text-red-400 border-red-500/40'}`}>{log.proposedSignal}</Badge>
+                      <span className="text-gray-400">{log.proposedConfidence}%</span>
+                      <span className="text-gray-600">→</span>
+                      <span className="text-gray-500">AI:</span>
+                      <Badge variant="outline" className={`text-[9px] ${log.aiDirection === 'BUY' ? 'text-emerald-400 border-emerald-500/40' : log.aiDirection === 'SELL' ? 'text-red-400 border-red-500/40' : 'text-gray-400 border-gray-500/40'}`}>{log.aiDirection}</Badge>
+                      <span className="text-gray-400">{log.aiConfidence}%</span>
+                    </div>
+                    <div className="bg-black/30 rounded-lg p-2">
+                      <p className="text-xs text-gray-400 flex items-start gap-1.5 italic">
+                        <Lightbulb className="w-3.5 h-3.5 text-purple-400 mt-0.5 flex-shrink-0" />
+                        {log.reasoning}
+                      </p>
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
       </div>
 
-      {/* Share Progress Dialog */}
+      {/* Share Dialog */}
       <Dialog open={shareOpen} onOpenChange={setShareOpen}>
         <DialogContent className="sm:max-w-lg bg-gray-900 border-gray-700">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-3 text-white">
-              <VeddLogo height={32} />
-              Share VEDD SS AI Progress
+              <VeddLogo height={32} /> Share VEDD SS AI Progress
             </DialogTitle>
-            <DialogDescription>
-              Share your AI-powered trading journey with your network.
-            </DialogDescription>
+            <DialogDescription>Share your AI-powered trading journey with your network.</DialogDescription>
           </DialogHeader>
-
           <div className="space-y-4 py-2">
-            {/* Share Card Preview */}
             <div className="rounded-lg overflow-hidden border border-gray-700 bg-gray-800">
               {shareCardMutation.isPending ? (
                 <div className="flex items-center justify-center h-48 text-gray-400">
-                  <Loader2 className="w-6 h-6 animate-spin mr-2" />
-                  Generating share card...
+                  <Loader2 className="w-6 h-6 animate-spin mr-2" /> Generating share card...
                 </div>
               ) : shareCardUrl ? (
                 <div className="relative">
                   <img src={shareCardUrl} alt="VEDD SS AI Progress" className="w-full" />
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={handleDownloadCard}
-                    className="absolute top-2 right-2 bg-gray-900/80 border-gray-600 text-white hover:bg-gray-800"
-                  >
-                    <Download className="w-3.5 h-3.5 mr-1" />
-                    Save
+                  <Button size="sm" variant="outline" onClick={handleDownloadCard} className="absolute top-2 right-2 bg-gray-900/80 border-gray-600 text-white hover:bg-gray-800">
+                    <Download className="w-3.5 h-3.5 mr-1" /> Save
                   </Button>
                 </div>
               ) : (
-                <div className="flex items-center justify-center h-48 text-gray-500">
-                  Card preview
-                </div>
+                <div className="flex items-center justify-center h-48 text-gray-500">Card preview</div>
               )}
             </div>
-
-            {/* AI Post Generator */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label className="text-gray-300 text-sm">Post Caption</Label>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => generatePostMutation.mutate(selectedSharePlatform)}
-                  disabled={generatePostMutation.isPending}
-                  className="text-purple-400 hover:text-purple-300 text-xs h-7"
-                >
-                  {generatePostMutation.isPending ? (
-                    <Loader2 className="w-3 h-3 animate-spin mr-1" />
-                  ) : (
-                    <Sparkles className="w-3 h-3 mr-1" />
-                  )}
+                <Button size="sm" variant="ghost" onClick={() => generatePostMutation.mutate(selectedSharePlatform)}
+                  disabled={generatePostMutation.isPending} className="text-purple-400 hover:text-purple-300 text-xs h-7">
+                  {generatePostMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Sparkles className="w-3 h-3 mr-1" />}
                   AI Generate
                 </Button>
               </div>
-              <Textarea
-                value={sharePost}
-                onChange={(e) => setSharePost(e.target.value)}
-                placeholder="Write your post or click 'AI Generate' to create one automatically..."
-                className="min-h-[80px] bg-gray-800 border-gray-700 text-white placeholder:text-gray-500"
-              />
+              <Textarea value={sharePost} onChange={e => setSharePost(e.target.value)}
+                placeholder="Write your post or click 'AI Generate'..."
+                className="min-h-[80px] bg-gray-800 border-gray-700 text-white placeholder:text-gray-500" />
               <div className="flex flex-wrap gap-1">
                 {['#VEDDAi', '#VEDDSSAI', '#AITrading', '#TradingAI'].map(tag => (
                   <Badge key={tag} variant="outline" className="text-[10px] text-purple-400 border-purple-500/30 cursor-pointer hover:bg-purple-500/10"
-                    onClick={() => setSharePost(prev => prev.includes(tag) ? prev : prev + ' ' + tag)}>
-                    {tag}
-                  </Badge>
+                    onClick={() => setSharePost(prev => prev.includes(tag) ? prev : prev + ' ' + tag)}>{tag}</Badge>
                 ))}
               </div>
             </div>
-
-            {/* Social Platform Buttons */}
-            <div className="space-y-2">
-              <Label className="text-gray-300 text-sm">Share To</Label>
-              <div className="grid grid-cols-2 gap-2">
-                <Button
-                  size="sm"
-                  onClick={() => { setSelectedSharePlatform('twitter'); handleShareToNative('twitter'); }}
-                  className="bg-black hover:bg-gray-900 text-white gap-2"
-                >
-                  <SiX className="w-4 h-4" />
-                  X (Twitter)
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={() => { setSelectedSharePlatform('facebook'); handleShareToNative('facebook'); }}
-                  className="bg-blue-600 hover:bg-blue-700 text-white gap-2"
-                >
-                  <SiFacebook className="w-4 h-4" />
-                  Facebook
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={() => { setSelectedSharePlatform('linkedin'); handleShareToNative('linkedin'); }}
-                  className="bg-blue-700 hover:bg-blue-800 text-white gap-2"
-                >
-                  <SiLinkedin className="w-4 h-4" />
-                  LinkedIn
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={handleCopyPost}
-                  variant="outline"
-                  className="border-gray-600 text-gray-300 gap-2"
-                >
-                  <Copy className="w-4 h-4" />
-                  Copy Text
-                </Button>
-              </div>
+            <div className="grid grid-cols-2 gap-2">
+              <Button size="sm" onClick={() => { setSelectedSharePlatform('twitter'); handleShareToNative('twitter'); }} className="bg-black hover:bg-gray-900 text-white gap-2">
+                <SiX className="w-4 h-4" /> X (Twitter)
+              </Button>
+              <Button size="sm" onClick={() => { setSelectedSharePlatform('facebook'); handleShareToNative('facebook'); }} className="bg-blue-600 hover:bg-blue-700 text-white gap-2">
+                <SiFacebook className="w-4 h-4" /> Facebook
+              </Button>
+              <Button size="sm" onClick={() => { setSelectedSharePlatform('linkedin'); handleShareToNative('linkedin'); }} className="bg-blue-700 hover:bg-blue-800 text-white gap-2">
+                <SiLinkedin className="w-4 h-4" /> LinkedIn
+              </Button>
+              <Button size="sm" onClick={handleCopyPost} variant="outline" className="border-gray-600 text-gray-300 gap-2">
+                <Copy className="w-4 h-4" /> Copy Text
+              </Button>
             </div>
           </div>
         </DialogContent>
