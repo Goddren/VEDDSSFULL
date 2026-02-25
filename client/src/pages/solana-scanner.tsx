@@ -90,6 +90,7 @@ interface TokenAnalysis {
   entryPrice?: string;
   targetPrice?: string;
   stopLoss?: string;
+  recommendedSolAmount?: number;
 }
 
 interface ScanResponse {
@@ -2554,8 +2555,55 @@ export default function SolanaScanner() {
   const [referralCopied, setReferralCopied] = useState(false);
   const [referralStats, setReferralStats] = useState({ referrals: 0, earnings: 0 });
   const [dexFilter, setDexFilter] = useState<DexSource>('all');
+  const [solEngineSettingsOpen, setSolEngineSettingsOpen] = useState(false);
+  const [solEngineAutoScan, setSolEngineAutoScan] = useState(true);
+  const [solEngineKelly, setSolEngineKelly] = useState(false);
+  const [solEngineShield, setSolEngineShield] = useState(true);
+  const [solEngineShieldThreshold, setSolEngineShieldThreshold] = useState(10);
+  const [solEngineMinConf, setSolEngineMinConf] = useState(65);
+  const [solPortfolioValue, setSolPortfolioValue] = useState('');
+  const [solResultToken, setSolResultToken] = useState<{ address: string; dex: string; symbol: string } | null>(null);
+  const [solResultGain, setSolResultGain] = useState('');
   const { toast } = useToast();
   const { connected, walletData, signAndSendTransaction, getPublicKey, refreshWalletData } = useSolanaWallet();
+
+  const { data: solEngineStatus, refetch: refetchEngineStatus } = useQuery<any>({
+    queryKey: ['/api/sol-engine/status'],
+    refetchInterval: (data) => (data?.running ? 10000 : false),
+    staleTime: 5000,
+  });
+
+  const solEngineRunning = solEngineStatus?.running || false;
+
+  const startSolEngineMutation = useMutation({
+    mutationFn: () => apiRequest('POST', '/api/sol-engine/start', {
+      dexFilter, minConfidence: solEngineMinConf, maxTokens: 12,
+      useKelly: solEngineKelly, shieldEnabled: solEngineShield,
+      shieldThreshold: solEngineShieldThreshold, adaptiveScan: solEngineAutoScan,
+    }),
+    onSuccess: () => { toast({ title: '🚀 Sol Engine started', description: 'Autonomous scanning active' }); refetchEngineStatus(); },
+    onError: () => toast({ title: 'Failed to start engine', variant: 'destructive' }),
+  });
+
+  const stopSolEngineMutation = useMutation({
+    mutationFn: () => apiRequest('POST', '/api/sol-engine/stop', {}),
+    onSuccess: () => { toast({ title: '🛑 Sol Engine stopped' }); refetchEngineStatus(); },
+  });
+
+  const recordResultMutation = useMutation({
+    mutationFn: (params: { dex: string; outcome: 'WIN' | 'LOSS'; gainPct: number }) =>
+      apiRequest('POST', '/api/sol-engine/record-result', params),
+    onSuccess: () => { toast({ title: 'Result recorded — DEX weights updated' }); refetchEngineStatus(); },
+  });
+
+  const updatePortfolioMutation = useMutation({
+    mutationFn: (solValue: number) => apiRequest('POST', '/api/sol-engine/update-portfolio', { solValue }),
+    onSuccess: (data: any) => {
+      const msg = data?.shieldActive ? '🛡️ Shield ACTIVATED — portfolio drawdown detected' : 'Portfolio value updated';
+      toast({ title: msg });
+      refetchEngineStatus();
+    },
+  });
   
   useEffect(() => {
     const stored = localStorage.getItem('vedd_referral_code');
@@ -2807,6 +2855,152 @@ export default function SolanaScanner() {
         </div>
       </div>
       
+      {/* ═══ SOL ENGINE COMMAND CENTER ═══ */}
+      {(() => {
+        const weights = solEngineStatus?.signalWeights || {};
+        const feed = solEngineStatus?.activityFeed || [];
+        const macro = solEngineStatus?.lastMacro;
+        const shieldOn = solEngineStatus?.shieldActive || false;
+        const dexList = ['raydium', 'orca', 'meteora', 'pumpfun', 'jupiter'];
+        const weightLabel = (w: number) => w >= 1.5 ? '🔥' : w >= 1.2 ? '✅' : w <= 0.3 ? '❌' : w <= 0.6 ? '⚠️' : '—';
+        return (
+          <div className={`rounded-2xl border transition-all duration-300 ${solEngineRunning ? 'border-purple-500/50 bg-gradient-to-r from-purple-950/30 to-violet-950/30' : 'border-gray-700/40 bg-gray-900/20'}`}>
+            {/* Header bar */}
+            <div className="flex items-center justify-between p-4">
+              <div className="flex items-center gap-3 flex-wrap">
+                <div className={`p-2 rounded-xl ${solEngineRunning ? 'bg-purple-500/20' : 'bg-gray-800/60'}`}>
+                  <Brain className={`w-5 h-5 ${solEngineRunning ? 'text-purple-400' : 'text-gray-500'}`} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className={`font-bold text-sm ${solEngineRunning ? 'text-purple-300' : 'text-gray-400'}`}>SOL ENGINE</span>
+                    {solEngineRunning && <Badge className="bg-purple-500/20 text-purple-300 border-purple-500/30 text-[10px] animate-pulse">SCANNING</Badge>}
+                    {!solEngineRunning && <Badge className="bg-gray-700/50 text-gray-500 border-gray-600/30 text-[10px]">IDLE</Badge>}
+                    {shieldOn && <Badge className="bg-amber-500/20 text-amber-300 border-amber-500/30 text-[10px]">🛡️ SHIELD ON</Badge>}
+                  </div>
+                  {macro && (
+                    <p className="text-[10px] text-gray-400 mt-0.5">
+                      BTC {macro.btcChange >= 0 ? '+' : ''}{macro.btcChange.toFixed(1)}% • ETH {macro.ethChange >= 0 ? '+' : ''}{macro.ethChange.toFixed(1)}% • SOL {macro.solChange >= 0 ? '+' : ''}{macro.solChange.toFixed(1)}%
+                      <span className={`ml-1 font-semibold ${macro.bias === 'RISK_ON' ? 'text-emerald-400' : macro.bias === 'RISK_OFF' ? 'text-red-400' : 'text-yellow-400'}`}>→ {macro.bias.replace('_', '-')}</span>
+                    </p>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setSolEngineSettingsOpen(o => !o)} className="p-1.5 rounded-lg text-gray-400 hover:text-gray-200 hover:bg-gray-700/50 transition-colors">
+                  <Settings className="w-4 h-4" />
+                </button>
+                {solEngineRunning ? (
+                  <Button size="sm" variant="destructive" onClick={() => stopSolEngineMutation.mutate()} disabled={stopSolEngineMutation.isPending} className="text-xs h-8">
+                    <Power className="w-3 h-3 mr-1" /> Stop
+                  </Button>
+                ) : (
+                  <Button size="sm" onClick={() => startSolEngineMutation.mutate()} disabled={startSolEngineMutation.isPending} className="text-xs h-8 bg-purple-600 hover:bg-purple-700">
+                    <Power className="w-3 h-3 mr-1" /> Start
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {/* Settings panel */}
+            {solEngineSettingsOpen && (
+              <div className="border-t border-gray-700/50 p-4 space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* Auto-Scan */}
+                  <div className={`rounded-xl border p-3 ${solEngineAutoScan ? 'border-violet-500/50 bg-violet-500/10' : 'border-gray-700 bg-gray-900/30'}`}>
+                    <label className="flex items-center gap-2 cursor-pointer" onClick={() => setSolEngineAutoScan(v => !v)}>
+                      <input type="checkbox" checked={solEngineAutoScan} onChange={() => {}} className="accent-violet-500" />
+                      <span className="text-xs font-semibold text-violet-300">Adaptive Auto-Scan</span>
+                      {solEngineAutoScan && <Badge className="ml-auto bg-violet-500/20 text-violet-300 border-violet-500/30 text-[9px]">ON</Badge>}
+                    </label>
+                    <p className="text-[10px] text-gray-400 mt-1">30s during peak hours (13–20 UTC), 2min overnight</p>
+                  </div>
+                  {/* Kelly Sizing */}
+                  <div className={`rounded-xl border p-3 ${solEngineKelly ? 'border-blue-500/50 bg-blue-500/10' : 'border-gray-700 bg-gray-900/30'}`}>
+                    <label className="flex items-center gap-2 cursor-pointer" onClick={() => setSolEngineKelly(v => !v)}>
+                      <input type="checkbox" checked={solEngineKelly} onChange={() => {}} className="accent-blue-500" />
+                      <span className="text-xs font-semibold text-blue-300">Kelly Sizing</span>
+                      {solEngineKelly && <Badge className="ml-auto bg-blue-500/20 text-blue-300 border-blue-500/30 text-[9px]">ON</Badge>}
+                    </label>
+                    <p className="text-[10px] text-gray-400 mt-1">Recommends SOL amount based on DEX win rate history</p>
+                  </div>
+                  {/* Drawdown Shield */}
+                  <div className={`rounded-xl border p-3 ${solEngineShield ? 'border-amber-500/50 bg-amber-500/10' : 'border-gray-700 bg-gray-900/30'}`}>
+                    <div className="flex items-center justify-between">
+                      <label className="flex items-center gap-2 cursor-pointer" onClick={() => setSolEngineShield(v => !v)}>
+                        <input type="checkbox" checked={solEngineShield} onChange={() => {}} className="accent-amber-500" />
+                        <span className="text-xs font-semibold text-amber-300">Drawdown Shield</span>
+                      </label>
+                      {solEngineShield && (
+                        <div className="flex items-center gap-1">
+                          <input type="number" value={solEngineShieldThreshold} onChange={e => setSolEngineShieldThreshold(Number(e.target.value))} min={3} max={30} step={1} className="w-12 h-6 bg-gray-800 border border-amber-700 text-amber-300 text-[11px] px-1 rounded text-center" />
+                          <span className="text-[10px] text-gray-400">%</span>
+                        </div>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-gray-400 mt-1">Restricts to LOW risk / 85%+ confidence when portfolio drops</p>
+                  </div>
+                  {/* Min Confidence */}
+                  <div className="rounded-xl border border-gray-700 bg-gray-900/30 p-3">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-semibold text-gray-300">Min Confidence</span>
+                      <span className="text-xs text-emerald-400 font-bold">{solEngineMinConf}%</span>
+                    </div>
+                    <input type="range" min={50} max={90} step={5} value={solEngineMinConf} onChange={e => setSolEngineMinConf(Number(e.target.value))} className="w-full accent-emerald-500" />
+                    <p className="text-[10px] text-gray-400 mt-1">Filters out tokens below this confidence threshold</p>
+                  </div>
+                </div>
+                {/* Portfolio value for shield */}
+                <div className="flex items-center gap-2">
+                  <div className="flex-1">
+                    <label className="text-xs text-gray-400 block mb-1">Current Portfolio Value (SOL) — for shield tracking</label>
+                    <div className="flex gap-2">
+                      <input type="number" min="0" step="0.1" value={solPortfolioValue} onChange={e => setSolPortfolioValue(e.target.value)} placeholder="e.g. 12.5" className="flex-1 h-8 bg-gray-800 border border-gray-600 text-white text-xs px-2 rounded" />
+                      <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => { const v = parseFloat(solPortfolioValue); if (!isNaN(v) && v > 0) updatePortfolioMutation.mutate(v); }} disabled={updatePortfolioMutation.isPending}>Update</Button>
+                    </div>
+                  </div>
+                  {solEngineStatus?.sessionHighWatermark > 0 && (
+                    <div className="text-right text-[10px] text-gray-400">
+                      <div>Peak: {solEngineStatus.sessionHighWatermark.toFixed(3)} SOL</div>
+                      <div>Current: {solEngineStatus.currentPortfolioValue?.toFixed(3) || '—'} SOL</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* DEX Weights row */}
+            {solEngineRunning && Object.keys(weights).length > 0 && (
+              <div className="border-t border-gray-700/50 px-4 py-2 flex flex-wrap gap-3">
+                {dexList.map(dex => {
+                  const w = weights[dex] || 1.0;
+                  const icon = weightLabel(w);
+                  const color = w >= 1.5 ? 'text-emerald-400' : w >= 1.2 ? 'text-green-400' : w <= 0.3 ? 'text-red-400' : w <= 0.6 ? 'text-orange-400' : 'text-gray-400';
+                  return (
+                    <div key={dex} className="flex items-center gap-1">
+                      <span className="text-[10px] text-gray-500 capitalize">{dex}</span>
+                      <span className={`text-[11px] font-bold ${color}`}>{icon} {w.toFixed(2)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Activity feed */}
+            {solEngineRunning && feed.length > 0 && (
+              <div className="border-t border-gray-700/50 p-3 space-y-1 max-h-36 overflow-y-auto">
+                {feed.slice(0, 8).map((entry: any, i: number) => (
+                  <div key={i} className="flex items-start gap-2">
+                    <span className="text-[9px] text-gray-600 shrink-0 mt-0.5">{new Date(entry.timestamp).toLocaleTimeString()}</span>
+                    <span className={`text-[10px] leading-relaxed ${entry.type === 'shield' ? 'text-amber-300' : entry.type === 'trigger' ? 'text-yellow-300' : entry.type === 'kelly' ? 'text-blue-300' : entry.type === 'signal' ? 'text-emerald-300' : 'text-gray-300'}`}>{entry.message}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
       <div className="flex gap-2">
         <Input
           placeholder="Search by token name, symbol, or address..."
@@ -2933,7 +3127,41 @@ export default function SolanaScanner() {
       ) : tokens.length > 0 ? (
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
           {tokens.map((analysis, idx) => (
-            <TokenCard key={analysis.token.address + idx} analysis={analysis} onBuy={handleBuyToken} isBuying={buyingToken === analysis.token.address} />
+            <div key={analysis.token.address + idx} className="relative">
+              {/* Shield overlay for HIGH/EXTREME risk when shield is active */}
+              {solEngineStatus?.shieldActive && (analysis.riskLevel === 'HIGH' || analysis.riskLevel === 'EXTREME') && (
+                <div className="absolute inset-0 z-10 rounded-lg bg-gray-900/85 flex items-center justify-center backdrop-blur-sm">
+                  <div className="text-center">
+                    <span className="text-2xl">🛡️</span>
+                    <p className="text-xs text-amber-300 font-semibold mt-1">SHIELD — Hidden</p>
+                    <p className="text-[10px] text-gray-400">{analysis.riskLevel} risk blocked</p>
+                  </div>
+                </div>
+              )}
+              <TokenCard analysis={analysis} onBuy={handleBuyToken} isBuying={buyingToken === analysis.token.address} />
+              {/* Sol Engine extras */}
+              {solEngineRunning && (
+                <div className="mt-1.5 flex items-center gap-2 px-1">
+                  {analysis.recommendedSolAmount && analysis.recommendedSolAmount > 0 && (
+                    <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/30 text-[10px]">
+                      📐 Rec: {analysis.recommendedSolAmount.toFixed(3)} SOL
+                    </Badge>
+                  )}
+                  <div className="ml-auto flex gap-1.5">
+                    <button
+                      onClick={() => recordResultMutation.mutate({ dex: analysis.token.dexId?.split('_')[0] || 'unknown', outcome: 'WIN', gainPct: 25 })}
+                      className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/30 transition-colors"
+                      title="Mark this signal as a WIN"
+                    >✓ WIN</button>
+                    <button
+                      onClick={() => recordResultMutation.mutate({ dex: analysis.token.dexId?.split('_')[0] || 'unknown', outcome: 'LOSS', gainPct: 0 })}
+                      className="px-2 py-0.5 rounded text-[10px] font-bold bg-red-500/20 text-red-300 border border-red-500/30 hover:bg-red-500/30 transition-colors"
+                      title="Mark this signal as a LOSS"
+                    >✗ LOSS</button>
+                  </div>
+                </div>
+              )}
+            </div>
           ))}
         </div>
       ) : (

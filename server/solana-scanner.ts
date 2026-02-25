@@ -36,6 +36,25 @@ export interface TokenAnalysis {
   entryPrice?: string;
   targetPrice?: string;
   stopLoss?: string;
+  recommendedSolAmount?: number;
+}
+
+export interface CryptoMacroContext {
+  btcChange: number;
+  ethChange: number;
+  solChange: number;
+  riskScore: number;
+  bias: 'RISK_ON' | 'RISK_OFF' | 'NEUTRAL';
+  implication: string;
+}
+
+export interface AnalyzeTokenOptions {
+  signalWeights?: Record<string, number>;
+  macro?: CryptoMacroContext;
+  kellyStats?: Record<string, { wins: number; losses: number; totalGainPct: number }>;
+  portfolioSol?: number;
+  shieldActive?: boolean;
+  minConfidence?: number;
 }
 
 export async function fetchTrendingSolanaTokens(): Promise<SolanaToken[]> {
@@ -386,43 +405,126 @@ function estimateHoldDuration(signal: TokenAnalysis['signal'], riskLevel: TokenA
   return '3-7 days';
 }
 
-export async function analyzeToken(token: SolanaToken): Promise<TokenAnalysis> {
+export async function fetchCryptoMacroContext(): Promise<CryptoMacroContext> {
+  const queries = [
+    { key: 'btc', q: 'WBTC' },
+    { key: 'eth', q: 'WETH' },
+    { key: 'sol', q: 'SOL' },
+  ];
+  const changes: Record<string, number> = { btc: 0, eth: 0, sol: 0 };
+
+  await Promise.all(queries.map(async ({ key, q }) => {
+    try {
+      const res = await fetch(`https://api.dexscreener.com/latest/dex/search?q=${q}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const pairs = (data.pairs || []).filter((p: any) => p.chainId === 'solana');
+      if (pairs.length > 0) {
+        changes[key] = parseFloat(pairs[0].priceChange?.h24 || '0') || 0;
+      }
+    } catch { /* skip */ }
+  }));
+
+  const score = (changes.btc > 1 ? 1 : changes.btc < -1 ? -1 : 0)
+    + (changes.eth > 1 ? 1 : changes.eth < -1 ? -1 : 0)
+    + (changes.sol > 1 ? 1 : changes.sol < -1 ? -1 : 0);
+
+  const bias: CryptoMacroContext['bias'] = score >= 2 ? 'RISK_ON' : score <= -2 ? 'RISK_OFF' : 'NEUTRAL';
+  const implication = bias === 'RISK_ON'
+    ? 'Risk-on environment — favour momentum tokens with high buy pressure.'
+    : bias === 'RISK_OFF'
+    ? 'Risk-off environment — be selective, prefer LOW risk tokens with 80%+ confidence.'
+    : 'Mixed signals — evaluate each token on its own merits.';
+
+  return { btcChange: changes.btc, ethChange: changes.eth, solChange: changes.sol, riskScore: score, bias, implication };
+}
+
+function buildDexWeightsBlock(signalWeights: Record<string, number>): string {
+  const labels = Object.entries(signalWeights).map(([dex, w]) => {
+    const label = w >= 1.5 ? '🔥HOT' : w >= 1.2 ? '✅WARM' : w <= 0.3 ? '❌COLD' : w <= 0.6 ? '⚠️COOL' : '—';
+    return `${dex}=${w.toFixed(2)}${label}`;
+  });
+  return labels.join(', ');
+}
+
+function calculateSolKellySize(wins: number, losses: number, totalGainPct: number, portfolioSol: number): number {
+  const total = wins + losses;
+  if (total < 3 || portfolioSol <= 0) return 0;
+  const winRate = wins / total;
+  const avgGain = wins > 0 ? totalGainPct / wins / 100 : 0.5;
+  const kelly = winRate - (1 - winRate) / Math.max(avgGain, 0.01);
+  const fractional = Math.max(0.01, Math.min(0.10, kelly * 0.25));
+  return Math.round(portfolioSol * fractional * 1000) / 1000;
+}
+
+export async function analyzeToken(token: SolanaToken, options: AnalyzeTokenOptions = {}): Promise<TokenAnalysis> {
+  const { signalWeights, macro, kellyStats, portfolioSol = 0 } = options;
+
   const sentimentScore = calculateSentimentScore(token);
   const tokenomicsScore = calculateTokenomicsScore(token);
   const whaleScore = calculateWhaleScore(token);
   
-  const { signal, confidence } = determineSignal(sentimentScore, tokenomicsScore, whaleScore);
+  let { signal, confidence } = determineSignal(sentimentScore, tokenomicsScore, whaleScore);
+
+  // Apply DEX weight multiplier if provided
+  if (signalWeights) {
+    const dexKey = (token.dexId || '').toLowerCase().split('_')[0];
+    const weight = signalWeights[dexKey] || 1.0;
+    confidence = Math.round(Math.min(98, Math.max(10, confidence * weight)));
+  }
+
+  // Apply macro bias adjustment
+  if (macro) {
+    if (macro.bias === 'RISK_ON' && (signal === 'STRONG_BUY' || signal === 'BUY')) {
+      confidence = Math.min(98, confidence + 5);
+    } else if (macro.bias === 'RISK_OFF' && (signal === 'STRONG_BUY' || signal === 'BUY')) {
+      if (confidence < 80) {
+        signal = 'HOLD';
+      }
+    }
+  }
+
   const riskLevel = determineRiskLevel(token, tokenomicsScore);
   const holdDuration = estimateHoldDuration(signal, riskLevel);
   
   let reasoning = '';
   try {
-    const prompt = `Analyze this Solana token for trading:
-Token: ${token.name} (${token.symbol})
+    const macroBlock = macro
+      ? `\nCRYPTO MACRO CONTEXT: BTC=${macro.btcChange >= 0 ? '+' : ''}${macro.btcChange.toFixed(1)}%, ETH=${macro.ethChange >= 0 ? '+' : ''}${macro.ethChange.toFixed(1)}%, SOL=${macro.solChange >= 0 ? '+' : ''}${macro.solChange.toFixed(1)}% → Risk Score: ${macro.riskScore}/3 → ${macro.bias}. ${macro.implication} Tokens aligned with ${macro.bias === 'RISK_ON' ? 'bullish' : 'cautious'} macro get ${macro.bias === 'RISK_ON' ? '+5% confidence bonus' : '−5% confidence penalty'}.`
+      : '';
+
+    const weightsBlock = signalWeights
+      ? `\nDEX PERFORMANCE WEIGHTS: ${buildDexWeightsBlock(signalWeights)}. Prioritise 🔥HOT DEX signals. Be extra sceptical of ❌COLD DEX signals.`
+      : '';
+
+    const prompt = `You are VEDD AI analyzing a Solana token for trading opportunities.${macroBlock}${weightsBlock}
+
+TOKEN DATA:
+Name: ${token.name} (${token.symbol})
+DEX: ${token.dexId || 'unknown'}
 Price: $${token.priceUsd}
-24h Change: ${token.priceChange24h}%
+24h Change: ${token.priceChange24h.toFixed(2)}%
 24h Volume: $${token.volume24h.toLocaleString()}
 Liquidity: $${token.liquidity.toLocaleString()}
 FDV: $${token.fdv.toLocaleString()}
 24h Buys: ${token.txns24h.buys} | Sells: ${token.txns24h.sells}
 Unique Traders: ${token.makers24h}
 
-Scores: Sentiment ${sentimentScore}/100, Tokenomics ${tokenomicsScore}/100, Whale Activity ${whaleScore}/100
-Signal: ${signal} (${confidence}% confidence)
-Risk: ${riskLevel}
+SCORES: Sentiment ${sentimentScore}/100, Tokenomics ${tokenomicsScore}/100, Whale Activity ${whaleScore}/100
+SIGNAL: ${signal} (${confidence}% confidence) | Risk: ${riskLevel}
 
-Provide a brief 2-3 sentence trading analysis explaining the signal and key factors. Focus on actionable insights.`;
+Provide a sharp 2-3 sentence analysis. Reference macro context and DEX performance if relevant. Be direct and actionable.`;
 
     const response = await openai.chat.completions.create({
       model: 'gpt-4o',
       messages: [{ role: 'user', content: prompt }],
-      max_tokens: 150,
+      max_tokens: 180,
       temperature: 0.7
     });
     
     reasoning = response.choices[0]?.message?.content || '';
   } catch (error) {
-    reasoning = `${signal} signal based on ${sentimentScore}/100 sentiment, ${tokenomicsScore}/100 tokenomics, and ${whaleScore}/100 whale activity. Risk level: ${riskLevel}.`;
+    reasoning = `${signal} signal: sentiment ${sentimentScore}/100, tokenomics ${tokenomicsScore}/100, whale activity ${whaleScore}/100. Risk: ${riskLevel}.`;
   }
   
   const price = parseFloat(token.priceUsd) || 0;
@@ -432,6 +534,17 @@ Provide a brief 2-3 sentence trading analysis explaining the signal and key fact
   if (signal === 'STRONG_BUY' || signal === 'BUY') {
     targetPrice = (price * (signal === 'STRONG_BUY' ? 1.5 : 1.25)).toFixed(8);
     stopLoss = (price * 0.85).toFixed(8);
+  }
+
+  // Kelly position sizing
+  let recommendedSolAmount: number | undefined;
+  if (kellyStats && portfolioSol > 0 && (signal === 'STRONG_BUY' || signal === 'BUY')) {
+    const dexKey = (token.dexId || '').toLowerCase().split('_')[0];
+    const stats = kellyStats[dexKey];
+    if (stats) {
+      const solAmt = calculateSolKellySize(stats.wins, stats.losses, stats.totalGainPct, portfolioSol);
+      if (solAmt > 0) recommendedSolAmount = solAmt;
+    }
   }
   
   return {
@@ -446,25 +559,34 @@ Provide a brief 2-3 sentence trading analysis explaining the signal and key fact
     riskLevel,
     entryPrice: token.priceUsd,
     targetPrice,
-    stopLoss
+    stopLoss,
+    recommendedSolAmount,
   };
 }
 
-export async function scanAndAnalyzeTokens(limit: number = 10, dexFilter: DexSource = 'all'): Promise<TokenAnalysis[]> {
-  const tokens = dexFilter === 'all'
-    ? await fetchMultiDexTokens('all')
-    : await fetchMultiDexTokens(dexFilter);
+export async function scanAndAnalyzeTokens(limit: number = 10, dexFilter: DexSource = 'all', options: AnalyzeTokenOptions = {}): Promise<TokenAnalysis[]> {
+  const tokens = await fetchMultiDexTokens(dexFilter === 'all' ? 'all' : dexFilter);
   
-  const filteredTokens = tokens
-    .filter(t => t.liquidity > 5000 && t.volume24h > 1000)
-    .slice(0, limit);
-  
+  let filteredTokens = tokens.filter(t => t.liquidity > 5000 && t.volume24h > 1000);
+
   const analyses = await Promise.all(
-    filteredTokens.map(token => analyzeToken(token))
+    filteredTokens.slice(0, limit * 2).map(token => analyzeToken(token, options))
   );
+
+  let results = analyses;
+
+  // Shield filter: only LOW risk + 85%+ confidence when shield active
+  if (options.shieldActive) {
+    results = results.filter(a => a.riskLevel === 'LOW' && a.confidence >= 85);
+  }
+
+  // Min confidence filter
+  if (options.minConfidence && options.minConfidence > 0) {
+    results = results.filter(a => a.confidence >= options.minConfidence!);
+  }
   
-  return analyses.sort((a, b) => {
-    const signalOrder = { 'STRONG_BUY': 0, 'BUY': 1, 'HOLD': 2, 'SELL': 3, 'STRONG_SELL': 4 };
+  return results.slice(0, limit).sort((a, b) => {
+    const signalOrder: Record<string, number> = { 'STRONG_BUY': 0, 'BUY': 1, 'HOLD': 2, 'SELL': 3, 'STRONG_SELL': 4 };
     if (signalOrder[a.signal] !== signalOrder[b.signal]) {
       return signalOrder[a.signal] - signalOrder[b.signal];
     }

@@ -12984,6 +12984,58 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     }
   });
 
+  // ============= SOL ENGINE =============
+  {
+    const { startSolEngine, stopSolEngine, getSolEngineStatus, recordSolSignalResult, updateSolPortfolioValue } = await import('./services/sol-engine');
+
+    app.post("/api/sol-engine/start", async (req: Request, res: Response) => {
+      if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+      const userId = (req.user as User).id;
+      const { dexFilter, minConfidence, maxTokens, useKelly, shieldEnabled, shieldThreshold, adaptiveScan } = req.body;
+      startSolEngine(userId, {
+        dexFilter: dexFilter || 'all',
+        minConfidence: Number(minConfidence) || 65,
+        maxTokens: Math.min(Number(maxTokens) || 10, 20),
+        useKelly: !!useKelly,
+        shieldEnabled: shieldEnabled !== false,
+        shieldThreshold: Number(shieldThreshold) || 10,
+        adaptiveScan: adaptiveScan !== false,
+      });
+      res.json({ success: true, message: 'Sol Engine started' });
+    });
+
+    app.post("/api/sol-engine/stop", async (req: Request, res: Response) => {
+      if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+      stopSolEngine((req.user as User).id);
+      res.json({ success: true, message: 'Sol Engine stopped' });
+    });
+
+    app.get("/api/sol-engine/status", async (req: Request, res: Response) => {
+      if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+      res.json(getSolEngineStatus((req.user as User).id));
+    });
+
+    app.post("/api/sol-engine/record-result", async (req: Request, res: Response) => {
+      if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+      const { dex, outcome, gainPct } = req.body;
+      if (!dex || !outcome || !['WIN', 'LOSS'].includes(outcome)) {
+        return res.status(400).json({ error: "dex, outcome (WIN|LOSS), and gainPct required" });
+      }
+      const result = recordSolSignalResult((req.user as User).id, { dex, outcome, gainPct: Number(gainPct) || 0 });
+      res.json(result);
+    });
+
+    app.post("/api/sol-engine/update-portfolio", async (req: Request, res: Response) => {
+      if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+      const { solValue } = req.body;
+      if (typeof solValue !== 'number' || solValue < 0) {
+        return res.status(400).json({ error: "solValue (number) required" });
+      }
+      const result = updateSolPortfolioValue((req.user as User).id, solValue);
+      res.json(result);
+    });
+  }
+
   // ============= SOLANA TOKEN SCANNER =============
   
   // Scan and analyze trending Solana tokens
