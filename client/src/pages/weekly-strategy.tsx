@@ -1766,6 +1766,47 @@ export default function WeeklyStrategyPage() {
         </Card>
 
         {/* ═══════════════════════════════════════════════════════
+            MT5 SIGNAL RECEIVER EA DOWNLOAD
+        ═══════════════════════════════════════════════════════ */}
+        <Card className="bg-gradient-to-br from-gray-800/80 to-gray-900/80 border-cyan-500/30">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base text-white flex items-center gap-2">
+              <Download className="w-4 h-4 text-cyan-400" /> MT5 Signal Receiver EA
+              <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-[10px]">Required for Auto-Trading</Badge>
+            </CardTitle>
+            <CardDescription className="text-gray-400 text-xs">
+              Install this EA on any MT5 chart. It polls the VEDD AI engine every 5 seconds and auto-executes all trade signals — including CLOSE ALL emergency stops.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+              <a
+                href="/downloads/VEDD_Signal_Receiver_EA.mq5"
+                download="VEDD_Signal_Receiver_EA.mq5"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold text-sm shadow-lg shadow-cyan-500/20 transition-all"
+              >
+                <Download className="w-4 h-4" /> Download Signal Receiver EA
+              </a>
+              <div className="text-xs text-gray-500 space-y-0.5">
+                <p className="text-gray-300 font-medium">Quick setup:</p>
+                <p>1. Open MT5 → File → Open Data Folder → MQL5 → Experts</p>
+                <p>2. Paste the EA file there, then restart MT5</p>
+                <p>3. Attach to any chart → set your Server URL + API Key</p>
+                <p>4. Enable <span className="text-cyan-400">Allow WebRequest</span> in MT5 Options → Expert Advisors</p>
+              </div>
+            </div>
+            <div className="mt-3 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+              <p className="text-xs text-amber-300">
+                <span className="font-bold">Server URL</span> — use your published app URL (ends in .replit.app). 
+                Get your <span className="font-bold">API Key</span> from the MT5 API Token section below. 
+                The EA must stay running on a chart for signals to be received.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* ═══════════════════════════════════════════════════════
             EA STRATEGY FEED
         ═══════════════════════════════════════════════════════ */}
         {strategy?.hasStrategy && aiLogs.length > 0 && (
