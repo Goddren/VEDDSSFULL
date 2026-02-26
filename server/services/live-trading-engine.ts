@@ -825,7 +825,13 @@ async function runAILiveAnalysis(userId: number, marketAnalysis: Record<string, 
           const pips = p.direction === 'BUY' 
             ? (p.currentPrice - p.openPrice) * (p.symbol.includes('JPY') ? 100 : 10000)
             : (p.openPrice - p.currentPrice) * (p.symbol.includes('JPY') ? 100 : 10000);
-          return `${p.symbol} (${p.id}): ${p.direction} @ ${p.openPrice} | Curr: ${p.currentPrice} | Pips: ${pips.toFixed(1)} | PnL: $${p.profit} | Vol: ${p.volume}`;
+          const ticketId = p.ticket ?? p.id ?? 'unknown';
+          const slInfo = p.sl > 0 ? p.sl : 'none';
+          const tpInfo = p.tp > 0 ? p.tp : 'none';
+          const beThreshold = p.symbol.includes('JPY') ? 10 : 10;
+          const trailThreshold = p.symbol.includes('JPY') ? 20 : 20;
+          const mgmtHint = pips >= trailThreshold ? '→ TRAIL STOP NOW' : pips >= beThreshold ? '→ MOVE TO BREAKEVEN' : pips < -5 ? '→ REVIEW SL' : '';
+          return `${p.symbol} (ticket:${ticketId}): ${p.direction} @ ${p.openPrice} | Curr: ${p.currentPrice} | Pips: ${pips.toFixed(1)} | PnL: $${p.profit} | SL: ${slInfo} | TP: ${tpInfo} | Vol: ${p.volume} ${mgmtHint}`;
         }).join('\n')
       : 'None';
 
@@ -1191,15 +1197,20 @@ AGGRESSIVE COMPOUND GROWTH (tie it all together):
 - Re-enter quickly after taking profit if conditions still hold
 
 LIVE ENGINE RULES:
+⚡ PRIORITY ORDER — ALWAYS follow this sequence each scan:
+  STEP 1 — MANAGE OPEN POSITIONS FIRST (non-negotiable). For EVERY open position listed above, evaluate and output a MODIFY_POSITION or CLOSE_POSITION action using the exact ticket number shown. Apply: trail stop if ≥20 pips profit, move to breakeven if ≥10 pips profit, close if setup invalidated. Do NOT skip this step when positions are open.
+  STEP 2 — Only then consider new OPEN_TRADE signals on pairs that have NO existing open position.
+  STEP 3 — Never open a new trade on a pair that already has an open position. One position per pair maximum.
+
 1. Use ALL strategies simultaneously - scan for scalps, momentum, breakouts, sniper setups, AND ICT setups (order blocks, FVGs, liquidity sweeps, BOS/CHOCH, OTE) on EVERY scan
-2. Generate MULTIPLE signals per scan when opportunities exist across different pairs
+2. Generate MULTIPLE signals per scan when opportunities exist across different pairs WITH NO EXISTING POSITION
 3. Only signal when multiple indicators CONFIRM the same direction (minimum 2-3 confluences depending on strategy)
 4. Use brain knowledge to AVOID historically bad setups (wrong hours, wrong sessions, wrong direction bias)
 5. Factor in current open positions - diversify across uncorrelated pairs for maximum exposure
 6. If volatility percentile >80, widen stops and increase targets. If <20, use scalping with tight targets
 7. Session context matters - trade pairs during their historically best sessions
 8. Check support/resistance proximity - don't BUY at resistance or SELL at support
-9. Manage existing positions: trail stops aggressively, partial close at TP1, let runners ride
+9. Manage existing positions: trail stops aggressively, partial close at TP1, let runners ride — use the ticket number as positionId in MODIFY_POSITION actions
 10. GOAL-DRIVEN: Every decision must move toward the weekly target. Calculate estimated profit per trade and compare to daily target remaining
 11. COMPOUND ON WINS: After consecutive wins, increase lot size using compound multiplier. After losses, reduce to protect gains
 12. Look for RE-ENTRY opportunities after taking profit - the trend may still have legs
@@ -1450,6 +1461,19 @@ async function processDecision(userId: number, decision: any): Promise<void> {
         type: 'info',
         symbol: decision.symbol,
         message: `Trade skipped - max open trades reached (${state.openPositionCount}/${effectiveMaxTrades}${isSmallAcct ? ' small-account cap' : ''})`,
+      });
+      return;
+    }
+
+    const livePositions: any[] = (global as any).mt5OpenPositions?.[userId]?.positions || [];
+    const alreadyOpenForPair = livePositions.some(
+      (p: any) => (p.symbol || '').replace(/[^A-Z]/g, '') === decision.symbol.replace(/[^A-Z]/g, '')
+    );
+    if (alreadyOpenForPair) {
+      addActivity(userId, {
+        type: 'info',
+        symbol: decision.symbol,
+        message: `New trade blocked — ${decision.symbol} already has an open position. Manage existing trade first.`,
       });
       return;
     }
