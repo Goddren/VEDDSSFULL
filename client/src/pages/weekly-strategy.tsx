@@ -1766,43 +1766,121 @@ export default function WeeklyStrategyPage() {
         </Card>
 
         {/* ═══════════════════════════════════════════════════════
-            MT5 SIGNAL RECEIVER EA DOWNLOAD
+            MT5 EA FULL SETUP GUIDE
         ═══════════════════════════════════════════════════════ */}
         <Card className="bg-gradient-to-br from-gray-800/80 to-gray-900/80 border-cyan-500/30">
           <CardHeader className="pb-3">
             <CardTitle className="text-base text-white flex items-center gap-2">
-              <Download className="w-4 h-4 text-cyan-400" /> MT5 Signal Receiver EA
+              <Settings className="w-4 h-4 text-cyan-400" /> MT5 EA Setup Guide
               <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-[10px]">Required for Auto-Trading</Badge>
             </CardTitle>
             <CardDescription className="text-gray-400 text-xs">
-              Install this EA on any MT5 chart. It polls the VEDD AI engine every 5 seconds and auto-executes all trade signals — including CLOSE ALL emergency stops.
+              Two EAs work together to power the VEDD AI Live Engine. Both must be running at the same time.
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
-              <a
-                href="/downloads/VEDD_Signal_Receiver_EA.mq5"
-                download="VEDD_Signal_Receiver_EA.mq5"
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold text-sm shadow-lg shadow-cyan-500/20 transition-all"
-              >
-                <Download className="w-4 h-4" /> Download Signal Receiver EA
-              </a>
-              <div className="text-xs text-gray-500 space-y-0.5">
-                <p className="text-gray-300 font-medium">Quick setup:</p>
-                <p>1. Open MT5 → File → Open Data Folder → MQL5 → Experts</p>
-                <p>2. Paste the EA file there, then restart MT5</p>
-                <p>3. Attach to any chart → set your Server URL + API Key</p>
-                <p>4. Enable <span className="text-cyan-400">Allow WebRequest</span> in MT5 Options → Expert Advisors</p>
+          <CardContent className="space-y-5">
+
+            {/* How they work together */}
+            <div className="p-3 rounded-xl bg-cyan-500/5 border border-cyan-500/20 text-xs text-gray-300 leading-relaxed">
+              <p className="text-cyan-400 font-semibold mb-1 flex items-center gap-1.5"><Activity className="w-3.5 h-3.5" /> How the two EAs work together</p>
+              <p>The <span className="text-cyan-300 font-medium">Chart Data EA</span> feeds live market data to the AI. The <span className="text-purple-300 font-medium">Signal Receiver EA</span> picks up the AI's trade decisions and executes them on your broker. Neither can do the full job alone — both must stay running simultaneously.</p>
+              <div className="mt-2 flex items-center gap-2 text-gray-400 text-[11px] flex-wrap">
+                <span className="px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">Chart Data EA</span>
+                <span>→ sends candles + open positions to AI</span>
+                <span>→</span>
+                <span className="px-2 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20">VEDD AI analyzes</span>
+                <span>→</span>
+                <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Signal Receiver EA</span>
+                <span>→ executes on MT5</span>
               </div>
             </div>
-            <div className="mt-3 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-start gap-2">
-              <AlertCircle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
-              <p className="text-xs text-amber-300">
-                <span className="font-bold">Server URL</span> — use your published app URL (ends in .replit.app). 
-                Get your <span className="font-bold">API Key</span> from the MT5 API Token section below. 
-                The EA must stay running on a chart for signals to be received.
-              </p>
+
+            {/* EA 1 — Chart Data EA */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="w-5 h-5 rounded-full bg-cyan-500/20 border border-cyan-500/40 text-cyan-400 text-[11px] font-bold flex items-center justify-center">1</span>
+                <p className="text-sm font-semibold text-cyan-300">Chart Data EA — one per pair you want traded</p>
+              </div>
+              <div className="ml-7 space-y-2 text-xs text-gray-300">
+                <p className="text-gray-400">Attach this to a chart for <span className="text-white font-medium">each pair</span> the engine should trade. If you want to trade XAUUSD, EURUSD, and GBPUSD — you need three charts, each with the Chart Data EA running on it.</p>
+                <div className="bg-gray-900/60 rounded-lg p-3 space-y-1 border border-gray-700/50">
+                  <p className="text-gray-400 font-medium mb-1.5">Setup steps:</p>
+                  <p>1. Go to <span className="text-cyan-400 font-medium">MT5 Chart Data</span> page (top menu) to download the Chart Data EA</p>
+                  <p>2. Copy the file to: <span className="text-white font-mono text-[11px]">MT5 → File → Open Data Folder → MQL5 → Experts</span></p>
+                  <p>3. Restart MT5, then open a chart for each pair you want to trade</p>
+                  <p>4. Drag the Chart Data EA onto each chart, enter your Server URL and API Key</p>
+                  <p>5. Enable <span className="text-cyan-400">Allow WebRequest</span> in MT5 Options → Expert Advisors</p>
+                </div>
+                <div className="flex items-start gap-1.5 text-amber-300 bg-amber-500/5 border border-amber-500/20 rounded-lg p-2">
+                  <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                  <p>Example: Trading 5 pairs = 5 separate charts, each with the Chart Data EA attached and running</p>
+                </div>
+              </div>
             </div>
+
+            {/* EA 2 — Signal Receiver EA */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="w-5 h-5 rounded-full bg-purple-500/20 border border-purple-500/40 text-purple-400 text-[11px] font-bold flex items-center justify-center">2</span>
+                <p className="text-sm font-semibold text-purple-300">Signal Receiver EA — just one, on any chart</p>
+              </div>
+              <div className="ml-7 space-y-2 text-xs text-gray-300">
+                <p className="text-gray-400">This EA only needs to be on <span className="text-white font-medium">one chart</span> — it doesn't matter which pair. It polls the VEDD AI every 5 seconds and executes signals across all your pairs automatically. Most users attach it to an EURUSD M1 chart.</p>
+                <div className="bg-gray-900/60 rounded-lg p-3 space-y-1 border border-gray-700/50">
+                  <p className="text-gray-400 font-medium mb-1.5">Setup steps:</p>
+                  <p>1. Download the EA using the button below</p>
+                  <p>2. Copy to: <span className="text-white font-mono text-[11px]">MT5 → File → Open Data Folder → MQL5 → Experts</span></p>
+                  <p>3. Restart MT5, open any chart (e.g. EURUSD M1)</p>
+                  <p>4. Drag the Signal Receiver EA onto that chart</p>
+                  <p>5. Enter your <span className="text-purple-400 font-medium">Server URL</span> (your .replit.app URL) and <span className="text-purple-400 font-medium">API Key</span> from the MT5 API Token section below</p>
+                  <p>6. Enable <span className="text-cyan-400">Allow WebRequest</span> if not already done</p>
+                </div>
+                <div className="flex flex-col sm:flex-row gap-2 mt-1">
+                  <a
+                    href="/downloads/VEDD_Signal_Receiver_EA.mq5"
+                    download="VEDD_Signal_Receiver_EA.mq5"
+                    className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white font-bold text-xs shadow-lg shadow-purple-500/20 transition-all"
+                  >
+                    <Download className="w-3.5 h-3.5" /> Download Signal Receiver EA
+                  </a>
+                  <Link href="/mt5-chart-data">
+                    <Button variant="outline" size="sm" className="text-xs border-cyan-500/40 text-cyan-400 hover:bg-cyan-500/10 w-full sm:w-auto">
+                      <ExternalLink className="w-3.5 h-3.5 mr-1.5" /> Get Chart Data EA
+                    </Button>
+                  </Link>
+                </div>
+              </div>
+            </div>
+
+            {/* Summary table */}
+            <div className="rounded-xl border border-gray-700/50 overflow-hidden text-xs">
+              <div className="bg-gray-900/80 px-3 py-2 text-gray-400 font-medium border-b border-gray-700/50">Quick Reference</div>
+              <div className="divide-y divide-gray-700/30">
+                <div className="grid grid-cols-3 px-3 py-2 text-gray-500 text-[11px] font-medium bg-gray-900/40">
+                  <span>EA</span><span>How many</span><span>Which chart</span>
+                </div>
+                <div className="grid grid-cols-3 px-3 py-2 items-center">
+                  <span className="text-cyan-400 font-medium">Chart Data EA</span>
+                  <span className="text-white">One per pair</span>
+                  <span className="text-gray-400">Each pair's chart</span>
+                </div>
+                <div className="grid grid-cols-3 px-3 py-2 items-center">
+                  <span className="text-purple-400 font-medium">Signal Receiver EA</span>
+                  <span className="text-white">Just one</span>
+                  <span className="text-gray-400">Any chart (e.g. EURUSD M1)</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Critical warning */}
+            <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+              <div className="text-xs text-red-300 space-y-1">
+                <p className="font-bold">Keep both EAs running at all times</p>
+                <p>If the Chart Data EA goes offline, the AI has no market data and stops generating signals. If the Signal Receiver EA goes offline, signals queue up on the server but never reach your broker. If your MT5 terminal closes, open positions stay on the broker but the AI cannot manage or close them.</p>
+              </div>
+            </div>
+
           </CardContent>
         </Card>
 
