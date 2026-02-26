@@ -1465,19 +1465,6 @@ async function processDecision(userId: number, decision: any): Promise<void> {
       return;
     }
 
-    const livePositions: any[] = (global as any).mt5OpenPositions?.[userId]?.positions || [];
-    const alreadyOpenForPair = livePositions.some(
-      (p: any) => (p.symbol || '').replace(/[^A-Z]/g, '') === decision.symbol.replace(/[^A-Z]/g, '')
-    );
-    if (alreadyOpenForPair) {
-      addActivity(userId, {
-        type: 'info',
-        symbol: decision.symbol,
-        message: `New trade blocked — ${decision.symbol} already has an open position. Manage existing trade first.`,
-      });
-      return;
-    }
-
     const existingSignals = pendingMT5Signals[userId] || [];
     const cooldownMs = Math.max(config.scanIntervalMs * 3, 3 * 60 * 1000);
     const hasRecentForPair = existingSignals.some(
