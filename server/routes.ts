@@ -8854,168 +8854,174 @@ Format each recommendation as a clear, concise action item.`;
 
   (global as any).veddAIBrain = (global as any).veddAIBrain || {};
 
+  async function runBrainLearning(userId: number): Promise<any> {
+    const allTrades = await storage.getAiTradeResults(userId, 1000);
+    const closedTradesCache = (global as any).mt5ClosedTrades?.[userId]?.trades || [];
+    const connectedPairs = (global as any).mt5ConnectedPairs?.[userId] || {};
+    const lastChartData = (global as any).mt5LastChartData?.[userId] || {};
+
+    const combinedTrades = [
+      ...allTrades.map(t => ({
+        symbol: t.symbol, direction: t.direction, result: t.result,
+        profit: t.profitLoss || 0, pips: t.profitLossPips || 0,
+        confidence: t.aiConfidence || 0, entry: t.entryPrice, exit: t.exitPrice,
+        sl: t.stopLoss, tp: t.takeProfit, timeframe: t.timeframe,
+        timestamp: t.createdAt ? new Date(t.createdAt).getTime() : 0,
+        hour: t.createdAt ? new Date(t.createdAt).getUTCHours() : 0,
+        day: t.createdAt ? new Date(t.createdAt).getUTCDay() : 0,
+        notes: t.notes,
+      })),
+      ...closedTradesCache.map((t: any) => ({
+        symbol: (t.symbol || '').toUpperCase().replace('/', ''),
+        direction: t.direction, result: t.profit > 0 ? 'WIN' : t.profit < 0 ? 'LOSS' : 'BREAKEVEN',
+        profit: t.profit || 0, pips: t.pips || 0, confidence: 0,
+        entry: t.openPrice, exit: t.closePrice, sl: t.sl, tp: t.tp,
+        timeframe: t.timeframe || 'M15', timestamp: t.closeTime ? new Date(t.closeTime).getTime() : 0,
+        hour: t.closeTime ? new Date(t.closeTime).getUTCHours() : 0,
+        day: t.closeTime ? new Date(t.closeTime).getUTCDay() : 0,
+        notes: '',
+      }))
+    ];
+
+    const uniqueSymbols = [...new Set(combinedTrades.map(t => t.symbol).filter(Boolean))];
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const sessions = [
+      { name: 'Asian', start: 0, end: 7 },
+      { name: 'London', start: 7, end: 13 },
+      { name: 'NY', start: 13, end: 20 },
+      { name: 'Late', start: 20, end: 24 },
+    ];
+
+    const pairKnowledge: Record<string, any> = {};
+    for (const sym of uniqueSymbols) {
+      const symTrades = combinedTrades.filter(t => t.symbol === sym);
+      const wins = symTrades.filter(t => t.result === 'WIN');
+      const losses = symTrades.filter(t => t.result === 'LOSS');
+      const totalCompleted = wins.length + losses.length;
+      const winRate = totalCompleted > 0 ? Math.round((wins.length / totalCompleted) * 100) : 0;
+      const avgWinPips = wins.length > 0 ? Math.round(wins.reduce((s, t) => s + (t.pips || 0), 0) / wins.length * 10) / 10 : 0;
+      const avgLossPips = losses.length > 0 ? Math.round(Math.abs(losses.reduce((s, t) => s + (t.pips || 0), 0) / losses.length) * 10) / 10 : 0;
+      const avgWinProfit = wins.length > 0 ? Math.round(wins.reduce((s, t) => s + t.profit, 0) / wins.length * 100) / 100 : 0;
+
+      const bestHours: Record<number, { wins: number; losses: number }> = {};
+      const bestDays: Record<number, { wins: number; losses: number }> = {};
+      const bestSessions: Record<string, { wins: number; losses: number }> = {};
+      const dirStats = { BUY: { wins: 0, losses: 0 }, SELL: { wins: 0, losses: 0 } };
+
+      symTrades.forEach(t => {
+        if (!bestHours[t.hour]) bestHours[t.hour] = { wins: 0, losses: 0 };
+        if (!bestDays[t.day]) bestDays[t.day] = { wins: 0, losses: 0 };
+        if (t.result === 'WIN') { bestHours[t.hour].wins++; bestDays[t.day].wins++; }
+        if (t.result === 'LOSS') { bestHours[t.hour].losses++; bestDays[t.day].losses++; }
+
+        const sess = sessions.find(s => t.hour >= s.start && t.hour < s.end);
+        if (sess) {
+          if (!bestSessions[sess.name]) bestSessions[sess.name] = { wins: 0, losses: 0 };
+          if (t.result === 'WIN') bestSessions[sess.name].wins++;
+          if (t.result === 'LOSS') bestSessions[sess.name].losses++;
+        }
+
+        const dir = t.direction as 'BUY' | 'SELL';
+        if (dirStats[dir]) {
+          if (t.result === 'WIN') dirStats[dir].wins++;
+          if (t.result === 'LOSS') dirStats[dir].losses++;
+        }
+      });
+
+      const topHours = Object.entries(bestHours)
+        .map(([h, s]) => ({ hour: parseInt(h), winRate: s.wins + s.losses > 0 ? Math.round(s.wins / (s.wins + s.losses) * 100) : 0, total: s.wins + s.losses }))
+        .filter(h => h.total >= 2)
+        .sort((a, b) => b.winRate - a.winRate);
+
+      const topDays = Object.entries(bestDays)
+        .map(([d, s]) => ({ day: dayNames[parseInt(d)], winRate: s.wins + s.losses > 0 ? Math.round(s.wins / (s.wins + s.losses) * 100) : 0, total: s.wins + s.losses }))
+        .filter(d => d.total >= 2)
+        .sort((a, b) => b.winRate - a.winRate);
+
+      const topSessions = Object.entries(bestSessions)
+        .map(([name, s]) => ({ session: name, winRate: s.wins + s.losses > 0 ? Math.round(s.wins / (s.wins + s.losses) * 100) : 0, total: s.wins + s.losses }))
+        .sort((a, b) => b.winRate - a.winRate);
+
+      const buyWR = dirStats.BUY.wins + dirStats.BUY.losses > 0 ? Math.round(dirStats.BUY.wins / (dirStats.BUY.wins + dirStats.BUY.losses) * 100) : 50;
+      const sellWR = dirStats.SELL.wins + dirStats.SELL.losses > 0 ? Math.round(dirStats.SELL.wins / (dirStats.SELL.wins + dirStats.SELL.losses) * 100) : 50;
+      const preferredDirection = buyWR > sellWR + 15 ? 'BUY' : sellWR > buyWR + 15 ? 'SELL' : 'BOTH';
+
+      const highConfTrades = symTrades.filter(t => t.confidence >= 80);
+      const highConfWR = highConfTrades.length > 0 ? Math.round(highConfTrades.filter(t => t.result === 'WIN').length / highConfTrades.length * 100) : 0;
+
+      let maxWinStreak = 0, maxLossStreak = 0, curWin = 0, curLoss = 0;
+      symTrades.sort((a, b) => a.timestamp - b.timestamp).forEach(t => {
+        if (t.result === 'WIN') { curWin++; curLoss = 0; maxWinStreak = Math.max(maxWinStreak, curWin); }
+        else if (t.result === 'LOSS') { curLoss++; curWin = 0; maxLossStreak = Math.max(maxLossStreak, curLoss); }
+      });
+
+      const pairConnected = Object.values(connectedPairs).find((p: any) =>
+        (p.symbol || '').toUpperCase().replace('/', '') === sym
+      ) as any;
+
+      pairKnowledge[sym] = {
+        totalTrades: totalCompleted, winRate, avgWinPips, avgLossPips, avgWinProfit,
+        riskRewardRatio: avgLossPips > 0 ? Math.round(avgWinPips / avgLossPips * 100) / 100 : 0,
+        preferredDirection, buyWinRate: buyWR, sellWinRate: sellWR,
+        topHours: topHours.slice(0, 3), worstHours: topHours.slice(-2).reverse(),
+        topDays: topDays.slice(0, 3), topSessions,
+        highConfidenceWinRate: highConfWR, maxWinStreak, maxLossStreak,
+        lastSignal: pairConnected?.signal || null,
+        lastConfidence: pairConnected?.confidence || null,
+        currentSpread: pairConnected?.spread || null,
+        lastPrice: pairConnected?.price || lastChartData[sym]?.close || null,
+      };
+    }
+
+    const overallWins = combinedTrades.filter(t => t.result === 'WIN').length;
+    const overallLosses = combinedTrades.filter(t => t.result === 'LOSS').length;
+    const overallTotal = overallWins + overallLosses;
+    const overallWR = overallTotal > 0 ? Math.round(overallWins / overallTotal * 100) : 0;
+    const totalProfit = combinedTrades.reduce((s, t) => s + t.profit, 0);
+
+    const brain = {
+      lastLearned: new Date().toISOString(),
+      totalTradesAnalyzed: combinedTrades.length,
+      overallWinRate: overallWR,
+      totalProfit: Math.round(totalProfit * 100) / 100,
+      pairsLearned: uniqueSymbols.length,
+      pairKnowledge,
+      hftReadiness: {
+        hasEnoughData: combinedTrades.length >= 20,
+        scalpingViable: Object.values(pairKnowledge).some((p: any) => p.winRate >= 55 && p.avgWinPips > 0),
+        momentumViable: Object.values(pairKnowledge).some((p: any) => p.maxWinStreak >= 3),
+        bestScalpPair: Object.entries(pairKnowledge).sort((a: any, b: any) => b[1].winRate - a[1].winRate)[0]?.[0] || null,
+        bestMomentumPair: Object.entries(pairKnowledge).sort((a: any, b: any) => b[1].maxWinStreak - a[1].maxWinStreak)[0]?.[0] || null,
+      },
+      learningInsights: [] as string[],
+    };
+
+    if (overallWR >= 60) brain.learningInsights.push(`Strong edge detected: ${overallWR}% overall win rate across ${overallTotal} trades`);
+    if (overallWR < 50 && overallTotal >= 10) brain.learningInsights.push(`Win rate below 50% - AI will prioritize higher-confidence setups only`);
+    for (const [sym, k] of Object.entries(pairKnowledge) as any[]) {
+      if (k.topSessions.length > 0 && k.topSessions[0].winRate >= 70) {
+        brain.learningInsights.push(`${sym}: ${k.topSessions[0].session} session is a goldmine (${k.topSessions[0].winRate}% WR)`);
+      }
+      if (k.preferredDirection !== 'BOTH') {
+        brain.learningInsights.push(`${sym}: Strong ${k.preferredDirection} bias detected (${k.preferredDirection === 'BUY' ? k.buyWinRate : k.sellWinRate}% WR)`);
+      }
+      if (k.worstHours.length > 0 && k.worstHours[0].winRate < 30 && k.worstHours[0].total >= 3) {
+        brain.learningInsights.push(`${sym}: Avoid ${k.worstHours[0].hour}:00 UTC (${k.worstHours[0].winRate}% WR - loss zone)`);
+      }
+    }
+
+    (global as any).veddAIBrain[userId] = brain;
+    console.log(`[VEDD Brain] Learned from ${combinedTrades.length} trades across ${uniqueSymbols.length} pairs for user ${userId}`);
+    return brain;
+  }
+
+  (global as any).runBrainLearning = runBrainLearning;
+
   app.post("/api/vedd-brain/learn", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
-
     try {
-      const allTrades = await storage.getAiTradeResults(userId, 1000);
-      const closedTradesCache = (global as any).mt5ClosedTrades?.[userId]?.trades || [];
-      const connectedPairs = (global as any).mt5ConnectedPairs?.[userId] || {};
-      const lastChartData = (global as any).mt5LastChartData?.[userId] || {};
-
-      const combinedTrades = [
-        ...allTrades.map(t => ({
-          symbol: t.symbol, direction: t.direction, result: t.result,
-          profit: t.profitLoss || 0, pips: t.profitLossPips || 0,
-          confidence: t.aiConfidence || 0, entry: t.entryPrice, exit: t.exitPrice,
-          sl: t.stopLoss, tp: t.takeProfit, timeframe: t.timeframe,
-          timestamp: t.createdAt ? new Date(t.createdAt).getTime() : 0,
-          hour: t.createdAt ? new Date(t.createdAt).getUTCHours() : 0,
-          day: t.createdAt ? new Date(t.createdAt).getUTCDay() : 0,
-          notes: t.notes,
-        })),
-        ...closedTradesCache.map((t: any) => ({
-          symbol: (t.symbol || '').toUpperCase().replace('/', ''),
-          direction: t.direction, result: t.profit > 0 ? 'WIN' : t.profit < 0 ? 'LOSS' : 'BREAKEVEN',
-          profit: t.profit || 0, pips: t.pips || 0, confidence: 0,
-          entry: t.openPrice, exit: t.closePrice, sl: t.sl, tp: t.tp,
-          timeframe: t.timeframe || 'M15', timestamp: t.closeTime ? new Date(t.closeTime).getTime() : 0,
-          hour: t.closeTime ? new Date(t.closeTime).getUTCHours() : 0,
-          day: t.closeTime ? new Date(t.closeTime).getUTCDay() : 0,
-          notes: '',
-        }))
-      ];
-
-      const uniqueSymbols = [...new Set(combinedTrades.map(t => t.symbol).filter(Boolean))];
-      const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-      const sessions = [
-        { name: 'Asian', start: 0, end: 7 },
-        { name: 'London', start: 7, end: 13 },
-        { name: 'NY', start: 13, end: 20 },
-        { name: 'Late', start: 20, end: 24 },
-      ];
-
-      const pairKnowledge: Record<string, any> = {};
-      for (const sym of uniqueSymbols) {
-        const symTrades = combinedTrades.filter(t => t.symbol === sym);
-        const wins = symTrades.filter(t => t.result === 'WIN');
-        const losses = symTrades.filter(t => t.result === 'LOSS');
-        const totalCompleted = wins.length + losses.length;
-        const winRate = totalCompleted > 0 ? Math.round((wins.length / totalCompleted) * 100) : 0;
-        const avgWinPips = wins.length > 0 ? Math.round(wins.reduce((s, t) => s + (t.pips || 0), 0) / wins.length * 10) / 10 : 0;
-        const avgLossPips = losses.length > 0 ? Math.round(Math.abs(losses.reduce((s, t) => s + (t.pips || 0), 0) / losses.length) * 10) / 10 : 0;
-        const avgWinProfit = wins.length > 0 ? Math.round(wins.reduce((s, t) => s + t.profit, 0) / wins.length * 100) / 100 : 0;
-
-        const bestHours: Record<number, { wins: number; losses: number }> = {};
-        const bestDays: Record<number, { wins: number; losses: number }> = {};
-        const bestSessions: Record<string, { wins: number; losses: number }> = {};
-        const dirStats = { BUY: { wins: 0, losses: 0 }, SELL: { wins: 0, losses: 0 } };
-
-        symTrades.forEach(t => {
-          if (!bestHours[t.hour]) bestHours[t.hour] = { wins: 0, losses: 0 };
-          if (!bestDays[t.day]) bestDays[t.day] = { wins: 0, losses: 0 };
-          if (t.result === 'WIN') { bestHours[t.hour].wins++; bestDays[t.day].wins++; }
-          if (t.result === 'LOSS') { bestHours[t.hour].losses++; bestDays[t.day].losses++; }
-
-          const sess = sessions.find(s => t.hour >= s.start && t.hour < s.end);
-          if (sess) {
-            if (!bestSessions[sess.name]) bestSessions[sess.name] = { wins: 0, losses: 0 };
-            if (t.result === 'WIN') bestSessions[sess.name].wins++;
-            if (t.result === 'LOSS') bestSessions[sess.name].losses++;
-          }
-
-          const dir = t.direction as 'BUY' | 'SELL';
-          if (dirStats[dir]) {
-            if (t.result === 'WIN') dirStats[dir].wins++;
-            if (t.result === 'LOSS') dirStats[dir].losses++;
-          }
-        });
-
-        const topHours = Object.entries(bestHours)
-          .map(([h, s]) => ({ hour: parseInt(h), winRate: s.wins + s.losses > 0 ? Math.round(s.wins / (s.wins + s.losses) * 100) : 0, total: s.wins + s.losses }))
-          .filter(h => h.total >= 2)
-          .sort((a, b) => b.winRate - a.winRate);
-
-        const topDays = Object.entries(bestDays)
-          .map(([d, s]) => ({ day: dayNames[parseInt(d)], winRate: s.wins + s.losses > 0 ? Math.round(s.wins / (s.wins + s.losses) * 100) : 0, total: s.wins + s.losses }))
-          .filter(d => d.total >= 2)
-          .sort((a, b) => b.winRate - a.winRate);
-
-        const topSessions = Object.entries(bestSessions)
-          .map(([name, s]) => ({ session: name, winRate: s.wins + s.losses > 0 ? Math.round(s.wins / (s.wins + s.losses) * 100) : 0, total: s.wins + s.losses }))
-          .sort((a, b) => b.winRate - a.winRate);
-
-        const buyWR = dirStats.BUY.wins + dirStats.BUY.losses > 0 ? Math.round(dirStats.BUY.wins / (dirStats.BUY.wins + dirStats.BUY.losses) * 100) : 50;
-        const sellWR = dirStats.SELL.wins + dirStats.SELL.losses > 0 ? Math.round(dirStats.SELL.wins / (dirStats.SELL.wins + dirStats.SELL.losses) * 100) : 50;
-        const preferredDirection = buyWR > sellWR + 15 ? 'BUY' : sellWR > buyWR + 15 ? 'SELL' : 'BOTH';
-
-        const highConfTrades = symTrades.filter(t => t.confidence >= 80);
-        const highConfWR = highConfTrades.length > 0 ? Math.round(highConfTrades.filter(t => t.result === 'WIN').length / highConfTrades.length * 100) : 0;
-
-        let maxWinStreak = 0, maxLossStreak = 0, curWin = 0, curLoss = 0;
-        symTrades.sort((a, b) => a.timestamp - b.timestamp).forEach(t => {
-          if (t.result === 'WIN') { curWin++; curLoss = 0; maxWinStreak = Math.max(maxWinStreak, curWin); }
-          else if (t.result === 'LOSS') { curLoss++; curWin = 0; maxLossStreak = Math.max(maxLossStreak, curLoss); }
-        });
-
-        const pairConnected = Object.values(connectedPairs).find((p: any) =>
-          (p.symbol || '').toUpperCase().replace('/', '') === sym
-        ) as any;
-
-        pairKnowledge[sym] = {
-          totalTrades: totalCompleted, winRate, avgWinPips, avgLossPips, avgWinProfit,
-          riskRewardRatio: avgLossPips > 0 ? Math.round(avgWinPips / avgLossPips * 100) / 100 : 0,
-          preferredDirection, buyWinRate: buyWR, sellWinRate: sellWR,
-          topHours: topHours.slice(0, 3), worstHours: topHours.slice(-2).reverse(),
-          topDays: topDays.slice(0, 3), topSessions,
-          highConfidenceWinRate: highConfWR, maxWinStreak, maxLossStreak,
-          lastSignal: pairConnected?.signal || null,
-          lastConfidence: pairConnected?.confidence || null,
-          currentSpread: pairConnected?.spread || null,
-          lastPrice: pairConnected?.price || lastChartData[sym]?.close || null,
-        };
-      }
-
-      const overallWins = combinedTrades.filter(t => t.result === 'WIN').length;
-      const overallLosses = combinedTrades.filter(t => t.result === 'LOSS').length;
-      const overallTotal = overallWins + overallLosses;
-      const overallWR = overallTotal > 0 ? Math.round(overallWins / overallTotal * 100) : 0;
-      const totalProfit = combinedTrades.reduce((s, t) => s + t.profit, 0);
-
-      const brain = {
-        lastLearned: new Date().toISOString(),
-        totalTradesAnalyzed: combinedTrades.length,
-        overallWinRate: overallWR,
-        totalProfit: Math.round(totalProfit * 100) / 100,
-        pairsLearned: uniqueSymbols.length,
-        pairKnowledge,
-        hftReadiness: {
-          hasEnoughData: combinedTrades.length >= 20,
-          scalpingViable: Object.values(pairKnowledge).some((p: any) => p.winRate >= 55 && p.avgWinPips > 0),
-          momentumViable: Object.values(pairKnowledge).some((p: any) => p.maxWinStreak >= 3),
-          bestScalpPair: Object.entries(pairKnowledge).sort((a: any, b: any) => b[1].winRate - a[1].winRate)[0]?.[0] || null,
-          bestMomentumPair: Object.entries(pairKnowledge).sort((a: any, b: any) => b[1].maxWinStreak - a[1].maxWinStreak)[0]?.[0] || null,
-        },
-        learningInsights: [] as string[],
-      };
-
-      if (overallWR >= 60) brain.learningInsights.push(`Strong edge detected: ${overallWR}% overall win rate across ${overallTotal} trades`);
-      if (overallWR < 50 && overallTotal >= 10) brain.learningInsights.push(`Win rate below 50% - AI will prioritize higher-confidence setups only`);
-      for (const [sym, k] of Object.entries(pairKnowledge) as any[]) {
-        if (k.topSessions.length > 0 && k.topSessions[0].winRate >= 70) {
-          brain.learningInsights.push(`${sym}: ${k.topSessions[0].session} session is a goldmine (${k.topSessions[0].winRate}% WR)`);
-        }
-        if (k.preferredDirection !== 'BOTH') {
-          brain.learningInsights.push(`${sym}: Strong ${k.preferredDirection} bias detected (${k.preferredDirection === 'BUY' ? k.buyWinRate : k.sellWinRate}% WR)`);
-        }
-        if (k.worstHours.length > 0 && k.worstHours[0].winRate < 30 && k.worstHours[0].total >= 3) {
-          brain.learningInsights.push(`${sym}: Avoid ${k.worstHours[0].hour}:00 UTC (${k.worstHours[0].winRate}% WR - loss zone)`);
-        }
-      }
-
-      (global as any).veddAIBrain[userId] = brain;
-      console.log(`[VEDD Brain] Learned from ${combinedTrades.length} trades across ${uniqueSymbols.length} pairs for user ${userId}`);
+      const brain = await runBrainLearning(userId);
       res.json(brain);
     } catch (error: any) {
       console.error('[VEDD Brain] Learning error:', error);

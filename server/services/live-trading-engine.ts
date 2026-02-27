@@ -256,11 +256,25 @@ interface EngineState {
   pnlToday: number;
   dailyLossHalted: boolean;
   dailyLossHaltedAt: string | null;
+  tradesSinceLastLearn: number;
 }
 
 const engineStates: Record<number, EngineState> = {};
 const engineIntervals: Record<number, ReturnType<typeof setInterval>> = {};
 const engineTimers: Record<number, ReturnType<typeof setTimeout>> = {};
+const brainLearningIntervals: Record<number, ReturnType<typeof setInterval>> = {};
+
+async function autoRetainBrain(userId: number): Promise<void> {
+  try {
+    const fn = (global as any).runBrainLearning;
+    if (typeof fn !== 'function') return;
+    const brain = await fn(userId);
+    const count = brain?.totalTradesAnalyzed ?? 0;
+    addActivity(userId, { type: 'info', message: `🧠 Brain auto-retrained from ${count} trades across ${brain?.pairsLearned ?? 0} pairs` });
+  } catch (e) {
+    // silent — don't crash engine if brain retrain fails
+  }
+}
 const goalTrackerCache: Record<string, GoalTracker> = {};
 
 // All 16 strategy keys for weight initialisation
@@ -532,6 +546,15 @@ export function recordTradeResult(userId: number, result: {
   // ── Daily P&L tracking for loss limit ─────────────────────────────
   state.pnlToday = Math.round((state.pnlToday + result.profit) * 100) / 100;
   checkDailyLossLimit(userId);
+
+  // ── Auto-retrain brain every 5 trade results ───────────────────────
+  state.tradesSinceLastLearn = (state.tradesSinceLastLearn || 0) + 1;
+  if (state.tradesSinceLastLearn >= 5) {
+    state.tradesSinceLastLearn = 0;
+    autoRetainBrain(userId).then(() => {
+      addActivity(userId, { type: 'info', message: '🧠 Brain updated after 5 new trade results' });
+    });
+  }
 
   const weekKey = `${userId}_${tracker.weekStartedAt.split('T')[0].substring(0, 8)}`;
   goalTrackerCache[weekKey] = { ...tracker };
@@ -1941,6 +1964,7 @@ export function startLiveEngine(userId: number, config?: Partial<LiveEngineConfi
     pnlToday: 0,
     dailyLossHalted: false,
     dailyLossHaltedAt: null,
+    tradesSinceLastLearn: 0,
   };
 
   const adaptiveInterval = getAdaptiveScanInterval(fullConfig);
@@ -1972,6 +1996,11 @@ export function startLiveEngine(userId: number, config?: Partial<LiveEngineConfi
 
   // Schedule Sunday gap scanner
   scheduleGapScanner(userId);
+
+  // Auto-train brain immediately on engine start, then every 30 minutes
+  autoRetainBrain(userId);
+  if (brainLearningIntervals[userId]) clearInterval(brainLearningIntervals[userId]);
+  brainLearningIntervals[userId] = setInterval(() => autoRetainBrain(userId), 30 * 60 * 1000);
 
   console.log(`[VEDD Live Engine] Started for user ${userId} | Strategy: ${fullConfig.strategyMode} | Interval: ${intervalDisplay}`);
 
@@ -2008,6 +2037,10 @@ export function emergencyStopEngine(userId: number): EngineState | null {
   if (engineTimers[userId]) {
     clearTimeout(engineTimers[userId]);
     delete engineTimers[userId];
+  }
+  if (brainLearningIntervals[userId]) {
+    clearInterval(brainLearningIntervals[userId]);
+    delete brainLearningIntervals[userId];
   }
 
   const state = engineStates[userId];
@@ -2050,6 +2083,10 @@ export function stopLiveEngine(userId: number): EngineState | null {
   if (engineTimers[userId]) {
     clearTimeout(engineTimers[userId]);
     delete engineTimers[userId];
+  }
+  if (brainLearningIntervals[userId]) {
+    clearInterval(brainLearningIntervals[userId]);
+    delete brainLearningIntervals[userId];
   }
 
   const state = engineStates[userId];
