@@ -851,9 +851,9 @@ async function runAILiveAnalysis(userId: number, marketAnalysis: Record<string, 
           const ticketId = p.ticket ?? p.id ?? 'unknown';
           const slInfo = p.sl > 0 ? p.sl : 'none';
           const tpInfo = p.tp > 0 ? p.tp : 'none';
-          const beThreshold = p.symbol.includes('JPY') ? 10 : 10;
-          const trailThreshold = p.symbol.includes('JPY') ? 20 : 20;
-          const mgmtHint = pips >= trailThreshold ? '→ TRAIL STOP NOW' : pips >= beThreshold ? '→ MOVE TO BREAKEVEN' : pips < -5 ? '→ REVIEW SL' : '';
+          const beThreshold = p.symbol.includes('JPY') ? 15 : 15;
+          const trailThreshold = p.symbol.includes('JPY') ? 40 : 40;
+          const mgmtHint = pips >= trailThreshold ? '→ TRAIL STOP (staged: 25-pip trail if vol surging/above_avg, 20-pip if avg, 15-pip if below_avg/dry)' : pips >= beThreshold ? '→ MOVE TO BREAKEVEN ONLY — not ready to trail yet' : pips < -5 ? '→ REVIEW SL' : '';
           return `${p.symbol} (ticket:${ticketId}): ${p.direction} @ ${p.openPrice} | Curr: ${p.currentPrice} | Pips: ${pips.toFixed(1)} | PnL: $${p.profit} | SL: ${slInfo} | TP: ${tpInfo} | Vol: ${p.volume} ${mgmtHint}`;
         }).join('\n')
       : 'None';
@@ -1048,9 +1048,23 @@ VOLUME-AWARE TRADING RULES:
 
 AGGRESSIVE POSITION MANAGEMENT RULES:
 - BE RELENTLESS: Your goal is maximum profit in minimum time. Manage active trades aggressively to lock in gains and free up margin for new high-frequency setups.
-- BREAKEVEN: Move SL to entry (breakeven) as soon as a trade hits 10-15 pips profit. Never let a winner turn into a loser.
-- TRAILING: Use aggressive trailing stops (5-10 pips) once in 20+ pips profit to capture momentum surges.
-- PARTIAL CLOSE: Take 50% profit at TP1 (scalping targets) and trail the rest for "infinite" R:R.
+- BREAKEVEN: Move SL to entry only after 15+ pips profit. Give the trade room to breathe — do NOT rush to breakeven.
+- TRAILING (STAGED + VOLUME-ADJUSTED — never trail too early, it kills winners):
+    • 15–39 pips profit → Move SL to BREAKEVEN ONLY. Do not trail yet. Price needs room to develop.
+    • 40–59 pips profit → Start trailing. Use volume-adjusted distance:
+        - Volume SURGING or ABOVE_AVERAGE: 25-pip trail (strong momentum, give room to run)
+        - Volume AVERAGE: 20-pip trail
+        - Volume BELOW_AVERAGE or DRY: 15-pip trail (move exhausting, protect gains sooner)
+    • 60–99 pips profit → Tighten trail. Use volume-adjusted distance:
+        - Volume SURGING or ABOVE_AVERAGE: 20-pip trail
+        - Volume AVERAGE: 15-pip trail
+        - Volume BELOW_AVERAGE or DRY: 10-pip trail
+    • 100+ pips profit → Lock in gains. Use volume-adjusted distance:
+        - Volume SURGING or ABOVE_AVERAGE: 15-pip trail
+        - Volume AVERAGE: 10-pip trail
+        - Volume BELOW_AVERAGE or DRY: 8-pip trail
+- NEVER use trail distance less than 8 pips — anything tighter gets hit by normal spread and noise.
+- PARTIAL CLOSE: Take 50% at TP1, then trail the runner using the staged volume-adjusted distances above.
 - CLOSE LOSERS EARLY: If a trade is stagnant for 30+ minutes or price action invalidates the setup, CLOSE it immediately. Don't hope.
 - SCALE OUT: If volatility spikes against you, exit 50% early to reduce exposure.
 - MAXIMIZE VELOCITY: If you see a better setup on another pair but are at max trades, close the weakest performer to take the high-conviction one.
@@ -1221,7 +1235,7 @@ AGGRESSIVE COMPOUND GROWTH (tie it all together):
 
 LIVE ENGINE RULES:
 ⚡ PRIORITY ORDER — ALWAYS follow this sequence each scan:
-  STEP 1 — MANAGE OPEN POSITIONS FIRST (non-negotiable). For EVERY open position listed above, evaluate and output a MODIFY_POSITION or CLOSE_POSITION action using the exact ticket number shown. Apply: trail stop if ≥20 pips profit, move to breakeven if ≥10 pips profit, close if setup invalidated. Do NOT skip this step when positions are open.
+  STEP 1 — MANAGE OPEN POSITIONS FIRST (non-negotiable). For EVERY open position listed above, evaluate and output a MODIFY_POSITION or CLOSE_POSITION action using the exact ticket number shown. Apply: move to breakeven if 15–39 pips profit; trail stop only if ≥40 pips profit using volume-adjusted distance (25-pip if vol surging/above_avg, 20-pip if avg, 15-pip if below_avg/dry); close if setup invalidated. Do NOT skip this step when positions are open.
   STEP 2 — Only then consider new OPEN_TRADE signals on pairs that have NO existing open position.
   STEP 3 — Never open a new trade on a pair that already has an open position. One position per pair maximum.
 
@@ -1233,7 +1247,7 @@ LIVE ENGINE RULES:
 6. If volatility percentile >80, widen stops and increase targets. If <20, use scalping with tight targets
 7. Session context matters - trade pairs during their historically best sessions
 8. Check support/resistance proximity - don't BUY at resistance or SELL at support
-9. Manage existing positions: trail stops aggressively, partial close at TP1, let runners ride — use the ticket number as positionId in MODIFY_POSITION actions
+9. Manage existing positions: trail stops using staged volume-adjusted distances (25-pip at 40+ profit if vol surging, 20-pip avg, 15-pip if vol dry; tightens at 60+ and 100+ pips) — NEVER trail before 40 pips in profit. Partial close at TP1, let runners ride — use the ticket number as positionId in MODIFY_POSITION actions
 10. GOAL-DRIVEN: Every decision must move toward the weekly target. Calculate estimated profit per trade and compare to daily target remaining
 11. COMPOUND ON WINS: After consecutive wins, increase lot size using compound multiplier. After losses, reduce to protect gains
 12. Look for RE-ENTRY opportunities after taking profit - the trend may still have legs
