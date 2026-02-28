@@ -13110,10 +13110,12 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     app.post("/api/sol-engine/auto-trade", async (req: Request, res: Response) => {
       if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
       const userId = (req.user as User).id;
-      const { paperEnabled, liveEnabled } = req.body;
+      const { paperEnabled, liveEnabled, tpPct, slPct } = req.body;
       setAutoTrade(userId, {
         paperEnabled: paperEnabled !== undefined ? !!paperEnabled : undefined,
         liveEnabled: liveEnabled !== undefined ? !!liveEnabled : undefined,
+        tpPct: tpPct !== undefined ? Number(tpPct) : undefined,
+        slPct: slPct !== undefined ? Number(slPct) : undefined,
       });
       res.json({ success: true, positions: getAutoTradePositions(userId) });
     });

@@ -2733,6 +2733,8 @@ export default function SolanaScanner() {
   const [quickGuideVisible, setQuickGuideVisible] = useState<boolean>(() => !localStorage.getItem('solQuickGuideDismissed'));
   const [paperTradeEnabled, setPaperTradeEnabled] = useState(false);
   const [liveTradeEnabled, setLiveTradeEnabled] = useState(false);
+  const [autoTradeTP, setAutoTradeTP] = useState(8);
+  const [autoTradeSL, setAutoTradeSL] = useState(4);
   const [weeklyGoalTargetSol, setWeeklyGoalTargetSol] = useState('');
   const [weeklyGoalTargetPct, setWeeklyGoalTargetPct] = useState('');
   const { toast } = useToast();
@@ -2818,7 +2820,7 @@ export default function SolanaScanner() {
   });
 
   const autoTradeMutation = useMutation({
-    mutationFn: (opts: { paperEnabled?: boolean; liveEnabled?: boolean }) =>
+    mutationFn: (opts: { paperEnabled?: boolean; liveEnabled?: boolean; tpPct?: number; slPct?: number }) =>
       apiRequest('POST', '/api/sol-engine/auto-trade', opts),
     onSuccess: () => { refetchAutoPositions(); },
   });
@@ -2856,8 +2858,10 @@ export default function SolanaScanner() {
     if (autoPositionsData) {
       setPaperTradeEnabled(autoPositionsData.autoTradeEnabled || false);
       setLiveTradeEnabled(autoPositionsData.liveTradeEnabled || false);
+      if (autoPositionsData.autoTradeTP) setAutoTradeTP(autoPositionsData.autoTradeTP);
+      if (autoPositionsData.autoTradeSL) setAutoTradeSL(autoPositionsData.autoTradeSL);
     }
-  }, [autoPositionsData?.autoTradeEnabled, autoPositionsData?.liveTradeEnabled]);
+  }, [autoPositionsData?.autoTradeEnabled, autoPositionsData?.liveTradeEnabled, autoPositionsData?.autoTradeTP, autoPositionsData?.autoTradeSL]);
 
   useEffect(() => {
     if (solEngineStatus?.activeStrategies && solEngineStatus.activeStrategies.length > 0) {
@@ -3638,6 +3642,49 @@ export default function SolanaScanner() {
                 </div>
               )}
             </div>
+
+            {/* TP / SL controls */}
+            <div className="grid grid-cols-2 gap-3">
+              {/* Take Profit */}
+              <div className="p-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-[11px] font-semibold text-emerald-300">Take Profit</p>
+                  <span className="text-sm font-bold text-emerald-400">+{autoTradeTP}%</span>
+                </div>
+                <input
+                  type="range"
+                  min={3} max={50} step={1}
+                  value={autoTradeTP}
+                  onChange={e => setAutoTradeTP(Number(e.target.value))}
+                  onMouseUp={e => autoTradeMutation.mutate({ tpPct: Number((e.target as HTMLInputElement).value) })}
+                  onTouchEnd={e => autoTradeMutation.mutate({ tpPct: Number((e.target as HTMLInputElement).value) })}
+                  className="w-full h-1.5 rounded-full accent-emerald-500 cursor-pointer"
+                />
+                <div className="flex justify-between text-[9px] text-gray-600">
+                  <span>3%</span><span>50%</span>
+                </div>
+              </div>
+              {/* Stop Loss */}
+              <div className="p-3 rounded-xl border border-red-500/20 bg-red-500/5 space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-[11px] font-semibold text-red-300">Stop Loss</p>
+                  <span className="text-sm font-bold text-red-400">-{autoTradeSL}%</span>
+                </div>
+                <input
+                  type="range"
+                  min={1} max={20} step={1}
+                  value={autoTradeSL}
+                  onChange={e => setAutoTradeSL(Number(e.target.value))}
+                  onMouseUp={e => autoTradeMutation.mutate({ slPct: Number((e.target as HTMLInputElement).value) })}
+                  onTouchEnd={e => autoTradeMutation.mutate({ slPct: Number((e.target as HTMLInputElement).value) })}
+                  className="w-full h-1.5 rounded-full accent-red-500 cursor-pointer"
+                />
+                <div className="flex justify-between text-[9px] text-gray-600">
+                  <span>1%</span><span>20%</span>
+                </div>
+              </div>
+            </div>
+            <p className="text-[9px] text-gray-600 text-center -mt-2">Applies to all new positions — existing positions keep their original levels</p>
 
             {/* Stats strip */}
             {anyActive && stats.totalTrades > 0 && (

@@ -121,6 +121,8 @@ interface SolEngineState {
   livePositions: SolAutoPosition[];
   closedLivePositions: SolAutoPosition[];
   pendingSignals: SolPendingSignal[];
+  autoTradeTP: number;
+  autoTradeSL: number;
   autoTradeStats: {
     totalTrades: number;
     wins: number;
@@ -275,6 +277,8 @@ function createInitialState(config: SolEngineConfig): SolEngineState {
     livePositions: [],
     closedLivePositions: [],
     pendingSignals: [],
+    autoTradeTP: 8,
+    autoTradeSL: 4,
     autoTradeStats: { totalTrades: 0, wins: 0, losses: 0, totalPnlPct: 0, bestTradePct: 0, worstTradePct: 0 },
   };
 }
@@ -703,8 +707,8 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
               mint: tokenMint,
               entryPrice: tokenPrice,
               currentPrice: tokenPrice,
-              targetPct: 8,
-              slPct: 4,
+              targetPct: state.autoTradeTP,
+              slPct: state.autoTradeSL,
               size: sizeSOL,
               strategyId: topStrat.id,
               mode: 'paper',
@@ -830,6 +834,8 @@ export function startSolEngine(userId: number, config: Partial<SolEngineConfig> 
     state.livePositions = existing.livePositions;
     state.closedLivePositions = existing.closedLivePositions;
     state.autoTradeStats = existing.autoTradeStats;
+    state.autoTradeTP = existing.autoTradeTP;
+    state.autoTradeSL = existing.autoTradeSL;
   }
   state.isRunning = true;
   engineStates.set(userId, state);
@@ -1047,7 +1053,7 @@ export function recordSolSignalResult(
   return { success: true };
 }
 
-export function setAutoTrade(userId: number, opts: { paperEnabled?: boolean; liveEnabled?: boolean }): void {
+export function setAutoTrade(userId: number, opts: { paperEnabled?: boolean; liveEnabled?: boolean; tpPct?: number; slPct?: number }): void {
   let state = engineStates.get(userId);
   if (!state) {
     state = createInitialState({ ...DEFAULT_CONFIG });
@@ -1064,13 +1070,26 @@ export function setAutoTrade(userId: number, opts: { paperEnabled?: boolean; liv
   }
   if (opts.liveEnabled !== undefined) {
     state.liveTradeEnabled = opts.liveEnabled;
-    // Clear expired pending signals on toggle
     if (!opts.liveEnabled) state.pendingSignals = [];
     addActivity(state, {
       type: 'info',
       message: opts.liveEnabled
         ? '⚡ Live Auto-Trade ENABLED — buy signals will be queued for wallet execution'
         : '⚡ Live Auto-Trade DISABLED — pending signals cleared',
+    });
+  }
+  if (opts.tpPct !== undefined && opts.tpPct > 0 && opts.tpPct <= 200) {
+    state.autoTradeTP = opts.tpPct;
+    addActivity(state, {
+      type: 'info',
+      message: `🎯 Take-profit updated — positions will close at +${opts.tpPct}%`,
+    });
+  }
+  if (opts.slPct !== undefined && opts.slPct > 0 && opts.slPct <= 50) {
+    state.autoTradeSL = opts.slPct;
+    addActivity(state, {
+      type: 'info',
+      message: `🛡️ Stop-loss updated — positions protected at -${opts.slPct}%`,
     });
   }
 }
@@ -1099,8 +1118,8 @@ export function confirmLiveTrade(userId: number, signalId: string, txHash: strin
     mint: '',
     entryPrice: 0,
     currentPrice: 0,
-    targetPct: 8,
-    slPct: 4,
+    targetPct: state.autoTradeTP,
+    slPct: state.autoTradeSL,
     size: 0,
     strategyId: state.activeStrategy,
     mode: 'live',
@@ -1132,6 +1151,8 @@ export function getAutoTradePositions(userId: number) {
   return {
     autoTradeEnabled: state.autoTradeEnabled,
     liveTradeEnabled: state.liveTradeEnabled,
+    autoTradeTP: state.autoTradeTP,
+    autoTradeSL: state.autoTradeSL,
     paperPositions: state.paperPositions,
     closedPaperPositions: state.closedPaperPositions.slice(0, 20),
     livePositions: state.livePositions,
