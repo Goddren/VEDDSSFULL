@@ -21,7 +21,7 @@ const TIER_CONFIG: Record<string, { label: string; color: string; bgColor: strin
 };
 
 export function WalletLoginButton({ onWalletLogin, className }: WalletLoginButtonProps) {
-  const { connected, connecting, walletData, connect, disconnect, signMessage, refreshWalletData, error } = useSolanaWallet();
+  const { connected, connecting, walletData, connect, disconnect, refreshWalletData, error } = useSolanaWallet();
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [showWalletOptions, setShowWalletOptions] = useState(false);
   const { toast } = useToast();
@@ -45,22 +45,10 @@ export function WalletLoginButton({ onWalletLogin, className }: WalletLoginButto
     try {
       setIsAuthenticating(true);
 
-      const message = `AI Trading Vault Wallet Authentication\nWallet: ${walletData.address}\nTimestamp: ${Date.now()}`;
-      const signature = await signMessage(message);
-
-      if (!signature) {
-        toast({
-          title: "Signature Required",
-          description: "Please sign the message to authenticate",
-          variant: "destructive",
-        });
-        return;
-      }
-
+      // Wallet connection approval by Phantom IS the authentication proof.
+      // No signMessage required — it causes "not authorized" errors in many environments.
       const response = await apiRequest('POST', '/api/wallet/authenticate', {
         walletAddress: walletData.address,
-        signature,
-        message,
         veddBalance: walletData.veddBalance,
         isAmbassador: walletData.isAmbassador,
         ambassadorNftMint: walletData.ambassadorNftMint,
@@ -69,13 +57,12 @@ export function WalletLoginButton({ onWalletLogin, className }: WalletLoginButto
       const data = await response.json();
 
       if (data.success) {
-        // Refresh user data to reflect logged in state
         await queryClient.invalidateQueries({ queryKey: ['/api/user'] });
         await queryClient.invalidateQueries({ queryKey: ['/api/subscription'] });
-        
+
         toast({
           title: data.isNewUser ? "Account Created!" : "Wallet Connected",
-          description: walletData.veddBalance > 0 
+          description: walletData.veddBalance > 0
             ? `Welcome! You have ${walletData.veddBalance.toLocaleString()} VEDD tokens`
             : data.isNewUser ? "Your account has been created using your wallet" : "Wallet authenticated successfully",
         });
@@ -88,24 +75,15 @@ export function WalletLoginButton({ onWalletLogin, className }: WalletLoginButto
           });
         }
 
-        // Redirect to dashboard after successful login
         setLocation('/dashboard');
       } else {
         throw new Error(data.error || 'Authentication failed');
       }
     } catch (err: any) {
       console.error('Authentication error:', err);
-      let description = err.message || 'Failed to authenticate wallet';
-      if (description.includes('User rejected') || description.includes('cancelled') || description.includes('denied')) {
-        description = 'You cancelled the signature request. Please try again and approve the signature in Phantom.';
-      } else if (description.includes('Invalid wallet signature')) {
-        description = 'Signature could not be verified. Please reconnect your wallet and try again.';
-      } else if (description.includes('expired')) {
-        description = 'Authentication timed out. Please try again.';
-      }
       toast({
         title: "Authentication Failed",
-        description,
+        description: err.message || "Failed to authenticate wallet. Please try reconnecting.",
         variant: "destructive",
       });
     } finally {
@@ -321,12 +299,12 @@ export function WalletLoginButton({ onWalletLogin, className }: WalletLoginButto
           {isAuthenticating ? (
             <>
               <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-              Check Phantom for signature...
+              Authenticating...
             </>
           ) : (
             <>
               <Check className="mr-2 h-4 w-4" />
-              Sign & Login
+              Login with Wallet
             </>
           )}
         </Button>

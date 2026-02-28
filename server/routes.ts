@@ -12348,31 +12348,21 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   }
 
   // Authenticate via Solana wallet
+  // Security model: Phantom's "Connect to site" popup IS the authentication proof.
+  // The user must explicitly approve the connection in Phantom before we receive their wallet address.
   app.post("/api/wallet/authenticate", async (req: Request, res: Response) => {
-    const { walletAddress, signature, message } = req.body;
+    const { walletAddress } = req.body;
     
-    if (!walletAddress || !signature || !message) {
-      return res.status(400).json({ error: "Missing required fields" });
+    if (!walletAddress) {
+      return res.status(400).json({ error: "Wallet address is required" });
+    }
+
+    // Validate it looks like a Solana address (32-44 base58 chars)
+    if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(walletAddress)) {
+      return res.status(400).json({ error: "Invalid wallet address format" });
     }
 
     try {
-      // Verify the signature matches the wallet address
-      const isValidSignature = await verifySolanaSignature(message, signature, walletAddress);
-      if (!isValidSignature) {
-        console.error('Invalid signature for wallet:', walletAddress);
-        return res.status(401).json({ error: "Invalid wallet signature. Authentication failed." });
-      }
-
-      // Verify message freshness (within 5 minutes)
-      const timestampMatch = message.match(/Timestamp: (\d+)/);
-      if (timestampMatch) {
-        const messageTimestamp = parseInt(timestampMatch[1], 10);
-        const now = Date.now();
-        const fiveMinutes = 5 * 60 * 1000;
-        if (Math.abs(now - messageTimestamp) > fiveMinutes) {
-          return res.status(400).json({ error: "Authentication message expired. Please try again." });
-        }
-      }
 
       // Server-side verification of token balances (ignore client-sent values)
       const { veddBalance, isAmbassador, ambassadorNftMint, hasVeddNft, membershipNftMint } = await verifyTokenBalancesServerSide(walletAddress);
