@@ -19,7 +19,7 @@ export interface SolEngineConfig {
 }
 
 export interface SolActivityEntry {
-  type: 'info' | 'signal' | 'shield' | 'trigger' | 'kelly' | 'goal' | 'strategy' | 'paper_buy' | 'paper_sell' | 'live_signal' | 'live_buy';
+  type: 'info' | 'signal' | 'shield' | 'trigger' | 'kelly' | 'goal' | 'strategy' | 'paper_buy' | 'paper_sell' | 'live_signal' | 'live_buy' | 'live_sell';
   message: string;
   timestamp: string;
 }
@@ -33,6 +33,8 @@ export interface SolAutoPosition {
   targetPct: number;
   slPct: number;
   size: number;
+  tokenAmount: number;
+  decimals: number;
   strategyId: string;
   mode: 'paper' | 'live';
   txHash?: string;
@@ -51,6 +53,17 @@ export interface SolPendingSignal {
   price: number;
   sizeSOL: number;
   strategyId: string;
+  createdAt: string;
+  expiresAt: string;
+}
+
+export interface SolPendingExit {
+  positionId: string;
+  symbol: string;
+  mint: string;
+  tokenAmount: number;
+  decimals: number;
+  reason: 'tp' | 'sl';
   createdAt: string;
   expiresAt: string;
 }
@@ -121,6 +134,7 @@ interface SolEngineState {
   livePositions: SolAutoPosition[];
   closedLivePositions: SolAutoPosition[];
   pendingSignals: SolPendingSignal[];
+  pendingExits: SolPendingExit[];
   autoTradeTP: number;
   autoTradeSL: number;
   autoTradeStats: {
@@ -277,6 +291,7 @@ function createInitialState(config: SolEngineConfig): SolEngineState {
     livePositions: [],
     closedLivePositions: [],
     pendingSignals: [],
+    pendingExits: [],
     autoTradeTP: 8,
     autoTradeSL: 4,
     autoTradeStats: { totalTrades: 0, wins: 0, losses: 0, totalPnlPct: 0, bestTradePct: 0, worstTradePct: 0 },
@@ -611,6 +626,57 @@ function monitorPaperPositions(state: SolEngineState) {
   state.paperPositions = state.paperPositions.filter(p => p.status === 'open');
 }
 
+function monitorLivePositions(state: SolEngineState) {
+  const openPositions = state.livePositions.filter(p => p.status === 'open' && p.entryPrice > 0 && p.tokenAmount > 0);
+  if (openPositions.length === 0) return;
+
+  const now = Date.now();
+
+  // Prune expired pending exits
+  state.pendingExits = state.pendingExits.filter(e => new Date(e.expiresAt).getTime() > now);
+
+  const priceMap: Record<string, number> = {};
+  for (const r of state.lastResults) {
+    priceMap[r.token.symbol] = parseFloat(r.token.priceUsd) || 0;
+  }
+
+  for (const pos of openPositions) {
+    const currentPrice = priceMap[pos.symbol];
+    if (!currentPrice || currentPrice <= 0) continue;
+
+    pos.currentPrice = currentPrice;
+    const gainPct = ((currentPrice - pos.entryPrice) / pos.entryPrice) * 100;
+
+    // Skip if a pending exit already queued for this position
+    const alreadyQueued = state.pendingExits.some(e => e.positionId === pos.id);
+    if (alreadyQueued) continue;
+
+    const tpHit = gainPct >= pos.targetPct;
+    const slHit = gainPct <= -pos.slPct;
+
+    if (tpHit || slHit) {
+      const created = new Date();
+      const expires = new Date(created.getTime() + 90000);
+      state.pendingExits.push({
+        positionId: pos.id,
+        symbol: pos.symbol,
+        mint: pos.mint,
+        tokenAmount: pos.tokenAmount,
+        decimals: pos.decimals,
+        reason: tpHit ? 'tp' : 'sl',
+        createdAt: created.toISOString(),
+        expiresAt: expires.toISOString(),
+      });
+      addActivity(state, {
+        type: 'live_sell',
+        message: tpHit
+          ? `🎯 TP hit: ${pos.symbol} +${gainPct.toFixed(1)}% — sell queued for wallet execution`
+          : `🛡️ SL hit: ${pos.symbol} ${gainPct.toFixed(1)}% — sell queued for wallet execution`,
+      });
+    }
+  }
+}
+
 async function runScan(userId: number, state: SolEngineState, triggerToken?: string) {
   if (!state.isRunning) return;
   try {
@@ -710,6 +776,8 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
               targetPct: state.autoTradeTP,
               slPct: state.autoTradeSL,
               size: sizeSOL,
+              tokenAmount: 0,
+              decimals: 9,
               strategyId: topStrat.id,
               mode: 'paper',
               openedAt: now2,
@@ -751,8 +819,9 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
       }
     }
 
-    // Monitor paper positions for SL/TP
+    // Monitor paper and live positions for SL/TP
     monitorPaperPositions(state);
+    monitorLivePositions(state);
 
     state.lastResults = scanResult;
 
@@ -833,6 +902,7 @@ export function startSolEngine(userId: number, config: Partial<SolEngineConfig> 
     state.closedPaperPositions = existing.closedPaperPositions;
     state.livePositions = existing.livePositions;
     state.closedLivePositions = existing.closedLivePositions;
+    state.pendingExits = existing.pendingExits || [];
     state.autoTradeStats = existing.autoTradeStats;
     state.autoTradeTP = existing.autoTradeTP;
     state.autoTradeSL = existing.autoTradeSL;
@@ -1103,11 +1173,15 @@ export function getPendingSignals(userId: number): SolPendingSignal[] {
   return valid;
 }
 
-export function confirmLiveTrade(userId: number, signalId: string, txHash: string): boolean {
+export function confirmLiveTrade(
+  userId: number,
+  signalId: string,
+  txHash: string,
+  tradeData?: { tokenAmount: number; decimals: number; entryPrice: number; mint: string }
+): boolean {
   const state = engineStates.get(userId);
   if (!state) return false;
 
-  // Find matching signal (may already be cleared, reconstruct from id)
   const parts = signalId.split('_');
   const symbol = parts.slice(2).join('_');
   if (!symbol) return false;
@@ -1115,12 +1189,14 @@ export function confirmLiveTrade(userId: number, signalId: string, txHash: strin
   const pos: SolAutoPosition = {
     id: `live_pos_${Date.now()}_${symbol}`,
     symbol,
-    mint: '',
-    entryPrice: 0,
-    currentPrice: 0,
+    mint: tradeData?.mint || '',
+    entryPrice: tradeData?.entryPrice || 0,
+    currentPrice: tradeData?.entryPrice || 0,
     targetPct: state.autoTradeTP,
     slPct: state.autoTradeSL,
     size: 0,
+    tokenAmount: tradeData?.tokenAmount || 0,
+    decimals: tradeData?.decimals || 9,
     strategyId: state.activeStrategy,
     mode: 'live',
     txHash,
@@ -1130,8 +1206,58 @@ export function confirmLiveTrade(userId: number, signalId: string, txHash: strin
   state.livePositions.push(pos);
   addActivity(state, {
     type: 'live_buy',
-    message: `⚡ Live EXECUTED: ${symbol} — tx: ${txHash.slice(0, 16)}...`,
+    message: `⚡ Live EXECUTED: ${symbol} — ${tradeData?.tokenAmount ? (tradeData.tokenAmount / Math.pow(10, tradeData.decimals || 9)).toFixed(4) + ' tokens @ $' + (tradeData.entryPrice || 0).toFixed(6) : ''} tx: ${txHash.slice(0, 16)}...`,
   });
+  return true;
+}
+
+export function getPendingExits(userId: number): SolPendingExit[] {
+  const state = engineStates.get(userId);
+  if (!state) return [];
+  const now = Date.now();
+  const valid = state.pendingExits.filter(e => new Date(e.expiresAt).getTime() > now);
+  state.pendingExits = [];
+  return valid;
+}
+
+export function confirmLiveExit(userId: number, positionId: string, txHash: string): boolean {
+  const state = engineStates.get(userId);
+  if (!state) return false;
+
+  const pos = state.livePositions.find(p => p.id === positionId && p.status === 'open');
+  if (!pos) return false;
+
+  const gainPct = pos.entryPrice > 0
+    ? ((pos.currentPrice - pos.entryPrice) / pos.entryPrice) * 100
+    : 0;
+
+  pos.status = 'closed';
+  pos.closedAt = new Date().toISOString();
+  pos.closePnlPct = gainPct;
+
+  state.closedLivePositions.unshift(pos);
+  if (state.closedLivePositions.length > 50) state.closedLivePositions = state.closedLivePositions.slice(0, 50);
+
+  // Update stats
+  const isWin = gainPct >= 0;
+  state.autoTradeStats.totalTrades++;
+  state.autoTradeStats.totalPnlPct += gainPct;
+  if (isWin) {
+    state.autoTradeStats.wins++;
+    if (gainPct > state.autoTradeStats.bestTradePct) state.autoTradeStats.bestTradePct = gainPct;
+  } else {
+    state.autoTradeStats.losses++;
+    if (gainPct < state.autoTradeStats.worstTradePct) state.autoTradeStats.worstTradePct = gainPct;
+  }
+
+  // Remove from open
+  state.livePositions = state.livePositions.filter(p => p.id !== positionId);
+
+  addActivity(state, {
+    type: 'live_sell',
+    message: `✅ Live SOLD: ${pos.symbol} — P&L: ${gainPct >= 0 ? '+' : ''}${gainPct.toFixed(2)}% [TX: ${txHash.slice(0, 12)}...]`,
+  });
+
   return true;
 }
 

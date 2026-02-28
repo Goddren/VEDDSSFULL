@@ -2826,8 +2826,14 @@ export default function SolanaScanner() {
   });
 
   const confirmSignalMutation = useMutation({
-    mutationFn: (body: { signalId: string; txHash: string }) =>
+    mutationFn: (body: { signalId: string; txHash: string; tokenAmount?: number; decimals?: number; entryPrice?: number; mint?: string }) =>
       apiRequest('POST', '/api/sol-engine/confirm-signal', body),
+    onSuccess: () => { refetchAutoPositions(); },
+  });
+
+  const confirmExitMutation = useMutation({
+    mutationFn: (body: { positionId: string; txHash: string }) =>
+      apiRequest('POST', '/api/sol-engine/confirm-exit', body),
     onSuccess: () => { refetchAutoPositions(); },
   });
 
@@ -2844,7 +2850,14 @@ export default function SolanaScanner() {
           try {
             const result = await buyToken(sig.mint, sig.sizeSOL, signAndSendTransaction, walletData?.address || '');
             if (result.success && result.signature) {
-              confirmSignalMutation.mutate({ signalId: sig.id, txHash: result.signature });
+              confirmSignalMutation.mutate({
+                signalId: sig.id,
+                txHash: result.signature,
+                tokenAmount: result.outputAmount,
+                decimals: result.outputDecimals || 9,
+                entryPrice: sig.price,
+                mint: sig.mint,
+              });
               toast({ title: `⚡ Auto-bought ${sig.symbol}`, description: `${sig.sizeSOL.toFixed(3)} SOL via Jupiter` });
             }
           } catch {}
@@ -2852,6 +2865,37 @@ export default function SolanaScanner() {
       } catch {}
     }, 5000);
     return () => clearInterval(poll);
+  }, [liveTradeEnabled, connected, solEngineRunning]);
+
+  // Live trade: poll pending exits and auto-sell via Jupiter
+  useEffect(() => {
+    if (!liveTradeEnabled || !connected || !solEngineRunning) return;
+    const pollExits = setInterval(async () => {
+      try {
+        const res = await fetch('/api/sol-engine/pending-exits', { credentials: 'include' });
+        if (!res.ok) return;
+        const exits: any[] = await res.json();
+        for (const exit of exits) {
+          try {
+            const result = await sellToken(exit.mint, exit.tokenAmount, exit.decimals, signAndSendTransaction, walletData?.address || '');
+            if (result.success && result.signature) {
+              confirmExitMutation.mutate({ positionId: exit.positionId, txHash: result.signature });
+              toast({
+                title: `📤 Auto-sold ${exit.symbol}`,
+                description: exit.reason === 'tp' ? 'Take Profit hit ✅' : 'Stop Loss hit 🛡️',
+              });
+            } else if (!result.success) {
+              toast({
+                title: `⚠️ Auto-sell failed for ${exit.symbol}`,
+                description: result.error || 'Jupiter swap error',
+                variant: 'destructive',
+              });
+            }
+          } catch {}
+        }
+      } catch {}
+    }, 5000);
+    return () => clearInterval(pollExits);
   }, [liveTradeEnabled, connected, solEngineRunning]);
 
   useEffect(() => {
@@ -3430,7 +3474,8 @@ export default function SolanaScanner() {
                 type === 'paper_buy' ? 'border-l-teal-500' :
                 type === 'paper_sell' ? 'border-l-teal-700' :
                 type === 'live_signal' ? 'border-l-green-400' :
-                type === 'live_buy' ? 'border-l-green-500' : 'border-l-gray-600';
+                type === 'live_buy' ? 'border-l-green-500' :
+                type === 'live_sell' ? 'border-l-rose-500' : 'border-l-gray-600';
               const textColor = (type: string) =>
                 type === 'signal' ? 'text-emerald-300' :
                 type === 'shield' ? 'text-amber-300' :
@@ -3441,7 +3486,8 @@ export default function SolanaScanner() {
                 type === 'paper_buy' ? 'text-teal-300' :
                 type === 'paper_sell' ? 'text-teal-400' :
                 type === 'live_signal' ? 'text-green-300' :
-                type === 'live_buy' ? 'text-green-400' : 'text-gray-400';
+                type === 'live_buy' ? 'text-green-400' :
+                type === 'live_sell' ? 'text-rose-400' : 'text-gray-400';
               return (
                 <div className="border-t border-gray-700/50 p-3 space-y-1.5 max-h-48 overflow-y-auto">
                   {feed.slice(0, 8).map((entry: any, i: number) => (
