@@ -1,5 +1,13 @@
 import { scanAndAnalyzeTokens, fetchCryptoMacroContext, type DexSource, type TokenAnalysis, type CryptoMacroContext } from '../solana-scanner';
 
+interface OpenPositionSummary {
+  symbol: string;
+  entryPrice: number;
+  currentPrice: number;
+  gainPct: number;
+  volumeStatus: string;
+}
+
 export interface SolEngineConfig {
   dexFilter: DexSource;
   minConfidence: number;
@@ -274,6 +282,103 @@ function computeAutoSolSize(state: SolEngineState, dex: string): number {
   return Math.round(portfolio * fraction * 1000) / 1000;
 }
 
+async function runSolAIReview(
+  userId: number,
+  state: SolEngineState,
+  scanResult: TokenAnalysis[],
+  openPositions: OpenPositionSummary[]
+): Promise<void> {
+  const buySignals = scanResult
+    .filter(t => t.signal === 'STRONG_BUY' || t.signal === 'BUY')
+    .slice(0, 5);
+  if (buySignals.length === 0 && openPositions.length === 0) return;
+
+  try {
+    const { getOpenAIInstanceForUser } = await import('../openai');
+    const openai = await getOpenAIInstanceForUser(userId);
+
+    const strategy = SOL_STRATEGIES.find(s => s.id === state.activeStrategy) || SOL_STRATEGIES[0];
+    const macro = state.lastMacro;
+    const goal = state.weeklyGoal;
+
+    const macroLine = macro
+      ? `MACRO: BTC ${macro.btcChange >= 0 ? '+' : ''}${macro.btcChange.toFixed(1)}% | ETH ${macro.ethChange >= 0 ? '+' : ''}${macro.ethChange.toFixed(1)}% | SOL ${macro.solChange >= 0 ? '+' : ''}${macro.solChange.toFixed(1)}% — Bias: ${macro.bias}`
+      : '';
+
+    const goalLine = goal.phase !== 'idle'
+      ? `WEEKLY GOAL: ${goal.currentProfitSol.toFixed(3)} / ${goal.targetSol.toFixed(3)} SOL (${((goal.currentProfitSol / Math.max(goal.targetSol, 0.001)) * 100).toFixed(1)}%) — Phase: ${goal.phase.replace(/_/g, ' ').toUpperCase()}`
+      : 'WEEKLY GOAL: None set';
+
+    const systemPrompt = `You are VEDD Sol AI, an expert Solana token trader reviewing live signals.
+ACTIVE STRATEGY: ${strategy.icon} ${strategy.name} — ${strategy.description}
+Hold target: ${strategy.holdTarget} | Min confidence: ${strategy.minConfidence}% | Risk: ${strategy.maxRisk}
+${goalLine}
+WIN STREAK: ${goal.winStreak}
+DRAWDOWN SHIELD: ${state.shieldActive ? 'ACTIVE — conservative mode only' : 'OFF'}
+${macroLine}
+
+Review the signals and open positions below. Output a JSON array of decisions.
+- For signals: type="signal", action=CONFIRM_BUY|SKIP|WATCH, reason (max 80 chars)
+- For positions: type="position", action=HOLD|TRAIL|PARTIAL_CLOSE|CLOSE, trailPct=integer (only for TRAIL), reason (max 80 chars)
+Return ONLY the JSON array, no markdown, no explanation.`;
+
+    const signalsText = buySignals.length > 0
+      ? buySignals.map(t =>
+          `${t.token.symbol}: ${t.signal} | Conf:${t.confidence}% | Sent:${t.sentimentScore} | Tok:${t.tokenomicsScore} | Whale:${t.whaleScore} | Vol:$${(t.token.volume24h / 1000).toFixed(0)}K | Chg:${t.token.priceChange24h.toFixed(1)}%`
+        ).join('\n')
+      : 'None';
+
+    const positionsText = openPositions.length > 0
+      ? openPositions.map(p =>
+          `${p.symbol}: entry $${p.entryPrice.toFixed(8)} → now $${p.currentPrice.toFixed(8)} | ${p.gainPct >= 0 ? '+' : ''}${p.gainPct.toFixed(1)}% | vol:${p.volumeStatus}`
+        ).join('\n')
+      : 'None';
+
+    const userPrompt = `SIGNALS:\n${signalsText}\n\nOPEN POSITIONS:\n${positionsText}`;
+
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      temperature: 0.25,
+      max_tokens: 600,
+    });
+
+    const raw = response.choices[0]?.message?.content?.trim() || '[]';
+    let decisions: Array<{ symbol: string; type: 'signal' | 'position'; action: string; trailPct?: number; reason: string }> = [];
+    try {
+      decisions = JSON.parse(raw.replace(/```json|```/g, '').trim());
+    } catch { return; }
+
+    for (const d of decisions) {
+      if (!d || !d.symbol) continue;
+      if (d.type === 'signal') {
+        const icon = d.action === 'CONFIRM_BUY' ? '🤖✅' : d.action === 'SKIP' ? '🤖❌' : '🤖👁️';
+        addActivity(state, {
+          type: 'signal',
+          message: `${icon} AI ${d.action}: ${d.symbol} — ${d.reason || ''}`,
+        });
+      } else if (d.type === 'position') {
+        const icon = d.action === 'CLOSE' ? '📊🔴' : d.action === 'TRAIL' ? '📊🔼' : d.action === 'PARTIAL_CLOSE' ? '📊⚡' : '📊🟢';
+        addActivity(state, {
+          type: 'strategy',
+          message: `${icon} AI ${d.action}: ${d.symbol}${d.trailPct ? ` (${d.trailPct}% trail dist)` : ''} — ${d.reason || ''}`,
+        });
+      }
+    }
+  } catch {
+    // Silent fallback — never crash the scan loop if AI review fails
+  }
+}
+
+export async function triggerSolAIReview(userId: number, openPositions: OpenPositionSummary[] = []): Promise<void> {
+  const state = engineStates.get(userId);
+  if (!state) return;
+  await runSolAIReview(userId, state, state.lastResults, openPositions);
+}
+
 async function runScan(userId: number, state: SolEngineState, triggerToken?: string) {
   if (!state.isRunning) return;
   try {
@@ -368,6 +473,12 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
           });
         }
       }
+    }
+
+    // Run GPT-4o AI review after each scan (fire-and-forget, never blocks scan loop)
+    const hasBuySignals = scanResult.some(t => t.signal === 'STRONG_BUY' || t.signal === 'BUY');
+    if (hasBuySignals) {
+      runSolAIReview(userId, state, scanResult, []).catch(() => {});
     }
 
   } catch (err) {

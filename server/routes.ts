@@ -13008,7 +13008,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
 
   // ============= SOL ENGINE =============
   {
-    const { startSolEngine, stopSolEngine, getSolEngineStatus, recordSolSignalResult, updateSolPortfolioValue, setSolWeeklyGoal, resetSolWeeklyGoal, setSolStrategy, getSolStrategies } = await import('./services/sol-engine');
+    const { startSolEngine, stopSolEngine, getSolEngineStatus, recordSolSignalResult, updateSolPortfolioValue, setSolWeeklyGoal, resetSolWeeklyGoal, setSolStrategy, getSolStrategies, triggerSolAIReview } = await import('./services/sol-engine');
 
     app.post("/api/sol-engine/start", async (req: Request, res: Response) => {
       if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
@@ -13085,6 +13085,15 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
       const result = resetSolWeeklyGoal((req.user as User).id);
       res.json(result);
+    });
+
+    app.post("/api/sol-engine/ai-review", async (req: Request, res: Response) => {
+      if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+      const userId = (req.user as User).id;
+      const { positions } = req.body;
+      const openPositions = Array.isArray(positions) ? positions : [];
+      await triggerSolAIReview(userId, openPositions);
+      res.json({ success: true, message: 'AI review triggered' });
     });
   }
 

@@ -733,6 +733,11 @@ function AutoTradingPanel() {
     // PnL tracking
     currentPrice?: number;
     pnlPercent?: number;
+    // Staged volume-adjusted trailing stop
+    trailingHighPrice: number;
+    trailingFloor: number;
+    volumeStatus?: string;
+    approachAlertFired?: boolean;
   }
   
   interface ClosedPosition extends TrackedPosition {
@@ -740,7 +745,7 @@ function AutoTradingPanel() {
     soldPrice: number;
     soldAmount: number; // SOL received
     finalPnlPercent: number;
-    exitReason: 'take_profit' | 'stop_loss' | 'pump_detected' | 'manual_sell';
+    exitReason: 'take_profit' | 'stop_loss' | 'pump_detected' | 'manual_sell' | 'trailing_stop';
     txSignature?: string;
   }
   
@@ -981,10 +986,15 @@ function AutoTradingPanel() {
               whaleScore: bestSignal.whaleScore,
               // Token info
               tokenName: bestSignal.token.name,
-              tokenImage: undefined, // DexScreener doesn't provide image in this response
-              marketCap: bestSignal.token.fdv, // Use FDV as marketCap proxy
+              tokenImage: undefined,
+              marketCap: bestSignal.token.fdv,
               volume24h: bestSignal.token.volume24h,
               fdv: bestSignal.token.fdv,
+              // Trailing stop — initialised to entry price
+              trailingHighPrice: currentPrice,
+              trailingFloor: currentPrice,
+              volumeStatus: 'average',
+              approachAlertFired: false,
             });
             return next;
           });
@@ -1030,7 +1040,16 @@ function AutoTradingPanel() {
     executeAutoTrade();
   }, [scanData?.scannedAt, wallet?.isAutoTradeEnabled, connected]);
   
-  // Auto-sell monitoring effect - checks positions against take profit / stop loss
+  // Helper: compute staged volume-adjusted trail distance (%)
+  const computeTrailDistance = (gainPct: number, volStatus: string): number => {
+    const isStrong = volStatus === 'surging' || volStatus === 'above_average';
+    const isWeak = volStatus === 'below_average' || volStatus === 'dry';
+    if (gainPct >= 80) return isStrong ? 10 : isWeak ? 6 : 8;
+    if (gainPct >= 40) return isStrong ? 12 : isWeak ? 8 : 10;
+    return isStrong ? 15 : isWeak ? 10 : 12; // 20-39% zone
+  };
+
+  // Auto-sell monitoring — staged volume-adjusted trailing stop + approach alerts
   useEffect(() => {
     if (!wallet?.isAutoTradeEnabled || !connected || trackedPositions.size === 0 || !scanData?.tokens) return;
     
@@ -1038,132 +1057,137 @@ function AutoTradingPanel() {
     if (!publicKey) return;
     
     const checkAutoSell = async () => {
-      const takeProfitPercent = wallet.takeProfitPercent || 50;
       const stopLossPercent = wallet.stopLossPercent || 20;
       
       for (const [tokenAddress, position] of Array.from(trackedPositions.entries())) {
-        // Skip if already selling (use ref to avoid stale closure)
         if (sellingTokenRef.current === tokenAddress) continue;
         
-        // Find current price from scan data
         const currentData = scanData.tokens.find(t => t.token.address === tokenAddress);
         if (!currentData) continue;
         
         const currentPrice = parseFloat(currentData.token.priceUsd);
-        const priceChange = ((currentPrice - position.purchasePrice) / position.purchasePrice) * 100;
-        
+        const gainPct = ((currentPrice - position.purchasePrice) / position.purchasePrice) * 100;
         const timestamp = new Date().toLocaleTimeString();
-        
-        // Check take profit
-        if (priceChange >= takeProfitPercent) {
-          setAutoTradeLog(prev => [...prev.slice(-9), `${timestamp}: TAKE PROFIT - ${position.symbol} +${priceChange.toFixed(1)}% (target: +${takeProfitPercent}%)`]);
-          notifyTakeProfitHit(position.symbol, priceChange);
-          
+
+        // ── Determine volume status from current scan data ──────────────
+        const volStatus = (() => {
+          const entryVol = position.volume24h || 0;
+          const curVol = currentData.token.volume24h || 0;
+          if (entryVol <= 0) return 'average';
+          const ratio = curVol / entryVol;
+          if (ratio >= 2.5) return 'surging';
+          if (ratio >= 1.25) return 'above_average';
+          if (ratio <= 0.5) return 'dry';
+          if (ratio <= 0.75) return 'below_average';
+          return 'average';
+        })();
+
+        // ── Update trailing high + compute new floor ────────────────────
+        const newHigh = Math.max(position.trailingHighPrice, currentPrice);
+        let newFloor = position.trailingFloor;
+
+        if (gainPct >= 20) {
+          const dist = computeTrailDistance(gainPct, volStatus);
+          const computedFloor = newHigh * (1 - dist / 100);
+          // Apply breakeven floor: floor never goes below entry once ≥8%
+          const beFloor = gainPct >= 8 ? position.purchasePrice : 0;
+          newFloor = Math.max(computedFloor, beFloor, position.trailingFloor);
+        } else if (gainPct >= 8) {
+          // Breakeven only — move floor up to entry price but don't trail yet
+          newFloor = Math.max(position.trailingFloor, position.purchasePrice);
+        }
+
+        // ── Approach warning — within 3% above trail floor ─────────────
+        const distFromFloor = newFloor > 0 ? ((currentPrice - newFloor) / newFloor) * 100 : 999;
+        const nearFloor = gainPct >= 8 && distFromFloor <= 3;
+        let newApproachFired = position.approachAlertFired;
+
+        if (nearFloor && !position.approachAlertFired) {
+          playSound('alert');
+          notifyStopLossHit(position.symbol, gainPct);
+          setAutoTradeLog(prev => [
+            ...prev.slice(-9),
+            `${timestamp}: ⚠️ TRAIL FLOOR NEAR — ${position.symbol} is ${distFromFloor.toFixed(1)}% above floor $${newFloor.toFixed(position.purchasePrice < 0.01 ? 8 : 6)} — GET READY TO APPROVE SELL`,
+          ]);
+          newApproachFired = true;
+        } else if (!nearFloor && position.approachAlertFired && distFromFloor > 5) {
+          // Reset alert if price moves away
+          newApproachFired = false;
+        }
+
+        // ── Update position state with new trail data ───────────────────
+        if (newHigh !== position.trailingHighPrice || newFloor !== position.trailingFloor || volStatus !== position.volumeStatus || newApproachFired !== position.approachAlertFired) {
+          setTrackedPositions(prev => {
+            const next = new Map(prev);
+            const pos = next.get(tokenAddress);
+            if (pos) next.set(tokenAddress, { ...pos, trailingHighPrice: newHigh, trailingFloor: newFloor, volumeStatus: volStatus, approachAlertFired: newApproachFired });
+            return next;
+          });
+        }
+
+        // ── TRAILING STOP HIT — trigger sell ───────────────────────────
+        if (gainPct >= 8 && currentPrice <= newFloor) {
+          setAutoTradeLog(prev => [...prev.slice(-9), `${timestamp}: 🔼 TRAIL FLOOR HIT — ${position.symbol} at ${gainPct.toFixed(1)}% gain, floor was $${newFloor.toFixed(position.purchasePrice < 0.01 ? 8 : 6)} — approve sell in Phantom`]);
+          notifyTakeProfitHit(position.symbol, gainPct);
           setSellingToken(tokenAddress);
           try {
-            const result = await sellToken(
-              tokenAddress,
-              position.purchaseAmount,
-              position.decimals || 9, // Use tracked decimals
-              signAndSendTransaction,
-              publicKey.toString(),
-              200 // 2% slippage for auto-sells
-            );
-            
+            const result = await sellToken(tokenAddress, position.purchaseAmount, position.decimals || 9, signAndSendTransaction, publicKey.toString(), 200);
             if (result.success) {
-              setAutoTradeLog(prev => [...prev.slice(-9), `${timestamp}: SOLD ${position.symbol} - +${priceChange.toFixed(1)}% profit, received ${result.outputAmount.toFixed(4)} SOL`]);
+              setAutoTradeLog(prev => [...prev.slice(-9), `${timestamp}: TRAIL SOLD ${position.symbol} +${gainPct.toFixed(1)}%, received ${result.outputAmount.toFixed(4)} SOL`]);
               notifyTradeExecuted(position.symbol, 'sold', result.outputAmount);
-              // Save to closed positions history
-              saveClosedPosition(position, currentPrice, result.outputAmount, 'take_profit', result.signature);
-              // Remove from tracked positions
-              setTrackedPositions(prev => {
-                const next = new Map(prev);
-                next.delete(tokenAddress);
-                return next;
-              });
+              saveClosedPosition(position, currentPrice, result.outputAmount, 'trailing_stop', result.signature);
+              setTrackedPositions(prev => { const next = new Map(prev); next.delete(tokenAddress); return next; });
               refreshWalletData();
             }
           } catch (err: any) {
-            setAutoTradeLog(prev => [...prev.slice(-9), `${timestamp}: SELL FAILED - ${err.message}`]);
-          } finally {
-            setSellingToken(null);
-          }
+            setAutoTradeLog(prev => [...prev.slice(-9), `${timestamp}: TRAIL SELL FAILED - ${err.message}`]);
+          } finally { setSellingToken(null); }
+          continue;
         }
-        // Check stop loss
-        else if (priceChange <= -stopLossPercent) {
-          setAutoTradeLog(prev => [...prev.slice(-9), `${timestamp}: STOP LOSS - ${position.symbol} ${priceChange.toFixed(1)}% (limit: -${stopLossPercent}%)`]);
-          notifyStopLossHit(position.symbol, priceChange);
-          
+
+        // ── STOP LOSS (before trailing kicks in, i.e. < 8% gain) ────────
+        if (gainPct <= -stopLossPercent) {
+          setAutoTradeLog(prev => [...prev.slice(-9), `${timestamp}: STOP LOSS - ${position.symbol} ${gainPct.toFixed(1)}% (limit: -${stopLossPercent}%)`]);
+          notifyStopLossHit(position.symbol, gainPct);
           setSellingToken(tokenAddress);
           try {
-            const result = await sellToken(
-              tokenAddress,
-              position.purchaseAmount,
-              position.decimals || 9, // Use tracked decimals
-              signAndSendTransaction,
-              publicKey.toString(),
-              300 // 3% slippage for emergency sells
-            );
-            
+            const result = await sellToken(tokenAddress, position.purchaseAmount, position.decimals || 9, signAndSendTransaction, publicKey.toString(), 300);
             if (result.success) {
-              setAutoTradeLog(prev => [...prev.slice(-9), `${timestamp}: SOLD ${position.symbol} - ${priceChange.toFixed(1)}% loss, received ${result.outputAmount.toFixed(4)} SOL`]);
+              setAutoTradeLog(prev => [...prev.slice(-9), `${timestamp}: SOLD ${position.symbol} ${gainPct.toFixed(1)}% loss, received ${result.outputAmount.toFixed(4)} SOL`]);
               notifyTradeExecuted(position.symbol, 'sold', result.outputAmount);
-              // Save to closed positions history
               saveClosedPosition(position, currentPrice, result.outputAmount, 'stop_loss', result.signature);
-              setTrackedPositions(prev => {
-                const next = new Map(prev);
-                next.delete(tokenAddress);
-                return next;
-              });
+              setTrackedPositions(prev => { const next = new Map(prev); next.delete(tokenAddress); return next; });
               refreshWalletData();
             }
           } catch (err: any) {
             setAutoTradeLog(prev => [...prev.slice(-9), `${timestamp}: SELL FAILED - ${err.message}`]);
-          } finally {
-            setSellingToken(null);
-          }
+          } finally { setSellingToken(null); }
+          continue;
         }
-        // Check for pump detection (rapid price increase followed by signal change)
-        else if (priceChange > 30 && (currentData.signal === 'SELL' || currentData.signal === 'STRONG_SELL')) {
-          setAutoTradeLog(prev => [...prev.slice(-9), `${timestamp}: PUMP DETECTED - ${position.symbol} +${priceChange.toFixed(1)}% with SELL signal, auto-selling`]);
-          notifyTakeProfitHit(position.symbol, priceChange);
-          
+
+        // ── PUMP DETECTION (strong signal reversal at high gain) ─────────
+        if (gainPct > 30 && (currentData.signal === 'SELL' || currentData.signal === 'STRONG_SELL')) {
+          setAutoTradeLog(prev => [...prev.slice(-9), `${timestamp}: PUMP DETECTED - ${position.symbol} +${gainPct.toFixed(1)}% with SELL signal`]);
+          notifyTakeProfitHit(position.symbol, gainPct);
           setSellingToken(tokenAddress);
           try {
-            const result = await sellToken(
-              tokenAddress,
-              position.purchaseAmount,
-              position.decimals || 9, // Use tracked decimals
-              signAndSendTransaction,
-              publicKey.toString(),
-              300
-            );
-            
+            const result = await sellToken(tokenAddress, position.purchaseAmount, position.decimals || 9, signAndSendTransaction, publicKey.toString(), 300);
             if (result.success) {
-              setAutoTradeLog(prev => [...prev.slice(-9), `${timestamp}: PUMP EXIT - Sold ${position.symbol} at +${priceChange.toFixed(1)}%`]);
+              setAutoTradeLog(prev => [...prev.slice(-9), `${timestamp}: PUMP EXIT - Sold ${position.symbol} at +${gainPct.toFixed(1)}%`]);
               notifyTradeExecuted(position.symbol, 'sold', result.outputAmount);
-              // Save to closed positions history
               saveClosedPosition(position, currentPrice, result.outputAmount, 'pump_detected', result.signature);
-              setTrackedPositions(prev => {
-                const next = new Map(prev);
-                next.delete(tokenAddress);
-                return next;
-              });
+              setTrackedPositions(prev => { const next = new Map(prev); next.delete(tokenAddress); return next; });
               refreshWalletData();
             }
           } catch (err: any) {
             setAutoTradeLog(prev => [...prev.slice(-9), `${timestamp}: PUMP EXIT FAILED - ${err.message}`]);
-          } finally {
-            setSellingToken(null);
-          }
+          } finally { setSellingToken(null); }
         }
       }
     };
     
-    // Check positions every 30 seconds
     const interval = setInterval(checkAutoSell, 30000);
-    checkAutoSell(); // Run immediately on mount/update
-    
+    checkAutoSell();
     return () => clearInterval(interval);
   }, [wallet?.isAutoTradeEnabled, connected, trackedPositions, scanData?.tokens]);
   
@@ -1666,6 +1690,66 @@ function AutoTradingPanel() {
                             <p className="font-medium text-sm text-purple-400">{position.confidence}%</p>
                           </div>
                         </div>
+
+                        {/* ── Trailing Stop Panel ── */}
+                        {(() => {
+                          const trailFloor = position.trailingFloor || position.purchasePrice;
+                          const trailHigh = position.trailingHighPrice || position.purchasePrice;
+                          const volStat = position.volumeStatus || 'average';
+                          const gainPct = pnlPercent;
+                          const distFromFloor = trailFloor > 0 ? ((pnlPercent >= 0 ? (currentPrice || position.purchasePrice) - trailFloor : 0) / trailFloor) * 100 : 0;
+                          const nearFloorWarn = gainPct >= 8 && distFromFloor <= 3 && gainPct >= 0;
+                          const trailDist = gainPct >= 20 ? computeTrailDistance(gainPct, volStat) : null;
+                          const beOnly = gainPct >= 8 && gainPct < 20;
+                          const volColor = volStat === 'surging' ? 'text-green-400' : volStat === 'above_average' ? 'text-emerald-400' : volStat === 'below_average' ? 'text-orange-400' : volStat === 'dry' ? 'text-red-400' : 'text-gray-400';
+                          const rangeMin = position.purchasePrice;
+                          const rangeMax = trailHigh * 1.05;
+                          const toX = (p: number) => rangeMax > rangeMin ? Math.max(0, Math.min(100, ((p - rangeMin) / (rangeMax - rangeMin)) * 100)) : 0;
+                          const entryX = toX(position.purchasePrice);
+                          const floorX = toX(trailFloor);
+                          const curX = toX(currentPrice || position.purchasePrice);
+                          const peakX = toX(trailHigh);
+
+                          return (
+                            <div className={`rounded-lg p-3 mb-3 border ${nearFloorWarn ? 'bg-amber-900/30 border-amber-500/60 animate-pulse' : 'bg-gray-800/40 border-gray-700/50'}`}>
+                              {nearFloorWarn && (
+                                <div className="flex items-center gap-2 mb-2 text-amber-400 font-semibold text-xs">
+                                  <span>⚠️</span>
+                                  <span>TRAIL FLOOR NEAR — BE READY TO APPROVE SELL IN PHANTOM</span>
+                                </div>
+                              )}
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-xs text-gray-400 font-medium">🔼 Trail Stop</span>
+                                <div className="flex items-center gap-2">
+                                  {trailDist && (
+                                    <span className="text-[10px] text-gray-500">{trailDist}% trail · <span className={volColor}>{volStat.replace('_', ' ')}</span></span>
+                                  )}
+                                  {beOnly && <span className="text-[10px] text-blue-400">breakeven floor active</span>}
+                                  {gainPct < 8 && <span className="text-[10px] text-gray-500">trailing not active yet</span>}
+                                </div>
+                              </div>
+                              {/* Progress bar: entry → floor → current → peak */}
+                              <div className="relative h-3 bg-gray-700/50 rounded-full overflow-hidden mb-1">
+                                <div className="absolute inset-0 h-full bg-gradient-to-r from-purple-600/30 via-green-500/20 to-green-600/30 rounded-full" style={{ width: `${peakX}%` }} />
+                                <div className="absolute inset-y-0 bg-red-500/40 rounded-l-full" style={{ left: 0, width: `${floorX}%` }} />
+                                {/* Floor marker */}
+                                <div className="absolute inset-y-0 w-0.5 bg-red-500" style={{ left: `${floorX}%` }} />
+                                {/* Entry marker */}
+                                <div className="absolute inset-y-0 w-0.5 bg-purple-500" style={{ left: `${entryX}%` }} />
+                                {/* Current price dot */}
+                                <div className={`absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full border-2 border-gray-900 ${gainPct >= 0 ? 'bg-green-400' : 'bg-red-400'}`} style={{ left: `calc(${curX}% - 5px)` }} />
+                                {/* Peak marker */}
+                                <div className="absolute inset-y-0 w-0.5 bg-yellow-400/60" style={{ left: `${peakX}%` }} />
+                              </div>
+                              <div className="flex justify-between text-[9px] text-gray-600 mt-1">
+                                <span>Entry</span>
+                                <span className="text-red-400">Floor ${trailFloor.toFixed(trailFloor < 0.01 ? 8 : 6)}</span>
+                                <span className={gainPct >= 0 ? 'text-green-400' : 'text-red-400'}>Now</span>
+                                <span className="text-yellow-400">Peak ${trailHigh.toFixed(trailHigh < 0.01 ? 8 : 6)}</span>
+                              </div>
+                            </div>
+                          );
+                        })()}
                         
                         {/* AI Reasoning */}
                         <div className="bg-purple-900/20 border border-purple-500/30 rounded-lg p-3">
@@ -1963,7 +2047,11 @@ function AutoTradingPanel() {
                       marketCap: 4500000,
                       volume24h: 2100000,
                       currentPrice: 0.00068,
-                      pnlPercent: 51.1
+                      pnlPercent: 51.1,
+                      trailingHighPrice: 0.00068,
+                      trailingFloor: 0.00045,
+                      volumeStatus: 'above_average',
+                      approachAlertFired: false,
                     };
                     setTrackedPositions(prev => {
                       const next = new Map(prev);
@@ -2020,19 +2108,21 @@ function AutoTradingPanel() {
                   const timeHeld = days > 0 ? `${days}d ${hours}h` : hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
                   const timeAgo = new Date(position.soldAt).toLocaleDateString();
                   
-                  const exitReasonLabel = {
+                  const exitReasonLabel: Record<string, string> = {
                     'take_profit': 'Take Profit',
                     'stop_loss': 'Stop Loss',
                     'pump_detected': 'Pump Exit',
-                    'manual_sell': 'Manual Sell'
-                  }[position.exitReason];
+                    'manual_sell': 'Manual Sell',
+                    'trailing_stop': 'Trail Stop Hit',
+                  };
                   
-                  const exitReasonColor = {
+                  const exitReasonColor: Record<string, string> = {
                     'take_profit': 'text-green-400 bg-green-500/20 border-green-500/30',
                     'stop_loss': 'text-red-400 bg-red-500/20 border-red-500/30',
                     'pump_detected': 'text-yellow-400 bg-yellow-500/20 border-yellow-500/30',
-                    'manual_sell': 'text-blue-400 bg-blue-500/20 border-blue-500/30'
-                  }[position.exitReason];
+                    'manual_sell': 'text-blue-400 bg-blue-500/20 border-blue-500/30',
+                    'trailing_stop': 'text-emerald-400 bg-emerald-500/20 border-emerald-500/30',
+                  };
                   
                   return (
                     <Card key={`${position.tokenAddress}-${idx}`} className={`bg-gray-900/50 border ${position.finalPnlPercent >= 0 ? 'border-green-500/30' : 'border-red-500/30'}`}>
@@ -2045,7 +2135,7 @@ function AutoTradingPanel() {
                             <div>
                               <h4 className="font-semibold flex items-center gap-2">
                                 {position.tokenName || position.symbol}
-                                <Badge className={exitReasonColor}>{exitReasonLabel}</Badge>
+                                <Badge className={exitReasonColor[position.exitReason]}>{exitReasonLabel[position.exitReason]}</Badge>
                               </h4>
                               <p className="text-xs text-muted-foreground">${position.symbol}</p>
                             </div>
@@ -2170,8 +2260,8 @@ function AutoTradingPanel() {
                                 {/* Header with VEDD Logo */}
                                 <div className="flex items-center justify-between mb-4">
                                   <VeddLogo height={32} />
-                                  <Badge className={exitReasonColor}>
-                                    {exitReasonLabel}
+                                  <Badge className={exitReasonColor[position.exitReason]}>
+                                    {exitReasonLabel[position.exitReason]}
                                   </Badge>
                                 </div>
                                 
