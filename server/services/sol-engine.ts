@@ -1,4 +1,8 @@
 import { scanAndAnalyzeTokens, fetchCryptoMacroContext, type DexSource, type TokenAnalysis, type CryptoMacroContext } from '../solana-scanner';
+import { db } from '../db';
+import { solEngineSettings, solEnginePositions } from '../../shared/schema';
+import { eq } from 'drizzle-orm';
+import crypto from 'crypto';
 
 interface OpenPositionSummary {
   symbol: string;
@@ -263,6 +267,231 @@ const DEFAULT_WEEKLY_GOAL: SolWeeklyGoal = {
 };
 
 const engineStates = new Map<number, SolEngineState>();
+
+// ── Encryption helpers for server wallet key ──────────────────────────────────
+function getEncryptionKey(): Buffer {
+  const seed = (process.env.DATABASE_URL || 'vedd-sol-engine-fallback') + 'sol-v1';
+  return crypto.createHash('sha256').update(seed).digest();
+}
+
+function encryptWalletKey(plain: string): string {
+  const iv = crypto.randomBytes(16);
+  const cipher = crypto.createCipheriv('aes-256-cbc', getEncryptionKey(), iv);
+  const enc = Buffer.concat([cipher.update(plain, 'utf8'), cipher.final()]);
+  return iv.toString('hex') + ':' + enc.toString('hex');
+}
+
+function decryptWalletKey(ciphertext: string): string {
+  const [ivHex, encHex] = ciphertext.split(':');
+  const iv = Buffer.from(ivHex, 'hex');
+  const decipher = crypto.createDecipheriv('aes-256-cbc', getEncryptionKey(), iv);
+  const dec = Buffer.concat([decipher.update(Buffer.from(encHex, 'hex')), decipher.final()]);
+  return dec.toString('utf8');
+}
+
+// ── DB: persist settings + positions ─────────────────────────────────────────
+async function saveEngineState(userId: number, state: SolEngineState): Promise<void> {
+  try {
+    await db.insert(solEngineSettings).values({
+      userId,
+      activeStrategy: state.activeStrategy,
+      activeStrategies: state.activeStrategies as any,
+      autoTradeEnabled: state.autoTradeEnabled,
+      liveTradeEnabled: state.liveTradeEnabled,
+      autoTradeTP: state.autoTradeTP,
+      autoTradeSL: state.autoTradeSL,
+      weeklyGoal: state.weeklyGoal as any,
+      autoTradeStats: state.autoTradeStats as any,
+      updatedAt: new Date(),
+    }).onConflictDoUpdate({
+      target: solEngineSettings.userId,
+      set: {
+        activeStrategy: state.activeStrategy,
+        activeStrategies: state.activeStrategies as any,
+        autoTradeEnabled: state.autoTradeEnabled,
+        liveTradeEnabled: state.liveTradeEnabled,
+        autoTradeTP: state.autoTradeTP,
+        autoTradeSL: state.autoTradeSL,
+        weeklyGoal: state.weeklyGoal as any,
+        autoTradeStats: state.autoTradeStats as any,
+        updatedAt: new Date(),
+      },
+    });
+  } catch (err) {
+    console.error('[SolEngine] saveEngineState settings error:', err);
+  }
+}
+
+async function upsertPosition(userId: number, pos: SolAutoPosition): Promise<void> {
+  try {
+    await db.insert(solEnginePositions).values({
+      userId,
+      positionId: pos.id,
+      mode: pos.mode,
+      symbol: pos.symbol,
+      mint: pos.mint,
+      entryPrice: pos.entryPrice,
+      currentPrice: pos.currentPrice,
+      targetPct: pos.targetPct,
+      slPct: pos.slPct,
+      size: pos.size,
+      tokenAmount: pos.tokenAmount,
+      decimals: pos.decimals,
+      strategyId: pos.strategyId,
+      txHash: pos.txHash,
+      status: pos.status,
+      openedAt: pos.openedAt,
+      closedAt: pos.closedAt,
+      closePnlPct: pos.closePnlPct,
+      updatedAt: new Date(),
+    }).onConflictDoUpdate({
+      target: solEnginePositions.positionId,
+      set: {
+        currentPrice: pos.currentPrice,
+        status: pos.status,
+        closedAt: pos.closedAt,
+        closePnlPct: pos.closePnlPct,
+        tokenAmount: pos.tokenAmount,
+        updatedAt: new Date(),
+      },
+    });
+  } catch (err) {
+    console.error('[SolEngine] upsertPosition error:', err);
+  }
+}
+
+async function loadEngineStateFromDb(userId: number, state: SolEngineState): Promise<void> {
+  try {
+    const [settings] = await db.select().from(solEngineSettings).where(eq(solEngineSettings.userId, userId));
+    if (settings) {
+      state.activeStrategy = settings.activeStrategy;
+      state.activeStrategies = (settings.activeStrategies as string[]) || [settings.activeStrategy];
+      state.autoTradeEnabled = settings.autoTradeEnabled;
+      state.liveTradeEnabled = settings.liveTradeEnabled;
+      state.autoTradeTP = settings.autoTradeTP;
+      state.autoTradeSL = settings.autoTradeSL;
+      if (settings.weeklyGoal && typeof settings.weeklyGoal === 'object') {
+        state.weeklyGoal = { ...DEFAULT_WEEKLY_GOAL, ...(settings.weeklyGoal as Partial<SolWeeklyGoal>) };
+      }
+      if (settings.autoTradeStats && typeof settings.autoTradeStats === 'object') {
+        state.autoTradeStats = { ...state.autoTradeStats, ...(settings.autoTradeStats as any) };
+      }
+    }
+
+    const positions = await db.select().from(solEnginePositions).where(eq(solEnginePositions.userId, userId));
+    for (const row of positions) {
+      const pos: SolAutoPosition = {
+        id: row.positionId,
+        symbol: row.symbol,
+        mint: row.mint,
+        entryPrice: row.entryPrice,
+        currentPrice: row.currentPrice,
+        targetPct: row.targetPct,
+        slPct: row.slPct,
+        size: row.size,
+        tokenAmount: row.tokenAmount,
+        decimals: row.decimals,
+        strategyId: row.strategyId,
+        txHash: row.txHash || undefined,
+        mode: row.mode as 'paper' | 'live',
+        status: row.status as 'open' | 'closed',
+        openedAt: row.openedAt,
+        closedAt: row.closedAt || undefined,
+        closePnlPct: row.closePnlPct || undefined,
+      };
+      if (pos.mode === 'paper') {
+        if (pos.status === 'open') state.paperPositions.push(pos);
+        else state.closedPaperPositions.push(pos);
+      } else {
+        if (pos.status === 'open') state.livePositions.push(pos);
+        else state.closedLivePositions.push(pos);
+      }
+    }
+    console.log(`[SolEngine] Loaded state for user ${userId}: ${positions.length} positions restored`);
+  } catch (err) {
+    console.error('[SolEngine] loadEngineStateFromDb error:', err);
+  }
+}
+
+// ── Server-side Jupiter sell execution ───────────────────────────────────────
+async function executeServerSideSell(userId: number, pos: SolAutoPosition, reason: 'tp' | 'sl', state: SolEngineState): Promise<boolean> {
+  try {
+    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey })
+      .from(solEngineSettings).where(eq(solEngineSettings.userId, userId));
+    if (!settings?.serverWalletKey) return false;
+
+    const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
+    const { Keypair, Connection, VersionedTransaction } = await import('@solana/web3.js');
+    const bs58 = (await import('bs58')).default;
+    const secretKey = bs58.decode(privateKeyBase58);
+    const keypair = Keypair.fromSecretKey(secretKey);
+
+    const SOL_MINT = 'So11111111111111111111111111111111111111112';
+    const amount = Math.floor(pos.tokenAmount);
+    if (amount <= 0) return false;
+
+    const quoteResp = await fetch(
+      `https://quote-api.jup.ag/v6/quote?inputMint=${pos.mint}&outputMint=${SOL_MINT}&amount=${amount}&slippageBps=300`
+    );
+    if (!quoteResp.ok) return false;
+    const quote = await quoteResp.json();
+
+    const swapResp = await fetch('https://quote-api.jup.ag/v6/swap', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        quoteResponse: quote,
+        userPublicKey: keypair.publicKey.toBase58(),
+        wrapAndUnwrapSol: true,
+        dynamicComputeUnitLimit: true,
+        prioritizationFeeLamports: 'auto',
+      }),
+    });
+    if (!swapResp.ok) return false;
+    const { swapTransaction } = await swapResp.json();
+
+    const txBuffer = Buffer.from(swapTransaction, 'base64');
+    const transaction = VersionedTransaction.deserialize(txBuffer);
+    transaction.sign([keypair]);
+
+    const connection = new Connection('https://api.mainnet-beta.solana.com', { commitment: 'confirmed' });
+    const signature = await connection.sendRawTransaction(transaction.serialize(), { skipPreflight: false, maxRetries: 3 });
+
+    const gainPct = pos.entryPrice > 0 ? ((pos.currentPrice - pos.entryPrice) / pos.entryPrice) * 100 : 0;
+    const label = reason === 'tp' ? 'TP ✅' : 'SL 🛡️';
+
+    // Close the position
+    pos.status = 'closed';
+    pos.closedAt = new Date().toISOString();
+    pos.closePnlPct = gainPct;
+    state.livePositions = state.livePositions.filter(p => p.id !== pos.id);
+    state.closedLivePositions.unshift(pos);
+    if (state.closedLivePositions.length > 50) state.closedLivePositions = state.closedLivePositions.slice(0, 50);
+
+    const isWin = gainPct >= 0;
+    state.autoTradeStats.totalTrades++;
+    state.autoTradeStats.totalPnlPct += gainPct;
+    if (isWin) {
+      state.autoTradeStats.wins++;
+      if (gainPct > state.autoTradeStats.bestTradePct) state.autoTradeStats.bestTradePct = gainPct;
+    } else {
+      state.autoTradeStats.losses++;
+      if (gainPct < state.autoTradeStats.worstTradePct) state.autoTradeStats.worstTradePct = gainPct;
+    }
+
+    addActivity(state, {
+      type: 'live_sell',
+      message: `🤖 Server auto-sold ${pos.symbol} [${label}] ${gainPct >= 0 ? '+' : ''}${gainPct.toFixed(2)}% — TX: ${signature.slice(0, 16)}...`,
+    });
+
+    upsertPosition(userId, pos).catch(() => {});
+    saveEngineState(userId, state).catch(() => {});
+    return true;
+  } catch (err) {
+    console.error('[SolEngine] executeServerSideSell error:', err);
+    return false;
+  }
+}
 
 function createInitialState(config: SolEngineConfig): SolEngineState {
   return {
@@ -626,7 +855,7 @@ function monitorPaperPositions(state: SolEngineState) {
   state.paperPositions = state.paperPositions.filter(p => p.status === 'open');
 }
 
-function monitorLivePositions(state: SolEngineState) {
+async function monitorLivePositions(userId: number, state: SolEngineState) {
   const openPositions = state.livePositions.filter(p => p.status === 'open' && p.entryPrice > 0 && p.tokenAmount > 0);
   if (openPositions.length === 0) return;
 
@@ -655,24 +884,31 @@ function monitorLivePositions(state: SolEngineState) {
     const slHit = gainPct <= -pos.slPct;
 
     if (tpHit || slHit) {
-      const created = new Date();
-      const expires = new Date(created.getTime() + 90000);
-      state.pendingExits.push({
-        positionId: pos.id,
-        symbol: pos.symbol,
-        mint: pos.mint,
-        tokenAmount: pos.tokenAmount,
-        decimals: pos.decimals,
-        reason: tpHit ? 'tp' : 'sl',
-        createdAt: created.toISOString(),
-        expiresAt: expires.toISOString(),
-      });
-      addActivity(state, {
-        type: 'live_sell',
-        message: tpHit
-          ? `🎯 TP hit: ${pos.symbol} +${gainPct.toFixed(1)}% — sell queued for wallet execution`
-          : `🛡️ SL hit: ${pos.symbol} ${gainPct.toFixed(1)}% — sell queued for wallet execution`,
-      });
+      const reason: 'tp' | 'sl' = tpHit ? 'tp' : 'sl';
+
+      // Try server-side sell first (if bot wallet is configured)
+      const serverSold = await executeServerSideSell(userId, pos, reason, state);
+      if (!serverSold) {
+        // Fall back to browser-based exit queue
+        const created = new Date();
+        const expires = new Date(created.getTime() + 90000);
+        state.pendingExits.push({
+          positionId: pos.id,
+          symbol: pos.symbol,
+          mint: pos.mint,
+          tokenAmount: pos.tokenAmount,
+          decimals: pos.decimals,
+          reason,
+          createdAt: created.toISOString(),
+          expiresAt: expires.toISOString(),
+        });
+        addActivity(state, {
+          type: 'live_sell',
+          message: tpHit
+            ? `🎯 TP hit: ${pos.symbol} +${gainPct.toFixed(1)}% — sell queued for wallet execution`
+            : `🛡️ SL hit: ${pos.symbol} ${gainPct.toFixed(1)}% — sell queued for wallet execution`,
+        });
+      }
     }
   }
 }
@@ -821,7 +1057,7 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
 
     // Monitor paper and live positions for SL/TP
     monitorPaperPositions(state);
-    monitorLivePositions(state);
+    await monitorLivePositions(userId, state);
 
     state.lastResults = scanResult;
 
@@ -875,18 +1111,23 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
     });
   }
 
+  // Periodic DB save — persist settings + stats after every scan
+  saveEngineState(userId, state).catch(() => {});
+
   if (state.isRunning) {
     const nextMs = getAdaptiveScanInterval(state.config);
     state.scanTimer = setTimeout(() => runScan(userId, state), nextMs);
   }
 }
 
-export function startSolEngine(userId: number, config: Partial<SolEngineConfig> = {}): void {
+export async function startSolEngine(userId: number, config: Partial<SolEngineConfig> = {}): Promise<void> {
   const existing = engineStates.get(userId);
   if (existing?.isRunning) stopSolEngine(userId);
 
   const fullConfig: SolEngineConfig = { ...DEFAULT_CONFIG, ...config };
   const state = createInitialState(fullConfig);
+
+  // Restore from in-memory first (if restarting without page refresh)
   if (existing) {
     state.weeklyGoal = existing.weeklyGoal;
     state.activeStrategy = existing.activeStrategy;
@@ -906,7 +1147,11 @@ export function startSolEngine(userId: number, config: Partial<SolEngineConfig> 
     state.autoTradeStats = existing.autoTradeStats;
     state.autoTradeTP = existing.autoTradeTP;
     state.autoTradeSL = existing.autoTradeSL;
+  } else {
+    // Cold start — load from database
+    await loadEngineStateFromDb(userId, state);
   }
+
   state.isRunning = true;
   engineStates.set(userId, state);
 
@@ -1162,6 +1407,7 @@ export function setAutoTrade(userId: number, opts: { paperEnabled?: boolean; liv
       message: `🛡️ Stop-loss updated — positions protected at -${opts.slPct}%`,
     });
   }
+  saveEngineState(userId, state).catch(() => {});
 }
 
 export function getPendingSignals(userId: number): SolPendingSignal[] {
@@ -1208,6 +1454,7 @@ export function confirmLiveTrade(
     type: 'live_buy',
     message: `⚡ Live EXECUTED: ${symbol} — ${tradeData?.tokenAmount ? (tradeData.tokenAmount / Math.pow(10, tradeData.decimals || 9)).toFixed(4) + ' tokens @ $' + (tradeData.entryPrice || 0).toFixed(6) : ''} tx: ${txHash.slice(0, 16)}...`,
   });
+  upsertPosition(userId, pos).catch(() => {});
   return true;
 }
 
@@ -1258,6 +1505,8 @@ export function confirmLiveExit(userId: number, positionId: string, txHash: stri
     message: `✅ Live SOLD: ${pos.symbol} — P&L: ${gainPct >= 0 ? '+' : ''}${gainPct.toFixed(2)}% [TX: ${txHash.slice(0, 12)}...]`,
   });
 
+  upsertPosition(userId, pos).catch(() => {});
+  saveEngineState(userId, state).catch(() => {});
   return true;
 }
 
@@ -1313,4 +1562,61 @@ export function updateSolPortfolioValue(userId: number, solValue: number): { shi
   }
 
   return { shieldActive: state.shieldActive };
+}
+
+// ── Server wallet management ──────────────────────────────────────────────────
+export async function saveServerWallet(userId: number, privateKeyBase58: string): Promise<{ success: boolean; walletAddress?: string; error?: string }> {
+  try {
+    // Validate the key first
+    const { Keypair } = await import('@solana/web3.js');
+    const bs58 = (await import('bs58')).default;
+    const secretKey = bs58.decode(privateKeyBase58);
+    const keypair = Keypair.fromSecretKey(secretKey);
+    const walletAddress = keypair.publicKey.toBase58();
+
+    const encrypted = encryptWalletKey(privateKeyBase58);
+    await db.insert(solEngineSettings).values({
+      userId,
+      serverWalletKey: encrypted,
+      activeStrategy: 'momentum_surfer',
+      activeStrategies: [] as any,
+      autoTradeEnabled: false,
+      liveTradeEnabled: false,
+      autoTradeTP: 8,
+      autoTradeSL: 4,
+      weeklyGoal: {} as any,
+      autoTradeStats: {} as any,
+      updatedAt: new Date(),
+    }).onConflictDoUpdate({
+      target: solEngineSettings.userId,
+      set: { serverWalletKey: encrypted, updatedAt: new Date() },
+    });
+
+    return { success: true, walletAddress };
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Invalid private key' };
+  }
+}
+
+export async function clearServerWallet(userId: number): Promise<void> {
+  await db.update(solEngineSettings)
+    .set({ serverWalletKey: null, updatedAt: new Date() })
+    .where(eq(solEngineSettings.userId, userId));
+}
+
+export async function getServerWalletStatus(userId: number): Promise<{ hasServerWallet: boolean; walletAddress?: string }> {
+  try {
+    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey })
+      .from(solEngineSettings).where(eq(solEngineSettings.userId, userId));
+    if (!settings?.serverWalletKey) return { hasServerWallet: false };
+
+    const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
+    const { Keypair } = await import('@solana/web3.js');
+    const bs58 = (await import('bs58')).default;
+    const secretKey = bs58.decode(privateKeyBase58);
+    const keypair = Keypair.fromSecretKey(secretKey);
+    return { hasServerWallet: true, walletAddress: keypair.publicKey.toBase58() };
+  } catch {
+    return { hasServerWallet: false };
+  }
 }

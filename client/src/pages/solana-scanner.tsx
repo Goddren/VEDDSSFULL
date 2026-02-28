@@ -2735,6 +2735,8 @@ export default function SolanaScanner() {
   const [liveTradeEnabled, setLiveTradeEnabled] = useState(false);
   const [autoTradeTP, setAutoTradeTP] = useState(8);
   const [autoTradeSL, setAutoTradeSL] = useState(4);
+  const [serverWalletKey, setServerWalletKey] = useState('');
+  const [showServerWalletInput, setShowServerWalletInput] = useState(false);
   const [weeklyGoalTargetSol, setWeeklyGoalTargetSol] = useState('');
   const [weeklyGoalTargetPct, setWeeklyGoalTargetPct] = useState('');
   const { toast } = useToast();
@@ -2835,6 +2837,33 @@ export default function SolanaScanner() {
     mutationFn: (body: { positionId: string; txHash: string }) =>
       apiRequest('POST', '/api/sol-engine/confirm-exit', body),
     onSuccess: () => { refetchAutoPositions(); },
+  });
+
+  const { data: serverWalletStatus, refetch: refetchServerWallet } = useQuery<{ hasServerWallet: boolean; walletAddress?: string }>({
+    queryKey: ['/api/sol-engine/server-wallet-status'],
+    refetchInterval: false,
+  });
+
+  const saveServerWalletMutation = useMutation({
+    mutationFn: (privateKey: string) => apiRequest('POST', '/api/sol-engine/server-wallet', { privateKey }),
+    onSuccess: async (res) => {
+      const data = await res.json();
+      toast({ title: '🤖 Bot Wallet Saved', description: `Address: ${data.walletAddress?.slice(0, 16)}...` });
+      setServerWalletKey('');
+      setShowServerWalletInput(false);
+      refetchServerWallet();
+    },
+    onError: async (err: any) => {
+      toast({ title: 'Invalid Key', description: err.message || 'Could not save wallet', variant: 'destructive' });
+    },
+  });
+
+  const clearServerWalletMutation = useMutation({
+    mutationFn: () => apiRequest('DELETE', '/api/sol-engine/server-wallet', {}),
+    onSuccess: () => {
+      toast({ title: 'Bot Wallet Removed', description: 'Server-side auto-sell disabled' });
+      refetchServerWallet();
+    },
   });
 
   // Live trade: poll pending signals and auto-execute via Jupiter
@@ -3731,6 +3760,62 @@ export default function SolanaScanner() {
               </div>
             </div>
             <p className="text-[9px] text-gray-600 text-center -mt-2">Applies to all new positions — existing positions keep their original levels</p>
+
+            {/* Server Bot Wallet */}
+            <div className={`p-3 rounded-xl border space-y-2 ${serverWalletStatus?.hasServerWallet ? 'border-violet-500/40 bg-violet-500/10' : 'border-gray-700/50 bg-gray-800/20'}`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-base">🤖</span>
+                  <div>
+                    <p className="text-[11px] font-semibold text-gray-200">Server Bot Wallet</p>
+                    <p className="text-[10px] text-gray-500">Auto-sells server-side — no browser needed</p>
+                  </div>
+                </div>
+                {serverWalletStatus?.hasServerWallet ? (
+                  <button
+                    onClick={() => clearServerWalletMutation.mutate()}
+                    disabled={clearServerWalletMutation.isPending}
+                    className="text-[10px] text-red-400 hover:text-red-300 border border-red-500/30 rounded-lg px-2 py-1"
+                  >
+                    Remove
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => setShowServerWalletInput(v => !v)}
+                    className="text-[10px] text-violet-400 hover:text-violet-300 border border-violet-500/30 rounded-lg px-2 py-1"
+                  >
+                    {showServerWalletInput ? 'Cancel' : 'Set Up'}
+                  </button>
+                )}
+              </div>
+              {serverWalletStatus?.hasServerWallet && (
+                <div className="flex items-center gap-2 p-2 rounded-lg bg-violet-500/10 border border-violet-500/20">
+                  <span className="text-[10px] text-violet-300">✅ Active — {serverWalletStatus.walletAddress?.slice(0, 8)}...{serverWalletStatus.walletAddress?.slice(-6)}</span>
+                </div>
+              )}
+              {showServerWalletInput && !serverWalletStatus?.hasServerWallet && (
+                <div className="space-y-2">
+                  <div className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                    <p className="text-[10px] text-amber-300 font-semibold">⚠️ Use a DEDICATED bot wallet only</p>
+                    <p className="text-[9px] text-amber-400/70 mt-0.5">Never paste your main wallet key. Create a new wallet, fund it with only the SOL you want to trade.</p>
+                  </div>
+                  <input
+                    type="password"
+                    placeholder="Paste base58 private key..."
+                    value={serverWalletKey}
+                    onChange={e => setServerWalletKey(e.target.value)}
+                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-[11px] text-gray-200 placeholder-gray-600 focus:outline-none focus:border-violet-500/50"
+                  />
+                  <button
+                    onClick={() => serverWalletKey.trim() && saveServerWalletMutation.mutate(serverWalletKey.trim())}
+                    disabled={!serverWalletKey.trim() || saveServerWalletMutation.isPending}
+                    className="w-full py-2 rounded-lg bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white text-[11px] font-semibold transition-colors"
+                  >
+                    {saveServerWalletMutation.isPending ? 'Saving...' : 'Save Bot Wallet'}
+                  </button>
+                </div>
+              )}
+            </div>
 
             {/* Stats strip */}
             {anyActive && stats.totalTrades > 0 && (

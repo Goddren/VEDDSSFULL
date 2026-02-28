@@ -13018,13 +13018,13 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
 
   // ============= SOL ENGINE =============
   {
-    const { startSolEngine, stopSolEngine, getSolEngineStatus, recordSolSignalResult, updateSolPortfolioValue, setSolWeeklyGoal, resetSolWeeklyGoal, setSolStrategy, setSolStrategies, getSolStrategies, triggerSolAIReview, setAutoTrade, getPendingSignals, confirmLiveTrade, getAutoTradePositions, getPendingExits, confirmLiveExit } = await import('./services/sol-engine');
+    const { startSolEngine, stopSolEngine, getSolEngineStatus, recordSolSignalResult, updateSolPortfolioValue, setSolWeeklyGoal, resetSolWeeklyGoal, setSolStrategy, setSolStrategies, getSolStrategies, triggerSolAIReview, setAutoTrade, getPendingSignals, confirmLiveTrade, getAutoTradePositions, getPendingExits, confirmLiveExit, saveServerWallet, clearServerWallet, getServerWalletStatus } = await import('./services/sol-engine');
 
     app.post("/api/sol-engine/start", async (req: Request, res: Response) => {
       if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
       const userId = (req.user as User).id;
       const { dexFilter, minConfidence, maxTokens, useKelly, shieldEnabled, shieldThreshold, adaptiveScan } = req.body;
-      startSolEngine(userId, {
+      await startSolEngine(userId, {
         dexFilter: dexFilter || 'all',
         minConfidence: Number(minConfidence) || 65,
         maxTokens: Math.min(Number(maxTokens) || 10, 20),
@@ -13163,6 +13163,27 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       if (!positionId || !txHash) return res.status(400).json({ error: "positionId and txHash required" });
       const ok = confirmLiveExit((req.user as User).id, positionId, txHash);
       res.json({ success: ok });
+    });
+
+    app.post("/api/sol-engine/server-wallet", async (req: Request, res: Response) => {
+      if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+      const { privateKey } = req.body;
+      if (!privateKey || typeof privateKey !== 'string') return res.status(400).json({ error: "privateKey required" });
+      const result = await saveServerWallet((req.user as User).id, privateKey.trim());
+      if (!result.success) return res.status(400).json({ error: result.error });
+      res.json({ success: true, walletAddress: result.walletAddress });
+    });
+
+    app.delete("/api/sol-engine/server-wallet", async (req: Request, res: Response) => {
+      if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+      await clearServerWallet((req.user as User).id);
+      res.json({ success: true });
+    });
+
+    app.get("/api/sol-engine/server-wallet-status", async (req: Request, res: Response) => {
+      if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+      const status = await getServerWalletStatus((req.user as User).id);
+      res.json(status);
     });
   }
 

@@ -1606,3 +1606,45 @@ export const insertAiModelConfigSchema = createInsertSchema(aiModelConfigs).omit
 
 export type AiModelConfig = typeof aiModelConfigs.$inferSelect;
 export type InsertAiModelConfig = z.infer<typeof insertAiModelConfigSchema>;
+
+export const solEngineSettings = pgTable("sol_engine_settings", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id).unique(),
+  activeStrategy: text("active_strategy").notNull().default('momentum_surfer'),
+  activeStrategies: jsonb("active_strategies").$type<string[]>().default([]),
+  autoTradeEnabled: boolean("auto_trade_enabled").notNull().default(false),
+  liveTradeEnabled: boolean("live_trade_enabled").notNull().default(false),
+  autoTradeTP: real("auto_trade_tp").notNull().default(8),
+  autoTradeSL: real("auto_trade_sl").notNull().default(4),
+  weeklyGoal: jsonb("weekly_goal").notNull().default({}),
+  autoTradeStats: jsonb("auto_trade_stats").notNull().default({}),
+  serverWalletKey: text("server_wallet_key"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type SolEngineSettings = typeof solEngineSettings.$inferSelect;
+
+export const solEnginePositions = pgTable("sol_engine_positions", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  positionId: text("position_id").notNull().unique(),
+  mode: text("mode").notNull(),
+  symbol: text("symbol").notNull(),
+  mint: text("mint").notNull(),
+  entryPrice: real("entry_price").notNull(),
+  currentPrice: real("current_price").notNull().default(0),
+  targetPct: real("target_pct").notNull(),
+  slPct: real("sl_pct").notNull(),
+  size: real("size").notNull(),
+  tokenAmount: real("token_amount").notNull().default(0),
+  decimals: integer("decimals").notNull().default(9),
+  strategyId: text("strategy_id").notNull(),
+  txHash: text("tx_hash"),
+  status: text("status").notNull().default('open'),
+  openedAt: text("opened_at").notNull(),
+  closedAt: text("closed_at"),
+  closePnlPct: real("close_pnl_pct"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type SolEnginePosition = typeof solEnginePositions.$inferSelect;
