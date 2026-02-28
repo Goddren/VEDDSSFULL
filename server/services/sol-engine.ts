@@ -309,7 +309,7 @@ async function runSolAIReview(
       ? `WEEKLY GOAL: ${goal.currentProfitSol.toFixed(3)} / ${goal.targetSol.toFixed(3)} SOL (${((goal.currentProfitSol / Math.max(goal.targetSol, 0.001)) * 100).toFixed(1)}%) — Phase: ${goal.phase.replace(/_/g, ' ').toUpperCase()}`
       : 'WEEKLY GOAL: None set';
 
-    const systemPrompt = `You are VEDD Sol AI, an expert Solana token trader reviewing live signals.
+    const systemPrompt = `You are VEDD Sol AI — an autonomous Solana token trading mind operating within the Supreme Mathematics framework.
 ACTIVE STRATEGY: ${strategy.icon} ${strategy.name} — ${strategy.description}
 Hold target: ${strategy.holdTarget} | Min confidence: ${strategy.minConfidence}% | Risk: ${strategy.maxRisk}
 ${goalLine}
@@ -317,9 +317,25 @@ WIN STREAK: ${goal.winStreak}
 DRAWDOWN SHIELD: ${state.shieldActive ? 'ACTIVE — conservative mode only' : 'OFF'}
 ${macroLine}
 
+COMMUNICATION STYLE — SUPREME MATHEMATICS (Gods and Earths framework):
+When writing the "reason" field for each decision, weave in Supreme Mathematics / Gods and Earths language naturally and authentically. Map the framework to Solana trading as follows:
+- Knowledge (1) = Reading the token data, chart signals, and market structure
+- Wisdom (2) = Applying strategy with discipline — the correct action taken from what you know
+- Understanding (3) = The clear picture — seeing the setup fully, knowing exactly what price is doing
+- Culture/Freedom (4) = Your trading rhythm — freedom through mastery of the cipher
+- Power/Refinement (5) = Risk management, sizing, refining the edge — power through control
+- Equality (6) = Balance of R:R — what the market gives, it can take; entries must justify risk
+- God (7) = Full control of the trade — mastering the setup from entry to exit
+- Build/Destroy (8) = Building the account, destroying weak setups before they cost SOL
+- Born (9) = A trade closed — knowledge born into profit, a lesson completed
+- Cipher (0/10) = The full market cycle — complete understanding of all moving parts
+
+Use terms like: "Peace", "The science of it is...", "Word is bond", "Build on that", "That's the mathematics", "Stay in the cipher", "Knowledge yourself", "dropping science", "righteously"
+Keep it natural — not every sentence. Weave it in where it fits. ALL numbers, prices, and percentages stay precise and clean. The lingo lives in the explanatory text only.
+
 Review the signals and open positions below. Output a JSON array of decisions.
-- For signals: type="signal", action=CONFIRM_BUY|SKIP|WATCH, reason (max 80 chars)
-- For positions: type="position", action=HOLD|TRAIL|PARTIAL_CLOSE|CLOSE, trailPct=integer (only for TRAIL), reason (max 80 chars)
+- For signals: type="signal", action=CONFIRM_BUY|SKIP|WATCH, reason (max 80 chars, use the lingo naturally)
+- For positions: type="position", action=HOLD|TRAIL|PARTIAL_CLOSE|CLOSE, trailPct=integer (only for TRAIL), reason (max 80 chars, use the lingo naturally)
 Return ONLY the JSON array, no markdown, no explanation.`;
 
     const signalsText = buySignals.length > 0
@@ -417,7 +433,7 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
           state.lastTriggerAt[key] = now;
           addActivity(state, {
             type: 'trigger',
-            message: `⚡ Volume spike on ${analysis.token.symbol} (${volumeMultiple.toFixed(1)}x surge) — rescanning in 8s`,
+            message: `⚡ Power surge on ${analysis.token.symbol} (${volumeMultiple.toFixed(1)}×) — knowledge deepens in 8s`,
           });
           setTimeout(() => runScan(userId, state, analysis.token.symbol), 8000);
         }
@@ -448,7 +464,7 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
     const stratNote = strategy ? ` [${strategy.icon}${strategy.name}]` : '';
     addActivity(state, {
       type: 'info',
-      message: `🔍 Scanned ${scanResult.length} tokens${label}${shieldNote}${stratNote} — ${buys} buy signal${buys !== 1 ? 's' : ''} found. Next in ${intervalSec}s`,
+      message: `🔍 Knowledge dropped on ${scanResult.length} tokens${label}${shieldNote}${stratNote} — ${buys} buy signal${buys !== 1 ? 's' : ''} born. Next cipher in ${intervalSec}s`,
     });
 
     if (macro) {
@@ -457,7 +473,7 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
       const solStr = `SOL ${macro.solChange >= 0 ? '+' : ''}${macro.solChange.toFixed(1)}%`;
       addActivity(state, {
         type: 'info',
-        message: `📊 Macro: ${btcStr} • ${ethStr} • ${solStr} → ${macro.bias}`,
+        message: `📊 The science: ${btcStr} • ${ethStr} • ${solStr} — bias: ${macro.bias}`,
       });
     }
 
@@ -469,7 +485,7 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
           const mult = getPhaseMultiplier(phase, state.weeklyGoal.winStreak);
           addActivity(state, {
             type: 'kelly',
-            message: `📐 Auto-size: ${analysis.token.symbol} on ${dexKey} → ${analysis.recommendedSolAmount.toFixed(3)} SOL (${mult}× ${phase.replace('_', ' ')})`,
+            message: `📐 Mathematics: ${analysis.token.symbol} on ${dexKey} → ${analysis.recommendedSolAmount.toFixed(3)} SOL (${mult}× ${phase.replace('_', ' ')} phase)`,
           });
         }
       }
@@ -484,7 +500,7 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
   } catch (err) {
     addActivity(state, {
       type: 'info',
-      message: `⚠️ Scan error: ${err instanceof Error ? err.message : 'Unknown error'}`,
+      message: `⚠️ Interruption in the cipher: ${err instanceof Error ? err.message : 'unknown'}`,
     });
   }
 
@@ -519,7 +535,7 @@ export function startSolEngine(userId: number, config: Partial<SolEngineConfig> 
   const strategy = SOL_STRATEGIES.find(s => s.id === state.activeStrategy);
   addActivity(state, {
     type: 'info',
-    message: `🚀 Sol Engine started — ${strategy?.icon || ''}${strategy?.name || 'momentum'} strategy — scanning every ${intervalSec}s (${window})`,
+    message: `⚡ Peace — Sol cipher activated. ${strategy?.icon || ''}${strategy?.name || 'momentum'} in rotation, dropping knowledge every ${intervalSec}s (${window})`,
   });
 
   runScan(userId, state);
@@ -530,7 +546,7 @@ export function stopSolEngine(userId: number): void {
   if (!state) return;
   state.isRunning = false;
   if (state.scanTimer) { clearTimeout(state.scanTimer); state.scanTimer = null; }
-  addActivity(state, { type: 'info', message: '🛑 Sol Engine stopped' });
+  addActivity(state, { type: 'info', message: '🛑 Engine at rest — knowledge preserved, cipher closed' });
 }
 
 export function getSolEngineStatus(userId: number) {
@@ -581,7 +597,7 @@ export function setSolStrategy(userId: number, strategyId: string): { success: b
   state.activeStrategy = strategyId;
   addActivity(state, {
     type: 'strategy',
-    message: `${strategy.icon} Strategy switched to ${strategy.name} — min ${strategy.minConfidence}% confidence, ${strategy.baseFraction * 100}% base size, ${strategy.holdTarget} hold`,
+    message: `${strategy.icon} Word is bond — ${strategy.name} now in rotation. Min ${strategy.minConfidence}% confidence, ${strategy.baseFraction * 100}% base size, ${strategy.holdTarget} hold`,
   });
   return { success: true, strategy };
 }
@@ -618,7 +634,7 @@ export function setSolWeeklyGoal(userId: number, params: { targetSol?: number; t
 
   addActivity(state, {
     type: 'goal',
-    message: `🎯 Weekly goal set: +${targetSol.toFixed(3)} SOL (${targetPct.toFixed(1)}%) — Phase: WARMING UP (0.8× size)`,
+    message: `🎯 Target manifested — +${targetSol.toFixed(3)} SOL (${targetPct.toFixed(1)}%) this week. Warming up the cipher (0.8× size)`,
   });
 
   return { success: true };
@@ -628,7 +644,7 @@ export function resetSolWeeklyGoal(userId: number): { success: boolean } {
   const state = engineStates.get(userId);
   if (!state) return { success: false };
   state.weeklyGoal = { ...DEFAULT_WEEKLY_GOAL };
-  addActivity(state, { type: 'goal', message: '🔄 Weekly goal reset — back to idle' });
+  addActivity(state, { type: 'goal', message: '🔄 Cipher cleared — knowledge reset, back to zero point' });
   return { success: true };
 }
 
@@ -650,7 +666,7 @@ export function recordSolSignalResult(
     state.weeklyGoal.winStreak = (state.weeklyGoal.winStreak || 0) + 1;
     addActivity(state, {
       type: 'signal',
-      message: `✅ WIN logged: ${params.symbol || dex} +${params.gainPct.toFixed(1)}% → ${dex} weight now ${state.signalWeights[dex].toFixed(2)} | Streak: ${state.weeklyGoal.winStreak}`,
+      message: `✅ Born — ${params.symbol || dex} +${params.gainPct.toFixed(1)}% sealed in profit. ${dex} weight ${state.signalWeights[dex].toFixed(2)} | Streak: ${state.weeklyGoal.winStreak}`,
     });
   } else {
     state.signalWeights[dex] = Math.max(0.2, state.signalWeights[dex] - 0.08);
@@ -658,7 +674,7 @@ export function recordSolSignalResult(
     state.weeklyGoal.winStreak = 0;
     addActivity(state, {
       type: 'signal',
-      message: `❌ LOSS logged: ${params.symbol || dex} → ${dex} weight now ${state.signalWeights[dex].toFixed(2)} | Streak reset`,
+      message: `❌ Lesson built — ${params.symbol || dex}. The cipher teaches. ${dex} weight ${state.signalWeights[dex].toFixed(2)} | Streak reset`,
     });
   }
 
@@ -690,7 +706,7 @@ export function recordSolSignalResult(
       };
       addActivity(state, {
         type: 'goal',
-        message: `${phaseNames[newPhase] || newPhase} — position size now ${mult}× | Progress: ${((state.weeklyGoal.currentProfitSol / state.weeklyGoal.targetSol) * 100).toFixed(1)}% of goal`,
+        message: `${phaseNames[newPhase] || newPhase} — the God builds on. Sizing ${mult}× | Progress: ${((state.weeklyGoal.currentProfitSol / state.weeklyGoal.targetSol) * 100).toFixed(1)}%`,
       });
     }
   }
@@ -716,11 +732,11 @@ export function updateSolPortfolioValue(userId: number, solValue: number): { shi
     const dropPct = ((1 - solValue / state.sessionHighWatermark) * 100).toFixed(1);
     addActivity(state, {
       type: 'shield',
-      message: `🛡️ DRAWDOWN SHIELD ACTIVATED — portfolio dropped ${dropPct}% from peak (${state.sessionHighWatermark.toFixed(3)} SOL). Restricting to LOW risk / 85%+ confidence only.`,
+      message: `🛡️ Shield of protection manifested — portfolio dropped ${dropPct}% from peak (${state.sessionHighWatermark.toFixed(3)} SOL). Righteously restricting to 85%+ confidence only`,
     });
   } else if (state.shieldActive && solValue >= disengageLevel) {
     state.shieldActive = false;
-    addActivity(state, { type: 'shield', message: '✅ Drawdown shield disengaged — full scan resumed' });
+    addActivity(state, { type: 'shield', message: '✅ Shield lifted — peace restored. Full cipher resumed' });
   }
 
   return { shieldActive: state.shieldActive };
