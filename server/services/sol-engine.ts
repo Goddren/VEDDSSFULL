@@ -81,6 +81,7 @@ interface SolEngineState {
   lastMacro: CryptoMacroContext | null;
   weeklyGoal: SolWeeklyGoal;
   activeStrategy: string;
+  activeStrategies: string[];
   lastAgentConsensus: AgentConsensusResult[];
 }
 
@@ -219,6 +220,7 @@ function createInitialState(config: SolEngineConfig): SolEngineState {
     lastMacro: null,
     weeklyGoal: { ...DEFAULT_WEEKLY_GOAL },
     activeStrategy: 'momentum_surfer',
+    activeStrategies: ['momentum_surfer'],
     lastAgentConsensus: [],
   };
 }
@@ -271,11 +273,11 @@ function computeGoalPhase(goal: SolWeeklyGoal): SolWeeklyGoal['phase'] {
   return 'warming_up';
 }
 
-function computeAutoSolSize(state: SolEngineState, dex: string): number {
+function computeAutoSolSize(state: SolEngineState, dex: string, overrideStrategy?: SolStrategy): number {
   const portfolio = state.currentPortfolioValue;
   if (portfolio <= 0) return 0;
 
-  const strategy = SOL_STRATEGIES.find(s => s.id === state.activeStrategy) || SOL_STRATEGIES[0];
+  const strategy = overrideStrategy || SOL_STRATEGIES.find(s => s.id === state.activeStrategy) || SOL_STRATEGIES[0];
   const phaseMultiplier = getPhaseMultiplier(state.weeklyGoal.phase, state.weeklyGoal.winStreak);
 
   let fraction = strategy.baseFraction * phaseMultiplier;
@@ -553,7 +555,30 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
 
       if ((analysis.signal === 'STRONG_BUY' || analysis.signal === 'BUY') && state.currentPortfolioValue > 0) {
         const dexKey = (analysis.token.dexId || '').toLowerCase().split('_')[0];
-        const autoSize = computeAutoSolSize(state, dexKey);
+
+        // Multi-strategy: find all confirming strategies
+        const activeStrats = state.activeStrategies.length > 0 ? state.activeStrategies : [state.activeStrategy];
+        const confirmingStrats = activeStrats
+          .map(id => SOL_STRATEGIES.find(s => s.id === id))
+          .filter((s): s is SolStrategy => !!s)
+          .filter(s => {
+            if (analysis.confidence < s.minConfidence) return false;
+            if (s.minSignal === 'STRONG_BUY' && analysis.signal !== 'STRONG_BUY') return false;
+            if (s.maxRisk === 'LOW' && (analysis.riskLevel === 'HIGH' || analysis.riskLevel === 'EXTREME')) return false;
+            return true;
+          });
+
+        if (confirmingStrats.length >= 2) {
+          const names = confirmingStrats.map(s => `${s.icon}${s.name}`).join(' + ');
+          addActivity(state, {
+            type: 'strategy',
+            message: `🎯 Multi-Strategy Confirmed: ${analysis.token.symbol} — ${names} all in agreement. Knowledge multiplied.`,
+          });
+        }
+
+        // Use highest baseFraction strategy for sizing
+        const bestStrat = confirmingStrats.sort((a, b) => b.baseFraction - a.baseFraction)[0];
+        const autoSize = computeAutoSolSize(state, dexKey, bestStrat);
         if (autoSize > 0) {
           analysis.recommendedSolAmount = autoSize;
         }
@@ -566,8 +591,10 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
     const intervalSec = getAdaptiveScanInterval(state.config) / 1000;
     const buys = scanResult.filter(t => t.signal === 'STRONG_BUY' || t.signal === 'BUY').length;
     const shieldNote = shieldFilter ? ' 🛡️' : '';
-    const strategy = SOL_STRATEGIES.find(s => s.id === state.activeStrategy);
-    const stratNote = strategy ? ` [${strategy.icon}${strategy.name}]` : '';
+    const activeStrats2 = state.activeStrategies.length > 0 ? state.activeStrategies : [state.activeStrategy];
+    const stratNote = activeStrats2.length > 1
+      ? ` [${activeStrats2.map(id => { const s = SOL_STRATEGIES.find(x => x.id === id); return s ? s.icon + s.name : id; }).join(' + ')}]`
+      : (() => { const strategy = SOL_STRATEGIES.find(s => s.id === state.activeStrategy); return strategy ? ` [${strategy.icon}${strategy.name}]` : ''; })();
     addActivity(state, {
       type: 'info',
       message: `🔍 Knowledge dropped on ${scanResult.length} tokens${label}${shieldNote}${stratNote} — ${buys} buy signal${buys !== 1 ? 's' : ''} born. Next cipher in ${intervalSec}s`,
@@ -625,6 +652,7 @@ export function startSolEngine(userId: number, config: Partial<SolEngineConfig> 
   if (existing) {
     state.weeklyGoal = existing.weeklyGoal;
     state.activeStrategy = existing.activeStrategy;
+    state.activeStrategies = existing.activeStrategies;
     state.signalWeights = existing.signalWeights;
     state.kellyStats = existing.kellyStats;
     state.sessionHighWatermark = existing.sessionHighWatermark;
@@ -635,13 +663,14 @@ export function startSolEngine(userId: number, config: Partial<SolEngineConfig> 
   engineStates.set(userId, state);
 
   const intervalSec = getAdaptiveScanInterval(fullConfig) / 1000;
-  const window = intervalSec === 30 ? 'peak hours (13–20 UTC)'
+  const windowLabel = intervalSec === 30 ? 'peak hours (13–20 UTC)'
     : intervalSec === 60 ? 'standard hours'
     : 'overnight / weekend';
-  const strategy = SOL_STRATEGIES.find(s => s.id === state.activeStrategy);
+  const activeIds = state.activeStrategies.length > 0 ? state.activeStrategies : [state.activeStrategy];
+  const stratLabel = activeIds.map(id => { const s = SOL_STRATEGIES.find(x => x.id === id); return s ? `${s.icon}${s.name}` : id; }).join(' + ');
   addActivity(state, {
     type: 'info',
-    message: `⚡ Peace — Sol cipher activated. ${strategy?.icon || ''}${strategy?.name || 'momentum'} in rotation, dropping knowledge every ${intervalSec}s (${window})`,
+    message: `⚡ Peace — Sol cipher activated. ${stratLabel} in rotation, dropping knowledge every ${intervalSec}s (${windowLabel})`,
   });
 
   runScan(userId, state);
@@ -668,6 +697,7 @@ export function getSolEngineStatus(userId: number) {
       lastMacro: null,
       weeklyGoal: { ...DEFAULT_WEEKLY_GOAL },
       activeStrategy: 'momentum_surfer',
+      activeStrategies: ['momentum_surfer'],
     };
   }
   return {
@@ -684,12 +714,35 @@ export function getSolEngineStatus(userId: number) {
     lastMacro: state.lastMacro,
     weeklyGoal: state.weeklyGoal,
     activeStrategy: state.activeStrategy,
+    activeStrategies: state.activeStrategies,
     lastAgentConsensus: state.lastAgentConsensus,
   };
 }
 
 export function getSolStrategies(): SolStrategy[] {
   return SOL_STRATEGIES;
+}
+
+export function setSolStrategies(userId: number, strategyIds: string[]): { success: boolean; strategies?: SolStrategy[] } {
+  const valid = strategyIds.filter(id => SOL_STRATEGIES.some(s => s.id === id));
+  if (valid.length === 0) return { success: false };
+
+  let state = engineStates.get(userId);
+  if (!state) {
+    state = createInitialState({ ...DEFAULT_CONFIG });
+    engineStates.set(userId, state);
+  }
+  state.activeStrategies = valid;
+  state.activeStrategy = valid[0];
+
+  const strats = valid.map(id => SOL_STRATEGIES.find(s => s.id === id)!).filter(Boolean);
+  const label = strats.map(s => `${s.icon}${s.name}`).join(' + ');
+  const modeNote = valid.length > 1 ? ` — Multi-Strategy Mode 🎯 active` : '';
+  addActivity(state, {
+    type: 'strategy',
+    message: `🔄 Cipher updated — ${label}${modeNote}. Word is bond.`,
+  });
+  return { success: true, strategies: strats };
 }
 
 export function setSolStrategy(userId: number, strategyId: string): { success: boolean; strategy?: SolStrategy } {
@@ -702,6 +755,7 @@ export function setSolStrategy(userId: number, strategyId: string): { success: b
     engineStates.set(userId, state);
   }
   state.activeStrategy = strategyId;
+  state.activeStrategies = [strategyId];
   addActivity(state, {
     type: 'strategy',
     message: `${strategy.icon} Word is bond — ${strategy.name} now in rotation. Min ${strategy.minConfidence}% confidence, ${strategy.baseFraction * 100}% base size, ${strategy.holdTarget} hold`,

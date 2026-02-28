@@ -13008,7 +13008,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
 
   // ============= SOL ENGINE =============
   {
-    const { startSolEngine, stopSolEngine, getSolEngineStatus, recordSolSignalResult, updateSolPortfolioValue, setSolWeeklyGoal, resetSolWeeklyGoal, setSolStrategy, getSolStrategies, triggerSolAIReview } = await import('./services/sol-engine');
+    const { startSolEngine, stopSolEngine, getSolEngineStatus, recordSolSignalResult, updateSolPortfolioValue, setSolWeeklyGoal, resetSolWeeklyGoal, setSolStrategy, setSolStrategies, getSolStrategies, triggerSolAIReview } = await import('./services/sol-engine');
 
     app.post("/api/sol-engine/start", async (req: Request, res: Response) => {
       if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
@@ -13068,6 +13068,17 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const result = setSolStrategy((req.user as User).id, strategyId);
       if (!result.success) return res.status(400).json({ error: "Invalid strategyId" });
       res.json(result);
+    });
+
+    app.post("/api/sol-engine/set-strategies", async (req: Request, res: Response) => {
+      if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+      const { strategyIds } = req.body;
+      if (!Array.isArray(strategyIds) || strategyIds.length === 0) {
+        return res.status(400).json({ error: "strategyIds (non-empty array) required" });
+      }
+      const result = setSolStrategies((req.user as User).id, strategyIds);
+      if (!result.success) return res.status(400).json({ error: "No valid strategy IDs provided" });
+      res.json({ ...result, status: getSolEngineStatus((req.user as User).id) });
     });
 
     app.post("/api/sol-engine/set-weekly-goal", async (req: Request, res: Response) => {

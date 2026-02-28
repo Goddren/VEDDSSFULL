@@ -41,7 +41,8 @@ import {
   Gift,
   Users,
   BarChart3,
-  Trash2
+  Trash2,
+  Layers
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Link } from 'wouter';
@@ -2728,6 +2729,8 @@ export default function SolanaScanner() {
   const [solResultToken, setSolResultToken] = useState<{ address: string; dex: string; symbol: string } | null>(null);
   const [solResultGain, setSolResultGain] = useState('');
   const [activeStrategyId, setActiveStrategyId] = useState('momentum_surfer');
+  const [selectedStrategies, setSelectedStrategies] = useState<string[]>(['momentum_surfer']);
+  const [quickGuideVisible, setQuickGuideVisible] = useState<boolean>(() => !localStorage.getItem('solQuickGuideDismissed'));
   const [weeklyGoalTargetSol, setWeeklyGoalTargetSol] = useState('');
   const [weeklyGoalTargetPct, setWeeklyGoalTargetPct] = useState('');
   const { toast } = useToast();
@@ -2780,6 +2783,17 @@ export default function SolanaScanner() {
     },
   });
 
+  const setStrategiesMutation = useMutation({
+    mutationFn: (strategyIds: string[]) => apiRequest('POST', '/api/sol-engine/set-strategies', { strategyIds }),
+    onSuccess: (_data: any, strategyIds: string[]) => {
+      setSelectedStrategies(strategyIds);
+      setActiveStrategyId(strategyIds[0]);
+      const count = strategyIds.length;
+      toast({ title: count > 1 ? `🎯 Multi-Strategy Mode — ${count} strategies active` : `Strategy set` });
+      refetchEngineStatus();
+    },
+  });
+
   const setWeeklyGoalMutation = useMutation({
     mutationFn: (params: { targetSol?: number; targetPct?: number }) =>
       apiRequest('POST', '/api/sol-engine/set-weekly-goal', params),
@@ -2796,6 +2810,13 @@ export default function SolanaScanner() {
     onSuccess: () => { toast({ title: 'Weekly goal reset' }); refetchEngineStatus(); },
   });
   
+  useEffect(() => {
+    if (solEngineStatus?.activeStrategies && solEngineStatus.activeStrategies.length > 0) {
+      setSelectedStrategies(solEngineStatus.activeStrategies);
+      setActiveStrategyId(solEngineStatus.activeStrategies[0]);
+    }
+  }, [solEngineStatus?.activeStrategies?.join(',')]);
+
   useEffect(() => {
     const stored = localStorage.getItem('vedd_referral_code');
     if (stored) {
@@ -3046,6 +3067,37 @@ export default function SolanaScanner() {
         </div>
       </div>
       
+      {/* ═══ BEGINNER QUICK GUIDE ═══ */}
+      {quickGuideVisible && (
+        <div className="rounded-xl border border-purple-500/30 bg-gradient-to-r from-purple-950/40 to-blue-950/40 p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-purple-200 mb-3">How the Sol Engine works</p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {[
+                  { icon: '🔍', title: 'Scans tokens', desc: 'Checks trending Solana tokens on DexScreener every 30–120s' },
+                  { icon: '🤖', title: 'AI agents score', desc: 'GPT-4o + Quant Rules agent both vote on each token independently' },
+                  { icon: '🎯', title: 'Strategy filters', desc: 'Your chosen strategies decide if the signal meets the bar' },
+                  { icon: '📲', title: 'You get alerts', desc: 'Buy/sell signals appear with confidence %, size suggestion & consensus' },
+                ].map((step, i) => (
+                  <div key={i} className="flex flex-col items-start gap-1.5 p-2.5 rounded-lg bg-white/5">
+                    <span className="text-xl">{step.icon}</span>
+                    <p className="text-xs font-semibold text-white">{step.title}</p>
+                    <p className="text-[10px] text-gray-400 leading-relaxed">{step.desc}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <button
+              onClick={() => { setQuickGuideVisible(false); localStorage.setItem('solQuickGuideDismissed', '1'); }}
+              className="text-xs text-gray-500 hover:text-gray-300 whitespace-nowrap px-3 py-1 rounded-lg border border-gray-700 hover:border-gray-500 transition-colors"
+            >
+              Got it ✕
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ═══ SOL ENGINE COMMAND CENTER ═══ */}
       {(() => {
         const weights = solEngineStatus?.signalWeights || {};
@@ -3101,13 +3153,23 @@ export default function SolanaScanner() {
                     {phase !== 'idle' && (
                       <Badge className={`${pc.bg} ${pc.color} border-0 text-[10px]`}>{pc.label} {pc.mult}</Badge>
                     )}
-                    {solEngineRunning && (
-                      <span className="text-[10px] text-gray-500">
-                        {STRATEGIES.find(s => s.id === serverStrategy)?.icon}{' '}
-                        {STRATEGIES.find(s => s.id === serverStrategy)?.name}
-                      </span>
-                    )}
+                    {solEngineRunning && selectedStrategies.map(id => {
+                      const s = STRATEGIES.find(x => x.id === id);
+                      if (!s) return null;
+                      return (
+                        <span key={id} className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-500/15 text-purple-300 border border-purple-500/20">
+                          {s.icon} {s.name}
+                        </span>
+                      );
+                    })}
                   </div>
+                  {solEngineRunning && (
+                    <p className="text-[10px] text-emerald-400/80 mt-0.5">
+                      Scanning {solEngineStatus?.lastResults?.length || 0} tokens •{' '}
+                      {solEngineStatus?.lastResults?.filter((t: any) => t.signal === 'STRONG_BUY' || t.signal === 'BUY').length || 0} buy signals last scan
+                      {selectedStrategies.length > 1 && <span className="ml-1 text-purple-400">• 🎯 Multi-Strategy</span>}
+                    </p>
+                  )}
                   {macro && (
                     <p className="text-[10px] text-gray-400 mt-0.5">
                       BTC {macro.btcChange >= 0 ? '+' : ''}{macro.btcChange.toFixed(1)}% • ETH {macro.ethChange >= 0 ? '+' : ''}{macro.ethChange.toFixed(1)}% • SOL {macro.solChange >= 0 ? '+' : ''}{macro.solChange.toFixed(1)}%
@@ -3195,33 +3257,6 @@ export default function SolanaScanner() {
                   )}
                 </div>
 
-                {/* ── Strategy Selector ── */}
-                <div>
-                  <p className="text-xs font-semibold text-purple-300 mb-2">Trading Strategy</p>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    {STRATEGIES.map(s => {
-                      const isActive = serverStrategy === s.id;
-                      const riskColor = s.risk === 'LOW' ? 'text-emerald-400' : s.risk === 'HIGH' ? 'text-red-400' : 'text-yellow-400';
-                      return (
-                        <button
-                          key={s.id}
-                          onClick={() => setStrategyMutation.mutate(s.id)}
-                          disabled={setStrategyMutation.isPending}
-                          className={`rounded-xl border p-2.5 text-left transition-all duration-200 ${isActive ? 'border-purple-500 bg-purple-500/20 shadow-lg shadow-purple-500/10' : 'border-gray-700 bg-gray-900/30 hover:border-gray-500 hover:bg-gray-800/40'}`}
-                        >
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="text-base">{s.icon}</span>
-                            {isActive && <span className="text-[8px] text-purple-400 font-bold">ACTIVE</span>}
-                          </div>
-                          <p className={`text-[10px] font-semibold leading-tight ${isActive ? 'text-purple-200' : 'text-gray-300'}`}>{s.name}</p>
-                          <p className="text-[9px] text-gray-500 mt-0.5">{s.hold} • {s.conf}% min</p>
-                          <p className={`text-[9px] font-semibold mt-0.5 ${riskColor}`}>{s.risk} • {s.base}% base</p>
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <p className="text-[10px] text-gray-500 mt-1.5">Strategy sets base position size — auto-adjusts with phase multiplier each week</p>
-                </div>
               </div>
             )}
 
@@ -3331,16 +3366,131 @@ export default function SolanaScanner() {
             )}
 
             {/* ── Activity feed ── */}
-            {solEngineRunning && feed.length > 0 && (
-              <div className="border-t border-gray-700/50 p-3 space-y-1 max-h-40 overflow-y-auto">
-                {feed.slice(0, 10).map((entry: any, i: number) => (
-                  <div key={i} className="flex items-start gap-2">
-                    <span className="text-[9px] text-gray-600 shrink-0 mt-0.5">{new Date(entry.timestamp).toLocaleTimeString()}</span>
-                    <span className={`text-[10px] leading-relaxed ${entry.type === 'shield' ? 'text-amber-300' : entry.type === 'trigger' ? 'text-yellow-300' : entry.type === 'kelly' ? 'text-blue-300' : entry.type === 'signal' ? 'text-emerald-300' : entry.type === 'goal' ? 'text-purple-300' : entry.type === 'strategy' ? 'text-violet-300' : 'text-gray-300'}`}>{entry.message}</span>
-                  </div>
-                ))}
+            {solEngineRunning && feed.length > 0 && (() => {
+              const borderColor = (type: string) =>
+                type === 'signal' ? 'border-l-emerald-500' :
+                type === 'shield' ? 'border-l-amber-500' :
+                type === 'trigger' ? 'border-l-yellow-500' :
+                type === 'kelly' ? 'border-l-blue-500' :
+                type === 'goal' ? 'border-l-purple-500' :
+                type === 'strategy' ? 'border-l-violet-500' : 'border-l-gray-600';
+              const textColor = (type: string) =>
+                type === 'signal' ? 'text-emerald-300' :
+                type === 'shield' ? 'text-amber-300' :
+                type === 'trigger' ? 'text-yellow-300' :
+                type === 'kelly' ? 'text-blue-300' :
+                type === 'goal' ? 'text-purple-300' :
+                type === 'strategy' ? 'text-violet-300' : 'text-gray-400';
+              return (
+                <div className="border-t border-gray-700/50 p-3 space-y-1.5 max-h-48 overflow-y-auto">
+                  {feed.slice(0, 8).map((entry: any, i: number) => (
+                    <div key={i} className={`flex items-start justify-between gap-2 pl-2.5 border-l-2 ${borderColor(entry.type)} rounded-r-sm`}>
+                      <span className={`text-[10px] leading-relaxed flex-1 ${textColor(entry.type)}`}>{entry.message}</span>
+                      <span className="text-[9px] text-gray-600 shrink-0 mt-0.5">{new Date(entry.timestamp).toLocaleTimeString()}</span>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+          </div>
+        );
+      })()}
+
+      {/* ═══ STRATEGY HUB ═══ */}
+      {(() => {
+        const STRAT_META = [
+          { id: 'momentum_surfer', name: 'Momentum Surfer', icon: '🏄', hold: '1–4h', conf: 70, risk: 'MEDIUM', base: 3, color: 'purple', desc: 'Rides strong directional price momentum' },
+          { id: 'breakout_hunter', name: 'Breakout Hunter', icon: '🚀', hold: '30m–2h', conf: 75, risk: 'MEDIUM', base: 2.5, color: 'orange', desc: 'Targets tokens breaking out of consolidation' },
+          { id: 'dip_sniper', name: 'Dip Sniper', icon: '🎯', hold: '2–8h', conf: 68, risk: 'LOW', base: 2, color: 'blue', desc: 'Enters on brief pullbacks in uptrends' },
+          { id: 'meme_velocity', name: 'Meme Velocity', icon: '⚡', hold: '10–15m', conf: 65, risk: 'HIGH', base: 4, color: 'pink', desc: 'Captures explosive meme moves on Pump.fun' },
+          { id: 'whale_follower', name: 'Whale Follower', icon: '🐋', hold: '4–24h', conf: 72, risk: 'MEDIUM', base: 2, color: 'teal', desc: 'Tracks large wallet accumulation patterns' },
+          { id: 'volume_explosion', name: 'Volume Explosion', icon: '💥', hold: '20–45m', conf: 65, risk: 'MEDIUM', base: 3.5, color: 'red', desc: 'Enters tokens with sudden 3x+ volume spikes' },
+          { id: 'smart_money_flow', name: 'Smart Money', icon: '🧠', hold: '1–3d', conf: 78, risk: 'LOW', base: 2.5, color: 'green', desc: 'Institutional-grade high-confidence entries' },
+          { id: 'liquidity_sweep', name: 'Liquidity Sweep', icon: '🌊', hold: '10–30m', conf: 60, risk: 'HIGH', base: 1, color: 'cyan', desc: 'Scalps sharp moves after liquidity sweeps' },
+        ];
+        const colorMap: Record<string, { border: string; bg: string; text: string; badge: string }> = {
+          purple: { border: 'border-purple-500', bg: 'bg-purple-500/15', text: 'text-purple-300', badge: 'bg-purple-500/20 text-purple-300' },
+          orange: { border: 'border-orange-500', bg: 'bg-orange-500/15', text: 'text-orange-300', badge: 'bg-orange-500/20 text-orange-300' },
+          blue: { border: 'border-blue-500', bg: 'bg-blue-500/15', text: 'text-blue-300', badge: 'bg-blue-500/20 text-blue-300' },
+          pink: { border: 'border-pink-500', bg: 'bg-pink-500/15', text: 'text-pink-300', badge: 'bg-pink-500/20 text-pink-300' },
+          teal: { border: 'border-teal-500', bg: 'bg-teal-500/15', text: 'text-teal-300', badge: 'bg-teal-500/20 text-teal-300' },
+          red: { border: 'border-red-500', bg: 'bg-red-500/15', text: 'text-red-300', badge: 'bg-red-500/20 text-red-300' },
+          green: { border: 'border-emerald-500', bg: 'bg-emerald-500/15', text: 'text-emerald-300', badge: 'bg-emerald-500/20 text-emerald-300' },
+          cyan: { border: 'border-cyan-500', bg: 'bg-cyan-500/15', text: 'text-cyan-300', badge: 'bg-cyan-500/20 text-cyan-300' },
+        };
+
+        const toggleStrategy = (id: string) => {
+          let next: string[];
+          if (selectedStrategies.includes(id)) {
+            next = selectedStrategies.filter(s => s !== id);
+            if (next.length === 0) return;
+          } else {
+            next = [...selectedStrategies, id];
+          }
+          setSelectedStrategies(next);
+          setStrategiesMutation.mutate(next);
+        };
+
+        const multiMode = selectedStrategies.length > 1;
+
+        return (
+          <div className="rounded-2xl border border-gray-700/50 bg-gray-900/30 p-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-purple-500/20">
+                  <Layers className="w-4 h-4 text-purple-400" />
+                </div>
+                <div>
+                  <p className="font-semibold text-sm">Strategy Hub</p>
+                  <p className="text-[10px] text-gray-500">Pick one or more — click to toggle on/off</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Badge className={`text-xs ${multiMode ? 'bg-purple-500/20 text-purple-300 border-purple-500/30' : 'bg-gray-700/50 text-gray-400 border-gray-600/30'}`}>
+                  {selectedStrategies.length} active
+                </Badge>
+                {setStrategiesMutation.isPending && <span className="text-[10px] text-gray-500 animate-pulse">Updating...</span>}
+              </div>
+            </div>
+
+            {multiMode && (
+              <div className="flex items-center gap-2 p-2.5 rounded-lg bg-purple-950/30 border border-purple-500/20">
+                <span className="text-sm">🎯</span>
+                <div>
+                  <p className="text-xs font-semibold text-purple-300">Multi-Strategy Mode Active</p>
+                  <p className="text-[10px] text-gray-400">Signals are checked against all active strategies. Tokens confirmed by 2+ strategies get top priority.</p>
+                </div>
               </div>
             )}
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {STRAT_META.map(s => {
+                const isOn = selectedStrategies.includes(s.id);
+                const c = colorMap[s.color] || colorMap.purple;
+                const riskBadge = s.risk === 'LOW' ? 'bg-emerald-500/10 text-emerald-400' : s.risk === 'HIGH' ? 'bg-red-500/10 text-red-400' : 'bg-yellow-500/10 text-yellow-400';
+                return (
+                  <button
+                    key={s.id}
+                    onClick={() => toggleStrategy(s.id)}
+                    disabled={setStrategiesMutation.isPending}
+                    className={`rounded-xl border p-3 text-left transition-all duration-200 relative ${isOn ? `${c.border} ${c.bg} shadow-sm` : 'border-gray-700 bg-gray-900/30 hover:border-gray-500 hover:bg-gray-800/30 opacity-60 hover:opacity-80'}`}
+                  >
+                    {isOn && (
+                      <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400/50" />
+                    )}
+                    <div className="text-lg mb-1">{s.icon}</div>
+                    <p className={`text-[11px] font-bold leading-tight ${isOn ? c.text : 'text-gray-300'}`}>{s.name}</p>
+                    <p className="text-[9px] text-gray-500 mt-1 leading-tight">{s.desc}</p>
+                    <div className="flex items-center gap-1 mt-2 flex-wrap">
+                      <span className="text-[8px] px-1 py-0.5 rounded bg-gray-800 text-gray-400">{s.hold}</span>
+                      <span className={`text-[8px] px-1 py-0.5 rounded ${riskBadge}`}>{s.risk}</span>
+                      <span className="text-[8px] px-1 py-0.5 rounded bg-gray-800 text-gray-400">{s.base}% base</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-[10px] text-gray-600 text-center">More strategies = more signals &nbsp;|&nbsp; Fewer strategies = more selective picks</p>
           </div>
         );
       })()}
