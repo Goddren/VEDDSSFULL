@@ -66,6 +66,7 @@ import SolScannerLanding from "@/pages/sol-scanner-landing";
 import SolScannerTrades from "@/pages/sol-scanner-trades";
 import VeddTokenomics from "@/pages/vedd-tokenomics";
 import WeeklyStrategyPage from "@/pages/weekly-strategy";
+import SevenEightPage from "@/pages/seven-eight";
 import StreakBanner from "@/components/StreakBanner";
 import { MobileFAB } from "@/components/mobile-fab";
 import { MobileBottomNav } from "@/components/mobile-bottom-nav";
@@ -122,6 +123,7 @@ function AppLayout() {
             <Route path="/shared/:shareId" component={SharedAnalysisPage} />
             <Route path="/share/:slug" component={EASharePage} />
             <Route path="/volatility-meter" component={VolatilityMeterShowcase} />
+            <Route path="/seven-eight" component={SevenEightPage} />
             
             {/* Footer pages */}
             <Route path="/about" component={AboutPage} />

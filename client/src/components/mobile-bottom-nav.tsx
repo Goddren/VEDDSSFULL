@@ -21,7 +21,8 @@ import {
   Webhook, 
   Wallet,
   User,
-  LogOut
+  LogOut,
+  Layers
 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { isMobileDevice } from '@/lib/pwa';
@@ -34,6 +35,7 @@ const primaryNavItems = [
 ];
 
 const allNavItems = [
+  { name: '7 ye even 8', path: '/seven-eight', icon: Layers },
   { name: 'Dashboard', path: '/dashboard', icon: Home },
   { name: 'Analysis', path: '/analysis', icon: LineChart },
   { name: 'Multi-TF EA', path: '/multi-timeframe', icon: Clock },
