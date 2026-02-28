@@ -27,9 +27,16 @@ export function WalletLoginButton({ onWalletLogin, className }: WalletLoginButto
   const { toast } = useToast();
   const [, setLocation] = useLocation();
 
+  const isMobile = () => /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
   const handleConnect = async (type: 'phantom' | 'pumpfun') => {
     setShowWalletOptions(false);
     await connect(type);
+  };
+
+  const openInPhantomBrowser = () => {
+    const currentUrl = encodeURIComponent(window.location.href);
+    window.location.href = `https://phantom.app/ul/browse/${currentUrl}?ref=${encodeURIComponent(window.location.origin)}`;
   };
 
   const handleAuthenticate = async () => {
@@ -88,9 +95,17 @@ export function WalletLoginButton({ onWalletLogin, className }: WalletLoginButto
       }
     } catch (err: any) {
       console.error('Authentication error:', err);
+      let description = err.message || 'Failed to authenticate wallet';
+      if (description.includes('User rejected') || description.includes('cancelled') || description.includes('denied')) {
+        description = 'You cancelled the signature request. Please try again and approve the signature in Phantom.';
+      } else if (description.includes('Invalid wallet signature')) {
+        description = 'Signature could not be verified. Please reconnect your wallet and try again.';
+      } else if (description.includes('expired')) {
+        description = 'Authentication timed out. Please try again.';
+      }
       toast({
         title: "Authentication Failed",
-        description: err.message || "Failed to authenticate wallet",
+        description,
         variant: "destructive",
       });
     } finally {
@@ -123,44 +138,61 @@ export function WalletLoginButton({ onWalletLogin, className }: WalletLoginButto
             ) : (
               <>
                 <Wallet className="h-5 w-5" />
-                Connect Wallet
+                Connect Phantom Wallet
               </>
             )}
           </Button>
         ) : (
           <div className="space-y-3">
-            <p className="text-gray-400 text-sm text-center mb-2">Choose your wallet</p>
+            <p className="text-gray-400 text-sm text-center mb-2">Connect your Phantom wallet</p>
+
+            {/* Desktop / Phantom browser: direct connect */}
             <Button
               onClick={() => handleConnect('phantom')}
               disabled={connecting}
               className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-semibold py-4 rounded-xl shadow-lg shadow-purple-500/30 flex items-center justify-center gap-3"
             >
-              <Wallet className="h-5 w-5" />
-              Phantom Wallet
+              {connecting ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Wallet className="h-5 w-5" />}
+              {connecting ? 'Connecting...' : 'Connect Phantom'}
             </Button>
-            <a 
-              href="https://pump.fun/coin/Ch7WbPBy5XjL1UULwWYwh75DsVdXhFUVXtiNvNGopump" 
-              target="_blank" 
+
+            {/* Mobile: open in Phantom browser */}
+            {isMobile() && (
+              <Button
+                onClick={openInPhantomBrowser}
+                className="w-full bg-gradient-to-r from-violet-700 to-purple-700 hover:from-violet-600 hover:to-purple-600 text-white font-semibold py-4 rounded-xl shadow-lg shadow-violet-500/20 flex items-center justify-center gap-3"
+              >
+                <ExternalLink className="h-5 w-5" />
+                Open in Phantom App
+              </Button>
+            )}
+
+            <a
+              href="https://pump.fun/coin/Ch7WbPBy5XjL1UULwWYwh75DsVdXhFUVXtiNvNGopump"
+              target="_blank"
               rel="noopener noreferrer"
               className="block"
             >
-              <Button
-                className="w-full bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white font-semibold py-4 rounded-xl shadow-lg shadow-green-500/30 flex items-center justify-center gap-3"
-              >
-                <ExternalLink className="h-5 w-5" />
+              <Button className="w-full bg-gradient-to-r from-green-700 to-emerald-700 hover:from-green-600 hover:to-emerald-600 text-white font-semibold py-3 rounded-xl text-sm flex items-center justify-center gap-2">
+                <ExternalLink className="h-4 w-4" />
                 Buy VEDD on Pump.fun
               </Button>
             </a>
-            <button 
+
+            <button
               onClick={() => setShowWalletOptions(false)}
-              className="w-full text-gray-400 text-sm hover:text-white transition-colors py-2"
+              className="w-full text-gray-500 text-sm hover:text-white transition-colors py-2"
             >
               Cancel
             </button>
           </div>
         )}
         {error && (
-          <p className="text-red-400 text-sm mt-2 text-center">{error}</p>
+          <div className="mt-2 p-2 rounded-lg bg-red-500/10 border border-red-500/20">
+            <p className="text-red-400 text-xs text-center">{
+              error.includes('install') ? '🔌 Phantom extension not detected. Install it at phantom.app or tap "Open in Phantom App" on mobile.' : error
+            }</p>
+          </div>
         )}
       </motion.div>
     );
@@ -289,7 +321,7 @@ export function WalletLoginButton({ onWalletLogin, className }: WalletLoginButto
           {isAuthenticating ? (
             <>
               <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-              Authenticating...
+              Check Phantom for signature...
             </>
           ) : (
             <>
