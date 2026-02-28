@@ -19,9 +19,40 @@ export interface SolEngineConfig {
 }
 
 export interface SolActivityEntry {
-  type: 'info' | 'signal' | 'shield' | 'trigger' | 'kelly' | 'goal' | 'strategy';
+  type: 'info' | 'signal' | 'shield' | 'trigger' | 'kelly' | 'goal' | 'strategy' | 'paper_buy' | 'paper_sell' | 'live_signal' | 'live_buy';
   message: string;
   timestamp: string;
+}
+
+export interface SolAutoPosition {
+  id: string;
+  symbol: string;
+  mint: string;
+  entryPrice: number;
+  currentPrice: number;
+  targetPct: number;
+  slPct: number;
+  size: number;
+  strategyId: string;
+  mode: 'paper' | 'live';
+  txHash?: string;
+  openedAt: string;
+  closedAt?: string;
+  closePnlPct?: number;
+  status: 'open' | 'closed';
+}
+
+export interface SolPendingSignal {
+  id: string;
+  symbol: string;
+  mint: string;
+  signal: 'BUY';
+  confidence: number;
+  price: number;
+  sizeSOL: number;
+  strategyId: string;
+  createdAt: string;
+  expiresAt: string;
 }
 
 export interface SolStrategy {
@@ -83,6 +114,21 @@ interface SolEngineState {
   activeStrategy: string;
   activeStrategies: string[];
   lastAgentConsensus: AgentConsensusResult[];
+  autoTradeEnabled: boolean;
+  liveTradeEnabled: boolean;
+  paperPositions: SolAutoPosition[];
+  closedPaperPositions: SolAutoPosition[];
+  livePositions: SolAutoPosition[];
+  closedLivePositions: SolAutoPosition[];
+  pendingSignals: SolPendingSignal[];
+  autoTradeStats: {
+    totalTrades: number;
+    wins: number;
+    losses: number;
+    totalPnlPct: number;
+    bestTradePct: number;
+    worstTradePct: number;
+  };
 }
 
 const DEX_NAMES = ['raydium', 'orca', 'meteora', 'pumpfun', 'jupiter'];
@@ -222,6 +268,14 @@ function createInitialState(config: SolEngineConfig): SolEngineState {
     activeStrategy: 'momentum_surfer',
     activeStrategies: ['momentum_surfer'],
     lastAgentConsensus: [],
+    autoTradeEnabled: false,
+    liveTradeEnabled: false,
+    paperPositions: [],
+    closedPaperPositions: [],
+    livePositions: [],
+    closedLivePositions: [],
+    pendingSignals: [],
+    autoTradeStats: { totalTrades: 0, wins: 0, losses: 0, totalPnlPct: 0, bestTradePct: 0, worstTradePct: 0 },
   };
 }
 
@@ -503,6 +557,56 @@ export async function triggerSolAIReview(userId: number, openPositions: OpenPosi
   await runSolAIReview(userId, state, state.lastResults, openPositions);
 }
 
+function monitorPaperPositions(state: SolEngineState) {
+  const openPositions = state.paperPositions.filter(p => p.status === 'open');
+  if (openPositions.length === 0) return;
+
+  // Build price lookup from last scan results
+  const priceMap: Record<string, number> = {};
+  for (const r of state.lastResults) {
+    priceMap[r.token.symbol] = parseFloat(r.token.priceUsd) || 0;
+  }
+
+  for (const pos of openPositions) {
+    const currentPrice = priceMap[pos.symbol];
+    if (!currentPrice || currentPrice <= 0) continue;
+
+    pos.currentPrice = currentPrice;
+    const gainPct = ((currentPrice - pos.entryPrice) / pos.entryPrice) * 100;
+
+    const isWin = gainPct >= pos.targetPct;
+    const isLoss = gainPct <= -pos.slPct;
+
+    if (isWin || isLoss) {
+      pos.status = 'closed';
+      pos.closedAt = new Date().toISOString();
+      pos.closePnlPct = gainPct;
+
+      state.closedPaperPositions.unshift(pos);
+      if (state.closedPaperPositions.length > 50) state.closedPaperPositions = state.closedPaperPositions.slice(0, 50);
+
+      // Update stats
+      state.autoTradeStats.totalTrades++;
+      state.autoTradeStats.totalPnlPct += gainPct;
+      if (isWin) {
+        state.autoTradeStats.wins++;
+        if (gainPct > state.autoTradeStats.bestTradePct) state.autoTradeStats.bestTradePct = gainPct;
+      } else {
+        state.autoTradeStats.losses++;
+        if (gainPct < state.autoTradeStats.worstTradePct) state.autoTradeStats.worstTradePct = gainPct;
+      }
+
+      addActivity(state, {
+        type: 'paper_sell',
+        message: `${isWin ? '✅' : '❌'} Paper ${isWin ? 'WIN' : 'LOSS'}: ${pos.symbol} closed @ $${currentPrice.toFixed(6)} — ${gainPct >= 0 ? '+' : ''}${gainPct.toFixed(2)}% | ${pos.size.toFixed(3)} SOL ${isWin ? 'profit sealed' : 'lesson built'}`,
+      });
+    }
+  }
+
+  // Remove closed from open list
+  state.paperPositions = state.paperPositions.filter(p => p.status === 'open');
+}
+
 async function runScan(userId: number, state: SolEngineState, triggerToken?: string) {
   if (!state.isRunning) return;
   try {
@@ -582,8 +686,69 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
         if (autoSize > 0) {
           analysis.recommendedSolAmount = autoSize;
         }
+
+        const sizeSOL = autoSize > 0 ? autoSize : computeAutoSolSize(state, dexKey);
+        const topStrat = confirmingStrats[0] || SOL_STRATEGIES.find(s => s.id === state.activeStrategy) || SOL_STRATEGIES[0];
+        const tokenPrice = parseFloat(analysis.token.priceUsd) || 0;
+        const tokenMint = analysis.token.address;
+        const now2 = new Date().toISOString();
+
+        // Paper auto-trade
+        if (state.autoTradeEnabled && sizeSOL > 0 && tokenPrice > 0) {
+          const alreadyOpen = state.paperPositions.some(p => p.symbol === analysis.token.symbol && p.status === 'open');
+          if (!alreadyOpen) {
+            const pos: SolAutoPosition = {
+              id: `paper_${Date.now()}_${analysis.token.symbol}`,
+              symbol: analysis.token.symbol,
+              mint: tokenMint,
+              entryPrice: tokenPrice,
+              currentPrice: tokenPrice,
+              targetPct: 8,
+              slPct: 4,
+              size: sizeSOL,
+              strategyId: topStrat.id,
+              mode: 'paper',
+              openedAt: now2,
+              status: 'open',
+            };
+            state.paperPositions.push(pos);
+            addActivity(state, {
+              type: 'paper_buy',
+              message: `📄 Paper BUY: ${analysis.token.symbol} — ${sizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}] | TP: +8% | SL: -4%`,
+            });
+          }
+        }
+
+        // Live auto-trade: queue pending signal
+        if (state.liveTradeEnabled && sizeSOL > 0 && tokenPrice > 0) {
+          const alreadyQueued = state.pendingSignals.some(s => s.symbol === analysis.token.symbol);
+          if (!alreadyQueued) {
+            const created = new Date();
+            const expires = new Date(created.getTime() + 60000);
+            const sig: SolPendingSignal = {
+              id: `live_${Date.now()}_${analysis.token.symbol}`,
+              symbol: analysis.token.symbol,
+              mint: tokenMint,
+              signal: 'BUY',
+              confidence: analysis.confidence,
+              price: tokenPrice,
+              sizeSOL,
+              strategyId: topStrat.id,
+              createdAt: created.toISOString(),
+              expiresAt: expires.toISOString(),
+            };
+            state.pendingSignals.push(sig);
+            addActivity(state, {
+              type: 'live_signal',
+              message: `⚡ Live signal queued: ${analysis.token.symbol} — ${sizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} | Waiting for wallet execution (60s window)`,
+            });
+          }
+        }
       }
     }
+
+    // Monitor paper positions for SL/TP
+    monitorPaperPositions(state);
 
     state.lastResults = scanResult;
 
@@ -658,6 +823,13 @@ export function startSolEngine(userId: number, config: Partial<SolEngineConfig> 
     state.sessionHighWatermark = existing.sessionHighWatermark;
     state.currentPortfolioValue = existing.currentPortfolioValue;
     state.shieldActive = existing.shieldActive;
+    state.autoTradeEnabled = existing.autoTradeEnabled;
+    state.liveTradeEnabled = existing.liveTradeEnabled;
+    state.paperPositions = existing.paperPositions;
+    state.closedPaperPositions = existing.closedPaperPositions;
+    state.livePositions = existing.livePositions;
+    state.closedLivePositions = existing.closedLivePositions;
+    state.autoTradeStats = existing.autoTradeStats;
   }
   state.isRunning = true;
   engineStates.set(userId, state);
@@ -873,6 +1045,99 @@ export function recordSolSignalResult(
   }
 
   return { success: true };
+}
+
+export function setAutoTrade(userId: number, opts: { paperEnabled?: boolean; liveEnabled?: boolean }): void {
+  let state = engineStates.get(userId);
+  if (!state) {
+    state = createInitialState({ ...DEFAULT_CONFIG });
+    engineStates.set(userId, state);
+  }
+  if (opts.paperEnabled !== undefined) {
+    state.autoTradeEnabled = opts.paperEnabled;
+    addActivity(state, {
+      type: 'info',
+      message: opts.paperEnabled
+        ? '📄 Paper Auto-Trade ENABLED — the cipher will open virtual positions on every buy signal'
+        : '📄 Paper Auto-Trade DISABLED',
+    });
+  }
+  if (opts.liveEnabled !== undefined) {
+    state.liveTradeEnabled = opts.liveEnabled;
+    // Clear expired pending signals on toggle
+    if (!opts.liveEnabled) state.pendingSignals = [];
+    addActivity(state, {
+      type: 'info',
+      message: opts.liveEnabled
+        ? '⚡ Live Auto-Trade ENABLED — buy signals will be queued for wallet execution'
+        : '⚡ Live Auto-Trade DISABLED — pending signals cleared',
+    });
+  }
+}
+
+export function getPendingSignals(userId: number): SolPendingSignal[] {
+  const state = engineStates.get(userId);
+  if (!state) return [];
+  const now = Date.now();
+  const valid = state.pendingSignals.filter(s => new Date(s.expiresAt).getTime() > now);
+  state.pendingSignals = []; // clear after pickup
+  return valid;
+}
+
+export function confirmLiveTrade(userId: number, signalId: string, txHash: string): boolean {
+  const state = engineStates.get(userId);
+  if (!state) return false;
+
+  // Find matching signal (may already be cleared, reconstruct from id)
+  const parts = signalId.split('_');
+  const symbol = parts.slice(2).join('_');
+  if (!symbol) return false;
+
+  const pos: SolAutoPosition = {
+    id: `live_pos_${Date.now()}_${symbol}`,
+    symbol,
+    mint: '',
+    entryPrice: 0,
+    currentPrice: 0,
+    targetPct: 8,
+    slPct: 4,
+    size: 0,
+    strategyId: state.activeStrategy,
+    mode: 'live',
+    txHash,
+    openedAt: new Date().toISOString(),
+    status: 'open',
+  };
+  state.livePositions.push(pos);
+  addActivity(state, {
+    type: 'live_buy',
+    message: `⚡ Live EXECUTED: ${symbol} — tx: ${txHash.slice(0, 16)}...`,
+  });
+  return true;
+}
+
+export function getAutoTradePositions(userId: number) {
+  const state = engineStates.get(userId);
+  if (!state) {
+    return {
+      autoTradeEnabled: false,
+      liveTradeEnabled: false,
+      paperPositions: [],
+      closedPaperPositions: [],
+      livePositions: [],
+      closedLivePositions: [],
+      autoTradeStats: { totalTrades: 0, wins: 0, losses: 0, totalPnlPct: 0, bestTradePct: 0, worstTradePct: 0 },
+    };
+  }
+  return {
+    autoTradeEnabled: state.autoTradeEnabled,
+    liveTradeEnabled: state.liveTradeEnabled,
+    paperPositions: state.paperPositions,
+    closedPaperPositions: state.closedPaperPositions.slice(0, 20),
+    livePositions: state.livePositions,
+    closedLivePositions: state.closedLivePositions.slice(0, 20),
+    autoTradeStats: state.autoTradeStats,
+  };
 }
 
 export function updateSolPortfolioValue(userId: number, solValue: number): { shieldActive: boolean } {

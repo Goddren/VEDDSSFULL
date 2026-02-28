@@ -22,6 +22,7 @@ Preferred communication style: Simple, everyday language.
 - **Market Open Breakout Strategy**: Automated breakout detection at key session opens (London, New York, Tokyo).
 - **HFT Strategy Modes**: Weekly strategy generation supports different high-frequency trading approaches (scalping, momentum surfing, session breakout, aggressive compound, sniper).
 - **Solana Token Scanner**: AI-powered token scanner analyzing trending Solana tokens for buy/sell signals based on sentiment, tokenomics, and whale activity.
+- **Sol Engine Auto-Trade**: Two-mode autonomous trading system for the Sol Scanner. Paper Trading mode opens/closes virtual positions server-side using real prices, tracking P&L, win rate, and stats with no wallet required. Live Trading mode queues pending signals that the frontend auto-executes via Jupiter swap when Phantom wallet is connected. Both modes integrate with the multi-strategy engine and activity feed.
 
 ### Technical Implementations
 - **Backend**: Node.js with Express, TypeScript.

@@ -2731,6 +2731,8 @@ export default function SolanaScanner() {
   const [activeStrategyId, setActiveStrategyId] = useState('momentum_surfer');
   const [selectedStrategies, setSelectedStrategies] = useState<string[]>(['momentum_surfer']);
   const [quickGuideVisible, setQuickGuideVisible] = useState<boolean>(() => !localStorage.getItem('solQuickGuideDismissed'));
+  const [paperTradeEnabled, setPaperTradeEnabled] = useState(false);
+  const [liveTradeEnabled, setLiveTradeEnabled] = useState(false);
   const [weeklyGoalTargetSol, setWeeklyGoalTargetSol] = useState('');
   const [weeklyGoalTargetPct, setWeeklyGoalTargetPct] = useState('');
   const { toast } = useToast();
@@ -2809,7 +2811,54 @@ export default function SolanaScanner() {
     mutationFn: () => apiRequest('POST', '/api/sol-engine/reset-weekly-goal', {}),
     onSuccess: () => { toast({ title: 'Weekly goal reset' }); refetchEngineStatus(); },
   });
-  
+
+  const { data: autoPositionsData, refetch: refetchAutoPositions } = useQuery<any>({
+    queryKey: ['/api/sol-engine/auto-positions'],
+    refetchInterval: (paperTradeEnabled || liveTradeEnabled) ? 10000 : false,
+  });
+
+  const autoTradeMutation = useMutation({
+    mutationFn: (opts: { paperEnabled?: boolean; liveEnabled?: boolean }) =>
+      apiRequest('POST', '/api/sol-engine/auto-trade', opts),
+    onSuccess: () => { refetchAutoPositions(); },
+  });
+
+  const confirmSignalMutation = useMutation({
+    mutationFn: (body: { signalId: string; txHash: string }) =>
+      apiRequest('POST', '/api/sol-engine/confirm-signal', body),
+    onSuccess: () => { refetchAutoPositions(); },
+  });
+
+  // Live trade: poll pending signals and auto-execute via Jupiter
+  useEffect(() => {
+    if (!liveTradeEnabled || !connected || !solEngineRunning) return;
+    const poll = setInterval(async () => {
+      try {
+        const res = await fetch('/api/sol-engine/pending-signals', { credentials: 'include' });
+        if (!res.ok) return;
+        const data = await res.json();
+        const signals: any[] = data.signals || [];
+        for (const sig of signals) {
+          try {
+            const result = await buyToken(sig.mint, sig.sizeSOL, signAndSendTransaction, walletData?.address || '');
+            if (result.success && result.signature) {
+              confirmSignalMutation.mutate({ signalId: sig.id, txHash: result.signature });
+              toast({ title: `⚡ Auto-bought ${sig.symbol}`, description: `${sig.sizeSOL.toFixed(3)} SOL via Jupiter` });
+            }
+          } catch {}
+        }
+      } catch {}
+    }, 5000);
+    return () => clearInterval(poll);
+  }, [liveTradeEnabled, connected, solEngineRunning]);
+
+  useEffect(() => {
+    if (autoPositionsData) {
+      setPaperTradeEnabled(autoPositionsData.autoTradeEnabled || false);
+      setLiveTradeEnabled(autoPositionsData.liveTradeEnabled || false);
+    }
+  }, [autoPositionsData?.autoTradeEnabled, autoPositionsData?.liveTradeEnabled]);
+
   useEffect(() => {
     if (solEngineStatus?.activeStrategies && solEngineStatus.activeStrategies.length > 0) {
       setSelectedStrategies(solEngineStatus.activeStrategies);
@@ -3373,14 +3422,22 @@ export default function SolanaScanner() {
                 type === 'trigger' ? 'border-l-yellow-500' :
                 type === 'kelly' ? 'border-l-blue-500' :
                 type === 'goal' ? 'border-l-purple-500' :
-                type === 'strategy' ? 'border-l-violet-500' : 'border-l-gray-600';
+                type === 'strategy' ? 'border-l-violet-500' :
+                type === 'paper_buy' ? 'border-l-teal-500' :
+                type === 'paper_sell' ? 'border-l-teal-700' :
+                type === 'live_signal' ? 'border-l-green-400' :
+                type === 'live_buy' ? 'border-l-green-500' : 'border-l-gray-600';
               const textColor = (type: string) =>
                 type === 'signal' ? 'text-emerald-300' :
                 type === 'shield' ? 'text-amber-300' :
                 type === 'trigger' ? 'text-yellow-300' :
                 type === 'kelly' ? 'text-blue-300' :
                 type === 'goal' ? 'text-purple-300' :
-                type === 'strategy' ? 'text-violet-300' : 'text-gray-400';
+                type === 'strategy' ? 'text-violet-300' :
+                type === 'paper_buy' ? 'text-teal-300' :
+                type === 'paper_sell' ? 'text-teal-400' :
+                type === 'live_signal' ? 'text-green-300' :
+                type === 'live_buy' ? 'text-green-400' : 'text-gray-400';
               return (
                 <div className="border-t border-gray-700/50 p-3 space-y-1.5 max-h-48 overflow-y-auto">
                   {feed.slice(0, 8).map((entry: any, i: number) => (
@@ -3491,6 +3548,174 @@ export default function SolanaScanner() {
               })}
             </div>
             <p className="text-[10px] text-gray-600 text-center">More strategies = more signals &nbsp;|&nbsp; Fewer strategies = more selective picks</p>
+          </div>
+        );
+      })()}
+
+      {/* ═══ AUTO-TRADE ENGINE ═══ */}
+      {(() => {
+        const stats = autoPositionsData?.autoTradeStats || { totalTrades: 0, wins: 0, losses: 0, totalPnlPct: 0, bestTradePct: 0 };
+        const openPaper: any[] = autoPositionsData?.paperPositions || [];
+        const openLive: any[] = autoPositionsData?.livePositions || [];
+        const closedPaper: any[] = (autoPositionsData?.closedPaperPositions || []).slice(0, 5);
+        const allOpen = [...openPaper, ...openLive];
+        const winRate = stats.totalTrades > 0 ? Math.round((stats.wins / stats.totalTrades) * 100) : 0;
+        const anyActive = paperTradeEnabled || liveTradeEnabled;
+
+        const togglePaper = (val: boolean) => {
+          setPaperTradeEnabled(val);
+          autoTradeMutation.mutate({ paperEnabled: val });
+        };
+        const toggleLive = (val: boolean) => {
+          if (val && !connected) return;
+          setLiveTradeEnabled(val);
+          autoTradeMutation.mutate({ liveEnabled: val });
+        };
+
+        return (
+          <div className="rounded-2xl border border-gray-700/50 bg-gray-900/30 p-4 space-y-4">
+            {/* Header */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className={`p-1.5 rounded-lg ${anyActive ? 'bg-emerald-500/20' : 'bg-gray-700/50'}`}>
+                  <Zap className={`w-4 h-4 ${anyActive ? 'text-emerald-400' : 'text-gray-500'}`} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <p className="font-semibold text-sm">Auto-Trade Engine</p>
+                    {anyActive && <span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" /><span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400" /></span>}
+                  </div>
+                  <p className="text-[10px] text-gray-500">Automatically opens positions when buy signals fire</p>
+                </div>
+              </div>
+              {autoTradeMutation.isPending && <span className="text-[10px] text-gray-500 animate-pulse">Updating...</span>}
+            </div>
+
+            {/* Toggle rows */}
+            <div className="space-y-2">
+              {/* Paper Trading */}
+              <div className={`flex items-center justify-between p-3 rounded-xl border ${paperTradeEnabled ? 'border-teal-500/40 bg-teal-500/10' : 'border-gray-700 bg-gray-800/30'}`}>
+                <div className="flex items-center gap-3">
+                  <span className="text-base">📄</span>
+                  <div>
+                    <p className="text-xs font-semibold text-gray-200">Paper Trading</p>
+                    <p className="text-[10px] text-gray-500">Simulates trades using real prices — no real money, no wallet needed</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => togglePaper(!paperTradeEnabled)}
+                  disabled={autoTradeMutation.isPending}
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${paperTradeEnabled ? 'bg-teal-500' : 'bg-gray-600'}`}
+                >
+                  <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${paperTradeEnabled ? 'translate-x-4' : 'translate-x-1'}`} />
+                </button>
+              </div>
+
+              {/* Live Trading */}
+              <div className={`flex items-center justify-between p-3 rounded-xl border ${liveTradeEnabled ? 'border-emerald-500/40 bg-emerald-500/10' : connected ? 'border-gray-700 bg-gray-800/30' : 'border-gray-700/30 bg-gray-800/10 opacity-50'}`}>
+                <div className="flex items-center gap-3">
+                  <span className="text-base">⚡</span>
+                  <div>
+                    <p className="text-xs font-semibold text-gray-200">Live Trading</p>
+                    <p className="text-[10px] text-gray-500">
+                      {connected ? 'Executes real Jupiter swaps via your Phantom wallet — keep this tab open' : 'Connect Phantom wallet to enable'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => toggleLive(!liveTradeEnabled)}
+                  disabled={!connected || autoTradeMutation.isPending}
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${liveTradeEnabled ? 'bg-emerald-500' : 'bg-gray-600'}`}
+                >
+                  <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${liveTradeEnabled ? 'translate-x-4' : 'translate-x-1'}`} />
+                </button>
+              </div>
+
+              {liveTradeEnabled && !connected && (
+                <div className="flex items-center gap-2 p-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                  <AlertTriangle className="w-3 h-3 text-amber-400 shrink-0" />
+                  <p className="text-[10px] text-amber-300">Connect your Phantom wallet to execute live trades</p>
+                </div>
+              )}
+            </div>
+
+            {/* Stats strip */}
+            {anyActive && stats.totalTrades > 0 && (
+              <div className="grid grid-cols-4 gap-2">
+                {[
+                  { label: 'Trades', value: stats.totalTrades },
+                  { label: 'Win Rate', value: `${winRate}%`, color: winRate >= 60 ? 'text-emerald-400' : winRate >= 40 ? 'text-yellow-400' : 'text-red-400' },
+                  { label: 'Total P&L', value: `${stats.totalPnlPct >= 0 ? '+' : ''}${stats.totalPnlPct.toFixed(1)}%`, color: stats.totalPnlPct >= 0 ? 'text-emerald-400' : 'text-red-400' },
+                  { label: 'Best Trade', value: `+${stats.bestTradePct.toFixed(1)}%`, color: 'text-emerald-400' },
+                ].map(s => (
+                  <div key={s.label} className="text-center p-2 rounded-lg bg-gray-800/50 border border-gray-700/30">
+                    <p className={`text-xs font-bold ${(s as any).color || 'text-gray-200'}`}>{s.value}</p>
+                    <p className="text-[9px] text-gray-500">{s.label}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Open positions */}
+            {allOpen.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Open Positions ({allOpen.length})</p>
+                <div className="space-y-1">
+                  {allOpen.map((pos: any) => {
+                    const gainPct = pos.entryPrice > 0 ? ((pos.currentPrice - pos.entryPrice) / pos.entryPrice) * 100 : 0;
+                    const STRAT_ICONS: Record<string, string> = { momentum_surfer: '🏄', breakout_hunter: '🚀', dip_sniper: '🎯', meme_velocity: '⚡', whale_follower: '🐋', volume_explosion: '💥', smart_money_flow: '🧠', liquidity_sweep: '🌊' };
+                    const strat = pos.strategyId ? { icon: STRAT_ICONS[pos.strategyId] || '📊' } : null;
+                    return (
+                      <div key={pos.id} className="flex items-center justify-between px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700/30">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px]">{pos.mode === 'paper' ? '📄' : '⚡'}</span>
+                          <span className="text-xs font-semibold text-gray-200">{pos.symbol}</span>
+                          {strat && <span className="text-[9px] text-gray-500">{strat.icon}</span>}
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className="text-[10px] text-gray-500">${pos.entryPrice?.toFixed(6) || '—'}</span>
+                          <span className={`text-[11px] font-bold ${gainPct >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                            {gainPct >= 0 ? '+' : ''}{gainPct.toFixed(2)}%
+                          </span>
+                          <span className="text-[9px] text-gray-600">{new Date(pos.openedAt).toLocaleTimeString()}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Closed trades */}
+            {closedPaper.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Recent Closed Trades</p>
+                <div className="space-y-1">
+                  {closedPaper.map((pos: any) => (
+                    <div key={pos.id} className="flex items-center justify-between px-3 py-1.5 rounded-lg bg-gray-900/50 border border-gray-700/20">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px]">{pos.mode === 'paper' ? '📄' : '⚡'}</span>
+                        <span className="text-xs text-gray-300">{pos.symbol}</span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className={`text-xs font-semibold ${(pos.closePnlPct || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {(pos.closePnlPct || 0) >= 0 ? '+' : ''}{(pos.closePnlPct || 0).toFixed(2)}%
+                        </span>
+                        <span className="text-[9px] text-gray-600">{pos.closedAt ? new Date(pos.closedAt).toLocaleTimeString() : ''}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Empty state */}
+            {anyActive && allOpen.length === 0 && stats.totalTrades === 0 && (
+              <div className="text-center py-4">
+                <p className="text-xs text-gray-500">Waiting for buy signals...</p>
+                <p className="text-[10px] text-gray-600 mt-1">{solEngineRunning ? 'Engine is scanning — positions will open when signals fire' : 'Start the Sol Engine above to begin scanning'}</p>
+              </div>
+            )}
           </div>
         );
       })()}

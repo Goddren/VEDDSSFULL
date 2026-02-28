@@ -13008,7 +13008,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
 
   // ============= SOL ENGINE =============
   {
-    const { startSolEngine, stopSolEngine, getSolEngineStatus, recordSolSignalResult, updateSolPortfolioValue, setSolWeeklyGoal, resetSolWeeklyGoal, setSolStrategy, setSolStrategies, getSolStrategies, triggerSolAIReview } = await import('./services/sol-engine');
+    const { startSolEngine, stopSolEngine, getSolEngineStatus, recordSolSignalResult, updateSolPortfolioValue, setSolWeeklyGoal, resetSolWeeklyGoal, setSolStrategy, setSolStrategies, getSolStrategies, triggerSolAIReview, setAutoTrade, getPendingSignals, confirmLiveTrade, getAutoTradePositions } = await import('./services/sol-engine');
 
     app.post("/api/sol-engine/start", async (req: Request, res: Response) => {
       if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
@@ -13105,6 +13105,36 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const openPositions = Array.isArray(positions) ? positions : [];
       await triggerSolAIReview(userId, openPositions);
       res.json({ success: true, message: 'AI review triggered' });
+    });
+
+    app.post("/api/sol-engine/auto-trade", async (req: Request, res: Response) => {
+      if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+      const userId = (req.user as User).id;
+      const { paperEnabled, liveEnabled } = req.body;
+      setAutoTrade(userId, {
+        paperEnabled: paperEnabled !== undefined ? !!paperEnabled : undefined,
+        liveEnabled: liveEnabled !== undefined ? !!liveEnabled : undefined,
+      });
+      res.json({ success: true, positions: getAutoTradePositions(userId) });
+    });
+
+    app.get("/api/sol-engine/pending-signals", async (req: Request, res: Response) => {
+      if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+      const signals = getPendingSignals((req.user as User).id);
+      res.json({ success: true, signals });
+    });
+
+    app.post("/api/sol-engine/confirm-signal", async (req: Request, res: Response) => {
+      if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+      const { signalId, txHash } = req.body;
+      if (!signalId || !txHash) return res.status(400).json({ error: "signalId and txHash required" });
+      const ok = confirmLiveTrade((req.user as User).id, signalId, txHash);
+      res.json({ success: ok });
+    });
+
+    app.get("/api/sol-engine/auto-positions", async (req: Request, res: Response) => {
+      if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+      res.json(getAutoTradePositions((req.user as User).id));
     });
   }
 
