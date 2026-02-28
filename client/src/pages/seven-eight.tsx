@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import {
   LineChart, Brain, Scan, Store, BarChart3,
-  Clock, Webhook, Lightbulb, ChevronDown, ChevronUp,
+  Clock, Webhook, ChevronDown, ChevronUp,
   CheckCircle2, Circle, Copy, ExternalLink, Sparkles,
   Layers, ArrowRight, Star, Filter, BookOpen, X
 } from 'lucide-react';
@@ -174,21 +174,21 @@ const PATHS: ProfitPath[] = [
   },
   {
     num: 8,
-    icon: Lightbulb,
-    title: 'What-If Scenario Analysis',
-    route: '/what-if',
-    categories: ['analysis'],
+    icon: Store,
+    title: 'My EAs — Build & Sell',
+    route: '/my-eas',
+    categories: ['passive', 'forex'],
     accent: 'orange',
     accentBg: 'bg-orange-500/10',
     accentBorder: 'border-orange-500/60',
     accentText: 'text-orange-400',
-    tagLabel: 'Analysis',
+    tagLabel: 'Passive · Forex',
     description:
-      'Before committing capital, explore any trade scenario: adjust entry, stop loss, take profit, and lot size to see projected outcomes, probability assessments, and risk-reward ratios. Build the trade before you live it.',
+      'Build your own Expert Advisor inside VEDD AI, list it on the EA Marketplace, and earn passive income every time another trader purchases your strategy. The 8th cipher: Build something that pays you while you sleep.',
     steps: [
-      'Go to What-If Analysis and enter your planned trade parameters',
-      'Adjust entry, SL, TP, and lot size to explore different outcomes',
-      'Use the probability assessment to refine your levels before going live',
+      'Go to My EAs and click "Create New EA" to define your strategy parameters',
+      'Test your EA logic using the built-in backtesting and multi-timeframe validation',
+      'Publish to the EA Marketplace, set your price, and start earning on every sale',
     ],
   },
 ];
@@ -226,6 +226,7 @@ const QUIZ_QUESTIONS = [
 function getRecommendedPath(answers: Record<string, string>): number {
   const { activity, market, goal } = answers;
   if (market === 'solana') return 3;
+  if (goal === 'passive' && activity === 'passive' && market === 'forex') return 8;
   if (goal === 'passive' || activity === 'passive') {
     if (market === 'forex') return 2;
     return 4;
