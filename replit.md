@@ -23,6 +23,7 @@ Preferred communication style: Simple, everyday language.
 - **HFT Strategy Modes**: Weekly strategy generation supports different high-frequency trading approaches (scalping, momentum surfing, session breakout, aggressive compound, sniper).
 - **Solana Token Scanner**: AI-powered token scanner analyzing trending Solana tokens for buy/sell signals based on sentiment, tokenomics, and whale activity.
 - **Sol Engine Auto-Trade**: Two-mode autonomous trading system for the Sol Scanner. Paper Trading mode opens/closes virtual positions server-side using real prices, tracking P&L, win rate, and stats with no wallet required. Live Trading mode queues pending signals that the frontend auto-executes via Jupiter swap when Phantom wallet is connected. Both modes integrate with the multi-strategy engine and activity feed.
+- **Wear to Earn — VEDD Clothing**: Users scan the QR code on their VEDD clothing tag to claim 50 VEDD tokens per item. Full page at `/vedd-clothing` with claim form, claims history, and stats. Also appears as a card on the dashboard and a section in the VEDD Tokenomics Earn tab. Links to VeddVerse clothing store. Backend stores claims in `wear_to_earn_claims` table and credits the internal wallet immediately (pending admin review).
 
 ### Technical Implementations
 - **Backend**: Node.js with Express, TypeScript.

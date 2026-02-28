@@ -1648,3 +1648,27 @@ export const solEnginePositions = pgTable("sol_engine_positions", {
 });
 
 export type SolEnginePosition = typeof solEnginePositions.$inferSelect;
+
+// Wear to Earn Claims — VEDD Clothing QR code verification
+export const wearToEarnClaims = pgTable("wear_to_earn_claims", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  claimCode: text("claim_code").notNull(),
+  productName: text("product_name").notNull(),
+  rewardAmount: real("reward_amount").notNull().default(50),
+  status: text("status").notNull().default('pending'), // 'pending' | 'approved' | 'rejected'
+  imageUrl: text("image_url"),
+  submittedAt: timestamp("submitted_at").defaultNow().notNull(),
+  processedAt: timestamp("processed_at"),
+  processedBy: integer("processed_by"),
+});
+
+export const insertWearToEarnClaimSchema = createInsertSchema(wearToEarnClaims).omit({
+  id: true,
+  submittedAt: true,
+  processedAt: true,
+  processedBy: true,
+});
+
+export type WearToEarnClaim = typeof wearToEarnClaims.$inferSelect;
+export type InsertWearToEarnClaim = z.infer<typeof insertWearToEarnClaimSchema>;

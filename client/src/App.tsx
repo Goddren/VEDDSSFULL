@@ -65,6 +65,7 @@ import SolanaScanner from "@/pages/solana-scanner";
 import SolScannerLanding from "@/pages/sol-scanner-landing";
 import SolScannerTrades from "@/pages/sol-scanner-trades";
 import VeddTokenomics from "@/pages/vedd-tokenomics";
+import VeddClothingPage from "@/pages/vedd-clothing";
 import WeeklyStrategyPage from "@/pages/weekly-strategy";
 import SevenEightPage from "@/pages/seven-eight";
 import StreakBanner from "@/components/StreakBanner";
@@ -185,6 +186,7 @@ function AppLayout() {
             <Route path="/sol-scanner" component={SolScannerLanding} />
             <Route path="/sol-scanner/trades" component={SolScannerTrades} />
             <Route path="/vedd-tokenomics" component={VeddTokenomics} />
+            <ProtectedRoute path="/vedd-clothing" component={VeddClothingPage} />
             
             <Route component={NotFound} />
           </Switch>

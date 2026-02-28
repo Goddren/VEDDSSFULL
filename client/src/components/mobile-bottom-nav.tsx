@@ -22,7 +22,8 @@ import {
   Wallet,
   User,
   LogOut,
-  Layers
+  Layers,
+  Shirt
 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { isMobileDevice } from '@/lib/pwa';
@@ -43,6 +44,7 @@ const allNavItems = [
   { name: 'Marketplace', path: '/ea-marketplace', icon: Zap },
   { name: 'Solana Scanner', path: '/solana-scanner', icon: Scan },
   { name: 'VEDD Tokenomics', path: '/vedd-tokenomics', icon: Coins },
+  { name: 'VEDD Clothing', path: '/vedd-clothing', icon: Shirt },
   { name: 'VEDD Wallet', path: '/vedd-wallet', icon: Wallet },
   { name: 'MT5 Chart Data', path: '/mt5-chart-data', icon: BarChart3 },
   { name: 'Webhooks', path: '/webhooks', icon: Webhook },

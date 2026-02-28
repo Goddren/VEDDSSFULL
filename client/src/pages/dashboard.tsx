@@ -26,7 +26,9 @@ import {
   CalendarCheck,
   Users,
   Coins,
-  Video
+  Video,
+  Shirt,
+  QrCode
 } from 'lucide-react';
 import { MarketCalendar } from '@/components/market/market-calendar';
 import { getUserLevel } from '@/lib/achievement-system';
@@ -106,6 +108,12 @@ const Dashboard: React.FC = () => {
   const { data: hostedEventsData } = useQuery<Array<{ id: number; title: string; description: string; scheduledDate: string | null; status: string; attendeeCount?: number }>>({
     queryKey: ['/api/ambassador/host/my-events'],
     enabled: !!user
+  });
+
+  const { data: wearStats } = useQuery<{ totalClaims: number; totalVeddEarned: number; pendingClaims: number }>({
+    queryKey: ['/api/wear-to-earn/stats'],
+    enabled: !!user,
+    refetchInterval: 60000,
   });
   
   // Filter to only upcoming and live registered events
@@ -699,6 +707,64 @@ const Dashboard: React.FC = () => {
             <div className="mb-6">
               <VeddRewardsPanel />
             </div>
+
+            {/* Wear to Earn Card */}
+            <Card className="mb-6 bg-gradient-to-br from-amber-950/30 via-gray-900 to-gray-900 border-amber-500/25">
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-amber-400 text-base">
+                  <Shirt className="w-5 h-5" />
+                  VEDD Clothing Rewards
+                </CardTitle>
+                <CardDescription className="text-xs">Scan your VEDD clothing tag to earn tokens</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {wearStats && wearStats.totalClaims > 0 ? (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-3 gap-3">
+                      {[
+                        { label: 'Items', value: wearStats.totalClaims, color: 'text-amber-400' },
+                        { label: 'VEDD Earned', value: `${wearStats.totalVeddEarned}`, color: 'text-yellow-400' },
+                        { label: 'Pending', value: wearStats.pendingClaims, color: 'text-blue-400' },
+                      ].map(s => (
+                        <div key={s.label} className="text-center p-2 rounded-lg bg-gray-800/50 border border-gray-700/30">
+                          <p className={`text-lg font-bold ${s.color}`}>{s.value}</p>
+                          <p className="text-[10px] text-gray-500">{s.label}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <Link href="/vedd-clothing">
+                      <Button size="sm" className="w-full bg-amber-500 hover:bg-amber-400 text-black font-semibold">
+                        <QrCode className="w-3 h-3 mr-2" />
+                        Claim Another Item
+                      </Button>
+                    </Link>
+                  </div>
+                ) : (
+                  <div className="text-center py-2 space-y-3">
+                    <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/20 mx-auto">
+                      <Shirt className="w-6 h-6 text-amber-400/60" />
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-300 font-medium">Earn 50 VEDD per item</p>
+                      <p className="text-xs text-gray-500 mt-1">Buy VEDD clothing and scan the QR code on the tag</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <Link href="/vedd-clothing" className="flex-1">
+                        <Button size="sm" className="w-full bg-amber-500 hover:bg-amber-400 text-black font-semibold text-xs">
+                          <QrCode className="w-3 h-3 mr-1" />
+                          Scan Tag
+                        </Button>
+                      </Link>
+                      <a href="https://replit.com/@goddren/VeddVerse?s=app" target="_blank" rel="noopener noreferrer" className="flex-1">
+                        <Button size="sm" variant="outline" className="w-full border-amber-500/30 text-amber-400 text-xs hover:border-amber-500">
+                          Shop
+                        </Button>
+                      </a>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
             
             {/* Economic Calendar */}
             <MarketCalendar />

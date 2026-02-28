@@ -30,7 +30,10 @@ import {
   Clock,
   DollarSign,
   Percent,
-  PieChart
+  PieChart,
+  Shirt,
+  ShoppingBag,
+  QrCode
 } from 'lucide-react';
 import { SiSolana } from 'react-icons/si';
 
@@ -648,7 +651,52 @@ export default function VeddTokenomics() {
               ))}
             </div>
             
-            <Card className="mt-6 bg-gradient-to-r from-purple-900/30 to-pink-900/30 border-purple-500/30">
+            {/* Wear to Earn — VEDD Clothing */}
+            <Card className="mt-6 overflow-hidden border-amber-500/30 bg-gradient-to-br from-amber-950/40 via-gray-900 to-gray-900">
+              <CardHeader className="pb-3 border-b border-amber-500/20">
+                <CardTitle className="flex items-center gap-2 text-amber-400">
+                  <Shirt className="h-5 w-5" />
+                  Wear to Earn — VEDD Clothing
+                </CardTitle>
+                <CardDescription>
+                  Buy official VEDD clothing and scan the QR code on the tag to earn VEDD tokens instantly
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="pt-5">
+                <div className="grid sm:grid-cols-3 gap-4 mb-5">
+                  {[
+                    { name: 'Clothing Purchase Scan', reward: '50 VEDD', description: 'Scan QR on any VEDD clothing item tag', icon: QrCode },
+                    { name: 'First Item Bonus', reward: '+25 VEDD', description: 'Bonus on your very first clothing claim', icon: Star },
+                    { name: 'Refer a Purchase', reward: '10 VEDD', description: 'When a referral buys and scans VEDD clothing', icon: Users },
+                  ].map((action, i) => (
+                    <div key={i} className="flex items-start gap-3 p-3 rounded-xl bg-amber-500/5 border border-amber-500/20">
+                      <action.icon className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-sm font-semibold text-white">{action.name}</p>
+                        <p className="text-xs text-muted-foreground">{action.description}</p>
+                        <Badge className="mt-1.5 bg-amber-500/20 text-amber-400 border-amber-500/30 text-xs">{action.reward}</Badge>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <Link href="/vedd-clothing">
+                    <Button className="bg-amber-500 hover:bg-amber-400 text-black font-bold">
+                      <QrCode className="h-4 w-4 mr-2" />
+                      Scan & Claim VEDD
+                    </Button>
+                  </Link>
+                  <a href="https://replit.com/@goddren/VeddVerse?s=app" target="_blank" rel="noopener noreferrer">
+                    <Button variant="outline" className="border-amber-500/40 text-amber-400 hover:border-amber-500">
+                      <ShoppingBag className="h-4 w-4 mr-2" />
+                      Shop VEDD Clothing
+                    </Button>
+                  </a>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="mt-4 bg-gradient-to-r from-purple-900/30 to-pink-900/30 border-purple-500/30">
               <CardContent className="py-6">
                 <div className="flex items-center justify-between">
                   <div>

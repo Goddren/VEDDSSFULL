@@ -13900,6 +13900,75 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     }
   });
 
+  // ============= WEAR TO EARN =============
+  {
+    const { wearToEarnClaims, internalWallets } = await import('../shared/schema');
+    const { eq, and, sql: drizzleSql } = await import('drizzle-orm');
+    const { db } = await import('./db');
+
+    app.post("/api/wear-to-earn/claim", async (req: Request, res: Response) => {
+      if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+      const userId = (req.user as User).id;
+      const { claimCode, productName, imageUrl } = req.body;
+      if (!claimCode || typeof claimCode !== 'string' || claimCode.trim().length < 4 || claimCode.trim().length > 64) {
+        return res.status(400).json({ error: "Invalid claim code — must be 4–64 characters" });
+      }
+      if (!productName || typeof productName !== 'string') {
+        return res.status(400).json({ error: "Product name required" });
+      }
+      const code = claimCode.trim().toUpperCase();
+      // Check duplicate for this user
+      const existing = await db.select().from(wearToEarnClaims)
+        .where(and(eq(wearToEarnClaims.userId, userId), eq(wearToEarnClaims.claimCode, code)))
+        .limit(1);
+      if (existing.length > 0) {
+        return res.status(409).json({ error: "You have already claimed this code" });
+      }
+      const rewardAmount = 50;
+      const [claim] = await db.insert(wearToEarnClaims).values({
+        userId,
+        claimCode: code,
+        productName: productName.trim(),
+        rewardAmount,
+        status: 'pending',
+        imageUrl: imageUrl || null,
+      }).returning();
+      // Credit VEDD to internal wallet immediately (optimistic)
+      await storage.addToWalletBalance(userId, rewardAmount, true);
+      res.json({ success: true, rewardAmount, claimId: claim.id });
+    });
+
+    app.get("/api/wear-to-earn/claims", async (req: Request, res: Response) => {
+      if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+      const userId = (req.user as User).id;
+      const claims = await db.select({
+        id: wearToEarnClaims.id,
+        productName: wearToEarnClaims.productName,
+        claimCode: wearToEarnClaims.claimCode,
+        status: wearToEarnClaims.status,
+        rewardAmount: wearToEarnClaims.rewardAmount,
+        submittedAt: wearToEarnClaims.submittedAt,
+        imageUrl: wearToEarnClaims.imageUrl,
+      }).from(wearToEarnClaims)
+        .where(eq(wearToEarnClaims.userId, userId))
+        .orderBy(drizzleSql`${wearToEarnClaims.submittedAt} DESC`);
+      res.json(claims);
+    });
+
+    app.get("/api/wear-to-earn/stats", async (req: Request, res: Response) => {
+      if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+      const userId = (req.user as User).id;
+      const claims = await db.select({
+        status: wearToEarnClaims.status,
+        rewardAmount: wearToEarnClaims.rewardAmount,
+      }).from(wearToEarnClaims).where(eq(wearToEarnClaims.userId, userId));
+      const totalClaims = claims.length;
+      const totalVeddEarned = claims.reduce((s, c) => s + (c.rewardAmount || 0), 0);
+      const pendingClaims = claims.filter(c => c.status === 'pending').length;
+      res.json({ totalClaims, totalVeddEarned, pendingClaims });
+    });
+  }
+
   const httpServer = createServer(app);
   
   streamingService.initialize(httpServer);
