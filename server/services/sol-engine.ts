@@ -55,6 +55,15 @@ export interface SolWeeklyGoal {
   }>;
 }
 
+export interface AgentConsensusResult {
+  symbol: string;
+  quantVerdict: 'CONFIRM_BUY' | 'WATCH' | 'SKIP';
+  quantScore: number;
+  gptVerdict: string;
+  consensus: 'STRONG_CONFIRM' | 'STRONG_SKIP' | 'CAUTION' | 'WATCH';
+  timestamp: string;
+}
+
 interface SolEngineState {
   isRunning: boolean;
   config: SolEngineConfig;
@@ -72,6 +81,7 @@ interface SolEngineState {
   lastMacro: CryptoMacroContext | null;
   weeklyGoal: SolWeeklyGoal;
   activeStrategy: string;
+  lastAgentConsensus: AgentConsensusResult[];
 }
 
 const DEX_NAMES = ['raydium', 'orca', 'meteora', 'pumpfun', 'jupiter'];
@@ -209,6 +219,7 @@ function createInitialState(config: SolEngineConfig): SolEngineState {
     lastMacro: null,
     weeklyGoal: { ...DEFAULT_WEEKLY_GOAL },
     activeStrategy: 'momentum_surfer',
+    lastAgentConsensus: [],
   };
 }
 
@@ -280,6 +291,59 @@ function computeAutoSolSize(state: SolEngineState, dex: string): number {
 
   fraction = Math.max(0.005, Math.min(0.15, fraction));
   return Math.round(portfolio * fraction * 1000) / 1000;
+}
+
+function runQuantRulesAgent(
+  token: TokenAnalysis,
+  macroBias: string | null
+): { verdict: 'CONFIRM_BUY' | 'WATCH' | 'SKIP'; score: number } {
+  let score = 0;
+
+  // Sentiment score
+  if (token.sentimentScore > 70) score += 20;
+  else if (token.sentimentScore >= 50) score += 5;
+  else if (token.sentimentScore < 40) score -= 15;
+
+  // Tokenomics score
+  if (token.tokenomicsScore > 70) score += 20;
+  else if (token.tokenomicsScore >= 50) score += 5;
+  else if (token.tokenomicsScore < 40) score -= 15;
+
+  // Whale score
+  if (token.whaleScore > 65) score += 15;
+  else if (token.whaleScore >= 45) score += 5;
+  else if (token.whaleScore < 35) score -= 10;
+
+  // Volume (txns buy/sell ratio)
+  const buys = token.token.txns24h?.buys ?? 0;
+  const sells = token.token.txns24h?.sells ?? 0;
+  const totalTxns = buys + sells;
+  if (totalTxns > 0) {
+    const buyRatio = buys / totalTxns;
+    if (buyRatio > 0.65) score += 15;
+    else if (buyRatio > 0.5) score += 5;
+    else if (buyRatio < 0.35) score -= 15;
+  }
+
+  // 24h price change — avoid overextended
+  const chg = token.token.priceChange24h;
+  if (chg > 50) score -= 15;
+  else if (chg > 20) score -= 5;
+  else if (chg >= 5) score += 10;
+  else if (chg >= 0) score += 5;
+  else score -= 5;
+
+  // Macro bias
+  if (macroBias === 'bullish') score += 10;
+  else if (macroBias === 'bearish') score -= 15;
+
+  // Risk level penalty
+  if (token.riskLevel === 'EXTREME') score -= 10;
+  else if (token.riskLevel === 'LOW') score += 5;
+
+  if (score >= 60) return { verdict: 'CONFIRM_BUY', score };
+  if (score >= 30) return { verdict: 'WATCH', score };
+  return { verdict: 'SKIP', score };
 }
 
 async function runSolAIReview(
@@ -368,13 +432,51 @@ Return ONLY the JSON array, no markdown, no explanation.`;
       decisions = JSON.parse(raw.replace(/```json|```/g, '').trim());
     } catch { return; }
 
+    const newConsensus: AgentConsensusResult[] = [];
+    const macroBias = state.lastMacro?.bias ?? null;
+
     for (const d of decisions) {
       if (!d || !d.symbol) continue;
       if (d.type === 'signal') {
+        const tokenData = buySignals.find(t => t.token.symbol === d.symbol);
+        let gptVerdict = d.action as string;
+        let consensusLabel: AgentConsensusResult['consensus'] = 'WATCH';
+
+        if (tokenData) {
+          const quant = runQuantRulesAgent(tokenData, macroBias);
+          const bothConfirm = quant.verdict === 'CONFIRM_BUY' && d.action === 'CONFIRM_BUY';
+          const bothSkip = quant.verdict === 'SKIP' && d.action === 'SKIP';
+          const disagree = (quant.verdict === 'CONFIRM_BUY' && d.action === 'SKIP') ||
+                           (quant.verdict === 'SKIP' && d.action === 'CONFIRM_BUY');
+          const oneWatch = quant.verdict === 'WATCH' || d.action === 'WATCH';
+
+          if (bothConfirm) consensusLabel = 'STRONG_CONFIRM';
+          else if (bothSkip) consensusLabel = 'STRONG_SKIP';
+          else if (disagree) consensusLabel = 'CAUTION';
+          else if (oneWatch) consensusLabel = 'WATCH';
+
+          newConsensus.push({
+            symbol: d.symbol,
+            quantVerdict: quant.verdict,
+            quantScore: quant.score,
+            gptVerdict,
+            consensus: consensusLabel,
+            timestamp: new Date().toISOString(),
+          });
+
+          const consensusMsg =
+            consensusLabel === 'STRONG_CONFIRM' ? `🤝 STRONG CONFIRM: ${d.symbol} — Both agents aligned. Word is bond.` :
+            consensusLabel === 'STRONG_SKIP' ? `❌ STRONG SKIP: ${d.symbol} — Both agents say pass. That's the mathematics.` :
+            consensusLabel === 'CAUTION' ? `⚠️ SPLIT SIGNAL: ${d.symbol} — Agents disagree. Knowledge yourself before entry.` :
+            `👁️ WATCH: ${d.symbol} — Mixed readings. Stay in the cipher.`;
+
+          addActivity(state, { type: 'signal', message: consensusMsg });
+        }
+
         const icon = d.action === 'CONFIRM_BUY' ? '🤖✅' : d.action === 'SKIP' ? '🤖❌' : '🤖👁️';
         addActivity(state, {
           type: 'signal',
-          message: `${icon} AI ${d.action}: ${d.symbol} — ${d.reason || ''}`,
+          message: `${icon} GPT-4o ${d.action}: ${d.symbol} — ${d.reason || ''}`,
         });
       } else if (d.type === 'position') {
         const icon = d.action === 'CLOSE' ? '📊🔴' : d.action === 'TRAIL' ? '📊🔼' : d.action === 'PARTIAL_CLOSE' ? '📊⚡' : '📊🟢';
@@ -383,6 +485,10 @@ Return ONLY the JSON array, no markdown, no explanation.`;
           message: `${icon} AI ${d.action}: ${d.symbol}${d.trailPct ? ` (${d.trailPct}% trail dist)` : ''} — ${d.reason || ''}`,
         });
       }
+    }
+
+    if (newConsensus.length > 0) {
+      state.lastAgentConsensus = [...newConsensus, ...state.lastAgentConsensus].slice(0, 20);
     }
   } catch {
     // Silent fallback — never crash the scan loop if AI review fails
@@ -578,6 +684,7 @@ export function getSolEngineStatus(userId: number) {
     lastMacro: state.lastMacro,
     weeklyGoal: state.weeklyGoal,
     activeStrategy: state.activeStrategy,
+    lastAgentConsensus: state.lastAgentConsensus,
   };
 }
 

@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import { useToast } from '@/hooks/use-toast';
-import { Copy, Share2, Trash2, Download, Eye, Settings, EyeOff, RefreshCw, Share, History, ArrowRight, AlertCircle, CheckCircle2, Sliders } from 'lucide-react';
+import { Copy, Share2, Trash2, Download, Eye, Settings, EyeOff, RefreshCw, Share, History, ArrowRight, AlertCircle, CheckCircle2, Sliders, DollarSign, Users, Layers, Pencil, TrendingUp, SortAsc, HelpCircle, Zap, Target, Shield, BarChart2, Clock, Info } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Dialog,
@@ -21,7 +21,6 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { ShareCardDialog } from '@/components/share-card-dialog';
-import { HelpCircle, Zap, TrendingUp, Target, Shield, BarChart2, Clock, Info } from 'lucide-react';
 import { ConfidenceExplainer } from '@/components/confidence-explainer';
 import { ATRIndicator } from '@/components/atr-indicator';
 
@@ -117,11 +116,14 @@ interface RefreshJob {
 export default function MyEAsPage() {
   const { toast } = useToast();
   const [sharePrice, setSharePrice] = useState(9.99);
+  const [editingSharedEA, setEditingSharedEA] = useState<any | null>(null);
   const [selectedEAId, setSelectedEAId] = useState<number | null>(null);
   const [previewEA, setPreviewEA] = useState<any | null>(null);
   const [historyEAId, setHistoryEAId] = useState<number | null>(null);
   const [settingsEA, setSettingsEA] = useState<any | null>(null);
   const [thresholds, setThresholds] = useState({ volatility: 30, atr: 20, price: 2 });
+  const [filterType, setFilterType] = useState<'all' | 'shared' | 'unshared'>('all');
+  const [sortType, setSortType] = useState<'newest' | 'subscribers' | 'price'>('newest');
 
   const { data: eas = [], isLoading, refetch } = useQuery({
     queryKey: ['/api/my-eas'],
@@ -268,14 +270,61 @@ export default function MyEAsPage() {
     return <div className="text-center py-8">Loading your EAs...</div>;
   }
 
+  const totalSubscribers = eas.reduce((sum: number, ea: any) => sum + (ea.shareCount || 0), 0);
+  const totalRevenue = eas.reduce((sum: number, ea: any) => sum + ((ea.shareCount || 0) * (ea.price || 0) / 100), 0);
+  const sharedCount = eas.filter((ea: any) => ea.isShared).length;
+
+  const filteredEAs = eas
+    .filter((ea: any) => {
+      if (filterType === 'shared') return ea.isShared;
+      if (filterType === 'unshared') return !ea.isShared;
+      return true;
+    })
+    .sort((a: any, b: any) => {
+      if (sortType === 'subscribers') return (b.shareCount || 0) - (a.shareCount || 0);
+      if (sortType === 'price') return (b.price || 0) - (a.price || 0);
+      return b.id - a.id;
+    });
+
   return (
     <div className="min-h-screen bg-background p-4 md:p-8">
       <div className="max-w-6xl mx-auto space-y-8">
         <div>
           <h1 className="text-4xl font-bold">My EAs</h1>
           <p className="text-muted-foreground mt-2">
-            Manage your saved Expert Advisors and share them with the community
+            Build, manage, and monetize your Expert Advisors
           </p>
+        </div>
+
+        {/* Stats Header */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <Card className="bg-gray-900/60 border-gray-700">
+            <CardContent className="p-4 flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-blue-500/20"><Layers className="w-5 h-5 text-blue-400" /></div>
+              <div>
+                <p className="text-xs text-gray-400">Total EAs</p>
+                <p className="text-2xl font-bold">{eas.length}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="bg-gray-900/60 border-gray-700">
+            <CardContent className="p-4 flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-purple-500/20"><Users className="w-5 h-5 text-purple-400" /></div>
+              <div>
+                <p className="text-xs text-gray-400">Active Listings · Subscribers</p>
+                <p className="text-2xl font-bold">{sharedCount} <span className="text-sm text-gray-400 font-normal">/ {totalSubscribers} subs</span></p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="bg-gray-900/60 border-amber-500/30 border">
+            <CardContent className="p-4 flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-amber-500/20"><DollarSign className="w-5 h-5 text-amber-400" /></div>
+              <div>
+                <p className="text-xs text-gray-400">Est. Monthly Revenue</p>
+                <p className="text-2xl font-bold text-amber-400">${totalRevenue.toFixed(2)}</p>
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
         {/* AI Confidence Info Banner */}
@@ -302,52 +351,110 @@ export default function MyEAsPage() {
           </CardContent>
         </Card>
 
+        {/* Filter & Sort Bar */}
+        {eas.length > 0 && (
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex gap-1">
+              {(['all', 'shared', 'unshared'] as const).map(f => (
+                <button
+                  key={f}
+                  onClick={() => setFilterType(f)}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${filterType === f ? 'bg-amber-500 text-black' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}
+                >
+                  {f === 'all' ? 'All' : f === 'shared' ? '🟢 Shared' : '⬜ Not Shared'}
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center gap-2 ml-auto">
+              <SortAsc className="w-4 h-4 text-gray-400" />
+              <select
+                value={sortType}
+                onChange={e => setSortType(e.target.value as any)}
+                className="bg-gray-800 border border-gray-700 rounded-md px-2 py-1.5 text-xs text-gray-300"
+              >
+                <option value="newest">Newest</option>
+                <option value="subscribers">Most Subscribers</option>
+                <option value="price">Highest Price</option>
+              </select>
+            </div>
+          </div>
+        )}
+
         {eas.length === 0 ? (
-          <Card>
-            <CardContent className="pt-12 text-center">
-              <p className="text-muted-foreground mb-4">No saved EAs yet</p>
+          <Card className="bg-gray-900/60 border-gray-700">
+            <CardContent className="pt-10 pb-10 text-center">
+              <div className="flex justify-center gap-8 mb-6">
+                {[
+                  { icon: <TrendingUp className="w-6 h-6 text-blue-400" />, label: '1. Generate EA', sub: 'From chart analysis' },
+                  { icon: <Settings className="w-6 h-6 text-amber-400" />, label: '2. Customize', sub: 'Set thresholds & test' },
+                  { icon: <DollarSign className="w-6 h-6 text-green-400" />, label: '3. Sell & Earn', sub: 'Publish to marketplace' },
+                ].map((step, i) => (
+                  <div key={i} className="flex flex-col items-center gap-2">
+                    <div className="p-3 rounded-full bg-gray-800">{step.icon}</div>
+                    <p className="text-sm font-medium">{step.label}</p>
+                    <p className="text-xs text-gray-500">{step.sub}</p>
+                  </div>
+                ))}
+              </div>
               <Link href="/multi-timeframe">
-                <Button>Generate Your First EA</Button>
+                <Button className="bg-amber-500 hover:bg-amber-600 text-black font-semibold">Generate Your First EA</Button>
               </Link>
             </CardContent>
           </Card>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {eas.map((ea: any) => (
-              <Card key={ea.id} className={ea.isShared ? 'border-green-500' : ''}>
-                <CardHeader>
+            {filteredEAs.map((ea: any) => {
+              const monthlyRevenue = ((ea.shareCount || 0) * (ea.price || 0) / 100).toFixed(2);
+              const borderColor = ea.isShared && (ea.shareCount || 0) > 0
+                ? 'border-l-4 border-l-green-500'
+                : ea.isShared
+                  ? 'border-l-4 border-l-amber-500'
+                  : 'border-l-4 border-l-gray-600';
+              return (
+              <Card key={ea.id} className={`${borderColor} bg-gray-900/40`}>
+                <CardHeader className="pb-2">
                   <div className="flex items-start justify-between">
                     <div>
-                      <CardTitle className="text-xl">{ea.name}</CardTitle>
+                      <CardTitle className="text-lg">{ea.name}</CardTitle>
                       <CardDescription>{ea.symbol} • {ea.platformType}</CardDescription>
                     </div>
-                    {ea.isShared && (
-                      <Badge className="bg-green-500">Shared</Badge>
-                    )}
+                    <div className="flex flex-col items-end gap-1">
+                      {ea.isShared && <Badge className="bg-green-500/80 text-white text-xs">Listed</Badge>}
+                      {ea.isShared && parseFloat(monthlyRevenue) > 0 && (
+                        <Badge className="bg-amber-500/20 text-amber-400 border border-amber-500/30 text-xs">
+                          Est. ${monthlyRevenue}/mo
+                        </Badge>
+                      )}
+                    </div>
                   </div>
                   {ea.description && (
-                    <p className="text-sm mt-2 text-muted-foreground">{ea.description}</p>
+                    <p className="text-xs mt-1 text-muted-foreground">{ea.description}</p>
                   )}
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="grid grid-cols-2 gap-2 text-sm">
                     <div>
-                      <p className="text-muted-foreground">Strategy</p>
-                      <p className="font-medium capitalize">{ea.strategyType || 'N/A'}</p>
+                      <p className="text-muted-foreground text-xs">Strategy</p>
+                      <p className="font-medium capitalize text-sm">{ea.strategyType || 'N/A'}</p>
                     </div>
                     <div>
-                      <p className="text-muted-foreground">ATR-Based SL</p>
+                      <p className="text-muted-foreground text-xs">ATR-Based SL</p>
                       <ATRIndicator symbol={ea.symbol} />
                     </div>
                     {ea.isShared && (
                       <>
                         <div>
-                          <p className="text-muted-foreground">Price</p>
-                          <p className="font-medium">${(ea.price / 100).toFixed(2)}</p>
+                          <p className="text-muted-foreground text-xs">Price</p>
+                          <p className="font-medium text-sm">{ea.price != null ? `$${(ea.price / 100).toFixed(2)}/mo` : 'Free'}</p>
                         </div>
                         <div>
-                          <p className="text-muted-foreground">Subscribers</p>
-                          <p className="font-medium">{ea.shareCount || 0}</p>
+                          <p className="text-muted-foreground text-xs">Subscribers</p>
+                          <div>
+                            <p className="font-medium text-sm">{ea.shareCount || 0}</p>
+                            <div className="mt-1 h-1 w-full bg-gray-700 rounded-full overflow-hidden">
+                              <div className="h-full bg-green-500 rounded-full" style={{ width: `${Math.min(100, ((ea.shareCount || 0) / 20) * 100)}%` }} />
+                            </div>
+                          </div>
                         </div>
                       </>
                     )}
@@ -721,60 +828,112 @@ export default function MyEAsPage() {
                         <DialogTrigger asChild>
                           <Button
                             size="sm"
-                            variant="outline"
-                            onClick={() => setSelectedEAId(ea.id)}
+                            className="bg-green-600 hover:bg-green-700 text-white"
+                            onClick={() => { setSelectedEAId(ea.id); setSharePrice(9.99); }}
                             data-testid={`button-share-ea-${ea.id}`}
                           >
                             <Share2 className="w-4 h-4 mr-1" />
-                            Share
+                            List & Sell
                           </Button>
                         </DialogTrigger>
                         <DialogContent>
                           <DialogHeader>
-                            <DialogTitle>Share EA and Earn</DialogTitle>
+                            <DialogTitle>Publish EA to Marketplace</DialogTitle>
+                            <DialogDescription>Set your monthly subscription price and start earning passive income.</DialogDescription>
                           </DialogHeader>
                           <div className="space-y-4">
                             <div>
-                              <label className="text-sm font-medium">
-                                Subscription Price ($/month)
-                              </label>
-                              <Input
-                                type="number"
-                                value={sharePrice}
-                                onChange={(e) => setSharePrice(parseFloat(e.target.value))}
-                                min="1"
-                                max="999"
-                                step="0.01"
-                              />
-                              <p className="text-xs text-muted-foreground mt-1">
-                                Set the monthly subscription price for this EA
-                              </p>
+                              <label className="text-sm font-medium">Monthly Price</label>
+                              <div className="relative mt-1">
+                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-medium">$</span>
+                                <Input
+                                  type="number"
+                                  value={sharePrice}
+                                  onChange={(e) => setSharePrice(parseFloat(e.target.value) || 0)}
+                                  min="1" max="999" step="0.01"
+                                  className="pl-7"
+                                />
+                              </div>
+                              <p className="text-xs text-muted-foreground mt-1">You keep 70% after platform fee</p>
+                            </div>
+                            <div className="bg-gray-800/60 rounded-lg p-3 text-sm space-y-1">
+                              <p className="text-gray-400 text-xs font-medium">Earnings preview</p>
+                              <p>10 subscribers → <span className="text-green-400 font-semibold">${(sharePrice * 0.7 * 10).toFixed(2)}/mo</span></p>
+                              <p>50 subscribers → <span className="text-green-400 font-semibold">${(sharePrice * 0.7 * 50).toFixed(2)}/mo</span></p>
                             </div>
                             <Button
                               onClick={() => shareEAMutation.mutate(ea.id)}
                               disabled={shareEAMutation.isPending}
-                              className="w-full"
+                              className="w-full bg-green-600 hover:bg-green-700"
                             >
-                              {shareEAMutation.isPending ? 'Sharing...' : 'Publish to Marketplace'}
+                              {shareEAMutation.isPending ? 'Publishing...' : 'Publish to Marketplace'}
                             </Button>
                           </div>
                         </DialogContent>
                       </Dialog>
                     ) : (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          if (confirm('Remove this EA from the marketplace? Existing subscribers will lose access.')) {
-                            unshareEAMutation.mutate(ea.id);
-                          }
-                        }}
-                        disabled={unshareEAMutation.isPending}
-                        data-testid={`button-unshare-ea-${ea.id}`}
-                      >
-                        <EyeOff className="w-4 h-4 mr-1" />
-                        {unshareEAMutation.isPending ? 'Removing...' : 'Unshare'}
-                      </Button>
+                      <div className="flex gap-1">
+                        <Dialog>
+                          <DialogTrigger asChild>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="border-amber-500/50 text-amber-400 hover:bg-amber-500/10"
+                              onClick={() => { setEditingSharedEA(ea); setSharePrice(ea.price != null ? ea.price / 100 : 9.99); }}
+                            >
+                              <Pencil className="w-3 h-3 mr-1" />
+                              Edit Price
+                            </Button>
+                          </DialogTrigger>
+                          <DialogContent>
+                            <DialogHeader>
+                              <DialogTitle>Update Price — {ea.name}</DialogTitle>
+                              <DialogDescription>Change the monthly subscription price for this listed EA.</DialogDescription>
+                            </DialogHeader>
+                            <div className="space-y-4">
+                              <div>
+                                <label className="text-sm font-medium">New Monthly Price</label>
+                                <div className="relative mt-1">
+                                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-medium">$</span>
+                                  <Input
+                                    type="number"
+                                    value={sharePrice}
+                                    onChange={(e) => setSharePrice(parseFloat(e.target.value) || 0)}
+                                    min="1" max="999" step="0.01"
+                                    className="pl-7"
+                                  />
+                                </div>
+                                <p className="text-xs text-muted-foreground mt-1">Current: {ea.price != null ? `$${(ea.price / 100).toFixed(2)}/mo` : 'Free'}</p>
+                              </div>
+                              <div className="bg-gray-800/60 rounded-lg p-3 text-sm space-y-1">
+                                <p className="text-gray-400 text-xs font-medium">Revenue with {ea.shareCount || 0} current subscribers</p>
+                                <p>At new price → <span className="text-amber-400 font-semibold">${(sharePrice * 0.7 * (ea.shareCount || 0)).toFixed(2)}/mo</span></p>
+                              </div>
+                              <Button
+                                onClick={() => shareEAMutation.mutate(ea.id)}
+                                disabled={shareEAMutation.isPending}
+                                className="w-full"
+                              >
+                                {shareEAMutation.isPending ? 'Updating...' : 'Update Price'}
+                              </Button>
+                            </div>
+                          </DialogContent>
+                        </Dialog>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            if (confirm('Remove this EA from the marketplace? Existing subscribers will lose access.')) {
+                              unshareEAMutation.mutate(ea.id);
+                            }
+                          }}
+                          disabled={unshareEAMutation.isPending}
+                          data-testid={`button-unshare-ea-${ea.id}`}
+                        >
+                          <EyeOff className="w-3 h-3 mr-1" />
+                          {unshareEAMutation.isPending ? 'Removing...' : 'Unlist'}
+                        </Button>
+                      </div>
                     )}
 
                     <Button
@@ -793,7 +952,8 @@ export default function MyEAsPage() {
                   </div>
                 </CardContent>
               </Card>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

@@ -3138,7 +3138,7 @@ Return ONLY a JSON object with this structure:
       if (ea.userId !== (req.user as User).id) return res.status(403).json({ error: "Forbidden" });
       
       const { price } = req.body;
-      const priceInCents = Math.round(price * 100);
+      const priceInCents = Math.round(price);
       const shared = await storage.shareEA(parseInt(req.params.id), priceInCents);
       res.json({ success: true, ea: shared });
     } catch (error) {

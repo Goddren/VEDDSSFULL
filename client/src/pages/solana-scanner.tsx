@@ -162,6 +162,79 @@ function formatPrice(price: string): string {
   return `$${num.toFixed(2)}`;
 }
 
+function AgentPanel({ consensus, agreementRate, solEngineRunning }: {
+  consensus: any[];
+  agreementRate: number | null;
+  solEngineRunning: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const consensusColor = (c: string) => {
+    if (c === 'STRONG_CONFIRM') return 'text-green-400 bg-green-500/10 border border-green-500/30';
+    if (c === 'STRONG_SKIP') return 'text-red-400 bg-red-500/10 border border-red-500/30';
+    if (c === 'CAUTION') return 'text-amber-400 bg-amber-500/10 border border-amber-500/30';
+    return 'text-cyan-400 bg-cyan-500/10 border border-cyan-500/30';
+  };
+  const consensusIcon = (c: string) => c === 'STRONG_CONFIRM' ? '🤝' : c === 'STRONG_SKIP' ? '❌' : c === 'CAUTION' ? '⚠️' : '👁️';
+
+  return (
+    <div className={`rounded-xl border transition-all duration-300 ${solEngineRunning ? 'border-violet-500/40 bg-violet-950/20' : 'border-gray-700/40 bg-gray-900/20'}`}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between p-4 text-left"
+      >
+        <div className="flex items-center gap-3">
+          <div className={`p-2 rounded-lg ${solEngineRunning ? 'bg-violet-500/20' : 'bg-gray-800'}`}>
+            <Brain className="w-4 h-4 text-violet-400" />
+          </div>
+          <div>
+            <p className="font-semibold text-sm">AI Agent Consensus</p>
+            <p className="text-xs text-gray-500">Two independent agents review every signal</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="flex gap-2">
+            <span className="text-xs px-2 py-0.5 rounded-full bg-green-500/10 text-green-400 border border-green-500/20">Agent 1: GPT-4o ●</span>
+            <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">Agent 2: Quant Rules ●</span>
+          </div>
+          {agreementRate !== null && (
+            <span className="text-xs px-2 py-0.5 rounded-full bg-violet-500/10 text-violet-400 border border-violet-500/20">{agreementRate}% agreement</span>
+          )}
+          <span className="text-gray-500 text-xs">{open ? '▲' : '▼'}</span>
+        </div>
+      </button>
+      {open && (
+        <div className="border-t border-gray-700/50 p-4 space-y-3">
+          <p className="text-xs text-gray-400">STRONG CONFIRM requires both agents to agree. Split signals show as CAUTION — trade at your own discretion.</p>
+          {consensus.length === 0 ? (
+            <p className="text-xs text-gray-500 text-center py-4">No consensus data yet — start the Sol Engine to generate signals.</p>
+          ) : (
+            <div className="space-y-2">
+              <div className="grid grid-cols-4 gap-2 text-[10px] text-gray-500 font-medium px-2">
+                <span>Token</span><span>Quant</span><span>GPT-4o</span><span>Consensus</span>
+              </div>
+              {consensus.slice(0, 10).map((c: any, i: number) => (
+                <div key={i} className="grid grid-cols-4 gap-2 items-center text-xs px-2 py-1 rounded-lg bg-gray-800/40">
+                  <span className="font-medium truncate">{c.symbol}</span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded ${c.quantVerdict === 'CONFIRM_BUY' ? 'text-green-400' : c.quantVerdict === 'SKIP' ? 'text-red-400' : 'text-cyan-400'}`}>
+                    {c.quantVerdict === 'CONFIRM_BUY' ? '✅' : c.quantVerdict === 'SKIP' ? '❌' : '👁️'} {c.quantScore}pts
+                  </span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded ${c.gptVerdict === 'CONFIRM_BUY' ? 'text-green-400' : c.gptVerdict === 'SKIP' ? 'text-red-400' : 'text-cyan-400'}`}>
+                    {c.gptVerdict === 'CONFIRM_BUY' ? '✅' : c.gptVerdict === 'SKIP' ? '❌' : '👁️'} {c.gptVerdict?.replace('_', ' ')}
+                  </span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${consensusColor(c.consensus)}`}>
+                    {consensusIcon(c.consensus)} {c.consensus?.replace('_', ' ')}
+                  </span>
+                </div>
+              ))}
+              <p className="text-[10px] text-gray-600 text-center pt-1">🤝 Both agree · ⚠️ Caution · 👁️ Watch · ❌ Skip</p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TokenCard({ analysis, onBuy, isBuying }: { analysis: TokenAnalysis; onBuy?: (tokenAddress: string, symbol: string) => void; isBuying?: boolean }) {
   const { toast } = useToast();
   const { token, signal, confidence, holdDuration, reasoning, sentimentScore, tokenomicsScore, whaleScore, riskLevel, entryPrice, targetPrice, stopLoss } = analysis;
@@ -3270,6 +3343,15 @@ export default function SolanaScanner() {
             )}
           </div>
         );
+      })()}
+
+      {/* ═══ AI AGENT CONSENSUS PANEL ═══ */}
+      {(() => {
+        const consensus: any[] = solEngineStatus?.lastAgentConsensus || [];
+        const agreementRate = consensus.length > 0
+          ? Math.round((consensus.filter((c: any) => c.consensus === 'STRONG_CONFIRM' || c.consensus === 'STRONG_SKIP').length / consensus.length) * 100)
+          : null;
+        return <AgentPanel consensus={consensus} agreementRate={agreementRate} solEngineRunning={solEngineRunning} />;
       })()}
 
       <div className="flex gap-2">
