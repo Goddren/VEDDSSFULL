@@ -378,14 +378,33 @@ export function SolanaWalletProvider({ children }: { children: ReactNode }) {
     provider.on('disconnect', handleDisconnect);
     provider.on('accountChanged', handleAccountChange);
 
-    provider.connect({ onlyIfTrusted: true }).catch(() => {});
+    // Passive restore: Phantom already injects publicKey for trusted sites on load.
+    // Never call provider.connect() automatically — even onlyIfTrusted causes Phantom
+    // to show its own "not authorized" error notification when the site isn't trusted yet.
+    if (provider.publicKey) {
+      const address = provider.publicKey.toString();
+      fetchTokenBalances(address).then(balances => {
+        setWalletData({
+          address,
+          solBalance: balances.solBalance || 0,
+          veddBalance: balances.veddBalance || 0,
+          isAmbassador: balances.isAmbassador || false,
+          ambassadorNftMint: balances.ambassadorNftMint || null,
+          membershipTier: balances.membershipTier || 'none',
+          hasVeddNft: balances.hasVeddNft || false,
+          membershipNftMint: balances.membershipNftMint || null,
+        });
+        setWalletType('phantom');
+        setConnected(true);
+      }).catch(() => {});
+    }
 
     return () => {
       provider.off('connect', handleConnect);
       provider.off('disconnect', handleDisconnect);
       provider.off('accountChanged', handleAccountChange);
     };
-  }, [refreshWalletData]);
+  }, [refreshWalletData, fetchTokenBalances]);
 
   return (
     <WalletContext.Provider
