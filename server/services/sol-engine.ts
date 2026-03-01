@@ -145,6 +145,7 @@ interface SolEngineState {
   closedLivePositions: SolAutoPosition[];
   pendingSignals: SolPendingSignal[];
   pendingExits: SolPendingExit[];
+  signalCooldowns: Map<string, number>; // mint -> timestamp of last rejection/failure
   autoTradeTP: number;
   autoTradeSL: number;
   autoTrailActivationPct: number;
@@ -531,6 +532,7 @@ function createInitialState(config: SolEngineConfig): SolEngineState {
     closedLivePositions: [],
     pendingSignals: [],
     pendingExits: [],
+    signalCooldowns: new Map(),
     autoTradeTP: 8,
     autoTradeSL: 4,
     autoTrailActivationPct: 4,
@@ -1085,7 +1087,10 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
         // Live auto-trade: queue pending signal
         if (state.liveTradeEnabled && sizeSOL > 0 && tokenPrice > 0) {
           const alreadyQueued = state.pendingSignals.some(s => s.symbol === analysis.token.symbol);
-          if (!alreadyQueued) {
+          const SIGNAL_COOLDOWN_MS = 5 * 60 * 1000;
+          const lastRejected = state.signalCooldowns.get(tokenMint);
+          const onCooldown = lastRejected && (Date.now() - lastRejected) < SIGNAL_COOLDOWN_MS;
+          if (!alreadyQueued && !onCooldown) {
             const created = new Date();
             const expires = new Date(created.getTime() + 60000);
             const sig: SolPendingSignal = {
@@ -1486,6 +1491,15 @@ export function getPendingSignals(userId: number): SolPendingSignal[] {
   const valid = state.pendingSignals.filter(s => new Date(s.expiresAt).getTime() > now);
   state.pendingSignals = []; // clear after pickup
   return valid;
+}
+
+export function cancelSignal(userId: number, mint: string): void {
+  const state = engineStates.get(userId);
+  if (!state) return;
+  // Remove any queued pending signal for this mint
+  state.pendingSignals = state.pendingSignals.filter(s => s.mint !== mint);
+  // Put it on a 5-minute cooldown so the engine doesn't re-queue it immediately
+  state.signalCooldowns.set(mint, Date.now());
 }
 
 export function confirmLiveTrade(

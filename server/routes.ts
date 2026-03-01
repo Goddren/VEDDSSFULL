@@ -13014,7 +13014,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
 
   // ============= SOL ENGINE =============
   {
-    const { startSolEngine, stopSolEngine, getSolEngineStatus, recordSolSignalResult, updateSolPortfolioValue, setSolWeeklyGoal, resetSolWeeklyGoal, setSolStrategy, setSolStrategies, getSolStrategies, triggerSolAIReview, setAutoTrade, getPendingSignals, confirmLiveTrade, getAutoTradePositions, getPendingExits, confirmLiveExit, saveServerWallet, clearServerWallet, getServerWalletStatus } = await import('./services/sol-engine');
+    const { startSolEngine, stopSolEngine, getSolEngineStatus, recordSolSignalResult, updateSolPortfolioValue, setSolWeeklyGoal, resetSolWeeklyGoal, setSolStrategy, setSolStrategies, getSolStrategies, triggerSolAIReview, setAutoTrade, getPendingSignals, confirmLiveTrade, cancelSignal, getAutoTradePositions, getPendingExits, confirmLiveExit, saveServerWallet, clearServerWallet, getServerWalletStatus } = await import('./services/sol-engine');
 
     app.post("/api/sol-engine/start", async (req: Request, res: Response) => {
       if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
@@ -13143,6 +13143,14 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         : undefined;
       const ok = confirmLiveTrade((req.user as User).id, signalId, txHash, tradeData);
       res.json({ success: ok });
+    });
+
+    app.post("/api/sol-engine/cancel-signal", async (req: Request, res: Response) => {
+      if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+      const { mint } = req.body;
+      if (!mint) return res.status(400).json({ error: "mint required" });
+      cancelSignal((req.user as User).id, String(mint));
+      res.json({ success: true });
     });
 
     app.get("/api/sol-engine/auto-positions", async (req: Request, res: Response) => {

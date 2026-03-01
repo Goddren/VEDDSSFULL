@@ -780,6 +780,7 @@ function AutoTradingPanel() {
   const [buyingToken, setBuyingToken] = useState<string | null>(null);
   const [autoTradeLog, setAutoTradeLog] = useState<string[]>([]);
   const [recentlyBought, setRecentlyBought] = useState<Set<string>>(new Set());
+  const [failedCooldowns, setFailedCooldowns] = useState<Map<string, number>>(new Map());
   const { connected, connecting, walletData, connect, disconnect, signAndSendTransaction, getPublicKey, refreshWalletData, error } = useSolanaWallet();
   const { permission, soundEnabled, requestPermission, playSound, notifyTradeSignal, notifyTradeExecuted, notifyTakeProfitHit, notifyStopLossHit, toggleSound } = useNotifications();
   
@@ -964,6 +965,9 @@ function AutoTradingPanel() {
     if (!publicKey) return;
     
     const executeAutoTrade = async () => {
+      // T004: Only one swap in flight at a time — prevents double popups
+      if (buyingToken) return;
+
       const minConfidence = wallet.minSignalConfidence || 70;
       const maxPositions = wallet.maxPositions || 3;
       const tradeAmount = wallet.tradeAmountSol || 0.1;
@@ -983,12 +987,17 @@ function AutoTradingPanel() {
         return;
       }
       
+      const FAIL_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+      const now = Date.now();
+
       // Find strong buy signals we haven't already bought (check actual wallet tokens)
       const strongSignals = scanData.tokens.filter(t => 
         (t.signal === 'STRONG_BUY' || t.signal === 'BUY') &&
         t.confidence >= minConfidence &&
-        !walletTokenMints.has(t.token.address) && // Don't buy tokens we already hold
-        !recentlyBought.has(t.token.address)
+        !walletTokenMints.has(t.token.address) &&
+        !recentlyBought.has(t.token.address) &&
+        // T001: Skip tokens that failed recently (5-minute cooldown)
+        !(failedCooldowns.get(t.token.address) && now - (failedCooldowns.get(t.token.address) as number) < FAIL_COOLDOWN_MS)
       );
       
       if (strongSignals.length === 0) return;
@@ -1019,7 +1028,7 @@ function AutoTradingPanel() {
           tradeAmount,
           signAndSendTransaction,
           publicKey.toString(),
-          150 // 1.5% slippage for auto-trades
+          300 // 3% slippage for auto-trades — meme tokens need wider tolerance
         );
         
         if (result.success) {
@@ -1096,16 +1105,28 @@ function AutoTradingPanel() {
         } else {
           setAutoTradeLog(prev => [...prev.slice(-9), `${timestamp}: FAILED - ${result.error}`]);
           playSound('error');
-          // Remove from recently bought so we can retry
-          setRecentlyBought(prev => {
-            const next = new Set(prev);
-            next.delete(tokenAddress);
-            return next;
-          });
+          // T001: Add 5-minute cooldown so the same token isn't retried immediately
+          setFailedCooldowns(prev => new Map(prev).set(tokenAddress, Date.now()));
+          // If user explicitly rejected the Phantom popup, notify the server
+          const isRejection = result.error && (
+            result.error.includes('rejected') ||
+            result.error.includes('cancelled') ||
+            result.error.includes('User rejected')
+          );
+          if (isRejection) {
+            fetch('/api/sol-engine/cancel-signal', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ mint: tokenAddress }),
+              credentials: 'include',
+            }).catch(() => {});
+          }
         }
       } catch (error: any) {
         setAutoTradeLog(prev => [...prev.slice(-9), `${timestamp}: ERROR - ${error.message}`]);
         playSound('error');
+        // T001: Cooldown on unexpected errors too
+        setFailedCooldowns(prev => new Map(prev).set(tokenAddress, Date.now()));
       } finally {
         setBuyingToken(null);
       }
