@@ -46,6 +46,12 @@ export interface SolAutoPosition {
   closedAt?: string;
   closePnlPct?: number;
   status: 'open' | 'closed';
+  // Trailing stop
+  peakPrice?: number;
+  trailingActive?: boolean;
+  trailActivationPct?: number;
+  trailDistancePct?: number;
+  closeReason?: 'tp' | 'sl' | 'trail';
 }
 
 export interface SolPendingSignal {
@@ -141,6 +147,8 @@ interface SolEngineState {
   pendingExits: SolPendingExit[];
   autoTradeTP: number;
   autoTradeSL: number;
+  autoTrailActivationPct: number;
+  autoTrailDistancePct: number;
   autoTradeStats: {
     totalTrades: number;
     wins: number;
@@ -303,7 +311,7 @@ async function saveEngineState(userId: number, state: SolEngineState): Promise<v
       weeklyGoal: state.weeklyGoal as any,
       autoTradeStats: state.autoTradeStats as any,
       updatedAt: new Date(),
-    }).onConflictDoUpdate({
+    } as any).onConflictDoUpdate({
       target: solEngineSettings.userId,
       set: {
         activeStrategy: state.activeStrategy,
@@ -315,7 +323,7 @@ async function saveEngineState(userId: number, state: SolEngineState): Promise<v
         weeklyGoal: state.weeklyGoal as any,
         autoTradeStats: state.autoTradeStats as any,
         updatedAt: new Date(),
-      },
+      } as any,
     });
   } catch (err) {
     console.error('[SolEngine] saveEngineState settings error:', err);
@@ -370,6 +378,8 @@ async function loadEngineStateFromDb(userId: number, state: SolEngineState): Pro
       state.liveTradeEnabled = settings.liveTradeEnabled;
       state.autoTradeTP = settings.autoTradeTP;
       state.autoTradeSL = settings.autoTradeSL;
+      state.autoTrailActivationPct = (settings as any).autoTrailActivationPct ?? 4;
+      state.autoTrailDistancePct = (settings as any).autoTrailDistancePct ?? 3;
       if (settings.weeklyGoal && typeof settings.weeklyGoal === 'object') {
         state.weeklyGoal = { ...DEFAULT_WEEKLY_GOAL, ...(settings.weeklyGoal as Partial<SolWeeklyGoal>) };
       }
@@ -523,6 +533,8 @@ function createInitialState(config: SolEngineConfig): SolEngineState {
     pendingExits: [],
     autoTradeTP: 8,
     autoTradeSL: 4,
+    autoTrailActivationPct: 4,
+    autoTrailDistancePct: 3,
     autoTradeStats: { totalTrades: 0, wins: 0, losses: 0, totalPnlPct: 0, bestTradePct: 0, worstTradePct: 0 },
   };
 }
@@ -809,7 +821,6 @@ function monitorPaperPositions(state: SolEngineState) {
   const openPositions = state.paperPositions.filter(p => p.status === 'open');
   if (openPositions.length === 0) return;
 
-  // Build price lookup from last scan results
   const priceMap: Record<string, number> = {};
   for (const r of state.lastResults) {
     priceMap[r.token.symbol] = parseFloat(r.token.priceUsd) || 0;
@@ -822,21 +833,48 @@ function monitorPaperPositions(state: SolEngineState) {
     pos.currentPrice = currentPrice;
     const gainPct = ((currentPrice - pos.entryPrice) / pos.entryPrice) * 100;
 
+    // ── Update peak price ────────────────────────────────────────────────
+    if (!pos.peakPrice || currentPrice > pos.peakPrice) {
+      pos.peakPrice = currentPrice;
+    }
+
+    // ── Trailing stop logic ──────────────────────────────────────────────
+    const activationPct = pos.trailActivationPct ?? state.autoTrailActivationPct;
+    const distancePct = pos.trailDistancePct ?? state.autoTrailDistancePct;
+
+    if (!pos.trailingActive && gainPct >= activationPct) {
+      pos.trailingActive = true;
+      addActivity(state, {
+        type: 'info',
+        message: `🔒 Trail LOCKED: ${pos.symbol} hit +${gainPct.toFixed(1)}% — trailing stop now active, protecting gains from peak`,
+      });
+    }
+
+    let isTrailHit = false;
+    if (pos.trailingActive && pos.peakPrice) {
+      const trailFloor = pos.peakPrice * (1 - distancePct / 100);
+      if (currentPrice <= trailFloor) {
+        isTrailHit = true;
+      }
+    }
+
     const isWin = gainPct >= pos.targetPct;
     const isLoss = gainPct <= -pos.slPct;
 
-    if (isWin || isLoss) {
+    if (isWin || isLoss || isTrailHit) {
+      const reason = isTrailHit ? 'trail' : isWin ? 'tp' : 'sl';
       pos.status = 'closed';
       pos.closedAt = new Date().toISOString();
       pos.closePnlPct = gainPct;
+      pos.closeReason = reason;
 
       state.closedPaperPositions.unshift(pos);
       if (state.closedPaperPositions.length > 50) state.closedPaperPositions = state.closedPaperPositions.slice(0, 50);
 
-      // Update stats
       state.autoTradeStats.totalTrades++;
       state.autoTradeStats.totalPnlPct += gainPct;
-      if (isWin) {
+      const isProfit = gainPct > 0;
+      if (isProfit) {
         state.autoTradeStats.wins++;
         if (gainPct > state.autoTradeStats.bestTradePct) state.autoTradeStats.bestTradePct = gainPct;
       } else {
@@ -844,14 +882,15 @@ function monitorPaperPositions(state: SolEngineState) {
         if (gainPct < state.autoTradeStats.worstTradePct) state.autoTradeStats.worstTradePct = gainPct;
       }
 
+      const emoji = isTrailHit ? '🔒' : isWin ? '✅' : '❌';
+      const label = isTrailHit ? `TRAIL EXIT` : isWin ? 'WIN' : 'LOSS';
       addActivity(state, {
         type: 'paper_sell',
-        message: `${isWin ? '✅' : '❌'} Paper ${isWin ? 'WIN' : 'LOSS'}: ${pos.symbol} closed @ $${currentPrice.toFixed(6)} — ${gainPct >= 0 ? '+' : ''}${gainPct.toFixed(2)}% | ${pos.size.toFixed(3)} SOL ${isWin ? 'profit sealed' : 'lesson built'}`,
+        message: `${emoji} Paper ${label}: ${pos.symbol} closed @ $${currentPrice.toFixed(6)} — ${gainPct >= 0 ? '+' : ''}${gainPct.toFixed(2)}% | ${pos.size.toFixed(3)} SOL ${isTrailHit ? '(trailing stop hit)' : isWin ? 'profit sealed' : 'lesson built'}`,
       });
     }
   }
 
-  // Remove closed from open list
   state.paperPositions = state.paperPositions.filter(p => p.status === 'open');
 }
 
@@ -1026,11 +1065,15 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
               mode: 'paper',
               openedAt: now2,
               status: 'open',
+              peakPrice: tokenPrice,
+              trailingActive: false,
+              trailActivationPct: state.autoTrailActivationPct,
+              trailDistancePct: state.autoTrailDistancePct,
             };
             state.paperPositions.push(pos);
             addActivity(state, {
               type: 'paper_buy',
-              message: `📄 Paper BUY: ${analysis.token.symbol} — ${sizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}] | TP: +8% | SL: -4%`,
+              message: `📄 Paper BUY: ${analysis.token.symbol} — ${sizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}] | TP: +${state.autoTradeTP}% | SL: -${state.autoTradeSL}% | Trail activates at +${state.autoTrailActivationPct}%`,
             });
           }
         }
@@ -1376,7 +1419,7 @@ export function recordSolSignalResult(
   return { success: true };
 }
 
-export function setAutoTrade(userId: number, opts: { paperEnabled?: boolean; liveEnabled?: boolean; tpPct?: number; slPct?: number }): void {
+export function setAutoTrade(userId: number, opts: { paperEnabled?: boolean; liveEnabled?: boolean; tpPct?: number; slPct?: number; trailActivationPct?: number; trailDistancePct?: number }): void {
   let state = engineStates.get(userId);
   if (!state) {
     state = createInitialState({ ...DEFAULT_CONFIG });
@@ -1413,6 +1456,20 @@ export function setAutoTrade(userId: number, opts: { paperEnabled?: boolean; liv
     addActivity(state, {
       type: 'info',
       message: `🛡️ Stop-loss updated — positions protected at -${opts.slPct}%`,
+    });
+  }
+  if (opts.trailActivationPct !== undefined && opts.trailActivationPct > 0 && opts.trailActivationPct <= 100) {
+    state.autoTrailActivationPct = opts.trailActivationPct;
+    addActivity(state, {
+      type: 'info',
+      message: `🔒 Trail activation updated — trailing stop kicks in at +${opts.trailActivationPct}%`,
+    });
+  }
+  if (opts.trailDistancePct !== undefined && opts.trailDistancePct > 0 && opts.trailDistancePct <= 50) {
+    state.autoTrailDistancePct = opts.trailDistancePct;
+    addActivity(state, {
+      type: 'info',
+      message: `📏 Trail distance updated — will exit if price drops ${opts.trailDistancePct}% from peak`,
     });
   }
   saveEngineState(userId, state).catch(() => {});
@@ -1536,6 +1593,8 @@ export function getAutoTradePositions(userId: number) {
     liveTradeEnabled: state.liveTradeEnabled,
     autoTradeTP: state.autoTradeTP,
     autoTradeSL: state.autoTradeSL,
+    autoTrailActivationPct: state.autoTrailActivationPct,
+    autoTrailDistancePct: state.autoTrailDistancePct,
     paperPositions: state.paperPositions,
     closedPaperPositions: state.closedPaperPositions.slice(0, 20),
     livePositions: state.livePositions,

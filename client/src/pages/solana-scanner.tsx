@@ -2735,6 +2735,8 @@ export default function SolanaScanner() {
   const [liveTradeEnabled, setLiveTradeEnabled] = useState(false);
   const [autoTradeTP, setAutoTradeTP] = useState(8);
   const [autoTradeSL, setAutoTradeSL] = useState(4);
+  const [autoTrailActivationPct, setAutoTrailActivationPct] = useState(4);
+  const [autoTrailDistancePct, setAutoTrailDistancePct] = useState(3);
   const [serverWalletKey, setServerWalletKey] = useState('');
   const [showServerWalletInput, setShowServerWalletInput] = useState(false);
   const [weeklyGoalTargetSol, setWeeklyGoalTargetSol] = useState('');
@@ -2822,7 +2824,7 @@ export default function SolanaScanner() {
   });
 
   const autoTradeMutation = useMutation({
-    mutationFn: (opts: { paperEnabled?: boolean; liveEnabled?: boolean; tpPct?: number; slPct?: number }) =>
+    mutationFn: (opts: { paperEnabled?: boolean; liveEnabled?: boolean; tpPct?: number; slPct?: number; trailActivationPct?: number; trailDistancePct?: number }) =>
       apiRequest('POST', '/api/sol-engine/auto-trade', opts),
     onSuccess: () => { refetchAutoPositions(); },
   });
@@ -2933,6 +2935,8 @@ export default function SolanaScanner() {
       setLiveTradeEnabled(autoPositionsData.liveTradeEnabled || false);
       if (autoPositionsData.autoTradeTP) setAutoTradeTP(autoPositionsData.autoTradeTP);
       if (autoPositionsData.autoTradeSL) setAutoTradeSL(autoPositionsData.autoTradeSL);
+      if ((autoPositionsData as any).autoTrailActivationPct) setAutoTrailActivationPct((autoPositionsData as any).autoTrailActivationPct);
+      if ((autoPositionsData as any).autoTrailDistancePct) setAutoTrailDistancePct((autoPositionsData as any).autoTrailDistancePct);
     }
   }, [autoPositionsData?.autoTradeEnabled, autoPositionsData?.liveTradeEnabled, autoPositionsData?.autoTradeTP, autoPositionsData?.autoTradeSL]);
 
@@ -3777,7 +3781,59 @@ export default function SolanaScanner() {
                 </div>
               </div>
             </div>
-            <p className="text-[9px] text-gray-600 text-center -mt-2">Applies to all new positions — existing positions keep their original levels</p>
+            <p className="text-[9px] text-gray-600 text-center -mt-2">TP / SL applies to all new positions — existing positions keep their original levels</p>
+
+            {/* Trailing Stop controls */}
+            <div className="p-3 rounded-xl border border-violet-500/20 bg-violet-500/5 space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="text-sm">🔒</span>
+                <div>
+                  <p className="text-[11px] font-semibold text-violet-300">Trailing Stop</p>
+                  <p className="text-[9px] text-gray-500">Locks in profits as price rises — sells if it drops from the peak</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                {/* Trail Activation */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] text-gray-400">Activate at gain</p>
+                    <span className="text-xs font-bold text-violet-400">+{autoTrailActivationPct}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={1} max={30} step={1}
+                    value={autoTrailActivationPct}
+                    onChange={e => setAutoTrailActivationPct(Number(e.target.value))}
+                    onMouseUp={e => autoTradeMutation.mutate({ trailActivationPct: Number((e.target as HTMLInputElement).value) })}
+                    onTouchEnd={e => autoTradeMutation.mutate({ trailActivationPct: Number((e.target as HTMLInputElement).value) })}
+                    className="w-full h-1.5 rounded-full accent-violet-500 cursor-pointer"
+                  />
+                  <div className="flex justify-between text-[9px] text-gray-600">
+                    <span>1%</span><span>30%</span>
+                  </div>
+                </div>
+                {/* Trail Distance */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] text-gray-400">Trail distance</p>
+                    <span className="text-xs font-bold text-fuchsia-400">{autoTrailDistancePct}% below peak</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={1} max={15} step={0.5}
+                    value={autoTrailDistancePct}
+                    onChange={e => setAutoTrailDistancePct(Number(e.target.value))}
+                    onMouseUp={e => autoTradeMutation.mutate({ trailDistancePct: Number((e.target as HTMLInputElement).value) })}
+                    onTouchEnd={e => autoTradeMutation.mutate({ trailDistancePct: Number((e.target as HTMLInputElement).value) })}
+                    className="w-full h-1.5 rounded-full accent-fuchsia-500 cursor-pointer"
+                  />
+                  <div className="flex justify-between text-[9px] text-gray-600">
+                    <span>1%</span><span>15%</span>
+                  </div>
+                </div>
+              </div>
+              <p className="text-[9px] text-gray-600">Once gain reaches activation %, the trailing stop locks in. If price drops {autoTrailDistancePct}% from its peak, position closes automatically.</p>
+            </div>
 
             {/* Server Bot Wallet */}
             <div className={`p-3 rounded-xl border space-y-2 ${serverWalletStatus?.hasServerWallet ? 'border-violet-500/40 bg-violet-500/10' : 'border-gray-700/50 bg-gray-800/20'}`}>
@@ -3862,13 +3918,16 @@ export default function SolanaScanner() {
                     const STRAT_ICONS: Record<string, string> = { momentum_surfer: '🏄', breakout_hunter: '🚀', dip_sniper: '🎯', meme_velocity: '⚡', whale_follower: '🐋', volume_explosion: '💥', smart_money_flow: '🧠', liquidity_sweep: '🌊' };
                     const strat = pos.strategyId ? { icon: STRAT_ICONS[pos.strategyId] || '📊' } : null;
                     return (
-                      <div key={pos.id} className="flex items-center justify-between px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700/30">
-                        <div className="flex items-center gap-2">
+                      <div key={pos.id} className={`flex items-center justify-between px-3 py-2 rounded-lg border ${pos.trailingActive ? 'bg-violet-900/20 border-violet-500/30' : 'bg-gray-800/50 border-gray-700/30'}`}>
+                        <div className="flex items-center gap-2 min-w-0">
                           <span className="text-[10px]">{pos.mode === 'paper' ? '📄' : '⚡'}</span>
-                          <span className="text-xs font-semibold text-gray-200">{pos.symbol}</span>
+                          <span className="text-xs font-semibold text-gray-200 truncate">{pos.symbol}</span>
                           {strat && <span className="text-[9px] text-gray-500">{strat.icon}</span>}
+                          {pos.trailingActive && (
+                            <span className="shrink-0 text-[8px] font-bold px-1 py-0.5 rounded bg-violet-500/20 text-violet-300 border border-violet-500/30">🔒 TRAILING</span>
+                          )}
                         </div>
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-2 shrink-0">
                           <span className="text-[10px] text-gray-500">${pos.entryPrice?.toFixed(6) || '—'}</span>
                           <span className={`text-[11px] font-bold ${gainPct >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                             {gainPct >= 0 ? '+' : ''}{gainPct.toFixed(2)}%
@@ -3887,20 +3946,30 @@ export default function SolanaScanner() {
               <div className="space-y-1.5">
                 <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Recent Closed Trades</p>
                 <div className="space-y-1">
-                  {closedPaper.map((pos: any) => (
-                    <div key={pos.id} className="flex items-center justify-between px-3 py-1.5 rounded-lg bg-gray-900/50 border border-gray-700/20">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px]">{pos.mode === 'paper' ? '📄' : '⚡'}</span>
-                        <span className="text-xs text-gray-300">{pos.symbol}</span>
+                  {closedPaper.map((pos: any) => {
+                    const closeReasonLabel: Record<string, { label: string; color: string }> = {
+                      take_profit: { label: '🎯 TP', color: 'text-emerald-400' },
+                      stop_loss: { label: '🛡️ SL', color: 'text-red-400' },
+                      trailing_stop: { label: '🔒 Trail', color: 'text-violet-400' },
+                      manual_sell: { label: '✋ Manual', color: 'text-gray-400' },
+                    };
+                    const reason = pos.closeReason ? closeReasonLabel[pos.closeReason] : null;
+                    return (
+                      <div key={pos.id} className="flex items-center justify-between px-3 py-1.5 rounded-lg bg-gray-900/50 border border-gray-700/20">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px]">{pos.mode === 'paper' ? '📄' : '⚡'}</span>
+                          <span className="text-xs text-gray-300">{pos.symbol}</span>
+                          {reason && <span className={`text-[8px] font-semibold ${reason.color}`}>{reason.label}</span>}
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className={`text-xs font-semibold ${(pos.closePnlPct || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                            {(pos.closePnlPct || 0) >= 0 ? '+' : ''}{(pos.closePnlPct || 0).toFixed(2)}%
+                          </span>
+                          <span className="text-[9px] text-gray-600">{pos.closedAt ? new Date(pos.closedAt).toLocaleTimeString() : ''}</span>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-3">
-                        <span className={`text-xs font-semibold ${(pos.closePnlPct || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                          {(pos.closePnlPct || 0) >= 0 ? '+' : ''}{(pos.closePnlPct || 0).toFixed(2)}%
-                        </span>
-                        <span className="text-[9px] text-gray-600">{pos.closedAt ? new Date(pos.closedAt).toLocaleTimeString() : ''}</span>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}

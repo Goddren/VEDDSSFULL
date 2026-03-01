@@ -1616,6 +1616,8 @@ export const solEngineSettings = pgTable("sol_engine_settings", {
   liveTradeEnabled: boolean("live_trade_enabled").notNull().default(false),
   autoTradeTP: real("auto_trade_tp").notNull().default(8),
   autoTradeSL: real("auto_trade_sl").notNull().default(4),
+  autoTrailActivationPct: real("auto_trail_activation_pct").notNull().default(4),
+  autoTrailDistancePct: real("auto_trail_distance_pct").notNull().default(3),
   weeklyGoal: jsonb("weekly_goal").notNull().default({}),
   autoTradeStats: jsonb("auto_trade_stats").notNull().default({}),
   serverWalletKey: text("server_wallet_key"),
