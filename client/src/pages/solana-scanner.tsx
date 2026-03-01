@@ -3653,6 +3653,17 @@ export default function SolanaScanner() {
 
         return (
           <div className="rounded-2xl border border-gray-700/50 bg-gray-900/30 p-4 space-y-4">
+            {/* Warning banner — engine on but auto-trade off */}
+            {solEngineRunning && !anyActive && (
+              <div className="flex items-start gap-2 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30">
+                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-xs font-semibold text-amber-300">Engine is scanning but auto-trade is OFF</p>
+                  <p className="text-[10px] text-amber-400/80 mt-0.5">Signals are firing but no buys are being placed. Enable Paper Trade (safe, no real money) or Live Trade (real Phantom wallet swaps) below.</p>
+                </div>
+              </div>
+            )}
+
             {/* Header */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -3678,7 +3689,7 @@ export default function SolanaScanner() {
                   <span className="text-base">📄</span>
                   <div>
                     <p className="text-xs font-semibold text-gray-200">Paper Trading</p>
-                    <p className="text-[10px] text-gray-500">Simulates trades using real prices — no real money, no wallet needed</p>
+                    <p className="text-[10px] text-gray-500">Simulated only — no wallet, no real tokens. Safe for testing.</p>
                   </div>
                 </div>
                 <button
@@ -3697,7 +3708,7 @@ export default function SolanaScanner() {
                   <div>
                     <p className="text-xs font-semibold text-gray-200">Live Trading</p>
                     <p className="text-[10px] text-gray-500">
-                      {connected ? 'Executes real Jupiter swaps via your Phantom wallet — keep this tab open' : 'Connect Phantom wallet to enable'}
+                      {connected ? 'Real Jupiter swap via Phantom — tokens land in YOUR wallet' : 'Connect Phantom wallet to enable'}
                     </p>
                   </div>
                 </div>
@@ -3709,6 +3720,13 @@ export default function SolanaScanner() {
                   <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${liveTradeEnabled ? 'translate-x-4' : 'translate-x-1'}`} />
                 </button>
               </div>
+
+              {liveTradeEnabled && connected && (
+                <div className="flex items-start gap-2 p-2 rounded-lg bg-emerald-500/5 border border-emerald-500/20">
+                  <Wallet className="w-3 h-3 text-emerald-400 shrink-0 mt-0.5" />
+                  <p className="text-[10px] text-emerald-300/80">When a buy executes, SOL leaves your Phantom wallet and the token appears there. Sells trigger automatically at your TP/SL targets.</p>
+                </div>
+              )}
 
               {liveTradeEnabled && !connected && (
                 <div className="flex items-center gap-2 p-2 rounded-lg bg-amber-500/10 border border-amber-500/20">

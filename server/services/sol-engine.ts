@@ -999,6 +999,14 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
         const tokenMint = analysis.token.address;
         const now2 = new Date().toISOString();
 
+        // Warn if signal fired but auto-trade is off
+        if (!state.autoTradeEnabled && !state.liveTradeEnabled) {
+          addActivity(state, {
+            type: 'info',
+            message: `⚠️ Signal: ${analysis.token.symbol} — auto-trade is OFF. Enable Paper Trade or Live Trade to execute buys.`,
+          });
+        }
+
         // Paper auto-trade
         if (state.autoTradeEnabled && sizeSOL > 0 && tokenPrice > 0) {
           const alreadyOpen = state.paperPositions.some(p => p.symbol === analysis.token.symbol && p.status === 'open');
