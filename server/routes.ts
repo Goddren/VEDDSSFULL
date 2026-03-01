@@ -691,10 +691,8 @@ Return ONLY a JSON object with:
   "reasoning": "brief explanation of how you detected it"
 }`;
 
-            const OpenAI = (await import("openai")).default;
-            const client = new OpenAI({
-              apiKey: process.env.OPENAI_API_KEY,
-            });
+            const { getOpenAIInstanceForUser: _getOAI1 } = await import('./openai');
+            const client = await _getOAI1((req.user as User).id);
 
             const response = await client.chat.completions.create({
               model: "gpt-4o-mini",
@@ -823,10 +821,8 @@ Respond ONLY in valid JSON format with these exact keys:
   "breakoutReasoning": "string explaining the breakout levels and why they're good entry points"
 }`;
 
-      const OpenAI = (await import("openai")).default;
-      const client = new OpenAI({
-        apiKey: process.env.OPENAI_API_KEY,
-      });
+      const { getOpenAIInstanceForUser: _getOAI2 } = await import('./openai');
+      const client = await _getOAI2((req.user as User).id);
 
       const response = await client.chat.completions.create({
         model: "gpt-4o-mini",
@@ -3468,8 +3464,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
 }`;
 
           try {
-            const OpenAI = (await import('openai')).default;
-            const openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+            const { getOpenAIInstanceForUser: _getOAI3 } = await import('./openai');
+            const openaiClient = await _getOAI3((req.user as User).id);
             
             const aiResponse = await openaiClient.chat.completions.create({
               model: "gpt-4o",
@@ -4152,9 +4148,9 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         return res.status(400).json({ error: `Invalid scenarioType. Must be one of: ${validScenarioTypes.join(', ')}` });
       }
       
-      // Import OpenAI
-      const OpenAI = (await import("openai")).default;
-      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+      // Import OpenAI — use user's own key when available
+      const { getOpenAIInstanceForUser: _getOAI4 } = await import('./openai');
+      const openai = await _getOAI4((req.user as User).id);
 
       // Build the AI prompt based on scenario type
       let scenarioPrompt = '';

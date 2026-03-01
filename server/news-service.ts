@@ -185,16 +185,17 @@ class NewsService {
     }
   }
 
-  async analyzeNewsSentiment(news: NewsItem[], symbol: string): Promise<NewsSentiment> {
+  async analyzeNewsSentiment(news: NewsItem[], symbol: string, openaiOverride?: OpenAI): Promise<NewsSentiment> {
     if (news.length === 0) {
       return this.getDefaultSentiment();
     }
 
-    if (this.openai) {
+    const openaiInstance = openaiOverride || this.openai;
+    if (openaiInstance) {
       try {
         const headlines = news.slice(0, 10).map(n => n.headline).join('\n');
         
-        const response = await this.openai.chat.completions.create({
+        const response = await openaiInstance.chat.completions.create({
           model: 'gpt-4o',
           messages: [
             {
@@ -464,12 +465,13 @@ ${headlines}`
     }
   }
 
-  async analyzePairSentiment(symbol: string, daysBack: number = 7): Promise<NewsSentiment & { baseImpact: string; quoteImpact: string; pairDirection: string }> {
+  async analyzePairSentiment(symbol: string, daysBack: number = 7, openaiOverride?: OpenAI): Promise<NewsSentiment & { baseImpact: string; quoteImpact: string; pairDirection: string }> {
     const { baseNews, quoteNews, combined } = await this.fetchPairSpecificNews(symbol, daysBack);
     const currencies = this.getForexCurrencies(symbol);
     
-    if (!currencies || !this.openai) {
-      const basicSentiment = await this.analyzeNewsSentiment(combined, symbol);
+    const openaiInstance = openaiOverride || this.openai;
+    if (!currencies || !openaiInstance) {
+      const basicSentiment = await this.analyzeNewsSentiment(combined, symbol, openaiOverride);
       return {
         ...basicSentiment,
         baseImpact: 'neutral',
@@ -482,7 +484,7 @@ ${headlines}`
       const baseHeadlines = baseNews.slice(0, 5).map(n => n.headline).join('\n');
       const quoteHeadlines = quoteNews.slice(0, 5).map(n => n.headline).join('\n');
 
-      const response = await this.openai.chat.completions.create({
+      const response = await openaiInstance.chat.completions.create({
         model: 'gpt-4o',
         messages: [
           {
@@ -545,7 +547,7 @@ Return JSON:
       };
     } catch (error) {
       console.error('Error analyzing pair sentiment:', error);
-      const basicSentiment = await this.analyzeNewsSentiment(combined, symbol);
+      const basicSentiment = await this.analyzeNewsSentiment(combined, symbol, openaiOverride);
       return {
         ...basicSentiment,
         baseImpact: 'neutral',

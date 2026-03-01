@@ -2846,6 +2846,12 @@ export default function SolanaScanner() {
     refetchInterval: false,
   });
 
+  const { data: userApiKeys } = useQuery<any[]>({
+    queryKey: ['/api/user-api-keys'],
+    staleTime: 60000,
+  });
+  const hasOwnOpenAIKey = Array.isArray(userApiKeys) && userApiKeys.some(k => k.provider === 'openai' && k.isActive && k.isValid);
+
   const saveServerWalletMutation = useMutation({
     mutationFn: (privateKey: string) => apiRequest('POST', '/api/sol-engine/server-wallet', { privateKey }),
     onSuccess: async (res) => {
@@ -3323,6 +3329,24 @@ export default function SolanaScanner() {
                 )}
               </div>
             </div>
+
+            {/* ── OpenAI key status strip ── */}
+            {hasOwnOpenAIKey ? (
+              <div className="mx-4 mb-2 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/25">
+                <div className="h-1.5 w-1.5 rounded-full bg-emerald-400 shrink-0" />
+                <p className="text-[10px] text-emerald-300">Using your own OpenAI key — engine keeps running even if platform credits run out</p>
+              </div>
+            ) : (
+              <div className="mx-4 mb-2 flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/25">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="w-3 h-3 text-amber-400 shrink-0" />
+                  <p className="text-[10px] text-amber-300">No personal OpenAI key — engine may pause if platform credits run out</p>
+                </div>
+                <Link href="/ai-api-keys">
+                  <span className="shrink-0 text-[10px] text-amber-300 border border-amber-500/40 rounded px-1.5 py-0.5 hover:bg-amber-500/20 cursor-pointer whitespace-nowrap">Add Key →</span>
+                </Link>
+              </div>
+            )}
 
             {/* ── Settings panel ── */}
             {solEngineSettingsOpen && (

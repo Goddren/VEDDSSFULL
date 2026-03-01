@@ -1,7 +1,5 @@
 import OpenAI from "openai";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
 export type DexSource = 'all' | 'raydium' | 'orca' | 'meteora' | 'pumpfun' | 'jupiter';
 
 export interface SolanaToken {
@@ -55,6 +53,7 @@ export interface AnalyzeTokenOptions {
   portfolioSol?: number;
   shieldActive?: boolean;
   minConfidence?: number;
+  openai?: OpenAI;
 }
 
 export async function fetchTrendingSolanaTokens(): Promise<SolanaToken[]> {
@@ -458,7 +457,7 @@ function calculateSolKellySize(wins: number, losses: number, totalGainPct: numbe
 }
 
 export async function analyzeToken(token: SolanaToken, options: AnalyzeTokenOptions = {}): Promise<TokenAnalysis> {
-  const { signalWeights, macro, kellyStats, portfolioSol = 0 } = options;
+  const { signalWeights, macro, kellyStats, portfolioSol = 0, openai: openaiOverride } = options;
 
   const sentimentScore = calculateSentimentScore(token);
   const tokenomicsScore = calculateTokenomicsScore(token);
@@ -515,7 +514,8 @@ SIGNAL: ${signal} (${confidence}% confidence) | Risk: ${riskLevel}
 
 Provide a sharp 2-3 sentence analysis. Reference macro context and DEX performance if relevant. Be direct and actionable.`;
 
-    const response = await openai.chat.completions.create({
+    const openaiClient = openaiOverride || new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const response = await openaiClient.chat.completions.create({
       model: 'gpt-4o',
       messages: [{ role: 'user', content: prompt }],
       max_tokens: 180,

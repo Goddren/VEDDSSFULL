@@ -960,6 +960,9 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
 
     const shieldFilter = state.config.shieldEnabled && state.shieldActive;
 
+    const { getOpenAIInstanceForUser } = await import('../openai');
+    const userOpenai = await getOpenAIInstanceForUser(userId).catch(() => null);
+
     const scanResult = await scanAndAnalyzeTokens(
       state.config.maxTokens,
       state.config.dexFilter,
@@ -970,6 +973,7 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
         portfolioSol: state.currentPortfolioValue,
         shieldActive: shieldFilter,
         minConfidence: state.config.minConfidence,
+        openai: userOpenai || undefined,
       }
     );
 
