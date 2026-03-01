@@ -214,6 +214,15 @@ const Header: React.FC = () => {
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
+              <DropdownMenuItem
+                className="cursor-pointer"
+                onClick={() => {
+                  window.dispatchEvent(new CustomEvent('vedd:replay-tutorial'));
+                }}
+              >
+                <Star className="mr-2 h-4 w-4" />
+                <span>Getting Started Tour</span>
+              </DropdownMenuItem>
               <DropdownMenuItem className="cursor-pointer" asChild>
                 <Link href="/user-guide">
                   <div className="flex items-center w-full">

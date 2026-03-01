@@ -70,6 +70,7 @@ import LiveMonitorPage from "@/pages/live-monitor";
 import WeeklyStrategyPage from "@/pages/weekly-strategy";
 import SevenEightPage from "@/pages/seven-eight";
 import StreakBanner from "@/components/StreakBanner";
+import { OnboardingTutorial } from "@/components/onboarding-tutorial";
 import { MobileFAB } from "@/components/mobile-fab";
 import { MobileBottomNav } from "@/components/mobile-bottom-nav";
 import { NetworkStatus } from "@/components/network-status";
@@ -195,6 +196,7 @@ function AppLayout() {
         </PageTransition>
       </main>
       {showHeaderFooter && !isAuthPage && <Footer />}
+      <OnboardingTutorial />
       <MobileBottomNav />
       <NetworkStatus />
       <Toaster />
