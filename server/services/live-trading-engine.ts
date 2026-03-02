@@ -271,8 +271,223 @@ async function autoRetainBrain(userId: number): Promise<void> {
     const brain = await fn(userId);
     const count = brain?.totalTradesAnalyzed ?? 0;
     addActivity(userId, { type: 'info', message: `🧠 Brain auto-retrained from ${count} trades across ${brain?.pairsLearned ?? 0} pairs` });
+    // T004: auto-generate autonomous signals after every retrain
+    autoGenerateBrainSignals(userId, brain).catch(() => {});
   } catch (e) {
     // silent — don't crash engine if brain retrain fails
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BRAIN ENFORCER (T002) — hard pre-trade filter based on learned knowledge
+// ─────────────────────────────────────────────────────────────────────────────
+interface BrainEnforcementResult {
+  allowed: boolean;
+  reason: string;
+  adjustedLotMultiplier: number;
+  forcedStrategy: string | null;
+  recommendedTrailPips: number;
+}
+
+function applyBrainEnforcement(
+  userId: number,
+  symbol: string,
+  proposedDirection: string | null,
+  currentATR: number,
+  newsContext?: any,
+): BrainEnforcementResult {
+  const passthrough: BrainEnforcementResult = {
+    allowed: true, reason: 'pass', adjustedLotMultiplier: 1.0,
+    forcedStrategy: null, recommendedTrailPips: 20,
+  };
+
+  const brain = (global as any).veddAIBrain?.[userId];
+  if (!brain?.pairKnowledge) return passthrough;
+
+  const k = brain.pairKnowledge[symbol];
+  if (!k || k.totalTrades < 3) return passthrough; // not enough data to enforce
+
+  const now = new Date();
+  const hour = now.getUTCHours();
+  const session = hour < 7 ? 'Asian' : hour < 13 ? 'London' : hour < 20 ? 'New York' : 'Late NY';
+
+  // ── RULE 1: Session block ──────────────────────────────────────────────
+  const sessionData = k.topSessions?.find((s: any) => s.session === session);
+  if (sessionData && sessionData.total >= 3 && sessionData.winRate < 40) {
+    const msg = `🧠 Brain block: ${symbol} ${session} session only ${sessionData.winRate}% WR (${sessionData.total} trades) — skipping`;
+    pushEnforcementLog(userId, { symbol, rule: 'session_block', direction: proposedDirection, reason: msg });
+    return { ...passthrough, allowed: false, reason: msg };
+  }
+
+  // ── RULE 2: Hour block ────────────────────────────────────────────────
+  const worstHourData = k.worstHours?.find((h: any) => h.hour === hour && h.total >= 3 && h.winRate < 35);
+  if (worstHourData) {
+    const msg = `🧠 Brain block: ${symbol} hour ${hour}:00 UTC only ${worstHourData.winRate}% WR — loss zone`;
+    pushEnforcementLog(userId, { symbol, rule: 'hour_block', direction: proposedDirection, reason: msg });
+    return { ...passthrough, allowed: false, reason: msg };
+  }
+
+  // ── RULE 3: Direction bias block (only when direction is known) ────────
+  if (proposedDirection) {
+    const dirWR = proposedDirection === 'BUY' ? k.buyWinRate : k.sellWinRate;
+    const dirTotal = proposedDirection === 'BUY'
+      ? (k.totalTrades * k.buyWinRate / 100) + (k.totalTrades * (100 - k.buyWinRate) / 100)
+      : k.totalTrades;
+    if (k.totalTrades >= 5 && dirWR < 35) {
+      const msg = `🧠 Brain block: ${symbol} ${proposedDirection} only ${dirWR}% WR — direction blocked`;
+      pushEnforcementLog(userId, { symbol, rule: 'direction_bias', direction: proposedDirection, reason: msg });
+      return { ...passthrough, allowed: false, reason: msg };
+    }
+  }
+
+  // ── RULE 4: Hard news block ───────────────────────────────────────────
+  if (newsContext?.highImpactSoon) {
+    const currencies = extractCurrenciesFromSymbol(symbol);
+    const events: string[] = newsContext.economicEvents || [];
+    const newsBlocked = events.some((ev: string) =>
+      currencies.some(c => ev.toUpperCase().includes(c))
+    );
+    if (newsBlocked) {
+      const msg = `🧠 News block: ${symbol} — high-impact event affecting ${currencies.join('/')} within 30min`;
+      pushEnforcementLog(userId, { symbol, rule: 'news_block', direction: proposedDirection, reason: msg });
+      return { ...passthrough, allowed: false, reason: msg };
+    }
+  }
+
+  // ── RULE 5: Consecutive loss cooldown ─────────────────────────────────
+  if (k.consecutiveLossesToday >= 3 && k.lastLossAt) {
+    const msSinceLoss = Date.now() - new Date(k.lastLossAt).getTime();
+    const TWO_HOURS = 2 * 60 * 60 * 1000;
+    if (msSinceLoss < TWO_HOURS) {
+      const minsLeft = Math.ceil((TWO_HOURS - msSinceLoss) / 60000);
+      const msg = `🧠 Cooldown: ${symbol} — 3 consecutive losses, cooling for ${minsLeft} more min`;
+      pushEnforcementLog(userId, { symbol, rule: 'loss_cooldown', direction: proposedDirection, reason: msg });
+      return { ...passthrough, allowed: false, reason: msg };
+    }
+  }
+
+  // ── RULE 6: ATR volatility filter ─────────────────────────────────────
+  if (currentATR > 0 && k.minProfitableATR > 0 && currentATR < k.minProfitableATR * 0.5) {
+    const msg = `🧠 ATR filter: ${symbol} ATR ${currentATR.toFixed(5)} below profitable threshold ${(k.minProfitableATR * 0.5).toFixed(5)}`;
+    pushEnforcementLog(userId, { symbol, rule: 'atr_filter', direction: proposedDirection, reason: msg });
+    return { ...passthrough, allowed: false, reason: msg };
+  }
+
+  // ── ALLOWED — return tuned parameters ────────────────────────────────
+  pushEnforcementLog(userId, { symbol, rule: 'pass', direction: proposedDirection, reason: `✅ ${symbol} passed all brain filters` });
+  return {
+    allowed: true,
+    reason: 'pass',
+    adjustedLotMultiplier: Math.min(1.5, Math.max(0.5, k.recommendedLotMultiplier || 1.0)),
+    forcedStrategy: k.bestStrategies?.[0] || null,
+    recommendedTrailPips: k.optimalTrailPips || 20,
+  };
+}
+
+function extractCurrenciesFromSymbol(symbol: string): string[] {
+  const s = symbol.toUpperCase().replace('/', '');
+  // Common 3-char currency codes
+  if (s.length >= 6) return [s.slice(0, 3), s.slice(3, 6)];
+  if (s === 'XAUUSD') return ['XAU', 'USD'];
+  if (s === 'XAGUSD') return ['XAG', 'USD'];
+  return [s];
+}
+
+function pushEnforcementLog(userId: number, entry: { symbol: string; rule: string; direction: string | null; reason: string }) {
+  if (!(global as any).veddAIBrain) (global as any).veddAIBrain = {};
+  if (!(global as any).veddAIBrain[userId]) (global as any).veddAIBrain[userId] = {};
+  if (!(global as any).veddAIBrain[userId].enforcementLog) {
+    (global as any).veddAIBrain[userId].enforcementLog = [];
+  }
+  const log = (global as any).veddAIBrain[userId].enforcementLog as any[];
+  log.unshift({ ...entry, timestamp: new Date().toISOString() });
+  if (log.length > 50) log.length = 50;
+}
+
+// T004: Auto-generate autonomous signals after brain retrain
+async function autoGenerateBrainSignals(userId: number, brain: any): Promise<void> {
+  try {
+    if (!brain?.pairKnowledge || Object.keys(brain.pairKnowledge).length === 0) return;
+    const { getOpenAIInstanceForUser } = await import('../openai');
+    let openai: any;
+    try { openai = await getOpenAIInstanceForUser(userId); } catch { return; }
+
+    const connectedPairs = (global as any).mt5ConnectedPairs?.[userId] || {};
+    const lastChartData = (global as any).mt5LastChartData?.[userId] || {};
+    const openPositions = (global as any).mt5OpenPositions?.[userId]?.positions || [];
+    const state = engineStates[userId];
+    const strategyMode = state?.config?.strategyMode || 'sniper';
+
+    const liveContext: Record<string, any> = {};
+    for (const [sym, knowledge] of Object.entries(brain.pairKnowledge) as any[]) {
+      const pairData = Object.values(connectedPairs).find((p: any) =>
+        (p.symbol || '').toUpperCase().replace('/', '') === sym
+      ) as any;
+      const chartSnap = lastChartData[sym];
+      liveContext[sym] = {
+        ...knowledge,
+        currentPrice: pairData?.price || chartSnap?.close || null,
+        currentSignal: pairData?.signal || null,
+        rsi: chartSnap?.rsi || null,
+        trend: chartSnap?.trend || null,
+        hasOpenPosition: openPositions.some((p: any) =>
+          (p.symbol || '').toUpperCase().replace('/', '') === sym
+        ),
+      };
+    }
+
+    const nowUTC = new Date();
+    const currentHour = nowUTC.getUTCHours();
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const currentSession = currentHour < 7 ? 'Asian' : currentHour < 13 ? 'London' : currentHour < 20 ? 'New York' : 'Late NY';
+
+    const prompt = `You are VEDD SS AI - autonomous self-learning trading engine. Generate proactive trade signals from learned knowledge.
+
+CURRENT CONTEXT: ${nowUTC.toISOString()} | ${currentSession} session | ${dayNames[nowUTC.getUTCDay()]} | Strategy: ${strategyMode.toUpperCase()}
+
+LEARNED BRAIN DATA (${brain.totalTradesAnalyzed} historical trades):
+${JSON.stringify(liveContext, null, 1)}
+
+BRAIN INSIGHTS:
+${(brain.learningInsights || []).join('\n')}
+
+Generate signals for pairs with strong learned edge. Respect session win-rates. Respond ONLY with valid JSON:
+{"signals":[{"symbol":"XAUUSD","direction":"BUY","confidence":82,"entryZone":2315.00,"stopLoss":2305.00,"takeProfit":2335.00,"lotSize":0.01,"holdTime":"2-4hrs","reason":"Brain: 78% WR London session, preferred BUY direction","riskScore":3}],"marketRead":"Brief overview","brainConfidence":75}`;
+
+    const resp = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: 'You are VEDD SS AI. Respond with valid JSON only.' },
+        { role: 'user', content: prompt },
+      ],
+      response_format: { type: 'json_object' },
+      max_tokens: 2000,
+      temperature: 0.3,
+    });
+
+    const content = resp.choices[0]?.message?.content || '';
+    let signals: any;
+    try { signals = JSON.parse(content); } catch { return; }
+
+    if (!(global as any).veddAIBrain[userId]) (global as any).veddAIBrain[userId] = {};
+    (global as any).veddAIBrain[userId].lastAutonomousSignals = {
+      signals: signals.signals || [],
+      marketRead: signals.marketRead || '',
+      brainConfidence: signals.brainConfidence || 0,
+      generatedAt: new Date().toISOString(),
+      strategyMode,
+      autoScheduled: true,
+    };
+
+    const sigCount = signals.signals?.length || 0;
+    if (sigCount > 0 && state) {
+      addActivity(userId, {
+        type: 'info',
+        message: `🧠 Brain auto-generated ${sigCount} autonomous signal${sigCount !== 1 ? 's' : ''} (${strategyMode.toUpperCase()} mode) | Brain confidence: ${signals.brainConfidence || 'N/A'}%`,
+      });
+    }
+  } catch {
+    // silent — don't crash engine
   }
 }
 const goalTrackerCache: Record<string, GoalTracker> = {};
@@ -547,6 +762,18 @@ export function recordTradeResult(userId: number, result: {
   state.pnlToday = Math.round((state.pnlToday + result.profit) * 100) / 100;
   checkDailyLossLimit(userId);
 
+  // ── T003: Update per-pair consecutive loss tracking in brain ──────
+  const brainForUser = (global as any).veddAIBrain?.[userId];
+  if (brainForUser?.pairKnowledge?.[result.symbol]) {
+    const pk = brainForUser.pairKnowledge[result.symbol];
+    if (result.profit < 0) {
+      pk.consecutiveLossesToday = (pk.consecutiveLossesToday || 0) + 1;
+      pk.lastLossAt = new Date().toISOString();
+    } else {
+      pk.consecutiveLossesToday = 0; // reset on win
+    }
+  }
+
   // ── Auto-retrain brain every 5 trade results ───────────────────────
   state.tradesSinceLastLearn = (state.tradesSinceLastLearn || 0) + 1;
   if (state.tradesSinceLastLearn >= 5) {
@@ -648,6 +875,17 @@ async function scanMarkets(userId: number): Promise<void> {
           atr: Math.round(atr * 100000) / 100000,
           updatedAt: new Date().toISOString(),
         };
+        // Cache ATR per symbol for post-GPT enforcement
+        if (!(state as any)._lastATR) (state as any)._lastATR = {};
+        (state as any)._lastATR[symbol] = atr;
+
+        // ── T003: Pre-scan brain enforcement (session/hour/ATR rules) ──
+        const preScanEnforcement = applyBrainEnforcement(userId, symbol, null, atr, undefined);
+        if (!preScanEnforcement.allowed) {
+          addActivity(userId, { type: 'info', symbol, message: preScanEnforcement.reason });
+          await new Promise(r => setTimeout(r, 8500));
+          continue;
+        }
 
         marketAnalysis[symbol] = {
           currentPrice,
@@ -1411,7 +1649,7 @@ Respond ONLY with valid JSON. Generate MULTIPLE decisions when opportunities exi
 
     if (decisions.decisions && decisions.decisions.length > 0) {
       for (const decision of decisions.decisions) {
-        await processDecision(userId, decision);
+        await processDecision(userId, decision, newsContext);
       }
     }
   } catch (err: any) {
@@ -1419,7 +1657,7 @@ Respond ONLY with valid JSON. Generate MULTIPLE decisions when opportunities exi
   }
 }
 
-async function processDecision(userId: number, decision: any): Promise<void> {
+async function processDecision(userId: number, decision: any, newsCtx?: any): Promise<void> {
   const state = engineStates[userId];
   if (!state) return;
   const config = state.config;
@@ -1464,6 +1702,24 @@ async function processDecision(userId: number, decision: any): Promise<void> {
         return;
       }
     }
+
+    // ── T003: Post-GPT brain enforcement (direction/news/cooldown) ────
+    const currentATR = (state as any)._lastATR?.[decision.symbol] || 0;
+    const postEnforcement = applyBrainEnforcement(userId, decision.symbol, decision.direction, currentATR, newsCtx);
+    if (!postEnforcement.allowed) {
+      addActivity(userId, {
+        type: 'info',
+        symbol: decision.symbol,
+        message: postEnforcement.reason,
+      });
+      return;
+    }
+    // Apply brain-tuned lot multiplier and strategy override
+    if (postEnforcement.forcedStrategy && !decision.strategy) {
+      decision.strategy = postEnforcement.forcedStrategy;
+    }
+    (decision as any)._brainLotMultiplier = postEnforcement.adjustedLotMultiplier;
+    (decision as any)._brainTrailPips = postEnforcement.recommendedTrailPips;
 
     if (confidence < config.minConfidence) {
       addActivity(userId, {
@@ -1543,7 +1799,10 @@ async function processDecision(userId: number, decision: any): Promise<void> {
     const entryPrice = parseNum(decision.entryPrice);
     const stopLoss = parseNum(decision.stopLoss);
     const takeProfit = parseNum(decision.takeProfit);
-    const rawLotSize = parseNum(decision.lotSize) || config.baseLotSize || 0.01;
+    const rawLotBase = parseNum(decision.lotSize) || config.baseLotSize || 0.01;
+    // Apply brain-tuned lot multiplier (Kelly-based, clamped 0.5–1.5)
+    const brainMult = (decision as any)._brainLotMultiplier || 1.0;
+    const rawLotSize = Math.round(rawLotBase * brainMult * 100) / 100;
     const isSmallAccount = config.accountBalance > 0 && config.accountBalance < 500;
     const safeMaxLot = isSmallAccount
       ? Math.min(0.02, config.maxLotSize || 0.10)

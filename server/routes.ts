@@ -8955,9 +8955,45 @@ Format each recommendation as a clear, concise action item.`;
         (p.symbol || '').toUpperCase().replace('/', '') === sym
       ) as any;
 
+      // ── Strategy win-rate tracking ──────────────────────────────────
+      const strategyStats: Record<string, { wins: number; losses: number }> = {};
+      symTrades.forEach(t => {
+        if (!t.notes) return;
+        // notes may be free text; scan for known strategy tokens
+        const knownStrategies = [
+          'scalping','momentum','session_breakout','aggressive','sniper','compound',
+          'chart_pattern','ict_order_blocks','ict_fvg','ict_liquidity_sweep','ict_bos',
+          'ict_ote','smc_demand_supply','asia_range_breakout','vwap_mean_reversion',
+          'news_fade','prop_firm_sniper','sunday_gap',
+        ];
+        for (const strat of knownStrategies) {
+          if (t.notes.toLowerCase().includes(strat)) {
+            if (!strategyStats[strat]) strategyStats[strat] = { wins: 0, losses: 0 };
+            if (t.result === 'WIN') strategyStats[strat].wins++;
+            if (t.result === 'LOSS') strategyStats[strat].losses++;
+          }
+        }
+      });
+      const bestStrategies = Object.entries(strategyStats)
+        .filter(([, s]) => s.wins + s.losses >= 2)
+        .map(([id, s]) => ({ id, winRate: Math.round(s.wins / (s.wins + s.losses) * 100), total: s.wins + s.losses }))
+        .sort((a, b) => b.winRate - a.winRate)
+        .slice(0, 2)
+        .map(s => s.id);
+
+      // ── Derived enforcement fields ───────────────────────────────────
+      const rrRatio = avgLossPips > 0 ? Math.round(avgWinPips / avgLossPips * 100) / 100 : 1;
+      const winFraction = winRate / 100;
+      const kellyClamped = Math.min(1.5, Math.max(0.25,
+        winFraction - (1 - winFraction) / Math.max(rrRatio, 0.5)
+      ));
+      const optimalTrailPips = Math.max(5, Math.round(avgWinPips * 0.4));
+      // Minimum ATR proxy: avg pip value that was profitable (pip * price factor)
+      const minProfitableATR = avgWinPips > 0 ? Math.round(avgWinPips * 0.0001 * 100) / 100 : 0;
+
       pairKnowledge[sym] = {
         totalTrades: totalCompleted, winRate, avgWinPips, avgLossPips, avgWinProfit,
-        riskRewardRatio: avgLossPips > 0 ? Math.round(avgWinPips / avgLossPips * 100) / 100 : 0,
+        riskRewardRatio: rrRatio,
         preferredDirection, buyWinRate: buyWR, sellWinRate: sellWR,
         topHours: topHours.slice(0, 3), worstHours: topHours.slice(-2).reverse(),
         topDays: topDays.slice(0, 3), topSessions,
@@ -8966,6 +9002,13 @@ Format each recommendation as a clear, concise action item.`;
         lastConfidence: pairConnected?.confidence || null,
         currentSpread: pairConnected?.spread || null,
         lastPrice: pairConnected?.price || lastChartData[sym]?.close || null,
+        // ── New enforcement fields (T001) ────────────────────────────
+        bestStrategies,
+        optimalTrailPips,
+        minProfitableATR,
+        recommendedLotMultiplier: Math.round(kellyClamped * 100) / 100,
+        consecutiveLossesToday: 0,   // updated live by BrainEnforcer
+        lastLossAt: null as string | null,
       };
     }
 
@@ -9305,9 +9348,20 @@ Respond with ONLY valid JSON:
   app.get("/api/vedd-brain/autonomous-signals", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
-    const signals = (global as any).veddAutonomousSignals?.[userId];
+    // Check both storage locations: auto-scheduled (new) and manually-generated (legacy)
+    const autoSignals = (global as any).veddAIBrain?.[userId]?.lastAutonomousSignals;
+    const legacySignals = (global as any).veddAutonomousSignals?.[userId];
+    const signals = autoSignals || legacySignals;
     if (!signals) return res.json({ signals: [], message: "No autonomous signals generated yet." });
     res.json(signals);
+  });
+
+  // Brain Enforcement Log — shows which trades were blocked and why
+  app.get("/api/vedd-brain/enforcement-log", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const log = (global as any).veddAIBrain?.[userId]?.enforcementLog || [];
+    res.json({ log });
   });
 
   // HFT Strategy Modes - available strategies for autonomous trading
@@ -10190,9 +10244,9 @@ Respond with ONLY valid JSON:
         return res.status(404).json({ error: "Lesson not found" });
       }
       
-      // Initialize OpenAI client
-      const OpenAI = (await import("openai")).default;
-      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+      // Initialize OpenAI client (user's own key when available, platform key as fallback)
+      const { getOpenAIInstanceForUser: _getOAI_ambassador } = await import('./openai');
+      const openai = await _getOAI_ambassador(userId);
       
       const prompt = `You are a social media content creator for VEDD AI, a faith-based trading platform. Create an engaging social media post based on the following:
 
@@ -11685,9 +11739,9 @@ Generate a JSON object with:
       let session = await storage.getChallengeSession(userId, challengeId);
       
       if (!session) {
-        // Generate AI steps and guidance for this challenge
-        const OpenAI = (await import("openai")).default;
-        const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+        // Generate AI steps and guidance for this challenge (user's own key when available)
+        const { getOpenAIInstanceForUser: _getOAI_challenge } = await import('./openai');
+        const openai = await _getOAI_challenge(userId);
         
         const completion = await openai.chat.completions.create({
           model: "gpt-4o",
@@ -11895,9 +11949,9 @@ Generate a breakdown with 3-5 actionable steps. Return JSON: {
       const event = await storage.getEvent(eventId);
       if (!event) return res.status(404).json({ error: 'Event not found' });
       
-      // Generate AI agenda
-      const OpenAI = (await import("openai")).default;
-      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+      // Generate AI agenda (user's own key when available, platform key as fallback)
+      const { getOpenAIInstanceForUser: _getOAI_event } = await import('./openai');
+      const openai = await _getOAI_event(userId);
       
       const completion = await openai.chat.completions.create({
         model: "gpt-4o",

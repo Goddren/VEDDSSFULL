@@ -734,22 +734,23 @@ Return JSON:
     return 'low';
   }
 
-  async analyzeIndividualArticles(news: NewsItem[], symbol: string): Promise<AnalyzedNewsItem[]> {
+  async analyzeIndividualArticles(news: NewsItem[], symbol: string, openaiOverride?: OpenAI): Promise<AnalyzedNewsItem[]> {
     if (news.length === 0) {
       return [];
     }
 
     const basicResults = news.map(item => this.basicArticleSentiment(item));
     
+    const openaiInstance = openaiOverride || this.openai;
     const hasNonNeutralBasic = basicResults.some(r => r.sentiment.label !== 'neutral');
-    if (hasNonNeutralBasic || !this.openai) {
+    if (hasNonNeutralBasic || !openaiInstance) {
       return basicResults;
     }
 
     try {
       const headlines = news.slice(0, 15).map((n, i) => `${i + 1}. ${n.headline}`).join('\n');
       
-      const response = await this.openai.chat.completions.create({
+      const response = await openaiInstance.chat.completions.create({
         model: 'gpt-4o',
         messages: [
           {
