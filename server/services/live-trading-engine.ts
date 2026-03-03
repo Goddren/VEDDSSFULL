@@ -327,16 +327,27 @@ function applyBrainEnforcement(
     return { ...passthrough, allowed: false, reason: msg };
   }
 
-  // ── RULE 3: Direction bias block (only when direction is known) ────────
-  if (proposedDirection) {
-    const dirWR = proposedDirection === 'BUY' ? k.buyWinRate : k.sellWinRate;
-    const dirTotal = proposedDirection === 'BUY'
-      ? (k.totalTrades * k.buyWinRate / 100) + (k.totalTrades * (100 - k.buyWinRate) / 100)
-      : k.totalTrades;
-    if (k.totalTrades >= 5 && dirWR < 35) {
-      const msg = `🧠 Brain block: ${symbol} ${proposedDirection} only ${dirWR}% WR — direction blocked`;
+  // ── RULE 3: Direction bias — 3-tier system ───────────────────────────
+  // Tier 1 (<15 trades): not enough data — no enforcement at all
+  // Tier 2 (15–29 trades, WR 20–39%): allowed but lot reduced to 0.7x (soft caution)
+  // Tier 3 (30+ trades, WR <20%): statistically confirmed losing direction — hard block
+  if (proposedDirection && k.totalTrades >= 15) {
+    const dirWR = proposedDirection === 'BUY' ? (k.buyWinRate ?? 50) : (k.sellWinRate ?? 50);
+    if (k.totalTrades >= 30 && dirWR < 20) {
+      const msg = `🧠 Brain block: ${symbol} ${proposedDirection} ${dirWR}% WR over ${k.totalTrades} trades — statistically losing direction, hard blocked`;
       pushEnforcementLog(userId, { symbol, rule: 'direction_bias', direction: proposedDirection, reason: msg });
       return { ...passthrough, allowed: false, reason: msg };
+    }
+    if (dirWR >= 20 && dirWR < 40) {
+      const msg = `⚠️ Brain caution: ${symbol} ${proposedDirection} ${dirWR}% WR (${k.totalTrades} trades) — trade allowed at 70% lot size`;
+      pushEnforcementLog(userId, { symbol, rule: 'direction_caution', direction: proposedDirection, reason: msg });
+      return {
+        allowed: true,
+        reason: msg,
+        adjustedLotMultiplier: 0.7,
+        forcedStrategy: k.bestStrategies?.[0] || null,
+        recommendedTrailPips: k.optimalTrailPips || 20,
+      };
     }
   }
 
