@@ -420,9 +420,10 @@ Return your analysis as JSON:
 }
 
 async function callOpenAIConfirmation(prompt: { system: string; user: string }, model: string, userId?: number): Promise<string> {
-  const openaiInstance = userId ? await getOpenAIInstanceForUser(userId) : getOpenAIInstance();
+  const openaiInstance = userId ? await getUniversalAIClientForUser(userId) : getOpenAIInstance();
+  const resolvedModel = (openaiInstance as any).defaultModel || model;
   const response = await openaiInstance.chat.completions.create({
-    model,
+    model: resolvedModel,
     messages: [
       { role: "system", content: prompt.system },
       { role: "user", content: prompt.user }
@@ -609,19 +610,140 @@ function getOpenAIInstance(userApiKey?: string) {
   return openai;
 }
 
-// Get OpenAI instance for a specific user, checking for their own API key first
-export async function getOpenAIInstanceForUser(userId: number): Promise<OpenAI> {
+// ─── Universal AI Client ──────────────────────────────────────────────────────
+
+export interface UniversalAIClient {
+  chat: {
+    completions: {
+      create(params: any): Promise<any>;
+    };
+  };
+  defaultModel: string;
+  provider: string;
+}
+
+const PROVIDER_MODELS: Record<string, string> = {
+  openai: 'gpt-4o',
+  groq: 'llama-3.3-70b-versatile',
+  anthropic: 'claude-3-5-sonnet-20241022',
+  google: 'gemini-1.5-pro',
+  mistral: 'mistral-large-latest',
+};
+
+// Thin wrapper that makes Anthropic SDK look like OpenAI SDK
+class AnthropicAsOpenAI implements UniversalAIClient {
+  defaultModel: string;
+  provider = 'anthropic';
+  private client: any;
+
+  constructor(apiKey: string) {
+    const Anthropic = require('@anthropic-ai/sdk');
+    this.client = new Anthropic.default({ apiKey });
+    this.defaultModel = PROVIDER_MODELS.anthropic;
+  }
+
+  get chat() {
+    return {
+      completions: {
+        create: async (params: any): Promise<any> => {
+          const messages = (params.messages || []).filter((m: any) => m.role !== 'system');
+          const systemMsg = (params.messages || []).find((m: any) => m.role === 'system');
+          const maxTokens = params.max_tokens || 4096;
+          const model = params.model || this.defaultModel;
+
+          const response = await this.client.messages.create({
+            model,
+            max_tokens: maxTokens,
+            ...(systemMsg ? { system: systemMsg.content } : {}),
+            messages: messages.map((m: any) => ({
+              role: m.role,
+              content: typeof m.content === 'string'
+                ? m.content
+                : Array.isArray(m.content)
+                  ? m.content.map((c: any) => {
+                      if (c.type === 'text') return { type: 'text', text: c.text };
+                      if (c.type === 'image_url') {
+                        const url: string = c.image_url?.url || '';
+                        if (url.startsWith('data:')) {
+                          const [meta, data] = url.split(',');
+                          const mediaType = meta.split(':')[1].split(';')[0];
+                          return { type: 'image', source: { type: 'base64', media_type: mediaType, data } };
+                        }
+                        return { type: 'image', source: { type: 'url', url } };
+                      }
+                      return c;
+                    })
+                  : m.content,
+            })),
+          });
+
+          const text = response.content?.[0]?.text || '';
+          return {
+            choices: [{ message: { role: 'assistant', content: text }, finish_reason: response.stop_reason }],
+            usage: { prompt_tokens: response.usage?.input_tokens, completion_tokens: response.usage?.output_tokens },
+          };
+        },
+      },
+    };
+  }
+}
+
+// Build an OpenAI-SDK-compatible client for Groq / Google / Mistral (all OpenAI-compatible APIs)
+function buildOpenAICompatClient(provider: string, apiKey: string): UniversalAIClient {
+  const baseURLs: Record<string, string> = {
+    groq: 'https://api.groq.com/openai/v1',
+    google: 'https://generativelanguage.googleapis.com/v1beta/openai/',
+    mistral: 'https://api.mistral.ai/v1',
+  };
+  const client = new OpenAI({ apiKey, baseURL: baseURLs[provider] });
+  const wrapper = client as any;
+  wrapper.defaultModel = PROVIDER_MODELS[provider];
+  wrapper.provider = provider;
+  return wrapper as UniversalAIClient;
+}
+
+// Provider selection priority
+const PROVIDER_PRIORITY = ['openai', 'groq', 'anthropic', 'google', 'mistral'];
+
+export async function getUniversalAIClientForUser(userId: number): Promise<UniversalAIClient> {
   try {
     const { storage } = await import('./storage');
-    const userKey = await storage.getActiveUserApiKey(userId, 'openai');
-    if (userKey && userKey.apiKey) {
-      await storage.updateUserApiKeyUsage(userId, 'openai');
-      return new OpenAI({ apiKey: userKey.apiKey });
+    const allKeys = await storage.getUserApiKeys(userId);
+    const activeKeys = allKeys.filter(k => k.isActive);
+
+    for (const provider of PROVIDER_PRIORITY) {
+      const key = activeKeys.find(k => k.provider === provider);
+      if (!key?.apiKey) continue;
+      try {
+        await storage.updateUserApiKeyUsage(userId, provider);
+        if (provider === 'openai') {
+          const client = new OpenAI({ apiKey: key.apiKey }) as any;
+          client.defaultModel = PROVIDER_MODELS.openai;
+          client.provider = 'openai';
+          return client as UniversalAIClient;
+        }
+        if (provider === 'anthropic') {
+          return new AnthropicAsOpenAI(key.apiKey);
+        }
+        return buildOpenAICompatClient(provider, key.apiKey);
+      } catch (e) {
+        console.error(`[AI] Failed to build ${provider} client, trying next provider:`, e);
+      }
     }
   } catch (e) {
-    console.error('Error fetching user API key, falling back to platform key:', e);
+    console.error('Error fetching user API keys, falling back to platform key:', e);
   }
-  return openai;
+  // Fallback: platform OpenAI key
+  const platformClient = openai as any;
+  platformClient.defaultModel = 'gpt-4o';
+  platformClient.provider = 'openai';
+  return platformClient as UniversalAIClient;
+}
+
+// Get OpenAI instance for a specific user, checking for their own API key first
+// Kept for backward compatibility — internally uses universal client now
+export async function getOpenAIInstanceForUser(userId: number): Promise<any> {
+  return getUniversalAIClientForUser(userId);
 }
 
 // Function to test if OpenAI API key is valid
@@ -648,8 +770,9 @@ export { getAssetSpecificConfig, getAssetSpecificPrompt };
 // Enhanced chart analysis with optional symbol for asset-specific analysis
 export async function analyzeChartImage(base64Image: string, knownSymbol?: string, userId?: number): Promise<ChartAnalysisResponse> {
   try {
-    const openai = userId ? await getOpenAIInstanceForUser(userId) : getOpenAIInstance();
-    const selectedModel = userId ? getUserModelPreference(userId) : 'gpt-4o';
+    const aiClient = userId ? await getUniversalAIClientForUser(userId) : getOpenAIInstance();
+    const selectedModel = (aiClient as any).defaultModel || (userId ? getUserModelPreference(userId) : 'gpt-4o');
+    const openai = aiClient;
     
     // Get asset-specific prompt if symbol is provided
     const assetSpecificAddition = knownSymbol ? getAssetSpecificPrompt(knownSymbol) : '';

@@ -419,9 +419,9 @@ function pushEnforcementLog(userId: number, entry: { symbol: string; rule: strin
 async function autoGenerateBrainSignals(userId: number, brain: any): Promise<void> {
   try {
     if (!brain?.pairKnowledge || Object.keys(brain.pairKnowledge).length === 0) return;
-    const { getOpenAIInstanceForUser } = await import('../openai');
+    const { getUniversalAIClientForUser } = await import('../openai');
     let openai: any;
-    try { openai = await getOpenAIInstanceForUser(userId); } catch { return; }
+    try { openai = await getUniversalAIClientForUser(userId); } catch { return; }
 
     const connectedPairs = (global as any).mt5ConnectedPairs?.[userId] || {};
     const lastChartData = (global as any).mt5LastChartData?.[userId] || {};
@@ -466,7 +466,7 @@ Generate signals for pairs with strong learned edge. Respect session win-rates. 
 {"signals":[{"symbol":"XAUUSD","direction":"BUY","confidence":82,"entryZone":2315.00,"stopLoss":2305.00,"takeProfit":2335.00,"lotSize":0.01,"holdTime":"2-4hrs","reason":"Brain: 78% WR London session, preferred BUY direction","riskScore":3}],"marketRead":"Brief overview","brainConfidence":75}`;
 
     const resp = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: openai.defaultModel || 'gpt-4o',
       messages: [
         { role: 'system', content: 'You are VEDD SS AI. Respond with valid JSON only.' },
         { role: 'user', content: prompt },
@@ -1023,15 +1023,15 @@ async function runAILiveAnalysis(userId: number, marketAnalysis: Record<string, 
   if (!state) return;
 
   try {
-    const { getOpenAIInstanceForUser, getUserModelPreference } = await import('../openai');
-    let openai: any, model: string;
+    const { getUniversalAIClientForUser } = await import('../openai');
+    let openai: any;
     try {
-      openai = await getOpenAIInstanceForUser(userId);
-      model = getUserModelPreference(userId);
+      openai = await getUniversalAIClientForUser(userId);
     } catch {
       addActivity(userId, { type: 'error', message: 'No AI API key configured. Cannot analyze.' });
       return;
     }
+    const model = openai.defaultModel || 'gpt-4o';
 
     const now = new Date();
     const hour = now.getUTCHours();
@@ -1613,8 +1613,8 @@ Respond ONLY with valid JSON. Generate MULTIPLE decisions when opportunities exi
     }
 
     if (!usedMultiModel) {
-      const modelToUse = model.startsWith('gpt') ? model : 'gpt-4o-mini';
-      const supportsJson = modelToUse.startsWith('gpt');
+      const modelToUse = model;
+      const supportsJson = modelToUse.startsWith('gpt') || modelToUse.startsWith('gemini') || modelToUse.startsWith('llama') || modelToUse.startsWith('mistral') || modelToUse.startsWith('claude');
 
       const response = await openai.chat.completions.create({
         model: modelToUse,

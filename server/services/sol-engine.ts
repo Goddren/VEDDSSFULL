@@ -676,8 +676,8 @@ async function runSolAIReview(
   if (buySignals.length === 0 && openPositions.length === 0) return;
 
   try {
-    const { getOpenAIInstanceForUser } = await import('../openai');
-    const openai = await getOpenAIInstanceForUser(userId);
+    const { getUniversalAIClientForUser } = await import('../openai');
+    const openai = await getUniversalAIClientForUser(userId);
 
     const strategy = SOL_STRATEGIES.find(s => s.id === state.activeStrategy) || SOL_STRATEGIES[0];
     const macro = state.lastMacro;
@@ -735,7 +735,7 @@ Return ONLY the JSON array, no markdown, no explanation.`;
     const userPrompt = `SIGNALS:\n${signalsText}\n\nOPEN POSITIONS:\n${positionsText}`;
 
     const response = await openai.chat.completions.create({
-      model: 'gpt-4o',
+      model: (openai as any).defaultModel || 'gpt-4o',
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
@@ -962,8 +962,8 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
 
     const shieldFilter = state.config.shieldEnabled && state.shieldActive;
 
-    const { getOpenAIInstanceForUser } = await import('../openai');
-    const userOpenai = await getOpenAIInstanceForUser(userId).catch(() => null);
+    const { getUniversalAIClientForUser } = await import('../openai');
+    const userOpenai = await getUniversalAIClientForUser(userId).catch(() => null);
 
     const scanResult = await scanAndAnalyzeTokens(
       state.config.maxTokens,

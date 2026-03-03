@@ -46,6 +46,7 @@ const AI_PROVIDERS = [
   { id: 'anthropic', name: 'Anthropic',   placeholder: 'sk-ant-...',   icon: '🧠' },
   { id: 'google',    name: 'Google AI',   placeholder: 'AIza...',      icon: '💎' },
   { id: 'groq',      name: 'Groq',        placeholder: 'gsk_...',      icon: '⚡' },
+  { id: 'mistral',   name: 'Mistral',     placeholder: 'your-mistral-api-key', icon: '🌊' },
 ];
 
 interface UserApiKey {

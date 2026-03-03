@@ -691,11 +691,11 @@ Return ONLY a JSON object with:
   "reasoning": "brief explanation of how you detected it"
 }`;
 
-            const { getOpenAIInstanceForUser: _getOAI1 } = await import('./openai');
+            const { getUniversalAIClientForUser: _getOAI1 } = await import('./openai');
             const client = await _getOAI1((req.user as User).id);
 
             const response = await client.chat.completions.create({
-              model: "gpt-4o-mini",
+              model: (client as any).defaultModel || 'gpt-4o',
               max_tokens: 256,
               messages: [
                 {
@@ -821,11 +821,11 @@ Respond ONLY in valid JSON format with these exact keys:
   "breakoutReasoning": "string explaining the breakout levels and why they're good entry points"
 }`;
 
-      const { getOpenAIInstanceForUser: _getOAI2 } = await import('./openai');
+      const { getUniversalAIClientForUser: _getOAI2 } = await import('./openai');
       const client = await _getOAI2((req.user as User).id);
 
       const response = await client.chat.completions.create({
-        model: "gpt-4o-mini",
+        model: (client as any).defaultModel || 'gpt-4o',
         max_tokens: 1500,
         response_format: { type: "json_object" },
         messages: [
@@ -2899,11 +2899,8 @@ News Sentiment Analysis:
         // Continue without news data
       }
 
-      // Call OpenAI for lightweight text-based analysis (no image needed)
-      const openai = new (await import('openai')).default({
-        baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL || process.env.OPENAI_BASE_URL,
-        apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY,
-      });
+      const { getUniversalAIClientForUser: _getOAI_ea } = await import('./openai');
+      const openai = await _getOAI_ea(userId);
 
       const analysisPrompt = `Analyze the current market conditions for ${symbol} on ${timeframe} timeframe.
 
@@ -2935,7 +2932,7 @@ Return ONLY a JSON object with this structure:
 }`;
 
       const response = await openai.chat.completions.create({
-        model: "gpt-4o",
+        model: (openai as any).defaultModel || 'gpt-4o',
         messages: [
           {
             role: "system",
@@ -3464,11 +3461,11 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
 }`;
 
           try {
-            const { getOpenAIInstanceForUser: _getOAI3 } = await import('./openai');
+            const { getUniversalAIClientForUser: _getOAI3 } = await import('./openai');
             const openaiClient = await _getOAI3((req.user as User).id);
             
             const aiResponse = await openaiClient.chat.completions.create({
-              model: "gpt-4o",
+              model: (openaiClient as any).defaultModel || 'gpt-4o',
               messages: [
                 { role: "system", content: "You are an expert forex trading analyst. Provide analysis in strict JSON format only." },
                 { role: "user", content: reanalysisPrompt }
@@ -4149,7 +4146,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       }
       
       // Import OpenAI — use user's own key when available
-      const { getOpenAIInstanceForUser: _getOAI4 } = await import('./openai');
+      const { getUniversalAIClientForUser: _getOAI4 } = await import('./openai');
       const openai = await _getOAI4((req.user as User).id);
 
       // Build the AI prompt based on scenario type
@@ -4211,7 +4208,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       
       // Call OpenAI for analysis
       const completion = await openai.chat.completions.create({
-        model: "gpt-4o",
+        model: (openai as any).defaultModel || 'gpt-4o',
         messages: [
           {
             role: "system",
@@ -7352,7 +7349,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       const connectedPairs = (global as any).mt5ConnectedPairs?.[userId] || {};
 
       // Get current EA settings dynamically
-      const { isAiVisionConfirmationEnabled: isAiEnabled, getAiMinConfidence: getMinConf, getUserModelPreference: getModelPref, getOpenAIInstanceForUser: getAiInstance } = await import('./openai');
+      const { isAiVisionConfirmationEnabled: isAiEnabled, getAiMinConfidence: getMinConf, getUserModelPreference: getModelPref, getUniversalAIClientForUser: getAiInstance } = await import('./openai');
       const aiEnabled = isAiEnabled(userId);
       const aiMinConf = getMinConf(userId);
       const eaEnabled = (global as any).mt5EaEnabled?.[userId] !== false;
@@ -7521,14 +7518,14 @@ Respond with ONLY valid JSON:
       let selectedModel: string;
       try {
         openaiInstance = await getAiInstance(userId);
-        selectedModel = getModelPref(userId);
+        selectedModel = (openaiInstance as any).defaultModel || getModelPref(userId);
       } catch (e: any) {
         console.error('[Weekly Strategy] Failed to get AI instance:', e.message);
         return res.status(500).json({ error: 'No AI API key configured. Please add an API key in the AI API Keys page.' });
       }
 
-      const modelToUse = selectedModel.startsWith('gpt') ? selectedModel : 'gpt-4o-mini';
-      const supportsJsonFormat = modelToUse.startsWith('gpt');
+      const modelToUse = selectedModel;
+      const supportsJsonFormat = true;
 
       let response: any;
       try {
@@ -8131,7 +8128,7 @@ Respond with ONLY valid JSON:
     const { platform = 'twitter' } = req.body;
 
     try {
-      const { getOpenAIInstanceForUser } = await import('./openai');
+      const { getUniversalAIClientForUser } = await import('./openai');
       const progress = strat.progressPercentage || 0;
       const multiplier = strat.accountBalance > 0 ? ((strat.accountBalance + strat.profitTarget) / strat.accountBalance).toFixed(1) : '1.0';
 
@@ -8154,9 +8151,9 @@ Rules:
 - Keep it professional but exciting
 - Output ONLY the post text, nothing else`;
 
-      const ai = await getOpenAIInstanceForUser(userId);
+      const ai = await getUniversalAIClientForUser(userId);
       const completion = await ai.chat.completions.create({
-        model: 'gpt-4o',
+        model: (ai as any).defaultModel || 'gpt-4o',
         messages: [
           { role: 'system', content: 'You generate social media posts. Output only the post text.' },
           { role: 'user', content: prompt }
@@ -9088,11 +9085,11 @@ Format each recommendation as a clear, concise action item.`;
     const { strategyMode = 'aggressive', autoExecute = false } = req.body;
 
     try {
-      const { getOpenAIInstanceForUser, getUserModelPreference } = await import('./openai');
+      const { getUniversalAIClientForUser } = await import('./openai');
       let openaiInstance: any, selectedModel: string;
       try {
-        openaiInstance = await getOpenAIInstanceForUser(userId);
-        selectedModel = getUserModelPreference(userId);
+        openaiInstance = await getUniversalAIClientForUser(userId);
+        selectedModel = (openaiInstance as any).defaultModel || 'gpt-4o';
       } catch {
         return res.status(500).json({ error: 'No AI API key configured.' });
       }
@@ -9189,16 +9186,13 @@ Respond with ONLY valid JSON:
   "brainConfidence": 0-100
 }`;
 
-      const modelToUse = selectedModel.startsWith('gpt') ? selectedModel : 'gpt-4o-mini';
-      const supportsJsonFormat = modelToUse.startsWith('gpt');
-
       const response = await openaiInstance.chat.completions.create({
-        model: modelToUse,
+        model: selectedModel,
         messages: [
           { role: "system", content: "You are VEDD SS AI - an autonomous self-learning trading engine. Speak with authority. Respond with valid JSON only." },
           { role: "user", content: prompt }
         ],
-        ...(supportsJsonFormat ? { response_format: { type: "json_object" } } : {}),
+        response_format: { type: "json_object" },
         max_tokens: 2500,
         temperature: 0.3,
       });
@@ -10245,7 +10239,7 @@ Respond with ONLY valid JSON:
       }
       
       // Initialize OpenAI client (user's own key when available, platform key as fallback)
-      const { getOpenAIInstanceForUser: _getOAI_ambassador } = await import('./openai');
+      const { getUniversalAIClientForUser: _getOAI_ambassador } = await import('./openai');
       const openai = await _getOAI_ambassador(userId);
       
       const prompt = `You are a social media content creator for VEDD AI, a faith-based trading platform. Create an engaging social media post based on the following:
@@ -10280,7 +10274,7 @@ Format your response as JSON:
 }`;
 
       const completion = await openai.chat.completions.create({
-        model: "gpt-4o",
+        model: (openai as any).defaultModel || 'gpt-4o',
         messages: [{ role: "user", content: prompt }],
         response_format: { type: "json_object" }
       });
@@ -11740,11 +11734,11 @@ Generate a JSON object with:
       
       if (!session) {
         // Generate AI steps and guidance for this challenge (user's own key when available)
-        const { getOpenAIInstanceForUser: _getOAI_challenge } = await import('./openai');
+        const { getUniversalAIClientForUser: _getOAI_challenge } = await import('./openai');
         const openai = await _getOAI_challenge(userId);
         
         const completion = await openai.chat.completions.create({
-          model: "gpt-4o",
+          model: (openai as any).defaultModel || 'gpt-4o',
           messages: [
             {
               role: "system",
@@ -11950,11 +11944,11 @@ Generate a breakdown with 3-5 actionable steps. Return JSON: {
       if (!event) return res.status(404).json({ error: 'Event not found' });
       
       // Generate AI agenda (user's own key when available, platform key as fallback)
-      const { getOpenAIInstanceForUser: _getOAI_event } = await import('./openai');
+      const { getUniversalAIClientForUser: _getOAI_event } = await import('./openai');
       const openai = await _getOAI_event(userId);
       
       const completion = await openai.chat.completions.create({
-        model: "gpt-4o",
+        model: (openai as any).defaultModel || 'gpt-4o',
         messages: [
           {
             role: "system",

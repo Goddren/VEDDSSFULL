@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import type { UniversalAIClient } from './openai';
 
 export type DexSource = 'all' | 'raydium' | 'orca' | 'meteora' | 'pumpfun' | 'jupiter';
 
@@ -53,7 +54,7 @@ export interface AnalyzeTokenOptions {
   portfolioSol?: number;
   shieldActive?: boolean;
   minConfidence?: number;
-  openai?: OpenAI;
+  openai?: OpenAI | UniversalAIClient;
 }
 
 export async function fetchTrendingSolanaTokens(): Promise<SolanaToken[]> {
@@ -516,7 +517,7 @@ Provide a sharp 2-3 sentence analysis. Reference macro context and DEX performan
 
     const openaiClient = openaiOverride || new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     const response = await openaiClient.chat.completions.create({
-      model: 'gpt-4o',
+      model: (openaiClient as any).defaultModel || 'gpt-4o',
       messages: [{ role: 'user', content: prompt }],
       max_tokens: 180,
       temperature: 0.7

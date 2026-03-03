@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import type { UniversalAIClient } from './openai';
 
 const FINNHUB_BASE_URL = 'https://finnhub.io/api/v1';
 
@@ -185,7 +186,7 @@ class NewsService {
     }
   }
 
-  async analyzeNewsSentiment(news: NewsItem[], symbol: string, openaiOverride?: OpenAI): Promise<NewsSentiment> {
+  async analyzeNewsSentiment(news: NewsItem[], symbol: string, openaiOverride?: OpenAI | UniversalAIClient): Promise<NewsSentiment> {
     if (news.length === 0) {
       return this.getDefaultSentiment();
     }
@@ -196,7 +197,7 @@ class NewsService {
         const headlines = news.slice(0, 10).map(n => n.headline).join('\n');
         
         const response = await openaiInstance.chat.completions.create({
-          model: 'gpt-4o',
+          model: (openaiInstance as any).defaultModel || 'gpt-4o',
           messages: [
             {
               role: 'system',
@@ -465,7 +466,7 @@ ${headlines}`
     }
   }
 
-  async analyzePairSentiment(symbol: string, daysBack: number = 7, openaiOverride?: OpenAI): Promise<NewsSentiment & { baseImpact: string; quoteImpact: string; pairDirection: string }> {
+  async analyzePairSentiment(symbol: string, daysBack: number = 7, openaiOverride?: OpenAI | UniversalAIClient): Promise<NewsSentiment & { baseImpact: string; quoteImpact: string; pairDirection: string }> {
     const { baseNews, quoteNews, combined } = await this.fetchPairSpecificNews(symbol, daysBack);
     const currencies = this.getForexCurrencies(symbol);
     
@@ -485,7 +486,7 @@ ${headlines}`
       const quoteHeadlines = quoteNews.slice(0, 5).map(n => n.headline).join('\n');
 
       const response = await openaiInstance.chat.completions.create({
-        model: 'gpt-4o',
+        model: (openaiInstance as any).defaultModel || 'gpt-4o',
         messages: [
           {
             role: 'system',
@@ -734,7 +735,7 @@ Return JSON:
     return 'low';
   }
 
-  async analyzeIndividualArticles(news: NewsItem[], symbol: string, openaiOverride?: OpenAI): Promise<AnalyzedNewsItem[]> {
+  async analyzeIndividualArticles(news: NewsItem[], symbol: string, openaiOverride?: OpenAI | UniversalAIClient): Promise<AnalyzedNewsItem[]> {
     if (news.length === 0) {
       return [];
     }
@@ -751,7 +752,7 @@ Return JSON:
       const headlines = news.slice(0, 15).map((n, i) => `${i + 1}. ${n.headline}`).join('\n');
       
       const response = await openaiInstance.chat.completions.create({
-        model: 'gpt-4o',
+        model: (openaiInstance as any).defaultModel || 'gpt-4o',
         messages: [
           {
             role: 'system',
