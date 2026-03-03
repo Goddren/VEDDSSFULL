@@ -7541,13 +7541,14 @@ Respond with ONLY valid JSON:
         });
       } catch (aiError: any) {
         const errMsg = aiError.message || '';
-        if (errMsg.includes('rate') || errMsg.includes('quota') || errMsg.includes('429')) {
+        const errStatus = aiError.status || aiError.statusCode || 0;
+        if (errMsg.includes('rate') || errMsg.includes('quota') || errMsg.includes('429') || errStatus === 429) {
           return res.status(429).json({ error: 'AI rate limit hit. Please wait a moment and try again, or switch to a different AI provider.' });
         }
-        if (errMsg.includes('key') || errMsg.includes('auth') || errMsg.includes('401')) {
+        if (errStatus === 401 || errMsg.includes('Incorrect API key') || errMsg.includes('invalid_api_key') || errMsg.includes('authentication_error')) {
           return res.status(401).json({ error: 'AI API key is invalid or expired. Please update your API key.' });
         }
-        throw aiError;
+        return res.status(500).json({ error: `AI error: ${errMsg || 'Unknown error. Please try again.'}` });
       }
 
       const content = response.choices[0]?.message?.content || '';
@@ -8779,9 +8780,11 @@ Based on this data, provide 4-6 specific, actionable recommendations to improve 
 
 Format each recommendation as a clear, concise action item.`;
 
-      // Call OpenAI for strategy recommendations
-      const response = await openai.chat.completions.create({
-        model: "gpt-4o",
+      // Call AI for strategy recommendations (uses user's active provider key)
+      const { getUniversalAIClientForUser: _getOAI_improve } = await import('./openai');
+      const _aiImprove = await _getOAI_improve(userId);
+      const response = await _aiImprove.chat.completions.create({
+        model: (_aiImprove as any).defaultModel || 'gpt-4o',
         messages: [{ role: "user", content: prompt }],
         max_tokens: 1000,
         temperature: 0.7,

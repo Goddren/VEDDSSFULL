@@ -651,10 +651,20 @@ class AnthropicAsOpenAI implements UniversalAIClient {
           const maxTokens = params.max_tokens || 4096;
           const model = params.model || this.defaultModel;
 
+          // Anthropic doesn't support response_format — if JSON mode was requested,
+          // inject a JSON instruction into the system message instead
+          const wantsJson = params.response_format?.type === 'json_object';
+          let systemContent = systemMsg?.content || '';
+          if (wantsJson) {
+            systemContent = systemContent
+              ? `${systemContent}\n\nRespond with valid JSON only. No markdown, no explanation.`
+              : 'Respond with valid JSON only. No markdown, no explanation.';
+          }
+
           const response = await this.client.messages.create({
             model,
             max_tokens: maxTokens,
-            ...(systemMsg ? { system: systemMsg.content } : {}),
+            ...(systemContent ? { system: systemContent } : {}),
             messages: messages.map((m: any) => ({
               role: m.role,
               content: typeof m.content === 'string'
