@@ -142,6 +142,7 @@ interface LiveEngineConfig {
   enablePositionManagement: boolean;
   trailingStopEnabled: boolean;
   trailingStopATRMultiplier: number;
+  trailMethod: 'staged_volume' | 'chandelier' | 'r_multiple' | 'swing_structure' | 'parabolic_sar';
   weeklyProfitTarget: number;
   accountBalance: number;
   enableCompounding: boolean;
@@ -257,6 +258,7 @@ interface EngineState {
   dailyLossHalted: boolean;
   dailyLossHaltedAt: string | null;
   tradesSinceLastLearn: number;
+  positionTrailState: Record<string, { highestHigh: number; lowestLow: number; sar: number; ep: number; af: number; bullish: boolean }>;
 }
 
 const engineStates: Record<number, EngineState> = {};
@@ -571,6 +573,7 @@ function getDefaultConfig(userId: number): LiveEngineConfig {
     enablePositionManagement: true,
     trailingStopEnabled: true,
     trailingStopATRMultiplier: 1.5,
+    trailMethod: 'staged_volume',
     weeklyProfitTarget: 0,
     accountBalance: 0,
     enableCompounding: true,
@@ -1023,12 +1026,201 @@ async function scanMarkets(userId: number): Promise<void> {
       addActivity(userId, { type: 'info', message: `High volume detected: ${volumeSummary.join(', ')}` });
     }
 
+    const currentOpenPositions = (global as any).mt5OpenPositions?.[userId]?.positions || [];
+    await applyServerSideTrails(userId, currentOpenPositions, marketAnalysis);
+
     await runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, crossAssets, triggerPairs);
 
   } catch (err: any) {
     addActivity(userId, { type: 'error', message: `Scan cycle error: ${err.message}` });
   } finally {
     state.currentlyScanning = false;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INDUSTRY-STANDARD TRAIL CALCULATION FUNCTIONS
+// All return the new absolute SL price. Ratchet logic (only moves SL in the
+// favourable direction) is applied in applyServerSideTrails() after calling these.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function computeChandelierSL(
+  position: any,
+  atr: number,
+  multiplier: number,
+  trailState: { highestHigh: number; lowestLow: number },
+): number {
+  const price = position.currentPrice;
+  if (!price || price <= 0) return position.sl || 0;
+  const effectiveATR = atr > 0 ? atr : (position.symbol?.includes('JPY') ? 0.50 : 0.0050);
+  if (position.direction === 'BUY') {
+    if (price > (trailState.highestHigh || 0)) trailState.highestHigh = price;
+    return (trailState.highestHigh || price) - effectiveATR * multiplier;
+  } else {
+    if (!trailState.lowestLow || price < trailState.lowestLow) trailState.lowestLow = price;
+    return (trailState.lowestLow || price) + effectiveATR * multiplier;
+  }
+}
+
+function computeRMultipleSL(position: any): number {
+  const openPrice = position.openPrice;
+  const originalSL = position.originalSL || position.sl;
+  if (!openPrice || !originalSL || originalSL === 0) return position.sl || 0;
+  const R = Math.abs(openPrice - originalSL);
+  if (R === 0) return position.sl || 0;
+  const pnlUnits = position.direction === 'BUY'
+    ? (position.currentPrice - openPrice)
+    : (openPrice - position.currentPrice);
+  const rMultiple = pnlUnits / R;
+  if (rMultiple < 1) return position.sl || 0;
+  const lockedR = Math.floor(rMultiple) - 1;
+  if (position.direction === 'BUY') {
+    return openPrice + lockedR * R;
+  } else {
+    return openPrice - lockedR * R;
+  }
+}
+
+function computeSwingStructureSL(position: any, marketData: any): number {
+  const sr = marketData?.supportResistance;
+  const price = position.currentPrice;
+  if (!sr || !price) return position.sl || 0;
+  if (position.direction === 'BUY') {
+    const supports: number[] = (sr.supports || []).filter((s: number) => s < price);
+    if (supports.length > 0) {
+      const nearestSupport = Math.max(...supports);
+      const swingSL = nearestSupport * 0.9998;
+      if (swingSL > (position.sl || 0)) return swingSL;
+    }
+  } else {
+    const resistances: number[] = (sr.resistances || []).filter((r: number) => r > price);
+    if (resistances.length > 0) {
+      const nearestResistance = Math.min(...resistances);
+      const swingSL = nearestResistance * 1.0002;
+      if (!position.sl || swingSL < position.sl) return swingSL;
+    }
+  }
+  return position.sl || 0;
+}
+
+function computeParabolicSAR(
+  position: any,
+  trailState: { sar: number; ep: number; af: number; bullish: boolean },
+): number {
+  const price = position.currentPrice;
+  if (!price) return position.sl || 0;
+  const bullish = position.direction === 'BUY';
+
+  if (!trailState.sar) {
+    trailState.sar = position.openPrice || price;
+    trailState.ep = price;
+    trailState.af = 0.02;
+    trailState.bullish = bullish;
+    return position.sl || 0;
+  }
+
+  if (bullish && price > trailState.ep) {
+    trailState.ep = price;
+    trailState.af = Math.min(0.20, trailState.af + 0.02);
+  } else if (!bullish && price < trailState.ep) {
+    trailState.ep = price;
+    trailState.af = Math.min(0.20, trailState.af + 0.02);
+  }
+  const newSAR = trailState.sar + trailState.af * (trailState.ep - trailState.sar);
+  trailState.sar = newSAR;
+  return Math.round(newSAR * 100000) / 100000;
+}
+
+const TRAIL_METHOD_LABELS: Record<string, string> = {
+  staged_volume: 'Staged Volume Trail',
+  chandelier: 'Chandelier Exit (ATR-based)',
+  r_multiple: 'R-Multiple Ladder',
+  swing_structure: 'Swing High/Low Structure',
+  parabolic_sar: 'Parabolic SAR',
+};
+
+async function applyServerSideTrails(
+  userId: number,
+  openPositions: any[],
+  marketAnalysis: Record<string, any>,
+): Promise<void> {
+  const state = engineStates[userId];
+  if (!state) return;
+  const config = state.config;
+  if (!config.trailingStopEnabled || config.trailMethod === 'staged_volume') return;
+  if (openPositions.length === 0) return;
+
+  if (!state.positionTrailState) state.positionTrailState = {};
+
+  const methodLabel = TRAIL_METHOD_LABELS[config.trailMethod] || config.trailMethod;
+
+  for (const pos of openPositions) {
+    const key = String(pos.ticket || pos.id || pos.symbol);
+    if (!state.positionTrailState[key]) {
+      state.positionTrailState[key] = {
+        highestHigh: pos.currentPrice || pos.openPrice,
+        lowestLow: pos.currentPrice || pos.openPrice,
+        sar: pos.openPrice || pos.currentPrice,
+        ep: pos.currentPrice || pos.openPrice,
+        af: 0.02,
+        bullish: pos.direction === 'BUY',
+      };
+    }
+    const ts = state.positionTrailState[key];
+
+    const symData = marketAnalysis[pos.symbol?.replace('/', '')] || marketAnalysis[pos.symbol] || {};
+    const atr = symData.atr?.value ?? symData.atr ?? 0;
+    const multiplier = config.trailingStopATRMultiplier || 3.0;
+
+    let newSL = 0;
+    switch (config.trailMethod) {
+      case 'chandelier':
+        newSL = computeChandelierSL(pos, atr, multiplier, ts);
+        break;
+      case 'r_multiple':
+        newSL = computeRMultipleSL(pos);
+        break;
+      case 'swing_structure':
+        newSL = computeSwingStructureSL(pos, symData);
+        break;
+      case 'parabolic_sar':
+        newSL = computeParabolicSAR(pos, ts);
+        break;
+    }
+
+    if (newSL <= 0) continue;
+
+    const currentSL = pos.sl || 0;
+    const isBuy = pos.direction === 'BUY';
+    const improved = isBuy ? newSL > currentSL : (currentSL === 0 || newSL < currentSL);
+    if (!improved) continue;
+
+    if (!pendingMT5Signals[userId]) pendingMT5Signals[userId] = [];
+    pendingMT5Signals[userId].push({
+      id: `trail_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      timestamp: new Date().toISOString(),
+      symbol: pos.symbol,
+      direction: pos.direction,
+      action: 'MODIFY',
+      lotSize: 0,
+      entryPrice: null,
+      stopLoss: Math.round(newSL * 100000) / 100000,
+      takeProfit: pos.tp || null,
+      confidence: 100,
+      reason: `${methodLabel}: auto-trail SL → ${Math.round(newSL * 100000) / 100000}`,
+      holdTime: '',
+      strategy: 'position_management',
+      confluences: [],
+      status: 'pending',
+      modifyAction: 'trail_stop',
+      positionId: pos.ticket || pos.id || null,
+    } as PendingMT5Signal);
+
+    addActivity(userId, {
+      type: 'position_update',
+      symbol: pos.symbol,
+      message: `📐 ${methodLabel}: ${pos.symbol} ${pos.direction} trail → SL ${Math.round(newSL * 100000) / 100000} (was ${currentSL || 'none'})`,
+    });
   }
 }
 
@@ -1312,7 +1504,8 @@ VOLUME-AWARE TRADING RULES:
 AGGRESSIVE POSITION MANAGEMENT RULES:
 - BE RELENTLESS: Your goal is maximum profit in minimum time. Manage active trades aggressively to lock in gains and free up margin for new high-frequency setups.
 - BREAKEVEN: Move SL to entry only after 15+ pips profit. Give the trade room to breathe — do NOT rush to breakeven.
-- TRAILING (STAGED + VOLUME-ADJUSTED — never trail too early, it kills winners):
+- ACTIVE TRAIL STRATEGY: ${TRAIL_METHOD_LABELS[config.trailMethod || 'staged_volume']}${config.trailMethod && config.trailMethod !== 'staged_volume' ? ' — the server is computing and applying trail SL updates automatically each scan cycle. Your position management role is PARTIAL_CLOSE and FULL_CLOSE decisions only — do NOT output trail_stop modify actions for open positions when a server-side trail method is active.' : ''}
+${!config.trailMethod || config.trailMethod === 'staged_volume' ? `- TRAILING (STAGED + VOLUME-ADJUSTED — never trail too early, it kills winners):
     • 15–39 pips profit → Move SL to BREAKEVEN ONLY. Do not trail yet. Price needs room to develop.
     • 40–59 pips profit → Start trailing. Use volume-adjusted distance:
         - Volume SURGING or ABOVE_AVERAGE: 25-pip trail (strong momentum, give room to run)
@@ -1326,8 +1519,8 @@ AGGRESSIVE POSITION MANAGEMENT RULES:
         - Volume SURGING or ABOVE_AVERAGE: 15-pip trail
         - Volume AVERAGE: 10-pip trail
         - Volume BELOW_AVERAGE or DRY: 8-pip trail
-- NEVER use trail distance less than 8 pips — anything tighter gets hit by normal spread and noise.
-- PARTIAL CLOSE: Take 50% at TP1, then trail the runner using the staged volume-adjusted distances above.
+- NEVER use trail distance less than 8 pips — anything tighter gets hit by normal spread and noise.` : '- Trail SL management is handled server-side. Focus on: move to breakeven at 15+ pips, partial close at TP1, close if setup invalidated.'}
+- PARTIAL CLOSE: Take 50% at TP1, then let the runner continue with the active trail method.
 - CLOSE LOSERS EARLY: If a trade is stagnant for 30+ minutes or price action invalidates the setup, CLOSE it immediately. Don't hope.
 - SCALE OUT: If volatility spikes against you, exit 50% early to reduce exposure.
 - MAXIMIZE VELOCITY: If you see a better setup on another pair but are at max trades, close the weakest performer to take the high-conviction one.
@@ -2279,6 +2472,7 @@ export function startLiveEngine(userId: number, config?: Partial<LiveEngineConfi
     dailyLossHalted: false,
     dailyLossHaltedAt: null,
     tradesSinceLastLearn: 0,
+    positionTrailState: {},
   };
 
   const adaptiveInterval = getAdaptiveScanInterval(fullConfig);

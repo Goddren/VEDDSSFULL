@@ -212,6 +212,7 @@ export default function WeeklyStrategyPage() {
   const [engineShieldThreshold, setEngineShieldThreshold] = useState(3);
   const [engineAdaptiveScan, setEngineAdaptiveScan] = useState(true);
   const [engineDailyLossLimit, setEngineDailyLossLimit] = useState(5);
+  const [engineTrailMethod, setEngineTrailMethod] = useState<'staged_volume' | 'chandelier' | 'r_multiple' | 'swing_structure' | 'parabolic_sar'>('staged_volume');
 
   const { data: liveEngineStatus, refetch: refetchEngine } = useQuery<any>({
     queryKey: ['/api/vedd-live-engine/status'],
@@ -244,6 +245,7 @@ export default function WeeklyStrategyPage() {
         drawdownShieldThreshold: engineDrawdownShield ? engineShieldThreshold : 0,
         adaptiveScanInterval: engineAdaptiveScan,
         dailyLossLimit: engineDailyLossLimit,
+        trailMethod: engineTrailMethod,
       });
       return res.json();
     },
@@ -761,6 +763,33 @@ export default function WeeklyStrategyPage() {
                         Launch Engine
                       </Button>
                     )}
+                  </div>
+
+                  <div className="rounded-xl border border-purple-500/30 bg-purple-500/5 p-3 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] font-semibold text-purple-300">Trail Strategy</span>
+                      {engineTrailMethod !== 'staged_volume' && (
+                        <span className="text-[9px] bg-purple-500/20 text-purple-300 border border-purple-500/40 rounded px-1.5 py-0.5 font-medium">SERVER-SIDE MATH</span>
+                      )}
+                    </div>
+                    <select
+                      value={engineTrailMethod}
+                      onChange={e => setEngineTrailMethod(e.target.value as typeof engineTrailMethod)}
+                      className="w-full bg-gray-800 border border-purple-500/30 text-white text-xs rounded-md h-8 px-2"
+                    >
+                      <option value="staged_volume">Staged Volume Trail — default: volume-aware staged pips</option>
+                      <option value="chandelier">Chandelier Exit — institutional: ATR×multiplier from swing extreme</option>
+                      <option value="r_multiple">R-Multiple Ladder — prop firm: lock in R multiples (1R→BE, 2R→+1R…)</option>
+                      <option value="swing_structure">Swing High/Low — price action: trail behind S/R structure</option>
+                      <option value="parabolic_sar">Parabolic SAR — Wilder's classic accelerating stop (0.02→0.20)</option>
+                    </select>
+                    <p className="text-[10px] text-purple-300/60">
+                      {engineTrailMethod === 'staged_volume' && 'AI manages trail SL — breakeven at 15p, trail from 40p, volume-adjusted distance.'}
+                      {engineTrailMethod === 'chandelier' && 'Server tracks highest high/lowest low since entry. SL = peak ± ATR × multiplier. Ratchets only in your favour.'}
+                      {engineTrailMethod === 'r_multiple' && 'Server locks in risk-reward increments: 1R profit → move to breakeven, 2R → +1R, 3R → +2R, and so on.'}
+                      {engineTrailMethod === 'swing_structure' && 'Server trails SL to just below the nearest support (longs) or above nearest resistance (shorts) each scan.'}
+                      {engineTrailMethod === 'parabolic_sar' && 'Server computes SAR each scan cycle. Starts slow (AF 0.02), accelerates as trade runs. Tracked per position.'}
+                    </p>
                   </div>
                   <div className={`rounded-xl border p-3 transition-all ${enginePropFirmMode ? 'border-amber-500/60 bg-amber-500/10' : 'border-gray-700 bg-gray-900/30'}`}>
                     <div className="flex items-center justify-between">
