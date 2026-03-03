@@ -152,6 +152,12 @@ interface SolEngineState {
   autoTradeSL: number;
   autoTrailActivationPct: number;
   autoTrailDistancePct: number;
+  // Compounding system
+  compoundMode: boolean;
+  compoundRate: number;         // 0–100: % of profit/loss to fold back into paper capital
+  paperBaseCapital: number;     // starting SOL the user allocated for paper trading
+  paperPortfolioValue: number;  // current compounded paper portfolio value
+  paperPortfolioHistory: Array<{ t: number; v: number }>; // sparkline (up to 50 points)
   autoTradeStats: {
     totalTrades: number;
     wins: number;
@@ -539,6 +545,11 @@ function createInitialState(config: SolEngineConfig): SolEngineState {
     autoTradeSL: 4,
     autoTrailActivationPct: 4,
     autoTrailDistancePct: 3,
+    compoundMode: false,
+    compoundRate: 100,
+    paperBaseCapital: 0,
+    paperPortfolioValue: 0,
+    paperPortfolioHistory: [],
     autoTradeStats: { totalTrades: 0, wins: 0, losses: 0, totalPnlPct: 0, bestTradePct: 0, worstTradePct: 0 },
   };
 }
@@ -591,8 +602,10 @@ function computeGoalPhase(goal: SolWeeklyGoal): SolWeeklyGoal['phase'] {
   return 'warming_up';
 }
 
-function computeAutoSolSize(state: SolEngineState, dex: string, overrideStrategy?: SolStrategy): number {
-  const portfolio = state.currentPortfolioValue;
+function computeAutoSolSize(state: SolEngineState, dex: string, overrideStrategy?: SolStrategy, mode: 'paper' | 'live' = 'live'): number {
+  const portfolio = (mode === 'paper' && state.compoundMode && state.paperPortfolioValue > 0)
+    ? state.paperPortfolioValue
+    : state.currentPortfolioValue;
   if (portfolio <= 0) return 0;
 
   const strategy = overrideStrategy || SOL_STRATEGIES.find(s => s.id === state.activeStrategy) || SOL_STRATEGIES[0];
@@ -925,6 +938,22 @@ function monitorPaperPositions(state: SolEngineState) {
         if (gainPct < state.autoTradeStats.worstTradePct) state.autoTradeStats.worstTradePct = gainPct;
       }
 
+      // Compounding: fold P&L back into the paper portfolio
+      if (state.compoundMode && state.paperPortfolioValue > 0) {
+        const tradeSol = pos.size;
+        const rawPnlSol = tradeSol * (gainPct / 100);
+        const compoundedPnl = rawPnlSol * (state.compoundRate / 100);
+        const prev = state.paperPortfolioValue;
+        state.paperPortfolioValue = Math.max(0.001, prev + compoundedPnl);
+        state.paperPortfolioHistory.push({ t: Date.now(), v: state.paperPortfolioValue });
+        if (state.paperPortfolioHistory.length > 50) state.paperPortfolioHistory = state.paperPortfolioHistory.slice(-50);
+        const growthPct = ((state.paperPortfolioValue - state.paperBaseCapital) / state.paperBaseCapital) * 100;
+        addActivity(state, {
+          type: 'info',
+          message: `💹 Compound update: ${compoundedPnl >= 0 ? '+' : ''}${compoundedPnl.toFixed(4)} SOL ${state.compoundRate < 100 ? `(${state.compoundRate}% reinvested)` : 'fully reinvested'} → pool now ${state.paperPortfolioValue.toFixed(4)} SOL (${growthPct >= 0 ? '+' : ''}${growthPct.toFixed(1)}% from base)`,
+        });
+      }
+
       const emoji = isTrailHit ? '🔒' : isWin ? '✅' : '❌';
       const label = isTrailHit ? `TRAIL EXIT` : isWin ? 'WIN' : 'LOSS';
       addActivity(state, {
@@ -1094,12 +1123,14 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
 
         // Use highest baseFraction strategy for sizing
         const bestStrat = confirmingStrats.sort((a, b) => b.baseFraction - a.baseFraction)[0];
-        const autoSize = computeAutoSolSize(state, dexKey, bestStrat);
-        if (autoSize > 0) {
-          analysis.recommendedSolAmount = autoSize;
+        const paperAutoSize = computeAutoSolSize(state, dexKey, bestStrat, 'paper');
+        const liveAutoSize = computeAutoSolSize(state, dexKey, bestStrat, 'live');
+        if (paperAutoSize > 0) {
+          analysis.recommendedSolAmount = paperAutoSize;
         }
 
-        const sizeSOL = autoSize > 0 ? autoSize : computeAutoSolSize(state, dexKey);
+        const paperSizeSOL = paperAutoSize > 0 ? paperAutoSize : computeAutoSolSize(state, dexKey, undefined, 'paper');
+        const sizeSOL = liveAutoSize > 0 ? liveAutoSize : computeAutoSolSize(state, dexKey, undefined, 'live');
         const topStrat = confirmingStrats[0] || SOL_STRATEGIES.find(s => s.id === state.activeStrategy) || SOL_STRATEGIES[0];
         const tokenPrice = parseFloat(analysis.token.priceUsd) || 0;
         const tokenMint = analysis.token.address;
@@ -1114,7 +1145,7 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
         }
 
         // Paper auto-trade
-        if (state.autoTradeEnabled && sizeSOL > 0 && tokenPrice > 0) {
+        if (state.autoTradeEnabled && paperSizeSOL > 0 && tokenPrice > 0) {
           const alreadyOpen = state.paperPositions.some(p => p.symbol === analysis.token.symbol && p.status === 'open');
           if (!alreadyOpen) {
             const pos: SolAutoPosition = {
@@ -1125,7 +1156,7 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
               currentPrice: tokenPrice,
               targetPct: state.autoTradeTP,
               slPct: state.autoTradeSL,
-              size: sizeSOL,
+              size: paperSizeSOL,
               tokenAmount: 0,
               decimals: 9,
               strategyId: topStrat.id,
@@ -1140,9 +1171,10 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
               entryVolume24h: analysis.token.volume24h || 0,
             };
             state.paperPositions.push(pos);
+            const compoundNote = state.compoundMode ? ` [💹 Compounding ON — ${state.paperPortfolioValue.toFixed(3)} SOL pool]` : '';
             addActivity(state, {
               type: 'paper_buy',
-              message: `📄 Paper BUY: ${analysis.token.symbol} — ${sizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}] | TP: +${state.autoTradeTP}% | SL: -${state.autoTradeSL}% | Breakeven @+8% · Trail @+20% (vol-adjusted)`,
+              message: `📄 Paper BUY: ${analysis.token.symbol} — ${paperSizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}] | TP: +${state.autoTradeTP}% | SL: -${state.autoTradeSL}% | Breakeven @+8% · Trail @+20% (vol-adjusted)${compoundNote}`,
             });
           }
         }
@@ -1332,6 +1364,11 @@ export function getSolEngineStatus(userId: number) {
     activeStrategy: state.activeStrategy,
     activeStrategies: state.activeStrategies,
     lastAgentConsensus: state.lastAgentConsensus,
+    compoundMode: state.compoundMode,
+    compoundRate: state.compoundRate,
+    paperBaseCapital: state.paperBaseCapital,
+    paperPortfolioValue: state.paperPortfolioValue,
+    paperPortfolioHistory: state.paperPortfolioHistory,
   };
 }
 
@@ -1545,6 +1582,46 @@ export function setAutoTrade(userId: number, opts: { paperEnabled?: boolean; liv
     });
   }
   saveEngineState(userId, state).catch(() => {});
+}
+
+export function setCompoundSettings(
+  userId: number,
+  opts: { compoundMode?: boolean; compoundRate?: number; paperBaseCapital?: number }
+): void {
+  let state = engineStates.get(userId);
+  if (!state) {
+    state = createInitialState({ ...DEFAULT_CONFIG });
+    engineStates.set(userId, state);
+  }
+
+  if (opts.compoundMode !== undefined) {
+    state.compoundMode = opts.compoundMode;
+    addActivity(state, {
+      type: 'info',
+      message: opts.compoundMode
+        ? `💹 Compound Mode ACTIVATED — profits will grow your paper pool (${state.compoundRate}% reinvestment rate)`
+        : '💹 Compound Mode OFF — fixed position sizing restored',
+    });
+  }
+
+  if (opts.compoundRate !== undefined) {
+    const rate = Math.max(1, Math.min(100, opts.compoundRate));
+    state.compoundRate = rate;
+    addActivity(state, {
+      type: 'info',
+      message: `💹 Compound rate set to ${rate}% — ${rate === 100 ? 'all profits' : `${rate}% of profits`} reinvested into paper pool`,
+    });
+  }
+
+  if (opts.paperBaseCapital !== undefined && opts.paperBaseCapital > 0) {
+    state.paperBaseCapital = opts.paperBaseCapital;
+    state.paperPortfolioValue = opts.paperBaseCapital;
+    state.paperPortfolioHistory = [{ t: Date.now(), v: opts.paperBaseCapital }];
+    addActivity(state, {
+      type: 'info',
+      message: `💼 Paper capital reset to ${opts.paperBaseCapital.toFixed(3)} SOL — compound growth clock starts now`,
+    });
+  }
 }
 
 export function getPendingSignals(userId: number): SolPendingSignal[] {

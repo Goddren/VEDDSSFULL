@@ -13242,6 +13242,18 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const status = await getServerWalletStatus((req.user as User).id);
       res.json(status);
     });
+
+    app.post("/api/sol-engine/compound-settings", async (req: Request, res: Response) => {
+      if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+      const { setCompoundSettings } = await import('./services/sol-engine');
+      const { compoundMode, compoundRate, paperBaseCapital } = req.body;
+      setCompoundSettings((req.user as User).id, {
+        compoundMode: compoundMode !== undefined ? Boolean(compoundMode) : undefined,
+        compoundRate: compoundRate !== undefined ? Number(compoundRate) : undefined,
+        paperBaseCapital: paperBaseCapital !== undefined ? Number(paperBaseCapital) : undefined,
+      });
+      res.json({ success: true });
+    });
   }
 
   // ============= SOLANA TOKEN SCANNER =============

@@ -2758,6 +2758,12 @@ export default function SolanaScanner() {
   const [autoTradeSL, setAutoTradeSL] = useState(4);
   const [autoTrailActivationPct, setAutoTrailActivationPct] = useState(4);
   const [autoTrailDistancePct, setAutoTrailDistancePct] = useState(3);
+  const [compoundMode, setCompoundMode] = useState(false);
+  const [compoundRate, setCompoundRate] = useState(100);
+  const [paperBaseCapital, setPaperBaseCapital] = useState(0);
+  const [paperPortfolioValue, setPaperPortfolioValue] = useState(0);
+  const [paperPortfolioHistory, setPaperPortfolioHistory] = useState<{ t: number; v: number }[]>([]);
+  const [compoundCapitalInput, setCompoundCapitalInput] = useState('');
   const [serverWalletKey, setServerWalletKey] = useState('');
   const [showServerWalletInput, setShowServerWalletInput] = useState(false);
   const [weeklyGoalTargetSol, setWeeklyGoalTargetSol] = useState('');
@@ -2860,6 +2866,12 @@ export default function SolanaScanner() {
     mutationFn: (body: { positionId: string; txHash: string }) =>
       apiRequest('POST', '/api/sol-engine/confirm-exit', body),
     onSuccess: () => { refetchAutoPositions(); },
+  });
+
+  const compoundMutation = useMutation({
+    mutationFn: (opts: { compoundMode?: boolean; compoundRate?: number; paperBaseCapital?: number }) =>
+      apiRequest('POST', '/api/sol-engine/compound-settings', opts),
+    onSuccess: () => { refetchEngineStatus(); refetchAutoPositions(); },
   });
 
   const { data: serverWalletStatus, refetch: refetchServerWallet } = useQuery<{ hasServerWallet: boolean; walletAddress?: string }>({
@@ -2966,6 +2978,16 @@ export default function SolanaScanner() {
       if ((autoPositionsData as any).autoTrailDistancePct) setAutoTrailDistancePct((autoPositionsData as any).autoTrailDistancePct);
     }
   }, [autoPositionsData?.autoTradeEnabled, autoPositionsData?.liveTradeEnabled, autoPositionsData?.autoTradeTP, autoPositionsData?.autoTradeSL]);
+
+  useEffect(() => {
+    if (solEngineStatus) {
+      if (solEngineStatus.compoundMode !== undefined) setCompoundMode(solEngineStatus.compoundMode);
+      if (solEngineStatus.compoundRate !== undefined) setCompoundRate(solEngineStatus.compoundRate);
+      if (solEngineStatus.paperBaseCapital !== undefined) setPaperBaseCapital(solEngineStatus.paperBaseCapital);
+      if (solEngineStatus.paperPortfolioValue !== undefined) setPaperPortfolioValue(solEngineStatus.paperPortfolioValue);
+      if (solEngineStatus.paperPortfolioHistory) setPaperPortfolioHistory(solEngineStatus.paperPortfolioHistory);
+    }
+  }, [solEngineStatus?.compoundMode, solEngineStatus?.compoundRate, solEngineStatus?.paperBaseCapital, solEngineStatus?.paperPortfolioValue]);
 
   useEffect(() => {
     if (solEngineStatus?.activeStrategies && solEngineStatus.activeStrategies.length > 0) {
@@ -3886,6 +3908,138 @@ export default function SolanaScanner() {
                   <p className="text-[9px] text-amber-400/80">⚠️ {lockedCount} position{lockedCount !== 1 ? 's' : ''} already have an active locked trail — slider changes only apply to new positions.</p>
                 ) : null;
               })()}
+            </div>
+
+            {/* Compound Mode */}
+            <div className={`p-3 rounded-xl border space-y-3 ${compoundMode ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-gray-700/50 bg-gray-800/20'}`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-base">💹</span>
+                  <div>
+                    <p className="text-[11px] font-semibold text-gray-200">Compound Mode</p>
+                    <p className="text-[9px] text-gray-500">Reinvest profits — each win grows your paper trade size</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => compoundMutation.mutate({ compoundMode: !compoundMode })}
+                  disabled={compoundMutation.isPending}
+                  className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${compoundMode ? 'bg-emerald-500' : 'bg-gray-700'}`}
+                >
+                  <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg ring-0 transition-transform ${compoundMode ? 'translate-x-4' : 'translate-x-0'}`} />
+                </button>
+              </div>
+
+              {compoundMode && (
+                <div className="space-y-3">
+                  {/* Compound growth stats */}
+                  {paperBaseCapital > 0 && (
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className="p-2 rounded-lg bg-gray-800/60 border border-gray-700/50 text-center">
+                        <p className="text-[8px] text-gray-500 mb-0.5">Starting Capital</p>
+                        <p className="text-[11px] font-bold text-gray-300">{paperBaseCapital.toFixed(3)} SOL</p>
+                      </div>
+                      <div className="p-2 rounded-lg bg-gray-800/60 border border-gray-700/50 text-center">
+                        <p className="text-[8px] text-gray-500 mb-0.5">Current Pool</p>
+                        <p className={`text-[11px] font-bold ${paperPortfolioValue >= paperBaseCapital ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {paperPortfolioValue.toFixed(3)} SOL
+                        </p>
+                      </div>
+                      <div className="p-2 rounded-lg bg-gray-800/60 border border-gray-700/50 text-center">
+                        <p className="text-[8px] text-gray-500 mb-0.5">Growth</p>
+                        {(() => {
+                          const growthPct = paperBaseCapital > 0 ? ((paperPortfolioValue - paperBaseCapital) / paperBaseCapital) * 100 : 0;
+                          return (
+                            <p className={`text-[11px] font-bold ${growthPct >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                              {growthPct >= 0 ? '+' : ''}{growthPct.toFixed(1)}%
+                            </p>
+                          );
+                        })()}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Sparkline */}
+                  {paperPortfolioHistory.length > 1 && (
+                    <div className="w-full h-10 relative">
+                      <svg viewBox={`0 0 ${paperPortfolioHistory.length - 1} 30`} className="w-full h-full" preserveAspectRatio="none">
+                        {(() => {
+                          const vals = paperPortfolioHistory.map(p => p.v);
+                          const minV = Math.min(...vals);
+                          const maxV = Math.max(...vals);
+                          const range = maxV - minV || 1;
+                          const pts = vals.map((v, i) => `${i},${30 - ((v - minV) / range) * 28}`).join(' ');
+                          const isUp = vals[vals.length - 1] >= vals[0];
+                          return (
+                            <>
+                              <polyline points={pts} fill="none" stroke={isUp ? '#10b981' : '#ef4444'} strokeWidth="1.5" strokeLinejoin="round" />
+                              <circle cx={vals.length - 1} cy={30 - ((vals[vals.length - 1] - minV) / range) * 28} r="1.5" fill={isUp ? '#10b981' : '#ef4444'} />
+                            </>
+                          );
+                        })()}
+                      </svg>
+                    </div>
+                  )}
+
+                  {/* Reinvestment Rate */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] text-gray-400">Reinvestment Rate</span>
+                      <span className="text-[11px] font-bold text-emerald-400">{compoundRate}%</span>
+                    </div>
+                    <input
+                      type="range" min="10" max="100" step="5"
+                      value={compoundRate}
+                      onChange={e => setCompoundRate(Number(e.target.value))}
+                      onMouseUp={e => compoundMutation.mutate({ compoundRate: Number((e.target as HTMLInputElement).value) })}
+                      onTouchEnd={e => compoundMutation.mutate({ compoundRate: Number((e.target as HTMLInputElement).value) })}
+                      className="w-full h-1 accent-emerald-500 cursor-pointer"
+                    />
+                    <div className="flex justify-between text-[8px] text-gray-600">
+                      <span>10% (conservative)</span><span>100% (full compound)</span>
+                    </div>
+                    <p className="text-[8px] text-gray-500">
+                      {compoundRate === 100 ? 'All profit reinvested — fastest growth, highest exposure.' :
+                       compoundRate >= 75 ? 'Most profit reinvested — aggressive compounding.' :
+                       compoundRate >= 50 ? 'Half reinvested, half preserved — balanced approach.' :
+                       'Partial reinvest — slower growth but capital protected.'}
+                    </p>
+                  </div>
+
+                  {/* Set Starting Capital */}
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] text-gray-400">Set Starting Paper Capital (SOL)</p>
+                    <div className="flex gap-2">
+                      <input
+                        type="number"
+                        min="0.01"
+                        step="0.1"
+                        placeholder="e.g. 1.5"
+                        value={compoundCapitalInput}
+                        onChange={e => setCompoundCapitalInput(e.target.value)}
+                        className="flex-1 px-2 py-1 rounded-lg bg-gray-800 border border-gray-700 text-[11px] text-gray-200 outline-none focus:border-emerald-500/50"
+                      />
+                      <button
+                        onClick={() => {
+                          const val = parseFloat(compoundCapitalInput);
+                          if (val > 0) {
+                            compoundMutation.mutate({ paperBaseCapital: val });
+                            setCompoundCapitalInput('');
+                          }
+                        }}
+                        disabled={compoundMutation.isPending || !compoundCapitalInput}
+                        className="px-3 py-1 rounded-lg bg-emerald-500/20 border border-emerald-500/30 text-[10px] text-emerald-400 hover:bg-emerald-500/30 disabled:opacity-50 transition-colors"
+                      >
+                        Set
+                      </button>
+                    </div>
+                    <p className="text-[8px] text-gray-600">Setting capital resets the compound clock — position sizes will scale as your pool grows.</p>
+                  </div>
+                </div>
+              )}
+
+              {!compoundMode && (
+                <p className="text-[9px] text-gray-600">When ON, each trade uses a % of your growing paper capital — wins compound into bigger future positions.</p>
+              )}
             </div>
 
             {/* Server Bot Wallet */}
