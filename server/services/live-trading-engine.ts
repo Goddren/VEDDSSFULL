@@ -1664,7 +1664,23 @@ Respond ONLY with valid JSON. Generate MULTIPLE decisions when opportunities exi
       }
     }
   } catch (err: any) {
-    addActivity(userId, { type: 'error', message: `AI analysis error: ${err.message}` });
+    const errMsg = err.message || '';
+    const errStatus = err.status || err.statusCode || 0;
+    const isAuthError = errStatus === 401 || errMsg.includes('Incorrect API key') || errMsg.includes('invalid_api_key') || errMsg.includes('authentication_error') || errMsg.includes('401');
+    if (isAuthError && openai?.provider && openai.provider !== 'platform') {
+      // Auto-mark this provider's key as invalid so the next cycle switches to a working one
+      try {
+        const { db } = await import('../db');
+        const { userApiKeys: uak } = await import('../../shared/schema');
+        const { and, eq } = await import('drizzle-orm');
+        await db.update(uak)
+          .set({ isValid: false, lastValidated: new Date() })
+          .where(and(eq(uak.userId, userId), eq(uak.provider, openai.provider)));
+      } catch { /* ignore DB error */ }
+      addActivity(userId, { type: 'error', message: `${openai.provider} API key is invalid or expired — auto-disabled. Engine will switch to your next active provider on next scan.` });
+    } else {
+      addActivity(userId, { type: 'error', message: `AI analysis error: ${errMsg}` });
+    }
   }
 }
 

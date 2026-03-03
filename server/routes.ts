@@ -13761,10 +13761,40 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         apiKey: apiKey.trim(),
         label: label || provider,
         isActive: true,
-        isValid: false,
+        isValid: null,
       });
 
-      res.json(sanitizeKeyForResponse(result));
+      // Auto-validate immediately after saving so the engine knows if it works
+      let isValid: boolean | null = null;
+      try {
+        const trimmedKey = apiKey.trim();
+        if (provider === 'openai') {
+          const testClient = new (await import('openai')).default({ apiKey: trimmedKey });
+          await testClient.models.list();
+          isValid = true;
+        } else if (provider === 'anthropic') {
+          const resp = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: { 'x-api-key': trimmedKey, 'content-type': 'application/json', 'anthropic-version': '2023-06-01' },
+            body: JSON.stringify({ model: 'claude-3-haiku-20240307', max_tokens: 1, messages: [{ role: 'user', content: 'hi' }] }),
+          });
+          isValid = resp.status !== 401 && resp.status !== 403;
+        } else if (provider === 'google') {
+          const resp = await fetch(`https://generativelanguage.googleapis.com/v1/models?key=${trimmedKey}`);
+          isValid = resp.ok;
+        } else if (provider === 'groq') {
+          const resp = await fetch('https://api.groq.com/openai/v1/models', { headers: { 'Authorization': `Bearer ${trimmedKey}` } });
+          isValid = resp.ok;
+        } else if (provider === 'mistral') {
+          const resp = await fetch('https://api.mistral.ai/v1/models', { headers: { 'Authorization': `Bearer ${trimmedKey}` } });
+          isValid = resp.ok;
+        }
+        await db.update(userApiKeys)
+          .set({ isValid, lastValidated: new Date() })
+          .where(and(eq(userApiKeys.userId, req.user!.id), eq(userApiKeys.provider, provider)));
+      } catch { /* validation failed — key stays null until explicitly validated */ }
+
+      res.json({ ...sanitizeKeyForResponse(result), isValid, validated: isValid !== null });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }

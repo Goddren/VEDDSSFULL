@@ -2325,7 +2325,7 @@ export class DatabaseStorage implements IStorage {
     const existing = await this.getUserApiKey(data.userId, data.provider);
     if (existing) {
       const [result] = await db.update(userApiKeys)
-        .set({ apiKey: encryptedKey, label: data.label, isActive: data.isActive ?? true, isValid: false, lastValidated: null })
+        .set({ apiKey: encryptedKey, label: data.label, isActive: data.isActive ?? true, isValid: null, lastValidated: null })
         .where(and(eq(userApiKeys.userId, data.userId), eq(userApiKeys.provider, data.provider)))
         .returning();
       return result;

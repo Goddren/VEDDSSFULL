@@ -1542,7 +1542,7 @@ export const userApiKeys = pgTable("user_api_keys", {
   apiKey: text("api_key").notNull(), // encrypted key
   label: text("label"), // user-friendly name
   isActive: boolean("is_active").default(true).notNull(),
-  isValid: boolean("is_valid").default(false).notNull(),
+  isValid: boolean("is_valid"),
   lastValidated: timestamp("last_validated"),
   lastUsed: timestamp("last_used"),
   usageCount: integer("usage_count").default(0).notNull(),

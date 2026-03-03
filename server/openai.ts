@@ -721,9 +721,8 @@ export async function getUniversalAIClientForUser(userId: number): Promise<Unive
     const allKeys = await storage.getUserApiKeys(userId);
     // Include active keys, but skip ones that have been validated and confirmed invalid.
     // Keys that have never been validated (lastValidated is null) still get a try.
-    const activeKeys = allKeys.filter(k =>
-      k.isActive && !(k.isValid === false && k.lastValidated !== null)
-    );
+    // Skip keys explicitly marked invalid (false). null = never validated → still try it.
+    const activeKeys = allKeys.filter(k => k.isActive && k.isValid !== false);
 
     for (const provider of PROVIDER_PRIORITY) {
       const key = activeKeys.find(k => k.provider === provider);
