@@ -46,12 +46,14 @@ export interface SolAutoPosition {
   closedAt?: string;
   closePnlPct?: number;
   status: 'open' | 'closed';
-  // Trailing stop
+  // Trailing stop — staged volume-momentum model
   peakPrice?: number;
   trailingActive?: boolean;
+  breakevenActive?: boolean;
   trailActivationPct?: number;
   trailDistancePct?: number;
   closeReason?: 'tp' | 'sl' | 'trail';
+  entryVolume24h?: number;
 }
 
 export interface SolPendingSignal {
@@ -819,13 +821,34 @@ export async function triggerSolAIReview(userId: number, openPositions: OpenPosi
   await runSolAIReview(userId, state, state.lastResults, openPositions);
 }
 
+// Staged volume-adjusted trail distance — mirrors client-side computeTrailDistance
+function computeServerTrailDist(gainPct: number, volStatus: string): number {
+  const isStrong = volStatus === 'surging' || volStatus === 'above_average';
+  const isWeak = volStatus === 'below_average' || volStatus === 'dry';
+  if (gainPct >= 80) return isStrong ? 10 : isWeak ? 6 : 8;
+  if (gainPct >= 40) return isStrong ? 12 : isWeak ? 8 : 10;
+  return isStrong ? 15 : isWeak ? 10 : 12; // 20–39% zone
+}
+
+function getVolStatus(entryVol: number, currentVol: number): string {
+  if (entryVol <= 0) return 'average';
+  const ratio = currentVol / entryVol;
+  if (ratio >= 2.5) return 'surging';
+  if (ratio >= 1.25) return 'above_average';
+  if (ratio <= 0.5) return 'dry';
+  if (ratio <= 0.75) return 'below_average';
+  return 'average';
+}
+
 function monitorPaperPositions(state: SolEngineState) {
   const openPositions = state.paperPositions.filter(p => p.status === 'open');
   if (openPositions.length === 0) return;
 
   const priceMap: Record<string, number> = {};
+  const volumeMap: Record<string, number> = {};
   for (const r of state.lastResults) {
     priceMap[r.token.symbol] = parseFloat(r.token.priceUsd) || 0;
+    volumeMap[r.token.symbol] = r.token.volume24h || 0;
   }
 
   for (const pos of openPositions) {
@@ -840,23 +863,41 @@ function monitorPaperPositions(state: SolEngineState) {
       pos.peakPrice = currentPrice;
     }
 
-    // ── Trailing stop logic ──────────────────────────────────────────────
-    const activationPct = pos.trailActivationPct ?? state.autoTrailActivationPct;
-    const distancePct = pos.trailDistancePct ?? state.autoTrailDistancePct;
+    // ── Volume status ────────────────────────────────────────────────────
+    const currentVol = volumeMap[pos.symbol] || 0;
+    const volStatus = getVolStatus(pos.entryVolume24h || 0, currentVol);
 
-    if (!pos.trailingActive && gainPct >= activationPct) {
-      pos.trailingActive = true;
-      addActivity(state, {
-        type: 'info',
-        message: `🔒 Trail LOCKED: ${pos.symbol} hit +${gainPct.toFixed(1)}% — trailing stop now active, protecting gains from peak`,
-      });
-    }
-
+    // ── Staged volume-momentum trailing stop ─────────────────────────────
+    // Stage 1 (<8% gain): SL-only, no floor movement
+    // Stage 2 (8–19% gain): Breakeven floor — trail floor locks at entry price
+    // Stage 3 (≥20% gain): Active trail with volume-adjusted distance (10–15%)
     let isTrailHit = false;
-    if (pos.trailingActive && pos.peakPrice) {
-      const trailFloor = pos.peakPrice * (1 - distancePct / 100);
-      if (currentPrice <= trailFloor) {
+
+    if (gainPct >= 20) {
+      // Stage 3 — activate real trail
+      if (!pos.trailingActive) {
+        pos.trailingActive = true;
+        const dist = computeServerTrailDist(gainPct, volStatus);
+        addActivity(state, {
+          type: 'info',
+          message: `🔒 Trail LOCKED: ${pos.symbol} hit +${gainPct.toFixed(1)}% — staged trail active | vol: ${volStatus} | dist: ${dist}% from peak`,
+        });
+      }
+      const dist = computeServerTrailDist(gainPct, volStatus);
+      // Floor is the higher of: (a) computed trail floor, (b) breakeven (entry price)
+      const trailFloor = pos.peakPrice * (1 - dist / 100);
+      const effectiveFloor = Math.max(trailFloor, pos.entryPrice);
+      if (currentPrice <= effectiveFloor) {
         isTrailHit = true;
+      }
+    } else if (gainPct >= 8) {
+      // Stage 2 — breakeven protection, no trail exit yet
+      if (!pos.breakevenActive) {
+        pos.breakevenActive = true;
+        addActivity(state, {
+          type: 'info',
+          message: `🛡️ Breakeven floor set: ${pos.symbol} at +${gainPct.toFixed(1)}% — floor locked at entry price`,
+        });
       }
     }
 
@@ -906,8 +947,10 @@ async function monitorLivePositions(userId: number, state: SolEngineState) {
   state.pendingExits = state.pendingExits.filter(e => new Date(e.expiresAt).getTime() > now);
 
   const priceMap: Record<string, number> = {};
+  const volumeMap: Record<string, number> = {};
   for (const r of state.lastResults) {
     priceMap[r.token.symbol] = parseFloat(r.token.priceUsd) || 0;
+    volumeMap[r.token.symbol] = r.token.volume24h || 0;
   }
 
   for (const pos of openPositions) {
@@ -917,18 +960,34 @@ async function monitorLivePositions(userId: number, state: SolEngineState) {
     pos.currentPrice = currentPrice;
     const gainPct = ((currentPrice - pos.entryPrice) / pos.entryPrice) * 100;
 
+    // Update peak price
+    if (!pos.peakPrice || currentPrice > pos.peakPrice) pos.peakPrice = currentPrice;
+
     // Skip if a pending exit already queued for this position
     const alreadyQueued = state.pendingExits.some(e => e.positionId === pos.id);
     if (alreadyQueued) continue;
 
+    // Staged trail check (mirrors paper logic)
+    const volStatus = getVolStatus(pos.entryVolume24h || 0, volumeMap[pos.symbol] || 0);
+    let trailHit = false;
+    if (gainPct >= 20 && pos.peakPrice) {
+      if (!pos.trailingActive) {
+        pos.trailingActive = true;
+        addActivity(state, { type: 'info', message: `🔒 Live Trail LOCKED: ${pos.symbol} hit +${gainPct.toFixed(1)}% — staged trail active (${volStatus} vol)` });
+      }
+      const dist = computeServerTrailDist(gainPct, volStatus);
+      const effectiveFloor = Math.max(pos.peakPrice * (1 - dist / 100), pos.entryPrice);
+      if (currentPrice <= effectiveFloor) trailHit = true;
+    }
+
     const tpHit = gainPct >= pos.targetPct;
     const slHit = gainPct <= -pos.slPct;
 
-    if (tpHit || slHit) {
-      const reason: 'tp' | 'sl' = tpHit ? 'tp' : 'sl';
+    if (tpHit || slHit || trailHit) {
+      const reason: 'tp' | 'sl' | 'trail' = tpHit ? 'tp' : trailHit ? 'trail' : 'sl';
 
       // Try server-side sell first (if bot wallet is configured)
-      const serverSold = await executeServerSideSell(userId, pos, reason, state);
+      const serverSold = await executeServerSideSell(userId, pos, reason as any, state);
       if (!serverSold) {
         // Fall back to browser-based exit queue
         const created = new Date();
@@ -939,7 +998,7 @@ async function monitorLivePositions(userId: number, state: SolEngineState) {
           mint: pos.mint,
           tokenAmount: pos.tokenAmount,
           decimals: pos.decimals,
-          reason,
+          reason: reason === 'trail' ? 'sl' : reason,
           createdAt: created.toISOString(),
           expiresAt: expires.toISOString(),
         });
@@ -947,6 +1006,8 @@ async function monitorLivePositions(userId: number, state: SolEngineState) {
           type: 'live_sell',
           message: tpHit
             ? `🎯 TP hit: ${pos.symbol} +${gainPct.toFixed(1)}% — sell queued for wallet execution`
+            : trailHit
+            ? `🔒 Trail exit: ${pos.symbol} +${gainPct.toFixed(1)}% — sell queued for wallet execution`
             : `🛡️ SL hit: ${pos.symbol} ${gainPct.toFixed(1)}% — sell queued for wallet execution`,
         });
       }
@@ -1073,13 +1134,15 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
               status: 'open',
               peakPrice: tokenPrice,
               trailingActive: false,
+              breakevenActive: false,
               trailActivationPct: state.autoTrailActivationPct,
               trailDistancePct: state.autoTrailDistancePct,
+              entryVolume24h: analysis.token.volume24h || 0,
             };
             state.paperPositions.push(pos);
             addActivity(state, {
               type: 'paper_buy',
-              message: `📄 Paper BUY: ${analysis.token.symbol} — ${sizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}] | TP: +${state.autoTradeTP}% | SL: -${state.autoTradeSL}% | Trail activates at +${state.autoTrailActivationPct}%`,
+              message: `📄 Paper BUY: ${analysis.token.symbol} — ${sizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}] | TP: +${state.autoTradeTP}% | SL: -${state.autoTradeSL}% | Breakeven @+8% · Trail @+20% (vol-adjusted)`,
             });
           }
         }

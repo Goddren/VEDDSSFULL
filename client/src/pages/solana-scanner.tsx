@@ -3833,8 +3833,8 @@ export default function SolanaScanner() {
               <div className="flex items-center gap-2">
                 <span className="text-sm">🔒</span>
                 <div>
-                  <p className="text-[11px] font-semibold text-violet-300">Trailing Stop</p>
-                  <p className="text-[9px] text-gray-500">Locks in profits as price rises — sells if it drops from the peak</p>
+                  <p className="text-[11px] font-semibold text-violet-300">Trailing Stop — Staged Model</p>
+                  <p className="text-[9px] text-gray-500">+8% → breakeven floor · +20% → vol-adjusted trail (10–15% dist) · never closes before breakeven</p>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -3991,10 +3991,9 @@ export default function SolanaScanner() {
                         </div>
                         {pos.trailingActive ? (
                           <div className="flex items-center gap-1.5 pt-0.5">
-                            <span className="text-[8px] text-violet-400 font-semibold">🔒 Trail locked:</span>
-                            <span className="text-[8px] text-violet-300">activates at +{pos.trailActivationPct ?? autoTrailActivationPct}%</span>
+                            <span className="text-[8px] text-violet-400 font-semibold">🔒 Trail locked</span>
                             <span className="text-[8px] text-gray-600">·</span>
-                            <span className="text-[8px] text-fuchsia-300">{pos.trailDistancePct ?? autoTrailDistancePct}% from peak</span>
+                            <span className="text-[8px] text-violet-300">vol-adjusted dist from peak</span>
                             {pos.peakPrice && pos.peakPrice > pos.entryPrice && (
                               <>
                                 <span className="text-[8px] text-gray-600">·</span>
@@ -4002,12 +4001,18 @@ export default function SolanaScanner() {
                               </>
                             )}
                           </div>
+                        ) : pos.breakevenActive ? (
+                          <div className="flex items-center gap-1.5 pt-0.5">
+                            <span className="text-[8px] text-emerald-400 font-semibold">🛡️ Breakeven floor active</span>
+                            <span className="text-[8px] text-gray-600">·</span>
+                            <span className="text-[8px] text-gray-400">trail locks at +20%</span>
+                          </div>
                         ) : (
                           <div className="flex items-center gap-1.5 pt-0.5">
-                            <span className="text-[8px] text-gray-500">⏳ Trail activates at</span>
-                            <span className="text-[8px] text-violet-400 font-semibold">+{pos.trailActivationPct ?? autoTrailActivationPct}%</span>
+                            <span className="text-[8px] text-gray-500">⏳ Breakeven floor at</span>
+                            <span className="text-[8px] text-emerald-400 font-semibold">+8%</span>
                             <span className="text-[8px] text-gray-600">·</span>
-                            <span className="text-[8px] text-gray-500">{pos.trailDistancePct ?? autoTrailDistancePct}% exit dist</span>
+                            <span className="text-[8px] text-gray-500">trail at +20%</span>
                           </div>
                         )}
                       </div>
