@@ -2309,9 +2309,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getUserApiKeys(userId: number): Promise<UserApiKey[]> {
-    return await db.select().from(userApiKeys)
+    const results = await db.select().from(userApiKeys)
       .where(eq(userApiKeys.userId, userId))
       .orderBy(userApiKeys.provider);
+    return results.map(r => ({ ...r, apiKey: decryptApiKey(r.apiKey) }));
   }
 
   async getUserApiKey(userId: number, provider: string): Promise<UserApiKey | undefined> {
