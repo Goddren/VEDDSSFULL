@@ -257,15 +257,19 @@ const Header: React.FC = () => {
             </Button>
 
             {/* Avatar + AI key status dot */}
-            <div className="flex items-center gap-1">
-              {/* AI key status dot — separate click target */}
-              {user && keyStatus !== 'none' && (
+            <div className="flex items-center gap-1.5">
+              {/* AI key status dot — always visible, opens key dialog */}
+              {user && (
                 <button
                   onClick={() => setKeyDialogOpen(true)}
                   title={dotTitle}
-                  className="relative flex-shrink-0"
+                  className="relative flex-shrink-0 p-0.5"
                 >
-                  <span className={`block w-2.5 h-2.5 rounded-full ${dotColor} ring-2 ring-background animate-pulse`} />
+                  <span className={`block w-2.5 h-2.5 rounded-full ring-2 ring-background ${
+                    keyStatus === 'valid'   ? 'bg-emerald-400 animate-pulse' :
+                    keyStatus === 'invalid' ? 'bg-red-400 animate-pulse' :
+                    'bg-gray-400'
+                  }`} />
                 </button>
               )}
 
@@ -276,13 +280,6 @@ const Header: React.FC = () => {
                       <AvatarImage src={user?.profileImage || ''} alt={user?.username || 'User'} />
                       <AvatarFallback className="bg-primary/10 text-primary">{getUserInitials()}</AvatarFallback>
                     </Avatar>
-                    {/* Dot for "no key" state on the avatar itself */}
-                    {user && keyStatus === 'none' && (
-                      <span
-                        title="No personal AI key — click avatar → AI API Keys to add one"
-                        className="absolute bottom-0 right-0 block w-2.5 h-2.5 rounded-full bg-gray-400 ring-2 ring-background"
-                      />
-                    )}
                   </div>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-56">
@@ -292,22 +289,6 @@ const Header: React.FC = () => {
                       <p className="text-xs leading-none text-muted-foreground">{user?.email}</p>
                     </div>
                   </DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-
-                  {/* AI key status row inside dropdown */}
-                  <div
-                    className="flex items-center gap-2 px-2 py-1.5 cursor-pointer hover:bg-accent rounded-sm text-sm"
-                    onClick={() => setKeyDialogOpen(true)}
-                  >
-                    {keyStatus === 'valid' && <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />}
-                    {keyStatus === 'invalid' && <AlertTriangle className="h-4 w-4 text-red-400 shrink-0" />}
-                    {keyStatus === 'none' && <KeyRound className="h-4 w-4 text-gray-400 shrink-0" />}
-                    <span className={`text-xs ${keyStatus === 'valid' ? 'text-emerald-400' : keyStatus === 'invalid' ? 'text-red-400' : 'text-muted-foreground'}`}>
-                      {keyStatus === 'valid' ? `${activeValidKey?.provider} key active` :
-                       keyStatus === 'invalid' ? 'Key invalid — fix now' :
-                       'Add your AI key'}
-                    </span>
-                  </div>
                   <DropdownMenuSeparator />
 
                   <DropdownMenuItem className="cursor-pointer" asChild>
@@ -434,27 +415,18 @@ const Header: React.FC = () => {
                     <Wallet className="h-4 w-4 mr-2" />
                     VEDD Wallet
                   </Link>
-                  {/* Mobile AI key quick access */}
+                  {/* Mobile AI key quick access — just the dot button */}
                   <button
                     onClick={() => { setMobileMenuOpen(false); setKeyDialogOpen(true); }}
-                    className="text-lg font-medium transition-colors flex items-center text-left gap-2"
+                    className="text-lg font-medium transition-colors flex items-center text-left gap-2 text-muted-foreground hover:text-foreground"
                   >
-                    {keyStatus === 'valid' && <CheckCircle2 className="h-4 w-4 text-emerald-400" />}
-                    {keyStatus === 'invalid' && <AlertTriangle className="h-4 w-4 text-red-400" />}
-                    {keyStatus === 'none' && <KeyRound className="h-4 w-4 text-muted-foreground" />}
-                    <span className={keyStatus === 'valid' ? 'text-emerald-400' : keyStatus === 'invalid' ? 'text-red-400' : 'text-muted-foreground'}>
-                      {keyStatus === 'valid' ? 'AI Key Active' : keyStatus === 'invalid' ? 'AI Key Invalid' : 'Add AI Key'}
-                    </span>
+                    <span className={`block w-2.5 h-2.5 rounded-full shrink-0 ${
+                      keyStatus === 'valid'   ? 'bg-emerald-400 animate-pulse' :
+                      keyStatus === 'invalid' ? 'bg-red-400 animate-pulse' :
+                      'bg-gray-400'
+                    }`} />
+                    AI Keys
                   </button>
-                  <Link
-                    href="/ai-api-keys"
-                    onClick={handleMobileNavClick}
-                    className={`text-lg font-medium transition-colors flex items-center ${location === '/ai-api-keys' ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
-                    data-testid="mobile-nav-ai-api-keys"
-                  >
-                    <KeyRound className="h-4 w-4 mr-2" />
-                    AI API Keys
-                  </Link>
                   <div className="border-t border-gray-700 my-2 pt-2">
                     <Link
                       href="/user-guide"
