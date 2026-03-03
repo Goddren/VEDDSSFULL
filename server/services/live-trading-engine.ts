@@ -417,10 +417,10 @@ function pushEnforcementLog(userId: number, entry: { symbol: string; rule: strin
 
 // T004: Auto-generate autonomous signals after brain retrain
 async function autoGenerateBrainSignals(userId: number, brain: any): Promise<void> {
+  let openai: any;
   try {
     if (!brain?.pairKnowledge || Object.keys(brain.pairKnowledge).length === 0) return;
     const { getUniversalAIClientForUser } = await import('../openai');
-    let openai: any;
     try { openai = await getUniversalAIClientForUser(userId); } catch { return; }
 
     const connectedPairs = (global as any).mt5ConnectedPairs?.[userId] || {};
@@ -497,8 +497,22 @@ Generate signals for pairs with strong learned edge. Respect session win-rates. 
         message: `🧠 Brain auto-generated ${sigCount} autonomous signal${sigCount !== 1 ? 's' : ''} (${strategyMode.toUpperCase()} mode) | Brain confidence: ${signals.brainConfidence || 'N/A'}%`,
       });
     }
-  } catch {
-    // silent — don't crash engine
+  } catch (err: any) {
+    const errMsg = err?.message || '';
+    const errStatus = err?.status || err?.statusCode || 0;
+    const isAuthError = errStatus === 401 || errMsg.includes('Incorrect API key') || errMsg.includes('invalid_api_key') || errMsg.includes('authentication_error') || errMsg.includes('401');
+    if (isAuthError && openai?.provider && openai.provider !== 'platform') {
+      try {
+        const { db } = await import('../db');
+        const { userApiKeys: uak } = await import('../../shared/schema');
+        const { and, eq } = await import('drizzle-orm');
+        await db.update(uak)
+          .set({ isValid: false, lastValidated: new Date() })
+          .where(and(eq(uak.userId, userId), eq(uak.provider, openai.provider)));
+      } catch { /* ignore DB error */ }
+      addActivity(userId, { type: 'error', message: `${openai.provider} API key invalid — auto-disabled. Brain engine will switch to your next active provider.` });
+    }
+    // otherwise silent — don't crash engine
   }
 }
 const goalTrackerCache: Record<string, GoalTracker> = {};
@@ -1022,9 +1036,9 @@ async function runAILiveAnalysis(userId: number, marketAnalysis: Record<string, 
   const state = engineStates[userId];
   if (!state) return;
 
+  let openai: any;
   try {
     const { getUniversalAIClientForUser } = await import('../openai');
-    let openai: any;
     try {
       openai = await getUniversalAIClientForUser(userId);
     } catch {

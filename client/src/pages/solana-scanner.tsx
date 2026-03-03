@@ -3878,6 +3878,14 @@ export default function SolanaScanner() {
                 </div>
               </div>
               <p className="text-[9px] text-gray-600">Once gain reaches activation %, the trailing stop locks in. If price drops {autoTrailDistancePct}% from its peak, position closes automatically.</p>
+              {(() => {
+                const openPaper: any[] = autoPositionsData?.paperPositions || [];
+                const openLive: any[] = autoPositionsData?.livePositions || [];
+                const lockedCount = [...openPaper, ...openLive].filter((p: any) => p.trailingActive).length;
+                return lockedCount > 0 ? (
+                  <p className="text-[9px] text-amber-400/80">⚠️ {lockedCount} position{lockedCount !== 1 ? 's' : ''} already have an active locked trail — slider changes only apply to new positions.</p>
+                ) : null;
+              })()}
             </div>
 
             {/* Server Bot Wallet */}
@@ -3963,22 +3971,45 @@ export default function SolanaScanner() {
                     const STRAT_ICONS: Record<string, string> = { momentum_surfer: '🏄', breakout_hunter: '🚀', dip_sniper: '🎯', meme_velocity: '⚡', whale_follower: '🐋', volume_explosion: '💥', smart_money_flow: '🧠', liquidity_sweep: '🌊' };
                     const strat = pos.strategyId ? { icon: STRAT_ICONS[pos.strategyId] || '📊' } : null;
                     return (
-                      <div key={pos.id} className={`flex items-center justify-between px-3 py-2 rounded-lg border ${pos.trailingActive ? 'bg-violet-900/20 border-violet-500/30' : 'bg-gray-800/50 border-gray-700/30'}`}>
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className="text-[10px]">{pos.mode === 'paper' ? '📄' : '⚡'}</span>
-                          <span className="text-xs font-semibold text-gray-200 truncate">{pos.symbol}</span>
-                          {strat && <span className="text-[9px] text-gray-500">{strat.icon}</span>}
-                          {pos.trailingActive && (
-                            <span className="shrink-0 text-[8px] font-bold px-1 py-0.5 rounded bg-violet-500/20 text-violet-300 border border-violet-500/30">🔒 TRAILING</span>
-                          )}
+                      <div key={pos.id} className={`px-3 py-2 rounded-lg border space-y-1 ${pos.trailingActive ? 'bg-violet-900/20 border-violet-500/30' : 'bg-gray-800/50 border-gray-700/30'}`}>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="text-[10px]">{pos.mode === 'paper' ? '📄' : '⚡'}</span>
+                            <span className="text-xs font-semibold text-gray-200 truncate">{pos.symbol}</span>
+                            {strat && <span className="text-[9px] text-gray-500">{strat.icon}</span>}
+                            {pos.trailingActive && (
+                              <span className="shrink-0 text-[8px] font-bold px-1 py-0.5 rounded bg-violet-500/20 text-violet-300 border border-violet-500/30">🔒 TRAIL LOCKED</span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-[10px] text-gray-500">${pos.entryPrice?.toFixed(6) || '—'}</span>
+                            <span className={`text-[11px] font-bold ${gainPct >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                              {gainPct >= 0 ? '+' : ''}{gainPct.toFixed(2)}%
+                            </span>
+                            <span className="text-[9px] text-gray-600">{new Date(pos.openedAt).toLocaleTimeString()}</span>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          <span className="text-[10px] text-gray-500">${pos.entryPrice?.toFixed(6) || '—'}</span>
-                          <span className={`text-[11px] font-bold ${gainPct >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                            {gainPct >= 0 ? '+' : ''}{gainPct.toFixed(2)}%
-                          </span>
-                          <span className="text-[9px] text-gray-600">{new Date(pos.openedAt).toLocaleTimeString()}</span>
-                        </div>
+                        {pos.trailingActive ? (
+                          <div className="flex items-center gap-1.5 pt-0.5">
+                            <span className="text-[8px] text-violet-400 font-semibold">🔒 Trail locked:</span>
+                            <span className="text-[8px] text-violet-300">activates at +{pos.trailActivationPct ?? autoTrailActivationPct}%</span>
+                            <span className="text-[8px] text-gray-600">·</span>
+                            <span className="text-[8px] text-fuchsia-300">{pos.trailDistancePct ?? autoTrailDistancePct}% from peak</span>
+                            {pos.peakPrice && pos.peakPrice > pos.entryPrice && (
+                              <>
+                                <span className="text-[8px] text-gray-600">·</span>
+                                <span className="text-[8px] text-amber-400">peak ${pos.peakPrice.toFixed(pos.peakPrice < 0.01 ? 8 : 6)}</span>
+                              </>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1.5 pt-0.5">
+                            <span className="text-[8px] text-gray-500">⏳ Trail activates at</span>
+                            <span className="text-[8px] text-violet-400 font-semibold">+{pos.trailActivationPct ?? autoTrailActivationPct}%</span>
+                            <span className="text-[8px] text-gray-600">·</span>
+                            <span className="text-[8px] text-gray-500">{pos.trailDistancePct ?? autoTrailDistancePct}% exit dist</span>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
