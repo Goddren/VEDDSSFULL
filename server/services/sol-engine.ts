@@ -152,6 +152,7 @@ interface SolEngineState {
   autoTradeSL: number;
   autoTrailActivationPct: number;
   autoTrailDistancePct: number;
+  paperTradeSize: number;       // fixed SOL per paper trade (0 = use portfolio fraction)
   // Compounding system
   compoundMode: boolean;
   compoundRate: number;         // 0–100: % of profit/loss to fold back into paper capital
@@ -256,7 +257,7 @@ export const SOL_STRATEGIES: SolStrategy[] = [
     description: 'Scalps sharp moves after liquidity pool sweeps — small, frequent gains',
     minConfidence: 60,
     maxRisk: 'HIGH',
-    baseFraction: 0.01,
+    baseFraction: 0.03,
     minSignal: 'BUY',
     holdTarget: '10–30min',
   },
@@ -545,6 +546,7 @@ function createInitialState(config: SolEngineConfig): SolEngineState {
     autoTradeSL: 4,
     autoTrailActivationPct: 4,
     autoTrailDistancePct: 3,
+    paperTradeSize: 0,
     compoundMode: false,
     compoundRate: 100,
     paperBaseCapital: 0,
@@ -603,6 +605,9 @@ function computeGoalPhase(goal: SolWeeklyGoal): SolWeeklyGoal['phase'] {
 }
 
 function computeAutoSolSize(state: SolEngineState, dex: string, overrideStrategy?: SolStrategy, mode: 'paper' | 'live' = 'live'): number {
+  // Fixed paper trade size overrides all fraction math
+  if (mode === 'paper' && state.paperTradeSize > 0) return state.paperTradeSize;
+
   const portfolio = (mode === 'paper' && state.compoundMode && state.paperPortfolioValue > 0)
     ? state.paperPortfolioValue
     : state.currentPortfolioValue;
@@ -1364,6 +1369,7 @@ export function getSolEngineStatus(userId: number) {
     activeStrategy: state.activeStrategy,
     activeStrategies: state.activeStrategies,
     lastAgentConsensus: state.lastAgentConsensus,
+    paperTradeSize: state.paperTradeSize,
     compoundMode: state.compoundMode,
     compoundRate: state.compoundRate,
     paperBaseCapital: state.paperBaseCapital,
@@ -1528,7 +1534,7 @@ export function recordSolSignalResult(
   return { success: true };
 }
 
-export function setAutoTrade(userId: number, opts: { paperEnabled?: boolean; liveEnabled?: boolean; tpPct?: number; slPct?: number; trailActivationPct?: number; trailDistancePct?: number }): void {
+export function setAutoTrade(userId: number, opts: { paperEnabled?: boolean; liveEnabled?: boolean; tpPct?: number; slPct?: number; trailActivationPct?: number; trailDistancePct?: number; paperTradeSize?: number }): void {
   let state = engineStates.get(userId);
   if (!state) {
     state = createInitialState({ ...DEFAULT_CONFIG });
@@ -1579,6 +1585,16 @@ export function setAutoTrade(userId: number, opts: { paperEnabled?: boolean; liv
     addActivity(state, {
       type: 'info',
       message: `📏 Trail distance updated — will exit if price drops ${opts.trailDistancePct}% from peak`,
+    });
+  }
+  if (opts.paperTradeSize !== undefined) {
+    const sz = Math.max(0, opts.paperTradeSize);
+    state.paperTradeSize = sz;
+    addActivity(state, {
+      type: 'info',
+      message: sz > 0
+        ? `📐 Paper trade size fixed at ${sz} SOL per position — overrides portfolio-fraction sizing`
+        : `📐 Paper trade size set to auto (portfolio-fraction mode restored)`,
     });
   }
   saveEngineState(userId, state).catch(() => {});
