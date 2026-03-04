@@ -156,6 +156,8 @@ interface LiveEngineConfig {
   drawdownShieldThreshold: number;
   // Safety
   dailyLossLimit: number;
+  // AI cost control
+  aiMode: 'full' | 'economy' | 'rule_based';
 }
 
 interface LiveActivity {
@@ -259,6 +261,7 @@ interface EngineState {
   dailyLossHaltedAt: string | null;
   tradesSinceLastLearn: number;
   positionTrailState: Record<string, { highestHigh: number; lowestLow: number; sar: number; ep: number; af: number; bullish: boolean }>;
+  aiResponseCache: Record<string, { ts: number; price: number; response: any }>;
 }
 
 const engineStates: Record<number, EngineState> = {};
@@ -585,6 +588,7 @@ function getDefaultConfig(userId: number): LiveEngineConfig {
     useKellyCriterion: false,
     drawdownShieldThreshold: 3,
     dailyLossLimit: 5,
+    aiMode: 'full',
   };
 }
 
@@ -1224,9 +1228,166 @@ async function applyServerSideTrails(
   }
 }
 
+// ── Rule-Based Signal Generator (zero API cost) ─────────────────────────────
+function generateRuleBasedSignals(indicators: Record<string, any>, config: LiveEngineConfig, symbol: string): any {
+  let bull = 0;
+  let bear = 0;
+  const votes: string[] = [];
+
+  const rsi = indicators.rsi?.value ?? indicators.stochastic?.k ?? 50;
+  if (rsi < 35) { bull++; votes.push(`RSI oversold (${rsi.toFixed(1)})`); }
+  else if (rsi > 65) { bear++; votes.push(`RSI overbought (${rsi.toFixed(1)})`); }
+
+  const stochK = indicators.stochastic?.k ?? 50;
+  if (stochK < 25) { bull++; votes.push(`Stoch K oversold (${stochK.toFixed(1)})`); }
+  else if (stochK > 75) { bear++; votes.push(`Stoch K overbought (${stochK.toFixed(1)})`); }
+
+  const macdHist = indicators.macd?.histogram ?? 0;
+  if (macdHist > 0) { bull++; votes.push('MACD histogram positive'); }
+  else if (macdHist < 0) { bear++; votes.push('MACD histogram negative'); }
+
+  const adxVal = indicators.adx?.adx ?? indicators.adx?.value ?? 0;
+  const trend = indicators.trend ?? 'NEUTRAL';
+  if (adxVal > 25 && trend === 'BULLISH') { bull++; votes.push(`ADX ${adxVal.toFixed(1)} + bullish trend`); }
+  else if (adxVal > 25 && trend === 'BEARISH') { bear++; votes.push(`ADX ${adxVal.toFixed(1)} + bearish trend`); }
+
+  const vwapDev = indicators.vwap?.deviationPercent ?? 0;
+  if (vwapDev < -0.10) { bull++; votes.push(`Price below VWAP (${vwapDev.toFixed(2)}%)`); }
+  else if (vwapDev > 0.10) { bear++; votes.push(`Price above VWAP (+${vwapDev.toFixed(2)}%)`); }
+
+  const obvTrend = indicators.obv?.trend ?? '';
+  if (obvTrend === 'up') { bull++; votes.push('OBV uptrend'); }
+  else if (obvTrend === 'down') { bear++; votes.push('OBV downtrend'); }
+
+  const bullishPatterns = ['hammer', 'bullish_engulfing', 'morning_star', 'piercing_line', 'bullish_harami', 'inverted_hammer', 'three_white_soldiers'];
+  const bearishPatterns = ['shooting_star', 'bearish_engulfing', 'evening_star', 'dark_cloud_cover', 'bearish_harami', 'hanging_man', 'three_black_crows'];
+  const patterns: string[] = indicators.candlePatterns ?? [];
+  if (patterns.some(p => bullishPatterns.includes(p))) { bull++; votes.push(`Bullish candle: ${patterns.filter(p => bullishPatterns.includes(p)).join(',')}`); }
+  if (patterns.some(p => bearishPatterns.includes(p))) { bear++; votes.push(`Bearish candle: ${patterns.filter(p => bearishPatterns.includes(p)).join(',')}`); }
+
+  const currentPrice = indicators.currentPrice ?? 0;
+  const atr = indicators.atr?.value ?? indicators.atr ?? (currentPrice * 0.0005);
+
+  if (bull < 3 && bear < 3) {
+    return { newTrades: [], positionUpdates: [], marketOverview: `Rule-based (${symbol}): insufficient confluence — bull=${bull} bear=${bear}`, nextScanFocus: 'Waiting for indicator alignment' };
+  }
+
+  const direction = bull >= bear ? 'BUY' : 'SELL';
+  const winningScore = Math.max(bull, bear);
+  const confidence = Math.round((winningScore / 7) * 100);
+
+  const entry = currentPrice;
+  const sl = direction === 'BUY' ? entry - (atr * 1.5) : entry + (atr * 1.5);
+  const tp = direction === 'BUY' ? entry + (atr * 2.5) : entry - (atr * 2.5);
+
+  let lotSize = config.baseLotSize;
+  if (config.useKellyCriterion) {
+    const pct = (winningScore / 7);
+    const fractionalKelly = pct * 0.25;
+    lotSize = Math.min(config.maxLotSize, Math.max(config.baseLotSize, parseFloat((config.baseLotSize * (1 + fractionalKelly)).toFixed(2))));
+  }
+
+  const trade = {
+    action: 'OPEN_TRADE',
+    strategy: 'momentum',
+    symbol,
+    direction,
+    confidence,
+    reason: `Rule-based consensus — ${winningScore}/7 indicators agree. Votes: ${votes.join('; ')}`,
+    confluences: votes,
+    entryPrice: entry,
+    stopLoss: sl,
+    takeProfit: tp,
+    lotSize,
+    holdTime: '15min',
+    urgency: 'IMMEDIATE',
+  };
+
+  return {
+    newTrades: [trade],
+    decisions: [trade],
+    positionUpdates: [],
+    marketOverview: `Rule-based ${direction} on ${symbol}: ${winningScore}/7 indicators aligned. No AI API call used.`,
+    nextScanFocus: `Monitor ${symbol} ${direction} for follow-through`,
+    engineConfidence: confidence,
+    activeStrategies: ['momentum'],
+    tradingWindowQuality: 'good',
+  };
+}
+
+// ── Indicator pre-filter: count indicator direction votes ────────────────────
+function countIndicatorAlignment(data: any): { bull: number; bear: number } {
+  let bull = 0;
+  let bear = 0;
+
+  const rsi = data.rsi?.value ?? data.stochastic?.k ?? 50;
+  if (rsi < 38) bull++; else if (rsi > 62) bear++;
+
+  const stochK = data.stochastic?.k ?? 50;
+  if (stochK < 28) bull++; else if (stochK > 72) bear++;
+
+  const macdHist = data.macd?.histogram ?? 0;
+  if (macdHist > 0) bull++; else if (macdHist < 0) bear++;
+
+  const adxVal = data.adx?.adx ?? data.adx?.value ?? 0;
+  const trend = data.trend ?? 'NEUTRAL';
+  if (adxVal > 22 && trend === 'BULLISH') bull++;
+  else if (adxVal > 22 && trend === 'BEARISH') bear++;
+
+  const vwapDev = data.vwap?.deviationPercent ?? 0;
+  if (vwapDev < -0.08) bull++; else if (vwapDev > 0.08) bear++;
+
+  const obvTrend = data.obv?.trend ?? '';
+  if (obvTrend === 'up') bull++; else if (obvTrend === 'down') bear++;
+
+  return { bull, bear };
+}
+
 async function runAILiveAnalysis(userId: number, marketAnalysis: Record<string, any>, brain: any, newsContext?: NewsContext, crossAssets?: Record<string, any>, triggerAlerts?: string[]): Promise<void> {
   const state = engineStates[userId];
   if (!state) return;
+
+  const aiMode = state.config.aiMode || 'full';
+
+  // ── Rule-Based Mode: zero API calls ─────────────────────────────────
+  if (aiMode === 'rule_based') {
+    addActivity(userId, { type: 'info', message: '⚙️ Rule-based mode — processing indicator consensus (no API call)' });
+    let totalSignals = 0;
+    for (const [symbol, data] of Object.entries(marketAnalysis) as [string, any][]) {
+      const result = generateRuleBasedSignals({ ...data, currentPrice: data.currentPrice }, state.config, symbol);
+      if (result.decisions && result.decisions.length > 0) {
+        totalSignals += result.decisions.length;
+        addActivity(userId, { type: 'ai_decision', symbol, message: `Rule-based: ${result.decisions[0].direction} on ${symbol} | Confidence: ${result.engineConfidence}% | ${result.decisions.length} signal(s)`, details: { marketOverview: result.marketOverview } });
+        for (const decision of result.decisions) {
+          await processDecision(userId, decision, newsContext);
+        }
+      }
+    }
+    if (totalSignals === 0) {
+      addActivity(userId, { type: 'info', message: 'Rule-based: no signals generated this cycle — insufficient indicator alignment across all pairs' });
+    }
+    state.lastSignalAt = new Date().toISOString();
+    return;
+  }
+
+  // ── Pre-filter gate: skip AI call for pairs with no indicator alignment ──────
+  {
+    const filteredAnalysis: Record<string, any> = {};
+    for (const [sym, data] of Object.entries(marketAnalysis) as [string, any][]) {
+      const { bull, bear } = countIndicatorAlignment(data);
+      if (bull >= 3 || bear >= 3) {
+        filteredAnalysis[sym] = data;
+      } else {
+        addActivity(userId, { type: 'info', symbol: sym, message: `⚡ Pre-filter: weak alignment on ${sym} (bull=${bull} bear=${bear}) — API call skipped` });
+      }
+    }
+    if (Object.keys(filteredAnalysis).length === 0) {
+      addActivity(userId, { type: 'info', message: 'Pre-filter: no pairs with sufficient alignment this cycle — AI call skipped entirely' });
+      return;
+    }
+    // Use filtered set for the AI call
+    marketAnalysis = filteredAnalysis;
+  }
 
   let openai: any;
   try {
@@ -1237,6 +1398,25 @@ async function runAILiveAnalysis(userId: number, marketAnalysis: Record<string, 
       addActivity(userId, { type: 'error', message: 'No AI API key configured. Cannot analyze.' });
       return;
     }
+
+    // ── Economy mode: override with Groq client ──────────────────────────
+    if (aiMode === 'economy' && process.env.GROQ_API_KEY) {
+      try {
+        const OpenAI = (await import('openai')).default;
+        const groqClient = new OpenAI({
+          apiKey: process.env.GROQ_API_KEY,
+          baseURL: 'https://api.groq.com/openai/v1',
+        });
+        (groqClient as any).defaultModel = 'llama-3.3-70b-versatile';
+        openai = groqClient;
+        addActivity(userId, { type: 'info', message: '💚 Economy mode: routing to Groq Llama 3.3-70b (free tier) — cost reduced' });
+      } catch {
+        addActivity(userId, { type: 'info', message: 'Economy mode: Groq unavailable, falling back to primary AI client' });
+      }
+    } else if (aiMode === 'economy') {
+      addActivity(userId, { type: 'info', message: '💚 Economy mode: GROQ_API_KEY not set — using primary client. Set GROQ_API_KEY for free routing.' });
+    }
+
     const model = openai.defaultModel || 'gpt-4o';
 
     const now = new Date();
@@ -1820,30 +2000,47 @@ Respond ONLY with valid JSON. Generate MULTIPLE decisions when opportunities exi
     }
 
     if (!usedMultiModel) {
-      const modelToUse = model;
-      const supportsJson = modelToUse.startsWith('gpt') || modelToUse.startsWith('gemini') || modelToUse.startsWith('llama') || modelToUse.startsWith('mistral') || modelToUse.startsWith('claude');
+      // ── Response cache check: skip API call if market hasn't moved ─────
+      const cacheKey = Object.keys(marketAnalysis).sort().join('|');
+      const cached = state.aiResponseCache[cacheKey];
+      const pairPrices = Object.values(marketAnalysis).map((d: any) => d.currentPrice || 0);
+      const avgPrice = pairPrices.length > 0 ? pairPrices.reduce((a, b) => a + b, 0) / pairPrices.length : 0;
+      const cachedPrice = cached?.price ?? 0;
+      const pipMove = cachedPrice > 0 ? Math.abs(avgPrice - cachedPrice) / cachedPrice * 10000 : 999;
+      const cacheAge = cached ? (Date.now() - cached.ts) : 999999;
 
-      const response = await openai.chat.completions.create({
-        model: modelToUse,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: prompt },
-        ],
-        ...(supportsJson ? { response_format: { type: 'json_object' } } : {}),
-        max_tokens: 4000,
-        temperature: 0.3,
-      });
+      if (cached && cacheAge < 120000 && pipMove < 5) {
+        decisions = cached.response;
+        addActivity(userId, { type: 'info', message: `💾 Cache hit: reusing last AI response (${Math.round(cacheAge / 1000)}s old, ${pipMove.toFixed(1)}p move) — API call saved` });
+      } else {
+        const modelToUse = model;
+        const supportsJson = modelToUse.startsWith('gpt') || modelToUse.startsWith('gemini') || modelToUse.startsWith('llama') || modelToUse.startsWith('mistral') || modelToUse.startsWith('claude');
 
-      const content = response.choices[0]?.message?.content || '';
-      try {
-        decisions = JSON.parse(content);
-      } catch {
-        const jsonMatch = content.match(/\{[\s\S]*\}/);
-        if (jsonMatch) decisions = JSON.parse(jsonMatch[0]);
-        else {
-          addActivity(userId, { type: 'error', message: 'AI returned invalid response' });
-          return;
+        const response = await openai.chat.completions.create({
+          model: modelToUse,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: prompt },
+          ],
+          ...(supportsJson ? { response_format: { type: 'json_object' } } : {}),
+          max_tokens: 4000,
+          temperature: 0.3,
+        });
+
+        const content = response.choices[0]?.message?.content || '';
+        try {
+          decisions = JSON.parse(content);
+        } catch {
+          const jsonMatch = content.match(/\{[\s\S]*\}/);
+          if (jsonMatch) decisions = JSON.parse(jsonMatch[0]);
+          else {
+            addActivity(userId, { type: 'error', message: 'AI returned invalid response' });
+            return;
+          }
         }
+
+        // Store in cache
+        state.aiResponseCache[cacheKey] = { ts: Date.now(), price: avgPrice, response: decisions };
       }
     }
 
@@ -2473,6 +2670,7 @@ export function startLiveEngine(userId: number, config?: Partial<LiveEngineConfi
     dailyLossHaltedAt: null,
     tradesSinceLastLearn: 0,
     positionTrailState: {},
+    aiResponseCache: {},
   };
 
   const adaptiveInterval = getAdaptiveScanInterval(fullConfig);

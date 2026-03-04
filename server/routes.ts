@@ -9422,7 +9422,7 @@ Respond with ONLY valid JSON:
   app.post("/api/vedd-live-engine/start", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
-    const { pairs, strategyMode, scanIntervalMs, maxOpenTrades, riskPerTrade, minConfidence, enablePositionManagement, trailingStopEnabled, trailingStopATRMultiplier, weeklyProfitTarget, accountBalance, enableCompounding, baseLotSize, propFirmMode, propFirmDailyDrawdownLimit, maxLotSize, adaptiveScanInterval, enablePyramiding, useKellyCriterion, drawdownShieldThreshold, dailyLossLimit } = req.body;
+    const { pairs, strategyMode, scanIntervalMs, maxOpenTrades, riskPerTrade, minConfidence, enablePositionManagement, trailingStopEnabled, trailingStopATRMultiplier, weeklyProfitTarget, accountBalance, enableCompounding, baseLotSize, propFirmMode, propFirmDailyDrawdownLimit, maxLotSize, adaptiveScanInterval, enablePyramiding, useKellyCriterion, drawdownShieldThreshold, dailyLossLimit, aiMode } = req.body;
     try {
       const state = startLiveEngine(userId, {
         pairs: pairs || undefined,
@@ -9446,6 +9446,7 @@ Respond with ONLY valid JSON:
         useKellyCriterion: useKellyCriterion !== undefined ? Boolean(useKellyCriterion) : undefined,
         drawdownShieldThreshold: drawdownShieldThreshold !== undefined ? Number(drawdownShieldThreshold) : undefined,
         dailyLossLimit: dailyLossLimit !== undefined ? Number(dailyLossLimit) : undefined,
+        aiMode: ['full', 'economy', 'rule_based'].includes(aiMode) ? aiMode : undefined,
       });
       res.json({ success: true, state });
     } catch (err: any) {

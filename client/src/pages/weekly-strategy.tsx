@@ -214,6 +214,8 @@ export default function WeeklyStrategyPage() {
   const [engineDailyLossLimit, setEngineDailyLossLimit] = useState(5);
   const [engineTrailMethod, setEngineTrailMethod] = useState<'staged_volume' | 'chandelier' | 'r_multiple' | 'swing_structure' | 'parabolic_sar'>('staged_volume');
 
+  const [engineAiMode, setEngineAiMode] = useState<'full' | 'economy' | 'rule_based'>('full');
+
   const [kellyMode, setKellyMode] = useState(false);
   const [preKellySnapshot, setPreKellySnapshot] = useState<{
     mode: string; minConf: number; trailMethod: string;
@@ -286,6 +288,7 @@ export default function WeeklyStrategyPage() {
         adaptiveScanInterval: engineAdaptiveScan,
         dailyLossLimit: engineDailyLossLimit,
         trailMethod: engineTrailMethod,
+        aiMode: engineAiMode,
       });
       return res.json();
     },
@@ -781,6 +784,48 @@ export default function WeeklyStrategyPage() {
                         min={1} max={20} step={0.5} className="mt-1 bg-gray-800 border-red-900/50 text-white h-8 text-sm" />
                       <p className="text-[10px] text-red-400/70 mt-0.5">Auto-closes all trades + halts engine</p>
                     </div>
+                  </div>
+
+                  {/* ── AI Mode Selector ── */}
+                  <div className="rounded-xl border border-gray-700 bg-gray-900/40 p-3 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] font-semibold text-gray-300">AI Mode — Cost Control</span>
+                      {engineAiMode === 'economy' && <span className="text-[9px] bg-green-500/20 text-green-300 border border-green-500/40 rounded px-1.5 py-0.5 font-medium">COST REDUCED</span>}
+                      {engineAiMode === 'rule_based' && <span className="text-[9px] bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded px-1.5 py-0.5 font-medium">ZERO API COST</span>}
+                    </div>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {[
+                        { id: 'full' as const, label: 'Full AI', sub: 'GPT-4o / your provider', color: 'blue' },
+                        { id: 'economy' as const, label: 'Economy', sub: 'Groq — free tier', color: 'green' },
+                        { id: 'rule_based' as const, label: 'Rule-Based', sub: 'No API calls', color: 'amber' },
+                      ].map(opt => (
+                        <button
+                          key={opt.id}
+                          onClick={() => setEngineAiMode(opt.id)}
+                          className={`rounded-lg border p-2 text-left transition-all ${
+                            engineAiMode === opt.id
+                              ? opt.color === 'blue' ? 'border-blue-500/60 bg-blue-500/15'
+                              : opt.color === 'green' ? 'border-green-500/60 bg-green-500/15'
+                              : 'border-amber-500/60 bg-amber-500/15'
+                              : 'border-gray-700 bg-gray-800/30 hover:border-gray-600'
+                          }`}
+                        >
+                          <div className={`text-[11px] font-semibold ${
+                            engineAiMode === opt.id
+                              ? opt.color === 'blue' ? 'text-blue-300'
+                              : opt.color === 'green' ? 'text-green-300'
+                              : 'text-amber-300'
+                              : 'text-gray-300'
+                          }`}>{opt.label}</div>
+                          <div className="text-[9px] text-gray-500 mt-0.5">{opt.sub}</div>
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-[10px] text-gray-500">
+                      {engineAiMode === 'full' && 'Best quality. Uses your active AI provider for every scan cycle.'}
+                      {engineAiMode === 'economy' && '💚 Routes all scans to Groq Llama 3.3-70b (free tier). Add GROQ_API_KEY for activation. Pre-filter + cache still apply.'}
+                      {engineAiMode === 'rule_based' && '⚙️ Zero API calls. Pure server-side indicator consensus — RSI, MACD, Stochastic, ADX, VWAP, OBV, candle patterns. Great for strategy testing.'}
+                    </p>
                   </div>
                   <div>
                     <Label className="text-gray-400 text-xs">Trading Pairs</Label>
