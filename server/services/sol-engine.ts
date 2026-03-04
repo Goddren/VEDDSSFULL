@@ -20,6 +20,7 @@ export interface SolEngineConfig {
   shieldEnabled: boolean;
   shieldThreshold: number;
   adaptiveScan: boolean;
+  aiMode: 'full' | 'economy';
 }
 
 export interface SolActivityEntry {
@@ -167,6 +168,7 @@ interface SolEngineState {
     bestTradePct: number;
     worstTradePct: number;
   };
+  aiReviewCache: Record<string, { ts: number; result: any[] }>;
 }
 
 const DEX_NAMES = ['raydium', 'orca', 'meteora', 'pumpfun', 'jupiter'];
@@ -271,6 +273,7 @@ const DEFAULT_CONFIG: SolEngineConfig = {
   shieldEnabled: true,
   shieldThreshold: 10,
   adaptiveScan: true,
+  aiMode: 'full',
 };
 
 const DEFAULT_WEEKLY_GOAL: SolWeeklyGoal = {
@@ -553,6 +556,7 @@ function createInitialState(config: SolEngineConfig): SolEngineState {
     paperPortfolioValue: 0,
     paperPortfolioHistory: [],
     autoTradeStats: { totalTrades: 0, wins: 0, losses: 0, totalPnlPct: 0, bestTradePct: 0, worstTradePct: 0 },
+    aiReviewCache: {},
   };
 }
 
@@ -695,9 +699,42 @@ async function runSolAIReview(
     .slice(0, 5);
   if (buySignals.length === 0 && openPositions.length === 0) return;
 
+  // ── Response cache ────────────────────────────────────────────────────────
+  const cacheKey = [
+    ...buySignals.map(t => t.token.symbol).sort(),
+    ...openPositions.map(p => p.symbol).sort(),
+  ].join('|');
+  const cached = state.aiReviewCache[cacheKey];
+  if (cached && Date.now() - cached.ts < 90_000) {
+    const ageS = Math.round((Date.now() - cached.ts) / 1000);
+    addActivity(state, {
+      type: 'info',
+      message: `💾 Sol AI cache hit — reusing recent review (${ageS}s old)`,
+    });
+    return;
+  }
+
   try {
     const { getUniversalAIClientForUser } = await import('../openai');
-    const openai = await getUniversalAIClientForUser(userId);
+
+    // ── Economy mode: route to Groq Llama 3.3-70b (free) ─────────────────
+    let openai: any;
+    let modelLabel = 'GPT-4o';
+    if (state.config.aiMode === 'economy' && process.env.GROQ_API_KEY) {
+      const OpenAI = (await import('openai')).default;
+      openai = new OpenAI({
+        apiKey: process.env.GROQ_API_KEY,
+        baseURL: 'https://api.groq.com/openai/v1',
+      });
+      (openai as any).defaultModel = 'llama-3.3-70b-versatile';
+      modelLabel = 'Groq Llama';
+      addActivity(state, {
+        type: 'info',
+        message: '💚 Sol Economy mode: routing to Groq Llama 3.3-70b (free)',
+      });
+    } else {
+      openai = await getUniversalAIClientForUser(userId);
+    }
 
     const strategy = SOL_STRATEGIES.find(s => s.id === state.activeStrategy) || SOL_STRATEGIES[0];
     const macro = state.lastMacro;
@@ -770,6 +807,9 @@ Return ONLY the JSON array, no markdown, no explanation.`;
       decisions = JSON.parse(raw.replace(/```json|```/g, '').trim());
     } catch { return; }
 
+    // ── Store result in cache ─────────────────────────────────────────────
+    state.aiReviewCache[cacheKey] = { ts: Date.now(), result: decisions };
+
     const newConsensus: AgentConsensusResult[] = [];
     const macroBias = state.lastMacro?.bias ?? null;
 
@@ -814,7 +854,7 @@ Return ONLY the JSON array, no markdown, no explanation.`;
         const icon = d.action === 'CONFIRM_BUY' ? '🤖✅' : d.action === 'SKIP' ? '🤖❌' : '🤖👁️';
         addActivity(state, {
           type: 'signal',
-          message: `${icon} GPT-4o ${d.action}: ${d.symbol} — ${d.reason || ''}`,
+          message: `${icon} ${modelLabel} ${d.action}: ${d.symbol} — ${d.reason || ''}`,
         });
       } else if (d.type === 'position') {
         const icon = d.action === 'CLOSE' ? '📊🔴' : d.action === 'TRAIL' ? '📊🔼' : d.action === 'PARTIAL_CLOSE' ? '📊⚡' : '📊🟢';

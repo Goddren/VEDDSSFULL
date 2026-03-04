@@ -2745,6 +2745,7 @@ export default function SolanaScanner() {
   const [solEngineKelly, setSolEngineKelly] = useState(false);
   const [solEngineShield, setSolEngineShield] = useState(true);
   const [solEngineShieldThreshold, setSolEngineShieldThreshold] = useState(10);
+  const [solEngineAiMode, setSolEngineAiMode] = useState<'full' | 'economy'>('full');
   const [solEngineMinConf, setSolEngineMinConf] = useState(65);
   const [solPortfolioValue, setSolPortfolioValue] = useState('');
   const [solResultToken, setSolResultToken] = useState<{ address: string; dex: string; symbol: string } | null>(null);
@@ -2784,6 +2785,7 @@ export default function SolanaScanner() {
       dexFilter, minConfidence: solEngineMinConf, maxTokens: 12,
       useKelly: solEngineKelly, shieldEnabled: solEngineShield,
       shieldThreshold: solEngineShieldThreshold, adaptiveScan: solEngineAutoScan,
+      aiMode: solEngineAiMode,
     }),
     onSuccess: () => { toast({ title: '🚀 Sol Engine started', description: 'Autonomous scanning active' }); refetchEngineStatus(); },
     onError: () => toast({ title: 'Failed to start engine', variant: 'destructive' }),
@@ -3358,6 +3360,9 @@ export default function SolanaScanner() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
+                {solEngineAiMode === 'economy' && (
+                  <span className="text-[9px] font-bold text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 rounded px-1.5 py-0.5 tracking-wide">COST REDUCED</span>
+                )}
                 <button onClick={() => setSolEngineSettingsOpen(o => !o)} className="p-1.5 rounded-lg text-gray-400 hover:text-gray-200 hover:bg-gray-700/50 transition-colors">
                   <Settings className="w-4 h-4" />
                 </button>
@@ -3434,6 +3439,38 @@ export default function SolanaScanner() {
                     </div>
                     <input type="range" min={50} max={90} step={5} value={solEngineMinConf} onChange={e => setSolEngineMinConf(Number(e.target.value))} className="w-full accent-emerald-500" />
                     <p className="text-[10px] text-gray-400 mt-1">Filter tokens below this threshold</p>
+                  </div>
+                </div>
+
+                {/* AI Mode selector */}
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-xs font-semibold text-gray-300">AI Review Mode</span>
+                    {solEngineAiMode === 'economy' && (
+                      <span className="text-[9px] font-bold text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 rounded px-1.5 py-0.5 tracking-wide">COST REDUCED</span>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setSolEngineAiMode('full')}
+                      className={`flex-1 rounded-lg border px-3 py-2.5 text-left transition-all ${solEngineAiMode === 'full' ? 'border-blue-500/60 bg-blue-500/15' : 'border-gray-700 bg-gray-900/30 hover:border-gray-600'}`}
+                    >
+                      <div className="flex items-center gap-1.5 mb-0.5">
+                        <div className={`w-2 h-2 rounded-full ${solEngineAiMode === 'full' ? 'bg-blue-400' : 'bg-gray-600'}`} />
+                        <span className={`text-xs font-semibold ${solEngineAiMode === 'full' ? 'text-blue-300' : 'text-gray-400'}`}>Full AI</span>
+                      </div>
+                      <p className="text-[10px] text-gray-500 pl-3.5">Uses your active provider (GPT-4o / Claude etc.)</p>
+                    </button>
+                    <button
+                      onClick={() => setSolEngineAiMode('economy')}
+                      className={`flex-1 rounded-lg border px-3 py-2.5 text-left transition-all ${solEngineAiMode === 'economy' ? 'border-emerald-500/60 bg-emerald-500/15' : 'border-gray-700 bg-gray-900/30 hover:border-gray-600'}`}
+                    >
+                      <div className="flex items-center gap-1.5 mb-0.5">
+                        <div className={`w-2 h-2 rounded-full ${solEngineAiMode === 'economy' ? 'bg-emerald-400' : 'bg-gray-600'}`} />
+                        <span className={`text-xs font-semibold ${solEngineAiMode === 'economy' ? 'text-emerald-300' : 'text-gray-400'}`}>Economy — Groq Free</span>
+                      </div>
+                      <p className="text-[10px] text-gray-500 pl-3.5">Routes to Groq Llama 3.3-70b. Free tier, zero cost.</p>
+                    </button>
                   </div>
                 </div>
 

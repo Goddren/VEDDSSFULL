@@ -13071,7 +13071,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     app.post("/api/sol-engine/start", async (req: Request, res: Response) => {
       if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
       const userId = (req.user as User).id;
-      const { dexFilter, minConfidence, maxTokens, useKelly, shieldEnabled, shieldThreshold, adaptiveScan } = req.body;
+      const { dexFilter, minConfidence, maxTokens, useKelly, shieldEnabled, shieldThreshold, adaptiveScan, aiMode } = req.body;
       await startSolEngine(userId, {
         dexFilter: dexFilter || 'all',
         minConfidence: Number(minConfidence) || 65,
@@ -13080,6 +13080,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         shieldEnabled: shieldEnabled !== false,
         shieldThreshold: Number(shieldThreshold) || 10,
         adaptiveScan: adaptiveScan !== false,
+        aiMode: ['full', 'economy'].includes(aiMode) ? aiMode : 'full',
       });
       res.json({ success: true, message: 'Sol Engine started' });
     });
