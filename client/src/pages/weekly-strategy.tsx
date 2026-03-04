@@ -214,6 +214,46 @@ export default function WeeklyStrategyPage() {
   const [engineDailyLossLimit, setEngineDailyLossLimit] = useState(5);
   const [engineTrailMethod, setEngineTrailMethod] = useState<'staged_volume' | 'chandelier' | 'r_multiple' | 'swing_structure' | 'parabolic_sar'>('staged_volume');
 
+  const [kellyMode, setKellyMode] = useState(false);
+  const [preKellySnapshot, setPreKellySnapshot] = useState<{
+    mode: string; minConf: number; trailMethod: string;
+    pyramiding: boolean; compounding: boolean; kellyCriterion: boolean;
+  } | null>(null);
+
+  const applyKellyPreset = (on: boolean) => {
+    if (on) {
+      setPreKellySnapshot({
+        mode: engineMode, minConf: engineMinConf, trailMethod: engineTrailMethod,
+        pyramiding: enginePyramiding, compounding: engineCompounding, kellyCriterion: engineKellyCriterion,
+      });
+      setEngineKellyCriterion(true);
+      setEngineTrailMethod('r_multiple');
+      setEngineMode('sniper');
+      setEngineMinConf(72);
+      setEnginePyramiding(false);
+      setEngineCompounding(false);
+      setKellyMode(true);
+    } else {
+      if (preKellySnapshot) {
+        setEngineMode(preKellySnapshot.mode);
+        setEngineMinConf(preKellySnapshot.minConf);
+        setEngineTrailMethod(preKellySnapshot.trailMethod as typeof engineTrailMethod);
+        setEnginePyramiding(preKellySnapshot.pyramiding);
+        setEngineCompounding(preKellySnapshot.compounding);
+        setEngineKellyCriterion(preKellySnapshot.kellyCriterion);
+      } else {
+        setEngineKellyCriterion(false);
+        setEngineTrailMethod('staged_volume');
+        setEngineMode('aggressive');
+        setEngineMinConf(65);
+        setEnginePyramiding(false);
+        setEngineCompounding(true);
+      }
+      setKellyMode(false);
+      setPreKellySnapshot(null);
+    }
+  };
+
   const { data: liveEngineStatus, refetch: refetchEngine } = useQuery<any>({
     queryKey: ['/api/vedd-live-engine/status'],
     refetchInterval: 5000,
@@ -698,9 +738,13 @@ export default function WeeklyStrategyPage() {
                         min={0.01} step={0.01} className="mt-1 bg-gray-800 border-gray-700 text-white h-8 text-sm" />
                     </div>
                     <div>
-                      <Label className="text-gray-400 text-xs">Min Confidence (%)</Label>
-                      <Input type="number" value={engineMinConf} onChange={e => setEngineMinConf(Number(e.target.value))}
-                        min={50} max={95} className="mt-1 bg-gray-800 border-gray-700 text-white h-8 text-sm" />
+                      <Label className="text-gray-400 text-xs flex items-center gap-1">
+                        Min Confidence (%)
+                        {kellyMode && <span className="text-amber-400 text-[9px] font-bold">⚡ Kelly</span>}
+                      </Label>
+                      <Input type="number" value={engineMinConf} onChange={e => !kellyMode && setEngineMinConf(Number(e.target.value))}
+                        min={50} max={95} readOnly={kellyMode}
+                        className={`mt-1 bg-gray-800 border-gray-700 text-white h-8 text-sm ${kellyMode ? 'opacity-70 cursor-not-allowed border-amber-700/50' : ''}`} />
                     </div>
                     <div>
                       <Label className="text-gray-400 text-xs">Max Open Trades</Label>
@@ -713,9 +757,13 @@ export default function WeeklyStrategyPage() {
                         min={30} step={30} className="mt-1 bg-gray-800 border-gray-700 text-white h-8 text-sm" />
                     </div>
                     <div>
-                      <Label className="text-gray-400 text-xs">Strategy Mode</Label>
-                      <select value={engineMode} onChange={e => setEngineMode(e.target.value)}
-                        className="mt-1 w-full bg-gray-800 border border-gray-700 text-white text-sm rounded-md h-8 px-2">
+                      <Label className="text-gray-400 text-xs flex items-center gap-1">
+                        Strategy Mode
+                        {kellyMode && <span className="text-amber-400 text-[9px] font-bold">⚡ Kelly</span>}
+                      </Label>
+                      <select value={engineMode} onChange={e => !kellyMode && setEngineMode(e.target.value)}
+                        disabled={kellyMode}
+                        className={`mt-1 w-full bg-gray-800 border border-gray-700 text-white text-sm rounded-md h-8 px-2 ${kellyMode ? 'opacity-70 cursor-not-allowed border-amber-700/50' : ''}`}>
                         {[
                           { id: 'scalping', name: 'Scalping HFT' },
                           { id: 'momentum', name: 'Momentum Surfing' },
@@ -752,9 +800,10 @@ export default function WeeklyStrategyPage() {
                     </div>
                   </div>
                   <div className="flex items-center justify-between pt-1">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="checkbox" checked={engineCompounding} onChange={e => setEngineCompounding(e.target.checked)} className="accent-cyan-500" />
+                    <label className={`flex items-center gap-2 ${kellyMode ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}>
+                      <input type="checkbox" checked={engineCompounding} onChange={e => !kellyMode && setEngineCompounding(e.target.checked)} disabled={kellyMode} className="accent-cyan-500" />
                       <span className="text-xs text-gray-400">Auto-compound on win streaks</span>
+                      {kellyMode && <span className="text-amber-400 text-[9px] font-bold">⚡ Kelly</span>}
                     </label>
                     {!isRunning && (
                       <Button onClick={() => startEngineMutation.mutate()} disabled={startEngineMutation.isPending}
@@ -768,14 +817,16 @@ export default function WeeklyStrategyPage() {
                   <div className="rounded-xl border border-purple-500/30 bg-purple-500/5 p-3 space-y-2">
                     <div className="flex items-center gap-2">
                       <span className="text-[11px] font-semibold text-purple-300">Trail Strategy</span>
-                      {engineTrailMethod !== 'staged_volume' && (
+                      {engineTrailMethod !== 'staged_volume' && !kellyMode && (
                         <span className="text-[9px] bg-purple-500/20 text-purple-300 border border-purple-500/40 rounded px-1.5 py-0.5 font-medium">SERVER-SIDE MATH</span>
                       )}
+                      {kellyMode && <span className="text-amber-400 text-[9px] font-bold">⚡ Kelly</span>}
                     </div>
                     <select
                       value={engineTrailMethod}
-                      onChange={e => setEngineTrailMethod(e.target.value as typeof engineTrailMethod)}
-                      className="w-full bg-gray-800 border border-purple-500/30 text-white text-xs rounded-md h-8 px-2"
+                      onChange={e => !kellyMode && setEngineTrailMethod(e.target.value as typeof engineTrailMethod)}
+                      disabled={kellyMode}
+                      className={`w-full bg-gray-800 border border-purple-500/30 text-white text-xs rounded-md h-8 px-2 ${kellyMode ? 'opacity-70 cursor-not-allowed border-amber-700/50' : ''}`}
                     >
                       <option value="staged_volume">Staged Volume Trail — default: volume-aware staged pips</option>
                       <option value="chandelier">Chandelier Exit — institutional: ATR×multiplier from swing extreme</option>
@@ -828,12 +879,13 @@ export default function WeeklyStrategyPage() {
                   </div>
 
                   {/* ── Auto-Pyramid Winners ── */}
-                  <div className={`rounded-xl border p-3 transition-all ${enginePyramiding ? 'border-emerald-500/60 bg-emerald-500/10' : 'border-gray-700 bg-gray-900/30'}`}>
-                    <label className="flex items-center gap-2 cursor-pointer" onClick={() => setEnginePyramiding(p => !p)}>
-                      <input type="checkbox" checked={enginePyramiding} onChange={() => {}} className="accent-emerald-500" />
+                  <div className={`rounded-xl border p-3 transition-all ${kellyMode ? 'opacity-60' : ''} ${enginePyramiding ? 'border-emerald-500/60 bg-emerald-500/10' : 'border-gray-700 bg-gray-900/30'}`}>
+                    <label className={`flex items-center gap-2 ${kellyMode ? 'cursor-not-allowed' : 'cursor-pointer'}`} onClick={() => !kellyMode && setEnginePyramiding(p => !p)}>
+                      <input type="checkbox" checked={enginePyramiding} onChange={() => {}} disabled={kellyMode} className="accent-emerald-500" />
                       <div>
                         <span className="text-xs font-semibold text-emerald-300">Auto-Pyramid Winners</span>
-                        {enginePyramiding && <Badge className="ml-2 bg-emerald-500/30 text-emerald-300 border-emerald-500/50 text-[9px]">SCALING ON</Badge>}
+                        {enginePyramiding && !kellyMode && <Badge className="ml-2 bg-emerald-500/30 text-emerald-300 border-emerald-500/50 text-[9px]">SCALING ON</Badge>}
+                        {kellyMode && <span className="ml-2 text-amber-400 text-[9px] font-bold">⚡ Kelly OFF</span>}
                       </div>
                     </label>
                     {enginePyramiding && (
@@ -841,9 +893,50 @@ export default function WeeklyStrategyPage() {
                     )}
                   </div>
 
+                  {/* ── Kelly Mode Preset ── */}
+                  <div className={`rounded-xl border p-3 transition-all ${kellyMode ? 'border-amber-400/70 bg-amber-500/10' : 'border-gray-600/60 bg-gray-800/40'}`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm">⚡</span>
+                        <span className={`text-xs font-bold ${kellyMode ? 'text-amber-300' : 'text-gray-300'}`}>Kelly Mode — Complete System</span>
+                        {kellyMode && <Badge className="bg-amber-500/30 text-amber-200 border-amber-500/50 text-[9px] animate-pulse">KELLY SYSTEM LIVE</Badge>}
+                      </div>
+                      <button
+                        onClick={() => applyKellyPreset(!kellyMode)}
+                        className={`text-[10px] font-semibold px-3 py-1 rounded-md border transition-all ${
+                          kellyMode
+                            ? 'border-amber-500/60 bg-amber-500/20 text-amber-300 hover:bg-amber-500/30'
+                            : 'border-gray-600 bg-gray-700/60 text-gray-300 hover:bg-gray-700 hover:text-white'
+                        }`}
+                      >
+                        {kellyMode ? 'Deactivate' : 'Activate'}
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-gray-400 mb-2.5">
+                      One toggle configures all 6 settings for optimal Kelly performance. Restores your previous settings when deactivated.
+                    </p>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {[
+                        { label: 'Kelly Criterion Sizing', value: 'ON', active: kellyMode },
+                        { label: 'Trail: R-Multiple Ladder', value: 'locked', active: kellyMode },
+                        { label: 'Mode: Sniper', value: 'quality entries', active: kellyMode },
+                        { label: 'Min Confidence', value: '72%', active: kellyMode },
+                        { label: 'Auto-Pyramid', value: 'OFF', active: kellyMode },
+                        { label: 'Streak Compounding', value: 'OFF', active: kellyMode },
+                      ].map(item => (
+                        <div key={item.label} className={`flex items-center gap-1.5 text-[10px] rounded px-2 py-1 ${item.active ? 'bg-amber-500/10 text-amber-200' : 'bg-gray-800/60 text-gray-500'}`}>
+                          <span>{item.active ? '✓' : '○'}</span>
+                          <span className="flex-1">{item.label}</span>
+                          <span className={`font-semibold ${item.active ? 'text-amber-300' : 'text-gray-600'}`}>{item.value}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-[10px] text-amber-400/60 mt-2">⚠ Kelly sizing activates after 5+ trades per strategy. Uses base lot size until then.</p>
+                  </div>
+
                   {/* ── Kelly Criterion Sizing ── */}
                   <div className={`rounded-xl border p-3 transition-all ${engineKellyCriterion ? 'border-blue-500/60 bg-blue-500/10' : 'border-gray-700 bg-gray-900/30'}`}>
-                    <label className="flex items-center gap-2 cursor-pointer" onClick={() => setEngineKellyCriterion(k => !k)}>
+                    <label className="flex items-center gap-2 cursor-pointer" onClick={() => { if (!kellyMode) setEngineKellyCriterion(k => !k); }}>
                       <input type="checkbox" checked={engineKellyCriterion} onChange={() => {}} className="accent-blue-500" />
                       <div>
                         <span className="text-xs font-semibold text-blue-300">Kelly Criterion Sizing</span>
