@@ -1382,13 +1382,13 @@ export default function WeeklyStrategyPage() {
 
                 {/* Trail Efficiency Calculator */}
                 {(() => {
-                  const bal = engineStatus?.config?.accountBalance || engineAccountBalance;
-                  const risk = engineStatus?.config?.riskPerTrade || engineRiskPerTrade;
-                  const target = engineStatus?.config?.weeklyProfitTarget || engineWeeklyTarget;
+                  const bal = liveEngineStatus?.config?.accountBalance || engineAccountBalance;
+                  const risk = liveEngineStatus?.config?.riskPerTrade || engineRiskPerTrade;
+                  const target = liveEngineStatus?.config?.weeklyProfitTarget || engineWeeklyTarget;
                   if (bal <= 0 || target <= 0 || risk <= 0) return null;
                   const riskDollar = bal * risk / 100;
                   const targetDollar = target;
-                  const bufPips = engineStatus?.config?.breakevenBufferPips ?? engineBreakevenBufferPips;
+                  const bufPips = liveEngineStatus?.config?.breakevenBufferPips ?? engineBreakevenBufferPips;
                   // Assume avg SL = 20 pips, so buffer profit = (bufPips/20) * riskDollar
                   const approxSlPips = 20;
                   const bufProfit = bufPips > 0 ? (bufPips / approxSlPips) * riskDollar : 0;
