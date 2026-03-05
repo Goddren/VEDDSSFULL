@@ -158,6 +158,8 @@ interface LiveEngineConfig {
   dailyLossLimit: number;
   // AI cost control
   aiMode: 'full' | 'economy' | 'rule_based';
+  // R-Multiple: pip buffer above entry at 1R stage
+  breakevenBufferPips: number;
 }
 
 interface LiveActivity {
@@ -589,6 +591,7 @@ function getDefaultConfig(userId: number): LiveEngineConfig {
     drawdownShieldThreshold: 3,
     dailyLossLimit: 5,
     aiMode: 'full',
+    breakevenBufferPips: 5,
   };
 }
 
@@ -1068,7 +1071,7 @@ function computeChandelierSL(
   }
 }
 
-function computeRMultipleSL(position: any): number {
+function computeRMultipleSL(position: any, config?: { breakevenBufferPips?: number }): number {
   const openPrice = position.openPrice;
   const originalSL = position.originalSL || position.sl;
   if (!openPrice || !originalSL || originalSL === 0) return position.sl || 0;
@@ -1080,6 +1083,17 @@ function computeRMultipleSL(position: any): number {
   const rMultiple = pnlUnits / R;
   if (rMultiple < 1) return position.sl || 0;
   const lockedR = Math.floor(rMultiple) - 1;
+
+  // At 1R (lockedR === 0): apply breakeven buffer pips instead of exact entry
+  if (lockedR === 0 && (config?.breakevenBufferPips ?? 0) > 0) {
+    const bufferPips = config?.breakevenBufferPips ?? 5;
+    const pipSize = position.symbol?.includes('JPY') ? 0.01 : 0.0001;
+    const buffer = bufferPips * pipSize;
+    return position.direction === 'BUY'
+      ? openPrice + buffer
+      : openPrice - buffer;
+  }
+
   if (position.direction === 'BUY') {
     return openPrice + lockedR * R;
   } else {
@@ -1183,9 +1197,29 @@ async function applyServerSideTrails(
       case 'chandelier':
         newSL = computeChandelierSL(pos, atr, multiplier, ts);
         break;
-      case 'r_multiple':
-        newSL = computeRMultipleSL(pos);
+      case 'r_multiple': {
+        const prevSL = pos.sl || 0;
+        newSL = computeRMultipleSL(pos, config);
+        // Log when buffer is applied at 1R stage
+        const openP = pos.openPrice;
+        const origSL = pos.originalSL || prevSL;
+        if (openP && origSL && newSL > 0) {
+          const R = Math.abs(openP - origSL);
+          if (R > 0) {
+            const pnlU = pos.direction === 'BUY' ? (pos.currentPrice - openP) : (openP - pos.currentPrice);
+            const rm = pnlU / R;
+            const bufPips = config.breakevenBufferPips ?? 5;
+            if (Math.floor(rm) === 1 && bufPips > 0 && newSL !== prevSL) {
+              addActivity(userId, {
+                type: 'position_update',
+                symbol: pos.symbol,
+                message: `⚡ R-Multiple 1R: ${pos.symbol} — SL locked at entry +${bufPips} pips (not flat breakeven)`,
+              });
+            }
+          }
+        }
         break;
+      }
       case 'swing_structure':
         newSL = computeSwingStructureSL(pos, symData);
         break;

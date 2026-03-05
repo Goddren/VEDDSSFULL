@@ -213,6 +213,8 @@ export default function WeeklyStrategyPage() {
   const [engineAdaptiveScan, setEngineAdaptiveScan] = useState(true);
   const [engineDailyLossLimit, setEngineDailyLossLimit] = useState(5);
   const [engineTrailMethod, setEngineTrailMethod] = useState<'staged_volume' | 'chandelier' | 'r_multiple' | 'swing_structure' | 'parabolic_sar'>('staged_volume');
+  const [engineBreakevenBufferPips, setEngineBreakevenBufferPips] = useState(5);
+  const [trailCalcOpen, setTrailCalcOpen] = useState(false);
 
   const [engineAiMode, setEngineAiMode] = useState<'full' | 'economy' | 'rule_based'>('full');
 
@@ -288,6 +290,7 @@ export default function WeeklyStrategyPage() {
         adaptiveScanInterval: engineAdaptiveScan,
         dailyLossLimit: engineDailyLossLimit,
         trailMethod: engineTrailMethod,
+        breakevenBufferPips: engineBreakevenBufferPips,
         aiMode: engineAiMode,
       });
       return res.json();
@@ -882,10 +885,26 @@ export default function WeeklyStrategyPage() {
                     <p className="text-[10px] text-purple-300/60">
                       {engineTrailMethod === 'staged_volume' && 'AI manages trail SL — breakeven at 15p, trail from 40p, volume-adjusted distance.'}
                       {engineTrailMethod === 'chandelier' && 'Server tracks highest high/lowest low since entry. SL = peak ± ATR × multiplier. Ratchets only in your favour.'}
-                      {engineTrailMethod === 'r_multiple' && 'Server locks in risk-reward increments: 1R profit → move to breakeven, 2R → +1R, 3R → +2R, and so on.'}
+                      {engineTrailMethod === 'r_multiple' && 'Server locks in risk-reward increments: 1R profit → move to entry + buffer pips, 2R → +1R, 3R → +2R, and so on.'}
                       {engineTrailMethod === 'swing_structure' && 'Server trails SL to just below the nearest support (longs) or above nearest resistance (shorts) each scan.'}
                       {engineTrailMethod === 'parabolic_sar' && 'Server computes SAR each scan cycle. Starts slow (AF 0.02), accelerates as trade runs. Tracked per position.'}
                     </p>
+                    {engineTrailMethod === 'r_multiple' && (
+                      <div className="mt-2 flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/25 rounded-lg px-3 py-2">
+                        <div className="flex-1">
+                          <div className="text-[10px] font-semibold text-emerald-300">1R Breakeven Buffer (pips)</div>
+                          <div className="text-[10px] text-gray-500 mt-0.5">Adds X pips above entry at 1R — turns flat breakeven closes into small winners</div>
+                        </div>
+                        <input
+                          type="number"
+                          value={engineBreakevenBufferPips}
+                          onChange={e => setEngineBreakevenBufferPips(Math.min(20, Math.max(0, Number(e.target.value))))}
+                          min={0} max={20} step={1}
+                          className="w-14 h-7 bg-gray-800 border border-emerald-600 text-emerald-300 text-xs px-2 rounded text-center font-bold"
+                        />
+                        <span className="text-[10px] text-gray-400">pips</span>
+                      </div>
+                    )}
                   </div>
                   <div className={`rounded-xl border p-3 transition-all ${enginePropFirmMode ? 'border-amber-500/60 bg-amber-500/10' : 'border-gray-700 bg-gray-900/30'}`}>
                     <div className="flex items-center justify-between">
@@ -1353,6 +1372,79 @@ export default function WeeklyStrategyPage() {
                     )}
                   </CardContent>
                 </Card>
+
+                {/* Trail Efficiency Calculator */}
+                {(() => {
+                  const bal = engineStatus?.config?.accountBalance || engineAccountBalance;
+                  const risk = engineStatus?.config?.riskPerTrade || engineRiskPerTrade;
+                  const target = engineStatus?.config?.weeklyProfitTarget || engineWeeklyTarget;
+                  if (bal <= 0 || target <= 0 || risk <= 0) return null;
+                  const riskDollar = bal * risk / 100;
+                  const targetDollar = target;
+                  const bufPips = engineStatus?.config?.breakevenBufferPips ?? engineBreakevenBufferPips;
+                  // Assume avg SL = 20 pips, so buffer profit = (bufPips/20) * riskDollar
+                  const approxSlPips = 20;
+                  const bufProfit = bufPips > 0 ? (bufPips / approxSlPips) * riskDollar : 0;
+                  const rows = [
+                    { label: `1R + ${bufPips}p buffer`, profit: bufProfit },
+                    { label: '2R', profit: riskDollar },
+                    { label: '3R', profit: riskDollar * 2 },
+                    { label: '4R', profit: riskDollar * 3 },
+                  ];
+                  return (
+                    <Card className="bg-gray-900/60 border-yellow-500/20">
+                      <button
+                        className="w-full text-left"
+                        onClick={() => setTrailCalcOpen(o => !o)}
+                      >
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-sm flex items-center justify-between text-white">
+                            <span className="flex items-center gap-2">
+                              <span className="text-yellow-400">📐</span> Trail Efficiency Calculator
+                            </span>
+                            {trailCalcOpen ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+                          </CardTitle>
+                        </CardHeader>
+                      </button>
+                      {trailCalcOpen && (
+                        <CardContent className="pt-0 space-y-3">
+                          <div className="text-[10px] text-gray-400">
+                            Based on <span className="text-white font-semibold">${bal.toLocaleString()}</span> balance · <span className="text-white font-semibold">{risk}% risk</span> = <span className="text-emerald-400 font-bold">${riskDollar.toFixed(2)} / trade</span> · Target: <span className="text-yellow-400 font-bold">${targetDollar}</span>
+                          </div>
+                          <table className="w-full text-xs">
+                            <thead>
+                              <tr className="text-gray-500 border-b border-gray-700/50">
+                                <th className="text-left pb-1.5 font-semibold">Trail closes at</th>
+                                <th className="text-right pb-1.5 font-semibold">Profit locked</th>
+                                <th className="text-right pb-1.5 font-semibold">Trades to goal</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {rows.map((row, i) => {
+                                const tradesNeeded = row.profit > 0 ? Math.ceil(targetDollar / row.profit) : '∞';
+                                const isFirst = i === 0;
+                                return (
+                                  <tr key={row.label} className="border-b border-gray-800/50">
+                                    <td className={`py-1.5 font-medium ${isFirst ? 'text-emerald-400' : 'text-gray-300'}`}>{row.label}</td>
+                                    <td className={`py-1.5 text-right ${isFirst ? 'text-emerald-400' : 'text-cyan-400'}`}>
+                                      {row.profit > 0 ? `~$${row.profit.toFixed(2)}` : <span className="text-gray-500">—</span>}
+                                    </td>
+                                    <td className={`py-1.5 text-right font-bold ${isFirst ? 'text-amber-400' : typeof tradesNeeded === 'number' && tradesNeeded <= 20 ? 'text-emerald-400' : 'text-gray-400'}`}>
+                                      {tradesNeeded}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                          <p className="text-[10px] text-gray-500 italic border-t border-gray-700/50 pt-2">
+                            Trail is insurance — aim for TP, let trail protect gains on reversals. 2R+ closes are where the account grows fastest.
+                          </p>
+                        </CardContent>
+                      )}
+                    </Card>
+                  );
+                })()}
 
                 {/* Strategy Performance */}
                 {Object.keys(tracker?.strategyBreakdown || {}).length > 0 && (
