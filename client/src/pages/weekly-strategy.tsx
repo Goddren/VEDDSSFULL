@@ -213,6 +213,7 @@ export default function WeeklyStrategyPage() {
   const [engineAdaptiveScan, setEngineAdaptiveScan] = useState(true);
   const [engineDailyLossLimit, setEngineDailyLossLimit] = useState(5);
   const [engineTrailMethod, setEngineTrailMethod] = useState<'staged_volume' | 'chandelier' | 'r_multiple' | 'swing_structure' | 'parabolic_sar'>('staged_volume');
+  const [engineRiskPerTrade, setEngineRiskPerTrade] = useState(1);
   const [engineBreakevenBufferPips, setEngineBreakevenBufferPips] = useState(5);
   const [trailCalcOpen, setTrailCalcOpen] = useState(false);
 
@@ -289,6 +290,7 @@ export default function WeeklyStrategyPage() {
         drawdownShieldThreshold: engineDrawdownShield ? engineShieldThreshold : 0,
         adaptiveScanInterval: engineAdaptiveScan,
         dailyLossLimit: engineDailyLossLimit,
+        riskPerTrade: engineRiskPerTrade,
         trailMethod: engineTrailMethod,
         breakevenBufferPips: engineBreakevenBufferPips,
         aiMode: engineAiMode,
@@ -732,6 +734,11 @@ export default function WeeklyStrategyPage() {
                       <Label className="text-gray-400 text-xs">Weekly Target ($)</Label>
                       <Input type="number" value={engineWeeklyTarget} onChange={e => setEngineWeeklyTarget(Number(e.target.value))}
                         min={0} step={10} className="mt-1 bg-gray-800 border-gray-700 text-white h-8 text-sm" />
+                    </div>
+                    <div>
+                      <Label className="text-gray-400 text-xs">Risk Per Trade (%)</Label>
+                      <Input type="number" value={engineRiskPerTrade} onChange={e => setEngineRiskPerTrade(Math.min(10, Math.max(0.1, Number(e.target.value))))}
+                        min={0.1} max={10} step={0.1} className="mt-1 bg-gray-800 border-gray-700 text-white h-8 text-sm" />
                     </div>
                     <div>
                       <Label className="text-gray-400 text-xs">Base Lot Size</Label>
