@@ -924,6 +924,8 @@ async function scanMarkets(userId: number): Promise<void> {
           change,
           trend,
           adx: indicators.adx,
+          rsi: indicators.rsi,
+          macd: indicators.macd,
           stochastic: indicators.stochastic,
           vwap: indicators.vwap,
           obv: indicators.obv,
@@ -1320,25 +1322,31 @@ function countIndicatorAlignment(data: any): { bull: number; bear: number } {
   let bull = 0;
   let bear = 0;
 
-  const rsi = data.rsi?.value ?? data.stochastic?.k ?? 50;
-  if (rsi < 38) bull++; else if (rsi > 62) bear++;
+  // Vote 1: RSI (14-period, now properly computed)
+  const rsiVal = data.rsi?.value ?? 50;
+  if (rsiVal < 38) bull++; else if (rsiVal > 62) bear++;
 
+  // Vote 2: Stochastic %K
   const stochK = data.stochastic?.k ?? 50;
   if (stochK < 28) bull++; else if (stochK > 72) bear++;
 
+  // Vote 3: MACD histogram (now properly computed)
   const macdHist = data.macd?.histogram ?? 0;
   if (macdHist > 0) bull++; else if (macdHist < 0) bear++;
 
+  // Vote 4: ADX trend direction
   const adxVal = data.adx?.adx ?? data.adx?.value ?? 0;
   const trend = data.trend ?? 'NEUTRAL';
   if (adxVal > 22 && trend === 'BULLISH') bull++;
   else if (adxVal > 22 && trend === 'BEARISH') bear++;
 
-  const vwapDev = data.vwap?.deviationPercent ?? 0;
-  if (vwapDev < -0.08) bull++; else if (vwapDev > 0.08) bear++;
-
+  // Vote 5: OBV trend
   const obvTrend = data.obv?.trend ?? '';
   if (obvTrend === 'up') bull++; else if (obvTrend === 'down') bear++;
+
+  // Vote 6: VWAP price relation (priceRelation is 'ABOVE' | 'BELOW' | 'AT')
+  const vwapRelation = (data.vwap?.priceRelation ?? '').toUpperCase();
+  if (vwapRelation === 'BELOW') bull++; else if (vwapRelation === 'ABOVE') bear++;
 
   return { bull, bear };
 }
@@ -1377,8 +1385,6 @@ async function runAILiveAnalysis(userId: number, marketAnalysis: Record<string, 
       const { bull, bear } = countIndicatorAlignment(data);
       if (bull >= 3 || bear >= 3) {
         filteredAnalysis[sym] = data;
-      } else {
-        addActivity(userId, { type: 'info', symbol: sym, message: `⚡ Pre-filter: weak alignment on ${sym} (bull=${bull} bear=${bear}) — API call skipped` });
       }
     }
     if (Object.keys(filteredAnalysis).length === 0) {

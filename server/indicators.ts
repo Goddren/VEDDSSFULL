@@ -9,6 +9,8 @@ export interface CandleData {
 
 export interface AdvancedIndicators {
   adx?: { value: number; plusDI: number; minusDI: number; trend: string; signal: string };
+  rsi?: { value: number; trend: 'oversold' | 'overbought' | 'neutral' };
+  macd?: { macd: number; signal: number; histogram: number; trend: 'bullish' | 'bearish' | 'neutral' };
   stochastic?: { k: number; d: number; status: string; signal: string };
   vwap?: { value: number; priceRelation: string; signal: string };
   obv?: { value: number; trend: string; divergence: string };
@@ -462,6 +464,69 @@ export function calculateVolumeProfile(candles: CandleData[]): AdvancedIndicator
   };
 }
 
+export function calculateRSI(candles: CandleData[], period: number = 14): AdvancedIndicators['rsi'] {
+  if (candles.length < period + 1) return undefined;
+  const chronological = [...candles].reverse();
+  const closes = chronological.map(c => c.c);
+
+  let avgGain = 0;
+  let avgLoss = 0;
+  for (let i = 1; i <= period; i++) {
+    const diff = closes[i] - closes[i - 1];
+    if (diff >= 0) avgGain += diff;
+    else avgLoss += Math.abs(diff);
+  }
+  avgGain /= period;
+  avgLoss /= period;
+
+  for (let i = period + 1; i < closes.length; i++) {
+    const diff = closes[i] - closes[i - 1];
+    const gain = diff >= 0 ? diff : 0;
+    const loss = diff < 0 ? Math.abs(diff) : 0;
+    avgGain = (avgGain * (period - 1) + gain) / period;
+    avgLoss = (avgLoss * (period - 1) + loss) / period;
+  }
+
+  const rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
+  const value = Math.round((100 - 100 / (1 + rs)) * 100) / 100;
+  const trend: 'oversold' | 'overbought' | 'neutral' =
+    value < 38 ? 'oversold' : value > 62 ? 'overbought' : 'neutral';
+  return { value, trend };
+}
+
+function calcEMA(values: number[], period: number): number[] {
+  const k = 2 / (period + 1);
+  const ema: number[] = [values[0]];
+  for (let i = 1; i < values.length; i++) {
+    ema.push(values[i] * k + ema[i - 1] * (1 - k));
+  }
+  return ema;
+}
+
+export function calculateMACD(
+  candles: CandleData[],
+  fast: number = 12,
+  slow: number = 26,
+  signalPeriod: number = 9
+): AdvancedIndicators['macd'] {
+  if (candles.length < slow + signalPeriod) return undefined;
+  const closes = [...candles].reverse().map(c => c.c);
+
+  const emaFast = calcEMA(closes, fast);
+  const emaSlow = calcEMA(closes, slow);
+  const macdLine = emaFast.map((v, i) => v - emaSlow[i]).slice(slow - 1);
+  const signalLine = calcEMA(macdLine, signalPeriod);
+  const lastIdx = signalLine.length - 1;
+
+  const macdVal = Math.round(macdLine[macdLine.length - 1] * 1e6) / 1e6;
+  const signalVal = Math.round(signalLine[lastIdx] * 1e6) / 1e6;
+  const histogram = Math.round((macdVal - signalVal) * 1e6) / 1e6;
+  const trend: 'bullish' | 'bearish' | 'neutral' =
+    histogram > 0 ? 'bullish' : histogram < 0 ? 'bearish' : 'neutral';
+
+  return { macd: macdVal, signal: signalVal, histogram, trend };
+}
+
 export function detectMarketOpenBreakout(
   candles: CandleData[],
   symbol: string,
@@ -670,6 +735,8 @@ export function computeAllAdvancedIndicators(
 ): AdvancedIndicators {
   return {
     adx: calculateADX(candles),
+    rsi: calculateRSI(candles),
+    macd: calculateMACD(candles),
     stochastic: calculateStochastic(candles),
     vwap: calculateVWAP(candles),
     obv: calculateOBV(candles),
