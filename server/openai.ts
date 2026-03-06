@@ -715,9 +715,56 @@ function buildOpenAICompatClient(provider: string, apiKey: string): UniversalAIC
 // Provider selection priority
 const PROVIDER_PRIORITY = ['openai', 'groq', 'anthropic', 'google', 'mistral'];
 
+// Build a Groq client for economy mode (text tasks)
+async function buildGroqEconomyClient(userGroqKey?: string): Promise<UniversalAIClient | null> {
+  const apiKey = userGroqKey || process.env.GROQ_API_KEY;
+  if (!apiKey) return null;
+  try {
+    const client = buildOpenAICompatClient('groq', apiKey) as any;
+    client.defaultModel = 'llama-3.3-70b-versatile';
+    client.provider = 'groq';
+    return client as UniversalAIClient;
+  } catch (e) {
+    console.error('[AI] Failed to build Groq economy client:', e);
+    return null;
+  }
+}
+
+// Build a Groq vision client for economy mode (chart image tasks)
+async function buildGroqVisionClient(userGroqKey?: string): Promise<UniversalAIClient | null> {
+  const apiKey = userGroqKey || process.env.GROQ_API_KEY;
+  if (!apiKey) return null;
+  try {
+    const client = buildOpenAICompatClient('groq', apiKey) as any;
+    client.defaultModel = 'meta-llama/llama-4-scout-17b-16e-instruct';
+    client.provider = 'groq';
+    return client as UniversalAIClient;
+  } catch (e) {
+    console.error('[AI] Failed to build Groq vision client:', e);
+    return null;
+  }
+}
+
 export async function getUniversalAIClientForUser(userId: number): Promise<UniversalAIClient> {
   try {
     const { storage } = await import('./storage');
+
+    // Check user's AI cost mode preference
+    const user = await storage.getUser(userId);
+    const aiCostMode = user?.aiCostMode || 'full';
+
+    if (aiCostMode === 'economy') {
+      // Economy mode: route to Groq Llama 3.3-70b (free, text tasks)
+      const allKeys = await storage.getUserApiKeys(userId);
+      const groqKey = allKeys.find(k => k.provider === 'groq' && k.isActive && k.isValid !== false);
+      const client = await buildGroqEconomyClient(groqKey?.apiKey);
+      if (client) {
+        console.log(`[AI] Economy mode active for user ${userId} — routing to Groq Llama 3.3-70b`);
+        return client;
+      }
+      console.log(`[AI] Economy mode requested but no Groq key found for user ${userId} — falling through to normal priority`);
+    }
+
     const allKeys = await storage.getUserApiKeys(userId);
     // Include active keys, but skip ones that have been validated and confirmed invalid.
     // Keys that have never been validated (lastValidated is null) still get a try.
@@ -753,6 +800,30 @@ export async function getUniversalAIClientForUser(userId: number): Promise<Unive
   return platformClient as UniversalAIClient;
 }
 
+// Vision-specific client: uses Groq Llama 4 Scout (vision) in economy mode,
+// or the standard universal client (GPT-4o) in full mode
+export async function getUniversalVisionClientForUser(userId: number): Promise<UniversalAIClient> {
+  try {
+    const { storage } = await import('./storage');
+    const user = await storage.getUser(userId);
+    const aiCostMode = user?.aiCostMode || 'full';
+
+    if (aiCostMode === 'economy') {
+      const allKeys = await storage.getUserApiKeys(userId);
+      const groqKey = allKeys.find(k => k.provider === 'groq' && k.isActive && k.isValid !== false);
+      const client = await buildGroqVisionClient(groqKey?.apiKey);
+      if (client) {
+        console.log(`[AI] Economy vision mode for user ${userId} — routing to Groq Llama 4 Scout Vision`);
+        return client;
+      }
+    }
+  } catch (e) {
+    console.error('Error building vision client, falling back to universal client:', e);
+  }
+  // Full mode or no Groq key: use standard universal client (GPT-4o supports vision)
+  return getUniversalAIClientForUser(userId);
+}
+
 // Get OpenAI instance for a specific user, checking for their own API key first
 // Kept for backward compatibility — internally uses universal client now
 export async function getOpenAIInstanceForUser(userId: number): Promise<any> {
@@ -783,7 +854,7 @@ export { getAssetSpecificConfig, getAssetSpecificPrompt };
 // Enhanced chart analysis with optional symbol for asset-specific analysis
 export async function analyzeChartImage(base64Image: string, knownSymbol?: string, userId?: number): Promise<ChartAnalysisResponse> {
   try {
-    const aiClient = userId ? await getUniversalAIClientForUser(userId) : getOpenAIInstance();
+    const aiClient = userId ? await getUniversalVisionClientForUser(userId) : getOpenAIInstance();
     const selectedModel = (aiClient as any).defaultModel || (userId ? getUserModelPreference(userId) : 'gpt-4o');
     const openai = aiClient;
     

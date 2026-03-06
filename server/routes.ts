@@ -13895,6 +13895,22 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     }
   });
 
+  app.get("/api/user/ai-cost-mode", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
+    const user = await storage.getUser((req.user as User).id);
+    res.json({ mode: user?.aiCostMode || 'full' });
+  });
+
+  app.patch("/api/user/ai-cost-mode", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
+    const { mode } = req.body;
+    if (!['full', 'economy'].includes(mode)) {
+      return res.status(400).json({ message: "Invalid mode. Must be 'full' or 'economy'" });
+    }
+    await storage.updateUser((req.user as User).id, { aiCostMode: mode });
+    res.json({ mode });
+  });
+
   app.get("/api/ai-model-preference", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
     const { getUserModelPreference, AVAILABLE_VISION_MODELS } = await import('./openai');

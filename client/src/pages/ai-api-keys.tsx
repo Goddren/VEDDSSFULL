@@ -154,6 +154,31 @@ export default function AiApiKeysPage() {
     },
   });
 
+  const { data: aiCostModeData, isLoading: aiCostModeLoading } = useQuery<{ mode: string }>({
+    queryKey: ['/api/user/ai-cost-mode'],
+  });
+
+  const aiCostMode = aiCostModeData?.mode || 'full';
+
+  const setAiCostModeMutation = useMutation({
+    mutationFn: async (mode: string) => {
+      const res = await apiRequest('PATCH', '/api/user/ai-cost-mode', { mode });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/user/ai-cost-mode'] });
+      toast({
+        title: data.mode === 'economy' ? "Economy Mode Enabled" : "Full Power Mode Enabled",
+        description: data.mode === 'economy'
+          ? "All AI features now route to Groq free models."
+          : "All AI features now use your highest-priority saved key.",
+      });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message || "Failed to update AI cost mode", variant: "destructive" });
+    },
+  });
+
   const { data: modelPref, isLoading: modelLoading } = useQuery<{ model: string; availableModels: { id: string; name: string; description: string; tier: string; provider: string }[] }>({
     queryKey: ['/api/ai-model-preference'],
   });
@@ -201,6 +226,68 @@ export default function AiApiKeysPage() {
             <span>Keys are stored securely and never shared. You can add up to 5 providers.</span>
           </div>
         </div>
+
+        {/* Platform AI Cost Mode */}
+        <Card className="mb-6 border-2 border-primary/30 bg-gradient-to-br from-background to-primary/5">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <DollarSign className="h-5 w-5 text-primary" />
+                Platform AI Cost Mode
+              </CardTitle>
+              {aiCostMode === 'economy' && (
+                <Badge className="bg-green-500/20 text-green-400 border border-green-500/40 text-xs font-semibold px-2 py-0.5">
+                  COST REDUCED
+                </Badge>
+              )}
+            </div>
+            <CardDescription>
+              Controls which AI model powers <strong>every</strong> feature on the platform — chart analysis, EA generator, news sentiment, weekly strategy, social posts, and more.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {aiCostModeLoading ? (
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            ) : (
+              <div className="flex flex-col gap-4">
+                <div className="flex gap-3">
+                  <Button
+                    variant={aiCostMode === 'full' ? 'default' : 'outline'}
+                    className={`flex-1 h-16 flex-col gap-1 ${aiCostMode === 'full' ? 'bg-primary text-primary-foreground' : ''}`}
+                    onClick={() => setAiCostModeMutation.mutate('full')}
+                    disabled={setAiCostModeMutation.isPending}
+                  >
+                    <Sparkles className="h-5 w-5" />
+                    <span className="font-semibold">Full Power</span>
+                  </Button>
+                  <Button
+                    variant={aiCostMode === 'economy' ? 'default' : 'outline'}
+                    className={`flex-1 h-16 flex-col gap-1 ${aiCostMode === 'economy' ? 'bg-green-600 hover:bg-green-700 text-white border-0' : 'border-green-600/40 hover:border-green-500'}`}
+                    onClick={() => setAiCostModeMutation.mutate('economy')}
+                    disabled={setAiCostModeMutation.isPending}
+                  >
+                    <Zap className="h-5 w-5" />
+                    <span className="font-semibold">Economy</span>
+                  </Button>
+                </div>
+                {aiCostMode === 'economy' ? (
+                  <div className="rounded-lg border border-green-500/30 bg-green-500/10 p-3 space-y-2 text-sm">
+                    <p className="font-semibold text-green-400 flex items-center gap-1"><Zap className="h-3.5 w-3.5" /> Economy mode — all AI routes to Groq free models</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-muted-foreground text-xs">
+                      <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-green-400 inline-block" />Text AI → Groq Llama 3.3-70b (free)</div>
+                      <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-green-400 inline-block" />Chart Vision → Groq Llama 4 Scout Vision (free)</div>
+                    </div>
+                    <p className="text-muted-foreground/60 text-xs pt-1">Note: SS AI Engine and Sol Scanner have their own AI mode settings independent of this toggle.</p>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Maximum accuracy — all AI requests use your highest-priority saved key (or platform OpenAI key as fallback).
+                  </p>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         <Card className="mb-6 border-primary/20">
           <CardHeader className="pb-3">

@@ -43,6 +43,7 @@ export const users = pgTable("users", {
   lastWalletSync: timestamp("last_wallet_sync"), // Last time wallet data was synced
   walletVerified: boolean("wallet_verified").default(false), // Has user signed message to verify wallet ownership
   isAdmin: boolean("is_admin").default(false), // Admin privileges for token pool management
+  aiCostMode: text("ai_cost_mode").default('full'), // 'full' = best key, 'economy' = Groq free models
   membershipTier: text("membership_tier").default('none'), // none, basic, pro, elite - token-gated membership
   membershipNftMint: text("membership_nft_mint"), // VEDD membership NFT mint address for elite tier
   hasVeddNft: boolean("has_vedd_nft").default(false), // Holds a VEDD membership NFT
