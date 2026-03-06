@@ -212,7 +212,13 @@ export default function WeeklyStrategyPage() {
   const [engineShieldThreshold, setEngineShieldThreshold] = useState(3);
   const [engineAdaptiveScan, setEngineAdaptiveScan] = useState(true);
   const [engineDailyLossLimit, setEngineDailyLossLimit] = useState(5);
-  const [engineTrailMethod, setEngineTrailMethod] = useState<'staged_volume' | 'chandelier' | 'r_multiple' | 'swing_structure' | 'parabolic_sar'>('staged_volume');
+  const [engineTrailMethod, setEngineTrailMethod] = useState<'staged_volume' | 'chandelier' | 'r_multiple' | 'swing_structure' | 'parabolic_sar' | 'none' | 'fixed_pip' | 'profit_lock' | 'stepped_fixed'>('staged_volume');
+  const [engineTrailFixedPips, setEngineTrailFixedPips] = useState(20);
+  const [engineTrailStepPips, setEngineTrailStepPips] = useState(10);
+  const [engineTrailProfitLockPct, setEngineTrailProfitLockPct] = useState(60);
+  const [engineTrailActivationPips, setEngineTrailActivationPips] = useState(15);
+  const [engineTrailSarInitialAF, setEngineTrailSarInitialAF] = useState(0.02);
+  const [engineTrailSarMaxAF, setEngineTrailSarMaxAF] = useState(0.20);
   const [engineRiskPerTrade, setEngineRiskPerTrade] = useState(1);
   const [engineBreakevenBufferPips, setEngineBreakevenBufferPips] = useState(5);
   const [trailCalcOpen, setTrailCalcOpen] = useState(false);
@@ -293,6 +299,12 @@ export default function WeeklyStrategyPage() {
         riskPerTrade: engineRiskPerTrade,
         trailMethod: engineTrailMethod,
         breakevenBufferPips: engineBreakevenBufferPips,
+        trailFixedPips: engineTrailFixedPips,
+        trailStepPips: engineTrailStepPips,
+        trailProfitLockPct: engineTrailProfitLockPct,
+        trailActivationPips: engineTrailActivationPips,
+        trailSarInitialAF: engineTrailSarInitialAF,
+        trailSarMaxAF: engineTrailSarMaxAF,
         aiMode: engineAiMode,
       });
       return res.json();
@@ -872,8 +884,11 @@ export default function WeeklyStrategyPage() {
                   <div className="rounded-xl border border-purple-500/30 bg-purple-500/5 p-3 space-y-2">
                     <div className="flex items-center gap-2">
                       <span className="text-[11px] font-semibold text-purple-300">Trail Strategy</span>
-                      {engineTrailMethod !== 'staged_volume' && !kellyMode && (
+                      {engineTrailMethod !== 'staged_volume' && engineTrailMethod !== 'none' && !kellyMode && (
                         <span className="text-[9px] bg-purple-500/20 text-purple-300 border border-purple-500/40 rounded px-1.5 py-0.5 font-medium">SERVER-SIDE MATH</span>
+                      )}
+                      {engineTrailMethod === 'none' && (
+                        <span className="text-[9px] bg-red-500/20 text-red-400 border border-red-500/40 rounded px-1.5 py-0.5 font-medium">NO TRAIL</span>
                       )}
                       {kellyMode && <span className="text-amber-400 text-[9px] font-bold">⚡ Kelly</span>}
                     </div>
@@ -883,21 +898,62 @@ export default function WeeklyStrategyPage() {
                       disabled={kellyMode}
                       className={`w-full bg-gray-800 border border-purple-500/30 text-white text-xs rounded-md h-8 px-2 ${kellyMode ? 'opacity-70 cursor-not-allowed border-amber-700/50' : ''}`}
                     >
-                      <option value="staged_volume">Staged Volume Trail — default: volume-aware staged pips</option>
-                      <option value="chandelier">Chandelier Exit — institutional: ATR×multiplier from swing extreme</option>
-                      <option value="r_multiple">R-Multiple Ladder — prop firm: lock in R multiples (1R→BE, 2R→+1R…)</option>
-                      <option value="swing_structure">Swing High/Low — price action: trail behind S/R structure</option>
-                      <option value="parabolic_sar">Parabolic SAR — Wilder's classic accelerating stop (0.02→0.20)</option>
+                      <optgroup label="── AI-Managed ──">
+                        <option value="staged_volume">Staged Volume Trail — default: volume-aware staged pips</option>
+                      </optgroup>
+                      <optgroup label="── Server-Side Math ──">
+                        <option value="chandelier">Chandelier Exit — institutional: ATR×multiplier from swing extreme</option>
+                        <option value="r_multiple">R-Multiple Ladder — prop firm: lock in R multiples (1R→BE, 2R→+1R…)</option>
+                        <option value="swing_structure">Swing High/Low — price action: trail behind S/R structure</option>
+                        <option value="parabolic_sar">Parabolic SAR — Wilder's classic accelerating stop</option>
+                        <option value="fixed_pip">Fixed Pip Trail — maintain exact X-pip gap from price peak</option>
+                        <option value="profit_lock">Profit Lock % — never give back more than X% of peak profit</option>
+                        <option value="stepped_fixed">Stepped Trail — fixed pip trail in N-pip chunks only</option>
+                      </optgroup>
+                      <optgroup label="── No Protection ──">
+                        <option value="none">No Trail — hold to full TP, SL never adjusted</option>
+                      </optgroup>
                     </select>
                     <p className="text-[10px] text-purple-300/60">
                       {engineTrailMethod === 'staged_volume' && 'AI manages trail SL — breakeven at 15p, trail from 40p, volume-adjusted distance.'}
                       {engineTrailMethod === 'chandelier' && 'Server tracks highest high/lowest low since entry. SL = peak ± ATR × multiplier. Ratchets only in your favour.'}
                       {engineTrailMethod === 'r_multiple' && 'Server locks in risk-reward increments: 1R profit → move to entry + buffer pips, 2R → +1R, 3R → +2R, and so on.'}
                       {engineTrailMethod === 'swing_structure' && 'Server trails SL to just below the nearest support (longs) or above nearest resistance (shorts) each scan.'}
-                      {engineTrailMethod === 'parabolic_sar' && 'Server computes SAR each scan cycle. Starts slow (AF 0.02), accelerates as trade runs. Tracked per position.'}
+                      {engineTrailMethod === 'parabolic_sar' && 'Server computes SAR each scan cycle. Starts slow, accelerates as trade runs in your favour. Tracked per position.'}
+                      {engineTrailMethod === 'fixed_pip' && `Server keeps SL exactly ${engineTrailFixedPips} pips from the price peak (highest high for buys, lowest low for sells). Ratchets only in your favour.`}
+                      {engineTrailMethod === 'profit_lock' && `Server ensures SL is always set so at least ${engineTrailProfitLockPct}% of peak profit is locked in. As trade runs further, the lock-in floor moves up.`}
+                      {engineTrailMethod === 'stepped_fixed' && `Fixed pip trail that only moves SL in ${engineTrailStepPips}-pip chunks. Reduces micro-adjustments and broker rejections vs continuous trail.`}
+                      {engineTrailMethod === 'none' && 'No stop adjustment whatsoever. Positions run to full TP or original SL. AI will not output trail actions.'}
                     </p>
+
+                    {/* No Trail warning */}
+                    {engineTrailMethod === 'none' && (
+                      <div className="mt-1 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[10px] text-amber-400">
+                        Original SL is the only protection. Ensure your TP targets are realistic and your SL is properly placed before starting the engine.
+                      </div>
+                    )}
+
+                    {/* Universal Trail Activation Pips — all server-side methods */}
+                    {['chandelier', 'r_multiple', 'swing_structure', 'parabolic_sar', 'fixed_pip', 'profit_lock', 'stepped_fixed'].includes(engineTrailMethod) && (
+                      <div className="mt-1 flex items-center gap-2 bg-purple-500/10 border border-purple-500/25 rounded-lg px-3 py-2">
+                        <div className="flex-1">
+                          <div className="text-[10px] font-semibold text-purple-300">Trail Activation (pips in profit)</div>
+                          <div className="text-[10px] text-gray-500 mt-0.5">Trail won't activate until the position reaches this profit threshold</div>
+                        </div>
+                        <input
+                          type="number"
+                          value={engineTrailActivationPips}
+                          onChange={e => setEngineTrailActivationPips(Math.min(100, Math.max(0, Number(e.target.value))))}
+                          min={0} max={100} step={1}
+                          className="w-14 h-7 bg-gray-800 border border-purple-600 text-purple-300 text-xs px-2 rounded text-center font-bold"
+                        />
+                        <span className="text-[10px] text-gray-400">pips</span>
+                      </div>
+                    )}
+
+                    {/* R-Multiple: breakeven buffer pips */}
                     {engineTrailMethod === 'r_multiple' && (
-                      <div className="mt-2 flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/25 rounded-lg px-3 py-2">
+                      <div className="mt-1 flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/25 rounded-lg px-3 py-2">
                         <div className="flex-1">
                           <div className="text-[10px] font-semibold text-emerald-300">1R Breakeven Buffer (pips)</div>
                           <div className="text-[10px] text-gray-500 mt-0.5">Adds X pips above entry at 1R — turns flat breakeven closes into small winners</div>
@@ -910,6 +966,92 @@ export default function WeeklyStrategyPage() {
                           className="w-14 h-7 bg-gray-800 border border-emerald-600 text-emerald-300 text-xs px-2 rounded text-center font-bold"
                         />
                         <span className="text-[10px] text-gray-400">pips</span>
+                      </div>
+                    )}
+
+                    {/* Fixed Pip Trail / Stepped Fixed: pip distance */}
+                    {(engineTrailMethod === 'fixed_pip' || engineTrailMethod === 'stepped_fixed') && (
+                      <div className="mt-1 space-y-1.5">
+                        <div className="flex items-center gap-2 bg-blue-500/10 border border-blue-500/25 rounded-lg px-3 py-2">
+                          <div className="flex-1">
+                            <div className="text-[10px] font-semibold text-blue-300">Trail Distance (pips)</div>
+                            <div className="text-[10px] text-gray-500 mt-0.5">Gap maintained between price peak and SL</div>
+                          </div>
+                          <input
+                            type="number"
+                            value={engineTrailFixedPips}
+                            onChange={e => setEngineTrailFixedPips(Math.min(200, Math.max(5, Number(e.target.value))))}
+                            min={5} max={200} step={5}
+                            className="w-14 h-7 bg-gray-800 border border-blue-600 text-blue-300 text-xs px-2 rounded text-center font-bold"
+                          />
+                          <span className="text-[10px] text-gray-400">pips</span>
+                        </div>
+                        {engineTrailMethod === 'stepped_fixed' && (
+                          <div className="flex items-center gap-2 bg-blue-500/10 border border-blue-500/25 rounded-lg px-3 py-2">
+                            <div className="flex-1">
+                              <div className="text-[10px] font-semibold text-blue-300">Step Size (pips)</div>
+                              <div className="text-[10px] text-gray-500 mt-0.5">Minimum improvement before SL moves — prevents micro-adjustments</div>
+                            </div>
+                            <input
+                              type="number"
+                              value={engineTrailStepPips}
+                              onChange={e => setEngineTrailStepPips(Math.min(50, Math.max(1, Number(e.target.value))))}
+                              min={1} max={50} step={1}
+                              className="w-14 h-7 bg-gray-800 border border-blue-600 text-blue-300 text-xs px-2 rounded text-center font-bold"
+                            />
+                            <span className="text-[10px] text-gray-400">pips</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Profit Lock %: lock percentage */}
+                    {engineTrailMethod === 'profit_lock' && (
+                      <div className="mt-1 flex items-center gap-2 bg-green-500/10 border border-green-500/25 rounded-lg px-3 py-2">
+                        <div className="flex-1">
+                          <div className="text-[10px] font-semibold text-green-300">Profit Lock %</div>
+                          <div className="text-[10px] text-gray-500 mt-0.5">Server ensures at least this % of peak profit is locked in at all times</div>
+                        </div>
+                        <input
+                          type="number"
+                          value={engineTrailProfitLockPct}
+                          onChange={e => setEngineTrailProfitLockPct(Math.min(90, Math.max(10, Number(e.target.value))))}
+                          min={10} max={90} step={5}
+                          className="w-14 h-7 bg-gray-800 border border-green-600 text-green-300 text-xs px-2 rounded text-center font-bold"
+                        />
+                        <span className="text-[10px] text-gray-400">%</span>
+                      </div>
+                    )}
+
+                    {/* Parabolic SAR: configurable AF */}
+                    {engineTrailMethod === 'parabolic_sar' && (
+                      <div className="mt-1 space-y-1.5">
+                        <div className="flex items-center gap-2 bg-orange-500/10 border border-orange-500/25 rounded-lg px-3 py-2">
+                          <div className="flex-1">
+                            <div className="text-[10px] font-semibold text-orange-300">Initial AF</div>
+                            <div className="text-[10px] text-gray-500 mt-0.5">Starting acceleration factor — lower = slower start (0.01–0.05)</div>
+                          </div>
+                          <input
+                            type="number"
+                            value={engineTrailSarInitialAF}
+                            onChange={e => setEngineTrailSarInitialAF(Math.min(0.05, Math.max(0.01, Number(e.target.value))))}
+                            min={0.01} max={0.05} step={0.01}
+                            className="w-16 h-7 bg-gray-800 border border-orange-600 text-orange-300 text-xs px-2 rounded text-center font-bold"
+                          />
+                        </div>
+                        <div className="flex items-center gap-2 bg-orange-500/10 border border-orange-500/25 rounded-lg px-3 py-2">
+                          <div className="flex-1">
+                            <div className="text-[10px] font-semibold text-orange-300">Max AF</div>
+                            <div className="text-[10px] text-gray-500 mt-0.5">Maximum acceleration factor — lower = wider SAR (0.10–0.40)</div>
+                          </div>
+                          <input
+                            type="number"
+                            value={engineTrailSarMaxAF}
+                            onChange={e => setEngineTrailSarMaxAF(Math.min(0.40, Math.max(0.10, Number(e.target.value))))}
+                            min={0.10} max={0.40} step={0.05}
+                            className="w-16 h-7 bg-gray-800 border border-orange-600 text-orange-300 text-xs px-2 rounded text-center font-bold"
+                          />
+                        </div>
                       </div>
                     )}
                   </div>
