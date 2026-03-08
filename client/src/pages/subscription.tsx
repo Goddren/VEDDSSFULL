@@ -379,16 +379,14 @@ export default function SubscriptionPage() {
                   ) : (
                     <>
                       <Button
-                        className={`w-full font-semibold gap-2 ${meta.highlight ? '' : 'bg-yellow-500 hover:bg-yellow-400 text-black'}`}
-                        variant={meta.highlight ? 'default' : 'default'}
-                        style={!meta.highlight ? {} : {}}
+                        className="w-full font-semibold gap-2 bg-primary hover:bg-primary/90 text-primary-foreground"
                         onClick={() => handleLemonSqueezyCheckout(plan.id)}
                         disabled={lsLoading === plan.id}
                       >
                         {lsLoading === plan.id ? (
                           <Loader2 className="h-4 w-4 animate-spin" />
                         ) : (
-                          <span>🍋</span>
+                          <span>$</span>
                         )}
                         Pay USD — {formatPrice(plan.price)}
                       </Button>
@@ -528,7 +526,7 @@ export default function SubscriptionPage() {
               },
               {
                 q: 'What is the Lemon Squeezy checkout?',
-                a: 'A secure USD payment processor. Click the yellow "Pay USD" button on any paid plan to be taken to a secure hosted checkout page.',
+                a: 'A secure USD payment processor. Click the "Pay USD" button on any paid plan to be taken to a secure hosted checkout page.',
               },
             ].map(({ q, a }, i) => (
               <div key={i} className="p-5 rounded-xl border border-border bg-card">
@@ -541,15 +539,15 @@ export default function SubscriptionPage() {
 
         {/* Lemon Squeezy Admin Setup */}
         {user && (
-          <div className="border border-yellow-500/30 rounded-xl overflow-hidden mb-12">
+          <div className="border border-primary/30 rounded-xl overflow-hidden mb-12">
             <button
-              className="w-full flex items-center justify-between px-6 py-4 bg-yellow-500/5 hover:bg-yellow-500/10 transition-colors"
+              className="w-full flex items-center justify-between px-6 py-4 bg-primary/5 hover:bg-primary/10 transition-colors"
               onClick={() => setShowLsSetup(!showLsSetup)}
             >
               <div className="flex items-center gap-3">
-                <span>🍋</span>
+                <Settings className="h-4 w-4 text-primary" />
                 <div className="text-left">
-                  <p className="font-semibold text-sm">Lemon Squeezy Setup</p>
+                  <p className="font-semibold text-sm">USD Payment Setup</p>
                   <p className="text-xs text-muted-foreground">Link variant IDs to enable USD checkout per plan</p>
                 </div>
               </div>
@@ -557,10 +555,10 @@ export default function SubscriptionPage() {
             </button>
 
             {showLsSetup && (
-              <div className="p-6 space-y-4 border-t border-yellow-500/20">
-                <Alert className="border-yellow-500/30 bg-yellow-500/5">
-                  <Settings className="h-4 w-4 text-yellow-500" />
-                  <AlertTitle className="text-yellow-600 dark:text-yellow-400 text-sm">Setup Instructions</AlertTitle>
+              <div className="p-6 space-y-4 border-t border-primary/20">
+                <Alert className="border-primary/30 bg-primary/5">
+                  <Settings className="h-4 w-4 text-primary" />
+                  <AlertTitle className="text-primary text-sm">Setup Instructions</AlertTitle>
                   <AlertDescription className="text-xs space-y-1 mt-1">
                     <p>1. Log in to <a href="https://app.lemonsqueezy.com" target="_blank" rel="noopener noreferrer" className="text-primary underline">app.lemonsqueezy.com</a> and create a product for each paid plan</p>
                     <p>2. Copy the Variant ID from each product and paste it below, then click Save</p>
@@ -586,7 +584,7 @@ export default function SubscriptionPage() {
                         />
                         <Button
                           size="sm"
-                          className="h-8 bg-yellow-500 hover:bg-yellow-400 text-black text-xs px-3"
+                          className="h-8 bg-primary hover:bg-primary/90 text-primary-foreground text-xs px-3"
                           onClick={() => handleSaveVariant(plan.id)}
                         >
                           Save
