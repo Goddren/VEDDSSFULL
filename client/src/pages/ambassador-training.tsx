@@ -79,7 +79,8 @@ import {
   Linkedin,
   Youtube,
   Hash,
-  Radio
+  Radio,
+  Phone
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -2503,6 +2504,12 @@ export default function AmbassadorTrainingPage() {
               <Button variant="outline" className="border-amber-500/50 text-amber-400 hover:bg-amber-500/10">
                 <Calendar className="w-4 h-4 mr-2" />
                 44-Day Content Journey
+              </Button>
+            </Link>
+            <Link href="/ambassador/sales-script">
+              <Button variant="outline" className="border-primary/50 text-primary hover:bg-primary/10">
+                <Phone className="w-4 h-4 mr-2" />
+                Sales Call Script
               </Button>
             </Link>
             <Link href="/host-dashboard">

@@ -44,6 +44,7 @@ import EAMarketplacePage from "@/pages/ea-marketplace";
 import SocialHub from "@/pages/social-hub";
 import UserGuidePage from "@/pages/user-guide";
 import AmbassadorTrainingPage from "@/pages/ambassador-training";
+import AmbassadorSalesScriptPage from "@/pages/ambassador-sales-script";
 import TrainingCalendar from "@/pages/training-calendar";
 import TrainingDay from "@/pages/training-day";
 import ContentFlowCalendar from "@/pages/content-flow-calendar";
@@ -145,6 +146,7 @@ function AppLayout() {
             <ProtectedRoute path="/ambassador/content-flow" component={ContentFlowCalendar} />
             <ProtectedRoute path="/ambassador/content-flow/day/:dayNumber" component={ContentFlowDay} />
             <ProtectedRoute path="/ambassador/challenge/:id" component={ChallengeSession} />
+            <ProtectedRoute path="/ambassador/sales-script" component={AmbassadorSalesScriptPage} />
             
             {/* Public event page (no auth required) */}
             <Route path="/event/:slug" component={PublicEventPage} />

@@ -1370,6 +1370,8 @@ export default function MT5ChartDataPage() {
     breakoutDetected?: boolean;
     breakoutDirection?: string;
     breakoutStrength?: string;
+    trailRecommendation?: 'TIGHT' | 'STANDARD' | 'WIDE' | 'AGGRESSIVE' | 'NONE';
+    recommendedTrailPips?: number | null;
   }
 
   const { data: aiConfirmationLogs = [] } = useQuery<AiConfirmationLog[]>({
@@ -1873,6 +1875,25 @@ export default function MT5ChartDataPage() {
                       {log.adjustedEntry && <p className="text-amber-400">Entry: {log.adjustedEntry} (adjusted)</p>}
                       {log.adjustedSL && <p className="text-amber-400">SL: {log.adjustedSL} (adjusted)</p>}
                       {log.adjustedTP && <p className="text-amber-400">TP: {log.adjustedTP} (adjusted)</p>}
+                      {log.trailRecommendation && (
+                        <p className={`flex items-center gap-1 text-[11px] mt-1 ${
+                          log.trailRecommendation === 'NONE' ? 'text-gray-500' :
+                          log.trailRecommendation === 'WIDE' || log.trailRecommendation === 'AGGRESSIVE' ? 'text-emerald-400' :
+                          log.trailRecommendation === 'TIGHT' ? 'text-amber-400' : 'text-blue-400'
+                        }`}>
+                          <span>Trail:</span>
+                          <Badge variant="outline" className={`text-[10px] px-1 py-0 ${
+                            log.trailRecommendation === 'NONE' ? 'border-gray-600 text-gray-500' :
+                            log.trailRecommendation === 'WIDE' || log.trailRecommendation === 'AGGRESSIVE' ? 'border-emerald-500/40 text-emerald-400' :
+                            log.trailRecommendation === 'TIGHT' ? 'border-amber-500/40 text-amber-400' : 'border-blue-500/40 text-blue-400'
+                          }`}>
+                            {log.trailRecommendation}
+                          </Badge>
+                          {log.trailRecommendation === 'NONE'
+                            ? '— fixed TP only'
+                            : log.recommendedTrailPips ? `${log.recommendedTrailPips} pips` : ''}
+                        </p>
+                      )}
                     </div>
                   </div>
 

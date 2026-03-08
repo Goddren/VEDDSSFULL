@@ -246,6 +246,8 @@ export interface AiVisionConfirmation {
   adjustedEntry?: number;
   adjustedStopLoss?: number;
   adjustedTakeProfit?: number;
+  trailRecommendation?: 'TIGHT' | 'STANDARD' | 'WIDE' | 'AGGRESSIVE' | 'NONE';
+  recommendedTrailPips?: number | null;
 }
 
 export interface AiConfirmationLogEntry {
@@ -265,6 +267,8 @@ export interface AiConfirmationLogEntry {
   adjustedEntry?: number;
   adjustedSL?: number;
   adjustedTP?: number;
+  trailRecommendation?: 'TIGHT' | 'STANDARD' | 'WIDE' | 'AGGRESSIVE' | 'NONE';
+  recommendedTrailPips?: number | null;
   modelUsed: string;
   newsSentiment?: string;
   newsScore?: number;
@@ -406,6 +410,16 @@ CRITICAL RULES FOR YOUR DECISION:
 - If a market open breakout is detected with volume confirmation, this is a high-probability institutional setup — give it significant weight.
 - If news events are imminent (today/tomorrow), factor this into confidence. Warn if the trade could be invalidated.
 
+TRAILING STOP ASSESSMENT:
+Evaluate whether a trailing stop is appropriate for this trade:
+- NONE: Market is choppy/ranging (ADX < 20), or this is a fast news-driven move that should use a fixed TP only, or the trade has a short expected duration. Skip trailing — protect profit with fixed TP.
+- TIGHT: Low volatility, sideways drift, or trade is near TP already. Narrow trail to lock in gains quickly (5-15 pips).
+- STANDARD: Moderate trend, normal ATR. Standard trail (20-40 pips) is suitable.
+- WIDE: Strong trending market (ADX > 30), high ATR, momentum clearly building. Wide trail lets profits run (50-100 pips).
+- AGGRESSIVE: Explosive breakout or high-impact news momentum trade. Maximum trail distance — let the market run far (100+ pips).
+
+Also estimate a recommended trail distance in pips based on ATR and volatility (null if NONE).
+
 Return your analysis as JSON:
 {
   "confirmed": boolean,
@@ -414,7 +428,9 @@ Return your analysis as JSON:
   "reasoning": "Concise street-knowledge style explanation with Supreme Mathematics flavor — reference key indicators and news/events that drove your decision. Drop jewels, keep it real, show and prove with the data.",
   "adjustedEntry": number or null,
   "adjustedStopLoss": number or null,
-  "adjustedTakeProfit": number or null
+  "adjustedTakeProfit": number or null,
+  "trailRecommendation": "NONE" | "TIGHT" | "STANDARD" | "WIDE" | "AGGRESSIVE",
+  "recommendedTrailPips": number or null
 }`
   };
 }
@@ -566,6 +582,8 @@ export async function getAiVisionConfirmation(
     const result = JSON.parse(jsonMatch ? jsonMatch[0] : content);
     console.log(`[AI Vision Confirmation] ${symbol}: ${result.confirmed ? 'CONFIRMED' : 'REJECTED'} (AI says ${result.direction} at ${result.confidence}%) [${provider}/${selectedModel}]`);
 
+    const validTrailValues = ['NONE', 'TIGHT', 'STANDARD', 'WIDE', 'AGGRESSIVE'];
+    const trailRec = validTrailValues.includes(result.trailRecommendation) ? result.trailRecommendation : undefined;
     return {
       confirmed: !!result.confirmed,
       aiDirection: result.direction || 'NEUTRAL',
@@ -574,6 +592,8 @@ export async function getAiVisionConfirmation(
       adjustedEntry: typeof result.adjustedEntry === 'number' ? result.adjustedEntry : undefined,
       adjustedStopLoss: typeof result.adjustedStopLoss === 'number' ? result.adjustedStopLoss : undefined,
       adjustedTakeProfit: typeof result.adjustedTakeProfit === 'number' ? result.adjustedTakeProfit : undefined,
+      trailRecommendation: trailRec,
+      recommendedTrailPips: typeof result.recommendedTrailPips === 'number' ? result.recommendedTrailPips : null,
     };
   } catch (error: any) {
     const errMsg = error?.message || String(error);

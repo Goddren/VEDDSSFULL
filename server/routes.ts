@@ -6497,6 +6497,15 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 analysis.tradePlan.entry = aiConfirmation.adjustedEntry;
                 hasAdjustments = true;
               }
+              // Apply AI trail recommendation: NONE disables trailing stop
+              if (aiConfirmation.trailRecommendation === 'NONE') {
+                analysis.tradePlan.trailingStopDistance = 0;
+                analysis.tradePlan.trailingStopStep = 0;
+                analysis.alerts.push('Trail: NONE — AI recommends fixed TP only (choppy/ranging market or fast news move)');
+              } else if (aiConfirmation.trailRecommendation && aiConfirmation.recommendedTrailPips && aiConfirmation.recommendedTrailPips > 0) {
+                analysis.tradePlan.trailingStopDistance = aiConfirmation.recommendedTrailPips;
+                analysis.alerts.push(`Trail: ${aiConfirmation.trailRecommendation} — AI set trail to ${aiConfirmation.recommendedTrailPips} pips`);
+              }
               addAiConfirmationLog(token.userId, {
                 timestamp: new Date().toISOString(),
                 symbol: sanitizedSymbol, timeframe: sanitizedTimeframe,
@@ -6507,6 +6516,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 aiConfidence: aiConfirmation.aiConfidence, reasoning: aiConfirmation.reasoning,
                 adjustedEntry: aiConfirmation.adjustedEntry, adjustedSL: aiConfirmation.adjustedStopLoss,
                 adjustedTP: aiConfirmation.adjustedTakeProfit,
+                trailRecommendation: aiConfirmation.trailRecommendation,
+                recommendedTrailPips: aiConfirmation.recommendedTrailPips,
                 modelUsed: modelInfo?.name || selectedModelId,
                 ...logExtraContext,
               });
