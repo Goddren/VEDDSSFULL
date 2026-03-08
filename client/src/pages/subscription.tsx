@@ -1,15 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { apiRequest } from '@/lib/queryClient';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/use-auth';
 import { useLocation } from 'wouter';
-import { Loader2, Check, AlertCircle, Coins, Crown, Shield, Star, Wallet, ExternalLink, Settings, ChevronDown, ChevronUp } from 'lucide-react';
+import { Loader2, Check, X, Zap, Crown, Star, Settings, ChevronDown, ChevronUp, Sparkles, TrendingUp, Bot, Shield } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import VeddPaymentButton from '@/components/VeddPaymentButton';
 
 type Plan = {
@@ -35,6 +35,94 @@ type Subscription = {
   socialShareLimit: number;
 };
 
+const PLAN_META: Record<number, {
+  icon: any;
+  color: string;
+  border: string;
+  badge?: string;
+  highlight?: boolean;
+  features: string[];
+}> = {
+  1: {
+    icon: Star,
+    color: 'text-muted-foreground',
+    border: 'border-border',
+    features: [
+      '3 chart analyses per month',
+      'AI pattern recognition',
+      'Basic entry & exit signals',
+      'Support & resistance levels',
+      '2 social shares per month',
+      'Community access',
+    ],
+  },
+  2: {
+    icon: Zap,
+    color: 'text-blue-500',
+    border: 'border-blue-500/40',
+    features: [
+      '50 chart analyses per month',
+      'Multi-timeframe analysis',
+      'EA generator — MT5, TradingView, TradeLocker',
+      'Weekly AI trading strategy',
+      'News & economic event alerts',
+      'Signal webhooks',
+      'VEDD SS AI Brain Engine',
+      '25 social shares per month',
+    ],
+  },
+  3: {
+    icon: Sparkles,
+    color: 'text-primary',
+    border: 'border-primary',
+    badge: 'Most Popular',
+    highlight: true,
+    features: [
+      'Unlimited chart analyses',
+      'Everything in Starter',
+      'VEDD Live Trading Engine (Forex)',
+      'Solana Token Scanner + Auto-Trade',
+      'Sol Engine — paper & live trading',
+      'Advanced SL/TP confidence scoring',
+      'Multi-agent AI consensus',
+      'Unlimited social shares',
+    ],
+  },
+  4: {
+    icon: Crown,
+    color: 'text-amber-500',
+    border: 'border-amber-500/60',
+    badge: 'Best Value',
+    features: [
+      'Everything in Premium — forever',
+      'Pay once, own it for life',
+      'All future feature updates included',
+      'Early access to beta features',
+      'Priority support',
+      'Transferable membership',
+    ],
+  },
+};
+
+const FEATURE_ROWS = [
+  { label: 'Chart Analyses / Month', values: { 1: '3', 2: '50', 3: 'Unlimited', 4: 'Unlimited' } },
+  { label: 'Social Shares / Month', values: { 1: '2', 2: '25', 3: 'Unlimited', 4: 'Unlimited' } },
+  { label: 'AI Pattern Recognition', values: { 1: true, 2: true, 3: true, 4: true } },
+  { label: 'Entry, Exit & SL/TP Signals', values: { 1: true, 2: true, 3: true, 4: true } },
+  { label: 'EA Code Generator (MT5/TV/TL)', values: { 1: false, 2: true, 3: true, 4: true } },
+  { label: 'Weekly AI Trading Strategy', values: { 1: false, 2: true, 3: true, 4: true } },
+  { label: 'News & Economic Alerts', values: { 1: false, 2: true, 3: true, 4: true } },
+  { label: 'Signal Webhooks', values: { 1: false, 2: true, 3: true, 4: true } },
+  { label: 'VEDD SS AI Brain Engine', values: { 1: false, 2: true, 3: true, 4: true } },
+  { label: 'VEDD Live Trading Engine', values: { 1: false, 2: false, 3: true, 4: true } },
+  { label: 'Solana Token Scanner', values: { 1: false, 2: false, 3: true, 4: true } },
+  { label: 'Sol Engine Auto-Trade', values: { 1: false, 2: false, 3: true, 4: true } },
+  { label: 'Advanced Confidence Scoring', values: { 1: false, 2: false, 3: true, 4: true } },
+  { label: 'Multi-Agent AI Consensus', values: { 1: false, 2: false, 3: true, 4: true } },
+  { label: 'Early Beta Access', values: { 1: false, 2: false, 3: false, 4: true } },
+  { label: 'Lifetime Updates', values: { 1: false, 2: false, 3: false, 4: true } },
+];
+
 export default function SubscriptionPage() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
@@ -45,10 +133,8 @@ export default function SubscriptionPage() {
   const [lsLoading, setLsLoading] = useState<number | null>(null);
   const [showLsSetup, setShowLsSetup] = useState(false);
   const [variantInputs, setVariantInputs] = useState<Record<number, string>>({});
+  const [showTable, setShowTable] = useState(false);
 
-  // No redirect - pricing page is public
-
-  // Fetch subscription plans
   const { data: plans, isLoading: plansLoading } = useQuery<Plan[]>({
     queryKey: ['/api/subscription/plans'],
     queryFn: async () => {
@@ -57,7 +143,6 @@ export default function SubscriptionPage() {
     },
   });
 
-  // Fetch current subscription
   const { data: subscription, isLoading: subscriptionLoading } = useQuery<Subscription>({
     queryKey: ['/api/subscription'],
     queryFn: async () => {
@@ -67,7 +152,6 @@ export default function SubscriptionPage() {
     enabled: !!user,
   });
 
-  // Fetch Lemon Squeezy plan variant IDs
   const { data: lsVariants } = useQuery<Record<number, string | null>>({
     queryKey: ['/api/lemonsqueezy/plan-variants'],
     queryFn: async () => {
@@ -77,13 +161,11 @@ export default function SubscriptionPage() {
     enabled: !!user,
   });
 
-  // Format price for display
   const formatPrice = (price: number): string => {
-    if (price === 0) return 'Free';
-    return `$${(price / 100).toFixed(2)}`;
+    if (price === 0) return '$0';
+    return `$${(price / 100).toFixed(0)}`;
   };
 
-  // Handle Lemon Squeezy checkout
   const handleLemonSqueezyCheckout = async (planId: number) => {
     if (!user) {
       toast({ title: 'Login Required', description: 'Please log in to subscribe.', variant: 'default' });
@@ -94,1140 +176,433 @@ export default function SubscriptionPage() {
       setLsLoading(planId);
       const res = await apiRequest('POST', '/api/lemonsqueezy/checkout', { planId });
       const result = await res.json();
-
       if (result.code === 'LS_NOT_CONFIGURED') {
-        toast({
-          title: 'Payment Setup In Progress',
-          description: 'Lemon Squeezy checkout is being configured. Please check back soon or contact support.',
-          variant: 'default',
-        });
+        toast({ title: 'Payment Setup In Progress', description: 'USD checkout is being configured. Please try again shortly.', variant: 'default' });
         return;
       }
-
       if (result.checkoutUrl) {
         window.location.href = result.checkoutUrl;
       } else {
         throw new Error(result.message || 'No checkout URL returned');
       }
     } catch (error) {
-      toast({
-        title: 'Checkout Failed',
-        description: error instanceof Error ? error.message : 'Error creating checkout session.',
-        variant: 'destructive',
-      });
+      toast({ title: 'Checkout Failed', description: error instanceof Error ? error.message : 'Error creating checkout session.', variant: 'destructive' });
     } finally {
       setLsLoading(null);
     }
   };
 
-  // Save a Lemon Squeezy variant ID for a plan
-  const handleSaveVariant = async (planId: number) => {
-    const variantId = variantInputs[planId]?.trim();
-    if (!variantId) {
-      toast({ title: 'Enter a variant ID', variant: 'destructive' });
-      return;
-    }
-    try {
-      await apiRequest('POST', '/api/lemonsqueezy/set-variant', { planId, variantId });
-      queryClient.invalidateQueries({ queryKey: ['/api/lemonsqueezy/plan-variants'] });
-      toast({ title: 'Variant ID saved!', description: `Plan ${planId} → variant ${variantId}` });
-    } catch (error) {
-      toast({ title: 'Failed to save', variant: 'destructive' });
-    }
-  };
-
-  // Handle subscription
   const handleSubscribe = async (planId: number) => {
-    // Redirect to login if not logged in
     if (!user) {
-      toast({
-        title: 'Login Required',
-        description: 'Please log in or create an account to subscribe.',
-        variant: 'default',
-      });
+      toast({ title: 'Login Required', description: 'Please log in or create an account to subscribe.', variant: 'default' });
       setLocation('/auth');
       return;
     }
-
     try {
       setIsLoading(true);
       setSelectedPlanId(planId);
-
-      // Check if already subscribed to this plan
       if (subscription?.planId === planId) {
-        toast({
-          title: 'Already Subscribed',
-          description: `You are already subscribed to the ${subscription.planName} plan.`,
-          variant: 'default',
-        });
-        setIsLoading(false);
+        toast({ title: 'Already Subscribed', description: `You are already subscribed to this plan.`, variant: 'default' });
         return;
       }
-
-      // Create subscription
       const response = await apiRequest('POST', '/api/subscription/subscribe', { planId });
       const result = await response.json();
-
       if (result.checkoutUrl) {
-        // For paid plans, redirect to Stripe checkout
-        toast({
-          title: 'Redirecting to Payment',
-          description: 'Please complete your payment to activate your subscription.',
-          variant: 'default',
-        });
-        // Redirect to Stripe Checkout page
         window.location.href = result.checkoutUrl;
-        return;
       } else {
-        // For free plan
-        toast({
-          title: 'Subscription Updated',
-          description: `You are now subscribed to the ${plans?.find(p => p.id === planId)?.name} plan.`,
-          variant: 'default',
-        });
+        toast({ title: 'Subscription Updated', description: `You are now on the ${plans?.find(p => p.id === planId)?.name} plan.` });
         window.location.reload();
       }
     } catch (error) {
-      console.error('Error subscribing:', error);
-      toast({
-        title: 'Subscription Failed',
-        description: error instanceof Error ? error.message : 'An error occurred while processing your subscription.',
-        variant: 'destructive',
-      });
+      toast({ title: 'Subscription Failed', description: error instanceof Error ? error.message : 'An error occurred.', variant: 'destructive' });
     } finally {
       setIsLoading(false);
       setSelectedPlanId(null);
     }
   };
 
-  // Handle cancel subscription
   const handleCancelSubscription = async () => {
     try {
       setIsLoading(true);
-      
-      // Free plan doesn't need cancellation
       if (subscription?.planId === 1) {
-        toast({
-          title: 'Cannot Cancel Free Plan',
-          description: 'You are on the Free plan which cannot be cancelled.',
-          variant: 'default',
-        });
-        setIsLoading(false);
+        toast({ title: 'Cannot Cancel Free Plan', variant: 'default' });
         return;
       }
-
-      // Cancel subscription
-      const response = await apiRequest('POST', '/api/subscription/cancel');
-      const result = await response.json();
-
-      toast({
-        title: 'Subscription Cancelled',
-        description: 'Your subscription has been cancelled. You will still have access until the end of your billing period.',
-        variant: 'default',
-      });
-      
-      // Reload to show updated subscription status
+      await apiRequest('POST', '/api/subscription/cancel');
+      toast({ title: 'Subscription Cancelled', description: 'You will have access until the end of your billing period.' });
       window.location.reload();
     } catch (error) {
-      console.error('Error cancelling subscription:', error);
-      toast({
-        title: 'Cancellation Failed',
-        description: error instanceof Error ? error.message : 'An error occurred while cancelling your subscription.',
-        variant: 'destructive',
-      });
+      toast({ title: 'Cancellation Failed', description: error instanceof Error ? error.message : 'An error occurred.', variant: 'destructive' });
     } finally {
       setIsLoading(false);
     }
   };
 
+  const handleSaveVariant = async (planId: number) => {
+    const variantId = variantInputs[planId]?.trim();
+    if (!variantId) { toast({ title: 'Enter a variant ID', variant: 'destructive' }); return; }
+    try {
+      await apiRequest('POST', '/api/lemonsqueezy/set-variant', { planId, variantId });
+      queryClient.invalidateQueries({ queryKey: ['/api/lemonsqueezy/plan-variants'] });
+      toast({ title: 'Saved!', description: `Plan ${planId} linked to variant ${variantId}` });
+    } catch {
+      toast({ title: 'Failed to save', variant: 'destructive' });
+    }
+  };
+
   if (plansLoading || subscriptionLoading) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-b from-background to-muted/20">
-        <Loader2 className="h-12 w-12 animate-spin text-primary" />
-        <h2 className="mt-4 text-xl font-semibold">Loading Subscription Plans...</h2>
+      <div className="flex flex-col items-center justify-center min-h-screen">
+        <Loader2 className="h-10 w-10 animate-spin text-primary" />
+        <p className="mt-4 text-muted-foreground">Loading plans...</p>
       </div>
     );
   }
 
+  const isCurrentPlan = (planId: number) => subscription?.planId === planId;
+  const isFree = (plan: Plan) => plan.price === 0;
+  const isPaid = (plan: Plan) => plan.price > 0;
+
   return (
-    <div className="container mx-auto py-10 px-4 max-w-6xl">
-      <div className="text-center mb-10">
-        <h1 className="text-4xl font-bold tracking-tight">Subscription Plans</h1>
-        <p className="mt-4 text-xl text-muted-foreground">
-          Choose the perfect plan to enhance your trading analytics experience
-        </p>
-      </div>
+    <div className="min-h-screen bg-background">
 
-      {/* Competitive Pricing Comparison */}
-      <div className="mb-12 p-6 bg-gradient-to-r from-green-500/10 to-green-500/5 rounded-lg border border-green-500/20">
-        <h2 className="text-2xl font-bold mb-4 text-center">Replace 7+ Separate Tools With One Platform</h2>
-        <p className="text-center text-muted-foreground mb-6">Stop paying for multiple subscriptions — AI Trading Vault includes everything</p>
-        
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 mb-6">
-          <Card className="border border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-950/50">
-            <CardHeader className="pb-1 pt-3 px-3">
-              <CardTitle className="text-xs text-muted-foreground line-through">EA AI Refresh</CardTitle>
-            </CardHeader>
-            <CardContent className="px-3 pb-3">
-              <p className="text-lg font-bold text-red-500 line-through">$249-349/mo</p>
-              <p className="text-xs text-muted-foreground">Live AI Re-analysis</p>
-            </CardContent>
-          </Card>
-          <Card className="border border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-950/50">
-            <CardHeader className="pb-1 pt-3 px-3">
-              <CardTitle className="text-xs text-muted-foreground line-through">TrendSpider</CardTitle>
-            </CardHeader>
-            <CardContent className="px-3 pb-3">
-              <p className="text-lg font-bold text-red-500 line-through">$139-197/mo</p>
-              <p className="text-xs text-muted-foreground">AI Patterns</p>
-            </CardContent>
-          </Card>
-          <Card className="border border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-950/50">
-            <CardHeader className="pb-1 pt-3 px-3">
-              <CardTitle className="text-xs text-muted-foreground line-through">Trade Ideas</CardTitle>
-            </CardHeader>
-            <CardContent className="px-3 pb-3">
-              <p className="text-lg font-bold text-red-500 line-through">$167-228/mo</p>
-              <p className="text-xs text-muted-foreground">AI Scanning</p>
-            </CardContent>
-          </Card>
-          <Card className="border border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-950/50">
-            <CardHeader className="pb-1 pt-3 px-3">
-              <CardTitle className="text-xs text-muted-foreground line-through">EA Builder Pro</CardTitle>
-            </CardHeader>
-            <CardContent className="px-3 pb-3">
-              <p className="text-lg font-bold text-red-500 line-through">$59-99/mo</p>
-              <p className="text-xs text-muted-foreground">EA Generator</p>
-            </CardContent>
-          </Card>
-          <Card className="border border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-950/50">
-            <CardHeader className="pb-1 pt-3 px-3">
-              <CardTitle className="text-xs text-muted-foreground line-through">Trade Copier</CardTitle>
-            </CardHeader>
-            <CardContent className="px-3 pb-3">
-              <p className="text-lg font-bold text-red-500 line-through">$79-149/mo</p>
-              <p className="text-xs text-muted-foreground">MT5→TradeLocker</p>
-            </CardContent>
-          </Card>
-          <Card className="border border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-950/50">
-            <CardHeader className="pb-1 pt-3 px-3">
-              <CardTitle className="text-xs text-muted-foreground line-through">News Sentiment</CardTitle>
-            </CardHeader>
-            <CardContent className="px-3 pb-3">
-              <p className="text-lg font-bold text-red-500 line-through">$79-129/mo</p>
-              <p className="text-xs text-muted-foreground">AI News Analysis</p>
-            </CardContent>
-          </Card>
-          <Card className="border border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-950/50">
-            <CardHeader className="pb-1 pt-3 px-3">
-              <CardTitle className="text-xs text-muted-foreground line-through">Webhooks</CardTitle>
-            </CardHeader>
-            <CardContent className="px-3 pb-3">
-              <p className="text-lg font-bold text-red-500 line-through">$29-59/mo</p>
-              <p className="text-xs text-muted-foreground">Signal Alerts</p>
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="bg-gradient-to-r from-green-500 to-emerald-600 rounded-xl p-6 text-white text-center">
-          <div className="flex flex-col md:flex-row items-center justify-center gap-4 mb-3">
-            <div className="text-center">
-              <p className="text-sm opacity-80">Total if purchased separately</p>
-              <p className="text-2xl font-bold line-through opacity-70">$801-1,210/mo</p>
-            </div>
-            <div className="hidden md:block text-3xl">→</div>
-            <div className="text-center">
-              <p className="text-sm opacity-80">Starter Plan</p>
-              <p className="text-3xl font-bold">$49.95/mo</p>
-            </div>
-            <div className="hidden md:block text-3xl">or</div>
-            <div className="text-center">
-              <p className="text-sm opacity-80">Premium Plan</p>
-              <p className="text-3xl font-bold">$149.99/mo</p>
-            </div>
-            <div className="hidden md:block text-3xl">or</div>
-            <div className="text-center">
-              <p className="text-sm opacity-80">Yearly Access</p>
-              <p className="text-3xl font-bold">$999.99/yr</p>
-            </div>
-          </div>
-          <p className="text-sm opacity-90">Save up to <strong>$12,700/year</strong> with AI Trading Vault Pro</p>
-        </div>
-      </div>
-
-      {/* NEW: All-In-One Features */}
-      <div className="mb-12 p-6 bg-gradient-to-r from-primary/10 to-primary/5 rounded-lg border border-primary/20">
-        <h2 className="text-2xl font-bold mb-4 text-center">Everything Included in AI Trading Vault</h2>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="flex items-start gap-2 p-3 bg-background rounded-lg">
-            <Check className="h-5 w-5 text-green-500 flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="font-medium text-sm">AI Chart Analysis</p>
-              <p className="text-xs text-muted-foreground">Pattern recognition & signals</p>
-            </div>
-          </div>
-          <div className="flex items-start gap-2 p-3 bg-background rounded-lg">
-            <Check className="h-5 w-5 text-green-500 flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="font-medium text-sm">EA Code Generator</p>
-              <p className="text-xs text-muted-foreground">MT5, TradingView, TradeLocker</p>
-            </div>
-          </div>
-          <div className="flex items-start gap-2 p-3 bg-background rounded-lg">
-            <Check className="h-5 w-5 text-green-500 flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="font-medium text-sm">MT5 Trade Copier</p>
-              <p className="text-xs text-muted-foreground">Auto-copy to TradeLocker</p>
-            </div>
-          </div>
-          <div className="flex items-start gap-2 p-3 bg-background rounded-lg">
-            <Check className="h-5 w-5 text-green-500 flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="font-medium text-sm">AI Direction Alerts</p>
-              <p className="text-xs text-muted-foreground">Auto re-analysis on change</p>
-            </div>
-          </div>
-          <div className="flex items-start gap-2 p-3 bg-background rounded-lg border-2 border-amber-500">
-            <Check className="h-5 w-5 text-amber-500 flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="font-medium text-sm text-amber-600 dark:text-amber-400">News-Smart Trading</p>
-              <p className="text-xs text-muted-foreground">AI grades news, blocks bad trades</p>
-            </div>
-          </div>
-          <div className="flex items-start gap-2 p-3 bg-background rounded-lg">
-            <Check className="h-5 w-5 text-green-500 flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="font-medium text-sm">Webhook System</p>
-              <p className="text-xs text-muted-foreground">Automate signal delivery</p>
-            </div>
-          </div>
-          <div className="flex items-start gap-2 p-3 bg-background rounded-lg">
-            <Check className="h-5 w-5 text-green-500 flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="font-medium text-sm">EA Marketplace</p>
-              <p className="text-xs text-muted-foreground">Share & earn from strategies</p>
-            </div>
-          </div>
-          <div className="flex items-start gap-2 p-3 bg-background rounded-lg">
-            <Check className="h-5 w-5 text-green-500 flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="font-medium text-sm">What-If Analysis</p>
-              <p className="text-xs text-muted-foreground">Scenario planning with AI</p>
-            </div>
-          </div>
-          <div className="flex items-start gap-2 p-3 bg-background rounded-lg border-2 border-indigo-500">
-            <Check className="h-5 w-5 text-indigo-500 flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="font-medium text-sm text-indigo-600 dark:text-indigo-400">4-Stage Entry System</p>
-              <p className="text-xs text-muted-foreground">HTF trend → Pattern scoring → LTF timing → Smart orders</p>
-            </div>
-          </div>
-          <div className="flex items-start gap-2 p-3 bg-background rounded-lg border-2 border-rose-500">
-            <Check className="h-5 w-5 text-rose-500 flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="font-medium text-sm text-rose-600 dark:text-rose-400">Choppy Market Filter</p>
-              <p className="text-xs text-muted-foreground">Auto-pause in sideways markets</p>
-            </div>
-          </div>
-          <div className="flex items-start gap-2 p-3 bg-background rounded-lg border-2 border-purple-500">
-            <Check className="h-5 w-5 text-purple-500 flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="font-medium text-sm text-purple-600 dark:text-purple-400">Solana Token Scanner</p>
-              <p className="text-xs text-muted-foreground">AI-powered token signals with auto-trading</p>
-            </div>
-          </div>
-          <div className="flex items-start gap-2 p-3 bg-background rounded-lg border-2 border-cyan-500">
-            <Check className="h-5 w-5 text-cyan-500 flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="font-medium text-sm text-cyan-600 dark:text-cyan-400">Phantom Wallet Integration</p>
-              <p className="text-xs text-muted-foreground">Auto-buy/sell via Jupiter DEX</p>
-            </div>
+      {/* Hero */}
+      <div className="border-b border-border bg-gradient-to-b from-primary/5 to-background">
+        <div className="max-w-5xl mx-auto px-4 py-16 text-center">
+          <Badge className="mb-4 bg-primary/10 text-primary border-primary/20 hover:bg-primary/10">
+            AI-Powered Trading Platform
+          </Badge>
+          <h1 className="text-4xl md:text-5xl font-bold tracking-tight mb-4">
+            Simple, transparent pricing
+          </h1>
+          <p className="text-lg text-muted-foreground max-w-2xl mx-auto mb-6">
+            Everything you need to trade smarter — chart analysis, live AI engines, EA generators, Solana scanner, and more. One subscription, no hidden fees.
+          </p>
+          <div className="flex flex-wrap items-center justify-center gap-4 text-sm text-muted-foreground">
+            <span className="flex items-center gap-1.5"><Check className="h-4 w-4 text-green-500" /> Cancel anytime</span>
+            <span className="flex items-center gap-1.5"><Check className="h-4 w-4 text-green-500" /> Pay with USD or VEDD tokens</span>
+            <span className="flex items-center gap-1.5"><Check className="h-4 w-4 text-green-500" /> Replaces 7+ separate tools</span>
           </div>
         </div>
       </div>
 
-      {/* Supported Platforms Section */}
-      <div className="mb-12 p-6 bg-gradient-to-r from-primary/10 to-primary/5 rounded-lg border border-primary/20">
-        <h2 className="text-2xl font-bold mb-4 text-center">Expert Advisor Code Generation Platforms</h2>
-        <p className="text-center text-muted-foreground mb-6">Generate trading bot code for your preferred platform</p>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Card className="border-2 border-blue-500 bg-blue-50 dark:bg-blue-950">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <span className="text-2xl">📈</span>
-                MetaTrader 5
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm">Generate MQL5 Expert Advisors for MetaTrader 5 with full backtesting support.</p>
-            </CardContent>
-          </Card>
-          <Card className="border-2 border-orange-500 bg-orange-50 dark:bg-orange-950">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <span className="text-2xl">📊</span>
-                TradingView
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm">Create Pine Script strategies for TradingView charts with real-time alerts.</p>
-            </CardContent>
-          </Card>
-          <Card className="border-2 border-green-500 bg-green-50 dark:bg-green-950">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <span className="text-2xl">🤖</span>
-                TradeLocker
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm">Generate Node.js trading bots for TradeLocker API automation.</p>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+      <div className="max-w-5xl mx-auto px-4 py-12">
 
-      {subscription && (
-        <div className="mb-8">
-          <Alert className="bg-card border-primary/20">
-            <AlertCircle className="h-5 w-5 text-primary" />
-            <AlertTitle className="text-primary font-medium">Current Subscription</AlertTitle>
-            <AlertDescription>
-              <div className="flex flex-col space-y-2 mt-2">
-                <div>
-                  You are currently on the <span className="font-semibold">{subscription.planName}</span> plan.
-                  {subscription.status === 'active' && subscription.currentPeriodEnd && (
-                    <span className="ml-2">
-                      Your subscription will renew on {new Date(subscription.currentPeriodEnd).toLocaleDateString()}.
-                    </span>
-                  )}
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
-                  <div className="flex items-center space-x-2">
-                    <div className="text-sm font-medium">Chart Analysis Usage:</div>
-                    <div className="text-sm">
-                      {subscription.monthlyAnalysisCount} / {subscription.analysisLimit} 
-                      {subscription.analysisLimit > 999 ? ' (Unlimited)' : ''}
-                    </div>
-                    <div className="w-24 h-2 bg-muted rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-primary" 
-                        style={{ 
-                          width: `${Math.min(100, (subscription.monthlyAnalysisCount / subscription.analysisLimit) * 100)}%` 
-                        }}
-                      />
-                    </div>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <div className="text-sm font-medium">Social Sharing Usage:</div>
-                    <div className="text-sm">
-                      {subscription.monthlySocialShareCount} / {subscription.socialShareLimit}
-                      {subscription.socialShareLimit > 999 ? ' (Unlimited)' : ''}
-                    </div>
-                    <div className="w-24 h-2 bg-muted rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-primary" 
-                        style={{ 
-                          width: `${Math.min(100, (subscription.monthlySocialShareCount / subscription.socialShareLimit) * 100)}%` 
-                        }}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </AlertDescription>
-          </Alert>
-        </div>
-      )}
-
-      {/* Token-Gated Membership Section */}
-      <div className="mb-12 p-6 bg-gradient-to-br from-purple-500/10 via-amber-500/5 to-blue-500/10 rounded-xl border border-purple-500/20">
-        <div className="text-center mb-6">
-          <h2 className="text-2xl font-bold mb-2">VEDD Token Membership</h2>
-          <p className="text-muted-foreground">Hold VEDD tokens or a VEDD NFT in your wallet to unlock membership tiers — no recurring payments needed</p>
-        </div>
-        
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-          <Card className="border-2 border-blue-500/30 bg-blue-500/5 overflow-hidden">
-            <div className="bg-blue-500/20 p-3 text-center">
-              <Star className="h-8 w-8 text-blue-400 mx-auto mb-1" />
-              <h3 className="font-bold text-lg text-blue-300">Basic Tier</h3>
+        {/* Active Subscription Banner */}
+        {subscription && subscription.planId > 1 && (
+          <div className="mb-10 p-4 rounded-xl border border-primary/30 bg-primary/5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div>
+              <p className="font-semibold">Current plan: <span className="text-primary">{subscription.planName}</span></p>
+              <p className="text-sm text-muted-foreground">
+                {subscription.monthlyAnalysisCount} / {subscription.analysisLimit > 999 ? '∞' : subscription.analysisLimit} analyses used this month
+                {subscription.currentPeriodEnd && ` · Renews ${new Date(subscription.currentPeriodEnd).toLocaleDateString()}`}
+              </p>
             </div>
-            <CardContent className="pt-4">
-              <div className="text-center mb-3">
-                <p className="text-3xl font-bold text-blue-300">100+</p>
-                <p className="text-sm text-muted-foreground">VEDD Tokens</p>
-              </div>
-              <ul className="space-y-2 text-sm">
-                <li className="flex items-start gap-2"><Check className="h-4 w-4 text-blue-400 mt-0.5 flex-shrink-0" /> All Starter plan features</li>
-                <li className="flex items-start gap-2"><Check className="h-4 w-4 text-blue-400 mt-0.5 flex-shrink-0" /> Multi-timeframe EA generator</li>
-                <li className="flex items-start gap-2"><Check className="h-4 w-4 text-blue-400 mt-0.5 flex-shrink-0" /> 100 chart analyses/month</li>
-                <li className="flex items-start gap-2"><Check className="h-4 w-4 text-blue-400 mt-0.5 flex-shrink-0" /> Trailing stop automation</li>
-                <li className="flex items-start gap-2"><Check className="h-4 w-4 text-blue-400 mt-0.5 flex-shrink-0" /> Priority support</li>
-              </ul>
-            </CardContent>
-          </Card>
-
-          <Card className="border-2 border-purple-500/30 bg-purple-500/5 overflow-hidden">
-            <div className="bg-purple-500/20 p-3 text-center">
-              <Shield className="h-8 w-8 text-purple-400 mx-auto mb-1" />
-              <h3 className="font-bold text-lg text-purple-300">Pro Tier</h3>
-            </div>
-            <CardContent className="pt-4">
-              <div className="text-center mb-3">
-                <p className="text-3xl font-bold text-purple-300">500+</p>
-                <p className="text-sm text-muted-foreground">VEDD Tokens</p>
-              </div>
-              <ul className="space-y-2 text-sm">
-                <li className="flex items-start gap-2"><Check className="h-4 w-4 text-purple-400 mt-0.5 flex-shrink-0" /> All Premium plan features</li>
-                <li className="flex items-start gap-2"><Check className="h-4 w-4 text-purple-400 mt-0.5 flex-shrink-0" /> Unlimited chart analyses</li>
-                <li className="flex items-start gap-2"><Check className="h-4 w-4 text-purple-400 mt-0.5 flex-shrink-0" /> Confidence scoring system</li>
-                <li className="flex items-start gap-2"><Check className="h-4 w-4 text-purple-400 mt-0.5 flex-shrink-0" /> EA Marketplace monetization</li>
-                <li className="flex items-start gap-2"><Check className="h-4 w-4 text-purple-400 mt-0.5 flex-shrink-0" /> API access for automation</li>
-              </ul>
-            </CardContent>
-          </Card>
-
-          <Card className="border-2 border-amber-500/30 bg-amber-500/5 overflow-hidden relative">
-            <div className="absolute top-2 right-2">
-              <Badge className="bg-amber-500 text-black font-bold text-xs">TOP TIER</Badge>
-            </div>
-            <div className="bg-gradient-to-r from-amber-500/20 to-orange-500/20 p-3 text-center">
-              <Crown className="h-8 w-8 text-amber-400 mx-auto mb-1" />
-              <h3 className="font-bold text-lg text-amber-300">Elite Tier</h3>
-            </div>
-            <CardContent className="pt-4">
-              <div className="text-center mb-3">
-                <p className="text-3xl font-bold text-amber-300">VEDD NFT</p>
-                <p className="text-sm text-muted-foreground">Membership NFT Required</p>
-              </div>
-              <ul className="space-y-2 text-sm">
-                <li className="flex items-start gap-2"><Check className="h-4 w-4 text-amber-400 mt-0.5 flex-shrink-0" /> Everything in Pro tier</li>
-                <li className="flex items-start gap-2"><Check className="h-4 w-4 text-amber-400 mt-0.5 flex-shrink-0" /> Lifetime access - never expires</li>
-                <li className="flex items-start gap-2"><Check className="h-4 w-4 text-amber-400 mt-0.5 flex-shrink-0" /> Early access to beta features</li>
-                <li className="flex items-start gap-2"><Check className="h-4 w-4 text-amber-400 mt-0.5 flex-shrink-0" /> Premium creator tools</li>
-                <li className="flex items-start gap-2"><Check className="h-4 w-4 text-amber-400 mt-0.5 flex-shrink-0" /> Transferable membership (sell/trade)</li>
-              </ul>
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="text-center space-y-3">
-          <div className="flex flex-wrap items-center justify-center gap-3">
-            <a href="https://pump.fun/coin/Ch7WbPBy5XjL1UULwWYwh75DsVdXhFUVXtiNvNGopump" target="_blank" rel="noopener noreferrer">
-              <Button className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500">
-                <ExternalLink className="h-4 w-4 mr-2" />
-                Buy VEDD Tokens
-              </Button>
-            </a>
-            <Button variant="outline" className="border-purple-500/30 text-purple-300 hover:bg-purple-500/10" onClick={() => setLocation('/auth')}>
-              <Wallet className="h-4 w-4 mr-2" />
-              Login with Wallet
+            <Button variant="outline" size="sm" onClick={handleCancelSubscription} disabled={isLoading}>
+              {isLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Cancel subscription
             </Button>
           </div>
-          <p className="text-xs text-muted-foreground">Connect your Phantom wallet on the login page to verify your token holdings and activate your membership tier</p>
-        </div>
-      </div>
+        )}
 
-      <div className="text-center mb-8">
-        <p className="text-lg text-muted-foreground">Or subscribe with a traditional payment plan:</p>
-      </div>
+        {/* Plan Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-16">
+          {plans?.map((plan) => {
+            const meta = PLAN_META[plan.id] || PLAN_META[2];
+            const Icon = meta.icon;
+            const current = isCurrentPlan(plan.id);
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-        {plans?.map((plan) => (
-          <Card key={plan.id} className={`relative overflow-hidden transition-all duration-300 ${
-            plan.interval === 'lifetime' 
-              ? 'border-2 border-primary shadow-2xl scale-105 ring-4 ring-primary/20' 
-              : subscription?.planId === plan.id 
-                ? 'border-primary shadow-lg' 
-                : 'hover:shadow-md hover:border-primary/50'
-          }`}>
-            {plan.interval === 'lifetime' && (
-              <div className="absolute top-0 left-0 right-0">
-                <div className="bg-gradient-to-r from-primary to-primary/80 text-primary-foreground text-center py-2 font-bold text-sm">
-                  ⭐ BEST VALUE - ONE-TIME PAYMENT
-                </div>
-              </div>
-            )}
-            {subscription?.planId === plan.id && (
-              <div className="absolute top-0 right-0">
-                <Badge className="m-2 bg-primary hover:bg-primary">Current Plan</Badge>
-              </div>
-            )}
-            <CardHeader className={plan.interval === 'lifetime' ? 'mt-8' : ''}>
-              <CardTitle className="flex justify-between items-start">
-                <span>{plan.name}</span>
-                <div className="text-right">
-                  <span className="text-2xl font-bold">{formatPrice(plan.price)}</span>
+            return (
+              <div
+                key={plan.id}
+                className={`relative rounded-2xl border-2 bg-card flex flex-col transition-shadow hover:shadow-lg ${meta.border} ${meta.highlight ? 'shadow-lg shadow-primary/10' : ''}`}
+              >
+                {/* Popular / Best Value Badge */}
+                {meta.badge && (
+                  <div className={`absolute -top-3.5 left-1/2 -translate-x-1/2`}>
+                    <Badge className={meta.highlight ? 'bg-primary text-primary-foreground px-3 py-1' : 'bg-amber-500 text-black px-3 py-1'}>
+                      {meta.badge}
+                    </Badge>
+                  </div>
+                )}
+
+                <div className={`p-6 pb-4 ${meta.badge ? 'pt-8' : ''}`}>
+                  {/* Icon + Name */}
+                  <div className="flex items-center gap-2 mb-4">
+                    <Icon className={`h-5 w-5 ${meta.color}`} />
+                    <span className="font-semibold text-base">{plan.name}</span>
+                    {current && <Badge variant="outline" className="ml-auto text-xs border-primary text-primary">Active</Badge>}
+                  </div>
+
+                  {/* Price */}
+                  <div className="mb-1">
+                    <span className="text-4xl font-bold tracking-tight">
+                      {isFree(plan) ? 'Free' : formatPrice(plan.price)}
+                    </span>
+                    {isPaid(plan) && (
+                      <span className="text-muted-foreground text-sm ml-1">
+                        {plan.interval === 'lifetime' ? ' one-time' : '/mo'}
+                      </span>
+                    )}
+                  </div>
                   {plan.interval === 'lifetime' && (
-                    <div className="text-xs text-green-600 dark:text-green-400 font-semibold mt-1">Pay once, own forever!</div>
+                    <p className="text-xs text-amber-500 font-medium mb-3">Pay once. Use forever.</p>
                   )}
+
+                  {/* Features */}
+                  <ul className="space-y-2.5 mt-5 mb-6 flex-1">
+                    {meta.features.map((f, i) => (
+                      <li key={i} className="flex items-start gap-2 text-sm">
+                        <Check className={`h-4 w-4 mt-0.5 flex-shrink-0 ${meta.highlight ? 'text-primary' : 'text-green-500'}`} />
+                        <span className="text-muted-foreground">{f}</span>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
-              </CardTitle>
-              <CardDescription>
-                {plan.interval === 'month' ? 'per month' : plan.interval === 'lifetime' ? 'one-time payment' : plan.interval}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="min-h-[200px]">
-              <div className="text-sm mb-4">{plan.description}</div>
-              <ul className="space-y-2">
-                {plan.features.map((feature, index) => (
-                  <li key={index} className="flex items-start">
-                    <Check className="h-5 w-5 mr-2 text-primary flex-shrink-0" />
-                    <span className="text-sm">{feature}</span>
-                  </li>
-                ))}
-                <li className="flex items-start">
-                  <Check className="h-5 w-5 mr-2 text-primary flex-shrink-0" />
-                  <span className="text-sm">
-                    <strong>{plan.analysisLimit > 999 ? 'Unlimited' : plan.analysisLimit}</strong> chart analyses per month
-                  </span>
-                </li>
-                <li className="flex items-start">
-                  <Check className="h-5 w-5 mr-2 text-primary flex-shrink-0" />
-                  <span className="text-sm">
-                    <strong>{plan.socialShareLimit > 999 ? 'Unlimited' : plan.socialShareLimit}</strong> social shares per month
-                  </span>
-                </li>
-              </ul>
-            </CardContent>
-            <CardFooter className="flex flex-col gap-2">
-              {subscription?.planId === plan.id ? (
-                subscription.planId !== 1 ? (
-                  <Button 
-                    variant="outline" 
-                    className="w-full" 
-                    onClick={handleCancelSubscription}
-                    disabled={isLoading}
-                    data-testid={`button-cancel-${plan.id}`}
-                  >
-                    {isLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                    Cancel Subscription
-                  </Button>
-                ) : (
-                  <Button variant="outline" className="w-full" disabled data-testid={`button-current-${plan.id}`}>
-                    Current Plan
-                  </Button>
-                )
-              ) : (
-                <>
-                  {plan.price === 0 ? (
-                    <Button 
-                      variant="default" 
+
+                {/* CTA */}
+                <div className="px-6 pb-6 mt-auto flex flex-col gap-2">
+                  {current ? (
+                    <Button variant="outline" className="w-full" disabled>
+                      Current Plan
+                    </Button>
+                  ) : isFree(plan) ? (
+                    <Button
+                      variant="outline"
                       className="w-full"
                       onClick={() => handleSubscribe(plan.id)}
-                      disabled={isLoading || selectedPlanId === plan.id}
-                      data-testid={`button-subscribe-${plan.id}`}
+                      disabled={isLoading && selectedPlanId === plan.id}
                     >
-                      {isLoading && selectedPlanId === plan.id ? (
-                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                      ) : null}
-                      Select Free Plan
+                      {isLoading && selectedPlanId === plan.id ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                      Get started free
                     </Button>
                   ) : (
-                    <div className="flex flex-col gap-2 w-full">
-                      {/* Lemon Squeezy USD Checkout */}
+                    <>
                       <Button
-                        className="w-full bg-yellow-500 hover:bg-yellow-400 text-black font-bold gap-2"
+                        className={`w-full font-semibold gap-2 ${meta.highlight ? '' : 'bg-yellow-500 hover:bg-yellow-400 text-black'}`}
+                        variant={meta.highlight ? 'default' : 'default'}
+                        style={!meta.highlight ? {} : {}}
                         onClick={() => handleLemonSqueezyCheckout(plan.id)}
                         disabled={lsLoading === plan.id}
-                        data-testid={`button-ls-${plan.id}`}
                       >
                         {lsLoading === plan.id ? (
                           <Loader2 className="h-4 w-4 animate-spin" />
                         ) : (
-                          <span className="text-base">🍋</span>
+                          <span>🍋</span>
                         )}
                         Pay USD — {formatPrice(plan.price)}
-                        {lsVariants?.[plan.id] ? null : (
-                          <Badge variant="outline" className="ml-1 text-xs border-black/30 text-black/60">setup needed</Badge>
-                        )}
                       </Button>
-                      {/* VEDD Token Payment */}
-                      <VeddPaymentButton 
-                        planId={plan.id} 
+                      <VeddPaymentButton
+                        planId={plan.id}
                         planName={plan.name}
                         priceUsd={plan.price / 100}
                       />
-                    </div>
+                    </>
                   )}
-                </>
-              )}
-            </CardFooter>
-          </Card>
-        ))}
-      </div>
-
-      {/* Feature Comparison Table */}
-      <div className="mt-16">
-        <h2 className="text-3xl font-bold tracking-tight text-center mb-2">Feature Comparison</h2>
-        <p className="text-center text-muted-foreground mb-8">See what's included in each subscription tier</p>
-        
-        <div className="overflow-x-auto rounded-lg border border-border shadow-lg">
-          <table className="w-full">
-            <thead>
-              <tr className="bg-gradient-to-r from-primary/10 to-primary/5">
-                <th className="px-6 py-5 text-left font-medium text-muted-foreground">
-                  <span className="text-base">Feature</span>
-                </th>
-                {plans?.map((plan) => (
-                  <th key={plan.id} className={`px-6 py-5 text-center ${
-                    plan.interval === 'lifetime' 
-                      ? 'bg-primary/20 border-x-2 border-primary' 
-                      : subscription?.planId === plan.id 
-                        ? 'bg-primary/15' 
-                        : ''
-                  }`}>
-                    {plan.interval === 'lifetime' && (
-                      <Badge className="mb-2 bg-primary hover:bg-primary">⭐ Best Value</Badge>
-                    )}
-                    <span className="text-lg font-bold">{plan.name}</span>
-                    <div className="text-base font-medium mt-1">
-                      {formatPrice(plan.price)}
-                      <span className="text-xs text-muted-foreground">
-                        {plan.interval === 'lifetime' ? ' one-time' : '/month'}
-                      </span>
-                    </div>
-                    {subscription?.planId === plan.id && 
-                      <Badge className="mt-2 bg-primary hover:bg-primary">Current Plan</Badge>
-                    }
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {/* Group 1: Basic Features */}
-              <tr className="bg-muted/30">
-                <td colSpan={plans?.length ? plans.length + 1 : 4} className="px-6 py-3 text-sm font-bold">
-                  Core Trading Features
-                </td>
-              </tr>
-              <tr className="hover:bg-muted/20 transition-colors">
-                <td className="px-6 py-4 text-sm font-medium">Chart Analyses per Month</td>
-                {plans?.map((plan) => (
-                  <td key={plan.id} className={`px-6 py-4 text-center ${
-                    plan.interval === 'lifetime' 
-                      ? 'bg-primary/10 border-x-2 border-primary/30' 
-                      : subscription?.planId === plan.id 
-                        ? 'bg-primary/5' 
-                        : ''
-                  }`}>
-                    <span className="font-semibold">{plan.analysisLimit > 999 ? 'Unlimited' : plan.analysisLimit}</span>
-                  </td>
-                ))}
-              </tr>
-              <tr className="hover:bg-muted/20 transition-colors">
-                <td className="px-6 py-4 text-sm font-medium">Social Shares per Month</td>
-                {plans?.map((plan) => (
-                  <td key={plan.id} className={`px-6 py-4 text-center ${subscription?.planId === plan.id ? 'bg-primary/5' : ''}`}>
-                    <span className="font-semibold">{plan.socialShareLimit > 999 ? 'Unlimited' : plan.socialShareLimit}</span>
-                  </td>
-                ))}
-              </tr>
-              <tr className="hover:bg-muted/20 transition-colors">
-                <td className="px-6 py-4 text-sm font-medium">Pattern Recognition</td>
-                {plans?.map((plan) => (
-                  <td key={plan.id} className={`px-6 py-4 text-center ${subscription?.planId === plan.id ? 'bg-primary/5' : ''}`}>
-                    {plan.id >= 1 ? 
-                      <div className="flex items-center justify-center">
-                        <div className="p-1 rounded-full bg-primary/10">
-                          <Check className="h-4 w-4 text-primary" />
-                        </div>
-                      </div> : 
-                      <span className="text-muted-foreground">-</span>
-                    }
-                  </td>
-                ))}
-              </tr>
-              <tr className="hover:bg-muted/20 transition-colors">
-                <td className="px-6 py-4 text-sm font-medium">Entry & Exit Points</td>
-                {plans?.map((plan) => (
-                  <td key={plan.id} className={`px-6 py-4 text-center ${subscription?.planId === plan.id ? 'bg-primary/5' : ''}`}>
-                    {plan.id >= 1 ? 
-                      <div className="flex items-center justify-center">
-                        <div className="p-1 rounded-full bg-primary/10">
-                          <Check className="h-4 w-4 text-primary" />
-                        </div>
-                      </div> : 
-                      <span className="text-muted-foreground">-</span>
-                    }
-                  </td>
-                ))}
-              </tr>
-              <tr className="hover:bg-muted/20 transition-colors">
-                <td className="px-6 py-4 text-sm font-medium">Support & Resistance Levels</td>
-                {plans?.map((plan) => (
-                  <td key={plan.id} className={`px-6 py-4 text-center ${subscription?.planId === plan.id ? 'bg-primary/5' : ''}`}>
-                    {plan.id >= 1 ? 
-                      <div className="flex items-center justify-center">
-                        <div className="p-1 rounded-full bg-primary/10">
-                          <Check className="h-4 w-4 text-primary" />
-                        </div>
-                      </div> : 
-                      <span className="text-muted-foreground">-</span>
-                    }
-                  </td>
-                ))}
-              </tr>
-
-              {/* Group 2: Standard Features */}
-              <tr className="bg-muted/30">
-                <td colSpan={plans?.length ? plans.length + 1 : 4} className="px-6 py-3 text-sm font-bold">
-                  Advanced Features
-                </td>
-              </tr>
-              <tr className="hover:bg-muted/20 transition-colors">
-                <td className="px-6 py-4 text-sm font-medium">AI Trading Tip Generator</td>
-                {plans?.map((plan) => (
-                  <td key={plan.id} className={`px-6 py-4 text-center ${subscription?.planId === plan.id ? 'bg-primary/5' : ''}`}>
-                    {plan.id >= 2 ? 
-                      <div className="flex items-center justify-center">
-                        <div className="p-1 rounded-full bg-primary/10">
-                          <Check className="h-4 w-4 text-primary" />
-                        </div>
-                      </div> : 
-                      <span className="text-muted-foreground">-</span>
-                    }
-                  </td>
-                ))}
-              </tr>
-              <tr className="hover:bg-muted/20 transition-colors">
-                <td className="px-6 py-4 text-sm font-medium">Christian Market Wisdom</td>
-                {plans?.map((plan) => (
-                  <td key={plan.id} className={`px-6 py-4 text-center ${subscription?.planId === plan.id ? 'bg-primary/5' : ''}`}>
-                    {plan.id >= 2 ? 
-                      <div className="flex items-center justify-center">
-                        <div className="p-1 rounded-full bg-primary/10">
-                          <Check className="h-4 w-4 text-primary" />
-                        </div>
-                      </div> : 
-                      <span className="text-muted-foreground">-</span>
-                    }
-                  </td>
-                ))}
-              </tr>
-              <tr className="hover:bg-muted/20 transition-colors">
-                <td className="px-6 py-4 text-sm font-medium">Social Trading Features</td>
-                {plans?.map((plan) => (
-                  <td key={plan.id} className={`px-6 py-4 text-center ${subscription?.planId === plan.id ? 'bg-primary/5' : ''}`}>
-                    {plan.id >= 2 ? 
-                      <div className="flex items-center justify-center">
-                        <div className="p-1 rounded-full bg-primary/10">
-                          <Check className="h-4 w-4 text-primary" />
-                        </div>
-                      </div> : 
-                      <span className="text-muted-foreground">-</span>
-                    }
-                  </td>
-                ))}
-              </tr>
-              <tr className="hover:bg-muted/20 transition-colors">
-                <td className="px-6 py-4 text-sm font-medium">Solana Token Scanner</td>
-                {plans?.map((plan) => (
-                  <td key={plan.id} className={`px-6 py-4 text-center ${subscription?.planId === plan.id ? 'bg-primary/5' : ''}`}>
-                    {plan.id >= 2 ? 
-                      <div className="flex items-center justify-center">
-                        <div className="p-1 rounded-full bg-primary/10">
-                          <Check className="h-4 w-4 text-primary" />
-                        </div>
-                      </div> : 
-                      <span className="text-muted-foreground">-</span>
-                    }
-                  </td>
-                ))}
-              </tr>
-
-              {/* Group 3: Premium Features */}
-              <tr className="bg-muted/30">
-                <td colSpan={plans?.length ? plans.length + 1 : 4} className="px-6 py-3 text-sm font-bold">
-                  Premium Features
-                </td>
-              </tr>
-              <tr className="hover:bg-muted/20 transition-colors">
-                <td className="px-6 py-4 text-sm font-medium">Advanced Pattern Analysis</td>
-                {plans?.map((plan) => (
-                  <td key={plan.id} className={`px-6 py-4 text-center ${subscription?.planId === plan.id ? 'bg-primary/5' : ''}`}>
-                    {plan.id >= 3 ? 
-                      <div className="flex items-center justify-center">
-                        <div className="p-1 rounded-full bg-primary/10">
-                          <Check className="h-4 w-4 text-primary" />
-                        </div>
-                      </div> : 
-                      <span className="text-muted-foreground">-</span>
-                    }
-                  </td>
-                ))}
-              </tr>
-              <tr className="hover:bg-muted/20 transition-colors">
-                <td className="px-6 py-4 text-sm font-medium">Priority Customer Support</td>
-                {plans?.map((plan) => (
-                  <td key={plan.id} className={`px-6 py-4 text-center ${subscription?.planId === plan.id ? 'bg-primary/5' : ''}`}>
-                    {plan.id >= 3 ? 
-                      <div className="flex items-center justify-center">
-                        <div className="p-1 rounded-full bg-primary/10">
-                          <Check className="h-4 w-4 text-primary" />
-                        </div>
-                      </div> : 
-                      <span className="text-muted-foreground">-</span>
-                    }
-                  </td>
-                ))}
-              </tr>
-              <tr className="hover:bg-muted/20 transition-colors">
-                <td className="px-6 py-4 text-sm font-medium">API Access</td>
-                {plans?.map((plan) => (
-                  <td key={plan.id} className={`px-6 py-4 text-center ${subscription?.planId === plan.id ? 'bg-primary/5' : ''}`}>
-                    {plan.id >= 3 ? 
-                      <div className="flex items-center justify-center">
-                        <div className="p-1 rounded-full bg-primary/10">
-                          <Check className="h-4 w-4 text-primary" />
-                        </div>
-                      </div> : 
-                      <span className="text-muted-foreground">-</span>
-                    }
-                  </td>
-                ))}
-              </tr>
-
-              {/* Group 4: EA Code Generation */}
-              <tr className="bg-muted/30">
-                <td colSpan={plans?.length ? plans.length + 1 : 4} className="px-6 py-3 text-sm font-bold">
-                  Expert Advisor Code Generation
-                </td>
-              </tr>
-              <tr className="hover:bg-muted/20 transition-colors">
-                <td className="px-6 py-4 text-sm font-medium">MetaTrader 5 (MQL5)</td>
-                {plans?.map((plan) => (
-                  <td key={plan.id} className={`px-6 py-4 text-center ${subscription?.planId === plan.id ? 'bg-primary/5' : ''}`}>
-                    {plan.id >= 2 ? 
-                      <div className="flex items-center justify-center">
-                        <div className="p-1 rounded-full bg-primary/10">
-                          <Check className="h-4 w-4 text-primary" />
-                        </div>
-                      </div> : 
-                      <span className="text-muted-foreground">-</span>
-                    }
-                  </td>
-                ))}
-              </tr>
-              <tr className="hover:bg-muted/20 transition-colors">
-                <td className="px-6 py-4 text-sm font-medium">TradingView (Pine Script)</td>
-                {plans?.map((plan) => (
-                  <td key={plan.id} className={`px-6 py-4 text-center ${subscription?.planId === plan.id ? 'bg-primary/5' : ''}`}>
-                    {plan.id >= 2 ? 
-                      <div className="flex items-center justify-center">
-                        <div className="p-1 rounded-full bg-primary/10">
-                          <Check className="h-4 w-4 text-primary" />
-                        </div>
-                      </div> : 
-                      <span className="text-muted-foreground">-</span>
-                    }
-                  </td>
-                ))}
-              </tr>
-              <tr className="hover:bg-muted/20 transition-colors">
-                <td className="px-6 py-4 text-sm font-medium">TradeLocker (Node.js)</td>
-                {plans?.map((plan) => (
-                  <td key={plan.id} className={`px-6 py-4 text-center ${subscription?.planId === plan.id ? 'bg-primary/5' : ''}`}>
-                    {plan.id >= 2 ? 
-                      <div className="flex items-center justify-center">
-                        <div className="p-1 rounded-full bg-primary/10">
-                          <Check className="h-4 w-4 text-primary" />
-                        </div>
-                      </div> : 
-                      <span className="text-muted-foreground">-</span>
-                    }
-                  </td>
-                ))}
-              </tr>
-              <tr className="hover:bg-muted/20 transition-colors">
-                <td className="px-6 py-4 text-sm font-medium">Unified Trade Signal (Multi-Timeframe Synthesis)</td>
-                {plans?.map((plan) => (
-                  <td key={plan.id} className={`px-6 py-4 text-center ${subscription?.planId === plan.id ? 'bg-primary/5' : ''}`}>
-                    {plan.id >= 2 ? 
-                      <div className="flex items-center justify-center">
-                        <div className="p-1 rounded-full bg-primary/10">
-                          <Check className="h-4 w-4 text-primary" />
-                        </div>
-                      </div> : 
-                      <span className="text-muted-foreground">-</span>
-                    }
-                  </td>
-                ))}
-              </tr>
-            </tbody>
-          </table>
+                </div>
+              </div>
+            );
+          })}
         </div>
-      </div>
 
-      {/* VEDD Token Purchase Section */}
-      <div className="mt-12 p-8 bg-gradient-to-r from-purple-500/10 via-pink-500/10 to-purple-500/10 rounded-xl border border-purple-500/30">
-        <div className="text-center mb-6">
-          <div className="inline-flex items-center gap-2 mb-4">
-            <Coins className="w-8 h-8 text-purple-500" />
-            <h2 className="text-3xl font-bold bg-gradient-to-r from-purple-500 to-pink-500 bg-clip-text text-transparent">
-              Buy VEDD Token
-            </h2>
+        {/* Platform trust bar */}
+        <div className="flex flex-wrap items-center justify-center gap-6 mb-16 text-sm text-muted-foreground border-y border-border py-6">
+          <span className="font-medium text-foreground">Works with:</span>
+          <span className="flex items-center gap-1.5"><Bot className="h-4 w-4" /> MetaTrader 5</span>
+          <span className="flex items-center gap-1.5"><TrendingUp className="h-4 w-4" /> TradingView</span>
+          <span className="flex items-center gap-1.5"><Zap className="h-4 w-4" /> TradeLocker</span>
+          <span className="flex items-center gap-1.5"><Shield className="h-4 w-4" /> Phantom Wallet</span>
+          <span className="flex items-center gap-1.5"><Sparkles className="h-4 w-4" /> Jupiter DEX</span>
+        </div>
+
+        {/* Feature comparison toggle */}
+        <div className="mb-8 text-center">
+          <button
+            onClick={() => setShowTable(!showTable)}
+            className="inline-flex items-center gap-2 text-sm text-primary hover:underline font-medium"
+          >
+            {showTable ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            {showTable ? 'Hide' : 'Show'} full feature comparison
+          </button>
+        </div>
+
+        {/* Feature Table */}
+        {showTable && (
+          <div className="mb-16 overflow-x-auto rounded-xl border border-border">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-muted/40">
+                  <th className="text-left px-5 py-4 font-medium text-muted-foreground w-1/2">Feature</th>
+                  {plans?.map(p => (
+                    <th key={p.id} className={`px-5 py-4 text-center font-semibold ${p.id === 3 ? 'text-primary' : ''}`}>
+                      {p.name}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {FEATURE_ROWS.map((row, i) => (
+                  <tr key={i} className="hover:bg-muted/20 transition-colors">
+                    <td className="px-5 py-3.5 text-muted-foreground">{row.label}</td>
+                    {plans?.map(p => {
+                      const val = (row.values as any)[p.id];
+                      return (
+                        <td key={p.id} className={`px-5 py-3.5 text-center ${p.id === 3 ? 'bg-primary/5' : ''}`}>
+                          {typeof val === 'boolean' ? (
+                            val
+                              ? <Check className="h-4 w-4 text-green-500 mx-auto" />
+                              : <X className="h-4 w-4 text-muted-foreground/40 mx-auto" />
+                          ) : (
+                            <span className="font-medium">{val}</span>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-          <p className="text-muted-foreground max-w-2xl mx-auto">
-            VEDD is our native cryptocurrency token. Use it to pay for subscriptions, unlock premium features, and participate in our ecosystem.
-          </p>
-        </div>
-        
-        <div className="grid md:grid-cols-3 gap-6 mb-8">
-          <Card className="border-purple-500/30 bg-purple-500/5">
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <span className="text-2xl">💰</span>
-                Save on Subscriptions
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground">
-                Pay with VEDD tokens and get discounted rates on all subscription plans.
-              </p>
-            </CardContent>
-          </Card>
-          <Card className="border-purple-500/30 bg-purple-500/5">
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <span className="text-2xl">🚀</span>
-                Future Utility
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground">
-                VEDD tokens will unlock exclusive features, governance rights, and staking rewards.
-              </p>
-            </CardContent>
-          </Card>
-          <Card className="border-purple-500/30 bg-purple-500/5">
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <span className="text-2xl">🔥</span>
-                Growing Ecosystem
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground">
-                Join our growing community and be part of the decentralized trading analysis revolution.
-              </p>
-            </CardContent>
-          </Card>
-        </div>
+        )}
 
-        <div className="flex flex-col items-center gap-4">
-          <div className="flex flex-wrap gap-4 justify-center">
-            <a 
-              href="https://pump.fun/coin/Ch7WbPBy5XjL1UULwWYwh75DsVdXhFUVXtiNvNGopump" 
-              target="_blank" 
-              rel="noopener noreferrer"
-            >
-              <Button 
-                size="lg" 
-                className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
-                data-testid="button-buy-vedd-pumpfun"
-              >
-                <Coins className="w-5 h-5 mr-2" />
+        {/* VEDD Token Access */}
+        <div className="mb-12 rounded-2xl border border-purple-500/20 bg-gradient-to-br from-purple-500/5 to-amber-500/5 p-8">
+          <div className="text-center mb-6">
+            <h2 className="text-2xl font-bold mb-2">Hold VEDD Tokens — Skip the Subscription</h2>
+            <p className="text-muted-foreground text-sm max-w-xl mx-auto">
+              Connect your Phantom wallet on login. Hold VEDD tokens in your wallet to unlock membership tiers automatically — no credit card needed.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            {[
+              { tier: 'Basic', tokens: '100+', equiv: 'Starter', color: 'blue' },
+              { tier: 'Pro', tokens: '500+', equiv: 'Premium', color: 'purple' },
+              { tier: 'Elite', tokens: 'VEDD NFT', equiv: 'Yearly (lifetime)', color: 'amber' },
+            ].map(({ tier, tokens, equiv, color }) => (
+              <div key={tier} className={`rounded-xl border border-${color}-500/20 bg-${color}-500/5 p-4 text-center`}>
+                <p className={`text-lg font-bold text-${color}-400 mb-0.5`}>{tokens}</p>
+                <p className="text-xs text-muted-foreground mb-1">VEDD Tokens required</p>
+                <p className="text-sm font-semibold">{tier} Tier</p>
+                <p className="text-xs text-muted-foreground">= {equiv} plan access</p>
+              </div>
+            ))}
+          </div>
+          <div className="flex flex-wrap justify-center gap-3">
+            <a href="https://pump.fun/coin/Ch7WbPBy5XjL1UULwWYwh75DsVdXhFUVXtiNvNGopump" target="_blank" rel="noopener noreferrer">
+              <Button variant="outline" size="sm" className="border-purple-500/30 text-purple-400 hover:bg-purple-500/10">
                 Buy VEDD on Pump.fun
               </Button>
             </a>
-            <a 
-              href="https://raydium.io/swap/?inputCurrency=sol&outputCurrency=Ch7WbPBy5XjL1UULwWYwh75DsVdXhFUVXtiNvNGopump" 
-              target="_blank" 
-              rel="noopener noreferrer"
-            >
-              <Button 
-                size="lg" 
-                variant="outline"
-                className="border-purple-500 text-purple-500 hover:bg-purple-500/10"
-                data-testid="button-buy-vedd-raydium"
-              >
-                <Coins className="w-5 h-5 mr-2" />
+            <a href="https://raydium.io/swap/?inputMint=sol&outputMint=Ch7WbPBy5XjL1UULwWYwh75DsVdXhFUVXtiNvNGopump" target="_blank" rel="noopener noreferrer">
+              <Button variant="outline" size="sm" className="border-purple-500/30 text-purple-400 hover:bg-purple-500/10">
                 Buy VEDD on Raydium
               </Button>
             </a>
           </div>
-          <p className="text-xs text-muted-foreground text-center max-w-md">
-            Token Contract: Ch7WbPBy5XjL1UULwWYwh75DsVdXhFUVXtiNvNGopump
-          </p>
         </div>
-      </div>
 
-      {/* Lemon Squeezy Admin Setup */}
-      {user && (
-        <div className="mt-12 border border-yellow-500/30 rounded-xl overflow-hidden">
-          <button
-            className="w-full flex items-center justify-between px-6 py-4 bg-yellow-500/10 hover:bg-yellow-500/15 transition-colors"
-            onClick={() => setShowLsSetup(!showLsSetup)}
-          >
-            <div className="flex items-center gap-3">
-              <span className="text-xl">🍋</span>
-              <div className="text-left">
-                <p className="font-semibold text-sm">Lemon Squeezy USD Payment Setup</p>
-                <p className="text-xs text-muted-foreground">Link your Lemon Squeezy variant IDs to enable USD checkout for each plan</p>
+        {/* FAQ */}
+        <div className="mb-12">
+          <h2 className="text-2xl font-bold text-center mb-6">Common questions</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {[
+              {
+                q: 'Can I cancel anytime?',
+                a: 'Yes. Cancel from the subscription page at any time. You keep access until the end of your billing period.',
+              },
+              {
+                q: 'What payment methods are accepted?',
+                a: 'USD via credit/debit card (Lemon Squeezy checkout), or pay with VEDD tokens from your Solana wallet.',
+              },
+              {
+                q: 'What is the Yearly plan?',
+                a: 'A one-time payment that gives you lifetime access to all Premium features — no monthly fees, ever. All future updates included.',
+              },
+              {
+                q: 'How does VEDD token access work?',
+                a: 'Connect your Phantom wallet on the login page. If you hold enough VEDD tokens, your tier is detected automatically and access is granted instantly.',
+              },
+              {
+                q: 'Which AI models does the platform use?',
+                a: 'GPT-4o, Groq Llama 3.3, Claude 3.5, Gemini 1.5 Pro, and Mistral Large. You can add your own API key or use the platform default.',
+              },
+              {
+                q: 'What is the Lemon Squeezy checkout?',
+                a: 'A secure USD payment processor. Click the yellow "Pay USD" button on any paid plan to be taken to a secure hosted checkout page.',
+              },
+            ].map(({ q, a }, i) => (
+              <div key={i} className="p-5 rounded-xl border border-border bg-card">
+                <p className="font-semibold text-sm mb-1.5">{q}</p>
+                <p className="text-sm text-muted-foreground">{a}</p>
               </div>
-            </div>
-            {showLsSetup ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
-          </button>
+            ))}
+          </div>
+        </div>
 
-          {showLsSetup && (
-            <div className="p-6 space-y-4">
-              <Alert className="border-yellow-500/30 bg-yellow-500/5">
-                <Settings className="h-4 w-4 text-yellow-500" />
-                <AlertTitle className="text-yellow-600 dark:text-yellow-400">How to set up USD checkout</AlertTitle>
-                <AlertDescription className="text-sm space-y-2 mt-2">
-                  <p>1. Log in to your <a href="https://app.lemonsqueezy.com" target="_blank" rel="noopener noreferrer" className="text-primary underline">Lemon Squeezy dashboard</a></p>
-                  <p>2. Create a product for each paid plan (Starter, Premium, Yearly) with the correct prices</p>
-                  <p>3. Under each product, find the <strong>Variant ID</strong> (visible in the URL or product settings)</p>
-                  <p>4. Paste each Variant ID below and click Save</p>
-                  <p>5. Set up a webhook in Lemon Squeezy pointing to: <code className="bg-muted px-1 rounded text-xs">{window.location.origin}/api/lemonsqueezy/webhook</code></p>
-                  <p>6. Save your webhook signing secret as <code className="bg-muted px-1 rounded text-xs">LEMONSQUEEZY_WEBHOOK_SECRET</code> in your environment secrets</p>
-                </AlertDescription>
-              </Alert>
+        {/* Lemon Squeezy Admin Setup */}
+        {user && (
+          <div className="border border-yellow-500/30 rounded-xl overflow-hidden mb-12">
+            <button
+              className="w-full flex items-center justify-between px-6 py-4 bg-yellow-500/5 hover:bg-yellow-500/10 transition-colors"
+              onClick={() => setShowLsSetup(!showLsSetup)}
+            >
+              <div className="flex items-center gap-3">
+                <span>🍋</span>
+                <div className="text-left">
+                  <p className="font-semibold text-sm">Lemon Squeezy Setup</p>
+                  <p className="text-xs text-muted-foreground">Link variant IDs to enable USD checkout per plan</p>
+                </div>
+              </div>
+              {showLsSetup ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+            </button>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {plans?.filter(p => p.price > 0).map(plan => (
-                  <Card key={plan.id} className="border-yellow-500/20">
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-sm font-semibold">{plan.name} Plan</CardTitle>
-                      <CardDescription className="text-xs">{formatPrice(plan.price)}</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-2">
+            {showLsSetup && (
+              <div className="p-6 space-y-4 border-t border-yellow-500/20">
+                <Alert className="border-yellow-500/30 bg-yellow-500/5">
+                  <Settings className="h-4 w-4 text-yellow-500" />
+                  <AlertTitle className="text-yellow-600 dark:text-yellow-400 text-sm">Setup Instructions</AlertTitle>
+                  <AlertDescription className="text-xs space-y-1 mt-1">
+                    <p>1. Log in to <a href="https://app.lemonsqueezy.com" target="_blank" rel="noopener noreferrer" className="text-primary underline">app.lemonsqueezy.com</a> and create a product for each paid plan</p>
+                    <p>2. Copy the Variant ID from each product and paste it below, then click Save</p>
+                    <p>3. Set up a webhook pointing to: <code className="bg-muted px-1 rounded">{window.location.origin}/api/lemonsqueezy/webhook</code></p>
+                    <p>4. Add the webhook signing secret as <code className="bg-muted px-1 rounded">LEMONSQUEEZY_WEBHOOK_SECRET</code> in your environment</p>
+                  </AlertDescription>
+                </Alert>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {plans?.filter(p => p.price > 0).map(plan => (
+                    <div key={plan.id} className="rounded-lg border border-border p-4 space-y-2">
+                      <p className="font-semibold text-sm">{plan.name}</p>
                       {lsVariants?.[plan.id] && (
-                        <div className="flex items-center gap-1 text-xs text-green-500">
-                          <Check className="h-3 w-3" />
-                          <span className="font-mono">{lsVariants[plan.id]}</span>
-                        </div>
+                        <p className="text-xs text-green-500 flex items-center gap-1">
+                          <Check className="h-3 w-3" /> {lsVariants[plan.id]}
+                        </p>
                       )}
                       <div className="flex gap-2">
                         <Input
-                          placeholder="Variant ID (e.g. 123456)"
+                          placeholder="Variant ID"
                           className="text-xs h-8"
                           value={variantInputs[plan.id] || ''}
                           onChange={e => setVariantInputs(prev => ({ ...prev, [plan.id]: e.target.value }))}
                         />
                         <Button
                           size="sm"
-                          className="h-8 bg-yellow-500 hover:bg-yellow-400 text-black text-xs"
+                          className="h-8 bg-yellow-500 hover:bg-yellow-400 text-black text-xs px-3"
                           onClick={() => handleSaveVariant(plan.id)}
                         >
                           Save
                         </Button>
                       </div>
-                    </CardContent>
-                  </Card>
-                ))}
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
-        </div>
-      )}
+            )}
+          </div>
+        )}
 
-      <div className="mt-12 text-center text-sm text-muted-foreground">
-        <p>All subscriptions are automatically renewed monthly. You can cancel at any time.</p>
-        <p className="mt-2">
-          Need help? <a href="/contact" className="text-primary hover:underline">Contact support</a>
+        <p className="text-center text-xs text-muted-foreground">
+          All monthly subscriptions renew automatically. Cancel anytime. ·{' '}
+          <a href="/contact" className="text-primary hover:underline">Contact support</a>
         </p>
       </div>
     </div>
