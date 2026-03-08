@@ -28,7 +28,14 @@ import {
   Coins,
   Video,
   Shirt,
-  QrCode
+  QrCode,
+  Brain,
+  Bot,
+  Cpu,
+  Newspaper,
+  Radio,
+  ExternalLink,
+  Power
 } from 'lucide-react';
 import { MarketCalendar } from '@/components/market/market-calendar';
 import { getUserLevel } from '@/lib/achievement-system';
@@ -115,7 +122,41 @@ const Dashboard: React.FC = () => {
     enabled: !!user,
     refetchInterval: 60000,
   });
-  
+
+  // AI engine status queries
+  const { data: ssEngineStatus } = useQuery<{ status: string; running?: boolean }>({
+    queryKey: ['/api/vedd-live-engine/status'],
+    enabled: !!user,
+    refetchInterval: 15000,
+  });
+
+  const { data: solEngineStatus } = useQuery<{ running: boolean; autoTradeMode: string; autoTradeEnabled: boolean; liveTradeEnabled: boolean }>({
+    queryKey: ['/api/sol-engine/status'],
+    enabled: !!user,
+    refetchInterval: 15000,
+  });
+
+  const { data: brainStatus } = useQuery<{ learned: boolean; totalTradesAnalyzed?: number; pairsLearned?: number }>({
+    queryKey: ['/api/vedd-live-engine/brain-status'],
+    enabled: !!user,
+    refetchInterval: 30000,
+  });
+
+  const { data: breakoutStatus } = useQuery<{ active: boolean; monitored?: number }>({
+    queryKey: ['/api/mt5/breakout-status'],
+    enabled: !!user,
+    refetchInterval: 60000,
+  });
+
+  // Derive AI tool states
+  const ssEngineRunning = ssEngineStatus?.status === 'running';
+  const solEngineRunning = solEngineStatus?.running ?? false;
+  const solAutoTradeMode = solEngineStatus?.autoTradeMode ?? 'off';
+  const solLiveActive = solAutoTradeMode === 'live';
+  const solPaperActive = solAutoTradeMode === 'paper';
+  const brainLearned = brainStatus?.learned ?? false;
+  const bothLiveActive = ssEngineRunning && solLiveActive;
+
   // Filter to only upcoming and live registered events
   const upcomingEvents = React.useMemo(() => {
     if (!registeredEventsData?.events) return [];
@@ -248,7 +289,130 @@ const Dashboard: React.FC = () => {
         </div>
       </div>
 
-      <div className="container mx-auto px-4 md:px-8 py-8">      
+      <div className="container mx-auto px-4 md:px-8 py-8">
+
+        {/* ─── AI Command Center ─────────────────────────────────────────── */}
+        <Card className="bg-gradient-to-br from-gray-900 via-gray-900 to-gray-800 border-gray-700 shadow-2xl mb-8 overflow-hidden">
+          <CardHeader className="pb-3 border-b border-gray-800">
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div className="flex items-center gap-3">
+                <div className="relative">
+                  <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-violet-600 to-indigo-700 flex items-center justify-center shadow-lg shadow-violet-900/40">
+                    <Cpu className="h-5 w-5 text-white" />
+                  </div>
+                  <span className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-emerald-400 border-2 border-gray-900 animate-pulse" />
+                </div>
+                <div>
+                  <CardTitle className="text-white text-lg">AI Command Center</CardTitle>
+                  <CardDescription className="text-gray-400 text-xs">Live status of all autonomous AI tools — each runs independently</CardDescription>
+                </div>
+              </div>
+              <Link href="/weekly-strategy">
+                <Button variant="outline" size="sm" className="border-violet-500/30 text-violet-400 hover:bg-violet-500/10 text-xs gap-1">
+                  <ExternalLink className="h-3 w-3" /> Full Settings
+                </Button>
+              </Link>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-4 pb-4">
+            {/* Conflict advisory banner */}
+            {bothLiveActive && (
+              <div className="mb-4 flex items-start gap-3 bg-amber-500/10 border border-amber-500/30 rounded-lg px-4 py-3">
+                <AlertTriangle className="h-4 w-4 text-amber-400 mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-amber-300 text-sm font-medium">Both live trading engines are active</p>
+                  <p className="text-amber-400/70 text-xs mt-0.5">SS Engine (Forex) and Sol Engine (Solana) can run simultaneously — they trade different markets. Monitor your capital allocation across both.</p>
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+              {/* SS AI Engine */}
+              <Link href="/weekly-strategy" className="block">
+                <div className={`rounded-xl border p-3 h-full cursor-pointer transition-all hover:scale-[1.02] ${ssEngineRunning ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-gray-800/60 border-gray-700/50'}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className={`h-8 w-8 rounded-lg flex items-center justify-center ${ssEngineRunning ? 'bg-emerald-500/20' : 'bg-gray-700/60'}`}>
+                      <Bot className={`h-4 w-4 ${ssEngineRunning ? 'text-emerald-400' : 'text-gray-500'}`} />
+                    </div>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${ssEngineRunning ? 'bg-emerald-500/20 text-emerald-400' : 'bg-gray-700 text-gray-500'}`}>
+                      {ssEngineRunning ? 'ACTIVE' : 'IDLE'}
+                    </span>
+                  </div>
+                  <p className="text-white text-xs font-semibold leading-tight">SS AI Engine</p>
+                  <p className="text-gray-500 text-[10px] mt-0.5">Forex auto-trader</p>
+                </div>
+              </Link>
+
+              {/* VEDD Brain */}
+              <Link href="/weekly-strategy" className="block">
+                <div className={`rounded-xl border p-3 h-full cursor-pointer transition-all hover:scale-[1.02] ${brainLearned ? 'bg-violet-500/10 border-violet-500/30' : 'bg-gray-800/60 border-gray-700/50'}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className={`h-8 w-8 rounded-lg flex items-center justify-center ${brainLearned ? 'bg-violet-500/20' : 'bg-gray-700/60'}`}>
+                      <Brain className={`h-4 w-4 ${brainLearned ? 'text-violet-400' : 'text-gray-500'}`} />
+                    </div>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${brainLearned ? 'bg-violet-500/20 text-violet-400' : 'bg-gray-700 text-gray-500'}`}>
+                      {brainLearned ? `${brainStatus?.pairsLearned ?? 0} PAIRS` : 'LEARNING'}
+                    </span>
+                  </div>
+                  <p className="text-white text-xs font-semibold leading-tight">VEDD Brain</p>
+                  <p className="text-gray-500 text-[10px] mt-0.5">Self-learning signals</p>
+                </div>
+              </Link>
+
+              {/* Sol Engine */}
+              <Link href="/solana-scanner" className="block">
+                <div className={`rounded-xl border p-3 h-full cursor-pointer transition-all hover:scale-[1.02] ${solLiveActive ? 'bg-blue-500/10 border-blue-500/30' : solPaperActive ? 'bg-amber-500/10 border-amber-500/30' : 'bg-gray-800/60 border-gray-700/50'}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className={`h-8 w-8 rounded-lg flex items-center justify-center ${solLiveActive ? 'bg-blue-500/20' : solPaperActive ? 'bg-amber-500/20' : 'bg-gray-700/60'}`}>
+                      <SiSolana className={`h-4 w-4 ${solLiveActive ? 'text-blue-400' : solPaperActive ? 'text-amber-400' : 'text-gray-500'}`} />
+                    </div>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${solLiveActive ? 'bg-blue-500/20 text-blue-400' : solPaperActive ? 'bg-amber-500/20 text-amber-400' : 'bg-gray-700 text-gray-500'}`}>
+                      {solLiveActive ? 'LIVE' : solPaperActive ? 'PAPER' : 'IDLE'}
+                    </span>
+                  </div>
+                  <p className="text-white text-xs font-semibold leading-tight">Sol Engine</p>
+                  <p className="text-gray-500 text-[10px] mt-0.5">Solana auto-trader</p>
+                </div>
+              </Link>
+
+              {/* News & Events */}
+              <Link href="/news-alerts" className="block">
+                <div className="rounded-xl border p-3 h-full cursor-pointer transition-all hover:scale-[1.02] bg-rose-500/10 border-rose-500/30">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="h-8 w-8 rounded-lg flex items-center justify-center bg-rose-500/20">
+                      <Newspaper className="h-4 w-4 text-rose-400" />
+                    </div>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-400">LIVE</span>
+                  </div>
+                  <p className="text-white text-xs font-semibold leading-tight">News & Events</p>
+                  <p className="text-gray-500 text-[10px] mt-0.5">Sentiment alerts</p>
+                </div>
+              </Link>
+
+              {/* Breakout Monitor */}
+              <Link href="/volatility-meter" className="block">
+                <div className="rounded-xl border p-3 h-full cursor-pointer transition-all hover:scale-[1.02] bg-cyan-500/10 border-cyan-500/30">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="h-8 w-8 rounded-lg flex items-center justify-center bg-cyan-500/20">
+                      <Radio className="h-4 w-4 text-cyan-400" />
+                    </div>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-400">ON</span>
+                  </div>
+                  <p className="text-white text-xs font-semibold leading-tight">Breakout Monitor</p>
+                  <p className="text-gray-500 text-[10px] mt-0.5">Session breakouts</p>
+                </div>
+              </Link>
+            </div>
+
+            <div className="mt-3 flex flex-wrap gap-2 text-[10px] text-gray-600">
+              <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-400 inline-block" /> Active</span>
+              <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-400 inline-block" /> Paper mode</span>
+              <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-gray-600 inline-block" /> Idle</span>
+              <span className="ml-auto text-gray-700">SS Engine + Sol Engine trade different markets — safe to run together</span>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Stats Overview */}
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-5 mb-10">
           {/* Card 1 - Total Analyses */}

@@ -70,7 +70,16 @@ import {
   Zap,
   ArrowRight,
   BarChart2,
-  Calendar
+  Calendar,
+  Brain,
+  Cpu,
+  Bot,
+  Twitter,
+  Instagram,
+  Linkedin,
+  Youtube,
+  Hash,
+  Radio
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -2069,6 +2078,151 @@ const trainingModules: TrainingModule[] = [
         }
       }
     ]
+  },
+  {
+    id: 'ai-tools-mastery',
+    title: 'AI Tools Mastery Guide',
+    description: 'Master every AI tool in the platform — understand what each one does and how to promote it',
+    duration: '30 min',
+    icon: Sparkles,
+    image: chartAnalysisImg,
+    lessons: [
+      {
+        id: 'ai-tools-1',
+        title: 'SS AI Engine — Autonomous Forex Trader',
+        content: [
+          'The SS AI Engine is VEDD\'s flagship autonomous trading system. It runs 18 HFT strategies simultaneously on pairs like XAUUSD, GBPUSD, and EURUSD via TradeLocker',
+          'Every scan cycle, the engine fetches live market data, computes 12+ advanced indicators, checks news sentiment, evaluates volume conditions, and queries GPT-4o for a final trade decision',
+          'Weekly profit goals keep the engine goal-oriented — it phases through warming_up → building → accelerating → cruising → pushing → target_reached, adjusting lot sizes accordingly',
+          'Trail stop methods (Parabolic SAR, Fixed Pip, Profit Lock %, Stepped Fixed, None) protect open positions server-side, no MT5 connection required',
+          'The Brain Enforcer pre-filters every proposed trade using learned per-pair knowledge — if a pair is losing streak, the engine skips it automatically'
+        ],
+        keyPoints: [
+          { title: '18 HFT Strategies', description: 'Scalping, momentum surfing, session breakout, sniper, and compound strategies running in parallel — the engine picks the highest confluence setup.', icon: Zap },
+          { title: 'Auto-Compounding', description: 'Win streaks trigger 1.25x–2x lot multipliers. Loss streaks reduce lot size to 0.5x–0.75x. Built-in capital protection.', icon: TrendingUp },
+          { title: 'Goal-Based Trading', description: 'Set a weekly profit target. The engine\'s strategy intensity automatically scales based on how close it is to the goal.', icon: Target }
+        ],
+        realWorldExamples: [
+          { scenario: 'Trader sets a $500 weekly goal and starts the SS Engine on Monday', outcome: 'Engine runs warming_up phase with conservative lots, then scales to accelerating phase mid-week as profits build, hitting target by Thursday', lesson: 'The phase system prevents the common mistake of over-trading early in the week, then revenge-trading when targets feel out of reach', type: 'success' },
+          { scenario: 'Trader asks: does the engine trade 24/7?', outcome: 'The engine scans continuously but only enters trades during high-volume session windows (London/NY overlap is prioritized)', lesson: 'Quality over quantity — the engine skips low-volume periods to avoid being caught in whipsaws', type: 'insight' }
+        ],
+        tips: [
+          'Ambassador pitch: "Set your weekly goal, turn it on, and let VEDD\'s AI trade for you — 18 strategies, 24/5 market coverage"',
+          'Emphasize that paper mode lets users test the engine before connecting a live TradeLocker account',
+          'Common question: "Is it safe?" — explain that the Brain Enforcer, trail stops, and loss protection built-in keep risk managed automatically'
+        ]
+      },
+      {
+        id: 'ai-tools-2',
+        title: 'VEDD Self-Learning Brain — Memory That Trades Smarter',
+        content: [
+          'The VEDD Brain is a self-learning system that analyzes every completed trade and builds per-pair knowledge over time',
+          'After every 5 trade results are recorded, the brain auto-retrains — updating win rates, preferred direction (buy vs sell), best trading sessions, average ATR, and consecutive loss tracking for each pair',
+          'The Brain Enforcer is a hard pre-trade filter that runs before every proposed trade. If a pair is on a losing streak, in a bad session, or outside its ATR comfort zone, the signal is blocked before it reaches the AI',
+          'After each retrain, the brain also auto-generates autonomous trade signals based purely on what it has learned — no new market scan needed',
+          'The longer you use the platform, the smarter the brain gets — it truly personalizes to your trading style and market conditions'
+        ],
+        keyPoints: [
+          { title: 'Per-Pair Learning', description: 'The brain tracks XAUUSD, GBPUSD, EURUSD, and all active pairs separately. It knows each pair\'s personality — when it wins, when it loses, which sessions it prefers.', icon: Brain },
+          { title: 'Auto-Retrain Cycle', description: 'Every 5 trades, the brain rebuilds its knowledge model. No manual action required — it learns passively in the background.', icon: Cpu },
+          { title: 'Autonomous Signal Generation', description: 'Post-retrain, the brain generates proactive signals with entry zones, SL/TP, and confidence scores — feeding the engine with learned intelligence.', icon: Sparkles }
+        ],
+        realWorldExamples: [
+          { scenario: 'After 30 trades, the brain has solid data on XAUUSD', outcome: 'Brain shows 78% win rate on XAUUSD during London session with BUY direction — engine now prioritizes this setup automatically', lesson: 'The Brain turns raw trade history into actionable systematic edge — something manual traders spend years developing', type: 'success' },
+          { scenario: 'GBPUSD has been losing 4 trades in a row this week', outcome: 'Brain Enforcer automatically blocks all GBPUSD signals until the losing streak clears or the session changes', lesson: 'Built-in streak protection prevents the classic mistake of "averaging down" into a broken trade thesis', type: 'insight' }
+        ],
+        tips: [
+          'Ambassador pitch: "This is the engine that gets smarter every trade. Your bot learns your market, your sessions, your winning patterns"',
+          'Highlight that most retail traders never build systematic edge — VEDD Brain does it automatically from real trade data',
+          'Key selling point: after 50+ trades, the brain\'s signals often outperform generic AI prompts because they\'re personalized to YOUR history'
+        ]
+      },
+      {
+        id: 'ai-tools-3',
+        title: 'Sol Engine — AI-Powered Solana Token Trader',
+        content: [
+          'The Sol Engine is VEDD\'s Solana-focused trading AI. It scans trending tokens across Raydium, Orca, Meteora, PumpFun, and Jupiter in real-time using DexScreener data',
+          'For each token it analyzes: social sentiment, tokenomics quality, whale wallet activity, volume trends, and price momentum — then produces a BUY/SELL/HOLD signal with confidence score',
+          'Paper Trading mode opens virtual positions using real market prices, tracks P&L, win rate, and compounding — no wallet required. Perfect for risk-free strategy testing',
+          'Live Trading mode queues pending buy signals that the frontend auto-executes via Jupiter swap when Phantom wallet is connected',
+          'Autonomous server-side sell automation closes paper positions at TP or SL without any user action — including when the browser is closed'
+        ],
+        keyPoints: [
+          { title: 'Multi-DEX Intelligence', description: 'Aggregates data across 5 major Solana DEXes simultaneously. Token signals are cross-validated across all sources before a trade is proposed.', icon: Zap },
+          { title: 'Paper Mode First', description: 'Try the full system with zero risk. Paper trades use real prices, real timing, and real market behavior — just virtual capital.', icon: Shield },
+          { title: 'Jupiter Swap Execution', description: 'Live trades execute at best available price via Jupiter\'s smart routing across all Solana liquidity pools.', icon: ArrowRight }
+        ],
+        realWorldExamples: [
+          { scenario: 'New user wants to try Solana AI trading but is nervous about risk', outcome: 'Starts with paper mode — within a week has 12 paper trades, 67% win rate, and enough confidence to try live mode with a small amount', lesson: 'Paper mode removes the #1 barrier to entry — fear of losing money while learning a new system', type: 'success' },
+          { scenario: 'User asks: what happens to my paper positions when I close the browser?', outcome: 'Server-side position monitoring continues running. TP/SL triggers server-side and the position is closed in the background automatically', lesson: 'Set it and forget it — the engine monitors 24/7 even when you\'re offline', type: 'insight' }
+        ],
+        tips: [
+          'Ambassador pitch: "AI scans Solana\'s hottest tokens in real-time — paper trade first, go live when you\'re confident"',
+          'Great content angle: screen-record the sol engine finding a token, show the confidence score, then show the paper trade opening in real-time',
+          'Crypto audience hook: "No more manually scanning DexScreener — VEDD AI does it and tells you exactly when to buy"'
+        ]
+      },
+      {
+        id: 'ai-tools-4',
+        title: 'Chart Analysis + AI Second Opinion',
+        content: [
+          'Chart Analysis is the core original feature: upload any chart screenshot from MT4, MT5, TradingView, or TradeLocker and GPT-4o Vision analyzes it in seconds',
+          'The AI identifies: chart patterns (head & shoulders, double tops, flags, wedges), trend direction, key support/resistance levels, momentum indicators, and produces entry/exit/SL/TP recommendations with confidence score',
+          'AI Second Opinion is a companion confirmation tool — before entering any trade, run it through the 14-point institutional checklist that includes trend alignment, news sentiment, volume confirmation, risk-reward ratio, and session timing',
+          'The Second Opinion system fetches live news headlines and economic calendar events to make the confirmation news-aware — not just technical',
+          'Both tools work across any asset: Forex pairs, Gold, crypto, indices, stocks'
+        ],
+        keyPoints: [
+          { title: 'GPT-4o Vision Analysis', description: 'Powered by the most capable vision AI available. Reads your chart the same way a professional technical analyst would — then writes it up in plain English.', icon: Sparkles },
+          { title: '14-Point Institutional Checklist', description: 'The Second Opinion checks: trend, momentum, volume, news, session, risk-reward, pattern quality, and 7 more factors before giving a thumbs up or down.', icon: CheckCircle2 },
+          { title: 'Multi-Platform Support', description: 'Screenshot from ANY charting platform — the AI works regardless of the chart style, color scheme, or timeframe.', icon: Monitor }
+        ],
+        realWorldExamples: [
+          { scenario: 'Trader spots what looks like a breakout but isn\'t sure', outcome: 'Uploads screenshot to VEDD AI — it identifies a bull flag pattern, confirms volume expansion, gives 82% confidence BUY with specific entry, SL, and 3 TP levels', lesson: 'AI removes the ambiguity that causes hesitation. When you can see a clear institutional-grade assessment, execution becomes easier', type: 'success' },
+          { scenario: 'Trader about to enter right before a major news event', outcome: 'AI Second Opinion flags a high-impact NFP release in 45 minutes and gives a "Hold — wait for news reaction" verdict', lesson: 'The news-aware confirmation catches the timing mistakes that kill otherwise good setups', type: 'warning' }
+        ],
+        tips: [
+          'Ambassador pitch: "Upload your chart, get an institutional-grade analysis in 10 seconds — then confirm with the AI Second Opinion checklist"',
+          'Great demo content: side-by-side of your manual analysis vs AI analysis — show where AI spotted things you missed',
+          'Key hook for beginners: "You don\'t need to know what a Head & Shoulders pattern is — the AI explains every pattern it finds in plain English"'
+        ]
+      },
+      {
+        id: 'ai-tools-5',
+        title: 'Weekly Strategy + EA Generator + What-If Analysis',
+        content: [
+          'The Weekly Strategy Generator produces a full trading plan every week: market direction, key pairs to watch, specific entry conditions, risk parameters, and recommended HFT mode (scalping, momentum, session breakout, sniper, or aggressive compound)',
+          'EA Generator turns your chart analysis or strategy into fully functional MT5 Expert Advisor code — no programming knowledge needed. The generated code is transparent and reviewable',
+          'The EA Marketplace lets you publish your successful strategies for other traders to subscribe to — earning recurring income passively',
+          'What-If Scenario Analysis lets you explore "what would happen if I entered here instead?" — the AI models different entry, SL, and TP combinations and gives probability-weighted outcomes',
+          'News & Economic Events panel delivers real-time Finnhub headlines with AI sentiment scores (bullish/bearish/neutral) plus an upcoming high-impact event calendar'
+        ],
+        keyPoints: [
+          { title: 'EA Without Coding', description: 'The average custom EA costs $200–$500 from a developer. VEDD generates it in 60 seconds from your own analysis. You own the code.', icon: Zap },
+          { title: 'Marketplace Income', description: 'Publish your best-performing EAs and strategies. When other traders subscribe, you earn recurring revenue without doing more work.', icon: Coins },
+          { title: 'What-If Scenarios', description: 'Test alternate trade ideas against AI probability models before risking real money. The AI shows you best case, worst case, and most likely outcomes.', icon: Lightbulb }
+        ],
+        realWorldExamples: [
+          { scenario: 'Trader has a strategy that has been profitable for 3 months', outcome: 'Generates an EA from the strategy, backtests it, publishes to marketplace — earns $340 in first month from 12 subscribers', lesson: 'The marketplace turns your trading edge into a scalable income stream without requiring you to manage other people\'s trades', type: 'success' },
+          { scenario: 'Trader uncertain whether to move SL to breakeven or let trade run', outcome: 'What-If analysis shows: leaving SL at original gives 65% chance of full TP, moving to BE gives 89% chance of keeping partial profit', lesson: 'What-If removes the emotional component from trade management decisions by quantifying probabilities', type: 'insight' }
+        ],
+        tips: [
+          'Ambassador pitch for EA Generator: "Turn your trading strategy into a 24/7 robot — no coding, no developer fees, your rules"',
+          'Ambassador pitch for Marketplace: "Your strategy is worth more than just your own account — earn passive income by sharing it"',
+          'What-If is great for beginners who overthink trade management — show them a live demo of running different SL scenarios'
+        ],
+        quiz: {
+          question: 'Which VEDD AI tool lets you test trading scenarios without risking real money?',
+          options: [
+            'EA Generator',
+            'What-If Scenario Analysis',
+            'Weekly Strategy Generator',
+            'AI Second Opinion'
+          ],
+          correct: 1
+        }
+      }
+    ]
   }
 ];
 
@@ -2082,6 +2236,15 @@ export default function AmbassadorTrainingPage() {
   const [showCertificate, setShowCertificate] = useState(false);
   const [walletAddress, setWalletAddress] = useState('');
   const [showNFTSection, setShowNFTSection] = useState(false);
+  const [socialTab, setSocialTab] = useState<'twitter' | 'instagram' | 'youtube' | 'linkedin'>('twitter');
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const copyToClipboard = (text: string, id: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 2000);
+    });
+  };
 
   // Handle URL parameters for deep linking from training calendar
   useEffect(() => {
@@ -2676,6 +2839,288 @@ export default function AmbassadorTrainingPage() {
             </CardContent>
           </Card>
         </div>
+
+        {/* ─── Social Content Hub ─────────────────────────────────────── */}
+        <Card className="mb-8 bg-gradient-to-br from-gray-900 via-gray-900 to-gray-800 border-gray-700 shadow-2xl overflow-hidden">
+          <CardHeader className="border-b border-gray-800">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-pink-600 to-rose-700 flex items-center justify-center shadow-lg">
+                <Share2 className="h-5 w-5 text-white" />
+              </div>
+              <div>
+                <CardTitle className="text-white text-xl">Social Content Hub</CardTitle>
+                <CardDescription className="text-gray-400 text-sm">Ready-to-post content for every AI tool — click any card to copy instantly</CardDescription>
+              </div>
+            </div>
+            <div className="flex gap-2 flex-wrap mt-4">
+              {([
+                { id: 'twitter', label: 'Twitter / X', icon: Twitter, color: 'blue' },
+                { id: 'instagram', label: 'Instagram / TikTok', icon: Instagram, color: 'pink' },
+                { id: 'youtube', label: 'YouTube', icon: Youtube, color: 'red' },
+                { id: 'linkedin', label: 'LinkedIn', icon: Linkedin, color: 'sky' },
+              ] as const).map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setSocialTab(tab.id)}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all ${
+                    socialTab === tab.id
+                      ? 'bg-rose-600 text-white shadow-lg'
+                      : 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700'
+                  }`}
+                >
+                  <tab.icon className="h-3.5 w-3.5" />
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          </CardHeader>
+          <CardContent className="pt-6">
+
+            {/* Twitter / X Content */}
+            {socialTab === 'twitter' && (
+              <div className="space-y-4">
+                <p className="text-gray-400 text-sm mb-4">Copy-paste posts optimized for Twitter / X. Customize the numbers to match your own results before posting.</p>
+                {[
+                  {
+                    id: 'tw-1', tool: 'SS AI Engine', color: 'emerald',
+                    text: 'The VEDD SS AI Engine just ran 18 strategies across XAUUSD and GBPUSD — picked the highest-confluence setup and auto-entered at market open. This is what AI-powered HFT looks like. 🔥\n\n#VEDDAI #AlgoTrading #Forex #TradingBot',
+                  },
+                  {
+                    id: 'tw-2', tool: 'VEDD Brain', color: 'violet',
+                    text: 'VEDD\'s self-learning brain analyzed 47 historical trades this week and updated its EUR/USD win-rate model. Every trade makes it smarter. 🧠\n\nThe more you trade, the better it gets. This is next-level AI.\n\n#VEDDAI #MachineLearning #Trading #AlgoTrading',
+                  },
+                  {
+                    id: 'tw-3', tool: 'Sol Engine', color: 'blue',
+                    text: 'Tested VEDD Sol Engine paper trade mode on a trending Solana token — virtual +23% in 4 hours. Zero risk, real market data, real prices.\n\nNow considering live mode. ⚡\n\n#VEDDAI #Solana #Crypto #DeFi #SolanaTrading',
+                  },
+                  {
+                    id: 'tw-4', tool: 'Chart Analysis', color: 'amber',
+                    text: 'Uploaded my TradingView screenshot to VEDD AI — it spotted a Head & Shoulders pattern I completely missed. Saved me from a losing trade. 🎯\n\nGPT-4o vision + technical analysis = your second set of expert eyes.\n\n#VEDDAI #ChartAnalysis #Trading #TradingView',
+                  },
+                  {
+                    id: 'tw-5', tool: 'AI Second Opinion', color: 'rose',
+                    text: 'Before entering ANY trade I run VEDD\'s AI Second Opinion. 14-point institutional checklist + live news sentiment. If it doesn\'t pass, I don\'t enter.\n\nDiscipline is the edge. ✅\n\n#VEDDAI #RiskManagement #Trading #TradingDiscipline',
+                  },
+                  {
+                    id: 'tw-6', tool: 'EA Generator', color: 'cyan',
+                    text: 'Generated a complete MT5 Expert Advisor from my chart analysis in under 60 seconds. No coding. No outsourcing. No $500 developer fee.\n\nJust VEDD AI + my strategy = automated trading robot. 💻\n\n#VEDDAI #MT5 #ExpertAdvisor #AlgoTrading #NoCode',
+                  },
+                  {
+                    id: 'tw-7', tool: 'Hashtag Packs', color: 'gray',
+                    text: 'FOREX PACK:\n#Forex #ForexTrading #ForexSignals #XAUUSD #GBPUSD #MT5 #TradingBot #AlgoTrading #VEDDAI\n\nCRYPTO PACK:\n#Solana #SOL #Crypto #DeFi #SolanaTrading #CryptoTrading #Web3 #VEDDAI\n\nGENERAL TRADING:\n#Trading #TradingSignals #TradingStrategy #TradingPsychology #SmartMoney #VEDDAI',
+                  },
+                ].map(post => (
+                  <Card key={post.id} className="bg-gray-800/60 border-gray-700 hover:border-gray-600 transition-all">
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between gap-3 mb-3">
+                        <Badge className={`bg-${post.color}-500/20 text-${post.color}-400 border-${post.color}-500/30 text-xs shrink-0`}>{post.tool}</Badge>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="border-gray-600 text-gray-400 hover:text-white hover:border-gray-500 text-xs gap-1 shrink-0"
+                          onClick={() => copyToClipboard(post.text, post.id)}
+                        >
+                          {copiedId === post.id ? <CheckCircle2 className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                          {copiedId === post.id ? 'Copied!' : 'Copy'}
+                        </Button>
+                      </div>
+                      <p className="text-gray-300 text-sm whitespace-pre-line leading-relaxed">{post.text}</p>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+
+            {/* Instagram / TikTok Content */}
+            {socialTab === 'instagram' && (
+              <div className="space-y-4">
+                <p className="text-gray-400 text-sm mb-4">Hook → Demo → CTA scripts for Reels and TikTok. Each script is designed for a 30–60 second video.</p>
+                {[
+                  {
+                    id: 'ig-1', tool: 'SS AI Engine', duration: '45 sec Reel',
+                    hook: '⚡ HOOK (0–5s): "I let an AI trade forex for me for a full week — here\'s exactly what happened"',
+                    demo: '📱 DEMO (5–45s):\n→ Show VEDD dashboard with SS Engine running\n→ Zoom in on live activity feed (trades firing)\n→ Show weekly P&L tracker updating\n→ Pull back to show profit goal progress bar moving\n→ Text overlay: "18 strategies running 24/5 — no manual trading needed"',
+                    cta: '🔗 CTA (45–50s): "Link in bio — VEDD AI is free to try. Start with paper mode, zero risk."',
+                    caption: 'I handed my forex account to an AI for a week 😳 Here\'s what happened... 📈\n\nVEDD SS AI Engine runs 18 strategies simultaneously — scalping, momentum, session breakout. It picks the best setup in real-time.\n\nStarted with paper mode (no risk). Results spoke for themselves.\n\nLink in bio to try for free 👆\n\n#VEDDAI #ForexTrading #TradingBot #AlgoTrading #PassiveIncome #Forex #TradingTips',
+                  },
+                  {
+                    id: 'ig-2', tool: 'Sol Engine', duration: '30 sec Reel',
+                    hook: '⚡ HOOK (0–5s): "This AI scanned 200+ Solana tokens in 10 seconds and found 3 buy signals"',
+                    demo: '📱 DEMO (5–30s):\n→ Show Sol Engine scanning (activity feed scrolling)\n→ Zoom to a token result with confidence score\n→ Show paper trade opening automatically\n→ Time-lapse: position going from entry to +18%\n→ Text: "Paper mode = real prices, zero risk"',
+                    cta: '🔗 CTA (30–35s): "Try VEDD Sol Engine — link in bio. Paper mode is 100% free."',
+                    caption: 'POV: AI finds the Solana gem before you do 🤖⚡\n\nVEDD Sol Engine scans Raydium, Orca, Jupiter, and more — all at once.\n\nPaper trading mode = REAL market data, ZERO risk. Perfect to test before going live.\n\nWho else is tired of manually scanning DexScreener? 😅\n\nLink in bio 👆\n\n#Solana #SOL #DeFi #CryptoTrading #VEDDAI #SolanaGems #CryptoBot',
+                  },
+                  {
+                    id: 'ig-3', tool: 'VEDD Brain', duration: '30 sec Reel',
+                    hook: '⚡ HOOK (0–5s): "The longer you trade with this AI, the smarter it gets"',
+                    demo: '📱 DEMO (5–30s):\n→ Show Brain status panel: "47 trades analyzed, 8 pairs learned"\n→ Zoom to per-pair win rate breakdown\n→ Show Brain Enforcer blocking a losing signal\n→ Text: "It blocked this GBPUSD trade — pair was on 3-loss streak"\n→ Show autonomous signal being generated from brain data',
+                    cta: '🔗 CTA (30–35s): "Your AI that learns YOUR market — link in bio"',
+                    caption: 'Most trading bots are dumb. This one learns. 🧠\n\nVEDD Self-Learning Brain analyzes every trade you make and builds a model of your market — which pairs you win on, which sessions, which direction.\n\nThe more you use it, the more personalized it becomes.\n\nThis is not a generic signal service. This is YOUR AI.\n\n#VEDDAI #TradingBot #MachineLearning #AI #Forex #SmartTrading',
+                  },
+                  {
+                    id: 'ig-4', tool: 'Chart Analysis', duration: '30 sec Reel',
+                    hook: '⚡ HOOK (0–5s): "I uploaded my chart and the AI spotted something I completely missed"',
+                    demo: '📱 DEMO (5–30s):\n→ Show uploading a TradingView screenshot\n→ Show AI analysis loading (progress animation)\n→ Reveal: Head & Shoulders pattern highlighted\n→ Show full analysis: entry, SL, TP, confidence 84%\n→ Text: "I would have bought. AI said SELL. AI was right."',
+                    cta: '🔗 CTA (30–35s): "Free chart analysis — link in bio. Any chart, any platform."',
+                    caption: 'The AI caught what my eyes missed 👀\n\nUploaded my XAUUSD chart to VEDD AI → it identified a Head & Shoulders pattern forming → gave me a SELL signal with 84% confidence.\n\nI was about to BUY 😅\n\nGPT-4o vision + technical analysis = your trading second opinion.\n\nFree to try — link in bio 👆\n\n#ChartAnalysis #VEDDAI #ForexTrading #TechnicalAnalysis #Trading #GoldTrading',
+                  },
+                ].map(script => (
+                  <Card key={script.id} className="bg-gray-800/60 border-gray-700">
+                    <CardHeader className="pb-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Badge className="bg-pink-500/20 text-pink-400 border-pink-500/30 text-xs">{script.tool}</Badge>
+                          <span className="text-gray-500 text-xs">{script.duration}</span>
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <div className="bg-gray-900/60 rounded-lg p-3 border border-gray-700/50">
+                        <p className="text-xs text-gray-300 whitespace-pre-line leading-relaxed">{script.hook}</p>
+                      </div>
+                      <div className="bg-gray-900/60 rounded-lg p-3 border border-gray-700/50">
+                        <p className="text-xs text-gray-300 whitespace-pre-line leading-relaxed">{script.demo}</p>
+                      </div>
+                      <div className="bg-gray-900/60 rounded-lg p-3 border border-gray-700/50">
+                        <p className="text-xs text-gray-300 whitespace-pre-line leading-relaxed">{script.cta}</p>
+                      </div>
+                      <div className="border-t border-gray-700 pt-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs text-gray-500 flex items-center gap-1"><Hash className="h-3 w-3" /> Caption + Hashtags</span>
+                          <Button size="sm" variant="outline" className="border-gray-600 text-gray-400 hover:text-white text-xs gap-1 h-7" onClick={() => copyToClipboard(script.caption, script.id)}>
+                            {copiedId === script.id ? <CheckCircle2 className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                            {copiedId === script.id ? 'Copied!' : 'Copy Caption'}
+                          </Button>
+                        </div>
+                        <p className="text-xs text-gray-400 whitespace-pre-line leading-relaxed">{script.caption}</p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+
+            {/* YouTube Content */}
+            {socialTab === 'youtube' && (
+              <div className="space-y-4">
+                <p className="text-gray-400 text-sm mb-4">Title templates and description frameworks optimized for search and clicks. Replace [RESULT] with your actual outcome.</p>
+                {[
+                  {
+                    id: 'yt-1', tool: 'SS AI Engine', category: 'Viral Hook',
+                    titles: [
+                      'I Let AI Trade Forex For Me For 7 Days — [RESULT]',
+                      'VEDD AI Engine: 18 Strategies Running Simultaneously — Full Demo',
+                      'This AI Bot Made [X]% Return In One Week (Forex Algo Trading)',
+                    ],
+                    description: 'In this video I show you exactly how VEDD\'s SS AI Engine works — 18 HFT strategies running on XAUUSD, GBPUSD, and EURUSD simultaneously.\n\n⏱️ TIMESTAMPS:\n0:00 — What is VEDD SS AI Engine?\n2:00 — Setting weekly profit goals\n4:00 — Live demo: watching trades fire\n8:00 — Results breakdown\n12:00 — How to get started free\n\n🔗 Try VEDD AI free: [YOUR LINK]\n\n#VEDDAI #ForexBot #AlgoTrading #TradingBot',
+                  },
+                  {
+                    id: 'yt-2', tool: 'Chart Analysis', category: 'Educational',
+                    titles: [
+                      'VEDD AI Found a Pattern My Eyes Missed — Chart Analysis Breakdown',
+                      'I Uploaded 10 Charts to AI — Here\'s What It Found (GPT-4o Trading)',
+                      'AI vs Manual Chart Analysis: Which Is More Accurate? (Real Test)',
+                    ],
+                    description: 'I tested VEDD\'s GPT-4o chart analysis tool on 10 of my real trades — here\'s exactly what patterns it identified that I missed.\n\n⏱️ TIMESTAMPS:\n0:00 — How VEDD chart analysis works\n1:30 — Upload #1: XAUUSD — what AI found\n4:00 — Upload #2: GBPUSD — the pattern I missed\n7:00 — Full breakdown: AI accuracy rate\n10:00 — How to use it in your trading routine\n\n🔗 Free chart analysis: [YOUR LINK]\n\n#ChartAnalysis #VEDDAI #TradingAI #GPT4 #TechnicalAnalysis',
+                  },
+                  {
+                    id: 'yt-3', tool: 'Sol Engine', category: 'Crypto',
+                    titles: [
+                      'Solana AI Bot Paper Trading — From $0 to $[X] in 72 Hours (No Risk)',
+                      'I Let VEDD AI Pick Solana Tokens For 3 Days — Here\'s The Result',
+                      'Best Solana Trading Bot 2025? I Tested VEDD Sol Engine (Full Review)',
+                    ],
+                    description: 'I ran VEDD\'s Sol Engine in paper trading mode for 72 hours — scanning Raydium, Orca, Meteora, PumpFun, and Jupiter for the best signals.\n\n⏱️ TIMESTAMPS:\n0:00 — What is VEDD Sol Engine?\n2:00 — Setting up paper trading mode\n5:00 — Watching the first signals fire\n9:00 — 72-hour results: wins, losses, P&L\n13:00 — Should you go live? My honest take\n\n🔗 Try paper trading free: [YOUR LINK]\n\n#Solana #VEDDAI #SolanaBot #CryptoTrading #DeFi',
+                  },
+                  {
+                    id: 'yt-4', tool: 'EA Generator', category: 'Tutorial',
+                    titles: [
+                      'I Generated a Forex EA in 60 Seconds — No Coding Required (VEDD AI)',
+                      'How to Create a MT5 Expert Advisor Without Coding in 2025',
+                      'Turn Your Trading Strategy Into an Automated Robot — Free Tool',
+                    ],
+                    description: 'Step-by-step tutorial: how to turn your chart analysis into a fully working MT5 Expert Advisor using VEDD AI — no programming required.\n\n⏱️ TIMESTAMPS:\n0:00 — Why most traders fail at automation\n2:00 — VEDD EA Generator: how it works\n4:00 — Live demo: generating an EA from scratch\n7:00 — Installing the EA on MT5\n10:00 — Backtesting the generated EA\n13:00 — Uploading to the marketplace\n\n🔗 Generate your first EA free: [YOUR LINK]\n\n#MT5 #ExpertAdvisor #ForexBot #VEDDAI #TradingAutomation',
+                  },
+                ].map(item => (
+                  <Card key={item.id} className="bg-gray-800/60 border-gray-700">
+                    <CardHeader className="pb-3">
+                      <div className="flex items-center gap-2">
+                        <Badge className="bg-red-500/20 text-red-400 border-red-500/30 text-xs">{item.tool}</Badge>
+                        <Badge variant="outline" className="text-gray-400 border-gray-600 text-xs">{item.category}</Badge>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <div>
+                        <p className="text-xs text-gray-500 mb-2 uppercase tracking-wide">Title Options (pick one)</p>
+                        <div className="space-y-2">
+                          {item.titles.map((title, i) => (
+                            <div key={i} className="flex items-start justify-between gap-2 bg-gray-900/60 rounded-lg p-2.5 border border-gray-700/50">
+                              <p className="text-sm text-white leading-tight">{title}</p>
+                              <Button size="sm" variant="ghost" className="text-gray-500 hover:text-white h-6 px-2 shrink-0" onClick={() => copyToClipboard(title, `${item.id}-t${i}`)}>
+                                {copiedId === `${item.id}-t${i}` ? <CheckCircle2 className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-xs text-gray-500 uppercase tracking-wide">Description Template</p>
+                          <Button size="sm" variant="outline" className="border-gray-600 text-gray-400 hover:text-white text-xs gap-1 h-7" onClick={() => copyToClipboard(item.description, item.id)}>
+                            {copiedId === item.id ? <CheckCircle2 className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                            {copiedId === item.id ? 'Copied!' : 'Copy'}
+                          </Button>
+                        </div>
+                        <div className="bg-gray-900/60 rounded-lg p-3 border border-gray-700/50">
+                          <p className="text-xs text-gray-400 whitespace-pre-line leading-relaxed">{item.description}</p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+
+            {/* LinkedIn Content */}
+            {socialTab === 'linkedin' && (
+              <div className="space-y-4">
+                <p className="text-gray-400 text-sm mb-4">Professional-tone posts for LinkedIn. Focus on technology, innovation, and business value — not just trade results.</p>
+                {[
+                  {
+                    id: 'li-1', tool: 'Platform Overview', category: 'Thought Leadership',
+                    text: 'The future of retail trading is autonomous AI — and it\'s already here.\n\nI\'ve been using VEDD AI Trading Platform for the past month. Here\'s what genuinely surprised me:\n\n1. Chart Analysis: Upload any screenshot. GPT-4o identifies patterns, trend direction, entry/exit levels, and confidence score — in seconds.\n\n2. SS AI Engine: 18 HFT strategies run simultaneously. The system picks the highest-confluence setup, executes the trade, and manages the trail stop automatically.\n\n3. Self-Learning Brain: Every completed trade updates a per-pair knowledge model. Win rates, preferred sessions, directional bias — all learned from your own history.\n\nThis isn\'t a signal service. It\'s an AI system that gets better the more you use it.\n\nIf you\'re involved in fintech, trading, or AI applications — this is worth exploring.\n\n🔗 [YOUR LINK]\n\n#FinTech #AI #Trading #MachineLearning #AlgorithmicTrading #Forex',
+                  },
+                  {
+                    id: 'li-2', tool: 'VEDD Brain', category: 'Technology Deep-Dive',
+                    text: 'Most trading systems use static rules. VEDD\'s Self-Learning Brain doesn\'t.\n\nHere\'s how it works in practice:\n\nEvery 5 completed trades, the system auto-retrains. It builds per-pair models tracking:\n• Win rate by pair (XAUUSD, GBPUSD, EURUSD, etc.)\n• Preferred direction (buy vs sell performance)\n• Session performance (London, New York, Tokyo)\n• ATR-relative risk tolerance\n• Consecutive loss streak tracking\n\nThe Brain Enforcer then uses this model as a hard filter. If a pair is on a losing streak in the current session, the proposed trade is blocked before it reaches the AI.\n\nThis is how institutional desks manage risk at scale — VEDD makes it accessible to individual traders.\n\nThe pattern recognition layer is GPT-4o. The memory layer is the Brain. Together, they compound in value.\n\n#AI #MachineLearning #AlgorithmicTrading #RiskManagement #FinTech #Innovation',
+                  },
+                  {
+                    id: 'li-3', tool: 'Risk Management', category: 'Educational',
+                    text: 'Institutional traders have one advantage most retail traders never get: systematic risk management.\n\nVEDD AI\'s approach to this is worth understanding:\n\nBefore any trade enters:\n✅ Brain Enforcer checks pair win rate history\n✅ Volume filter confirms above-average market participation\n✅ News sentiment checks for high-impact events\n✅ Session alignment (London/NY overlap prioritized)\n✅ ATR-relative lot sizing prevents oversizing\n\nDuring a trade:\n✅ Multiple trail stop methods (Parabolic SAR, Fixed Pip, Profit Lock %, Stepped Fixed)\n✅ Auto-compounding on win streaks\n✅ Automatic lot reduction on loss streaks\n\nAfter 5 trades:\n✅ Brain retrains with new data\n✅ Losing pairs flagged for temporary avoidance\n\nThis is a 14+ point risk framework running automatically. The 14-point AI Second Opinion applies the same logic to manual trades.\n\nSystematic edge, not luck.\n\n🔗 [YOUR LINK]\n\n#RiskManagement #Trading #AlgorithmicTrading #FinTech #AI #Investing',
+                  },
+                ].map(post => (
+                  <Card key={post.id} className="bg-gray-800/60 border-gray-700">
+                    <CardHeader className="pb-3">
+                      <div className="flex items-center gap-2">
+                        <Badge className="bg-sky-500/20 text-sky-400 border-sky-500/30 text-xs">{post.tool}</Badge>
+                        <Badge variant="outline" className="text-gray-400 border-gray-600 text-xs">{post.category}</Badge>
+                        <Button size="sm" variant="outline" className="border-gray-600 text-gray-400 hover:text-white text-xs gap-1 h-7 ml-auto" onClick={() => copyToClipboard(post.text, post.id)}>
+                          {copiedId === post.id ? <CheckCircle2 className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                          {copiedId === post.id ? 'Copied!' : 'Copy Post'}
+                        </Button>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="bg-gray-900/60 rounded-lg p-4 border border-gray-700/50">
+                        <p className="text-sm text-gray-300 whitespace-pre-line leading-relaxed">{post.text}</p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         {/* Compensation Section */}
         <Card className="mb-8 bg-gradient-to-r from-green-900/30 to-gray-900 border-green-500/30">

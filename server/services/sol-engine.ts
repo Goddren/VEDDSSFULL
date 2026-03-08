@@ -1415,6 +1415,9 @@ export function getSolEngineStatus(userId: number) {
     paperBaseCapital: state.paperBaseCapital,
     paperPortfolioValue: state.paperPortfolioValue,
     paperPortfolioHistory: state.paperPortfolioHistory,
+    autoTradeEnabled: state.autoTradeEnabled,
+    liveTradeEnabled: state.liveTradeEnabled,
+    autoTradeMode: state.liveTradeEnabled ? 'live' : state.autoTradeEnabled ? 'paper' : 'off',
   };
 }
 
