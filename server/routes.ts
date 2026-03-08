@@ -28,6 +28,16 @@ import {
   cancelSubscription,
   checkUserSubscriptionLimits
 } from "./stripe";
+import {
+  lsCreateCheckout,
+  lsVerifyWebhook,
+  lsHandleWebhookEvent,
+  lsSetPlanVariantId,
+  lsGetPlanVariants,
+  lsCancelSubscription,
+  lsGetProducts,
+  lsGetVariants,
+} from "./lemonsqueezy";
 import multer from "multer";
 import fs from "fs";
 import path from "path";
@@ -2431,6 +2441,143 @@ Respond ONLY in valid JSON format with these exact keys:
     } catch (error) {
       console.error('Error handling webhook:', error);
       res.status(500).json({ message: 'Error handling webhook' });
+    }
+  });
+
+  // ===== Lemon Squeezy USD Subscription Endpoints =====
+
+  // Create a Lemon Squeezy checkout session for a plan
+  app.post('/api/lemonsqueezy/checkout', async (req: Request, res: Response) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ message: 'Authentication required' });
+      }
+
+      const { planId } = req.body;
+      if (!planId) {
+        return res.status(400).json({ message: 'Plan ID is required' });
+      }
+
+      const user = req.user as User;
+      const plans = await getSubscriptionPlans();
+      const plan = (plans as any[]).find((p: any) => p.id === planId);
+
+      if (!plan) {
+        return res.status(404).json({ message: 'Plan not found' });
+      }
+
+      if (!plan.lsVariantId) {
+        return res.status(400).json({
+          message: 'Lemon Squeezy not configured for this plan. Please contact support.',
+          code: 'LS_NOT_CONFIGURED',
+        });
+      }
+
+      const checkout = await lsCreateCheckout(
+        plan.lsVariantId,
+        user.email,
+        user.fullName || user.username,
+        user.id,
+        planId,
+      );
+
+      const checkoutUrl = checkout?.data?.attributes?.url;
+      if (!checkoutUrl) {
+        throw new Error('No checkout URL returned from Lemon Squeezy');
+      }
+
+      res.json({ checkoutUrl });
+    } catch (error) {
+      console.error('[LS] Checkout error:', error);
+      res.status(500).json({
+        message: error instanceof Error ? error.message : 'Error creating checkout',
+      });
+    }
+  });
+
+  // Get Lemon Squeezy plan variant IDs (for admin setup)
+  app.get('/api/lemonsqueezy/plan-variants', async (req: Request, res: Response) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ message: 'Authentication required' });
+      }
+      const variants = await lsGetPlanVariants();
+      res.json(variants);
+    } catch (error) {
+      res.status(500).json({ message: 'Error fetching plan variants' });
+    }
+  });
+
+  // Set Lemon Squeezy variant ID for a plan (admin)
+  app.post('/api/lemonsqueezy/set-variant', async (req: Request, res: Response) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ message: 'Authentication required' });
+      }
+      const { planId, variantId } = req.body;
+      if (!planId || !variantId) {
+        return res.status(400).json({ message: 'planId and variantId are required' });
+      }
+      await lsSetPlanVariantId(planId, variantId);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ message: 'Error setting variant ID' });
+    }
+  });
+
+  // Get Lemon Squeezy products/variants from the store
+  app.get('/api/lemonsqueezy/store-variants', async (req: Request, res: Response) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ message: 'Authentication required' });
+      }
+      const variants = await lsGetVariants();
+      res.json(variants);
+    } catch (error) {
+      res.status(500).json({ message: 'Error fetching store variants' });
+    }
+  });
+
+  // Cancel a Lemon Squeezy subscription
+  app.post('/api/lemonsqueezy/cancel', async (req: Request, res: Response) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ message: 'Authentication required' });
+      }
+      const user = req.user as User;
+      if (!(user as any).lsSubscriptionId) {
+        return res.status(400).json({ message: 'No active Lemon Squeezy subscription found' });
+      }
+      await lsCancelSubscription((user as any).lsSubscriptionId);
+      res.json({ success: true, message: 'Subscription cancelled' });
+    } catch (error) {
+      console.error('[LS] Cancel error:', error);
+      res.status(500).json({ message: error instanceof Error ? error.message : 'Error cancelling subscription' });
+    }
+  });
+
+  // Lemon Squeezy webhook — must be raw body
+  app.post('/api/lemonsqueezy/webhook', async (req: Request, res: Response) => {
+    try {
+      const signature = req.headers['x-signature'] as string;
+      const rawBody = (req as any).rawBody as Buffer;
+
+      if (signature && rawBody) {
+        const valid = lsVerifyWebhook(rawBody, signature);
+        if (!valid) {
+          console.warn('[LS webhook] Invalid signature');
+          return res.status(401).json({ message: 'Invalid webhook signature' });
+        }
+      }
+
+      const event = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+      const result = await lsHandleWebhookEvent(event);
+
+      console.log('[LS webhook] Processed:', result);
+      res.json({ received: true, ...result });
+    } catch (error) {
+      console.error('[LS webhook] Error:', error);
+      res.status(500).json({ message: 'Webhook processing error' });
     }
   });
 

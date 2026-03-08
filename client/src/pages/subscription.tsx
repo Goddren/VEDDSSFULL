@@ -1,14 +1,15 @@
 import { useEffect, useState } from 'react';
 import { apiRequest } from '@/lib/queryClient';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/use-auth';
 import { useLocation } from 'wouter';
-import { Loader2, Check, AlertCircle, Coins, Crown, Shield, Star, Wallet, ExternalLink } from 'lucide-react';
+import { Loader2, Check, AlertCircle, Coins, Crown, Shield, Star, Wallet, ExternalLink, Settings, ChevronDown, ChevronUp } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import VeddPaymentButton from '@/components/VeddPaymentButton';
 
 type Plan = {
@@ -38,8 +39,12 @@ export default function SubscriptionPage() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [selectedPlanId, setSelectedPlanId] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [lsLoading, setLsLoading] = useState<number | null>(null);
+  const [showLsSetup, setShowLsSetup] = useState(false);
+  const [variantInputs, setVariantInputs] = useState<Record<number, string>>({});
 
   // No redirect - pricing page is public
 
@@ -62,10 +67,73 @@ export default function SubscriptionPage() {
     enabled: !!user,
   });
 
+  // Fetch Lemon Squeezy plan variant IDs
+  const { data: lsVariants } = useQuery<Record<number, string | null>>({
+    queryKey: ['/api/lemonsqueezy/plan-variants'],
+    queryFn: async () => {
+      const res = await apiRequest('GET', '/api/lemonsqueezy/plan-variants');
+      return res.json();
+    },
+    enabled: !!user,
+  });
+
   // Format price for display
   const formatPrice = (price: number): string => {
     if (price === 0) return 'Free';
     return `$${(price / 100).toFixed(2)}`;
+  };
+
+  // Handle Lemon Squeezy checkout
+  const handleLemonSqueezyCheckout = async (planId: number) => {
+    if (!user) {
+      toast({ title: 'Login Required', description: 'Please log in to subscribe.', variant: 'default' });
+      setLocation('/auth');
+      return;
+    }
+    try {
+      setLsLoading(planId);
+      const res = await apiRequest('POST', '/api/lemonsqueezy/checkout', { planId });
+      const result = await res.json();
+
+      if (result.code === 'LS_NOT_CONFIGURED') {
+        toast({
+          title: 'Payment Setup In Progress',
+          description: 'Lemon Squeezy checkout is being configured. Please check back soon or contact support.',
+          variant: 'default',
+        });
+        return;
+      }
+
+      if (result.checkoutUrl) {
+        window.location.href = result.checkoutUrl;
+      } else {
+        throw new Error(result.message || 'No checkout URL returned');
+      }
+    } catch (error) {
+      toast({
+        title: 'Checkout Failed',
+        description: error instanceof Error ? error.message : 'Error creating checkout session.',
+        variant: 'destructive',
+      });
+    } finally {
+      setLsLoading(null);
+    }
+  };
+
+  // Save a Lemon Squeezy variant ID for a plan
+  const handleSaveVariant = async (planId: number) => {
+    const variantId = variantInputs[planId]?.trim();
+    if (!variantId) {
+      toast({ title: 'Enter a variant ID', variant: 'destructive' });
+      return;
+    }
+    try {
+      await apiRequest('POST', '/api/lemonsqueezy/set-variant', { planId, variantId });
+      queryClient.invalidateQueries({ queryKey: ['/api/lemonsqueezy/plan-variants'] });
+      toast({ title: 'Variant ID saved!', description: `Plan ${planId} → variant ${variantId}` });
+    } catch (error) {
+      toast({ title: 'Failed to save', variant: 'destructive' });
+    }
   };
 
   // Handle subscription
@@ -657,11 +725,31 @@ export default function SubscriptionPage() {
                       Select Free Plan
                     </Button>
                   ) : (
-                    <VeddPaymentButton 
-                      planId={plan.id} 
-                      planName={plan.name}
-                      priceUsd={plan.price / 100}
-                    />
+                    <div className="flex flex-col gap-2 w-full">
+                      {/* Lemon Squeezy USD Checkout */}
+                      <Button
+                        className="w-full bg-yellow-500 hover:bg-yellow-400 text-black font-bold gap-2"
+                        onClick={() => handleLemonSqueezyCheckout(plan.id)}
+                        disabled={lsLoading === plan.id}
+                        data-testid={`button-ls-${plan.id}`}
+                      >
+                        {lsLoading === plan.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <span className="text-base">🍋</span>
+                        )}
+                        Pay USD — {formatPrice(plan.price)}
+                        {lsVariants?.[plan.id] ? null : (
+                          <Badge variant="outline" className="ml-1 text-xs border-black/30 text-black/60">setup needed</Badge>
+                        )}
+                      </Button>
+                      {/* VEDD Token Payment */}
+                      <VeddPaymentButton 
+                        planId={plan.id} 
+                        planName={plan.name}
+                        priceUsd={plan.price / 100}
+                      />
+                    </div>
                   )}
                 </>
               )}
@@ -1065,6 +1153,76 @@ export default function SubscriptionPage() {
           </p>
         </div>
       </div>
+
+      {/* Lemon Squeezy Admin Setup */}
+      {user && (
+        <div className="mt-12 border border-yellow-500/30 rounded-xl overflow-hidden">
+          <button
+            className="w-full flex items-center justify-between px-6 py-4 bg-yellow-500/10 hover:bg-yellow-500/15 transition-colors"
+            onClick={() => setShowLsSetup(!showLsSetup)}
+          >
+            <div className="flex items-center gap-3">
+              <span className="text-xl">🍋</span>
+              <div className="text-left">
+                <p className="font-semibold text-sm">Lemon Squeezy USD Payment Setup</p>
+                <p className="text-xs text-muted-foreground">Link your Lemon Squeezy variant IDs to enable USD checkout for each plan</p>
+              </div>
+            </div>
+            {showLsSetup ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+          </button>
+
+          {showLsSetup && (
+            <div className="p-6 space-y-4">
+              <Alert className="border-yellow-500/30 bg-yellow-500/5">
+                <Settings className="h-4 w-4 text-yellow-500" />
+                <AlertTitle className="text-yellow-600 dark:text-yellow-400">How to set up USD checkout</AlertTitle>
+                <AlertDescription className="text-sm space-y-2 mt-2">
+                  <p>1. Log in to your <a href="https://app.lemonsqueezy.com" target="_blank" rel="noopener noreferrer" className="text-primary underline">Lemon Squeezy dashboard</a></p>
+                  <p>2. Create a product for each paid plan (Starter, Premium, Yearly) with the correct prices</p>
+                  <p>3. Under each product, find the <strong>Variant ID</strong> (visible in the URL or product settings)</p>
+                  <p>4. Paste each Variant ID below and click Save</p>
+                  <p>5. Set up a webhook in Lemon Squeezy pointing to: <code className="bg-muted px-1 rounded text-xs">{window.location.origin}/api/lemonsqueezy/webhook</code></p>
+                  <p>6. Save your webhook signing secret as <code className="bg-muted px-1 rounded text-xs">LEMONSQUEEZY_WEBHOOK_SECRET</code> in your environment secrets</p>
+                </AlertDescription>
+              </Alert>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {plans?.filter(p => p.price > 0).map(plan => (
+                  <Card key={plan.id} className="border-yellow-500/20">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-semibold">{plan.name} Plan</CardTitle>
+                      <CardDescription className="text-xs">{formatPrice(plan.price)}</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-2">
+                      {lsVariants?.[plan.id] && (
+                        <div className="flex items-center gap-1 text-xs text-green-500">
+                          <Check className="h-3 w-3" />
+                          <span className="font-mono">{lsVariants[plan.id]}</span>
+                        </div>
+                      )}
+                      <div className="flex gap-2">
+                        <Input
+                          placeholder="Variant ID (e.g. 123456)"
+                          className="text-xs h-8"
+                          value={variantInputs[plan.id] || ''}
+                          onChange={e => setVariantInputs(prev => ({ ...prev, [plan.id]: e.target.value }))}
+                        />
+                        <Button
+                          size="sm"
+                          className="h-8 bg-yellow-500 hover:bg-yellow-400 text-black text-xs"
+                          onClick={() => handleSaveVariant(plan.id)}
+                        >
+                          Save
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="mt-12 text-center text-sm text-muted-foreground">
         <p>All subscriptions are automatically renewed monthly. You can cancel at any time.</p>

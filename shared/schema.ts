@@ -13,6 +13,7 @@ export const subscriptionPlans = pgTable("subscription_plans", {
   socialShareLimit: integer("social_share_limit").notNull(),
   stripeProductId: text("stripe_product_id"),
   stripePriceId: text("stripe_price_id"),
+  lsVariantId: text("ls_variant_id"),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
@@ -29,6 +30,8 @@ export const users = pgTable("users", {
   subscriptionPlanId: integer("subscription_plan_id").references(() => subscriptionPlans.id),
   stripeCustomerId: text("stripe_customer_id"),
   stripeSubscriptionId: text("stripe_subscription_id"),
+  lsCustomerId: text("ls_customer_id"),
+  lsSubscriptionId: text("ls_subscription_id"),
   subscriptionStatus: text("subscription_status").default('none'), // none, active, trialing, past_due, canceled, unpaid
   subscriptionCurrentPeriodEnd: timestamp("subscription_current_period_end"),
   monthlyAnalysisCount: integer("monthly_analysis_count").default(0),
