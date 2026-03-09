@@ -56,6 +56,7 @@ import { newsService, type NewsItem, type NewsSentiment } from "./news-service";
 import { extractFramesFromVideo, cleanupFrames } from "./video-processor";
 import { getGoldSentiment, getMockGoldSentiment, isTelegramConfigured } from "./telegram-sentiment";
 import { encryptPassword, executeMT5SignalOnTradeLocker, TradeLockerService, decryptPassword } from "./tradelocker";
+import { getPipSize, getPipValue } from "./utils/pipUtils";
 import veddTokenRouter from "./routes/vedd-token";
 import { veddTokenService } from "./services/vedd-token-service";
 import { streamingService } from "./streaming";
@@ -6721,37 +6722,17 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         const sl = analysis.tradePlan.stopLoss;
         const slDistance = Math.abs(entry - sl);
         
-        // For forex pairs, pip value varies. Use approximation:
-        // - For XXX/USD pairs: pip value ≈ $10 per standard lot
-        // - For USD/XXX pairs: pip value ≈ $10 / price per standard lot
-        // - For gold (XAUUSD): $100 per $1 move per standard lot
-        const currentPrice = candles[0]?.c || entry;
-        
-        let pipValue = 10; // Default $10/pip for standard lot
-        let slPips = slDistance;
-        
-        // Adjust for gold/metals
-        if (sanitizedSymbol.includes('XAU') || sanitizedSymbol.includes('GOLD')) {
-          // Gold: $100 per $1 move per standard lot
-          pipValue = 100;
-          slPips = slDistance; // Already in dollars
-        } else if (sanitizedSymbol.includes('JPY')) {
-          // JPY pairs: pip is 0.01, value adjusted
-          slPips = slDistance * 100; // Convert to pips
-          pipValue = 10;
-        } else if (slDistance < 0.01) {
-          // Forex pairs: pip is 0.0001, so SL of 0.0050 = 50 pips
-          slPips = slDistance * 10000; // Convert to pips
-          pipValue = 10;
-        } else {
-          // Already in pips or different calculation needed
-          slPips = slDistance * 10000;
-          pipValue = 10;
-        }
+        // Use shared pip utilities for all asset classes:
+        // XAUUSD pip=0.1, USDJPY pip=0.01, US30/NAS100/indices pip=1.0, BTC pip=1.0, standard forex pip=0.0001
+        const symPipSize = getPipSize(sanitizedSymbol);
+        const symPipValue = getPipValue(sanitizedSymbol);
+        const slPips = slDistance / symPipSize;
+
+        console.log(`[LOT SIZE] ${sanitizedSymbol}: pipSize=${symPipSize}, pipValue=${symPipValue}, slDist=${slDistance}, slPips=${slPips.toFixed(1)}, risk=$${riskAmount.toFixed(2)}`);
         
         // Calculate lots: Risk Amount / (SL Pips * Pip Value)
         if (slPips > 0) {
-          const calculatedLots = riskAmount / (slPips * pipValue);
+          const calculatedLots = riskAmount / (slPips * symPipValue);
           // Round to 2 decimal places and enforce min/max
           mt5Volume = Math.max(0.01, Math.min(10, Math.round(calculatedLots * 100) / 100));
         }

@@ -3,6 +3,7 @@ import { executeMT5SignalOnTradeLocker } from '../tradelocker';
 import { computeAllAdvancedIndicators, type CandleData } from '../indicators';
 import { storage } from '../storage';
 import { newsService } from '../news-service';
+import { getPipSize } from '../utils/pipUtils';
 
 interface VolumeMetrics {
   currentVolume: number;
@@ -1100,7 +1101,7 @@ function computeRMultipleSL(position: any, config?: { breakevenBufferPips?: numb
   // At 1R (lockedR === 0): apply breakeven buffer pips instead of exact entry
   if (lockedR === 0 && (config?.breakevenBufferPips ?? 0) > 0) {
     const bufferPips = config?.breakevenBufferPips ?? 5;
-    const pipSize = position.symbol?.includes('JPY') ? 0.01 : 0.0001;
+    const pipSize = getPipSize(position.symbol || '');
     const buffer = bufferPips * pipSize;
     return position.direction === 'BUY'
       ? openPrice + buffer
@@ -1185,7 +1186,7 @@ function computeFixedPipTrailSL(
 ): number {
   const price = position.currentPrice;
   if (!price || price <= 0) return position.sl || 0;
-  const pipSize = position.symbol?.includes('JPY') ? 0.01 : 0.0001;
+  const pipSize = getPipSize(position.symbol || '');
   const distance = fixedPips * pipSize;
   if (position.direction === 'BUY') {
     if (price > (trailState.highestHigh || 0)) trailState.highestHigh = price;
@@ -1230,7 +1231,7 @@ function computeSteppedFixedTrailSL(
 ): number {
   const rawSL = computeFixedPipTrailSL(position, fixedPips, trailState);
   if (rawSL <= 0) return position.sl || 0;
-  const pipSize = position.symbol?.includes('JPY') ? 0.01 : 0.0001;
+  const pipSize = getPipSize(position.symbol || '');
   const stepSize = stepPips * pipSize;
   const currentSL = position.sl || 0;
   const isBuy = position.direction === 'BUY';
@@ -1274,7 +1275,7 @@ async function applyServerSideTrails(
 
     // Universal activation pip gate — don't trail until minimum pips in profit
     if (activationPips > 0 && pos.openPrice && pos.currentPrice) {
-      const pipSize = pos.symbol?.includes('JPY') ? 0.01 : 0.0001;
+      const pipSize = getPipSize(pos.symbol || '');
       const pipsInProfit = pos.direction === 'BUY'
         ? (pos.currentPrice - pos.openPrice) / pipSize
         : (pos.openPrice - pos.currentPrice) / pipSize;
@@ -1622,9 +1623,10 @@ async function runAILiveAnalysis(userId: number, marketAnalysis: Record<string, 
 
     const openPosStr = openPositions.length > 0
       ? openPositions.map((p: any) => {
-          const pips = p.direction === 'BUY' 
-            ? (p.currentPrice - p.openPrice) * (p.symbol.includes('JPY') ? 100 : 10000)
-            : (p.openPrice - p.currentPrice) * (p.symbol.includes('JPY') ? 100 : 10000);
+          const pipSize = getPipSize(p.symbol || '');
+          const pips = p.direction === 'BUY'
+            ? (p.currentPrice - p.openPrice) / pipSize
+            : (p.openPrice - p.currentPrice) / pipSize;
           const ticketId = p.ticket ?? p.id ?? 'unknown';
           const slInfo = p.sl > 0 ? p.sl : 'none';
           const tpInfo = p.tp > 0 ? p.tp : 'none';

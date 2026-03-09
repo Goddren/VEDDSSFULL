@@ -490,16 +490,32 @@ export class TradeLockerService {
 
         if (matchedInstrument) {
           tradableInstrumentId = matchedInstrument.tradableInstrumentId || matchedInstrument.id;
+
+          // PRIMARY: extract routeId from THIS instrument's own routes array.
+          // TradeLocker nests routes per-instrument, NOT at the top level of the response.
+          // Using a wrong/default routeId causes "current route is forbidden" from the API.
+          const instRoutes: any[] = Array.isArray(matchedInstrument.routes) ? matchedInstrument.routes : [];
+          console.log('[TradeLocker] Instrument routes:', JSON.stringify(instRoutes));
+          if (instRoutes.length > 0) {
+            const tradeRoute = instRoutes.find((r: any) => r.type === 'TRADE' || r.name === 'TRADE')
+              ?? instRoutes[0];
+            routeId = tradeRoute.id;
+            console.log('[TradeLocker] Using routeId', routeId, 'from instrument routes');
+          }
+        }
+
+        // Log one sample instrument so we can inspect the full FTUK field structure
+        if (Array.isArray(instruments) && instruments.length > 0) {
+          const sample = instruments.find((i: any) => (i.name || i.symbol || '').toUpperCase().includes(order.symbol.toUpperCase().slice(0, 3))) || instruments[0];
+          console.log('[TradeLocker] Sample instrument structure:', JSON.stringify(sample));
         }
       }
-      
-      // Get TRADE routeId (not INFO)
-      if (Array.isArray(routes)) {
-        const tradeRoute = routes.find((r: any) => r.name === 'TRADE' || r.type === 'TRADE');
-        if (tradeRoute) {
-          routeId = tradeRoute.id;
-          console.log('[TradeLocker] Found TRADE routeId:', routeId);
-        }
+
+      // FALLBACK: try global routes array at the response root (present on some brokers)
+      if (!routeId && Array.isArray(routes) && routes.length > 0) {
+        const tradeRoute = routes.find((r: any) => r.name === 'TRADE' || r.type === 'TRADE') ?? routes[0];
+        routeId = tradeRoute.id;
+        console.log('[TradeLocker] Using routeId', routeId, 'from global routes fallback');
       }
 
       // If still not found, log available instrument names to help diagnose
@@ -512,11 +528,11 @@ export class TradeLockerService {
           `Check the Instruments button on your TradeLocker connection to see exact names.`
         );
       }
-      
+
       if (!routeId) {
-        // Default routeId if not found - typically 1 for TRADE
+        // Last-resort default — if no routes anywhere, use 1 and log clearly
         routeId = 1;
-        console.log('[TradeLocker] Using default routeId:', routeId);
+        console.warn('[TradeLocker] WARNING: Could not find routeId from instrument or global routes. Defaulting to 1 — may cause "route forbidden". Check sample instrument structure above.');
       }
       
       // Build the order payload per TradeLocker API spec
