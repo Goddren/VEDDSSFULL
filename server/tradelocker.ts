@@ -89,7 +89,12 @@ export class TradeLockerService {
     this.baseUrl = accountType === 'demo' 
       ? 'https://demo.tradelocker.com/backend-api'
       : 'https://live.tradelocker.com/backend-api';
-    this.accountId = accountId;
+    // Strip any leading # character — it breaks URL path construction in Node.js
+    // e.g. "#1991352" → "1991352" so URL becomes /trade/accounts/1991352/... not /trade/accounts/#...
+    this.accountId = accountId.replace(/^#/, '').trim();
+    if (this.accountId !== accountId) {
+      console.log('[TradeLocker] Stripped # prefix from accountId:', accountId, '→', this.accountId);
+    }
     this.serverId = serverId;
     if (cachedAccNum && cachedAccNum !== '0') {
       this.accNum = cachedAccNum;
@@ -422,15 +427,69 @@ export class TradeLockerService {
       const routes = instrumentsData.d?.routes || instrumentsData.routes || [];
       
       if (Array.isArray(instruments)) {
-        const instrument = instruments.find((inst: any) => 
-          inst.name === order.symbol || 
-          inst.symbol === order.symbol ||
-          inst.name?.toUpperCase() === order.symbol.toUpperCase() ||
-          inst.symbol?.toUpperCase() === order.symbol.toUpperCase()
-        );
-        if (instrument) {
-          tradableInstrumentId = instrument.tradableInstrumentId || instrument.id;
-          console.log('[TradeLocker] Found instrument:', instrument.name, 'tradableInstrumentId:', tradableInstrumentId);
+        // Build a prioritised list of symbol variants to try:
+        // 1. Exact match
+        // 2. Common broker suffixes (.pro, m, .m, .z, .a, .b, .c, .r, _raw, .ecn)
+        // 3. Strip any trailing suffix from the input symbol and try bare
+        // 4. Known aliases (GOLD ↔ XAUUSD, SILVER ↔ XAGUSD, etc.)
+        const sym = order.symbol.toUpperCase();
+        const symVariants: string[] = [sym];
+
+        // Common broker suffix additions
+        const suffixes = ['.pro', 'm', '.m', '.z', '.a', '.b', '.c', '.r', '_raw', '.ecn', '.stp', '.pro+', 'PRO'];
+        for (const sfx of suffixes) {
+          symVariants.push(sym + sfx.toUpperCase());
+          symVariants.push(sym + sfx);
+        }
+
+        // Strip trailing suffix from input symbol (e.g. XAUUSD.PRO → XAUUSD)
+        const strippedSym = sym.replace(/[._]?(PRO|ECN|STP|RAW|M|Z|A|B|C|R)\+?$/i, '');
+        if (strippedSym !== sym) symVariants.push(strippedSym);
+
+        // Known commodity/index aliases
+        const ALIASES: Record<string, string[]> = {
+          'XAUUSD': ['GOLD', 'XAU/USD', 'GOLD/USD', 'XAUUSD.PRO', 'XAUUSDPRO'],
+          'GOLD':   ['XAUUSD', 'XAU/USD'],
+          'XAGUSD': ['SILVER', 'XAG/USD'],
+          'SILVER': ['XAGUSD', 'XAG/USD'],
+          'USOIL':  ['WTI', 'CRUDE', 'OIL', 'USOUSD'],
+          'UKOIL':  ['BRENT', 'BRENTOIL'],
+          'NAS100': ['USTEC', 'NDX100', 'NASDAQ100', 'US100', 'NQ100'],
+          'US500':  ['SPX500', 'SP500', 'US500', 'SPX'],
+          'US30':   ['DJ30', 'WALLST30', 'DJI30'],
+          'GER40':  ['DAX40', 'DE40', 'GER30', 'GER'],
+          'UK100':  ['FTSE100', 'UKX'],
+          'JP225':  ['JPN225', 'NIKKEI', 'N225'],
+        };
+        const knownAliases = ALIASES[sym] || [];
+        for (const alias of knownAliases) {
+          symVariants.push(alias);
+          symVariants.push(alias.replace('/', ''));
+        }
+
+        // Deduplicate while preserving order
+        const seen = new Set<string>();
+        const uniqueVariants = symVariants.filter(v => { if (seen.has(v)) return false; seen.add(v); return true; });
+
+        console.log('[TradeLocker] Trying symbol variants:', uniqueVariants.slice(0, 10));
+
+        let matchedInstrument: any = null;
+        for (const variant of uniqueVariants) {
+          const found = instruments.find((inst: any) => {
+            const instName = (inst.name || inst.symbol || '').toUpperCase().replace(/\s/g, '');
+            const instDesc = (inst.description || inst.fullName || '').toUpperCase().replace(/\s/g, '');
+            const v = variant.toUpperCase().replace(/\s/g, '');
+            return instName === v || instDesc === v;
+          });
+          if (found) {
+            matchedInstrument = found;
+            console.log('[TradeLocker] Matched symbol variant:', variant, '→', found.name, 'tradableInstrumentId:', found.tradableInstrumentId || found.id);
+            break;
+          }
+        }
+
+        if (matchedInstrument) {
+          tradableInstrumentId = matchedInstrument.tradableInstrumentId || matchedInstrument.id;
         }
       }
       
@@ -442,9 +501,16 @@ export class TradeLockerService {
           console.log('[TradeLocker] Found TRADE routeId:', routeId);
         }
       }
-      
+
+      // If still not found, log available instrument names to help diagnose
       if (!tradableInstrumentId) {
-        throw new Error(`Instrument not found: ${order.symbol}. Make sure the symbol matches exactly with TradeLocker.`);
+        const availableNames = Array.isArray(instruments)
+          ? instruments.slice(0, 30).map((i: any) => i.name || i.symbol).filter(Boolean).join(', ')
+          : 'none';
+        throw new Error(
+          `Instrument not found: ${order.symbol}. Available symbols (first 30): ${availableNames}. ` +
+          `Check the Instruments button on your TradeLocker connection to see exact names.`
+        );
       }
       
       if (!routeId) {

@@ -8394,10 +8394,13 @@ Rules:
     // Encrypt password
     const encryptedPw = encryptPassword(password);
     
-    // Test connection first
+    // Test connection first and resolve accNum
+    let resolvedAccNum: string | undefined;
     try {
       const service = new TradeLockerService(accountType || 'live', accountId, serverId);
       await service.authenticate(email, password);
+      const accNum = service.getResolvedAccNum();
+      if (accNum && accNum !== '0') resolvedAccNum = accNum;
     } catch (err) {
       return res.status(400).json({ error: `Failed to connect to TradeLocker: ${err instanceof Error ? err.message : 'Unknown error'}` });
     }
@@ -8411,10 +8414,20 @@ Rules:
       accountType: accountType || 'live',
       isActive: true,
       autoExecute: autoExecute || false,
+      ...(resolvedAccNum ? { accNum: resolvedAccNum } : {}),
     });
     
+    // Persist accNum and lastConnectedAt immediately
+    if (resolvedAccNum) {
+      await storage.updateTradelockerConnection(connection.id, {
+        accNum: resolvedAccNum,
+        lastConnectedAt: new Date(),
+        lastError: null,
+      });
+    }
+    
     const { encryptedPassword: _, ...safeConnection } = connection;
-    res.json(safeConnection);
+    res.json({ ...safeConnection, accNum: resolvedAccNum || null });
   });
 
   app.patch("/api/tradelocker/connection", async (req: Request, res: Response) => {
@@ -8502,6 +8515,35 @@ Rules:
     const userId = (req.user as User).id;
     const trades = await storage.getTradelockerTradeLogs(userId, 100);
     res.json(trades);
+  });
+
+  app.get("/api/tradelocker/instruments", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const userId = (req.user as User).id;
+    const connection = await storage.getUserTradelockerConnection(userId);
+    if (!connection) {
+      return res.status(404).json({ error: "No TradeLocker connection found" });
+    }
+    try {
+      const password = decryptPassword(connection.encryptedPassword);
+      const service = new TradeLockerService(
+        connection.accountType as 'demo' | 'live',
+        connection.accountId,
+        connection.serverId,
+        connection.accNum || undefined
+      );
+      await service.authenticate(connection.email, password);
+      const rawInstruments = await service.getInstruments();
+      const symbols = rawInstruments
+        .map((i: any) => ({ name: i.name || i.symbol, description: i.description || i.fullName || '' }))
+        .filter((i: any) => i.name)
+        .sort((a: any, b: any) => (a.name as string).localeCompare(b.name as string));
+      res.json({ instruments: symbols, count: symbols.length });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : 'Failed to fetch instruments' });
+    }
   });
 
   // AI Trade Results & Accuracy Tracking

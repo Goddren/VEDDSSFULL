@@ -14,6 +14,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { 
   Webhook, 
   Plus, 
@@ -36,7 +37,8 @@ import {
   Zap,
   Server,
   HelpCircle,
-  BookOpen
+  BookOpen,
+  List,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -386,6 +388,7 @@ export default function WebhooksPage() {
 
   // TradeLocker Direct Connection state
   const [showTLPassword, setShowTLPassword] = useState(false);
+  const [showInstrumentsDialog, setShowInstrumentsDialog] = useState(false);
   const [tlConnectionForm, setTLConnectionForm] = useState({
     email: '',
     password: '',
@@ -398,6 +401,11 @@ export default function WebhooksPage() {
   // TradeLocker queries and mutations
   const { data: tlConnection, isLoading: tlLoading } = useQuery<TradelockerConnection | null>({
     queryKey: ['/api/tradelocker/connection'],
+  });
+
+  const { data: instrumentsData, isLoading: instrumentsLoading, refetch: refetchInstruments, isError: instrumentsError } = useQuery<{ instruments: { name: string; description: string }[]; count: number }>({
+    queryKey: ['/api/tradelocker/instruments'],
+    enabled: false,
   });
 
   const { data: tlTrades = [] } = useQuery<TradelockerTradeLog[]>({
@@ -1462,6 +1470,22 @@ export default function WebhooksPage() {
               </div>
             ) : tlConnection ? (
               <div className="space-y-4">
+                {/* Prominent last-error alert */}
+                {tlConnection.lastError && (
+                  <Alert className="border-red-500/50 bg-red-950/30">
+                    <XCircle className="h-4 w-4 text-red-400" />
+                    <AlertDescription className="text-red-300">
+                      <span className="font-semibold">Last execution error: </span>
+                      {tlConnection.lastError}
+                      {tlConnection.lastError.includes('Instrument not found') && (
+                        <span className="block mt-1 text-gray-400 text-xs">
+                          Click <strong>Instruments</strong> below to see the exact symbol names your broker uses, then make sure your MT5 chart uses the same name.
+                        </span>
+                      )}
+                    </AlertDescription>
+                  </Alert>
+                )}
+
                 <div className="flex items-center justify-between p-4 bg-gray-800/50 rounded-lg border border-cyan-700/30">
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
@@ -1472,16 +1496,23 @@ export default function WebhooksPage() {
                         <Badge className="bg-gray-500/20 text-gray-400 text-xs">Inactive</Badge>
                       )}
                     </div>
-                    <div className="text-sm text-gray-400 flex items-center gap-4">
+                    <div className="text-sm text-gray-400 flex items-center flex-wrap gap-x-4 gap-y-1">
                       <span>Account: {tlConnection.accountId}</span>
                       <span className="capitalize">{tlConnection.accountType}</span>
                       <span>{tlConnection.tradeCount} trades executed</span>
                     </div>
-                    {tlConnection.lastError && (
-                      <p className="text-xs text-red-400 mt-1">{tlConnection.lastError}</p>
-                    )}
                   </div>
                   <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => { setShowInstrumentsDialog(true); refetchInstruments(); }}
+                      disabled={instrumentsLoading}
+                      title="View broker instrument list"
+                    >
+                      {instrumentsLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <List className="w-4 h-4" />}
+                      <span className="ml-1 hidden sm:inline">Instruments</span>
+                    </Button>
                     <Button
                       variant="outline"
                       size="sm"
@@ -1503,6 +1534,54 @@ export default function WebhooksPage() {
                     </Button>
                   </div>
                 </div>
+
+                {/* Instruments dialog */}
+                <Dialog open={showInstrumentsDialog} onOpenChange={setShowInstrumentsDialog}>
+                  <DialogContent className="max-w-lg bg-gray-900 border-gray-700">
+                    <DialogHeader>
+                      <DialogTitle className="text-white flex items-center gap-2">
+                        <List className="w-5 h-5 text-cyan-400" />
+                        Available Instruments on {tlConnection.serverId}
+                      </DialogTitle>
+                      <DialogDescription>
+                        {instrumentsData
+                          ? `${instrumentsData.count} symbols available. Use these exact names in your MT5 charts.`
+                          : instrumentsLoading
+                          ? 'Fetching from TradeLocker…'
+                          : instrumentsError
+                          ? 'Failed to fetch — try clicking Test first to refresh the connection.'
+                          : 'Connecting to TradeLocker…'}
+                      </DialogDescription>
+                    </DialogHeader>
+                    {instrumentsData && instrumentsData.instruments.length > 0 && (
+                      <ScrollArea className="h-80">
+                        <div className="space-y-1 pr-2">
+                          {instrumentsData.instruments.map((inst) => (
+                            <div key={inst.name} className="flex items-center justify-between py-1 px-2 rounded hover:bg-gray-800/60">
+                              <span className="font-mono text-sm text-white">{inst.name}</span>
+                              {inst.description && (
+                                <span className="text-xs text-gray-500 truncate max-w-[200px] text-right">{inst.description}</span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </ScrollArea>
+                    )}
+                    {instrumentsLoading && (
+                      <div className="flex items-center justify-center py-8 gap-2 text-gray-400">
+                        <RefreshCw className="w-5 h-5 animate-spin" />
+                        <span>Loading instruments…</span>
+                      </div>
+                    )}
+                    <DialogFooter>
+                      <Button variant="outline" size="sm" onClick={() => refetchInstruments()} disabled={instrumentsLoading}>
+                        <RefreshCw className={`w-4 h-4 mr-2 ${instrumentsLoading ? 'animate-spin' : ''}`} />
+                        Refresh
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => setShowInstrumentsDialog(false)}>Close</Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
 
                 <div className="grid md:grid-cols-2 gap-4">
                   <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg">
