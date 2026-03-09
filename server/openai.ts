@@ -411,14 +411,26 @@ CRITICAL RULES FOR YOUR DECISION:
 - If news events are imminent (today/tomorrow), factor this into confidence. Warn if the trade could be invalidated.
 
 TRAILING STOP ASSESSMENT:
-Evaluate whether a trailing stop is appropriate for this trade:
-- NONE: Market is choppy/ranging (ADX < 20), or this is a fast news-driven move that should use a fixed TP only, or the trade has a short expected duration. Skip trailing — protect profit with fixed TP.
-- TIGHT: Low volatility, sideways drift, or trade is near TP already. Narrow trail to lock in gains quickly (5-15 pips).
-- STANDARD: Moderate trend, normal ATR. Standard trail (20-40 pips) is suitable.
-- WIDE: Strong trending market (ADX > 30), high ATR, momentum clearly building. Wide trail lets profits run (50-100 pips).
-- AGGRESSIVE: Explosive breakout or high-impact news momentum trade. Maximum trail distance — let the market run far (100+ pips).
+Evaluate whether a trailing stop is appropriate for this trade.
+Important: Trail distances below are in the instrument's OWN pip units — use the correct pip size for ${symbol}:
+- Standard forex (EURUSD, GBPUSD, etc.): 1 pip = 0.0001 price move
+- JPY pairs (USDJPY, etc.): 1 pip = 0.01 price move
+- Gold (XAUUSD): 1 pip = 0.10 price move (so 50 pips = $5.00 distance)
+- Indices (US30, NAS100, GER40, etc.): 1 pip = 1.0 point
+- BTC/crypto: 1 pip = $1.00 price move
 
-Also estimate a recommended trail distance in pips based on ATR and volatility (null if NONE).
+Trail type guidance (in that instrument's pips):
+- NONE: Market is choppy/ranging (ADX < 20), fast news move, or short-duration trade. Use fixed TP only.
+- TIGHT: Low volatility or near TP. Lock in gains quickly.
+  → FX: 5-15 pips | Gold: 50-150 pips | Indices: 20-60 points | BTC: 200-600 pips
+- STANDARD: Moderate trend, normal ATR.
+  → FX: 20-40 pips | Gold: 150-400 pips | Indices: 50-150 points | BTC: 500-1500 pips
+- WIDE: Strong trend (ADX > 30), high ATR, momentum building — let profits run.
+  → FX: 50-100 pips | Gold: 400-800 pips | Indices: 150-400 points | BTC: 1500-3000 pips
+- AGGRESSIVE: Explosive breakout or high-impact news momentum. Maximum trail.
+  → FX: 100+ pips | Gold: 800+ pips | Indices: 400+ points | BTC: 3000+ pips
+
+Also estimate a recommended trail distance in pips (in the instrument's own pip unit) based on ATR and current volatility (null if NONE).
 
 Return your analysis as JSON:
 {
