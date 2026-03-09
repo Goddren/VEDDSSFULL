@@ -1309,6 +1309,11 @@ export default function MT5ChartDataPage() {
     queryKey: ['/api/ai-vision-confirmation'],
   });
 
+  const { data: ictStrategySetting } = useQuery<{ enabled: boolean }>({
+    queryKey: ['/api/ict-strategy-setting'],
+    enabled: aiConfirmationSetting?.enabled || false,
+  });
+
   const { data: connectedPairsData } = useQuery<{ activePairs: Array<{ symbol: string }> }>({
     queryKey: ['/api/mt5/connected-pairs'],
     refetchInterval: 30000,
@@ -1372,6 +1377,9 @@ export default function MT5ChartDataPage() {
     breakoutStrength?: string;
     trailRecommendation?: 'TIGHT' | 'STANDARD' | 'WIDE' | 'AGGRESSIVE' | 'NONE';
     recommendedTrailPips?: number | null;
+    ictMacroValid?: boolean;
+    ictMacroReason?: string;
+    ictAutoModified?: boolean;
   }
 
   const { data: aiConfirmationLogs = [] } = useQuery<AiConfirmationLog[]>({
@@ -1392,6 +1400,22 @@ export default function MT5ChartDataPage() {
         description: data.enabled 
           ? "AI will review trade signals before execution for a second opinion." 
           : "Trades will execute based on indicator analysis only."
+      });
+    },
+  });
+
+  const toggleICTStrategyMutation = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      const res = await apiRequest('POST', '/api/ict-strategy-setting', { enabled });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/ict-strategy-setting'] });
+      toast({
+        title: data.enabled ? 'ICT Framework Enabled' : 'ICT Framework Disabled',
+        description: data.enabled
+          ? 'AI will validate trades against ICT macro windows, PD zones, stop hunts, and CRT patterns.'
+          : 'ICT framework checks disabled — AI will not apply ICT filtering.',
       });
     },
   });
@@ -1763,6 +1787,32 @@ export default function MT5ChartDataPage() {
                     </Button>
                   ))}
                 </div>
+
+                {/* ICT Macro & CRT Framework Toggle */}
+                <div className="border-t border-purple-500/20 pt-3 flex items-start justify-between gap-4">
+                  <div className="flex items-start gap-2 flex-1">
+                    <div className="p-1.5 rounded bg-amber-500/10 mt-0.5">
+                      <Clock className="w-3.5 h-3.5 text-amber-400" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-white">ICT Macro & CRT Framework</p>
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        AI validates trades against ICT macro windows (NY time), Premium/Discount zones, stop hunt sweeps, and CRT patterns — reduces fake-outs
+                      </p>
+                      {ictStrategySetting?.enabled && (
+                        <p className="text-[11px] text-amber-300 mt-1 flex items-center gap-1">
+                          <CheckCircle className="w-3 h-3" />
+                          One Setup For Life + CRT analysis active
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <Switch
+                    checked={ictStrategySetting?.enabled ?? true}
+                    onCheckedChange={(checked) => toggleICTStrategyMutation.mutate(checked)}
+                    disabled={toggleICTStrategyMutation.isPending}
+                  />
+                </div>
               </div>
             )}
           </CardContent>
@@ -1847,6 +1897,23 @@ export default function MT5ChartDataPage() {
                       <Badge className={`text-[10px] ${log.breakoutDetected ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' : 'bg-gray-500/15 text-gray-400 border-gray-600'}`}>
                         <Activity className="w-2.5 h-2.5 mr-1" />
                         Breakout {log.breakoutDetected ? `${log.breakoutDirection} (${log.breakoutStrength})` : 'Window'}
+                      </Badge>
+                    )}
+                    {log.ictMacroValid === true && (
+                      <Badge className="text-[10px] bg-green-500/15 text-green-400 border-green-500/30" title={log.ictMacroReason || 'ICT framework fully aligned'}>
+                        <Clock className="w-2.5 h-2.5 mr-1" />
+                        ICT ✓
+                      </Badge>
+                    )}
+                    {log.ictMacroValid === false && (
+                      <Badge className="text-[10px] bg-amber-500/15 text-amber-400 border-amber-500/30" title={log.ictMacroReason || 'ICT conditions not fully met'}>
+                        <Clock className="w-2.5 h-2.5 mr-1" />
+                        ICT ⚠
+                      </Badge>
+                    )}
+                    {log.ictAutoModified && (
+                      <Badge className="text-[10px] bg-primary/20 text-primary border-primary/30">
+                        ↕ SL/TP Auto-Modified
                       </Badge>
                     )}
                   </div>
@@ -1935,11 +2002,17 @@ export default function MT5ChartDataPage() {
                   )}
 
                   {/* AI Reasoning */}
-                  <div className="bg-black/30 rounded p-2">
+                  <div className="bg-black/30 rounded p-2 space-y-1.5">
                     <p className="text-xs text-gray-400 flex items-start gap-1.5">
                       <Lightbulb className="w-3.5 h-3.5 text-purple-400 mt-0.5 flex-shrink-0" />
                       <span className="italic">{log.reasoning}</span>
                     </p>
+                    {log.ictMacroReason && (
+                      <p className={`text-[11px] flex items-start gap-1.5 italic ${log.ictMacroValid ? 'text-green-400/70' : 'text-amber-400/70'}`}>
+                        <Clock className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                        <span>ICT: {log.ictMacroReason}</span>
+                      </p>
+                    )}
                   </div>
                 </motion.div>
               ))}

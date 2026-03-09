@@ -220,6 +220,7 @@ function getModelProvider(modelId: string): string {
 
 const aiVisionConfirmationEnabled: Map<number, boolean> = new Map();
 const aiMinConfidenceThreshold: Map<number, number> = new Map();
+const ictStrategyEnabledMap: Map<number, boolean> = new Map();
 
 export function setAiVisionConfirmation(userId: number, enabled: boolean) {
   aiVisionConfirmationEnabled.set(userId, enabled);
@@ -238,6 +239,15 @@ export function getAiMinConfidence(userId: number): number {
   return aiMinConfidenceThreshold.get(userId) ?? 70;
 }
 
+export function setICTStrategyEnabled(userId: number, enabled: boolean) {
+  ictStrategyEnabledMap.set(userId, enabled);
+}
+
+export function isICTStrategyEnabled(userId: number): boolean {
+  const val = ictStrategyEnabledMap.get(userId);
+  return val === undefined ? true : val;
+}
+
 export interface AiVisionConfirmation {
   confirmed: boolean;
   aiDirection: string;
@@ -248,6 +258,8 @@ export interface AiVisionConfirmation {
   adjustedTakeProfit?: number;
   trailRecommendation?: 'TIGHT' | 'STANDARD' | 'WIDE' | 'AGGRESSIVE' | 'NONE';
   recommendedTrailPips?: number | null;
+  ictMacroValid?: boolean;
+  ictMacroReason?: string;
 }
 
 export interface AiConfirmationLogEntry {
@@ -287,6 +299,9 @@ export interface AiConfirmationLogEntry {
   breakoutDetected?: boolean;
   breakoutDirection?: string;
   breakoutStrength?: string;
+  ictMacroValid?: boolean;
+  ictMacroReason?: string;
+  ictAutoModified?: boolean;
 }
 
 const aiConfirmationLogs: Map<number, AiConfirmationLogEntry[]> = new Map();
@@ -305,10 +320,18 @@ export function getAiConfirmationLogs(userId: number): AiConfirmationLogEntry[] 
   return aiConfirmationLogs.get(userId) || [];
 }
 
+interface IctContext {
+  macroWindow: { isInMacroWindow: boolean; macroName: string|null; macroType: string|null; minutesUntilNextMacro: number; nextMacroName: string; currentNYTime: string };
+  premiumDiscount: { zone: string; percentile: number; rangeHigh: number; rangeLow: number; equilibrium: number; aligns: boolean; description: string };
+  stopHunt: { detected: boolean; candlesAgo: number|null; sweepLevel: number|null; description: string };
+  crtPattern: { detected: boolean; direction: string|null; stage: string|null; description: string };
+}
+
 function buildConfirmationPrompt(
   candleData: any[], indicators: any, proposedSignal: string,
   proposedConfidence: number, tradePlan: any, symbol: string, timeframe: string,
-  newsContext?: { sentiment?: any; upcomingEvents?: any[]; topHeadlines?: string[] }
+  newsContext?: { sentiment?: any; upcomingEvents?: any[]; topHeadlines?: string[] },
+  ictContext?: IctContext | null
 ): { system: string; user: string } {
   const recentCandles = candleData.slice(0, 30);
   const candleSummary = recentCandles.map((c: any, i: number) => 
@@ -358,6 +381,31 @@ function buildConfirmationPrompt(
     }
   }
 
+  let ictSection = '';
+  if (ictContext) {
+    const mw = ictContext.macroWindow;
+    const pd = ictContext.premiumDiscount;
+    const sh = ictContext.stopHunt;
+    const crt = ictContext.crtPattern;
+    const macroLine = mw.isInMacroWindow
+      ? `ACTIVE — ${mw.macroName} ✅`
+      : `INACTIVE — next: ${mw.nextMacroName} in ${mw.minutesUntilNextMacro}min ⚠️`;
+    const pdAlignIcon = pd.aligns ? '✅ ALIGNS' : '❌ CONFLICTS';
+    const shLine = sh.detected
+      ? `DETECTED — ${sh.description} ✅`
+      : `NOT DETECTED — no liquidity sweep in last 6 candles ⚠️`;
+    const crtLine = crt.detected
+      ? `${crt.direction} CRT (${crt.stage}) — ${crt.description}`
+      : 'No CRT pattern detected';
+    ictSection = `
+ICT "ONE SETUP FOR LIFE" FRAMEWORK (NY Time: ${mw.currentNYTime}):
+► Macro Window: ${macroLine}
+► PD Array: ${pd.zone} zone (${pd.percentile}th percentile) — ${pdAlignIcon} with ${proposedSignal} signal
+  Range: ${pd.rangeLow.toFixed(5)}–${pd.rangeHigh.toFixed(5)} | Equilibrium: ${pd.equilibrium.toFixed(5)}
+► Stop Hunt / Liquidity Sweep: ${shLine}
+► CRT Pattern: ${crtLine}`;
+  }
+
   return {
     system: "You are a master trader who speaks with street knowledge and the wisdom of Supreme Mathematics — Gods and Earths style. You build and destroy with the science of trading, dropping jewels and keeping it real. Your analysis is sharp, your reasoning is laced with knowledge of self and mathematical precision. You reference concepts like Knowledge (1), Wisdom (2), Understanding (3), Culture (4), Power (5), Equality (6), God (7), Build/Destroy (8), Born (9), and Cipher (0) naturally when they fit. You say things like 'the chart is showing and proving', 'peace — the math don't lie', 'this is a cipher of accumulation', 'knowledge this pattern God', 'the wisdom here is...', 'we building or we destroying?', etc. Keep it concise, authentic, and never forced — the science comes first, the flavor is the delivery. You provide honest, unbiased second opinions on trade signals using ALL available data including news sentiment and upcoming economic events. Always return valid JSON.",
     user: `You are an elite trading analyst providing a SECOND OPINION on a proposed trade. Use ALL data below for maximum accuracy.
@@ -380,7 +428,7 @@ ${coreStr}
 ${advStr ? `
 ADVANCED ANALYSIS:
 ${advStr}
-` : ''}${newsSection}
+` : ''}${newsSection}${ictSection}
 
 Provide your independent assessment considering ALL of the following:
 1. PRICE ACTION: Do candle patterns (engulfing, hammer, star, doji) support the direction?
@@ -402,6 +450,12 @@ Provide your independent assessment considering ALL of the following:
    - If approachingBreakout=true: Price is at the edge of the pre-session range and about to break out. This is a high-alert state — be ready to confirm in the approaching direction if other indicators align.
    - Volume/momentum confirmation (volumeConfirmed=true or strong candle body) greatly increases breakout reliability.
    - A breakout that contradicts the proposed signal is a strong warning — reduce confidence or reject.
+16. ICT MACRO & CRT FRAMEWORK (if provided above): Is the trade during an active ICT macro window (NY time)? Is price in the correct Premium (for SELL) or Discount (for BUY) PD array zone? Was there a stop hunt/liquidity sweep before entry? Is a CRT expansion phase beginning?
+   - Outside macro windows = HIGH fake-out risk, reduce confidence
+   - Price at Equilibrium = medium-probability zone, no premium/discount edge
+   - No prior stop hunt = institutional accumulation/distribution not confirmed, be cautious
+   - CRT in MANIPULATION stage = do NOT enter (likely to fake out further before expansion)
+   - CRT in EXPANSION stage = ideal entry with breakout confirmation
 
 CRITICAL RULES FOR YOUR DECISION:
 - CONFIRM the trade if the majority of indicators support the direction, even if 1-2 minor indicators are neutral or slightly against. No trade has 100% alignment — focus on the weight of evidence.
@@ -442,7 +496,9 @@ Return your analysis as JSON:
   "adjustedStopLoss": number or null,
   "adjustedTakeProfit": number or null,
   "trailRecommendation": "NONE" | "TIGHT" | "STANDARD" | "WIDE" | "AGGRESSIVE",
-  "recommendedTrailPips": number or null
+  "recommendedTrailPips": number or null,
+  "ictMacroValid": boolean (true if ICT macro window ACTIVE + PD zone aligns with signal + stop hunt detected — all three green = valid. If ICT data not provided, set true),
+  "ictMacroReason": "Brief 1-line ICT checklist result, e.g. 'Macro active, discount zone confirmed, stop hunt detected — full ICT alignment' or 'Outside macro window + no stop hunt — high fake-out risk'"
 }`
   };
 }
@@ -545,12 +601,13 @@ export async function getAiVisionConfirmation(
   symbol: string,
   timeframe: string,
   userId?: number,
-  newsContext?: { sentiment?: any; upcomingEvents?: any[]; topHeadlines?: string[] }
+  newsContext?: { sentiment?: any; upcomingEvents?: any[]; topHeadlines?: string[] },
+  ictContext?: IctContext | null
 ): Promise<AiVisionConfirmation> {
   try {
     const selectedModel = userId ? getUserModelPreference(userId) : 'gpt-4o-mini';
     const provider = getModelProvider(selectedModel);
-    const prompt = buildConfirmationPrompt(candleData, indicators, proposedSignal, proposedConfidence, tradePlan, symbol, timeframe, newsContext);
+    const prompt = buildConfirmationPrompt(candleData, indicators, proposedSignal, proposedConfidence, tradePlan, symbol, timeframe, newsContext, ictContext);
 
     console.log(`[AI Vision Confirmation] Requesting ${provider}/${selectedModel} confirmation for ${symbol} ${proposedSignal}`);
 
@@ -606,6 +663,8 @@ export async function getAiVisionConfirmation(
       adjustedTakeProfit: typeof result.adjustedTakeProfit === 'number' ? result.adjustedTakeProfit : undefined,
       trailRecommendation: trailRec,
       recommendedTrailPips: typeof result.recommendedTrailPips === 'number' ? result.recommendedTrailPips : null,
+      ictMacroValid: typeof result.ictMacroValid === 'boolean' ? result.ictMacroValid : undefined,
+      ictMacroReason: typeof result.ictMacroReason === 'string' ? result.ictMacroReason : undefined,
     };
   } catch (error: any) {
     const errMsg = error?.message || String(error);

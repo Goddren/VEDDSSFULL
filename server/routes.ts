@@ -6426,11 +6426,27 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           analysis.confidence >= MIN_CONFIDENCE_FOR_AUTO_TRADE && 
           analysis.tradePlan) {
         try {
-          const { isAiVisionConfirmationEnabled, getAiVisionConfirmation, addAiConfirmationLog, getUserModelPreference, AVAILABLE_VISION_MODELS } = await import('./openai');
+          const { isAiVisionConfirmationEnabled, getAiVisionConfirmation, addAiConfirmationLog, getUserModelPreference, AVAILABLE_VISION_MODELS, isICTStrategyEnabled } = await import('./openai');
           if (isAiVisionConfirmationEnabled(token.userId)) {
             console.log(`[AI Vision Confirmation] Enabled for user ${token.userId} - requesting AI second opinion on ${sanitizedSymbol}`);
             const selectedModelId = getUserModelPreference(token.userId);
             const modelInfo = AVAILABLE_VISION_MODELS.find((m: any) => m.id === selectedModelId);
+
+            let ictContext = null;
+            if (isICTStrategyEnabled(token.userId)) {
+              const { getICTMacroContext, getPremiumDiscountContext, detectStopHunt, detectCRTPattern } = await import('./utils/ictMacroUtils');
+              ictContext = {
+                macroWindow: getICTMacroContext(new Date()),
+                premiumDiscount: getPremiumDiscountContext(
+                  analysis.tradePlan?.entry || candles[0]?.c || 0,
+                  candles,
+                  analysis.signal
+                ),
+                stopHunt: detectStopHunt(candles, analysis.signal),
+                crtPattern: detectCRTPattern(candles),
+              };
+              console.log(`[ICT] NY:${ictContext.macroWindow.currentNYTime} | Macro:${ictContext.macroWindow.isInMacroWindow ? ictContext.macroWindow.macroName : 'INACTIVE'} | Zone:${ictContext.premiumDiscount.zone}(${ictContext.premiumDiscount.percentile}%) | Hunt:${ictContext.stopHunt.detected} | CRT:${ictContext.crtPattern.detected}(${ictContext.crtPattern.direction || 'none'})`);
+            }
 
             aiConfirmation = await getAiVisionConfirmation(
               candles,
@@ -6441,7 +6457,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               sanitizedSymbol,
               sanitizedTimeframe,
               token.userId,
-              newsContextForAI
+              newsContextForAI,
+              ictContext
             );
             
             // Confidence gate: AI can override low EA confidence if AI is confident enough
@@ -6507,6 +6524,69 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 analysis.tradePlan.trailingStopDistance = aiConfirmation.recommendedTrailPips;
                 analysis.alerts.push(`Trail: ${aiConfirmation.trailRecommendation} — AI set trail to ${aiConfirmation.recommendedTrailPips} pips`);
               }
+
+              // AUTO-MODIFY: If AI adjusted SL/TP, automatically update any open TradeLocker position on this symbol
+              let ictAutoModified = false;
+              const hasAiSLTPAdjustment = (typeof aiConfirmation.adjustedStopLoss === 'number' && !isNaN(aiConfirmation.adjustedStopLoss)) ||
+                                           (typeof aiConfirmation.adjustedTakeProfit === 'number' && !isNaN(aiConfirmation.adjustedTakeProfit));
+              if (hasAiSLTPAdjustment) {
+                try {
+                  const tlConnForModify = await storage.getUserTradelockerConnection(token.userId);
+                  if (tlConnForModify && tlConnForModify.isActive) {
+                    const tlSvc = new TradeLockerService(
+                      tlConnForModify.accountType as 'demo' | 'live',
+                      tlConnForModify.accountId,
+                      tlConnForModify.serverId,
+                      tlConnForModify.accNum?.toString()
+                    );
+                    const openPositions = await tlSvc.getPositions();
+                    const normalizeForMatch = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, '').replace('XAUUSD', 'GOLD').replace('GOLD', 'XAUUSD_OR_GOLD');
+                    const matchPos = openPositions.find((p: any) => {
+                      const ps = (p.symbol || p.instrument || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+                      const ts = sanitizedSymbol.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                      return ps === ts || ps.includes(ts) || ts.includes(ps) ||
+                        (ts === 'XAUUSD' && (ps === 'GOLD' || ps.includes('GOLD'))) ||
+                        ((ts === 'GOLD' || ts.includes('GOLD')) && ps === 'XAUUSD');
+                    });
+                    if (matchPos) {
+                      const posId = matchPos.id || matchPos.positionId || matchPos.position_id;
+                      const modResult = await tlSvc.modifyPosition(
+                        posId?.toString(),
+                        typeof aiConfirmation.adjustedStopLoss === 'number' ? aiConfirmation.adjustedStopLoss : undefined,
+                        typeof aiConfirmation.adjustedTakeProfit === 'number' ? aiConfirmation.adjustedTakeProfit : undefined
+                      );
+                      if (modResult.success) {
+                        ictAutoModified = true;
+                        analysis.alerts.push(`AI AUTO-MODIFIED position on ${sanitizedSymbol}: SL→${aiConfirmation.adjustedStopLoss ?? 'unchanged'} TP→${aiConfirmation.adjustedTakeProfit ?? 'unchanged'}`);
+                        console.log(`[AI Auto-Modify] SUCCESS: ${sanitizedSymbol} position ${posId} SL/TP updated by AI confirmation`);
+                        await storage.createTradelockerTradeLog({
+                          connectionId: tlConnForModify.id,
+                          userId: token.userId,
+                          sourceSignalId: null,
+                          action: 'MODIFY',
+                          symbol: sanitizedSymbol,
+                          direction: analysis.signal,
+                          volume: 0,
+                          entryPrice: analysis.tradePlan?.entry || 0,
+                          stopLoss: aiConfirmation.adjustedStopLoss || analysis.tradePlan?.stopLoss || 0,
+                          takeProfit: aiConfirmation.adjustedTakeProfit || analysis.tradePlan?.takeProfit || 0,
+                          tradelockerOrderId: posId?.toString() || null,
+                          status: 'executed',
+                          errorMessage: null,
+                        });
+                      } else {
+                        console.log(`[AI Auto-Modify] FAILED for ${sanitizedSymbol}: ${modResult.error}`);
+                        analysis.alerts.push(`AI Auto-Modify failed: ${modResult.error}`);
+                      }
+                    } else {
+                      console.log(`[AI Auto-Modify] No open TradeLocker position found for ${sanitizedSymbol} — skipping modify`);
+                    }
+                  }
+                } catch (modifyErr) {
+                  console.error('[AI Auto-Modify] Error:', modifyErr);
+                }
+              }
+
               addAiConfirmationLog(token.userId, {
                 timestamp: new Date().toISOString(),
                 symbol: sanitizedSymbol, timeframe: sanitizedTimeframe,
@@ -6519,6 +6599,9 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 adjustedTP: aiConfirmation.adjustedTakeProfit,
                 trailRecommendation: aiConfirmation.trailRecommendation,
                 recommendedTrailPips: aiConfirmation.recommendedTrailPips,
+                ictMacroValid: aiConfirmation.ictMacroValid,
+                ictMacroReason: aiConfirmation.ictMacroReason,
+                ictAutoModified,
                 modelUsed: modelInfo?.name || selectedModelId,
                 ...logExtraContext,
               });
@@ -14124,6 +14207,23 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     const { getAiConfirmationLogs } = await import('./openai');
     const logs = getAiConfirmationLogs(req.user!.id);
     res.json(logs);
+  });
+
+  app.get("/api/ict-strategy-setting", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
+    const { isICTStrategyEnabled } = await import('./openai');
+    res.json({ enabled: isICTStrategyEnabled(req.user!.id) });
+  });
+
+  app.post("/api/ict-strategy-setting", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
+    const { enabled } = req.body;
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({ message: "enabled must be a boolean" });
+    }
+    const { setICTStrategyEnabled, isICTStrategyEnabled } = await import('./openai');
+    setICTStrategyEnabled(req.user!.id, enabled);
+    res.json({ success: true, enabled: isICTStrategyEnabled(req.user!.id) });
   });
 
   app.get("/api/ai-trading-models", async (req: Request, res: Response) => {

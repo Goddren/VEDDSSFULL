@@ -684,10 +684,75 @@ export class TradeLockerService {
         throw new Error(`Failed to get positions: ${response.status}`);
       }
 
-      return await response.json();
+      const data = await response.json();
+      return Array.isArray(data) ? data : (data?.d?.positions || data?.positions || []);
     } catch (error) {
       console.error('TradeLocker get positions error:', error);
       throw error;
+    }
+  }
+
+  async modifyPosition(
+    positionId: string,
+    stopLoss?: number,
+    takeProfit?: number
+  ): Promise<{ success: boolean; error?: string }> {
+    await this.ensureAuthenticated();
+
+    const body: Record<string, number> = {};
+    if (typeof stopLoss === 'number' && stopLoss > 0) body.stopLoss = stopLoss;
+    if (typeof takeProfit === 'number' && takeProfit > 0) body.takeProfit = takeProfit;
+
+    if (Object.keys(body).length === 0) {
+      return { success: false, error: 'No SL or TP provided to modify' };
+    }
+
+    const url = `${this.baseUrl}/trade/accounts/${this.accountId}/positions/${positionId}`;
+    console.log(`[TradeLocker Modify] PATCH ${url} | SL=${stopLoss} TP=${takeProfit} accNum=${this.accNum}`);
+
+    try {
+      const response = await fetch(url, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${this.accessToken}`,
+          'Content-Type': 'application/json',
+          'accNum': this.accNum,
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (response.status === 405) {
+        console.log('[TradeLocker Modify] PATCH not supported, trying PUT');
+        const putResponse = await fetch(url, {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${this.accessToken}`,
+            'Content-Type': 'application/json',
+            'accNum': this.accNum,
+          },
+          body: JSON.stringify(body),
+        });
+        if (!putResponse.ok) {
+          const errText = await putResponse.text();
+          console.log(`[TradeLocker Modify] PUT failed: ${putResponse.status} - ${errText}`);
+          return { success: false, error: `Modify failed: ${putResponse.status} - ${errText}` };
+        }
+        console.log('[TradeLocker Modify] PUT success');
+        return { success: true };
+      }
+
+      if (!response.ok) {
+        const errText = await response.text();
+        console.log(`[TradeLocker Modify] PATCH failed: ${response.status} - ${errText}`);
+        return { success: false, error: `Modify failed: ${response.status} - ${errText}` };
+      }
+
+      console.log('[TradeLocker Modify] PATCH success');
+      return { success: true };
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      console.error('[TradeLocker Modify] Exception:', msg);
+      return { success: false, error: msg };
     }
   }
 }
