@@ -6548,6 +6548,47 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           };
         }
       }
+
+      // Calculate position sizing based on EA risk settings (used for both TradeLocker and MT5 EA)
+      const useRiskPercent = matchingEA?.useRiskPercent ?? true;
+      const riskPercentSetting = matchingEA?.riskPercent ?? 0.25;
+      const fixedVolumeSetting = matchingEA?.volume ?? 0.01;
+      const accountData = (global as any).mt5AccountData?.[token.userId];
+      const accountBalance = accountData?.balance || 10000;
+      const riskAmount = accountBalance * (riskPercentSetting / 100);
+
+      console.log(`[CULTURE] ${matchingEA?.name || 'Default'} MATHEMATICS: Risk=${riskPercentSetting}% | Fixed=${fixedVolumeSetting} lots | Mode=${useRiskPercent ? 'Risk%' : 'Fixed'}`);
+
+      let mt5Volume = fixedVolumeSetting;
+
+      const veddLotKey = `${token.userId}_${sanitizedSymbol.toUpperCase().replace('/', '')}`;
+      const veddLotOverride = (global as any).veddSSAILotOverride?.[veddLotKey];
+      if (veddSSAIActive && veddLotOverride && veddLotOverride > 0) {
+        mt5Volume = veddLotOverride;
+        console.log(`[VEDD SS AI] Using plan lot size for ${sanitizedSymbol}: ${mt5Volume} lots`);
+      }
+
+      if (!(veddSSAIActive && veddLotOverride > 0) && useRiskPercent && analysis.tradePlan && analysis.tradePlan.entry && analysis.tradePlan.stopLoss) {
+        const entry = analysis.tradePlan.entry;
+        const sl = analysis.tradePlan.stopLoss;
+        const slDistance = Math.abs(entry - sl);
+        const symPipSize = getPipSize(sanitizedSymbol);
+        const symPipValue = getPipValue(sanitizedSymbol);
+        const slPips = slDistance / symPipSize;
+        console.log(`[LOT SIZE] ${sanitizedSymbol}: pipSize=${symPipSize}, pipValue=${symPipValue}, slDist=${slDistance}, slPips=${slPips.toFixed(1)}, risk=$${riskAmount.toFixed(2)}`);
+        if (slPips > 0) {
+          const calculatedLots = riskAmount / (slPips * symPipValue);
+          mt5Volume = Math.max(0.01, Math.min(10, Math.round(calculatedLots * 100) / 100));
+        }
+        console.log(`[POWER] Balance CIPHER: $${accountBalance.toFixed(2)} | Risk ${riskPercentSetting}% = $${riskAmount.toFixed(2)} at stake`);
+        console.log(`[POWER] SL Distance: ${slDistance} | Pips: ${slPips.toFixed(1)} | Lots MANIFESTED: ${mt5Volume}`);
+      } else if (useRiskPercent) {
+        console.log(`[WISDOM] No trade plan yet - using fixed lots: ${fixedVolumeSetting}. Patience builds POWER.`);
+        mt5Volume = fixedVolumeSetting;
+      } else {
+        console.log(`[EQUALITY] Fixed lot mode active - ${fixedVolumeSetting} lots. Word is BOND.`);
+        mt5Volume = fixedVolumeSetting;
+      }
       
       if (analysis.signal !== 'NEUTRAL' && 
           analysis.confidence >= MIN_CONFIDENCE_FOR_AUTO_TRADE && 
@@ -6588,8 +6629,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             if (hasOpenPosition) {
               console.log(`[MT5 Chart Data AutoTrade] Skipping trade - existing open position on ${sanitizedSymbol}`);
             } else {
-              // Use default volume of 0.01 or from matching EA settings
-              const tradeVolume = matchingEA?.volume || 0.01;
+              const tradeVolume = mt5Volume;
               
               console.log('[MT5 Chart Data AutoTrade] Executing trade on TradeLocker:', {
                 action: 'OPEN',
@@ -6691,62 +6731,6 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       // Set cooldown if we're telling EA to execute
       if (shouldMT5Execute) {
         (global as any).mt5TradeCooldowns[mt5TradeKey] = nowForMT5;
-      }
-      
-      // Calculate position sizing based on EA risk settings
-      // Get risk settings from matching EA or use defaults
-      const useRiskPercent = matchingEA?.useRiskPercent ?? true; // Default to risk-based
-      const riskPercentSetting = matchingEA?.riskPercent ?? 0.25; // Default 0.25%
-      const fixedVolumeSetting = matchingEA?.volume ?? 0.01; // Default fixed lot
-      
-      const accountData = (global as any).mt5AccountData?.[token.userId];
-      const accountBalance = accountData?.balance || 10000; // Default to 10k if no account data
-      const riskAmount = accountBalance * (riskPercentSetting / 100); // Dollar amount to risk
-      
-      console.log(`[CULTURE] ${matchingEA?.name || 'Default'} MATHEMATICS: Risk=${riskPercentSetting}% | Fixed=${fixedVolumeSetting} lots | Mode=${useRiskPercent ? 'Risk%' : 'Fixed'}`);
-      
-      // Calculate lot size based on settings
-      let mt5Volume = fixedVolumeSetting; // Start with fixed lot size
-
-      // Check for VEDD SS AI lot size override
-      const veddLotKey = `${token.userId}_${sanitizedSymbol.toUpperCase().replace('/', '')}`;
-      const veddLotOverride = (global as any).veddSSAILotOverride?.[veddLotKey];
-      if (veddSSAIActive && veddLotOverride && veddLotOverride > 0) {
-        mt5Volume = veddLotOverride;
-        console.log(`[VEDD SS AI] Using plan lot size for ${sanitizedSymbol}: ${mt5Volume} lots`);
-      }
-      
-      // Only calculate risk-based sizing if enabled and not overridden by VEDD SS AI
-      if (!(veddSSAIActive && veddLotOverride > 0) && useRiskPercent && analysis.tradePlan && analysis.tradePlan.entry && analysis.tradePlan.stopLoss) {
-        const entry = analysis.tradePlan.entry;
-        const sl = analysis.tradePlan.stopLoss;
-        const slDistance = Math.abs(entry - sl);
-        
-        // Use shared pip utilities for all asset classes:
-        // XAUUSD pip=0.1, USDJPY pip=0.01, US30/NAS100/indices pip=1.0, BTC pip=1.0, standard forex pip=0.0001
-        const symPipSize = getPipSize(sanitizedSymbol);
-        const symPipValue = getPipValue(sanitizedSymbol);
-        const slPips = slDistance / symPipSize;
-
-        console.log(`[LOT SIZE] ${sanitizedSymbol}: pipSize=${symPipSize}, pipValue=${symPipValue}, slDist=${slDistance}, slPips=${slPips.toFixed(1)}, risk=$${riskAmount.toFixed(2)}`);
-        
-        // Calculate lots: Risk Amount / (SL Pips * Pip Value)
-        if (slPips > 0) {
-          const calculatedLots = riskAmount / (slPips * symPipValue);
-          // Round to 2 decimal places and enforce min/max
-          mt5Volume = Math.max(0.01, Math.min(10, Math.round(calculatedLots * 100) / 100));
-        }
-        
-        console.log(`[POWER] Balance CIPHER: $${accountBalance.toFixed(2)} | Risk ${riskPercentSetting}% = $${riskAmount.toFixed(2)} at stake`);
-        console.log(`[POWER] SL Distance: ${slDistance} | Pips: ${slPips.toFixed(1)} | Lots MANIFESTED: ${mt5Volume}`);
-      } else if (useRiskPercent) {
-        // Risk-based but no trade plan - use conservative estimate
-        console.log(`[WISDOM] No trade plan yet - using fixed lots: ${fixedVolumeSetting}. Patience builds POWER.`);
-        mt5Volume = fixedVolumeSetting;
-      } else {
-        // Fixed lot mode - use the configured fixed volume
-        console.log(`[EQUALITY] Fixed lot mode active - ${fixedVolumeSetting} lots. Word is BOND.`);
-        mt5Volume = fixedVolumeSetting;
       }
       
       // Calculate cooldown remaining for response
