@@ -1380,6 +1380,9 @@ export default function MT5ChartDataPage() {
     ictMacroValid?: boolean;
     ictMacroReason?: string;
     ictAutoModified?: boolean;
+    smcVerdict?: 'CONFIRM' | 'REQUIRE_BETTER_PRICE' | 'PASS' | null;
+    smcQuality?: 'HIGH' | 'MEDIUM' | 'LOW' | null;
+    smcReason?: string;
   }
 
   const { data: aiConfirmationLogs = [] } = useQuery<AiConfirmationLog[]>({
@@ -1916,6 +1919,21 @@ export default function MT5ChartDataPage() {
                         ↕ SL/TP Auto-Modified
                       </Badge>
                     )}
+                    {log.smcVerdict === 'CONFIRM' && (
+                      <Badge className={`text-[10px] ${log.smcQuality === 'HIGH' ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' : log.smcQuality === 'MEDIUM' ? 'bg-blue-500/15 text-blue-400 border-blue-500/30' : 'bg-gray-500/15 text-gray-400 border-gray-600'}`} title={log.smcReason || 'SMC institutional analysis'}>
+                        SMC {log.smcQuality === 'HIGH' ? '★★★' : log.smcQuality === 'MEDIUM' ? '★★' : '★'}
+                      </Badge>
+                    )}
+                    {log.smcVerdict === 'REQUIRE_BETTER_PRICE' && (
+                      <Badge className="text-[10px] bg-yellow-500/15 text-yellow-400 border-yellow-500/30" title={log.smcReason || 'Wait for better entry'}>
+                        SMC ⏳ Better Price
+                      </Badge>
+                    )}
+                    {log.smcVerdict === 'PASS' && (
+                      <Badge className="text-[10px] bg-red-500/15 text-red-400 border-red-500/30" title={log.smcReason || 'SMC signals avoid'}>
+                        SMC ✗ Pass
+                      </Badge>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-2 gap-2 text-xs">
@@ -2011,6 +2029,12 @@ export default function MT5ChartDataPage() {
                       <p className={`text-[11px] flex items-start gap-1.5 italic ${log.ictMacroValid ? 'text-green-400/70' : 'text-amber-400/70'}`}>
                         <Clock className="w-3 h-3 mt-0.5 flex-shrink-0" />
                         <span>ICT: {log.ictMacroReason}</span>
+                      </p>
+                    )}
+                    {log.smcReason && (
+                      <p className={`text-[11px] flex items-start gap-1.5 italic ${log.smcVerdict === 'CONFIRM' ? 'text-emerald-400/70' : log.smcVerdict === 'PASS' ? 'text-red-400/70' : 'text-yellow-400/70'}`}>
+                        <TrendingUp className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                        <span>SMC: {log.smcReason}</span>
                       </p>
                     )}
                   </div>

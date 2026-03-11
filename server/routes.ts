@@ -6448,6 +6448,25 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               console.log(`[ICT] NY:${ictContext.macroWindow.currentNYTime} | Macro:${ictContext.macroWindow.isInMacroWindow ? ictContext.macroWindow.macroName : 'INACTIVE'} | Zone:${ictContext.premiumDiscount.zone}(${ictContext.premiumDiscount.percentile}%) | Hunt:${ictContext.stopHunt.detected} | CRT:${ictContext.crtPattern.detected}(${ictContext.crtPattern.direction || 'none'})`);
             }
 
+            let smcContext = null;
+            try {
+              const { detectBOSCHOCH, detectFairValueGap, detectOrderBlock, detectEqualHighsLows, detectWyckoff } = await import('./utils/smcUtils');
+              smcContext = {
+                bosCHOCH: detectBOSCHOCH(candles, analysis.signal),
+                fvg: detectFairValueGap(candles, analysis.signal),
+                orderBlock: detectOrderBlock(candles, analysis.signal),
+                equalHighsLows: detectEqualHighsLows(candles),
+                wyckoff: detectWyckoff(candles),
+              };
+              const bosStr = smcContext.bosCHOCH.detected ? `${smcContext.bosCHOCH.type}(${smcContext.bosCHOCH.direction})` : 'NONE';
+              const fvgStr = smcContext.fvg.detected ? `FVG(${smcContext.fvg.direction}${smcContext.fvg.inZone ? ',IN_ZONE' : ''})` : 'NO_FVG';
+              const obStr = smcContext.orderBlock.detected ? `OB(${smcContext.orderBlock.type})` : 'NO_OB';
+              const wStr = smcContext.wyckoff.detected ? `Wyckoff(${smcContext.wyckoff.phase}/${smcContext.wyckoff.stage})` : 'NO_WYC';
+              console.log(`[SMC] ${sanitizedSymbol}: ${bosStr} | ${fvgStr} | ${obStr} | ${wStr}`);
+            } catch (smcErr) {
+              console.warn('[SMC] Context computation failed:', smcErr);
+            }
+
             aiConfirmation = await getAiVisionConfirmation(
               candles,
               analysis.indicators,
@@ -6458,7 +6477,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               sanitizedTimeframe,
               token.userId,
               newsContextForAI,
-              ictContext
+              ictContext,
+              smcContext
             );
             
             // Confidence gate: AI can override low EA confidence if AI is confident enough
@@ -6488,6 +6508,11 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 proposedEntry: preConfirmEntry, proposedSL: preConfirmSL, proposedTP: preConfirmTP,
                 aiDecision: 'REJECTED', aiDirection: aiConfirmation.aiDirection,
                 aiConfidence: aiConfirmation.aiConfidence, reasoning: `${reason} | ${aiConfirmation.reasoning}`,
+                ictMacroValid: aiConfirmation.ictMacroValid,
+                ictMacroReason: aiConfirmation.ictMacroReason,
+                smcVerdict: aiConfirmation.smcVerdict,
+                smcQuality: aiConfirmation.smcQuality,
+                smcReason: aiConfirmation.smcReason,
                 modelUsed: modelInfo?.name || selectedModelId,
                 ...logExtraContext,
               });
@@ -6602,6 +6627,9 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 ictMacroValid: aiConfirmation.ictMacroValid,
                 ictMacroReason: aiConfirmation.ictMacroReason,
                 ictAutoModified,
+                smcVerdict: aiConfirmation.smcVerdict,
+                smcQuality: aiConfirmation.smcQuality,
+                smcReason: aiConfirmation.smcReason,
                 modelUsed: modelInfo?.name || selectedModelId,
                 ...logExtraContext,
               });

@@ -260,6 +260,9 @@ export interface AiVisionConfirmation {
   recommendedTrailPips?: number | null;
   ictMacroValid?: boolean;
   ictMacroReason?: string;
+  smcVerdict?: 'CONFIRM' | 'REQUIRE_BETTER_PRICE' | 'PASS' | null;
+  smcQuality?: 'HIGH' | 'MEDIUM' | 'LOW' | null;
+  smcReason?: string;
 }
 
 export interface AiConfirmationLogEntry {
@@ -302,6 +305,9 @@ export interface AiConfirmationLogEntry {
   ictMacroValid?: boolean;
   ictMacroReason?: string;
   ictAutoModified?: boolean;
+  smcVerdict?: 'CONFIRM' | 'REQUIRE_BETTER_PRICE' | 'PASS' | null;
+  smcQuality?: 'HIGH' | 'MEDIUM' | 'LOW' | null;
+  smcReason?: string;
 }
 
 const aiConfirmationLogs: Map<number, AiConfirmationLogEntry[]> = new Map();
@@ -327,11 +333,23 @@ interface IctContext {
   crtPattern: { detected: boolean; direction: string|null; stage: string|null; description: string };
 }
 
+interface SmcContext {
+  bosCHOCH: { detected: boolean; type: string|null; direction: string|null; level: number|null; candlesAgo: number|null; description: string };
+  fvg: { detected: boolean; direction: string|null; top: number|null; bottom: number|null; inZone: boolean; candlesAgo: number|null; description: string };
+  orderBlock: { detected: boolean; type: string|null; top: number|null; bottom: number|null; aligns: boolean; description: string };
+  equalHighsLows: {
+    equalHighs: { detected: boolean; level: number|null; count: number; description: string };
+    equalLows: { detected: boolean; level: number|null; count: number; description: string };
+  };
+  wyckoff: { detected: boolean; phase: string|null; stage: string|null; aligns: boolean; description: string };
+}
+
 function buildConfirmationPrompt(
   candleData: any[], indicators: any, proposedSignal: string,
   proposedConfidence: number, tradePlan: any, symbol: string, timeframe: string,
   newsContext?: { sentiment?: any; upcomingEvents?: any[]; topHeadlines?: string[] },
-  ictContext?: IctContext | null
+  ictContext?: IctContext | null,
+  smcContext?: SmcContext | null
 ): { system: string; user: string } {
   const recentCandles = candleData.slice(0, 30);
   const candleSummary = recentCandles.map((c: any, i: number) => 
@@ -381,6 +399,55 @@ function buildConfirmationPrompt(
     }
   }
 
+  let smcSection = '';
+  if (smcContext) {
+    const { bosCHOCH, fvg, orderBlock, equalHighsLows, wyckoff } = smcContext;
+    const lines: string[] = [];
+    lines.push(`SMC / SMART MONEY CONCEPTS ANALYSIS:`);
+
+    // BOS / CHOCH
+    if (bosCHOCH.detected) {
+      const icon = bosCHOCH.direction === 'BULLISH' ? '✅' : (bosCHOCH.direction === 'BEARISH' ? '✅' : '⚠️');
+      lines.push(`► Structure (${bosCHOCH.type}): ${bosCHOCH.description} ${icon}`);
+    } else {
+      lines.push(`► Structure: No BOS/CHOCH — price still within prior range, no clear directional break ⚠️`);
+    }
+
+    // Fair Value Gap
+    if (fvg.detected) {
+      const inZoneStr = fvg.inZone ? ' ⚡ PRICE IN ZONE' : '';
+      lines.push(`► Fair Value Gap (FVG): ${fvg.description}${inZoneStr} ✅`);
+    } else {
+      lines.push(`► Fair Value Gap: No aligned FVG detected — entry not anchored to an imbalance zone ⚠️`);
+    }
+
+    // Order Block
+    if (orderBlock.detected) {
+      lines.push(`► Order Block: ${orderBlock.description} ✅`);
+    } else {
+      lines.push(`► Order Block: No order block or breaker block detected for this direction ⚠️`);
+    }
+
+    // Equal Highs/Lows (liquidity pools)
+    const ehLine = equalHighsLows.equalHighs.detected
+      ? `Equal Highs at ~${equalHighsLows.equalHighs.level?.toFixed(5)} (BSL above)`
+      : 'No equal highs';
+    const elLine = equalHighsLows.equalLows.detected
+      ? `Equal Lows at ~${equalHighsLows.equalLows.level?.toFixed(5)} (SSL below)`
+      : 'No equal lows';
+    lines.push(`► Liquidity Map: ${ehLine} | ${elLine}`);
+
+    // Wyckoff
+    if (wyckoff.detected) {
+      const wIcon = wyckoff.aligns ? '✅' : '⚠️';
+      lines.push(`► Wyckoff Phase: ${wyckoff.description} ${wIcon}`);
+    } else {
+      lines.push(`► Wyckoff: No clear accumulation/distribution phase detected`);
+    }
+
+    smcSection = `\n${lines.join('\n')}`;
+  }
+
   let ictSection = '';
   if (ictContext) {
     const mw = ictContext.macroWindow;
@@ -428,7 +495,7 @@ ${coreStr}
 ${advStr ? `
 ADVANCED ANALYSIS:
 ${advStr}
-` : ''}${newsSection}${ictSection}
+` : ''}${newsSection}${smcSection}${ictSection}
 
 Provide your independent assessment considering ALL of the following:
 1. PRICE ACTION: Do candle patterns (engulfing, hammer, star, doji) support the direction?
@@ -456,6 +523,9 @@ Provide your independent assessment considering ALL of the following:
    - No prior stop hunt = institutional accumulation/distribution not confirmed, be cautious
    - CRT in MANIPULATION stage = do NOT enter (likely to fake out further before expansion)
    - CRT in EXPANSION stage = ideal entry with breakout confirmation
+17. MARKET STRUCTURE (BOS/CHOCH): Is there a clear Break of Structure or Change of Character confirming the trade direction? A BOS shows continuation — a CHOCH signals a trend reversal. Trading AGAINST the most recent BOS/CHOCH is LOW quality. If no BOS is detected, price is still ranging — caution.
+18. LIQUIDITY & ORDER FLOW (FVG + Order Blocks): Is the entry anchored to a Fair Value Gap or Order Block? Entries INTO an FVG or OB from a displacement move are HIGH quality. Are there equal highs/lows (liquidity pools) that price may be targeting? Price moves from one liquidity pool to the next — know which one is the TARGET and which is the ORIGIN. A breaker block above/below price is strong resistance/support.
+19. WYCKOFF PHASE: What is the Wyckoff phase? ACCUMULATION SPRING or DISTRIBUTION UPTHRUST before entry are high-quality signals (institutional footprints). MARKUP/MARKDOWN confirmation = trend trade. Trading during a ranging/indecision phase without a spring or upthrust = LOW quality entry.
 
 CRITICAL RULES FOR YOUR DECISION:
 - CONFIRM the trade if the majority of indicators support the direction, even if 1-2 minor indicators are neutral or slightly against. No trade has 100% alignment — focus on the weight of evidence.
@@ -498,7 +568,10 @@ Return your analysis as JSON:
   "trailRecommendation": "NONE" | "TIGHT" | "STANDARD" | "WIDE" | "AGGRESSIVE",
   "recommendedTrailPips": number or null,
   "ictMacroValid": boolean (true if ICT macro window ACTIVE + PD zone aligns with signal + stop hunt detected — all three green = valid. If ICT data not provided, set true),
-  "ictMacroReason": "Brief 1-line ICT checklist result, e.g. 'Macro active, discount zone confirmed, stop hunt detected — full ICT alignment' or 'Outside macro window + no stop hunt — high fake-out risk'"
+  "ictMacroReason": "Brief 1-line ICT checklist result, e.g. 'Macro active, discount zone confirmed, stop hunt detected — full ICT alignment' or 'Outside macro window + no stop hunt — high fake-out risk'",
+  "smcVerdict": "CONFIRM" | "REQUIRE_BETTER_PRICE" | "PASS" (your SMC-only institutional verdict: CONFIRM if BOS/CHOCH aligns + entry at OB or FVG + Wyckoff confirms; REQUIRE_BETTER_PRICE if idea valid but entry not at OB/FVG; PASS if trading against structure or into liquidity. Set null if SMC data not provided),
+  "smcQuality": "HIGH" | "MEDIUM" | "LOW" (HIGH = BOS/CHOCH + OB/FVG + liquidity sweep all aligned; MEDIUM = 2 of 3; LOW = 0-1; null if no SMC data),
+  "smcReason": "One concise sentence summarizing the SMC analysis: structure type, OB/FVG presence, Wyckoff phase, liquidity target. E.g. 'Bullish CHOCH confirmed, price retesting bullish OB at 1.0855, equal lows swept, Wyckoff accumulation spring — HIGH quality entry'"
 }`
   };
 }
@@ -602,12 +675,13 @@ export async function getAiVisionConfirmation(
   timeframe: string,
   userId?: number,
   newsContext?: { sentiment?: any; upcomingEvents?: any[]; topHeadlines?: string[] },
-  ictContext?: IctContext | null
+  ictContext?: IctContext | null,
+  smcContext?: SmcContext | null
 ): Promise<AiVisionConfirmation> {
   try {
     const selectedModel = userId ? getUserModelPreference(userId) : 'gpt-4o-mini';
     const provider = getModelProvider(selectedModel);
-    const prompt = buildConfirmationPrompt(candleData, indicators, proposedSignal, proposedConfidence, tradePlan, symbol, timeframe, newsContext, ictContext);
+    const prompt = buildConfirmationPrompt(candleData, indicators, proposedSignal, proposedConfidence, tradePlan, symbol, timeframe, newsContext, ictContext, smcContext);
 
     console.log(`[AI Vision Confirmation] Requesting ${provider}/${selectedModel} confirmation for ${symbol} ${proposedSignal}`);
 
@@ -665,6 +739,9 @@ export async function getAiVisionConfirmation(
       recommendedTrailPips: typeof result.recommendedTrailPips === 'number' ? result.recommendedTrailPips : null,
       ictMacroValid: typeof result.ictMacroValid === 'boolean' ? result.ictMacroValid : undefined,
       ictMacroReason: typeof result.ictMacroReason === 'string' ? result.ictMacroReason : undefined,
+      smcVerdict: ['CONFIRM', 'REQUIRE_BETTER_PRICE', 'PASS'].includes(result.smcVerdict) ? result.smcVerdict : null,
+      smcQuality: ['HIGH', 'MEDIUM', 'LOW'].includes(result.smcQuality) ? result.smcQuality : null,
+      smcReason: typeof result.smcReason === 'string' ? result.smcReason : undefined,
     };
   } catch (error: any) {
     const errMsg = error?.message || String(error);
