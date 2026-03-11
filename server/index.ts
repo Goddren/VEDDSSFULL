@@ -61,18 +61,40 @@ app.use((req, res, next) => {
   next();
 });
 
+/**
+ * Retry a DB operation with exponential backoff.
+ * Neon endpoints can take several seconds to wake from auto-suspension.
+ */
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  label: string,
+  maxAttempts = 6,
+  baseDelayMs = 2000
+): Promise<T | null> {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      const isDisabled = err?.message?.includes('endpoint has been disabled');
+      const isConnRefused = err?.code === 'ECONNREFUSED' || err?.message?.includes('connect');
+      const isRetryable = isDisabled || isConnRefused || err?.code === 'XX000';
+
+      if (attempt === maxAttempts || !isRetryable) {
+        console.error(`[startup] ${label} failed after ${attempt} attempt(s):`, err?.message ?? err);
+        return null;
+      }
+
+      const delay = baseDelayMs * Math.pow(1.5, attempt - 1);
+      console.warn(`[startup] ${label} attempt ${attempt} failed (${err?.message ?? err}). Retrying in ${Math.round(delay / 1000)}s…`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+  return null;
+}
+
 (async () => {
-  // Seed initial data
-  await seedSubscriptionPlans();
-  await seedAchievements();
-  
-  // Initialize market data service for Live AI Refresh
-  initializeMarketDataService();
-  
-  // Start independent breakout monitor (M15 polling during session windows)
-  const { startBreakoutMonitor } = await import('./services/breakout-monitor');
-  startBreakoutMonitor();
-  
+  // Start the HTTP server immediately so the process doesn't crash-loop
+  // while waiting for the Neon endpoint to wake up.
   const server = await registerRoutes(app);
 
   app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
@@ -108,10 +130,26 @@ app.use((req, res, next) => {
   // It is the only port that is not firewalled.
   const port = 5000;
   server.listen({
-    port: 5000,
+    port,
     host: "0.0.0.0",
     reusePort: true,
   }, () => {
-    log(`serving on port 5000`);
+    log(`serving on port ${port}`);
+  });
+
+  // Seed initial data after the server is already listening.
+  // Retries with backoff to handle Neon endpoint wake-up delays.
+  (async () => {
+    await withRetry(() => seedSubscriptionPlans(), 'seedSubscriptionPlans');
+    await withRetry(() => seedAchievements(), 'seedAchievements');
+
+    // Initialize market data service for Live AI Refresh
+    initializeMarketDataService();
+
+    // Start independent breakout monitor (M15 polling during session windows)
+    const { startBreakoutMonitor } = await import('./services/breakout-monitor');
+    startBreakoutMonitor();
+  })().catch(err => {
+    console.error('[startup] Background initialization error:', err);
   });
 })();
