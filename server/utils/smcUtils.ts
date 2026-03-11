@@ -29,6 +29,16 @@ export interface OrderBlockResult {
   top: number | null;
   bottom: number | null;
   aligns: boolean;
+  mitigation: 'FRESH' | 'PARTIALLY_MITIGATED' | 'FULLY_MITIGATED' | null;
+  mitigationCount: number;
+  description: string;
+}
+
+export interface LiquidityTargetsResult {
+  internalTarget: { level: number | null; type: string; description: string };
+  externalTarget: { level: number | null; type: string; description: string };
+  priceIsTargetingInternal: boolean;
+  priceIsTargetingExternal: boolean;
   description: string;
 }
 
@@ -176,35 +186,58 @@ export function detectFairValueGap(candles: any[], signal: string): FVGResult {
  * Bearish OB: last bullish candle before a strong downward displacement
  * Breaker: an OB that was broken through — now acts as opposing level
  */
+function countOBMitigations(candles: any[], obBottom: number, obTop: number, obIndex: number, isBullish: boolean): number {
+  let count = 0;
+  for (let k = obIndex - 1; k >= 1; k--) {
+    const c = candles[k];
+    if (!c) continue;
+    if (isBullish) {
+      const low = c.l || c.low || Infinity;
+      if (low >= obBottom && low <= obTop) count++;
+    } else {
+      const high = c.h || c.high || 0;
+      if (high >= obBottom && high <= obTop) count++;
+    }
+  }
+  return count;
+}
+
+function getMitigation(count: number): 'FRESH' | 'PARTIALLY_MITIGATED' | 'FULLY_MITIGATED' {
+  if (count === 0) return 'FRESH';
+  if (count === 1) return 'PARTIALLY_MITIGATED';
+  return 'FULLY_MITIGATED';
+}
+
 export function detectOrderBlock(candles: any[], signal: string): OrderBlockResult {
-  const none: OrderBlockResult = { detected: false, type: null, top: null, bottom: null, aligns: false, description: 'No significant order block detected' };
+  const none: OrderBlockResult = { detected: false, type: null, top: null, bottom: null, aligns: false, mitigation: null, mitigationCount: 0, description: 'No significant order block detected' };
   if (!candles || candles.length < 6) return none;
 
   const currentClose = candles[0].c;
   const lookback = Math.min(20, candles.length - 2);
 
-  // Displacement threshold: the impulse candle body must be >= 1.5x the OB body
   for (let i = 2; i < lookback; i++) {
-    const obCandle = candles[i]; // potential order block
-    const impulse = candles[i - 1]; // next candle after OB (displacement)
+    const obCandle = candles[i];
+    const impulse = candles[i - 1];
     const obBody = Math.abs(obCandle.c - obCandle.o);
     const impulseBody = Math.abs(impulse.c - impulse.o);
     if (obBody === 0 || impulseBody < obBody * 1.5) continue;
 
-    // Bullish OB: OB is bearish candle followed by bullish impulse
+    // Bullish OB: bearish candle followed by bullish impulse
     if (obCandle.c < obCandle.o && impulse.c > impulse.o) {
-      const obTop = obCandle.o; // open of bearish candle = top of OB zone
+      const obTop = obCandle.o;
       const obBottom = obCandle.l;
       const inZone = currentClose >= obBottom && currentClose <= obTop;
       const breached = currentClose < obBottom;
+      const mitCount = countOBMitigations(candles, obBottom, obTop, i, true);
+      const mitStatus = getMitigation(mitCount);
 
       if (breached) {
-        // It became a breaker — only relevant for SELL
         if (signal !== 'SELL') continue;
         return {
           detected: true, type: 'BREAKER',
           top: obTop, bottom: obBottom, aligns: true,
-          description: `Bearish breaker at ${obBottom.toFixed(5)}–${obTop.toFixed(5)} — bullish OB was breached, now acting as resistance (${i} candles ago)`,
+          mitigation: mitStatus, mitigationCount: mitCount,
+          description: `Bearish breaker at ${obBottom.toFixed(5)}–${obTop.toFixed(5)} — bullish OB was breached, now acting as resistance (${i} candles ago) | Mitigation: ${mitStatus} (${mitCount} test${mitCount !== 1 ? 's' : ''})`,
         };
       }
 
@@ -212,23 +245,27 @@ export function detectOrderBlock(candles: any[], signal: string): OrderBlockResu
       return {
         detected: true, type: 'BULLISH_OB',
         top: obTop, bottom: obBottom, aligns: true,
-        description: `Bullish OB at ${obBottom.toFixed(5)}–${obTop.toFixed(5)} (${i} candles ago)${inZone ? ' — price retesting OB zone' : ''}`,
+        mitigation: mitStatus, mitigationCount: mitCount,
+        description: `${mitStatus} Bullish OB at ${obBottom.toFixed(5)}–${obTop.toFixed(5)} (${i} candles ago)${inZone ? ' — price retesting OB zone' : ''} | ${mitStatus === 'FRESH' ? 'Never tested — maximum institutional interest' : mitStatus === 'PARTIALLY_MITIGATED' ? 'Tested once — still valid but partially consumed' : 'Fully consumed — weak OB, avoid using as primary entry reference'}`,
       };
     }
 
-    // Bearish OB: OB is bullish candle followed by bearish impulse
+    // Bearish OB: bullish candle followed by bearish impulse
     if (obCandle.c > obCandle.o && impulse.c < impulse.o) {
       const obTop = obCandle.h;
-      const obBottom = obCandle.o; // open of bullish candle = bottom of OB zone
+      const obBottom = obCandle.o;
       const inZone = currentClose >= obBottom && currentClose <= obTop;
       const breached = currentClose > obTop;
+      const mitCount = countOBMitigations(candles, obBottom, obTop, i, false);
+      const mitStatus = getMitigation(mitCount);
 
       if (breached) {
         if (signal !== 'BUY') continue;
         return {
           detected: true, type: 'BREAKER',
           top: obTop, bottom: obBottom, aligns: true,
-          description: `Bullish breaker at ${obBottom.toFixed(5)}–${obTop.toFixed(5)} — bearish OB was breached, now acting as support (${i} candles ago)`,
+          mitigation: mitStatus, mitigationCount: mitCount,
+          description: `Bullish breaker at ${obBottom.toFixed(5)}–${obTop.toFixed(5)} — bearish OB was breached, now acting as support (${i} candles ago) | Mitigation: ${mitStatus} (${mitCount} test${mitCount !== 1 ? 's' : ''})`,
         };
       }
 
@@ -236,7 +273,8 @@ export function detectOrderBlock(candles: any[], signal: string): OrderBlockResu
       return {
         detected: true, type: 'BEARISH_OB',
         top: obTop, bottom: obBottom, aligns: true,
-        description: `Bearish OB at ${obBottom.toFixed(5)}–${obTop.toFixed(5)} (${i} candles ago)${inZone ? ' — price retesting OB zone' : ''}`,
+        mitigation: mitStatus, mitigationCount: mitCount,
+        description: `${mitStatus} Bearish OB at ${obBottom.toFixed(5)}–${obTop.toFixed(5)} (${i} candles ago)${inZone ? ' — price retesting OB zone' : ''} | ${mitStatus === 'FRESH' ? 'Never tested — maximum institutional interest' : mitStatus === 'PARTIALLY_MITIGATED' ? 'Tested once — still valid but partially consumed' : 'Fully consumed — weak OB, avoid using as primary entry reference'}`,
       };
     }
   }
@@ -385,4 +423,96 @@ export function detectWyckoff(candles: any[]): WyckoffResult {
   }
 
   return none;
+}
+
+/**
+ * Classifies liquidity targets as internal (within current dealing range) or external (beyond structure).
+ * Internal = equal H/L or FVG pockets within the most recent BOS/CHOCH boundary.
+ * External = major swing high/low beyond the BOS/CHOCH level that price is drawn toward.
+ */
+export function classifyLiquidityTargets(
+  candles: any[],
+  signal: string,
+  bosCHOCH: BOSCHOCHResult
+): LiquidityTargetsResult {
+  const none: LiquidityTargetsResult = {
+    internalTarget: { level: null, type: 'NONE', description: 'No internal liquidity target identified' },
+    externalTarget: { level: null, type: 'NONE', description: 'No external liquidity target identified' },
+    priceIsTargetingInternal: false,
+    priceIsTargetingExternal: false,
+    description: 'Insufficient data to classify liquidity targets',
+  };
+  if (!candles || candles.length < 10) return none;
+
+  const currentPrice = candles[0]?.c || 0;
+  const swingHighs = findSwingHighs(candles, 30);
+  const swingLows = findSwingLows(candles, 30);
+  const boundary = bosCHOCH.level;
+
+  let internalTarget: LiquidityTargetsResult['internalTarget'] = { level: null, type: 'NONE', description: 'No internal liquidity target' };
+  let externalTarget: LiquidityTargetsResult['externalTarget'] = { level: null, type: 'NONE', description: 'No external liquidity target' };
+
+  if (signal === 'BUY') {
+    const extCandidates = boundary ? swingHighs.filter(s => s.level > boundary) : swingHighs;
+    if (extCandidates.length > 0) {
+      const ext = extCandidates.reduce((a, b) => a.level > b.level ? a : b);
+      externalTarget = {
+        level: ext.level,
+        type: 'SWING_HIGH (BSL)',
+        description: `External BSL (buy-side liquidity) at ${ext.level.toFixed(5)} — major swing high ${ext.index} candles ago, institutional draw on liquidity above`,
+      };
+    }
+    const intCandidates = boundary
+      ? swingHighs.filter(s => s.level < boundary && s.level > currentPrice)
+      : swingHighs.filter(s => s.level > currentPrice);
+    if (intCandidates.length > 0) {
+      const intT = intCandidates.reduce((a, b) => Math.abs(a.level - currentPrice) < Math.abs(b.level - currentPrice) ? a : b);
+      internalTarget = {
+        level: intT.level,
+        type: 'INTERNAL_BSL',
+        description: `Internal BSL at ${intT.level.toFixed(5)} — nearest swing high within current range (${intT.index} candles ago), price will likely tap here first before external draw`,
+      };
+    }
+  } else {
+    const extCandidates = boundary ? swingLows.filter(s => s.level < boundary) : swingLows;
+    if (extCandidates.length > 0) {
+      const ext = extCandidates.reduce((a, b) => a.level < b.level ? a : b);
+      externalTarget = {
+        level: ext.level,
+        type: 'SWING_LOW (SSL)',
+        description: `External SSL (sell-side liquidity) at ${ext.level.toFixed(5)} — major swing low ${ext.index} candles ago, institutional draw on liquidity below`,
+      };
+    }
+    const intCandidates = boundary
+      ? swingLows.filter(s => s.level > boundary && s.level < currentPrice)
+      : swingLows.filter(s => s.level < currentPrice);
+    if (intCandidates.length > 0) {
+      const intT = intCandidates.reduce((a, b) => Math.abs(a.level - currentPrice) < Math.abs(b.level - currentPrice) ? a : b);
+      internalTarget = {
+        level: intT.level,
+        type: 'INTERNAL_SSL',
+        description: `Internal SSL at ${intT.level.toFixed(5)} — nearest swing low within current range (${intT.index} candles ago), price will likely tap here first before external draw`,
+      };
+    }
+  }
+
+  const intCleared = internalTarget.level !== null && (
+    signal === 'BUY' ? currentPrice > internalTarget.level : currentPrice < internalTarget.level
+  );
+  const priceIsTargetingExternal = intCleared && externalTarget.level !== null;
+  const priceIsTargetingInternal = !intCleared && internalTarget.level !== null;
+
+  const trajDesc = priceIsTargetingExternal
+    ? `EXTERNAL — internal liquidity already cleared, now targeting ${externalTarget.type} at ${externalTarget.level?.toFixed(5)}`
+    : priceIsTargetingInternal
+    ? `INTERNAL — price targeting ${internalTarget.type} at ${internalTarget.level?.toFixed(5)} first before external draw`
+    : 'UNCLEAR — no dominant liquidity target identified';
+
+  return {
+    internalTarget,
+    externalTarget,
+    priceIsTargetingInternal,
+    priceIsTargetingExternal,
+    description: trajDesc,
+  };
 }

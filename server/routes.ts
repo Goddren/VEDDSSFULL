@@ -6434,7 +6434,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
 
             let ictContext = null;
             if (isICTStrategyEnabled(token.userId)) {
-              const { getICTMacroContext, getPremiumDiscountContext, detectStopHunt, detectCRTPattern } = await import('./utils/ictMacroUtils');
+              const { getICTMacroContext, getPremiumDiscountContext, detectStopHunt, detectCRTPattern, detectAsianRange, detectKeyReferenceLevels, detectOTEZone } = await import('./utils/ictMacroUtils');
               ictContext = {
                 macroWindow: getICTMacroContext(new Date()),
                 premiumDiscount: getPremiumDiscountContext(
@@ -6444,27 +6444,64 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 ),
                 stopHunt: detectStopHunt(candles, analysis.signal),
                 crtPattern: detectCRTPattern(candles),
+                asianRange: detectAsianRange(candles),
+                keyLevels: detectKeyReferenceLevels(candles),
+                oteZone: detectOTEZone(candles, analysis.signal),
               };
-              console.log(`[ICT] NY:${ictContext.macroWindow.currentNYTime} | Macro:${ictContext.macroWindow.isInMacroWindow ? ictContext.macroWindow.macroName : 'INACTIVE'} | Zone:${ictContext.premiumDiscount.zone}(${ictContext.premiumDiscount.percentile}%) | Hunt:${ictContext.stopHunt.detected} | CRT:${ictContext.crtPattern.detected}(${ictContext.crtPattern.direction || 'none'})`);
+              console.log(`[ICT] NY:${ictContext.macroWindow.currentNYTime} | Session:${(ictContext.macroWindow as any).session} | Macro:${ictContext.macroWindow.isInMacroWindow ? ictContext.macroWindow.macroName : 'INACTIVE'} | Zone:${ictContext.premiumDiscount.zone}(${ictContext.premiumDiscount.percentile}%) | Hunt:${ictContext.stopHunt.detected} | CRT:${ictContext.crtPattern.detected}(${ictContext.crtPattern.direction || 'none'}) | OTE:${ictContext.oteZone?.inOTEZone ? 'IN_ZONE' : 'OUT'} | PDH:${ictContext.keyLevels?.pdHigh?.toFixed(5) || 'N/A'}`);
             }
 
             let smcContext = null;
             if (isSMCStrategyEnabled(token.userId)) try {
-              const { detectBOSCHOCH, detectFairValueGap, detectOrderBlock, detectEqualHighsLows, detectWyckoff } = await import('./utils/smcUtils');
+              const { detectBOSCHOCH, detectFairValueGap, detectOrderBlock, detectEqualHighsLows, detectWyckoff, classifyLiquidityTargets } = await import('./utils/smcUtils');
+              const bosCHOCH = detectBOSCHOCH(candles, analysis.signal);
               smcContext = {
-                bosCHOCH: detectBOSCHOCH(candles, analysis.signal),
+                bosCHOCH,
                 fvg: detectFairValueGap(candles, analysis.signal),
                 orderBlock: detectOrderBlock(candles, analysis.signal),
                 equalHighsLows: detectEqualHighsLows(candles),
                 wyckoff: detectWyckoff(candles),
+                liquidityTargets: classifyLiquidityTargets(candles, analysis.signal, bosCHOCH),
               };
               const bosStr = smcContext.bosCHOCH.detected ? `${smcContext.bosCHOCH.type}(${smcContext.bosCHOCH.direction})` : 'NONE';
               const fvgStr = smcContext.fvg.detected ? `FVG(${smcContext.fvg.direction}${smcContext.fvg.inZone ? ',IN_ZONE' : ''})` : 'NO_FVG';
-              const obStr = smcContext.orderBlock.detected ? `OB(${smcContext.orderBlock.type})` : 'NO_OB';
+              const obStr = smcContext.orderBlock.detected ? `OB(${smcContext.orderBlock.type},${smcContext.orderBlock.mitigation})` : 'NO_OB';
               const wStr = smcContext.wyckoff.detected ? `Wyckoff(${smcContext.wyckoff.phase}/${smcContext.wyckoff.stage})` : 'NO_WYC';
-              console.log(`[SMC] ${sanitizedSymbol}: ${bosStr} | ${fvgStr} | ${obStr} | ${wStr}`);
+              const ltStr = smcContext.liquidityTargets.priceIsTargetingExternal ? 'EXT_LIQ' : smcContext.liquidityTargets.priceIsTargetingInternal ? 'INT_LIQ' : 'LIQ_UNCLEAR';
+              console.log(`[SMC] ${sanitizedSymbol}: ${bosStr} | ${fvgStr} | ${obStr} | ${wStr} | ${ltStr}`);
             } catch (smcErr) {
               console.warn('[SMC] Context computation failed:', smcErr);
+            }
+
+            // Attempt to fetch HTF candles for bias injection
+            let htfCandles: any[] | undefined = undefined;
+            try {
+              const tfMap: Record<string, string> = {
+                '1min': '5min', '5min': '15min', '15min': '1h', '30min': '1h',
+                '1h': '4h', '4h': '1day', '1day': '1week',
+                'M1': '5min', 'M5': '15min', 'M15': '1h', 'M30': '1h', 'H1': '4h', 'H4': '1day',
+              };
+              const htfTF = tfMap[sanitizedTimeframe];
+              if (htfTF) {
+                const { marketDataService } = await import('./market-data');
+                if (marketDataService.isInitialized()) {
+                  const assetType = marketDataService.detectAssetType(sanitizedSymbol);
+                  const htfResult = await marketDataService.fetchMarketData({
+                    symbol: sanitizedSymbol,
+                    assetType,
+                    timeframe: htfTF as any,
+                    limit: 50,
+                  });
+                  if (htfResult?.bars && htfResult.bars.length >= 10) {
+                    htfCandles = htfResult.bars.map((b: any) => ({
+                      o: b.open, h: b.high, l: b.low, c: b.close, v: b.volume, t: b.timestamp,
+                    }));
+                    console.log(`[HTF] Fetched ${htfCandles.length} ${htfTF} candles for bias injection`);
+                  }
+                }
+              }
+            } catch (htfErr) {
+              console.warn('[HTF] Failed to fetch higher timeframe candles:', htfErr);
             }
 
             aiConfirmation = await getAiVisionConfirmation(
@@ -6478,7 +6515,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               token.userId,
               newsContextForAI,
               ictContext,
-              smcContext
+              smcContext,
+              htfCandles
             );
             
             // Confidence gate: AI can override low EA confidence if AI is confident enough

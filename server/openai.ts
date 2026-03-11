@@ -274,6 +274,8 @@ export interface AiVisionConfirmation {
   smcVerdict?: 'CONFIRM' | 'REQUIRE_BETTER_PRICE' | 'PASS' | null;
   smcQuality?: 'HIGH' | 'MEDIUM' | 'LOW' | null;
   smcReason?: string;
+  confluenceScore?: number;
+  confluenceGrade?: 'A+' | 'A' | 'B' | 'C' | 'D';
 }
 
 export interface AiConfirmationLogEntry {
@@ -338,21 +340,25 @@ export function getAiConfirmationLogs(userId: number): AiConfirmationLogEntry[] 
 }
 
 interface IctContext {
-  macroWindow: { isInMacroWindow: boolean; macroName: string|null; macroType: string|null; minutesUntilNextMacro: number; nextMacroName: string; currentNYTime: string };
+  macroWindow: { isInMacroWindow: boolean; macroName: string|null; macroType: string|null; minutesUntilNextMacro: number; nextMacroName: string; currentNYTime: string; session?: string };
   premiumDiscount: { zone: string; percentile: number; rangeHigh: number; rangeLow: number; equilibrium: number; aligns: boolean; description: string };
   stopHunt: { detected: boolean; candlesAgo: number|null; sweepLevel: number|null; description: string };
   crtPattern: { detected: boolean; direction: string|null; stage: string|null; description: string };
+  asianRange?: { high: number; low: number; midpoint: number; detected: boolean; description: string };
+  keyLevels?: { pdHigh: number|null; pdLow: number|null; pwHigh: number|null; pwLow: number|null; currentPrice: number; abovePDH: boolean; belowPDL: boolean; description: string };
+  oteZone?: { detected: boolean; swingHigh: number|null; swingLow: number|null; ote618: number|null; ote705: number|null; ote79: number|null; inOTEZone: boolean; currentPrice: number; description: string };
 }
 
 interface SmcContext {
   bosCHOCH: { detected: boolean; type: string|null; direction: string|null; level: number|null; candlesAgo: number|null; description: string };
   fvg: { detected: boolean; direction: string|null; top: number|null; bottom: number|null; inZone: boolean; candlesAgo: number|null; description: string };
-  orderBlock: { detected: boolean; type: string|null; top: number|null; bottom: number|null; aligns: boolean; description: string };
+  orderBlock: { detected: boolean; type: string|null; top: number|null; bottom: number|null; aligns: boolean; mitigation?: string|null; mitigationCount?: number; description: string };
   equalHighsLows: {
     equalHighs: { detected: boolean; level: number|null; count: number; description: string };
     equalLows: { detected: boolean; level: number|null; count: number; description: string };
   };
   wyckoff: { detected: boolean; phase: string|null; stage: string|null; aligns: boolean; description: string };
+  liquidityTargets?: { internalTarget: { level: number|null; type: string; description: string }; externalTarget: { level: number|null; type: string; description: string }; priceIsTargetingInternal: boolean; priceIsTargetingExternal: boolean; description: string };
 }
 
 function estimatePipSize(symbol: string): number {
@@ -447,27 +453,38 @@ function buildTrailSignalSummary(
     }
   }
 
-  // 5. Session Timing (from NY time string)
-  if (mw?.currentNYTime) {
-    const match = mw.currentNYTime.match(/(\d+):(\d+)\s*(AM|PM)/i);
-    if (match) {
-      let hours = parseInt(match[1]);
-      const mins = parseInt(match[2]);
-      const ampm = match[3].toUpperCase();
-      if (ampm === 'PM' && hours !== 12) hours += 12;
-      if (ampm === 'AM' && hours === 12) hours = 0;
-      const totalMins = hours * 60 + mins;
-
-      if (totalMins >= 7*60 && totalMins < 11*60+30) {
-        signals.push(`► Session: London/NY overlap (${mw.currentNYTime} NY) — peak trending window — bias WIDE to AGGRESSIVE`);
-      } else if (totalMins >= 8*60+30 && totalMins < 10*60+30) {
-        signals.push(`► Session: NY Open (${mw.currentNYTime} NY) — peak volatility hour — bias WIDE`);
-      } else if (totalMins >= 12*60 && totalMins < 14*60+30) {
-        signals.push(`► Session: NY Lunch (${mw.currentNYTime} NY) — low momentum, chop risk — reduce trail one level (WIDE→STANDARD, STANDARD→TIGHT)`);
-      } else if (totalMins >= 14*60+30 && totalMins < 17*60) {
-        signals.push(`► Session: NY PM (${mw.currentNYTime} NY) — steady continuation or late reversal — bias STANDARD`);
-      } else {
-        signals.push(`► Session: Asian/off-hours (${mw.currentNYTime} NY) — low momentum, tight spreads — bias TIGHT`);
+  // 5. Session Timing (use session field if available, fallback to NY time parse)
+  if (mw) {
+    const session = (mw as any).session as string | undefined;
+    const timeLabel = mw.currentNYTime ? ` (${mw.currentNYTime} NY)` : '';
+    if (session === 'LONDON') {
+      signals.push(`► Session: London Kill Zone${timeLabel} — institutional range highs/lows being set, high-volatility institutional flow — bias WIDE`);
+    } else if (session === 'NY_AM') {
+      signals.push(`► Session: New York AM${timeLabel} — peak trending session, highest volume of the day — bias WIDE to AGGRESSIVE`);
+    } else if (session === 'NY_PM') {
+      signals.push(`► Session: New York PM${timeLabel} — continuation or late exhaustion — bias STANDARD`);
+    } else if (session === 'ASIAN') {
+      signals.push(`► Session: Asian session${timeLabel} — low momentum, range-bound, avoid wide trails — bias TIGHT`);
+    } else if (session === 'OVERNIGHT') {
+      signals.push(`► Session: Off-hours / Overnight${timeLabel} — minimal volume, erratic moves — bias TIGHT or NONE`);
+    } else if (mw.currentNYTime) {
+      const match = mw.currentNYTime.match(/(\d+):(\d+)\s*(AM|PM)/i);
+      if (match) {
+        let hours = parseInt(match[1]);
+        const mins = parseInt(match[2]);
+        const ampm = match[3].toUpperCase();
+        if (ampm === 'PM' && hours !== 12) hours += 12;
+        if (ampm === 'AM' && hours === 12) hours = 0;
+        const totalMins = hours * 60 + mins;
+        if (totalMins >= 7*60 && totalMins < 11*60+30) {
+          signals.push(`► Session: London/NY overlap${timeLabel} — peak trending window — bias WIDE to AGGRESSIVE`);
+        } else if (totalMins >= 12*60 && totalMins < 14*60+30) {
+          signals.push(`► Session: NY Lunch${timeLabel} — low momentum, chop risk — reduce trail one level (WIDE→STANDARD, STANDARD→TIGHT)`);
+        } else if (totalMins >= 14*60+30 && totalMins < 17*60) {
+          signals.push(`► Session: NY PM${timeLabel} — steady continuation or late reversal — bias STANDARD`);
+        } else {
+          signals.push(`► Session: Asian/off-hours${timeLabel} — low momentum, tight spreads — bias TIGHT`);
+        }
       }
     }
   }
@@ -484,7 +501,168 @@ function buildTrailSignalSummary(
     signals.push(`► No BOS/CHOCH — ranging environment, no clear trend direction — bias TIGHT`);
   }
 
+  // 7. R:R Ratio Awareness
+  if (tradePlan?.entry && tradePlan?.stopLoss && tradePlan?.takeProfit) {
+    const rrEntry = tradePlan.entry;
+    const rrSL = tradePlan.stopLoss;
+    const rrTP = tradePlan.takeProfit;
+    const risk = Math.abs(rrEntry - rrSL);
+    const reward = Math.abs(rrTP - rrEntry);
+    const rr = risk > 0 ? reward / risk : 0;
+    if (rr >= 3) {
+      signals.push(`► Trade R:R is ${rr.toFixed(1)}R — high reward trade, use WIDE or AGGRESSIVE trail to let profits compound; only tighten after 2R secured`);
+    } else if (rr >= 2) {
+      signals.push(`► Trade R:R is ${rr.toFixed(1)}R — solid trade, STANDARD to WIDE trail; move to breakeven at 1R`);
+    } else if (rr >= 1.5) {
+      signals.push(`► Trade R:R is ${rr.toFixed(1)}R — acceptable trade, TIGHT trail preferred; target is relatively close, protect quickly`);
+    } else if (rr > 0) {
+      signals.push(`► Trade R:R is ${rr.toFixed(1)}R — low reward, TIGHT or NONE; risk/reward doesn't justify a wide trail`);
+    }
+  }
+
   return signals.join('\n');
+}
+
+function getHTFTimeframe(tf: string): string | null {
+  const map: Record<string, string> = {
+    '1min': '5min', '5min': '15min', '15min': '1h',
+    '30min': '1h', '1h': '4h', '4h': '1day', '1day': '1week',
+    '1m': '5m', '5m': '15m', '15m_': '1h', '30m': '1h',
+    'M1': '5min', 'M5': '15min', 'M15': '1h', 'M30': '1h', 'H1': '4h', 'H4': '1day',
+  };
+  return map[tf] ?? null;
+}
+
+function computeConfluenceScore(
+  signal: string,
+  ictContext: IctContext | null | undefined,
+  smcContext: SmcContext | null | undefined
+): { score: number; maxScore: number; grade: 'A+' | 'A' | 'B' | 'C' | 'D'; summary: string[] } {
+  let score = 0;
+  const summary: string[] = [];
+
+  if (ictContext) {
+    if (ictContext.premiumDiscount.aligns) {
+      score++;
+      summary.push(`✅ PD Array: ${ictContext.premiumDiscount.zone} zone aligns with ${signal}`);
+    } else {
+      summary.push(`❌ PD Array: ${ictContext.premiumDiscount.zone} zone conflicts with ${signal}`);
+    }
+
+    if (ictContext.stopHunt.detected) {
+      score++;
+      summary.push(`✅ Stop Hunt: Liquidity sweep detected before entry`);
+    } else {
+      summary.push(`⚠ Stop Hunt: No liquidity sweep detected`);
+    }
+
+    if (ictContext.crtPattern.detected) {
+      if (ictContext.crtPattern.stage === 'EXPANSION') {
+        score++;
+        summary.push(`✅ CRT: EXPANSION phase confirmed — institutional move launched`);
+      } else if (ictContext.crtPattern.stage === 'MANIPULATION') {
+        summary.push(`❌ CRT: MANIPULATION phase — fakeout risk, no score`);
+      } else {
+        summary.push(`⚠ CRT: RANGE forming — no directional confirmation yet`);
+      }
+    }
+
+    if (ictContext.macroWindow.isInMacroWindow) {
+      score++;
+      summary.push(`✅ ICT Macro: Active window (${ictContext.macroWindow.macroName})`);
+    } else {
+      summary.push(`⚠ ICT Macro: Inactive — ${ictContext.macroWindow.minutesUntilNextMacro}min to next window`);
+    }
+
+    const sess = (ictContext.macroWindow as any).session;
+    if (sess === 'LONDON' || sess === 'NY_AM') {
+      score++;
+      summary.push(`✅ Session: ${sess} — peak institutional session`);
+    } else {
+      summary.push(`⚠ Session: ${sess || 'UNKNOWN'} — lower volume session`);
+    }
+
+    if (ictContext.oteZone?.detected && ictContext.oteZone.inOTEZone) {
+      score++;
+      summary.push(`✅ OTE: Price in 61.8–79% retracement zone — institutional entry sweet spot`);
+    } else if (ictContext.oteZone?.detected) {
+      summary.push(`⚠ OTE: Zone identified but price not in it (${ictContext.oteZone.description.slice(0, 60)}...)`);
+    }
+
+    if (ictContext.keyLevels) {
+      const kl = ictContext.keyLevels;
+      const bearishPDH = signal === 'SELL' && kl.abovePDH;
+      const bullishPDL = signal === 'BUY' && kl.belowPDL;
+      if (bearishPDH || bullishPDL) {
+        score++;
+        summary.push(`✅ PDH/PDL: Price ${bearishPDH ? 'above PDH — bearish bias confirmed' : 'below PDL — bullish bias confirmed'}`);
+      } else {
+        summary.push(`⚠ PDH/PDL: ${kl.description.slice(0, 80)}`);
+      }
+    }
+  }
+
+  if (smcContext) {
+    if (smcContext.bosCHOCH.detected) {
+      const bosAligns =
+        (signal === 'BUY' && smcContext.bosCHOCH.direction === 'BULLISH') ||
+        (signal === 'SELL' && smcContext.bosCHOCH.direction === 'BEARISH');
+      if (bosAligns) {
+        score++;
+        summary.push(`✅ Structure: ${smcContext.bosCHOCH.type} ${smcContext.bosCHOCH.direction} aligns with ${signal}`);
+      } else {
+        summary.push(`❌ Structure: ${smcContext.bosCHOCH.type} ${smcContext.bosCHOCH.direction} conflicts with ${signal}`);
+      }
+    } else {
+      summary.push(`⚠ Structure: No BOS/CHOCH — ranging`);
+    }
+
+    if (smcContext.fvg.detected && smcContext.fvg.inZone) {
+      score++;
+      summary.push(`✅ FVG: Price inside Fair Value Gap — imbalance zone entry`);
+    } else if (smcContext.fvg.detected) {
+      summary.push(`⚠ FVG: Detected but price not in zone`);
+    } else {
+      summary.push(`⚠ FVG: No aligned Fair Value Gap`);
+    }
+
+    if (smcContext.orderBlock.detected && smcContext.orderBlock.aligns && smcContext.orderBlock.mitigation === 'FRESH') {
+      score++;
+      summary.push(`✅ Order Block: FRESH ${smcContext.orderBlock.type} — maximum institutional interest`);
+    } else if (smcContext.orderBlock.detected && smcContext.orderBlock.aligns) {
+      summary.push(`⚠ Order Block: Aligned but ${smcContext.orderBlock.mitigation} — partially consumed`);
+    } else {
+      summary.push(`⚠ Order Block: No aligned fresh order block`);
+    }
+
+    if (smcContext.wyckoff.detected && smcContext.wyckoff.aligns) {
+      score++;
+      summary.push(`✅ Wyckoff: ${smcContext.wyckoff.phase}/${smcContext.wyckoff.stage || 'phase'} aligns`);
+    } else if (smcContext.wyckoff.detected) {
+      summary.push(`⚠ Wyckoff: Detected but conflicts — ${smcContext.wyckoff.phase}`);
+    } else {
+      summary.push(`⚠ Wyckoff: No clear phase`);
+    }
+
+    const eqAligns = signal === 'BUY'
+      ? smcContext.equalHighsLows.equalHighs.detected
+      : smcContext.equalHighsLows.equalLows.detected;
+    if (eqAligns) {
+      score++;
+      summary.push(`✅ Liquidity Target: Equal ${signal === 'BUY' ? 'highs (BSL)' : 'lows (SSL)'} above — clear institutional draw on liquidity`);
+    } else {
+      summary.push(`⚠ Liquidity: No equal ${signal === 'BUY' ? 'highs' : 'lows'} as TP target`);
+    }
+  }
+
+  let grade: 'A+' | 'A' | 'B' | 'C' | 'D';
+  if (score >= 10) grade = 'A+';
+  else if (score >= 8) grade = 'A';
+  else if (score >= 6) grade = 'B';
+  else if (score >= 4) grade = 'C';
+  else grade = 'D';
+
+  return { score, maxScore: 12, grade, summary };
 }
 
 function buildConfirmationPrompt(
@@ -492,7 +670,8 @@ function buildConfirmationPrompt(
   proposedConfidence: number, tradePlan: any, symbol: string, timeframe: string,
   newsContext?: { sentiment?: any; upcomingEvents?: any[]; topHeadlines?: string[] },
   ictContext?: IctContext | null,
-  smcContext?: SmcContext | null
+  smcContext?: SmcContext | null,
+  htfCandles?: any[]
 ): { system: string; user: string } {
   const recentCandles = candleData.slice(0, 30);
   const candleSummary = recentCandles.map((c: any, i: number) => 
@@ -500,6 +679,7 @@ function buildConfirmationPrompt(
   ).join('\n');
 
   const trailSignalSummary = buildTrailSignalSummary(symbol, proposedSignal, tradePlan, ictContext, smcContext);
+  const confluenceResult = computeConfluenceScore(proposedSignal, ictContext, smcContext);
 
   const coreIndicators: any = {};
   const advancedIndicators: any = {};
@@ -566,9 +746,11 @@ function buildConfirmationPrompt(
       lines.push(`► Fair Value Gap: No aligned FVG detected — entry not anchored to an imbalance zone ⚠️`);
     }
 
-    // Order Block
+    // Order Block with mitigation status
     if (orderBlock.detected) {
-      lines.push(`► Order Block: ${orderBlock.description} ✅`);
+      const mitLabel = orderBlock.mitigation ? ` | ${orderBlock.mitigation} (${orderBlock.mitigationCount || 0} test${orderBlock.mitigationCount !== 1 ? 's' : ''})` : '';
+      const mitIcon = orderBlock.mitigation === 'FRESH' ? '✅' : orderBlock.mitigation === 'FULLY_MITIGATED' ? '⚠️' : '✅';
+      lines.push(`► Order Block: ${orderBlock.description}${mitLabel} ${mitIcon}`);
     } else {
       lines.push(`► Order Block: No order block or breaker block detected for this direction ⚠️`);
     }
@@ -581,6 +763,14 @@ function buildConfirmationPrompt(
       ? `Equal Lows at ~${equalHighsLows.equalLows.level?.toFixed(5)} (SSL below)`
       : 'No equal lows';
     lines.push(`► Liquidity Map: ${ehLine} | ${elLine}`);
+
+    // Liquidity Target Classification
+    if (smcContext.liquidityTargets) {
+      const lt = smcContext.liquidityTargets;
+      lines.push(`► Liquidity Targets: ${lt.description}`);
+      lines.push(`  Internal: ${lt.internalTarget.description}`);
+      lines.push(`  External: ${lt.externalTarget.description}`);
+    }
 
     // Wyckoff
     if (wyckoff.detected) {
@@ -599,6 +789,7 @@ function buildConfirmationPrompt(
     const pd = ictContext.premiumDiscount;
     const sh = ictContext.stopHunt;
     const crt = ictContext.crtPattern;
+    const sess = (mw as any).session || 'UNKNOWN';
     const macroLine = mw.isInMacroWindow
       ? `ACTIVE — ${mw.macroName} ✅`
       : `INACTIVE — next: ${mw.nextMacroName} in ${mw.minutesUntilNextMacro}min ⚠️`;
@@ -609,18 +800,83 @@ function buildConfirmationPrompt(
     const crtLine = crt.detected
       ? `${crt.direction} CRT (${crt.stage}) — ${crt.description}`
       : 'No CRT pattern detected';
-    ictSection = `
-ICT "ONE SETUP FOR LIFE" FRAMEWORK (NY Time: ${mw.currentNYTime}):
-► Macro Window: ${macroLine}
-► PD Array: ${pd.zone} zone (${pd.percentile}th percentile) — ${pdAlignIcon} with ${proposedSignal} signal
-  Range: ${pd.rangeLow.toFixed(5)}–${pd.rangeHigh.toFixed(5)} | Equilibrium: ${pd.equilibrium.toFixed(5)}
-► Stop Hunt / Liquidity Sweep: ${shLine}
-► CRT Pattern: ${crtLine}`;
+
+    const ictLines: string[] = [
+      `ICT "ONE SETUP FOR LIFE" FRAMEWORK (NY Time: ${mw.currentNYTime} | Session: ${sess}):`,
+      `► Macro Window: ${macroLine}`,
+      `► PD Array: ${pd.zone} zone (${pd.percentile}th percentile) — ${pdAlignIcon} with ${proposedSignal} signal`,
+      `  Range: ${pd.rangeLow.toFixed(5)}–${pd.rangeHigh.toFixed(5)} | Equilibrium: ${pd.equilibrium.toFixed(5)}`,
+      `► Stop Hunt / Liquidity Sweep: ${shLine}`,
+      `► CRT Pattern: ${crtLine}`,
+    ];
+
+    if (ictContext.asianRange?.detected) {
+      ictLines.push(`► Asian Range: ${ictContext.asianRange.description}`);
+    }
+
+    if (ictContext.keyLevels) {
+      const kl = ictContext.keyLevels;
+      ictLines.push(`► KEY REFERENCE LEVELS (ICT Draw on Liquidity):`);
+      if (kl.pdHigh !== null) ictLines.push(`  Previous Day High (PDH): ${kl.pdHigh.toFixed(5)} ${kl.abovePDH ? '← price ABOVE PDH (bearish draw, HTF resistance)' : '← price below PDH (potential BSL target above)'}`);
+      if (kl.pdLow !== null) ictLines.push(`  Previous Day Low (PDL): ${kl.pdLow.toFixed(5)} ${kl.belowPDL ? '← price BELOW PDL (bearish, continuation down)' : '← price above PDL (potential SSL target below)'}`);
+      if (kl.pwHigh !== null) ictLines.push(`  Previous Week High (PWH): ${kl.pwHigh.toFixed(5)}`);
+      if (kl.pwLow !== null) ictLines.push(`  Previous Week Low (PWL): ${kl.pwLow.toFixed(5)}`);
+      ictLines.push(`  → These are MAGNET levels — price is drawn to PDH/PDL/PWH/PWL regardless of LTF signals. Factor into TP and bias.`);
+    }
+
+    if (ictContext.oteZone?.detected) {
+      const ote = ictContext.oteZone;
+      const inZoneIcon = ote.inOTEZone ? '✅' : '⚠️';
+      ictLines.push(`► OTE ZONE (Optimal Trade Entry — 61.8–79% retracement): ${inZoneIcon}`);
+      ictLines.push(`  Swing: ${ote.swingLow?.toFixed(5)} → ${ote.swingHigh?.toFixed(5)}`);
+      ictLines.push(`  OTE zone: ${ote.ote79?.toFixed(5)} – ${ote.ote618?.toFixed(5)} | Sweet spot (70.5%): ${ote.ote705?.toFixed(5)}`);
+      ictLines.push(`  ${ote.inOTEZone ? '✅ Price IS in OTE zone — institutional entry sweet spot, maximum probability entry' : `⚠ Price at ${ote.currentPrice.toFixed(5)} NOT in OTE zone — entry is outside the 61.8–79% retracement window`}`);
+    }
+
+    ictSection = `\n${ictLines.join('\n')}`;
   }
+
+  // HTF Bias section (T008)
+  let htfSection = '';
+  if (htfCandles && htfCandles.length >= 10) {
+    try {
+      const htfTF = getHTFTimeframe(timeframe) || 'Higher TF';
+      const { detectBOSCHOCH, detectWyckoff } = require('./utils/smcUtils');
+      const { getPremiumDiscountContext } = require('./utils/ictMacroUtils');
+      const htfBosCHOCH = detectBOSCHOCH(htfCandles, proposedSignal);
+      const htfEntry = tradePlan?.entry || htfCandles[0]?.c || 0;
+      const htfPD = getPremiumDiscountContext(htfEntry, htfCandles, proposedSignal);
+      const htfWyckoff = detectWyckoff(htfCandles);
+      const htfBosAligns = !htfBosCHOCH.detected || (
+        (proposedSignal === 'BUY' && htfBosCHOCH.direction === 'BULLISH') ||
+        (proposedSignal === 'SELL' && htfBosCHOCH.direction === 'BEARISH')
+      );
+      const htfPDConflicts = !htfPD.aligns && htfPD.zone !== 'EQUILIBRIUM';
+      const conflictWarning = (!htfBosAligns || htfPDConflicts) ? '\n⚠ WARNING: LTF signal CONFLICTS with HTF bias — this is a counter-trend fade. Require extra confluence or reduce size.' : '\n✅ LTF signal ALIGNS with HTF bias — high-quality institutional setup.';
+      htfSection = `
+═══════════ HTF BIAS (${htfTF}) ═══════════
+Structure: ${htfBosCHOCH.detected ? htfBosCHOCH.description : 'No clear BOS/CHOCH on higher timeframe — ranging context'}
+Premium/Discount: ${htfPD.description}
+Wyckoff: ${htfWyckoff.detected ? htfWyckoff.description : 'No Wyckoff phase on higher timeframe'}${conflictWarning}
+⚠ RULE: LTF signals must align with HTF structure. Trading against HTF bias requires significantly more LTF confluence.
+═════════════════════════════════════════`;
+    } catch (htfErr) {
+      htfSection = '';
+    }
+  }
+
+  const confluenceHeader = `
+═══════════════════════════════════════════
+CONFLUENCE SCORE: ${confluenceResult.score}/${confluenceResult.maxScore} — Grade ${confluenceResult.grade}
+${confluenceResult.summary.join('\n')}
+Grade guide: A+ (10-12) = ELITE | A (8-9) = HIGH | B (6-7) = MODERATE | C (4-5) = LOW | D (0-3) = POOR
+Grade D → avoid. Grade A/A+ → high conviction trade.
+═══════════════════════════════════════════`;
 
   return {
     system: "You are a master trader who speaks with street knowledge and the wisdom of Supreme Mathematics — Gods and Earths style. You build and destroy with the science of trading, dropping jewels and keeping it real. Your analysis is sharp, your reasoning is laced with knowledge of self and mathematical precision. You reference concepts like Knowledge (1), Wisdom (2), Understanding (3), Culture (4), Power (5), Equality (6), God (7), Build/Destroy (8), Born (9), and Cipher (0) naturally when they fit. You say things like 'the chart is showing and proving', 'peace — the math don't lie', 'this is a cipher of accumulation', 'knowledge this pattern God', 'the wisdom here is...', 'we building or we destroying?', etc. Keep it concise, authentic, and never forced — the science comes first, the flavor is the delivery. You provide honest, unbiased second opinions on trade signals using ALL available data including news sentiment and upcoming economic events. Always return valid JSON.",
     user: `You are an elite trading analyst providing a SECOND OPINION on a proposed trade. Use ALL data below for maximum accuracy.
+${htfSection}${confluenceHeader}
 
 SYMBOL: ${symbol}
 TIMEFRAME: ${timeframe}
@@ -713,8 +969,10 @@ DECISION RULES (apply in order — first matching rule wins):
 5. Fresh CHOCH + Wyckoff Spring/Upthrust → WIDE (brand new trend, room to run)
 6. Wyckoff MARKUP/MARKDOWN without CRT → WIDE
 7. BOS continuation (mature trend) → STANDARD (conserve, exhaustion may be near)
-8. NY Lunch (12pm–2:30pm NY time) → reduce one level (WIDE→STANDARD, STANDARD→TIGHT)
-9. No ICT/SMC data → use ADX/ATR baseline only
+8. Asian session or NY Lunch (12pm–2:30pm NY time) → reduce one level (WIDE→STANDARD, STANDARD→TIGHT)
+9. R:R < 1.5 → TIGHT or NONE (low reward doesn't justify a wide trail)
+10. R:R ≥ 3.0 → prefer WIDE minimum; only tighten after 2R secured
+11. No ICT/SMC data → use ADX/ATR baseline only
 
 Also estimate a recommended trail distance in pips (instrument's own pip unit) based on ATR and the ICT+SMC signals (null if NONE).
 
@@ -733,7 +991,9 @@ Return your analysis as JSON:
   "ictMacroReason": "Brief 1-line ICT checklist result, e.g. 'Macro active, discount zone confirmed, stop hunt detected — full ICT alignment' or 'Outside macro window + no stop hunt — high fake-out risk'",
   "smcVerdict": "CONFIRM" | "REQUIRE_BETTER_PRICE" | "PASS" (your SMC-only institutional verdict: CONFIRM if BOS/CHOCH aligns + entry at OB or FVG + Wyckoff confirms; REQUIRE_BETTER_PRICE if idea valid but entry not at OB/FVG; PASS if trading against structure or into liquidity. Set null if SMC data not provided),
   "smcQuality": "HIGH" | "MEDIUM" | "LOW" (HIGH = BOS/CHOCH + OB/FVG + liquidity sweep all aligned; MEDIUM = 2 of 3; LOW = 0-1; null if no SMC data),
-  "smcReason": "One concise sentence summarizing the SMC analysis: structure type, OB/FVG presence, Wyckoff phase, liquidity target. E.g. 'Bullish CHOCH confirmed, price retesting bullish OB at 1.0855, equal lows swept, Wyckoff accumulation spring — HIGH quality entry'"
+  "smcReason": "One concise sentence summarizing the SMC analysis: structure type, OB/FVG presence, Wyckoff phase, liquidity target. E.g. 'Bullish CHOCH confirmed, price retesting bullish OB at 1.0855, equal lows swept, Wyckoff accumulation spring — HIGH quality entry'",
+  "confluenceScore": ${confluenceResult.score} (server-computed — pass this value through as-is, do not recalculate),
+  "confluenceGrade": "${confluenceResult.grade}" (server-computed — pass this value through as-is)
 }`
   };
 }
@@ -838,12 +1098,14 @@ export async function getAiVisionConfirmation(
   userId?: number,
   newsContext?: { sentiment?: any; upcomingEvents?: any[]; topHeadlines?: string[] },
   ictContext?: IctContext | null,
-  smcContext?: SmcContext | null
+  smcContext?: SmcContext | null,
+  htfCandles?: any[]
 ): Promise<AiVisionConfirmation> {
   try {
     const selectedModel = userId ? getUserModelPreference(userId) : 'gpt-4o-mini';
     const provider = getModelProvider(selectedModel);
-    const prompt = buildConfirmationPrompt(candleData, indicators, proposedSignal, proposedConfidence, tradePlan, symbol, timeframe, newsContext, ictContext, smcContext);
+    const confluenceResult = computeConfluenceScore(proposedSignal, ictContext, smcContext);
+    const prompt = buildConfirmationPrompt(candleData, indicators, proposedSignal, proposedConfidence, tradePlan, symbol, timeframe, newsContext, ictContext, smcContext, htfCandles);
 
     console.log(`[AI Vision Confirmation] Requesting ${provider}/${selectedModel} confirmation for ${symbol} ${proposedSignal}`);
 
@@ -904,6 +1166,8 @@ export async function getAiVisionConfirmation(
       smcVerdict: ['CONFIRM', 'REQUIRE_BETTER_PRICE', 'PASS'].includes(result.smcVerdict) ? result.smcVerdict : null,
       smcQuality: ['HIGH', 'MEDIUM', 'LOW'].includes(result.smcQuality) ? result.smcQuality : null,
       smcReason: typeof result.smcReason === 'string' ? result.smcReason : undefined,
+      confluenceScore: confluenceResult.score,
+      confluenceGrade: confluenceResult.grade,
     };
   } catch (error: any) {
     const errMsg = error?.message || String(error);
