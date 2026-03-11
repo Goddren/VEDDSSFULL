@@ -6426,7 +6426,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           analysis.confidence >= MIN_CONFIDENCE_FOR_AUTO_TRADE && 
           analysis.tradePlan) {
         try {
-          const { isAiVisionConfirmationEnabled, getAiVisionConfirmation, addAiConfirmationLog, getUserModelPreference, AVAILABLE_VISION_MODELS, isICTStrategyEnabled, isSMCStrategyEnabled } = await import('./openai');
+          const { isAiVisionConfirmationEnabled, getAiVisionConfirmation, addAiConfirmationLog, getUserModelPreference, AVAILABLE_VISION_MODELS, isICTStrategyEnabled, isSMCStrategyEnabled, isPropFirmModeEnabled, getPropFirmContext } = await import('./openai');
           if (isAiVisionConfirmationEnabled(token.userId)) {
             console.log(`[AI Vision Confirmation] Enabled for user ${token.userId} - requesting AI second opinion on ${sanitizedSymbol}`);
             const selectedModelId = getUserModelPreference(token.userId);
@@ -6504,6 +6504,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               console.warn('[HTF] Failed to fetch higher timeframe candles:', htfErr);
             }
 
+            const propFirmCtx = isPropFirmModeEnabled(token.userId) ? getPropFirmContext(token.userId) : null;
+
             aiConfirmation = await getAiVisionConfirmation(
               candles,
               analysis.indicators,
@@ -6516,7 +6518,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               newsContextForAI,
               ictContext,
               smcContext,
-              htfCandles
+              htfCandles,
+              propFirmCtx
             );
             
             // Confidence gate: AI can override low EA confidence if AI is confident enough
@@ -14307,6 +14310,53 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     const { setSMCStrategyEnabled, isSMCStrategyEnabled } = await import('./openai');
     setSMCStrategyEnabled(req.user!.id, enabled);
     res.json({ success: true, enabled: isSMCStrategyEnabled(req.user!.id) });
+  });
+
+  app.get("/api/prop-firm-mode", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
+    const { isPropFirmModeEnabled } = await import('./openai');
+    res.json({ enabled: isPropFirmModeEnabled(req.user!.id) });
+  });
+
+  app.post("/api/prop-firm-mode", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
+    const { enabled } = req.body;
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({ message: "enabled must be a boolean" });
+    }
+    const { setPropFirmMode, isPropFirmModeEnabled } = await import('./openai');
+    setPropFirmMode(req.user!.id, enabled);
+    res.json({ success: true, enabled: isPropFirmModeEnabled(req.user!.id) });
+  });
+
+  app.get("/api/prop-firm-context", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
+    const { getPropFirmContext } = await import('./openai');
+    const ctx = getPropFirmContext(req.user!.id);
+    res.json(ctx || {
+      enabled: false,
+      firmPreset: 'FTMO',
+      accountBalance: 10000,
+      maxDailyDrawdownPct: 5,
+      currentDailyPnlPct: 0,
+      maxTotalDrawdownPct: 10,
+      currentTotalPnlPct: 0,
+      riskPerTradePct: 1,
+      newsBlockMinutes: 15,
+      allowOvernightHolds: false,
+      allowWeekendHolds: false,
+    });
+  });
+
+  app.post("/api/prop-firm-context", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
+    const { setPropFirmContext, getPropFirmContext } = await import('./openai');
+    const ctx = req.body;
+    if (!ctx || typeof ctx !== 'object') {
+      return res.status(400).json({ message: "Invalid context body" });
+    }
+    setPropFirmContext(req.user!.id, ctx);
+    res.json({ success: true, context: getPropFirmContext(req.user!.id) });
   });
 
   app.get("/api/ai-trading-models", async (req: Request, res: Response) => {

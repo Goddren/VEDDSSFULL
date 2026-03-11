@@ -1319,6 +1319,11 @@ export default function MT5ChartDataPage() {
     enabled: aiConfirmationSetting?.enabled || false,
   });
 
+  const { data: propFirmModeSetting } = useQuery<{ enabled: boolean }>({
+    queryKey: ['/api/prop-firm-mode'],
+    enabled: aiConfirmationSetting?.enabled || false,
+  });
+
   const { data: connectedPairsData } = useQuery<{ activePairs: Array<{ symbol: string }> }>({
     queryKey: ['/api/mt5/connected-pairs'],
     refetchInterval: 30000,
@@ -1388,6 +1393,9 @@ export default function MT5ChartDataPage() {
     smcVerdict?: 'CONFIRM' | 'REQUIRE_BETTER_PRICE' | 'PASS' | null;
     smcQuality?: 'HIGH' | 'MEDIUM' | 'LOW' | null;
     smcReason?: string;
+    propFirmVerdict?: 'SAFE' | 'WARNING' | 'BLOCK';
+    propFirmReason?: string;
+    newsBlocked?: boolean;
   }
 
   const { data: aiConfirmationLogs = [] } = useQuery<AiConfirmationLog[]>({
@@ -1440,6 +1448,22 @@ export default function MT5ChartDataPage() {
         description: data.enabled
           ? 'AI will evaluate BOS/CHOCH structure, Fair Value Gaps, Order Blocks, liquidity pools, and Wyckoff phases.'
           : 'Smart Money Concepts analysis disabled.',
+      });
+    },
+  });
+
+  const togglePropFirmModeMutation = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      const res = await apiRequest('POST', '/api/prop-firm-mode', { enabled });
+      return res.json();
+    },
+    onSuccess: (data: { enabled: boolean }) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/prop-firm-mode'] });
+      toast({
+        title: data.enabled ? 'Prop Firm Mode Enabled' : 'Prop Firm Mode Disabled',
+        description: data.enabled
+          ? 'AI will now apply strict prop firm rules: news blocks, drawdown guards, and R:R enforcement.'
+          : 'Prop firm mode off — standard confirmation rules apply.',
       });
     },
   });
@@ -1863,6 +1887,32 @@ export default function MT5ChartDataPage() {
                     disabled={toggleSMCStrategyMutation.isPending}
                   />
                 </div>
+
+                {/* Prop Firm Mode Toggle */}
+                <div className="border-t border-purple-500/20 pt-3 flex items-start justify-between gap-4">
+                  <div className="flex items-start gap-2 flex-1">
+                    <div className="p-1.5 rounded bg-yellow-500/10 mt-0.5">
+                      <Shield className="w-3.5 h-3.5 text-yellow-400" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-white">Prop Firm Mode</p>
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        Applies strict prop firm rules to every confirmation — blocks trades within 15 minutes of high-impact news (NFP, CPI, FOMC), hard stops when daily drawdown buffer is critical, risk % per trade enforcement, and Friday PM / rollover warnings. Compatible with FTMO, TFT, Funded Next, Apex, and True Forex Funds.
+                      </p>
+                      {propFirmModeSetting?.enabled && (
+                        <p className="text-[11px] text-yellow-300 mt-1 flex items-center gap-1">
+                          <CheckCircle className="w-3 h-3" />
+                          News block · Drawdown guard · Risk % cap · Weekend alerts
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <Switch
+                    checked={propFirmModeSetting?.enabled ?? false}
+                    onCheckedChange={(checked) => togglePropFirmModeMutation.mutate(checked)}
+                    disabled={togglePropFirmModeMutation.isPending}
+                  />
+                </div>
               </div>
             )}
           </CardContent>
@@ -1981,6 +2031,30 @@ export default function MT5ChartDataPage() {
                         SMC ✗ Pass
                       </Badge>
                     )}
+                    {log.newsBlocked && (
+                      <Badge className="text-[10px] bg-orange-500/15 text-orange-400 border-orange-500/30" title="Trade blocked due to high-impact news proximity">
+                        <Shield className="w-2.5 h-2.5 mr-1" />
+                        NEWS BLOCKED
+                      </Badge>
+                    )}
+                    {!log.newsBlocked && log.propFirmVerdict === 'BLOCK' && (
+                      <Badge className="text-[10px] bg-red-500/20 text-red-400 border-red-500/40" title={log.propFirmReason || 'Prop firm rule violation'}>
+                        <Shield className="w-2.5 h-2.5 mr-1" />
+                        PF BLOCK
+                      </Badge>
+                    )}
+                    {log.propFirmVerdict === 'WARNING' && (
+                      <Badge className="text-[10px] bg-yellow-500/15 text-yellow-400 border-yellow-500/30" title={log.propFirmReason || 'Prop firm caution'}>
+                        <Shield className="w-2.5 h-2.5 mr-1" />
+                        PF WARN
+                      </Badge>
+                    )}
+                    {log.propFirmVerdict === 'SAFE' && (
+                      <Badge className="text-[10px] bg-green-500/10 text-green-400 border-green-500/20" title={log.propFirmReason || 'All prop firm rules passed'}>
+                        <Shield className="w-2.5 h-2.5 mr-1" />
+                        PF SAFE
+                      </Badge>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-2 gap-2 text-xs">
@@ -2082,6 +2156,12 @@ export default function MT5ChartDataPage() {
                       <p className={`text-[11px] flex items-start gap-1.5 italic ${log.smcVerdict === 'CONFIRM' ? 'text-emerald-400/70' : log.smcVerdict === 'PASS' ? 'text-red-400/70' : 'text-yellow-400/70'}`}>
                         <TrendingUp className="w-3 h-3 mt-0.5 flex-shrink-0" />
                         <span>SMC: {log.smcReason}</span>
+                      </p>
+                    )}
+                    {log.propFirmReason && (
+                      <p className={`text-[11px] flex items-start gap-1.5 italic ${log.propFirmVerdict === 'BLOCK' ? 'text-red-400/70' : log.propFirmVerdict === 'WARNING' ? 'text-yellow-400/70' : 'text-green-400/70'}`}>
+                        <Shield className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                        <span>Prop Firm: {log.propFirmReason}</span>
                       </p>
                     )}
                   </div>

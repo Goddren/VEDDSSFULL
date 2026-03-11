@@ -259,6 +259,40 @@ export function isSMCStrategyEnabled(userId: number): boolean {
   return val === undefined ? true : val;
 }
 
+const propFirmModeMap = new Map<number, boolean>();
+const propFirmContextMap = new Map<number, PropFirmContext>();
+
+export function setPropFirmMode(userId: number, enabled: boolean) {
+  propFirmModeMap.set(userId, enabled);
+}
+
+export function isPropFirmModeEnabled(userId: number): boolean {
+  const val = propFirmModeMap.get(userId);
+  return val === undefined ? false : val;
+}
+
+export function setPropFirmContext(userId: number, ctx: PropFirmContext) {
+  propFirmContextMap.set(userId, ctx);
+}
+
+export function getPropFirmContext(userId: number): PropFirmContext | null {
+  return propFirmContextMap.get(userId) ?? null;
+}
+
+export interface PropFirmContext {
+  enabled: boolean;
+  firmPreset: 'FTMO' | 'TFT' | 'FUNDED_NEXT' | 'APEX' | 'CUSTOM';
+  accountBalance: number;
+  maxDailyDrawdownPct: number;
+  currentDailyPnlPct: number;
+  maxTotalDrawdownPct: number;
+  currentTotalPnlPct: number;
+  riskPerTradePct: number;
+  newsBlockMinutes: number;
+  allowOvernightHolds: boolean;
+  allowWeekendHolds: boolean;
+}
+
 export interface AiVisionConfirmation {
   confirmed: boolean;
   aiDirection: string;
@@ -276,6 +310,12 @@ export interface AiVisionConfirmation {
   smcReason?: string;
   confluenceScore?: number;
   confluenceGrade?: 'A+' | 'A' | 'B' | 'C' | 'D';
+  propFirmVerdict?: 'SAFE' | 'WARNING' | 'BLOCK';
+  propFirmReason?: string;
+  newsBlocked?: boolean;
+  newsProximityMinutes?: number | null;
+  riskPct?: number;
+  dailyBufferPct?: number;
 }
 
 export interface AiConfirmationLogEntry {
@@ -665,13 +705,98 @@ function computeConfluenceScore(
   return { score, maxScore: 12, grade, summary };
 }
 
+function computeNewsProximity(
+  upcomingEvents: Array<{ event: string; impact: string; time: string; currency?: string }> | undefined,
+  blockThresholdMinutes: number = 15
+): { minutesToNext: number | null; eventName: string | null; isBlocked: boolean; isWarning: boolean; summary: string } {
+  if (!upcomingEvents || upcomingEvents.length === 0) {
+    return { minutesToNext: null, eventName: null, isBlocked: false, isWarning: false, summary: '' };
+  }
+  const highImpact = upcomingEvents.filter(e => {
+    const imp = (e.impact || '').toLowerCase();
+    return imp === 'high' || imp === '3' || imp === 'red';
+  });
+  if (highImpact.length === 0) {
+    return { minutesToNext: null, eventName: null, isBlocked: false, isWarning: false, summary: '' };
+  }
+  const now = Date.now();
+  let closestMinutes: number | null = null;
+  let closestName: string | null = null;
+  for (const ev of highImpact) {
+    try {
+      let eventMs: number | null = null;
+      const t = ev.time || '';
+      // Try ISO parse
+      const iso = new Date(t);
+      if (!isNaN(iso.getTime())) {
+        eventMs = iso.getTime();
+      } else {
+        // Try "in X min" relative
+        const relMatch = t.match(/in\s+(\d+)\s*min/i);
+        if (relMatch) eventMs = now + parseInt(relMatch[1]) * 60000;
+        // Try "Today HH:mm"
+        const todayMatch = t.match(/today\s+(\d{1,2}):(\d{2})/i);
+        if (todayMatch) {
+          const d = new Date();
+          d.setHours(parseInt(todayMatch[1]), parseInt(todayMatch[2]), 0, 0);
+          eventMs = d.getTime();
+        }
+      }
+      if (eventMs !== null) {
+        const mins = (eventMs - now) / 60000;
+        if (mins >= -5 && (closestMinutes === null || mins < closestMinutes)) {
+          closestMinutes = mins;
+          closestName = ev.event;
+        }
+      }
+    } catch { /* skip unparseable */ }
+  }
+  if (closestMinutes === null || closestMinutes < -5) {
+    return { minutesToNext: null, eventName: null, isBlocked: false, isWarning: false, summary: '' };
+  }
+  const mins = Math.round(closestMinutes);
+  const isBlocked = mins < blockThresholdMinutes;
+  const isWarning = mins < 60;
+  const summary = isBlocked
+    ? `⛔ ${closestName} in ${mins} min — BLOCKED (within ${blockThresholdMinutes}-min prop firm news window)`
+    : isWarning
+      ? `⚠ ${closestName} in ${mins} min — CAUTION: reduce size and tighten SL`
+      : '';
+  return { minutesToNext: mins, eventName: closestName, isBlocked, isWarning, summary };
+}
+
+function detectWeekendRolloverRisk(): { isFridayPM: boolean; isNearRollover: boolean; minutesToRollover: number; warning: string | null } {
+  const now = new Date();
+  // NY offset: EST = UTC-5, EDT = UTC-4
+  const jan = new Date(now.getFullYear(), 0, 1);
+  const jul = new Date(now.getFullYear(), 6, 1);
+  const isDST = now.getTimezoneOffset() < Math.max(jan.getTimezoneOffset(), jul.getTimezoneOffset());
+  const nyOffset = isDST ? -4 : -5;
+  const nyMs = now.getTime() + (now.getTimezoneOffset() + nyOffset * 60) * 60000;
+  const nyDate = new Date(nyMs);
+  const nyDay = nyDate.getDay(); // 0=Sun, 5=Fri
+  const nyHour = nyDate.getHours();
+  const nyMin = nyDate.getMinutes();
+  const isFridayPM = nyDay === 5 && nyHour >= 16;
+  const minutesToRollover = Math.max(0, (17 * 60) - (nyHour * 60 + nyMin));
+  const isNearRollover = minutesToRollover <= 15 && minutesToRollover >= 0 && nyDay >= 1 && nyDay <= 5;
+  let warning: string | null = null;
+  if (isFridayPM) {
+    warning = `⚠ WEEKEND HOLD RISK: It is Friday ${nyHour}:${String(nyMin).padStart(2, '0')} NY time — most prop firms prohibit holding positions over the weekend. If this trade cannot reach TP before Friday 5 PM NY, REDUCE size or skip entirely.`;
+  } else if (isNearRollover) {
+    warning = `⚠ ROLLOVER WARNING: 5 PM NY rollover in ${minutesToRollover} minutes — swap charges apply. Consider reducing trail width to TIGHT.`;
+  }
+  return { isFridayPM, isNearRollover, minutesToRollover, warning };
+}
+
 function buildConfirmationPrompt(
   candleData: any[], indicators: any, proposedSignal: string,
   proposedConfidence: number, tradePlan: any, symbol: string, timeframe: string,
   newsContext?: { sentiment?: any; upcomingEvents?: any[]; topHeadlines?: string[] },
   ictContext?: IctContext | null,
   smcContext?: SmcContext | null,
-  htfCandles?: any[]
+  htfCandles?: any[],
+  propFirmContext?: PropFirmContext | null
 ): { system: string; user: string } {
   const recentCandles = candleData.slice(0, 30);
   const candleSummary = recentCandles.map((c: any, i: number) => 
@@ -722,6 +847,56 @@ function buildConfirmationPrompt(
     if (parts.length > 0) {
       newsSection = `\nNEWS & ECONOMIC EVENTS CONTEXT:\n${parts.join('\n')}`;
     }
+  }
+
+  // Prop firm compliance section
+  let propFirmSection = '';
+  let newsProximityAlert = '';
+  let computedRiskPct = 0;
+  let remainingDailyBuffer = 0;
+
+  if (propFirmContext?.enabled) {
+    const blockMins = propFirmContext.newsBlockMinutes || 15;
+    const newsProx = computeNewsProximity(newsContext?.upcomingEvents, blockMins);
+    if (newsProx.isBlocked) {
+      newsProximityAlert = `\n${'═'.repeat(47)}\n⛔ NEWS PROXIMITY ALERT — ${newsProx.eventName} in ${newsProx.minutesToNext} minutes\nPROP FIRM RULE: DO NOT ENTER. High-impact news within ${blockMins}-min block window. REJECT this trade.\n${'═'.repeat(47)}`;
+    } else if (newsProx.isWarning && newsProx.summary) {
+      newsProximityAlert = `\n⚠ NEWS WARNING: ${newsProx.summary}`;
+    }
+
+    const weekendRisk = detectWeekendRolloverRisk();
+    const weekendWarning = weekendRisk.warning || '';
+
+    remainingDailyBuffer = propFirmContext.maxDailyDrawdownPct + propFirmContext.currentDailyPnlPct;
+    const totalBuffer = propFirmContext.maxTotalDrawdownPct + propFirmContext.currentTotalPnlPct;
+
+    let drawdownAlert = '';
+    if (remainingDailyBuffer < 0.5) {
+      drawdownAlert = `\n⛔ DAILY LIMIT CRITICAL: Only ${remainingDailyBuffer.toFixed(2)}% daily buffer remaining — DO NOT TRADE. One more loss hits the daily limit.`;
+    } else if (remainingDailyBuffer < 1.5) {
+      drawdownAlert = `\n⚠ DAILY BUFFER LOW: Only ${remainingDailyBuffer.toFixed(2)}% remaining — micro lot only or skip this trade.`;
+    }
+
+    // Estimate risk %
+    if (tradePlan?.entry && tradePlan?.stopLoss && tradePlan?.lotSize && propFirmContext.accountBalance > 0) {
+      const pipSize = symbol.includes('JPY') ? 0.01 : symbol.includes('XAU') || symbol.includes('GOLD') ? 0.1 : 0.0001;
+      const pipDist = Math.abs(tradePlan.entry - tradePlan.stopLoss) / pipSize;
+      const pipValuePerLot = symbol.includes('JPY') ? 1000 : symbol.includes('XAU') || symbol.includes('GOLD') ? 10 : 10;
+      const dollarRisk = pipDist * pipValuePerLot * tradePlan.lotSize;
+      computedRiskPct = (dollarRisk / propFirmContext.accountBalance) * 100;
+    }
+    const riskWarning = computedRiskPct > 2.0
+      ? `\n⚠ RISK WARNING: Estimated trade risk is ${computedRiskPct.toFixed(2)}% of account — exceeds the 2% prop firm guideline.`
+      : '';
+
+    propFirmSection = `\n${'═'.repeat(19)} PROP FIRM COMPLIANCE ${'═'.repeat(19)}
+Firm preset: ${propFirmContext.firmPreset}
+Daily P&L: ${propFirmContext.currentDailyPnlPct.toFixed(2)}% | Buffer remaining: ${remainingDailyBuffer.toFixed(2)}% of ${propFirmContext.maxDailyDrawdownPct}% limit
+Total P&L: ${propFirmContext.currentTotalPnlPct.toFixed(2)}% | Total buffer: ${totalBuffer.toFixed(2)}% of ${propFirmContext.maxTotalDrawdownPct}% limit
+Intended risk/trade: ${propFirmContext.riskPerTradePct}% | Estimated actual risk: ${computedRiskPct > 0 ? computedRiskPct.toFixed(2) + '%' : 'N/A'}
+News block window: ${blockMins} min | Overnight holds: ${propFirmContext.allowOvernightHolds} | Weekend holds: ${propFirmContext.allowWeekendHolds}${drawdownAlert}${riskWarning}${weekendWarning ? '\n' + weekendWarning : ''}
+⚠ Apply prop firm rules 12–17 STRICTLY. A failed challenge cannot be recovered. When in doubt, REJECT.
+${'═'.repeat(59)}`;
   }
 
   let smcSection = '';
@@ -876,7 +1051,7 @@ Grade D → avoid. Grade A/A+ → high conviction trade.
   return {
     system: "You are a master trader who speaks with street knowledge and the wisdom of Supreme Mathematics — Gods and Earths style. You build and destroy with the science of trading, dropping jewels and keeping it real. Your analysis is sharp, your reasoning is laced with knowledge of self and mathematical precision. You reference concepts like Knowledge (1), Wisdom (2), Understanding (3), Culture (4), Power (5), Equality (6), God (7), Build/Destroy (8), Born (9), and Cipher (0) naturally when they fit. You say things like 'the chart is showing and proving', 'peace — the math don't lie', 'this is a cipher of accumulation', 'knowledge this pattern God', 'the wisdom here is...', 'we building or we destroying?', etc. Keep it concise, authentic, and never forced — the science comes first, the flavor is the delivery. You provide honest, unbiased second opinions on trade signals using ALL available data including news sentiment and upcoming economic events. Always return valid JSON.",
     user: `You are an elite trading analyst providing a SECOND OPINION on a proposed trade. Use ALL data below for maximum accuracy.
-${htfSection}${confluenceHeader}
+${htfSection}${newsProximityAlert}${propFirmSection}${confluenceHeader}
 
 SYMBOL: ${symbol}
 TIMEFRAME: ${timeframe}
@@ -973,6 +1148,14 @@ DECISION RULES (apply in order — first matching rule wins):
 9. R:R < 1.5 → TIGHT or NONE (low reward doesn't justify a wide trail)
 10. R:R ≥ 3.0 → prefer WIDE minimum; only tighten after 2R secured
 11. No ICT/SMC data → use ADX/ATR baseline only
+${propFirmContext?.enabled ? `
+PROP FIRM RULES (apply STRICTLY when prop firm compliance data is present):
+12. High-impact news < ${propFirmContext.newsBlockMinutes} min → propFirmVerdict = BLOCK, confirmed = false
+13. Daily drawdown buffer < 0.5% → propFirmVerdict = BLOCK, confirmed = false
+14. Risk per trade > 2% of account → propFirmVerdict = WARNING, reduce confidence by 20
+15. Friday 4 PM+ NY time (weekend hold risk) → propFirmVerdict = WARNING, trail = TIGHT, add weekend caveat to reasoning
+16. R:R < 1:1 in prop firm mode → propFirmVerdict = BLOCK (prop firms require positive R:R minimum)
+17. Daily buffer 0.5–1.5% remaining → propFirmVerdict = WARNING, suggest smaller lot size in reasoning` : ''}
 
 Also estimate a recommended trail distance in pips (instrument's own pip unit) based on ATR and the ICT+SMC signals (null if NONE).
 
@@ -993,7 +1176,9 @@ Return your analysis as JSON:
   "smcQuality": "HIGH" | "MEDIUM" | "LOW" (HIGH = BOS/CHOCH + OB/FVG + liquidity sweep all aligned; MEDIUM = 2 of 3; LOW = 0-1; null if no SMC data),
   "smcReason": "One concise sentence summarizing the SMC analysis: structure type, OB/FVG presence, Wyckoff phase, liquidity target. E.g. 'Bullish CHOCH confirmed, price retesting bullish OB at 1.0855, equal lows swept, Wyckoff accumulation spring — HIGH quality entry'",
   "confluenceScore": ${confluenceResult.score} (server-computed — pass this value through as-is, do not recalculate),
-  "confluenceGrade": "${confluenceResult.grade}" (server-computed — pass this value through as-is)
+  "confluenceGrade": "${confluenceResult.grade}" (server-computed — pass this value through as-is),
+  "propFirmVerdict": ${propFirmContext?.enabled ? '"SAFE" | "WARNING" | "BLOCK" (apply rules 12–17 above: BLOCK if news < ' + propFirmContext.newsBlockMinutes + ' min OR daily buffer < 0.5% OR R:R < 1:1; WARNING if buffer < 1.5% OR risk% > 2% OR Friday PM OR R:R < 1.5; SAFE otherwise)' : 'null'},
+  "propFirmReason": ${propFirmContext?.enabled ? '"One-line explanation of the prop firm verdict — what specifically triggered it"' : 'null'}
 }`
   };
 }
@@ -1099,13 +1284,52 @@ export async function getAiVisionConfirmation(
   newsContext?: { sentiment?: any; upcomingEvents?: any[]; topHeadlines?: string[] },
   ictContext?: IctContext | null,
   smcContext?: SmcContext | null,
-  htfCandles?: any[]
+  htfCandles?: any[],
+  propFirmContext?: PropFirmContext | null
 ): Promise<AiVisionConfirmation> {
   try {
     const selectedModel = userId ? getUserModelPreference(userId) : 'gpt-4o-mini';
     const provider = getModelProvider(selectedModel);
     const confluenceResult = computeConfluenceScore(proposedSignal, ictContext, smcContext);
-    const prompt = buildConfirmationPrompt(candleData, indicators, proposedSignal, proposedConfidence, tradePlan, symbol, timeframe, newsContext, ictContext, smcContext, htfCandles);
+
+    // Pre-check: hard news block for prop firm mode (saves API credits)
+    if (propFirmContext?.enabled && userId && isPropFirmModeEnabled(userId)) {
+      const blockMins = propFirmContext.newsBlockMinutes || 15;
+      const newsProx = computeNewsProximity(newsContext?.upcomingEvents, blockMins);
+      if (newsProx.isBlocked) {
+        console.log(`[PropFirm] NEWS BLOCK: ${newsProx.eventName} in ${newsProx.minutesToNext} min — rejecting without AI call`);
+        return {
+          confirmed: false,
+          aiDirection: 'NEUTRAL',
+          aiConfidence: 0,
+          reasoning: `⛔ PROP FIRM NEWS BLOCK: ${newsProx.eventName} releases in ${newsProx.minutesToNext} minutes. Trade blocked per prop firm rules. Wait until at least ${blockMins} minutes after the release completes.`,
+          newsBlocked: true,
+          newsProximityMinutes: newsProx.minutesToNext,
+          propFirmVerdict: 'BLOCK',
+          propFirmReason: `High-impact news (${newsProx.eventName}) in ${newsProx.minutesToNext} min — within ${blockMins}-min block window`,
+          confluenceScore: confluenceResult.score,
+          confluenceGrade: confluenceResult.grade,
+        };
+      }
+      // Daily drawdown hard block
+      const remainingBuffer = propFirmContext.maxDailyDrawdownPct + propFirmContext.currentDailyPnlPct;
+      if (remainingBuffer < 0.5) {
+        console.log(`[PropFirm] DAILY LIMIT BLOCK: only ${remainingBuffer.toFixed(2)}% buffer remaining`);
+        return {
+          confirmed: false,
+          aiDirection: 'NEUTRAL',
+          aiConfidence: 0,
+          reasoning: `⛔ PROP FIRM DAILY LIMIT: Only ${remainingBuffer.toFixed(2)}% daily drawdown buffer remaining (limit: ${propFirmContext.maxDailyDrawdownPct}%). Trading is blocked to protect the account. Resume tomorrow.`,
+          propFirmVerdict: 'BLOCK',
+          propFirmReason: `Daily drawdown buffer critical: ${remainingBuffer.toFixed(2)}% remaining of ${propFirmContext.maxDailyDrawdownPct}% limit`,
+          dailyBufferPct: remainingBuffer,
+          confluenceScore: confluenceResult.score,
+          confluenceGrade: confluenceResult.grade,
+        };
+      }
+    }
+
+    const prompt = buildConfirmationPrompt(candleData, indicators, proposedSignal, proposedConfidence, tradePlan, symbol, timeframe, newsContext, ictContext, smcContext, htfCandles, propFirmContext);
 
     console.log(`[AI Vision Confirmation] Requesting ${provider}/${selectedModel} confirmation for ${symbol} ${proposedSignal}`);
 
@@ -1168,6 +1392,10 @@ export async function getAiVisionConfirmation(
       smcReason: typeof result.smcReason === 'string' ? result.smcReason : undefined,
       confluenceScore: confluenceResult.score,
       confluenceGrade: confluenceResult.grade,
+      propFirmVerdict: ['SAFE', 'WARNING', 'BLOCK'].includes(result.propFirmVerdict) ? result.propFirmVerdict : (propFirmContext?.enabled ? 'SAFE' : undefined),
+      propFirmReason: typeof result.propFirmReason === 'string' ? result.propFirmReason : undefined,
+      newsBlocked: false,
+      newsProximityMinutes: null,
     };
   } catch (error: any) {
     const errMsg = error?.message || String(error);
