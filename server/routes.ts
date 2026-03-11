@@ -6426,7 +6426,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           analysis.confidence >= MIN_CONFIDENCE_FOR_AUTO_TRADE && 
           analysis.tradePlan) {
         try {
-          const { isAiVisionConfirmationEnabled, getAiVisionConfirmation, addAiConfirmationLog, getUserModelPreference, AVAILABLE_VISION_MODELS, isICTStrategyEnabled } = await import('./openai');
+          const { isAiVisionConfirmationEnabled, getAiVisionConfirmation, addAiConfirmationLog, getUserModelPreference, AVAILABLE_VISION_MODELS, isICTStrategyEnabled, isSMCStrategyEnabled } = await import('./openai');
           if (isAiVisionConfirmationEnabled(token.userId)) {
             console.log(`[AI Vision Confirmation] Enabled for user ${token.userId} - requesting AI second opinion on ${sanitizedSymbol}`);
             const selectedModelId = getUserModelPreference(token.userId);
@@ -6449,7 +6449,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             }
 
             let smcContext = null;
-            try {
+            if (isSMCStrategyEnabled(token.userId)) try {
               const { detectBOSCHOCH, detectFairValueGap, detectOrderBlock, detectEqualHighsLows, detectWyckoff } = await import('./utils/smcUtils');
               smcContext = {
                 bosCHOCH: detectBOSCHOCH(candles, analysis.signal),
@@ -14252,6 +14252,23 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     const { setICTStrategyEnabled, isICTStrategyEnabled } = await import('./openai');
     setICTStrategyEnabled(req.user!.id, enabled);
     res.json({ success: true, enabled: isICTStrategyEnabled(req.user!.id) });
+  });
+
+  app.get("/api/smc-strategy-setting", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
+    const { isSMCStrategyEnabled } = await import('./openai');
+    res.json({ enabled: isSMCStrategyEnabled(req.user!.id) });
+  });
+
+  app.post("/api/smc-strategy-setting", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
+    const { enabled } = req.body;
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({ message: "enabled must be a boolean" });
+    }
+    const { setSMCStrategyEnabled, isSMCStrategyEnabled } = await import('./openai');
+    setSMCStrategyEnabled(req.user!.id, enabled);
+    res.json({ success: true, enabled: isSMCStrategyEnabled(req.user!.id) });
   });
 
   app.get("/api/ai-trading-models", async (req: Request, res: Response) => {

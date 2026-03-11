@@ -248,6 +248,17 @@ export function isICTStrategyEnabled(userId: number): boolean {
   return val === undefined ? true : val;
 }
 
+const smcStrategyEnabledMap = new Map<number, boolean>();
+
+export function setSMCStrategyEnabled(userId: number, enabled: boolean) {
+  smcStrategyEnabledMap.set(userId, enabled);
+}
+
+export function isSMCStrategyEnabled(userId: number): boolean {
+  const val = smcStrategyEnabledMap.get(userId);
+  return val === undefined ? true : val;
+}
+
 export interface AiVisionConfirmation {
   confirmed: boolean;
   aiDirection: string;

@@ -1314,6 +1314,11 @@ export default function MT5ChartDataPage() {
     enabled: aiConfirmationSetting?.enabled || false,
   });
 
+  const { data: smcStrategySetting } = useQuery<{ enabled: boolean }>({
+    queryKey: ['/api/smc-strategy-setting'],
+    enabled: aiConfirmationSetting?.enabled || false,
+  });
+
   const { data: connectedPairsData } = useQuery<{ activePairs: Array<{ symbol: string }> }>({
     queryKey: ['/api/mt5/connected-pairs'],
     refetchInterval: 30000,
@@ -1418,7 +1423,23 @@ export default function MT5ChartDataPage() {
         title: data.enabled ? 'ICT Framework Enabled' : 'ICT Framework Disabled',
         description: data.enabled
           ? 'AI will validate trades against ICT macro windows, PD zones, stop hunts, and CRT patterns.'
-          : 'ICT framework checks disabled — AI will not apply ICT filtering.',
+          : 'ICT framework checks disabled.',
+      });
+    },
+  });
+
+  const toggleSMCStrategyMutation = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      const res = await apiRequest('POST', '/api/smc-strategy-setting', { enabled });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/smc-strategy-setting'] });
+      toast({
+        title: data.enabled ? 'SMC Analysis Enabled' : 'SMC Analysis Disabled',
+        description: data.enabled
+          ? 'AI will evaluate BOS/CHOCH structure, Fair Value Gaps, Order Blocks, liquidity pools, and Wyckoff phases.'
+          : 'Smart Money Concepts analysis disabled.',
       });
     },
   });
@@ -1798,14 +1819,14 @@ export default function MT5ChartDataPage() {
                       <Clock className="w-3.5 h-3.5 text-amber-400" />
                     </div>
                     <div>
-                      <p className="text-sm font-medium text-white">ICT Macro & CRT Framework</p>
+                      <p className="text-sm font-medium text-white">ICT — Inner Circle Trader Framework</p>
                       <p className="text-xs text-gray-400 mt-0.5">
-                        AI validates trades against ICT macro windows (NY time), Premium/Discount zones, stop hunt sweeps, and CRT patterns — reduces fake-outs
+                        Validates every trade against ICT's "One Setup For Life" rules — NY-time macro windows (9 kill zones), Premium/Discount PD array zones, liquidity stop hunts, and CRT (Candle Range Theory) pattern stages. Trades outside macro windows or at price equilibrium with no prior sweep are flagged as high fake-out risk.
                       </p>
                       {ictStrategySetting?.enabled && (
                         <p className="text-[11px] text-amber-300 mt-1 flex items-center gap-1">
                           <CheckCircle className="w-3 h-3" />
-                          One Setup For Life + CRT analysis active
+                          Macro windows · PD zones · Stop hunt detection · CRT stages
                         </p>
                       )}
                     </div>
@@ -1814,6 +1835,32 @@ export default function MT5ChartDataPage() {
                     checked={ictStrategySetting?.enabled ?? true}
                     onCheckedChange={(checked) => toggleICTStrategyMutation.mutate(checked)}
                     disabled={toggleICTStrategyMutation.isPending}
+                  />
+                </div>
+
+                {/* SMC — Smart Money Concepts Toggle */}
+                <div className="border-t border-purple-500/20 pt-3 flex items-start justify-between gap-4">
+                  <div className="flex items-start gap-2 flex-1">
+                    <div className="p-1.5 rounded bg-blue-500/10 mt-0.5">
+                      <TrendingUp className="w-3.5 h-3.5 text-blue-400" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-white">SMC — Smart Money Concepts</p>
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        Layers full institutional order flow analysis onto every confirmation — Break of Structure (BOS) and Change of Character (CHOCH) for trend direction, Fair Value Gaps (imbalance zones), Order Blocks and Breaker Blocks (institutional origin candles), Equal Highs/Lows (liquidity pools), and Wyckoff accumulation/distribution phases (Spring, Upthrust, Markup, Markdown).
+                      </p>
+                      {smcStrategySetting?.enabled && (
+                        <p className="text-[11px] text-blue-300 mt-1 flex items-center gap-1">
+                          <CheckCircle className="w-3 h-3" />
+                          BOS/CHOCH · FVG · Order Blocks · Liquidity Pools · Wyckoff
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <Switch
+                    checked={smcStrategySetting?.enabled ?? true}
+                    onCheckedChange={(checked) => toggleSMCStrategyMutation.mutate(checked)}
+                    disabled={toggleSMCStrategyMutation.isPending}
                   />
                 </div>
               </div>
