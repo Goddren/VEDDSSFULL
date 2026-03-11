@@ -2,11 +2,6 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import pg from 'pg';
 
-// Use a memory store for session data instead of PostgreSQL
-import createMemoryStore from "memorystore";
-import session from "express-session";
-export const MemoryStore = createMemoryStore(session);
-
 // Simple database connection
 export const pool = new pg.Pool({
   connectionString: process.env.DATABASE_URL || 'postgres://localhost:5432/veddai',

@@ -49,10 +49,10 @@ import {
   weeklyStrategies, type WeeklyStrategy,
   aiModelConfigs,
 } from "@shared/schema";
-import { db } from "./db";
+import { db, pool } from "./db";
 import { eq, and, sql, desc, isNull } from "drizzle-orm";
 import session from "express-session";
-import createMemoryStore from "memorystore";
+import connectPgSimple from "connect-pg-simple";
 import crypto from "crypto";
 
 const ENCRYPTION_KEY = process.env.API_KEY_ENCRYPTION_SECRET;
@@ -382,17 +382,15 @@ export interface IStorage {
   upsertAiModelConfig(userId: number, data: Partial<InsertAiModelConfig>): Promise<AiModelConfig>;
 }
 
-// Create PostgreSQL session store
-// Using in-memory session store instead of PostgreSQL
-
 export class DatabaseStorage implements IStorage {
   sessionStore: session.Store;
 
   constructor() {
-    // Use memory store for session storage
-    const MemoryStore = createMemoryStore(session);
-    this.sessionStore = new MemoryStore({
-      checkPeriod: 86400000 // prune expired entries every 24h
+    const PgStore = connectPgSimple(session);
+    this.sessionStore = new PgStore({
+      pool,
+      tableName: 'session',
+      createTableIfMissing: true,
     });
   }
 
