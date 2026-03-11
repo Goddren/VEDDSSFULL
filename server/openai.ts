@@ -355,6 +355,138 @@ interface SmcContext {
   wyckoff: { detected: boolean; phase: string|null; stage: string|null; aligns: boolean; description: string };
 }
 
+function estimatePipSize(symbol: string): number {
+  const s = symbol.toUpperCase();
+  if (s.includes('XAU') || s.includes('GOLD')) return 0.1;
+  if (s.includes('JPY')) return 0.01;
+  if (['US30', 'NAS100', 'GER40', 'UK100', 'SPX500', 'DAX', 'AUS200', 'HK50', 'JP225', 'FRA40'].some(idx => s.includes(idx))) return 1.0;
+  if (s.includes('BTC') || s.includes('ETH') || s.includes('XBT')) return 1.0;
+  return 0.0001;
+}
+
+function buildTrailSignalSummary(
+  symbol: string,
+  proposedSignal: string,
+  tradePlan: any,
+  ictContext?: IctContext | null,
+  smcContext?: SmcContext | null
+): string {
+  if (!ictContext && !smcContext) return '► No ICT/SMC context available — use ADX/ATR baseline only';
+
+  const pipSize = estimatePipSize(symbol);
+  const entry = tradePlan?.entry || 0;
+  const signals: string[] = [];
+
+  // 1. CRT Stage
+  const crt = ictContext?.crtPattern;
+  if (crt?.detected) {
+    if (crt.stage === 'EXPANSION') {
+      signals.push(`► CRT EXPANSION stage — institutional directional move just launched, high-probability run in progress — bias WIDE or AGGRESSIVE`);
+    } else if (crt.stage === 'MANIPULATION') {
+      signals.push(`► CRT MANIPULATION stage — price still faking out before expansion, trail not appropriate yet — bias NONE`);
+    } else if (crt.stage === 'RANGE') {
+      signals.push(`► CRT RANGE stage — accumulation/distribution in progress, no directional momentum yet — bias STANDARD`);
+    }
+  } else {
+    signals.push(`► No CRT pattern detected — use ADX/ATR baseline for trail type`);
+  }
+
+  // 2. Wyckoff Phase
+  const wyc = smcContext?.wyckoff;
+  if (wyc?.detected) {
+    if (wyc.phase === 'MARKUP' || wyc.phase === 'MARKDOWN') {
+      signals.push(`► Wyckoff ${wyc.phase} — sustained trend confirmed by institutional phase, let profits run — bias WIDE`);
+    } else if (wyc.phase === 'ACCUMULATION' && wyc.stage === 'SPRING') {
+      signals.push(`► Wyckoff Accumulation SPRING — fresh bullish launch, give the trade room — bias STANDARD to WIDE`);
+    } else if (wyc.phase === 'DISTRIBUTION' && wyc.stage === 'UPTHRUST') {
+      signals.push(`► Wyckoff Distribution UPTHRUST — fresh bearish launch, give the trade room — bias STANDARD to WIDE`);
+    } else if (wyc.phase === 'ACCUMULATION' && wyc.stage === 'SOS') {
+      signals.push(`► Wyckoff Sign of Strength (SOS) — bullish trend accelerating out of range — bias WIDE`);
+    } else if (wyc.phase === 'DISTRIBUTION' && wyc.stage === 'SOW') {
+      signals.push(`► Wyckoff Sign of Weakness (SOW) — bearish trend accelerating out of range — bias WIDE`);
+    } else {
+      signals.push(`► Wyckoff phase detected (${wyc.phase}/${wyc.stage || 'ranging'}) — ${wyc.description}`);
+    }
+  } else {
+    signals.push(`► No Wyckoff phase detected — use ADX baseline`);
+  }
+
+  // 3. Nearby Liquidity Pool (Equal Highs/Lows)
+  const eql = smcContext?.equalHighsLows;
+  if (eql && entry > 0 && pipSize > 0) {
+    if (proposedSignal === 'BUY' && eql.equalHighs.detected && eql.equalHighs.level) {
+      const distPips = Math.abs(eql.equalHighs.level - entry) / pipSize;
+      const tightThreshold = pipSize === 0.0001 ? 30 : pipSize === 0.1 ? 300 : pipSize === 0.01 ? 3 : 100;
+      if (distPips < tightThreshold) {
+        signals.push(`► Equal Highs (Buy-Side Liquidity) at ${eql.equalHighs.level.toFixed(5)} — only ~${Math.round(distPips)} pips away — TIGHTEN trail to lock in profits before sweep`);
+      } else {
+        signals.push(`► Equal Highs (BSL) at ${eql.equalHighs.level.toFixed(5)} — ${Math.round(distPips)} pips away — TP target, trail width unconstrained`);
+      }
+    } else if (proposedSignal === 'SELL' && eql.equalLows.detected && eql.equalLows.level) {
+      const distPips = Math.abs(entry - eql.equalLows.level) / pipSize;
+      const tightThreshold = pipSize === 0.0001 ? 30 : pipSize === 0.1 ? 300 : pipSize === 0.01 ? 3 : 100;
+      if (distPips < tightThreshold) {
+        signals.push(`► Equal Lows (Sell-Side Liquidity) at ${eql.equalLows.level.toFixed(5)} — only ~${Math.round(distPips)} pips away — TIGHTEN trail to lock in profits before sweep`);
+      } else {
+        signals.push(`► Equal Lows (SSL) at ${eql.equalLows.level.toFixed(5)} — ${Math.round(distPips)} pips away — TP target, trail width unconstrained`);
+      }
+    } else {
+      signals.push(`► No nearby liquidity pool in trade direction — trail width unconstrained`);
+    }
+  } else {
+    signals.push(`► No liquidity pool data available`);
+  }
+
+  // 4. ICT Macro Window
+  const mw = ictContext?.macroWindow;
+  if (mw) {
+    if (mw.isInMacroWindow) {
+      signals.push(`► ICT macro window ACTIVE (${mw.macroName}) — institutional engine running, high-probability directional flow — bias WIDE`);
+    } else {
+      signals.push(`► ICT macro window INACTIVE — impulse may exhaust sooner, next window: ${mw.nextMacroName} in ${mw.minutesUntilNextMacro}min — bias STANDARD`);
+    }
+  }
+
+  // 5. Session Timing (from NY time string)
+  if (mw?.currentNYTime) {
+    const match = mw.currentNYTime.match(/(\d+):(\d+)\s*(AM|PM)/i);
+    if (match) {
+      let hours = parseInt(match[1]);
+      const mins = parseInt(match[2]);
+      const ampm = match[3].toUpperCase();
+      if (ampm === 'PM' && hours !== 12) hours += 12;
+      if (ampm === 'AM' && hours === 12) hours = 0;
+      const totalMins = hours * 60 + mins;
+
+      if (totalMins >= 7*60 && totalMins < 11*60+30) {
+        signals.push(`► Session: London/NY overlap (${mw.currentNYTime} NY) — peak trending window — bias WIDE to AGGRESSIVE`);
+      } else if (totalMins >= 8*60+30 && totalMins < 10*60+30) {
+        signals.push(`► Session: NY Open (${mw.currentNYTime} NY) — peak volatility hour — bias WIDE`);
+      } else if (totalMins >= 12*60 && totalMins < 14*60+30) {
+        signals.push(`► Session: NY Lunch (${mw.currentNYTime} NY) — low momentum, chop risk — reduce trail one level (WIDE→STANDARD, STANDARD→TIGHT)`);
+      } else if (totalMins >= 14*60+30 && totalMins < 17*60) {
+        signals.push(`► Session: NY PM (${mw.currentNYTime} NY) — steady continuation or late reversal — bias STANDARD`);
+      } else {
+        signals.push(`► Session: Asian/off-hours (${mw.currentNYTime} NY) — low momentum, tight spreads — bias TIGHT`);
+      }
+    }
+  }
+
+  // 6. BOS/CHOCH Maturity
+  const bos = smcContext?.bosCHOCH;
+  if (bos?.detected) {
+    if (bos.type === 'CHOCH') {
+      signals.push(`► ${bos.direction} CHOCH detected — fresh trend reversal just confirmed, plenty of room to run — bias WIDE`);
+    } else if (bos.type === 'BOS') {
+      signals.push(`► ${bos.direction} BOS continuation — trend is mature, watch for exhaustion near next structure — bias STANDARD`);
+    }
+  } else {
+    signals.push(`► No BOS/CHOCH — ranging environment, no clear trend direction — bias TIGHT`);
+  }
+
+  return signals.join('\n');
+}
+
 function buildConfirmationPrompt(
   candleData: any[], indicators: any, proposedSignal: string,
   proposedConfidence: number, tradePlan: any, symbol: string, timeframe: string,
@@ -366,6 +498,8 @@ function buildConfirmationPrompt(
   const candleSummary = recentCandles.map((c: any, i: number) => 
     `[${i}] O:${c.o} H:${c.h} L:${c.l} C:${c.c} V:${c.v || 0}`
   ).join('\n');
+
+  const trailSignalSummary = buildTrailSignalSummary(symbol, proposedSignal, tradePlan, ictContext, smcContext);
 
   const coreIndicators: any = {};
   const advancedIndicators: any = {};
@@ -546,26 +680,43 @@ CRITICAL RULES FOR YOUR DECISION:
 - If news events are imminent (today/tomorrow), factor this into confidence. Warn if the trade could be invalidated.
 
 TRAILING STOP ASSESSMENT:
-Evaluate whether a trailing stop is appropriate for this trade.
-Important: Trail distances below are in the instrument's OWN pip units — use the correct pip size for ${symbol}:
-- Standard forex (EURUSD, GBPUSD, etc.): 1 pip = 0.0001 price move
-- JPY pairs (USDJPY, etc.): 1 pip = 0.01 price move
-- Gold (XAUUSD): 1 pip = 0.10 price move (so 50 pips = $5.00 distance)
+Use ALL signals below — do NOT rely only on ADX/ATR. The ICT + SMC signals override the ADX baseline.
+
+INSTRUMENT PIP SIZES (critical — all trail distances are in these units):
+- Forex (EURUSD, GBPUSD, etc.): 1 pip = 0.0001
+- JPY pairs (USDJPY, etc.): 1 pip = 0.01
+- Gold (XAUUSD): 1 pip = 0.10 (so 300 pips = $30 trail distance)
 - Indices (US30, NAS100, GER40, etc.): 1 pip = 1.0 point
-- BTC/crypto: 1 pip = $1.00 price move
+- BTC/crypto: 1 pip = $1.00
 
-Trail type guidance (in that instrument's pips):
-- NONE: Market is choppy/ranging (ADX < 20), fast news move, or short-duration trade. Use fixed TP only.
-- TIGHT: Low volatility or near TP. Lock in gains quickly.
-  → FX: 5-15 pips | Gold: 50-150 pips | Indices: 20-60 points | BTC: 200-600 pips
-- STANDARD: Moderate trend, normal ATR.
-  → FX: 20-40 pips | Gold: 150-400 pips | Indices: 50-150 points | BTC: 500-1500 pips
-- WIDE: Strong trend (ADX > 30), high ATR, momentum building — let profits run.
-  → FX: 50-100 pips | Gold: 400-800 pips | Indices: 150-400 points | BTC: 1500-3000 pips
-- AGGRESSIVE: Explosive breakout or high-impact news momentum. Maximum trail.
-  → FX: 100+ pips | Gold: 800+ pips | Indices: 400+ points | BTC: 3000+ pips
+ADX/ATR BASELINE (starting point — override with ICT+SMC signals below):
+- NONE: ADX < 20 (choppy/ranging) or scalp trade or fast news spike
+- TIGHT: ADX 20–25, low ATR, price near TP, or Asian/lunch session
+- STANDARD: ADX 25–30, normal ATR, mid-session
+- WIDE: ADX > 30, elevated ATR, trending London/NY session
+- AGGRESSIVE: ADX > 40, confirmed volume breakout, explosive momentum
 
-Also estimate a recommended trail distance in pips (in the instrument's own pip unit) based on ATR and current volatility (null if NONE).
+TRAIL DISTANCE RANGES (instrument pips — pick a value within range based on ATR):
+- TIGHT:      FX: 5–15 | Gold: 50–150 | Indices: 20–60 | BTC: 200–600
+- STANDARD:   FX: 20–40 | Gold: 150–400 | Indices: 50–150 | BTC: 500–1500
+- WIDE:       FX: 50–100 | Gold: 400–800 | Indices: 150–400 | BTC: 1500–3000
+- AGGRESSIVE: FX: 100+ | Gold: 800+ | Indices: 400+ | BTC: 3000+
+
+ICT + SMC TRAIL SIGNALS (higher priority than ADX — apply these first):
+${trailSignalSummary}
+
+DECISION RULES (apply in order — first matching rule wins):
+1. CRT MANIPULATION stage → NONE (price still faking, never trail a manipulation)
+2. Nearby liquidity pool (equal H/L within tight range) → TIGHT (lock in before the sweep)
+3. CRT EXPANSION + Wyckoff MARKUP/MARKDOWN + London/NY session → AGGRESSIVE
+4. CRT EXPANSION + active ICT macro window → WIDE minimum
+5. Fresh CHOCH + Wyckoff Spring/Upthrust → WIDE (brand new trend, room to run)
+6. Wyckoff MARKUP/MARKDOWN without CRT → WIDE
+7. BOS continuation (mature trend) → STANDARD (conserve, exhaustion may be near)
+8. NY Lunch (12pm–2:30pm NY time) → reduce one level (WIDE→STANDARD, STANDARD→TIGHT)
+9. No ICT/SMC data → use ADX/ATR baseline only
+
+Also estimate a recommended trail distance in pips (instrument's own pip unit) based on ATR and the ICT+SMC signals (null if NONE).
 
 Return your analysis as JSON:
 {
