@@ -95,6 +95,7 @@ export class TradeLockerService {
   private accNumResolved: boolean = false;
   private connectionId: number | null = null;
   onTokenRefresh: ((accessToken: string, refreshToken: string, expiresIn: number) => void) | null = null;
+  onReauthenticate: (() => Promise<void>) | null = null;
 
   constructor(accountType: 'demo' | 'live', accountId: string, serverId: string, cachedAccNum?: string) {
     this.baseUrl = accountType === 'demo' 
@@ -595,13 +596,18 @@ export class TradeLockerService {
           if (response.ok) break;
 
           if (response.status === 401 && attempt < RETRY_DELAYS.length) {
-            console.log('[TradeLocker] 401 on order — forcing re-auth before retry...');
+            console.log('[TradeLocker] 401 on order — forcing full re-auth before retry...');
             try {
-              if (this.refreshToken) {
-                await this.refreshAccessToken(this.refreshToken);
+              if (this.onReauthenticate) {
+                await this.onReauthenticate();
+              } else if (this.refreshToken) {
+                const result = await this.refreshAccessToken(this.refreshToken);
+                if (this.onTokenRefresh) {
+                  this.onTokenRefresh(result.accessToken, result.refreshToken, result.expiresIn);
+                }
               }
-            } catch {
-              console.log('[TradeLocker] Token refresh failed during 401 retry');
+            } catch (authErr) {
+              console.log('[TradeLocker] Re-auth failed during 401 retry:', (authErr as Error).message);
             }
             await new Promise(r => setTimeout(r, RETRY_DELAYS[attempt]));
             continue;
@@ -866,6 +872,13 @@ async function getOrCreateService(connection: TLConnection): Promise<TradeLocker
 
   service.onTokenRefresh = (accessToken, refreshToken, expiresIn) => {
     persistTokens(connection, accessToken, refreshToken, expiresIn, service.getResolvedAccNum()).catch(() => {});
+  };
+
+  service.onReauthenticate = async () => {
+    console.log('[TradeLocker] Full re-authentication triggered via callback');
+    const password = decryptPassword(connection.encryptedPassword);
+    const authResult = await service.authenticate(connection.email, password);
+    await persistTokens(connection, authResult.accessToken, authResult.refreshToken, authResult.expiresIn, service.getResolvedAccNum());
   };
 
   serviceCache.set(connId, { service, createdAt: Date.now() });
