@@ -93,6 +93,10 @@ async function withRetry<T>(
 }
 
 (async () => {
+  const dbUrl = process.env.DATABASE_URL || '(not set)';
+  const maskedDb = dbUrl.replace(/:\/\/[^@]+@/, '://***@');
+  console.log(`[startup] DATABASE_URL: ${maskedDb}`);
+
   // Start the HTTP server immediately so the process doesn't crash-loop
   // while waiting for the Neon endpoint to wake up.
   const server = await registerRoutes(app);
