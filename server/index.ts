@@ -172,7 +172,7 @@ async function withRetry<T>(
 
     try {
       console.log('[startup] Running full schema sync (db:push)...');
-      execSync('npx drizzle-kit push --force', { stdio: 'pipe', timeout: 45000, env: { ...process.env } });
+      execSync('npm run db:push -- --force', { stdio: 'pipe', timeout: 45000, env: { ...process.env } });
       console.log('[startup] Full schema sync complete.');
     } catch (err) {
       console.error('[startup] Full schema sync failed (non-fatal, critical columns already added above):', (err as Error).message?.slice(0, 200));
