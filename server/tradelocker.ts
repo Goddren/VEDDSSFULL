@@ -93,6 +93,8 @@ export class TradeLockerService {
   private serverId: string;
   private accNum: string = '0';
   private accNumResolved: boolean = false;
+  private connectionId: number | null = null;
+  onTokenRefresh: ((accessToken: string, refreshToken: string, expiresIn: number) => void) | null = null;
 
   constructor(accountType: 'demo' | 'live', accountId: string, serverId: string, cachedAccNum?: string) {
     this.baseUrl = accountType === 'demo' 
@@ -285,8 +287,12 @@ export class TradeLockerService {
       throw new Error('Not authenticated. Call authenticate() first.');
     }
 
-    if (this.tokenExpiresAt && new Date() >= this.tokenExpiresAt && this.refreshToken) {
-      await this.refreshAccessToken(this.refreshToken);
+    const TOKEN_BUFFER = 60 * 1000;
+    if (this.tokenExpiresAt && (new Date().getTime() + TOKEN_BUFFER) >= this.tokenExpiresAt.getTime() && this.refreshToken) {
+      const result = await this.refreshAccessToken(this.refreshToken);
+      if (this.onTokenRefresh) {
+        this.onTokenRefresh(result.accessToken, result.refreshToken, result.expiresIn);
+      }
     }
   }
 
@@ -588,9 +594,17 @@ export class TradeLockerService {
 
           if (response.ok) break;
 
-          if (response.status === 401 && attempt < RETRY_DELAYS.length && this.refreshToken) {
-            console.log('[TradeLocker] 401 on order — refreshing token and retrying...');
-            try { await this.refreshAccessToken(this.refreshToken); } catch { /* will fall through to full retry */ }
+          if (response.status === 401 && attempt < RETRY_DELAYS.length) {
+            console.log('[TradeLocker] 401 on order — forcing re-auth before retry...');
+            try {
+              if (this.refreshToken) {
+                await this.refreshAccessToken(this.refreshToken);
+              }
+            } catch {
+              console.log('[TradeLocker] Token refresh failed during 401 retry');
+            }
+            await new Promise(r => setTimeout(r, RETRY_DELAYS[attempt]));
+            continue;
           }
 
           if (RETRYABLE_STATUSES.has(response.status) && attempt < RETRY_DELAYS.length) {
@@ -849,6 +863,10 @@ async function getOrCreateService(connection: TLConnection): Promise<TradeLocker
     const authResult = await service.authenticate(connection.email, password);
     await persistTokens(connection, authResult.accessToken, authResult.refreshToken, authResult.expiresIn, service.getResolvedAccNum());
   }
+
+  service.onTokenRefresh = (accessToken, refreshToken, expiresIn) => {
+    persistTokens(connection, accessToken, refreshToken, expiresIn, service.getResolvedAccNum()).catch(() => {});
+  };
 
   serviceCache.set(connId, { service, createdAt: Date.now() });
   return service;
