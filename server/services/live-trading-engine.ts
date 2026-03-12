@@ -1,5 +1,5 @@
 import { marketDataService } from '../market-data/service';
-import { executeMT5SignalOnTradeLocker } from '../tradelocker';
+import { executeMT5SignalOnTradeLocker, warmTradeLockerConnection } from '../tradelocker';
 import { computeAllAdvancedIndicators, type CandleData } from '../indicators';
 import { storage } from '../storage';
 import { newsService } from '../news-service';
@@ -2840,12 +2840,27 @@ export function startLiveEngine(userId: number, config?: Partial<LiveEngineConfi
     message: `VEDD AI Live Engine STARTED | Strategy: ${fullConfig.strategyMode} | Pairs: ${fullConfig.pairs.join(', ')} | Interval: ${intervalDisplay} | Min confidence: ${fullConfig.minConfidence}%${goalMsg}${featFlags ? ` | Features: ${featFlags}` : ''}`,
   });
 
-  // Kick off first scan in 2 seconds, then self-schedule
+  (async () => {
+    try {
+      const tlConn = await storage.getUserTradelockerConnection(userId);
+      if (tlConn && tlConn.isActive) {
+        const warmResult = await warmTradeLockerConnection(tlConn);
+        addActivity(userId, {
+          type: warmResult.success ? 'info' : 'error',
+          message: warmResult.success
+            ? 'TradeLocker pre-warmed — ready for instant trade execution'
+            : `TradeLocker pre-warm failed: ${warmResult.error}`,
+        });
+      }
+    } catch (e) {
+      console.log('[VEDD Live Engine] TradeLocker pre-warm skipped:', (e as Error).message);
+    }
+  })();
+
   setTimeout(() => {
     scanMarkets(userId).then(() => scheduleScan(userId));
   }, 2000);
 
-  // Schedule Sunday gap scanner
   scheduleGapScanner(userId);
 
   // Auto-train brain immediately on engine start, then every 30 minutes
