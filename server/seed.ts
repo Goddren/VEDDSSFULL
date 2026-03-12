@@ -2,6 +2,7 @@ import { storage } from "./storage";
 import { initialAchievements } from "./data/achievement-seeds";
 import { db } from "./db";
 import { subscriptionPlans } from "@shared/schema";
+import { eq } from "drizzle-orm";
 import { scrypt, randomBytes } from "crypto";
 import { promisify } from "util";
 
@@ -161,37 +162,48 @@ export async function seedAchievements() {
  * Creates the user if missing, or upgrades subscription/admin if already registered.
  */
 export async function seedAdminUser() {
-  try {
-    const adminUsername = "donchismkos@gmail.com";
-    const existing = await storage.getUserByUsername(adminUsername);
+  const adminUsername = "donchismkos@gmail.com";
 
-    if (existing) {
-      if (existing.subscriptionStatus !== "active" || !existing.isAdmin) {
-        await storage.updateUser(existing.id, {
-          subscriptionStatus: "active",
-          isAdmin: true,
-          membershipTier: "premium",
-        });
-        console.log(`[seed] Admin user upgraded: subscription=active, isAdmin=true`);
-      } else {
-        console.log(`[seed] Admin user already configured correctly.`);
-      }
-    } else {
-      const hashed = await hashPassword("VeddAI2024!");
-      const newUser = await storage.createUser({
-        username: adminUsername,
-        email: adminUsername,
-        password: hashed,
-        fullName: "Donchismkos",
-      });
-      await storage.updateUser(newUser.id, {
+  const [lifetimePlan] = await db
+    .select({ id: subscriptionPlans.id })
+    .from(subscriptionPlans)
+    .where(eq(subscriptionPlans.interval, "lifetime"))
+    .limit(1);
+
+  if (!lifetimePlan) {
+    console.error("[seed] No lifetime plan found — skipping admin user seed");
+    return;
+  }
+
+  const planId = lifetimePlan.id;
+  const existing = await storage.getUserByUsername(adminUsername);
+
+  if (existing) {
+    if (existing.subscriptionStatus !== "active" || !existing.isAdmin || existing.subscriptionPlanId !== planId) {
+      await storage.updateUser(existing.id, {
         subscriptionStatus: "active",
         isAdmin: true,
         membershipTier: "premium",
+        subscriptionPlanId: planId,
       });
-      console.log(`[seed] Admin user created with temp password.`);
+      console.log(`[seed] Admin user upgraded: subscription=active, isAdmin=true, plan=Lifetime(${planId})`);
+    } else {
+      console.log(`[seed] Admin user already configured correctly.`);
     }
-  } catch (err) {
-    console.error("[seed] Failed to seed admin user:", err);
+  } else {
+    const hashed = await hashPassword("VeddAI2024!");
+    const newUser = await storage.createUser({
+      username: adminUsername,
+      email: adminUsername,
+      password: hashed,
+      fullName: "Donchismkos",
+    });
+    await storage.updateUser(newUser.id, {
+      subscriptionStatus: "active",
+      isAdmin: true,
+      membershipTier: "premium",
+      subscriptionPlanId: planId,
+    });
+    console.log(`[seed] Admin user created with temp password.`);
   }
 }
