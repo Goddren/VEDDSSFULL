@@ -5,6 +5,7 @@ import path from "path";
 import { setupAuth } from "./auth";
 import { seedAchievements, seedSubscriptionPlans, seedAdminUser } from "./seed";
 import { initializeMarketDataService } from "./market-data";
+import { execSync } from "child_process";
 import { db } from "./db";
 import { sql } from "drizzle-orm";
 
@@ -167,6 +168,14 @@ async function withRetry<T>(
       console.log('[startup] Schema check complete.');
     } catch (err) {
       console.error('[startup] Schema migration check failed (non-fatal):', (err as Error).message);
+    }
+
+    try {
+      console.log('[startup] Running full schema sync (db:push)...');
+      execSync('npx drizzle-kit push --force', { stdio: 'pipe', timeout: 45000, env: { ...process.env } });
+      console.log('[startup] Full schema sync complete.');
+    } catch (err) {
+      console.error('[startup] Full schema sync failed (non-fatal, critical columns already added above):', (err as Error).message?.slice(0, 200));
     }
 
     await withRetry(() => seedSubscriptionPlans(), 'seedSubscriptionPlans');
