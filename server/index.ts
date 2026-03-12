@@ -5,6 +5,8 @@ import path from "path";
 import { setupAuth } from "./auth";
 import { seedAchievements, seedSubscriptionPlans, seedAdminUser } from "./seed";
 import { initializeMarketDataService } from "./market-data";
+import { db } from "./db";
+import { sql } from "drizzle-orm";
 
 const app = express();
 // Increase the JSON payload limit to handle larger images (10MB)
@@ -144,6 +146,29 @@ async function withRetry<T>(
   // Seed initial data after the server is already listening.
   // Retries with backoff to handle Neon endpoint wake-up delays.
   (async () => {
+    try {
+      console.log('[startup] Checking for missing DB columns...');
+      const migrations = [
+        `ALTER TABLE saved_eas ADD COLUMN IF NOT EXISTS refresh_volatility_threshold integer DEFAULT 30`,
+        `ALTER TABLE saved_eas ADD COLUMN IF NOT EXISTS refresh_atr_threshold integer DEFAULT 20`,
+        `ALTER TABLE saved_eas ADD COLUMN IF NOT EXISTS refresh_price_threshold integer DEFAULT 2`,
+        `ALTER TABLE saved_eas ADD COLUMN IF NOT EXISTS volume real DEFAULT 0.01`,
+        `ALTER TABLE saved_eas ADD COLUMN IF NOT EXISTS use_risk_percent boolean DEFAULT true`,
+        `ALTER TABLE saved_eas ADD COLUMN IF NOT EXISTS risk_percent real DEFAULT 0.25`,
+        `ALTER TABLE saved_eas ADD COLUMN IF NOT EXISTS max_open_trades integer DEFAULT 1`,
+        `ALTER TABLE saved_eas ADD COLUMN IF NOT EXISTS daily_loss_limit real DEFAULT 0`,
+        `ALTER TABLE saved_eas ADD COLUMN IF NOT EXISTS min_confidence integer DEFAULT 65`,
+        `ALTER TABLE saved_eas ADD COLUMN IF NOT EXISTS trade_cooldown_minutes integer DEFAULT 5`,
+        `ALTER TABLE saved_eas ADD COLUMN IF NOT EXISTS live_refresh_enabled boolean DEFAULT false`,
+      ];
+      for (const m of migrations) {
+        await db.execute(sql.raw(m));
+      }
+      console.log('[startup] Schema check complete.');
+    } catch (err) {
+      console.error('[startup] Schema migration check failed (non-fatal):', (err as Error).message);
+    }
+
     await withRetry(() => seedSubscriptionPlans(), 'seedSubscriptionPlans');
     await withRetry(() => seedAchievements(), 'seedAchievements');
     await withRetry(() => seedAdminUser(), 'seedAdminUser');
