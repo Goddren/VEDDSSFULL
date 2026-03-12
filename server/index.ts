@@ -3,7 +3,7 @@ import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import path from "path";
 import { setupAuth } from "./auth";
-import { seedAchievements, seedSubscriptionPlans } from "./seed";
+import { seedAchievements, seedSubscriptionPlans, seedAdminUser } from "./seed";
 import { initializeMarketDataService } from "./market-data";
 
 const app = express();
@@ -146,6 +146,7 @@ async function withRetry<T>(
   (async () => {
     await withRetry(() => seedSubscriptionPlans(), 'seedSubscriptionPlans');
     await withRetry(() => seedAchievements(), 'seedAchievements');
+    await withRetry(() => seedAdminUser(), 'seedAdminUser');
 
     // Initialize market data service for Live AI Refresh
     initializeMarketDataService();

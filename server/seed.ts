@@ -2,6 +2,16 @@ import { storage } from "./storage";
 import { initialAchievements } from "./data/achievement-seeds";
 import { db } from "./db";
 import { subscriptionPlans } from "@shared/schema";
+import { scrypt, randomBytes } from "crypto";
+import { promisify } from "util";
+
+const scryptAsync = promisify(scrypt);
+
+async function hashPassword(password: string): Promise<string> {
+  const salt = randomBytes(16).toString("hex");
+  const buf = (await scryptAsync(password, salt, 64)) as Buffer;
+  return `${buf.toString("hex")}.${salt}`;
+}
 
 /**
  * Seed initial subscription plans into the database
@@ -144,4 +154,44 @@ export async function seedAchievements() {
   }
 
   console.log(`Successfully seeded ${initialAchievements.length} achievements!`);
+}
+
+/**
+ * Ensure the admin user exists with full access.
+ * Creates the user if missing, or upgrades subscription/admin if already registered.
+ */
+export async function seedAdminUser() {
+  try {
+    const adminUsername = "donchismkos@gmail.com";
+    const existing = await storage.getUserByUsername(adminUsername);
+
+    if (existing) {
+      if (existing.subscriptionStatus !== "active" || !existing.isAdmin) {
+        await storage.updateUser(existing.id, {
+          subscriptionStatus: "active",
+          isAdmin: true,
+          membershipTier: "premium",
+        });
+        console.log(`[seed] Admin user upgraded: subscription=active, isAdmin=true`);
+      } else {
+        console.log(`[seed] Admin user already configured correctly.`);
+      }
+    } else {
+      const hashed = await hashPassword("VeddAI2024!");
+      const newUser = await storage.createUser({
+        username: adminUsername,
+        email: adminUsername,
+        password: hashed,
+        fullName: "Donchismkos",
+      });
+      await storage.updateUser(newUser.id, {
+        subscriptionStatus: "active",
+        isAdmin: true,
+        membershipTier: "premium",
+      });
+      console.log(`[seed] Admin user created with temp password.`);
+    }
+  } catch (err) {
+    console.error("[seed] Failed to seed admin user:", err);
+  }
 }
