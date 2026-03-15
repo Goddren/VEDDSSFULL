@@ -1021,13 +1021,13 @@ ${'═'.repeat(59)}`;
         '5min': 'M5', '15min': 'M15', '1h': 'H1', '4h': 'H4', '1day': 'D1', '1week': 'W1',
         '5m': 'M5', '15m': 'M15',
       };
-      const levelNames = ['INTERMEDIATE', 'MACRO'];
       const levelResults: Array<{ label: string; tf: string; aligns: boolean; bosCHOCH: any; pd: any; wyckoff: any }> = [];
 
       for (let i = 0; i < htfLevels.length; i++) {
-        const level = htfLevels[i];
+        const level = htfLevels[i] as any;
         if (!level.candles || level.candles.length < 10) continue;
         const tfLabel = tfLabels[level.timeframe] || level.timeframe.toUpperCase();
+        const role = level.role || (i === 0 ? 'INTERMEDIATE' : 'MACRO');
         const bosResult = detectBOSCHOCH(level.candles, proposedSignal);
         const entry = tradePlan?.entry || level.candles[0]?.c || 0;
         const pdResult = getPremiumDiscountContext(entry, level.candles, proposedSignal);
@@ -1038,7 +1038,7 @@ ${'═'.repeat(59)}`;
         );
         const pdConflicts = !pdResult.aligns && pdResult.zone !== 'EQUILIBRIUM';
         const aligns = bosAligns && !pdConflicts;
-        levelResults.push({ label: levelNames[i] || `HTF${i + 1}`, tf: tfLabel, aligns, bosCHOCH: bosResult, pd: pdResult, wyckoff: wyckoffResult });
+        levelResults.push({ label: role, tf: tfLabel, aligns, bosCHOCH: bosResult, pd: pdResult, wyckoff: wyckoffResult });
       }
 
       if (levelResults.length > 0) {

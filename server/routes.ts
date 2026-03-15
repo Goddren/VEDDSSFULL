@@ -6491,13 +6491,14 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                       symbol: sanitizedSymbol, assetType, timeframe: tf as any, limit: 50,
                     }))
                   );
+                  const roles = ['INTERMEDIATE', 'MACRO'] as const;
                   results.forEach((r, idx) => {
                     if (r.status === 'fulfilled' && r.value?.bars && r.value.bars.length >= 10) {
                       const mapped = r.value.bars.map((b: any) => ({
                         o: b.open, h: b.high, l: b.low, c: b.close, v: b.volume, t: b.timestamp,
                       }));
-                      htfLevels.push({ timeframe: stack[idx], candles: mapped });
-                      console.log(`[HTF] Fetched ${mapped.length} ${stack[idx]} candles for bias injection`);
+                      htfLevels.push({ timeframe: stack[idx], candles: mapped, role: roles[idx] } as any);
+                      console.log(`[HTF] Fetched ${mapped.length} ${stack[idx]} (${roles[idx]}) candles for bias injection`);
                     }
                   });
                 }
