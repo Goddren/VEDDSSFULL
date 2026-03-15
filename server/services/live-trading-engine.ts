@@ -4,6 +4,15 @@ import { computeAllAdvancedIndicators, type CandleData } from '../indicators';
 import { storage } from '../storage';
 import { newsService } from '../news-service';
 import { getPipSize } from '../utils/pipUtils';
+import { detectBOSCHOCH, detectWyckoff, type BOSCHOCHResult, type WyckoffResult } from '../utils/smcUtils';
+import { getPremiumDiscountContext } from '../utils/ictMacroUtils';
+
+interface HTFBiasData {
+  trend: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+  bosChoch: BOSCHOCHResult;
+  premiumDiscount: { zone: 'PREMIUM' | 'DISCOUNT' | 'EQUILIBRIUM'; aligns: boolean; description: string };
+  wyckoff: WyckoffResult;
+}
 
 interface VolumeMetrics {
   currentVolume: number;
@@ -272,6 +281,7 @@ interface EngineState {
   tradesSinceLastLearn: number;
   positionTrailState: Record<string, { highestHigh: number; lowestLow: number; sar: number; ep: number; af: number; bullish: boolean }>;
   aiResponseCache: Record<string, { ts: number; price: number; response: any }>;
+  htfBiasCache: Record<string, HTFBiasData>;
 }
 
 const engineStates: Record<number, EngineState> = {};
@@ -885,6 +895,9 @@ async function scanMarkets(userId: number): Promise<void> {
     addActivity(userId, { type: 'scan', message: `Scanning ${pairsToScan.length} pairs: ${pairsToScan.join(', ')}` });
 
     const marketAnalysis: Record<string, any> = {};
+    const htfPendingPromises: Promise<void>[] = [];
+    const htfMarketData: Record<string, HTFBiasData> = {};
+    state.htfBiasCache = {};
 
     for (const symbol of pairsToScan) {
       try {
@@ -957,6 +970,51 @@ async function scanMarkets(userId: number): Promise<void> {
           volumeMetrics,
         };
 
+        // ── Fire HTF (H1/H4) fetch in parallel with inter-pair delay ──
+        const htfSymbol = symbol;
+        const htfAssetType = assetType;
+        const primaryTF = (config as any).primaryTimeframe || 'M15';
+        const htfTimeframe = primaryTF === 'H1' ? '4h' : '1h';
+        htfPendingPromises.push((async () => {
+          try {
+            const htfResult = await marketDataService.fetchMarketData({
+              symbol: htfSymbol,
+              assetType: htfAssetType,
+              timeframe: htfTimeframe,
+              limit: 50,
+            });
+            if (!htfResult.bars || htfResult.bars.length < 15) return;
+            const htfCandles = convertToCandles(htfResult.bars);
+            const htfPrice = htfResult.bars[htfResult.bars.length - 1]?.close || 0;
+            const bosChoch = detectBOSCHOCH(htfCandles, 'NEUTRAL');
+            const wyckoff = detectWyckoff(htfCandles);
+
+            let pdSignal = 'NEUTRAL';
+            if (bosChoch.detected && bosChoch.direction) {
+              pdSignal = bosChoch.direction === 'BULLISH' ? 'BUY' : 'SELL';
+            } else if (wyckoff.detected) {
+              if (wyckoff.phase === 'MARKUP' || wyckoff.phase === 'ACCUMULATION') pdSignal = 'BUY';
+              else if (wyckoff.phase === 'MARKDOWN' || wyckoff.phase === 'DISTRIBUTION') pdSignal = 'SELL';
+            }
+            const pd = getPremiumDiscountContext(htfPrice, htfCandles, pdSignal);
+
+            let htfTrend: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL';
+            if (bosChoch.detected && bosChoch.direction) {
+              htfTrend = bosChoch.direction;
+            } else if (wyckoff.detected) {
+              if (wyckoff.phase === 'MARKUP' || wyckoff.phase === 'ACCUMULATION') htfTrend = 'BULLISH';
+              else if (wyckoff.phase === 'MARKDOWN' || wyckoff.phase === 'DISTRIBUTION') htfTrend = 'BEARISH';
+            }
+
+            htfMarketData[htfSymbol] = {
+              trend: htfTrend,
+              bosChoch,
+              premiumDiscount: { zone: pd.zone, aligns: pd.aligns, description: pd.description },
+              wyckoff,
+            };
+          } catch { /* HTF fetch failed — skip silently */ }
+        })());
+
         await new Promise(r => setTimeout(r, 8500));
       } catch (err: any) {
         addActivity(userId, { type: 'error', symbol, message: `Scan failed: ${err.message}` });
@@ -985,6 +1043,19 @@ async function scanMarkets(userId: number): Promise<void> {
         }
         await new Promise(r => setTimeout(r, 3000));
       } catch { /* skip if unavailable */ }
+    }
+
+    // ── Settle any in-flight HTF fetches (fired in parallel during M15 loop) ──
+    const htfLabel = ((config as any).primaryTimeframe || 'M15') === 'H1' ? 'H4' : 'H1';
+    if (htfPendingPromises.length > 0) {
+      await Promise.allSettled(htfPendingPromises);
+      const htfCount = Object.keys(htfMarketData).length;
+      if (htfCount > 0) {
+        state.htfBiasCache = htfMarketData;
+        addActivity(userId, { type: 'info', message: `📊 HTF bias loaded for ${htfCount}/${pairsToScan.length} pairs (${htfLabel} structure)` });
+      } else {
+        addActivity(userId, { type: 'info', message: `📊 HTF bias: all ${htfLabel} fetches failed — trading without HTF filter this cycle` });
+      }
     }
 
     // ── Event-Triggered Scan Detection ────────────────────────────────
@@ -1052,7 +1123,7 @@ async function scanMarkets(userId: number): Promise<void> {
     const currentOpenPositions = (global as any).mt5OpenPositions?.[userId]?.positions || [];
     await applyServerSideTrails(userId, currentOpenPositions, marketAnalysis);
 
-    await runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, crossAssets, triggerPairs);
+    await runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, crossAssets, triggerPairs, htfMarketData);
 
   } catch (err: any) {
     addActivity(userId, { type: 'error', message: `Scan cycle error: ${err.message}` });
@@ -1488,7 +1559,7 @@ function countIndicatorAlignment(data: any): { bull: number; bear: number } {
   return { bull, bear };
 }
 
-async function runAILiveAnalysis(userId: number, marketAnalysis: Record<string, any>, brain: any, newsContext?: NewsContext, crossAssets?: Record<string, any>, triggerAlerts?: string[]): Promise<void> {
+async function runAILiveAnalysis(userId: number, marketAnalysis: Record<string, any>, brain: any, newsContext?: NewsContext, crossAssets?: Record<string, any>, triggerAlerts?: string[], htfMarketData?: Record<string, HTFBiasData>): Promise<void> {
   const state = engineStates[userId];
   if (!state) return;
 
@@ -1618,8 +1689,29 @@ async function runAILiveAnalysis(userId: number, marketAnalysis: Record<string, 
       const asiaRangeStr = (asiaH && asiaL) ? `, AsiaHigh=${asiaH}, AsiaLow=${asiaL}, AsiaRange=${(Math.abs(asiaH - asiaL) * (sym.includes('JPY') ? 100 : 10000)).toFixed(1)}pips` : '';
       const vwapVal = data.vwap?.value;
       const vwapDev = (vwapVal && data.currentPrice) ? ((data.currentPrice - vwapVal) / vwapVal * 100).toFixed(3) : 'N/A';
-      return `${sym}: Price=${data.currentPrice}, Trend=${data.trend}, ADX=${data.adx?.adx?.toFixed(1) || 'N/A'}, RSI=${data.rsi?.value?.toFixed(1) || 'N/A'}, Stoch K=${data.stochastic?.k?.toFixed(1) || 'N/A'} D=${data.stochastic?.d?.toFixed(1) || 'N/A'}, VWAP=${vwapVal?.toFixed(5) || 'N/A'} (Dev${vwapDev}%), OBV Trend=${data.obv?.trend || 'N/A'}, Patterns=[${(data.candlePatterns || []).join(',')}], Session=${data.sessionContext?.currentSession || 'N/A'}, Volatility=${vol?.percentile?.toFixed(0) || 'N/A'}%, Support=${sr?.supports?.[0]?.toFixed(5) || 'N/A'}, Resistance=${sr?.resistances?.[0]?.toFixed(5) || 'N/A'}, Fib 38.2%=${fib?.retracementLevels?.['38.2']?.toFixed(5) || 'N/A'}, Volume=${vm ? `RelVol=${vm.relativeVolume}x (${vm.volumeTrend}), Spikes=${vm.volumeSpikes}` : 'N/A'}${asiaRangeStr}`;
+      const htf = htfMarketData?.[sym];
+      const inlineHTFLabel = ((state.config as any).primaryTimeframe || 'M15') === 'H1' ? 'H4' : 'H1';
+      const htfStr = htf ? `, ${inlineHTFLabel}_Bias=${htf.trend}, ${inlineHTFLabel}_BOS=${htf.bosChoch.detected ? `${htf.bosChoch.type}_${htf.bosChoch.direction}` : 'NONE'}, ${inlineHTFLabel}_PD=${htf.premiumDiscount.zone}, ${inlineHTFLabel}_Wyckoff=${htf.wyckoff.detected ? htf.wyckoff.phase : 'NONE'}` : '';
+      return `${sym}: Price=${data.currentPrice}, Trend=${data.trend}, ADX=${data.adx?.adx?.toFixed(1) || 'N/A'}, RSI=${data.rsi?.value?.toFixed(1) || 'N/A'}, Stoch K=${data.stochastic?.k?.toFixed(1) || 'N/A'} D=${data.stochastic?.d?.toFixed(1) || 'N/A'}, VWAP=${vwapVal?.toFixed(5) || 'N/A'} (Dev${vwapDev}%), OBV Trend=${data.obv?.trend || 'N/A'}, Patterns=[${(data.candlePatterns || []).join(',')}], Session=${data.sessionContext?.currentSession || 'N/A'}, Volatility=${vol?.percentile?.toFixed(0) || 'N/A'}%, Support=${sr?.supports?.[0]?.toFixed(5) || 'N/A'}, Resistance=${sr?.resistances?.[0]?.toFixed(5) || 'N/A'}, Fib 38.2%=${fib?.retracementLevels?.['38.2']?.toFixed(5) || 'N/A'}, Volume=${vm ? `RelVol=${vm.relativeVolume}x (${vm.volumeTrend}), Spikes=${vm.volumeSpikes}` : 'N/A'}${asiaRangeStr}${htfStr}`;
     }).join('\n');
+
+    let htfBiasSection = '';
+    const promptHTFLabel = ((state.config as any).primaryTimeframe || 'M15') === 'H1' ? 'H4' : 'H1';
+    if (htfMarketData && Object.keys(htfMarketData).length > 0) {
+      const htfLines = Object.entries(htfMarketData).map(([sym, htf]) => {
+        const m15Trend = marketAnalysis[sym]?.trend || 'NEUTRAL';
+        const aligns = htf.trend === 'NEUTRAL' || m15Trend === 'NEUTRAL' ||
+          (m15Trend === 'BULLISH' && htf.trend === 'BULLISH') ||
+          (m15Trend === 'BEARISH' && htf.trend === 'BEARISH');
+        const alignLabel = htf.trend === 'NEUTRAL' ? `${promptHTFLabel} NEUTRAL` : aligns ? `ALIGNS (M15 ${m15Trend} + ${promptHTFLabel} ${htf.trend})` : `⚠ CONFLICT (M15 ${m15Trend} vs ${promptHTFLabel} ${htf.trend})`;
+        return `- ${sym}: ${promptHTFLabel} Trend=${htf.trend} | BOS/CHOCH=${htf.bosChoch.detected ? htf.bosChoch.description : 'No clear structure'} | PD Zone=${htf.premiumDiscount.zone} | Wyckoff=${htf.wyckoff.detected ? `${htf.wyckoff.phase}${htf.wyckoff.stage ? '/' + htf.wyckoff.stage : ''}` : 'None'} | ${alignLabel}`;
+      }).join('\n');
+      htfBiasSection = `
+HTF BIAS (${promptHTFLabel} STRUCTURE — higher timeframe directional filter):
+${htfLines}
+INSTRUCTION: Signals that ALIGN with ${promptHTFLabel} bias are high-quality institutional setups — give them +5% confidence bonus. Signals that CONFLICT with ${promptHTFLabel} bias are counter-trend fades — require 80%+ base confidence before firing. If ${promptHTFLabel} shows strong BOS/CHOCH in one direction and M15 signals the opposite, SKIP unless you have 5+ LTF confluences.
+`;
+    }
 
     const openPosStr = openPositions.length > 0
       ? openPositions.map((p: any) => {
@@ -1797,7 +1889,7 @@ ${brainInsights}
 
 PAIR-SPECIFIC KNOWLEDGE:
 ${pairKnowledge}
-${weightsSection}${shieldSection}${dualModeSection}${goalSection}
+${weightsSection}${htfBiasSection}${shieldSection}${dualModeSection}${goalSection}
 REAL-TIME NEWS & MARKET SENTIMENT:
 ${newsContext && newsContext.headlines.length > 0 ? `Market Sentiment: ${newsContext.marketSentiment.toUpperCase()}
 Recent Headlines:
@@ -2279,6 +2371,38 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       }
     }
 
+    // ── HTF Conflict Pre-Filter ────────────────────────────────────────
+    const htfBias = state.htfBiasCache?.[decision.symbol];
+    let adjustedConfidence = confidence;
+    if (htfBias && htfBias.trend !== 'NEUTRAL' && decision.direction) {
+      const signalDir = decision.direction.toUpperCase();
+      const htfTFLabel = ((config as any).primaryTimeframe || 'M15') === 'H1' ? 'H4' : 'H1';
+      const htfAligns = (signalDir === 'BUY' && htfBias.trend === 'BULLISH') || (signalDir === 'SELL' && htfBias.trend === 'BEARISH');
+      if (htfAligns) {
+        adjustedConfidence = Math.min(100, confidence + 5);
+        addActivity(userId, {
+          type: 'info',
+          symbol: decision.symbol,
+          message: `📊 HTF bias: ${htfTFLabel} ${htfBias.trend} — aligns with ${signalDir} (+5% confidence → ${adjustedConfidence}%)`,
+        });
+      } else {
+        if (confidence < 80) {
+          addActivity(userId, {
+            type: 'info',
+            symbol: decision.symbol,
+            message: `📊 HTF CONFLICT: M15 ${signalDir} vs ${htfTFLabel} ${htfBias.trend} — ${confidence}% confidence below 80% threshold. Signal blocked.`,
+          });
+          state.signalsGenerated++;
+          return;
+        }
+        addActivity(userId, {
+          type: 'info',
+          symbol: decision.symbol,
+          message: `📊 HTF CONFLICT: M15 ${signalDir} vs ${htfTFLabel} ${htfBias.trend} — confidence ${confidence}% ≥ 80%, allowing counter-trend entry`,
+        });
+      }
+    }
+
     // ── T003: Post-GPT brain enforcement (direction/news/cooldown) ────
     const currentATR = (state as any)._lastATR?.[decision.symbol] || 0;
     const postEnforcement = applyBrainEnforcement(userId, decision.symbol, decision.direction, currentATR, newsCtx);
@@ -2297,13 +2421,13 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
     (decision as any)._brainLotMultiplier = postEnforcement.adjustedLotMultiplier;
     (decision as any)._brainTrailPips = postEnforcement.recommendedTrailPips;
 
-    if (confidence < config.minConfidence) {
+    if (adjustedConfidence < config.minConfidence) {
       addActivity(userId, {
         type: 'signal',
         symbol: decision.symbol,
         direction: decision.direction,
-        confidence,
-        message: `Signal skipped (${confidence}% < ${config.minConfidence}% min): ${decision.reason}`,
+        confidence: adjustedConfidence,
+        message: `Signal skipped (${adjustedConfidence}% < ${config.minConfidence}% min): ${decision.reason}`,
       });
       state.signalsGenerated++;
       return;
@@ -2313,13 +2437,13 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
     const effectiveMaxTrades = isSmallAcct ? Math.min(config.maxOpenTrades, 3) : config.maxOpenTrades;
     const effectiveMinConf = isSmallAcct ? Math.max(config.minConfidence, 75) : config.minConfidence;
 
-    if (isSmallAcct && confidence < effectiveMinConf) {
+    if (isSmallAcct && adjustedConfidence < effectiveMinConf) {
       addActivity(userId, {
         type: 'signal',
         symbol: decision.symbol,
         direction: decision.direction,
-        confidence,
-        message: `Small account protection: skipped (${confidence}% < ${effectiveMinConf}% required for accounts under $500)`,
+        confidence: adjustedConfidence,
+        message: `Small account protection: skipped (${adjustedConfidence}% < ${effectiveMinConf}% required for accounts under $500)`,
       });
       state.signalsGenerated++;
       return;
@@ -2354,8 +2478,8 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       type: 'signal',
       symbol: decision.symbol,
       direction: decision.direction,
-      confidence,
-      message: `LIVE SIGNAL [${(decision.strategy || 'auto').toUpperCase()}]: ${decision.direction} ${decision.symbol} @ ${confidence}% confidence`,
+      confidence: adjustedConfidence,
+      message: `LIVE SIGNAL [${(decision.strategy || 'auto').toUpperCase()}]: ${decision.direction} ${decision.symbol} @ ${adjustedConfidence}% confidence${adjustedConfidence !== confidence ? ` (HTF-adjusted from ${confidence}%)` : ''}`,
       details: {
         strategy: decision.strategy,
         confluences: decision.confluences,
@@ -2399,7 +2523,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
         entryPrice: entryPrice || null,
         stopLoss: stopLoss || null,
         takeProfit: takeProfit || null,
-        confidence,
+        confidence: adjustedConfidence,
         reason: `[SHIELD MODE] ${decision.reason || ''}`,
         holdTime: decision.holdTime || '',
         strategy: decision.strategy || 'sniper',
@@ -2412,7 +2536,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
         type: 'signal',
         symbol: decision.symbol,
         direction: decision.direction,
-        confidence,
+        confidence: adjustedConfidence,
         message: `🛡️ SHIELD SIGNAL: ${decision.direction} ${decision.symbol} at reduced lot ${shieldFinal} (0.25% risk). ${decision.reason || ''}`,
       });
       return;
@@ -2496,7 +2620,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       entryPrice: entryPrice || null,
       stopLoss: stopLoss || null,
       takeProfit: takeProfit || null,
-      confidence,
+      confidence: adjustedConfidence,
       reason: decision.reason || '',
       holdTime: decision.holdTime || '',
       strategy: decision.strategy || 'auto',
@@ -2524,7 +2648,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
         entryPrice: entryPrice || null,
         stopLoss: stopLoss || null,
         takeProfit: takeProfit || null,
-        confidence,
+        confidence: adjustedConfidence,
         source: 'vedd_live_engine',
       });
 
@@ -2561,7 +2685,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
           type: 'trade_open',
           symbol: decision.symbol,
           direction: decision.direction,
-          confidence,
+          confidence: adjustedConfidence,
           message: `TRADE EXECUTED via TradeLocker: ${decision.direction} ${decision.symbol} | Lot: ${lotSize} | SL: ${stopLoss || 'N/A'} | TP: ${takeProfit || 'N/A'} | Order: ${tradeResult.orderId}`,
           details: { orderId: tradeResult.orderId, lotSize, stopLoss, takeProfit, confluences: decision.confluences },
         });
@@ -2816,6 +2940,7 @@ export function startLiveEngine(userId: number, config?: Partial<LiveEngineConfi
     tradesSinceLastLearn: 0,
     positionTrailState: {},
     aiResponseCache: {},
+    htfBiasCache: {},
   };
 
   const adaptiveInterval = getAdaptiveScanInterval(fullConfig);
