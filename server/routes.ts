@@ -6473,31 +6473,33 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               console.warn('[SMC] Context computation failed:', smcErr);
             }
 
-            // Attempt to fetch HTF candles for bias injection
-            let htfCandles: any[] | undefined = undefined;
+            let htfLevels: Array<{ timeframe: string; candles: any[] }> = [];
             try {
-              const tfMap: Record<string, string> = {
-                '1min': '5min', '5min': '15min', '15min': '1h', '30min': '1h',
-                '1h': '4h', '4h': '1day', '1day': '1week',
-                'M1': '5min', 'M5': '15min', 'M15': '1h', 'M30': '1h', 'H1': '4h', 'H4': '1day',
+              const htfStack: Record<string, [string, string]> = {
+                '1min': ['5min', '15min'], '5min': ['15min', '1h'], '15min': ['1h', '4h'], '30min': ['1h', '4h'],
+                '1h': ['4h', '1day'], '4h': ['1day', '1week'],
+                'M1': ['5min', '15min'], 'M5': ['15min', '1h'], 'M15': ['1h', '4h'], 'M30': ['1h', '4h'],
+                'H1': ['4h', '1day'], 'H4': ['1day', '1week'],
               };
-              const htfTF = tfMap[sanitizedTimeframe];
-              if (htfTF) {
+              const stack = htfStack[sanitizedTimeframe];
+              if (stack) {
                 const { marketDataService } = await import('./market-data');
                 if (marketDataService.isInitialized()) {
                   const assetType = marketDataService.detectAssetType(sanitizedSymbol);
-                  const htfResult = await marketDataService.fetchMarketData({
-                    symbol: sanitizedSymbol,
-                    assetType,
-                    timeframe: htfTF as any,
-                    limit: 50,
+                  const results = await Promise.allSettled(
+                    stack.map(tf => marketDataService.fetchMarketData({
+                      symbol: sanitizedSymbol, assetType, timeframe: tf as any, limit: 50,
+                    }))
+                  );
+                  results.forEach((r, idx) => {
+                    if (r.status === 'fulfilled' && r.value?.bars && r.value.bars.length >= 10) {
+                      const mapped = r.value.bars.map((b: any) => ({
+                        o: b.open, h: b.high, l: b.low, c: b.close, v: b.volume, t: b.timestamp,
+                      }));
+                      htfLevels.push({ timeframe: stack[idx], candles: mapped });
+                      console.log(`[HTF] Fetched ${mapped.length} ${stack[idx]} candles for bias injection`);
+                    }
                   });
-                  if (htfResult?.bars && htfResult.bars.length >= 10) {
-                    htfCandles = htfResult.bars.map((b: any) => ({
-                      o: b.open, h: b.high, l: b.low, c: b.close, v: b.volume, t: b.timestamp,
-                    }));
-                    console.log(`[HTF] Fetched ${htfCandles.length} ${htfTF} candles for bias injection`);
-                  }
                 }
               }
             } catch (htfErr) {
@@ -6518,7 +6520,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               newsContextForAI,
               ictContext,
               smcContext,
-              htfCandles,
+              htfLevels.length > 0 ? htfLevels : undefined,
               propFirmCtx
             );
             

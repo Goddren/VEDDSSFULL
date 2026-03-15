@@ -795,7 +795,7 @@ function buildConfirmationPrompt(
   newsContext?: { sentiment?: any; upcomingEvents?: any[]; topHeadlines?: string[] },
   ictContext?: IctContext | null,
   smcContext?: SmcContext | null,
-  htfCandles?: any[],
+  htfLevels?: Array<{ timeframe: string; candles: any[] }>,
   propFirmContext?: PropFirmContext | null
 ): { system: string; user: string } {
   const recentCandles = candleData.slice(0, 30);
@@ -1013,28 +1013,60 @@ ${'═'.repeat(59)}`;
 
   // HTF Bias section (T008)
   let htfSection = '';
-  if (htfCandles && htfCandles.length >= 10) {
+  if (htfLevels && htfLevels.length > 0) {
     try {
-      const htfTF = getHTFTimeframe(timeframe) || 'Higher TF';
       const { detectBOSCHOCH, detectWyckoff } = require('./utils/smcUtils');
       const { getPremiumDiscountContext } = require('./utils/ictMacroUtils');
-      const htfBosCHOCH = detectBOSCHOCH(htfCandles, proposedSignal);
-      const htfEntry = tradePlan?.entry || htfCandles[0]?.c || 0;
-      const htfPD = getPremiumDiscountContext(htfEntry, htfCandles, proposedSignal);
-      const htfWyckoff = detectWyckoff(htfCandles);
-      const htfBosAligns = !htfBosCHOCH.detected || (
-        (proposedSignal === 'BUY' && htfBosCHOCH.direction === 'BULLISH') ||
-        (proposedSignal === 'SELL' && htfBosCHOCH.direction === 'BEARISH')
-      );
-      const htfPDConflicts = !htfPD.aligns && htfPD.zone !== 'EQUILIBRIUM';
-      const conflictWarning = (!htfBosAligns || htfPDConflicts) ? '\n⚠ WARNING: LTF signal CONFLICTS with HTF bias — this is a counter-trend fade. Require extra confluence or reduce size.' : '\n✅ LTF signal ALIGNS with HTF bias — high-quality institutional setup.';
-      htfSection = `
-═══════════ HTF BIAS (${htfTF}) ═══════════
-Structure: ${htfBosCHOCH.detected ? htfBosCHOCH.description : 'No clear BOS/CHOCH on higher timeframe — ranging context'}
-Premium/Discount: ${htfPD.description}
-Wyckoff: ${htfWyckoff.detected ? htfWyckoff.description : 'No Wyckoff phase on higher timeframe'}${conflictWarning}
-⚠ RULE: LTF signals must align with HTF structure. Trading against HTF bias requires significantly more LTF confluence.
+      const tfLabels: Record<string, string> = {
+        '5min': 'M5', '15min': 'M15', '1h': 'H1', '4h': 'H4', '1day': 'D1', '1week': 'W1',
+        '5m': 'M5', '15m': 'M15',
+      };
+      const levelNames = ['INTERMEDIATE', 'MACRO'];
+      const levelResults: Array<{ label: string; tf: string; aligns: boolean; bosCHOCH: any; pd: any; wyckoff: any }> = [];
+
+      for (let i = 0; i < htfLevels.length; i++) {
+        const level = htfLevels[i];
+        if (!level.candles || level.candles.length < 10) continue;
+        const tfLabel = tfLabels[level.timeframe] || level.timeframe.toUpperCase();
+        const bosResult = detectBOSCHOCH(level.candles, proposedSignal);
+        const entry = tradePlan?.entry || level.candles[0]?.c || 0;
+        const pdResult = getPremiumDiscountContext(entry, level.candles, proposedSignal);
+        const wyckoffResult = detectWyckoff(level.candles);
+        const bosAligns = !bosResult.detected || (
+          (proposedSignal === 'BUY' && bosResult.direction === 'BULLISH') ||
+          (proposedSignal === 'SELL' && bosResult.direction === 'BEARISH')
+        );
+        const pdConflicts = !pdResult.aligns && pdResult.zone !== 'EQUILIBRIUM';
+        const aligns = bosAligns && !pdConflicts;
+        levelResults.push({ label: levelNames[i] || `HTF${i + 1}`, tf: tfLabel, aligns, bosCHOCH: bosResult, pd: pdResult, wyckoff: wyckoffResult });
+      }
+
+      if (levelResults.length > 0) {
+        const blocks = levelResults.map(lr => {
+          const alignFlag = lr.aligns ? '✅ ALIGNS with signal' : '⚠ CONFLICTS with signal';
+          return `═══════════ ${lr.tf} ${lr.label} BIAS ═══════════
+Structure: ${lr.bosCHOCH.detected ? lr.bosCHOCH.description : `No clear BOS/CHOCH on ${lr.tf} — ranging context`}
+Premium/Discount: ${lr.pd.description}
+Wyckoff: ${lr.wyckoff.detected ? lr.wyckoff.description : `No Wyckoff phase on ${lr.tf}`}
+${lr.tf} Verdict: ${alignFlag}
 ═════════════════════════════════════════`;
+        });
+
+        const allAlign = levelResults.every(lr => lr.aligns);
+        const noneAlign = levelResults.every(lr => !lr.aligns);
+        let crossLevelSummary: string;
+        if (allAlign) {
+          crossLevelSummary = `✅ MULTI-TF ALIGNMENT: All ${levelResults.length + 1} timeframes (${timeframe} + ${levelResults.map(lr => lr.tf).join(' + ')}) AGREE — high-conviction institutional setup. Full size allowed.`;
+        } else if (noneAlign) {
+          crossLevelSummary = `🚨 MULTI-TF CONFLICT: ${proposedSignal} on ${timeframe} CONFLICTS with ALL higher timeframes (${levelResults.map(lr => lr.tf).join(' + ')}). This is a counter-trend fade against the macro structure. REJECT unless overwhelming LTF confluence.`;
+        } else {
+          const conflicting = levelResults.filter(lr => !lr.aligns).map(lr => lr.tf);
+          const aligned = levelResults.filter(lr => lr.aligns).map(lr => lr.tf);
+          crossLevelSummary = `⚠ PARTIAL MULTI-TF ALIGNMENT: ${aligned.join(', ')} support${aligned.length === 1 ? 's' : ''} the signal, but ${conflicting.join(', ')} conflict${conflicting.length === 1 ? 's' : ''}. Reduce position size and require extra LTF confluence.`;
+        }
+
+        htfSection = '\n' + blocks.join('\n\n') + `\n\n═══════════ CROSS-TIMEFRAME VERDICT ═══════════\n${crossLevelSummary}\n⚠ RULE: LTF signals must align with HTF structure. Trading against HTF bias requires significantly more LTF confluence.\n═════════════════════════════════════════`;
+      }
     } catch (htfErr) {
       htfSection = '';
     }
@@ -1284,7 +1316,7 @@ export async function getAiVisionConfirmation(
   newsContext?: { sentiment?: any; upcomingEvents?: any[]; topHeadlines?: string[] },
   ictContext?: IctContext | null,
   smcContext?: SmcContext | null,
-  htfCandles?: any[],
+  htfLevels?: Array<{ timeframe: string; candles: any[] }>,
   propFirmContext?: PropFirmContext | null
 ): Promise<AiVisionConfirmation> {
   try {
@@ -1329,7 +1361,7 @@ export async function getAiVisionConfirmation(
       }
     }
 
-    const prompt = buildConfirmationPrompt(candleData, indicators, proposedSignal, proposedConfidence, tradePlan, symbol, timeframe, newsContext, ictContext, smcContext, htfCandles, propFirmContext);
+    const prompt = buildConfirmationPrompt(candleData, indicators, proposedSignal, proposedConfidence, tradePlan, symbol, timeframe, newsContext, ictContext, smcContext, htfLevels, propFirmContext);
 
     console.log(`[AI Vision Confirmation] Requesting ${provider}/${selectedModel} confirmation for ${symbol} ${proposedSignal}`);
 
