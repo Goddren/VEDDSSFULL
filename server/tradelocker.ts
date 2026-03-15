@@ -976,10 +976,23 @@ export async function executeMT5SignalOnTradeLocker(
         orderId: closeResult.orderId,
       };
     } else if (signal.action === 'MODIFY' || signal.action.toUpperCase() === 'MODIFY') {
-      console.log('[TradeLocker Execute] Modify action requested (not fully supported by TradeLocker API via position ID)');
+      if (!signal.positionId) {
+        return { success: false, error: 'Position ID required for modify action' };
+      }
+      console.log('[TradeLocker Execute] Modifying position:', {
+        positionId: signal.positionId,
+        stopLoss: signal.stopLoss,
+        takeProfit: signal.takeProfit,
+      });
+      const modifyResult = await service.modifyPosition(
+        signal.positionId,
+        signal.stopLoss != null ? signal.stopLoss : undefined,
+        signal.takeProfit != null ? signal.takeProfit : undefined,
+      );
+      console.log('[TradeLocker Execute] Modify result:', modifyResult);
       return {
-        success: true,
-        message: 'Modify signals are primarily handled by MT5 EA. TradeLocker modify skipped.',
+        success: modifyResult.success,
+        error: modifyResult.error,
       };
     }
 
