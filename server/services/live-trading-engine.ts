@@ -1326,6 +1326,12 @@ async function applyServerSideTrails(
 
   if (!state.positionTrailState) state.positionTrailState = {};
 
+  let tlConnection: any = null;
+  try {
+    tlConnection = await storage.getUserTradelockerConnection(userId);
+    if (tlConnection && !tlConnection.isActive) tlConnection = null;
+  } catch { /* no TL — MT5 only */ }
+
   const methodLabel = TRAIL_METHOD_LABELS[config.trailMethod] || config.trailMethod;
   const activationPips = config.trailActivationPips ?? 15;
 
@@ -1435,6 +1441,42 @@ async function applyServerSideTrails(
       symbol: pos.symbol,
       message: `📐 ${methodLabel}: ${pos.symbol} ${pos.direction} trail → SL ${Math.round(newSL * 100000) / 100000} (was ${currentSL || 'none'})`,
     });
+
+    if (tlConnection) {
+      const positionId = pos.ticket || pos.id || null;
+      if (positionId) {
+        try {
+          const trailResult = await executeMT5SignalOnTradeLocker(tlConnection, {
+            action: 'MODIFY',
+            symbol: pos.symbol,
+            direction: pos.direction || 'BUY',
+            volume: 0,
+            stopLoss: Math.round(newSL * 100000) / 100000,
+            takeProfit: pos.tp || undefined,
+            positionId: String(positionId),
+          });
+          if (trailResult.success) {
+            addActivity(userId, {
+              type: 'position_update',
+              symbol: pos.symbol,
+              message: `✅ TradeLocker trail applied: ${pos.symbol} SL → ${Math.round(newSL * 100000) / 100000}`,
+            });
+          } else {
+            addActivity(userId, {
+              type: 'error',
+              symbol: pos.symbol,
+              message: `⚠️ TradeLocker trail failed: ${pos.symbol} — ${trailResult.error}. Signal queued for MT5 EA.`,
+            });
+          }
+        } catch (tlErr: any) {
+          addActivity(userId, {
+            type: 'error',
+            symbol: pos.symbol,
+            message: `⚠️ TradeLocker trail error: ${pos.symbol} — ${tlErr.message}. Signal queued for MT5 EA.`,
+          });
+        }
+      }
+    }
   }
 }
 
