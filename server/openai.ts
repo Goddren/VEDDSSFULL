@@ -795,7 +795,7 @@ function buildConfirmationPrompt(
   newsContext?: { sentiment?: any; upcomingEvents?: any[]; topHeadlines?: string[] },
   ictContext?: IctContext | null,
   smcContext?: SmcContext | null,
-  htfLevels?: Array<{ timeframe: string; candles: any[] }>,
+  htfLevels?: Array<{ timeframe: string; candles: Array<{ o: number; h: number; l: number; c: number; v?: number; t?: number }>; role?: string }>,
   propFirmContext?: PropFirmContext | null
 ): { system: string; user: string } {
   const recentCandles = candleData.slice(0, 30);
@@ -1019,12 +1019,12 @@ ${'═'.repeat(59)}`;
       const { getPremiumDiscountContext } = require('./utils/ictMacroUtils');
       const tfLabels: Record<string, string> = {
         '5min': 'M5', '15min': 'M15', '1h': 'H1', '4h': 'H4', '1day': 'D1', '1week': 'W1',
-        '5m': 'M5', '15m': 'M15',
+        '1m': 'M1', '5m': 'M5', '15m': 'M15', '30m': 'M30', '1d': 'D1', '1w': 'W1',
       };
-      const levelResults: Array<{ label: string; tf: string; aligns: boolean; bosCHOCH: any; pd: any; wyckoff: any }> = [];
+      const levelResults: Array<{ label: string; tf: string; trendDirection: string; aligns: boolean; bosCHOCH: any; pd: any; wyckoff: any }> = [];
 
       for (let i = 0; i < htfLevels.length; i++) {
-        const level = htfLevels[i] as any;
+        const level = htfLevels[i];
         if (!level.candles || level.candles.length < 10) continue;
         const tfLabel = tfLabels[level.timeframe] || level.timeframe.toUpperCase();
         const role = level.role || (i === 0 ? 'INTERMEDIATE' : 'MACRO');
@@ -1038,13 +1038,17 @@ ${'═'.repeat(59)}`;
         );
         const pdConflicts = !pdResult.aligns && pdResult.zone !== 'EQUILIBRIUM';
         const aligns = bosAligns && !pdConflicts;
-        levelResults.push({ label: role, tf: tfLabel, aligns, bosCHOCH: bosResult, pd: pdResult, wyckoff: wyckoffResult });
+        const recentCloses = level.candles.slice(0, 10).map(c => c.c);
+        const sma = recentCloses.reduce((s, v) => s + v, 0) / recentCloses.length;
+        const trendDirection = recentCloses[0] > sma * 1.001 ? 'BULLISH' : recentCloses[0] < sma * 0.999 ? 'BEARISH' : 'NEUTRAL';
+        levelResults.push({ label: role, tf: tfLabel, trendDirection, aligns, bosCHOCH: bosResult, pd: pdResult, wyckoff: wyckoffResult });
       }
 
       if (levelResults.length > 0) {
         const blocks = levelResults.map(lr => {
           const alignFlag = lr.aligns ? '✅ ALIGNS with signal' : '⚠ CONFLICTS with signal';
           return `═══════════ ${lr.tf} ${lr.label} BIAS ═══════════
+Trend Direction: ${lr.trendDirection} (${lr.tf} 10-candle SMA crossover)
 Structure: ${lr.bosCHOCH.detected ? lr.bosCHOCH.description : `No clear BOS/CHOCH on ${lr.tf} — ranging context`}
 Premium/Discount: ${lr.pd.description}
 Wyckoff: ${lr.wyckoff.detected ? lr.wyckoff.description : `No Wyckoff phase on ${lr.tf}`}
@@ -1316,7 +1320,7 @@ export async function getAiVisionConfirmation(
   newsContext?: { sentiment?: any; upcomingEvents?: any[]; topHeadlines?: string[] },
   ictContext?: IctContext | null,
   smcContext?: SmcContext | null,
-  htfLevels?: Array<{ timeframe: string; candles: any[] }>,
+  htfLevels?: Array<{ timeframe: string; candles: Array<{ o: number; h: number; l: number; c: number; v?: number; t?: number }>; role?: string }>,
   propFirmContext?: PropFirmContext | null
 ): Promise<AiVisionConfirmation> {
   try {

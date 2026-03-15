@@ -6473,13 +6473,16 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               console.warn('[SMC] Context computation failed:', smcErr);
             }
 
-            let htfLevels: Array<{ timeframe: string; candles: any[] }> = [];
+            type HtfRole = 'INTERMEDIATE' | 'MACRO';
+            interface HtfLevel { timeframe: string; candles: Array<{ o: number; h: number; l: number; c: number; v: number; t: number }>; role: HtfRole }
+            let htfLevels: HtfLevel[] = [];
             try {
               const htfStack: Record<string, [string, string]> = {
-                '1min': ['5min', '15min'], '5min': ['15min', '1h'], '15min': ['1h', '4h'], '30min': ['1h', '4h'],
-                '1h': ['4h', '1day'], '4h': ['1day', '1week'],
-                'M1': ['5min', '15min'], 'M5': ['15min', '1h'], 'M15': ['1h', '4h'], 'M30': ['1h', '4h'],
-                'H1': ['4h', '1day'], 'H4': ['1day', '1week'],
+                '1min': ['5m', '15m'], '1m': ['5m', '15m'], '5min': ['15m', '1h'], '5m': ['15m', '1h'],
+                '15min': ['1h', '4h'], '15m': ['1h', '4h'], '30min': ['1h', '4h'], '30m': ['1h', '4h'],
+                '1h': ['4h', '1d'], '4h': ['1d', '1w'],
+                'M1': ['5m', '15m'], 'M5': ['15m', '1h'], 'M15': ['1h', '4h'], 'M30': ['1h', '4h'],
+                'H1': ['4h', '1d'], 'H4': ['1d', '1w'],
               };
               const stack = htfStack[sanitizedTimeframe];
               if (stack) {
@@ -6488,16 +6491,16 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   const assetType = marketDataService.detectAssetType(sanitizedSymbol);
                   const results = await Promise.allSettled(
                     stack.map(tf => marketDataService.fetchMarketData({
-                      symbol: sanitizedSymbol, assetType, timeframe: tf as any, limit: 50,
+                      symbol: sanitizedSymbol, assetType, timeframe: tf, limit: 50,
                     }))
                   );
-                  const roles = ['INTERMEDIATE', 'MACRO'] as const;
+                  const roles: HtfRole[] = ['INTERMEDIATE', 'MACRO'];
                   results.forEach((r, idx) => {
                     if (r.status === 'fulfilled' && r.value?.bars && r.value.bars.length >= 10) {
-                      const mapped = r.value.bars.map((b: any) => ({
+                      const mapped = r.value.bars.map((b: { open: number; high: number; low: number; close: number; volume: number; timestamp: number }) => ({
                         o: b.open, h: b.high, l: b.low, c: b.close, v: b.volume, t: b.timestamp,
                       }));
-                      htfLevels.push({ timeframe: stack[idx], candles: mapped, role: roles[idx] } as any);
+                      htfLevels.push({ timeframe: stack[idx], candles: mapped, role: roles[idx] });
                       console.log(`[HTF] Fetched ${mapped.length} ${stack[idx]} (${roles[idx]}) candles for bias injection`);
                     }
                   });
