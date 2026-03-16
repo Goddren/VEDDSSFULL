@@ -3,12 +3,10 @@ import { apiRequest } from '@/lib/queryClient';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/use-auth';
 import { useLocation } from 'wouter';
-import { Loader2, Check, X, Zap, Crown, Star, Settings, ChevronDown, ChevronUp, Sparkles, TrendingUp, Bot, Shield } from 'lucide-react';
+import { Loader2, Check, X, Zap, Crown, Star, ChevronDown, ChevronUp, Sparkles, TrendingUp, Bot, Shield } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import VeddPaymentButton from '@/components/VeddPaymentButton';
 
@@ -94,8 +92,7 @@ const PLAN_META: Record<number, {
     border: 'border-amber-500/60',
     badge: 'Best Value',
     features: [
-      'Everything in Premium — forever',
-      'Pay once, own it for life',
+      'Everything in Premium — yearly renewal',
       'All future feature updates included',
       'Early access to beta features',
       'Priority support',
@@ -120,7 +117,7 @@ const FEATURE_ROWS = [
   { label: 'Advanced Confidence Scoring', values: { 1: false, 2: false, 3: true, 4: true } },
   { label: 'Multi-Agent AI Consensus', values: { 1: false, 2: false, 3: true, 4: true } },
   { label: 'Early Beta Access', values: { 1: false, 2: false, 3: false, 4: true } },
-  { label: 'Lifetime Updates', values: { 1: false, 2: false, 3: false, 4: true } },
+  { label: 'Yearly Updates Included', values: { 1: false, 2: false, 3: false, 4: true } },
 ];
 
 export default function SubscriptionPage() {
@@ -130,9 +127,11 @@ export default function SubscriptionPage() {
   const queryClient = useQueryClient();
   const [selectedPlanId, setSelectedPlanId] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [lsLoading, setLsLoading] = useState<number | null>(null);
-  const [showLsSetup, setShowLsSetup] = useState(false);
-  const [variantInputs, setVariantInputs] = useState<Record<number, string>>({});
+  const beaconsLinks: Record<number, string> = {
+    2: 'https://shop.beacons.ai/vedd/632403c6-6405-4d93-87c1-6a7785aad428',
+    3: 'https://shop.beacons.ai/vedd/7a28ca06-c694-4e0b-9f2c-e4b9992cb478',
+    4: 'https://shop.beacons.ai/vedd/0b05e744-972f-442f-a686-a9ae7698173c',
+  };
   const [showTable, setShowTable] = useState(false);
 
   const { data: plans, isLoading: plansLoading } = useQuery<Plan[]>({
@@ -152,45 +151,11 @@ export default function SubscriptionPage() {
     enabled: !!user,
   });
 
-  const { data: lsVariants } = useQuery<Record<number, string | null>>({
-    queryKey: ['/api/lemonsqueezy/plan-variants'],
-    queryFn: async () => {
-      const res = await apiRequest('GET', '/api/lemonsqueezy/plan-variants');
-      return res.json();
-    },
-    enabled: !!user,
-  });
-
   const formatPrice = (price: number): string => {
     if (price === 0) return '$0';
     return `$${(price / 100).toFixed(0)}`;
   };
 
-  const handleLemonSqueezyCheckout = async (planId: number) => {
-    if (!user) {
-      toast({ title: 'Login Required', description: 'Please log in to subscribe.', variant: 'default' });
-      setLocation('/auth');
-      return;
-    }
-    try {
-      setLsLoading(planId);
-      const res = await apiRequest('POST', '/api/lemonsqueezy/checkout', { planId });
-      const result = await res.json();
-      if (result.code === 'LS_NOT_CONFIGURED') {
-        toast({ title: 'Payment Setup In Progress', description: 'USD checkout is being configured. Please try again shortly.', variant: 'default' });
-        return;
-      }
-      if (result.checkoutUrl) {
-        window.location.href = result.checkoutUrl;
-      } else {
-        throw new Error(result.message || 'No checkout URL returned');
-      }
-    } catch (error) {
-      toast({ title: 'Checkout Failed', description: error instanceof Error ? error.message : 'Error creating checkout session.', variant: 'destructive' });
-    } finally {
-      setLsLoading(null);
-    }
-  };
 
   const handleSubscribe = async (planId: number) => {
     if (!user) {
@@ -238,17 +203,6 @@ export default function SubscriptionPage() {
     }
   };
 
-  const handleSaveVariant = async (planId: number) => {
-    const variantId = variantInputs[planId]?.trim();
-    if (!variantId) { toast({ title: 'Enter a variant ID', variant: 'destructive' }); return; }
-    try {
-      await apiRequest('POST', '/api/lemonsqueezy/set-variant', { planId, variantId });
-      queryClient.invalidateQueries({ queryKey: ['/api/lemonsqueezy/plan-variants'] });
-      toast({ title: 'Saved!', description: `Plan ${planId} linked to variant ${variantId}` });
-    } catch {
-      toast({ title: 'Failed to save', variant: 'destructive' });
-    }
-  };
 
   if (plansLoading || subscriptionLoading) {
     return (
@@ -341,12 +295,12 @@ export default function SubscriptionPage() {
                     </span>
                     {isPaid(plan) && (
                       <span className="text-muted-foreground text-sm ml-1">
-                        {plan.interval === 'lifetime' ? ' one-time' : '/mo'}
+                        {plan.id === 4 ? '/yr' : '/mo'}
                       </span>
                     )}
                   </div>
-                  {plan.interval === 'lifetime' && (
-                    <p className="text-xs text-amber-500 font-medium mb-3">Pay once. Use forever.</p>
+                  {plan.id === 4 && (
+                    <p className="text-xs text-amber-500 font-medium mb-3">Best value — billed annually</p>
                   )}
 
                   {/* Features */}
@@ -378,18 +332,19 @@ export default function SubscriptionPage() {
                     </Button>
                   ) : (
                     <>
-                      <Button
-                        className="w-full font-semibold gap-2 bg-primary hover:bg-primary/90 text-primary-foreground"
-                        onClick={() => handleLemonSqueezyCheckout(plan.id)}
-                        disabled={lsLoading === plan.id}
+                      <a
+                        href={beaconsLinks[plan.id] || '#'}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="w-full"
                       >
-                        {lsLoading === plan.id ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
+                        <Button
+                          className="w-full font-semibold gap-2 bg-primary hover:bg-primary/90 text-primary-foreground"
+                        >
                           <span>$</span>
-                        )}
-                        Pay USD — {formatPrice(plan.price)}
-                      </Button>
+                          Pay USD — {formatPrice(plan.price)}{plan.id === 4 ? '/yr' : '/mo'}
+                        </Button>
+                      </a>
                       <VeddPaymentButton
                         planId={plan.id}
                         planName={plan.name}
@@ -475,7 +430,7 @@ export default function SubscriptionPage() {
             {[
               { tier: 'Basic', tokens: '100+', equiv: 'Starter', color: 'blue' },
               { tier: 'Pro', tokens: '500+', equiv: 'Premium', color: 'purple' },
-              { tier: 'Elite', tokens: 'VEDD NFT', equiv: 'Yearly (lifetime)', color: 'amber' },
+              { tier: 'Elite', tokens: 'VEDD NFT', equiv: 'Yearly', color: 'amber' },
             ].map(({ tier, tokens, equiv, color }) => (
               <div key={tier} className={`rounded-xl border border-${color}-500/20 bg-${color}-500/5 p-4 text-center`}>
                 <p className={`text-lg font-bold text-${color}-400 mb-0.5`}>{tokens}</p>
@@ -510,11 +465,11 @@ export default function SubscriptionPage() {
               },
               {
                 q: 'What payment methods are accepted?',
-                a: 'USD via credit/debit card (Lemon Squeezy checkout), or pay with VEDD tokens from your Solana wallet.',
+                a: 'USD via credit/debit card through our secure checkout, or pay with VEDD tokens from your Solana wallet.',
               },
               {
                 q: 'What is the Yearly plan?',
-                a: 'A one-time payment that gives you lifetime access to all Premium features — no monthly fees, ever. All future updates included.',
+                a: 'An annual subscription that gives you all Premium features at the best price. Renews once a year — all updates included.',
               },
               {
                 q: 'How does VEDD token access work?',
@@ -523,10 +478,6 @@ export default function SubscriptionPage() {
               {
                 q: 'Which AI models does the platform use?',
                 a: 'GPT-4o, Groq Llama 3.3, Claude 3.5, Gemini 1.5 Pro, and Mistral Large. You can add your own API key or use the platform default.',
-              },
-              {
-                q: 'What is the Lemon Squeezy checkout?',
-                a: 'A secure USD payment processor. Click the "Pay USD" button on any paid plan to be taken to a secure hosted checkout page.',
               },
             ].map(({ q, a }, i) => (
               <div key={i} className="p-5 rounded-xl border border-border bg-card">
@@ -537,66 +488,6 @@ export default function SubscriptionPage() {
           </div>
         </div>
 
-        {/* Lemon Squeezy Admin Setup */}
-        {user && (
-          <div className="border border-primary/30 rounded-xl overflow-hidden mb-12">
-            <button
-              className="w-full flex items-center justify-between px-6 py-4 bg-primary/5 hover:bg-primary/10 transition-colors"
-              onClick={() => setShowLsSetup(!showLsSetup)}
-            >
-              <div className="flex items-center gap-3">
-                <Settings className="h-4 w-4 text-primary" />
-                <div className="text-left">
-                  <p className="font-semibold text-sm">USD Payment Setup</p>
-                  <p className="text-xs text-muted-foreground">Link variant IDs to enable USD checkout per plan</p>
-                </div>
-              </div>
-              {showLsSetup ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
-            </button>
-
-            {showLsSetup && (
-              <div className="p-6 space-y-4 border-t border-primary/20">
-                <Alert className="border-primary/30 bg-primary/5">
-                  <Settings className="h-4 w-4 text-primary" />
-                  <AlertTitle className="text-primary text-sm">Setup Instructions</AlertTitle>
-                  <AlertDescription className="text-xs space-y-1 mt-1">
-                    <p>1. Log in to <a href="https://app.lemonsqueezy.com" target="_blank" rel="noopener noreferrer" className="text-primary underline">app.lemonsqueezy.com</a> and create a product for each paid plan</p>
-                    <p>2. Copy the Variant ID from each product and paste it below, then click Save</p>
-                    <p>3. Set up a webhook pointing to: <code className="bg-muted px-1 rounded">{window.location.origin}/api/lemonsqueezy/webhook</code></p>
-                    <p>4. Add the webhook signing secret as <code className="bg-muted px-1 rounded">LEMONSQUEEZY_WEBHOOK_SECRET</code> in your environment</p>
-                  </AlertDescription>
-                </Alert>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {plans?.filter(p => p.price > 0).map(plan => (
-                    <div key={plan.id} className="rounded-lg border border-border p-4 space-y-2">
-                      <p className="font-semibold text-sm">{plan.name}</p>
-                      {lsVariants?.[plan.id] && (
-                        <p className="text-xs text-green-500 flex items-center gap-1">
-                          <Check className="h-3 w-3" /> {lsVariants[plan.id]}
-                        </p>
-                      )}
-                      <div className="flex gap-2">
-                        <Input
-                          placeholder="Variant ID"
-                          className="text-xs h-8"
-                          value={variantInputs[plan.id] || ''}
-                          onChange={e => setVariantInputs(prev => ({ ...prev, [plan.id]: e.target.value }))}
-                        />
-                        <Button
-                          size="sm"
-                          className="h-8 bg-primary hover:bg-primary/90 text-primary-foreground text-xs px-3"
-                          onClick={() => handleSaveVariant(plan.id)}
-                        >
-                          Save
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
 
         <p className="text-center text-xs text-muted-foreground">
           All monthly subscriptions renew automatically. Cancel anytime. ·{' '}

@@ -948,15 +948,21 @@ export default function ContentFlowDay() {
                                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                                   <p className="text-sm text-gray-400">Share this content to {direction.platform}</p>
                                   <SocialShareButton
-                                    caption={direction.captionTemplate}
-                                    hashtags={direction.hashtags || []}
+                                    caption={
+                                      displayContent
+                                        ? (direction.platform === 'twitter'
+                                          ? (displayContent.shortPost || direction.captionTemplate)
+                                          : (displayContent.longPost || displayContent.shortPost || direction.captionTemplate))
+                                        : direction.captionTemplate
+                                    }
+                                    hashtags={displayContent?.suggestedHashtags || direction.hashtags || []}
                                     mediaType={direction.contentType === 'carousel' ? 'carousel' : direction.contentType === 'video' || direction.contentType === 'reel' ? 'video' : direction.contentType === 'thread' ? 'thread' : 'image'}
                                     carouselFiles={direction.contentType === 'carousel' ? carouselImages[direction.id] : undefined}
                                     sourceType="content_journey"
                                     sourceId={lesson.dayNumber}
                                     platform={direction.platform}
                                     size="sm"
-                                    disabled={!direction.captionTemplate}
+                                    disabled={!direction.captionTemplate && !displayContent}
                                   />
                                 </div>
                               </div>

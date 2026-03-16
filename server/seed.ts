@@ -99,12 +99,12 @@ export async function seedSubscriptionPlans() {
     },
     {
       name: "Yearly",
-      description: "LIMITED TIME: Pay once for the year - Includes all AI features & unified signal",
-      price: 99999, // $999.99 yearly
-      interval: "lifetime",
+      description: "Annual subscription — all Premium features with yearly renewal. Best value for serious traders.",
+      price: 14900,
+      interval: "yearly",
       features: [
         "Everything in Premium",
-        "Lifetime access - Pay once, no recurring fees",
+        "Annual renewal — best value for serious traders",
         "All future updates & features included",
         "Immersive full-page processing experience",
         "Unified Trade Signal (unlimited synthesis)",
@@ -164,18 +164,18 @@ export async function seedAchievements() {
 export async function seedAdminUser() {
   const adminUsername = "donchismkos@gmail.com";
 
-  const [lifetimePlan] = await db
+  const [yearlyPlan] = await db
     .select({ id: subscriptionPlans.id })
     .from(subscriptionPlans)
-    .where(eq(subscriptionPlans.interval, "lifetime"))
+    .where(eq(subscriptionPlans.name, "Yearly"))
     .limit(1);
 
-  if (!lifetimePlan) {
-    console.error("[seed] No lifetime plan found — skipping admin user seed");
+  if (!yearlyPlan) {
+    console.error("[seed] No Yearly plan found — skipping admin user seed");
     return;
   }
 
-  const planId = lifetimePlan.id;
+  const planId = yearlyPlan.id;
   const existing = await storage.getUserByUsername(adminUsername);
 
   if (existing) {
@@ -186,7 +186,7 @@ export async function seedAdminUser() {
         membershipTier: "premium",
         subscriptionPlanId: planId,
       });
-      console.log(`[seed] Admin user upgraded: subscription=active, isAdmin=true, plan=Lifetime(${planId})`);
+      console.log(`[seed] Admin user upgraded: subscription=active, isAdmin=true, plan=Yearly(${planId})`);
     } else {
       console.log(`[seed] Admin user already configured correctly.`);
     }
