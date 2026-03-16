@@ -45,7 +45,7 @@ export function AIKeyNudgeBanner() {
       <div className="flex items-center gap-2">
         <Link href="/ai-api-keys">
           <Button size="sm" className="bg-amber-600 hover:bg-amber-700 text-white gap-1.5">
-            Add API Key <ArrowRight className="h-3.5 w-3.5" />
+            Add My Key <ArrowRight className="h-3.5 w-3.5" />
           </Button>
         </Link>
         <button

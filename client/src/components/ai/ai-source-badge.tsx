@@ -12,8 +12,8 @@ import {
 
 const PROVIDER_NAMES: Record<string, string> = {
   openai: 'OpenAI',
-  anthropic: 'Claude',
-  google: 'Gemini',
+  anthropic: 'Anthropic',
+  google: 'Google AI',
   groq: 'Groq',
   mistral: 'Mistral',
 };
