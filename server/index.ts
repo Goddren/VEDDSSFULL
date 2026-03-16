@@ -178,6 +178,12 @@ async function withRetry<T>(
       console.error('[startup] Full schema sync failed (non-fatal, critical columns already added above):', (err as Error).message?.slice(0, 200));
     }
 
+    try {
+      await db.execute(sql`UPDATE subscription_plans SET name = 'Yearly', interval = 'yearly', description = 'Annual subscription — all Premium features with yearly renewal. Best value for serious traders.', price = 14900 WHERE id = 4 AND (name = 'Lifetime' OR interval = 'lifetime')`);
+    } catch (err) {
+      console.error('[startup] Lifetime→Yearly migration (non-fatal):', (err as Error).message);
+    }
+
     await withRetry(() => seedSubscriptionPlans(), 'seedSubscriptionPlans');
     await withRetry(() => seedAchievements(), 'seedAchievements');
     await withRetry(() => seedAdminUser(), 'seedAdminUser');

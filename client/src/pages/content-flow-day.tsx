@@ -820,12 +820,25 @@ export default function ContentFlowDay() {
                               <div>
                                 <p className="text-xs text-gray-500 mb-1">Ready-to-Use Caption</p>
                                 <div className="bg-gray-700/50 p-3 rounded-lg relative">
-                                  <p className="text-gray-200 text-sm whitespace-pre-wrap">{direction.captionTemplate}</p>
+                                  <p className="text-gray-200 text-sm whitespace-pre-wrap">{
+                                    displayContent
+                                      ? (direction.platform === 'twitter'
+                                        ? (displayContent.shortPost || direction.captionTemplate)
+                                        : (displayContent.longPost || displayContent.shortPost || direction.captionTemplate))
+                                      : direction.captionTemplate
+                                  }</p>
                                   <Button
                                     size="sm"
                                     variant="ghost"
                                     className="absolute top-2 right-2"
-                                    onClick={() => copyToClipboard(direction.captionTemplate, `caption-${direction.id}`)}
+                                    onClick={() => copyToClipboard(
+                                      displayContent
+                                        ? (direction.platform === 'twitter'
+                                          ? (displayContent.shortPost || direction.captionTemplate)
+                                          : (displayContent.longPost || displayContent.shortPost || direction.captionTemplate))
+                                        : direction.captionTemplate,
+                                      `caption-${direction.id}`
+                                    )}
                                   >
                                     {copiedField === `caption-${direction.id}` ? (
                                       <Check className="w-4 h-4 text-green-400" />

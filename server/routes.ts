@@ -2641,6 +2641,7 @@ Respond ONLY in valid JSON format with these exact keys:
         const planMap: Record<string, number> = {
           'starter': 2,
           'premium': 3,
+          'yearly': 4,
           'lifetime': 4,
         };
         const planId = planMap[session.planName];
@@ -2651,8 +2652,8 @@ Respond ONLY in valid JSON format with these exact keys:
             status: 'active',
             stripeSubscriptionId: `vedd_${sessionId}`,
             currentPeriodStart: new Date(),
-            currentPeriodEnd: session.planName === 'lifetime' 
-              ? new Date(Date.now() + 100 * 365 * 24 * 60 * 60 * 1000) // 100 years for lifetime
+            currentPeriodEnd: (session.planName === 'yearly' || session.planName === 'lifetime')
+              ? new Date(Date.now() + 365 * 24 * 60 * 60 * 1000) // 1 year for yearly
               : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days for monthly
           });
         }

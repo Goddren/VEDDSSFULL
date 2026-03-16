@@ -9,13 +9,13 @@ const SOLANA_RPC = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solan
 // 1 USD = ~277,778 VEDD
 const VEDD_PER_USD = 277778;
 
-// Plan prices in USD - Starter $49.95, Premium $149.99, Yearly $999.99
+// Plan prices in USD - Starter $19.99, Premium $49.99, Yearly $149
 // VEDD amounts calculated to match exact USD equivalent
 // Rounded to nearest 100 VEDD for cleaner amounts
 const PLAN_PRICES_VEDD: Record<string, number> = {
-  'starter': Math.round((49.95 * VEDD_PER_USD) / 100) * 100,    // ~13,875,000 VEDD ($49.95)
-  'premium': Math.round((149.99 * VEDD_PER_USD) / 100) * 100,   // ~41,663,700 VEDD ($149.99)
-  'yearly': Math.round((999.99 * VEDD_PER_USD) / 100) * 100,    // ~277,775,000 VEDD ($999.99)
+  'starter': Math.round((19.99 * VEDD_PER_USD) / 100) * 100,    // ~5,552,800 VEDD ($19.99)
+  'premium': Math.round((49.99 * VEDD_PER_USD) / 100) * 100,    // ~13,886,100 VEDD ($49.99)
+  'yearly': Math.round((149 * VEDD_PER_USD) / 100) * 100,       // ~41,388,900 VEDD ($149)
 };
 
 interface PaymentSession {
@@ -44,7 +44,7 @@ export function createPaymentSession(
   const veddAmount = PLAN_PRICES_VEDD[normalizedPlan];
   
   if (!veddAmount) {
-    throw new Error(`Invalid plan: ${planName}. Valid plans: starter, premium, lifetime`);
+    throw new Error(`Invalid plan: ${planName}. Valid plans: starter, premium, yearly`);
   }
 
   const session: PaymentSession = {
