@@ -133,8 +133,8 @@ export default function SubscriptionPage() {
   const [isLoading, setIsLoading] = useState(false);
   const beaconsLinks: Record<number, string> = {
     2: 'https://shop.beacons.ai/vedd/0b05e744-972f-442f-a686-a9ae7698173c',
-    3: 'https://shop.beacons.ai/vedd/7a28ca06-c694-4e0b-9f2c-e4b9992cb478',
-    4: 'https://shop.beacons.ai/vedd/632403c6-6405-4d93-87c1-6a7785aad428',
+    3: 'https://shop.beacons.ai/vedd/632403c6-6405-4d93-87c1-6a7785aad428',
+    4: 'https://shop.beacons.ai/vedd/7a28ca06-c694-4e0b-9f2c-e4b9992cb478',
   };
   const [showTable, setShowTable] = useState(false);
 
