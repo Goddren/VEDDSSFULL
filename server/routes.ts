@@ -14066,6 +14066,21 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     return { ...safeKey, hasKey: !!apiKey };
   }
 
+  app.get("/api/user-api-keys/active-source", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
+    try {
+      const keys = await storage.getUserApiKeys(req.user!.id);
+      const activeKey = keys.find(k => k.isActive && k.apiKey);
+      if (activeKey) {
+        res.json({ source: 'own', provider: activeKey.provider });
+      } else {
+        res.json({ source: 'platform', provider: null });
+      }
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   app.get("/api/user-api-keys", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
     try {

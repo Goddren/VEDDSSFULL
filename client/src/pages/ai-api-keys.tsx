@@ -102,6 +102,7 @@ export default function AiApiKeysPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/user-api-keys'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/user-api-keys/active-source'] });
       setAddingProvider(null);
       setNewKeyValue('');
       setNewKeyLabel('');
@@ -121,6 +122,7 @@ export default function AiApiKeysPage() {
     onSuccess: (data) => {
       setValidatingProvider(null);
       queryClient.invalidateQueries({ queryKey: ['/api/user-api-keys'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/user-api-keys/active-source'] });
       if (data.valid) {
         toast({ title: "Key Validated", description: `Your ${data.provider} key is working correctly.` });
       } else {
@@ -140,6 +142,7 @@ export default function AiApiKeysPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/user-api-keys'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/user-api-keys/active-source'] });
     },
   });
 
@@ -150,6 +153,7 @@ export default function AiApiKeysPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/user-api-keys'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/user-api-keys/active-source'] });
       toast({ title: "Key Removed", description: "API key has been deleted." });
     },
   });
@@ -197,10 +201,19 @@ export default function AiApiKeysPage() {
     },
   });
 
+  const { data: activeSource } = useQuery<{ source: 'own' | 'platform'; provider: string | null }>({
+    queryKey: ['/api/user-api-keys/active-source'],
+  });
+
   const savedProviders = new Set(savedKeys.map(k => k.provider));
   const availableProviders = AI_PROVIDERS.filter(p => !savedProviders.has(p.id));
 
   const getProviderInfo = (id: string) => AI_PROVIDERS.find(p => p.id === id);
+
+  const isOwn = activeSource?.source === 'own';
+  const activeProviderName = activeSource?.provider
+    ? (AI_PROVIDERS.find(p => p.id === activeSource.provider)?.name || activeSource.provider)
+    : null;
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-muted/30">
@@ -226,6 +239,30 @@ export default function AiApiKeysPage() {
             <span>Keys are stored securely and never shared. You can add up to 5 providers.</span>
           </div>
         </div>
+
+        {activeSource && (
+          <Card className={`mb-6 border-2 ${isOwn ? 'border-green-500/30 bg-gradient-to-br from-green-500/5 to-emerald-500/5' : 'border-blue-500/30 bg-gradient-to-br from-blue-500/5 to-cyan-500/5'}`}>
+            <CardContent className="py-4 flex items-center gap-4 flex-wrap">
+              <div className={`p-2.5 rounded-lg ${isOwn ? 'bg-green-500/20' : 'bg-blue-500/20'}`}>
+                {isOwn ? <Key className="h-5 w-5 text-green-400" /> : <Cpu className="h-5 w-5 text-blue-400" />}
+              </div>
+              <div className="flex-1">
+                <p className="font-semibold text-sm">
+                  Current AI Source: {isOwn ? (
+                    <span className="text-green-400">Your {activeProviderName} Key</span>
+                  ) : (
+                    <span className="text-blue-400">Platform OpenAI</span>
+                  )}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {isOwn
+                    ? 'All AI features route through your own API key — no platform usage limits.'
+                    : 'AI requests use the shared platform key. Add your own key for unlimited personal usage.'}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Platform AI Cost Mode */}
         <Card className="mb-6 border-2 border-primary/30 bg-gradient-to-br from-background to-primary/5">

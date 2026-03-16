@@ -116,6 +116,7 @@ const FEATURE_ROWS = [
   { label: 'Sol Engine Auto-Trade', values: { 1: false, 2: false, 3: true, 4: true } },
   { label: 'Advanced Confidence Scoring', values: { 1: false, 2: false, 3: true, 4: true } },
   { label: 'Multi-Agent AI Consensus', values: { 1: false, 2: false, 3: true, 4: true } },
+  { label: 'Bring Your Own AI Key (BYOK)', values: { 1: false, 2: true, 3: true, 4: true } },
   { label: 'Early Beta Access', values: { 1: false, 2: false, 3: false, 4: true } },
   { label: 'Yearly Updates Included', values: { 1: false, 2: false, 3: false, 4: true } },
 ];

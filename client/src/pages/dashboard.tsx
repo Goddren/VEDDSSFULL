@@ -44,6 +44,8 @@ import { DailyWisdom } from '@/components/scripture/daily-wisdom';
 import { NewsFeed } from '@/components/news/news-feed';
 import { ConnectedPairs } from '@/components/mt5/connected-pairs';
 import { VeddRewardsPanel } from '@/components/vedd-rewards/vedd-rewards-panel';
+import { AISourceBadge } from '@/components/ai/ai-source-badge';
+import { AIKeyNudgeBanner } from '@/components/ai/ai-key-nudge-banner';
 
 interface Analysis {
   id: number;
@@ -269,7 +271,8 @@ const Dashboard: React.FC = () => {
                 </div>
               )}
             </div>
-            <div className="flex gap-3">
+            <div className="flex items-center gap-3">
+              <AISourceBadge />
               <Link href="/webhooks">
                 <Button className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white shadow-lg shadow-blue-900/30 rounded-full px-6 border border-blue-500/20" data-testid="button-mt5-copier">
                   <Zap className="h-4 w-4 mr-2" />
@@ -290,6 +293,8 @@ const Dashboard: React.FC = () => {
       </div>
 
       <div className="container mx-auto px-4 md:px-8 py-8">
+
+        <AIKeyNudgeBanner />
 
         {/* ─── AI Command Center ─────────────────────────────────────────── */}
         <Card className="bg-gradient-to-br from-gray-900 via-gray-900 to-gray-800 border-gray-700 shadow-2xl mb-8 overflow-hidden">
