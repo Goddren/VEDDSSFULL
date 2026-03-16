@@ -66,6 +66,7 @@ const PLAN_META: Record<number, {
       'News & economic event alerts',
       'Signal webhooks',
       'VEDD SS AI Brain Engine',
+      'Bring Your Own AI Key (BYOK)',
       '25 social shares per month',
     ],
   },
@@ -83,6 +84,7 @@ const PLAN_META: Record<number, {
       'Sol Engine — paper & live trading',
       'Advanced SL/TP confidence scoring',
       'Multi-agent AI consensus',
+      'Bring Your Own AI Key (BYOK)',
       'Unlimited social shares',
     ],
   },
@@ -95,6 +97,7 @@ const PLAN_META: Record<number, {
       'Everything in Premium — yearly renewal',
       'All future feature updates included',
       'Early access to beta features',
+      'Bring Your Own AI Key (BYOK)',
       'Priority support',
       'Transferable membership',
     ],
@@ -417,6 +420,12 @@ export default function SubscriptionPage() {
               </tbody>
             </table>
           </div>
+        )}
+
+        {showTable && (
+          <p className="text-center text-xs text-muted-foreground -mt-12 mb-16">
+            * With your own API key (BYOK), platform AI usage limits don't apply — requests route directly through your account.
+          </p>
         )}
 
         {/* VEDD Token Access */}

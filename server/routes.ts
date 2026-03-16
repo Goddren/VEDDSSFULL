@@ -14070,7 +14070,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
     try {
       const keys = await storage.getUserApiKeys(req.user!.id);
-      const activeKey = keys.find(k => k.isActive && k.apiKey);
+      const activeKey = keys.find(k => k.isActive && k.apiKey && k.isValid === true);
       if (activeKey) {
         res.json({ source: 'own', provider: activeKey.provider });
       } else {
