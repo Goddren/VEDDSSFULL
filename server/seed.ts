@@ -100,7 +100,7 @@ export async function seedSubscriptionPlans() {
     {
       name: "Yearly",
       description: "Annual subscription — all Premium features with yearly renewal. Best value for serious traders.",
-      price: 14900,
+      price: 100000,
       interval: "yearly",
       features: [
         "Everything in Premium",
