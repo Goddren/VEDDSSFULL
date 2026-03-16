@@ -111,6 +111,17 @@ interface GeneratedContent {
   suggestedHashtags: string[];
 }
 
+function getDirectionCaption(
+  direction: { platform: string; contentType: string; captionTemplate: string },
+  displayContent: { shortPost?: string; longPost?: string } | null
+): string {
+  if (!displayContent) return direction.captionTemplate;
+  const useLong = ['thread', 'carousel', 'instagram', 'linkedin', 'facebook'].includes(direction.contentType) ||
+    ['instagram', 'linkedin', 'facebook'].includes(direction.platform);
+  if (useLong) return displayContent.longPost || displayContent.shortPost || direction.captionTemplate;
+  return displayContent.shortPost || direction.captionTemplate;
+}
+
 export default function ContentFlowDay() {
   const { dayNumber } = useParams();
   const [, setLocation] = useLocation();
@@ -820,23 +831,13 @@ export default function ContentFlowDay() {
                               <div>
                                 <p className="text-xs text-gray-500 mb-1">Ready-to-Use Caption</p>
                                 <div className="bg-gray-700/50 p-3 rounded-lg relative">
-                                  <p className="text-gray-200 text-sm whitespace-pre-wrap">{
-                                    displayContent
-                                      ? (direction.platform === 'twitter'
-                                        ? (displayContent.shortPost || direction.captionTemplate)
-                                        : (displayContent.longPost || displayContent.shortPost || direction.captionTemplate))
-                                      : direction.captionTemplate
-                                  }</p>
+                                  <p className="text-gray-200 text-sm whitespace-pre-wrap">{getDirectionCaption(direction, displayContent)}</p>
                                   <Button
                                     size="sm"
                                     variant="ghost"
                                     className="absolute top-2 right-2"
                                     onClick={() => copyToClipboard(
-                                      displayContent
-                                        ? (direction.platform === 'twitter'
-                                          ? (displayContent.shortPost || direction.captionTemplate)
-                                          : (displayContent.longPost || displayContent.shortPost || direction.captionTemplate))
-                                        : direction.captionTemplate,
+                                      getDirectionCaption(direction, displayContent),
                                       `caption-${direction.id}`
                                     )}
                                   >
@@ -961,13 +962,7 @@ export default function ContentFlowDay() {
                                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                                   <p className="text-sm text-gray-400">Share this content to {direction.platform}</p>
                                   <SocialShareButton
-                                    caption={
-                                      displayContent
-                                        ? (direction.platform === 'twitter'
-                                          ? (displayContent.shortPost || direction.captionTemplate)
-                                          : (displayContent.longPost || displayContent.shortPost || direction.captionTemplate))
-                                        : direction.captionTemplate
-                                    }
+                                    caption={getDirectionCaption(direction, displayContent)}
                                     hashtags={displayContent?.suggestedHashtags || direction.hashtags || []}
                                     mediaType={direction.contentType === 'carousel' ? 'carousel' : direction.contentType === 'video' || direction.contentType === 'reel' ? 'video' : direction.contentType === 'thread' ? 'thread' : 'image'}
                                     carouselFiles={direction.contentType === 'carousel' ? carouselImages[direction.id] : undefined}

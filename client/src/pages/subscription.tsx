@@ -34,7 +34,7 @@ type Subscription = {
 };
 
 const PLAN_META: Record<number, {
-  icon: any;
+  icon: typeof Loader2;
   color: string;
   border: string;
   badge?: string;
