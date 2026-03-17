@@ -51,7 +51,7 @@ export async function seedSubscriptionPlans() {
     {
       name: "Starter",
       description: "Advanced features for serious traders with unified signal synthesis",
-      price: 4995, // $49.95
+      price: 5000, // $50
       interval: "month",
       features: [
         "Everything in Free",
@@ -75,7 +75,7 @@ export async function seedSubscriptionPlans() {
     {
       name: "Premium",
       description: "Unlimited power for professional traders with advanced AI synthesis",
-      price: 14999, // $149.99
+      price: 15000, // $150
       interval: "month",
       features: [
         "Everything in Starter",

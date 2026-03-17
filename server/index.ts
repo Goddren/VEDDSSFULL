@@ -181,6 +181,8 @@ async function withRetry<T>(
     try {
       await db.execute(sql`UPDATE subscription_plans SET name = 'Yearly', interval = 'yearly', description = 'Annual subscription — all Premium features with yearly renewal. Best value for serious traders.', price = 100000 WHERE id = 4 AND (name = 'Lifetime' OR interval = 'lifetime')`);
       await db.execute(sql`UPDATE subscription_plans SET price = 100000 WHERE id = 4 AND price = 14900`);
+      await db.execute(sql`UPDATE subscription_plans SET price = 5000 WHERE id = 2 AND price != 5000`);
+      await db.execute(sql`UPDATE subscription_plans SET price = 15000 WHERE id = 3 AND price != 15000`);
     } catch (err) {
       console.error('[startup] Lifetime→Yearly migration (non-fatal):', (err as Error).message);
     }
