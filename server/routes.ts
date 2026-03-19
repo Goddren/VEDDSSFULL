@@ -6427,7 +6427,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           analysis.confidence >= MIN_CONFIDENCE_FOR_AUTO_TRADE && 
           analysis.tradePlan) {
         try {
-          const { isAiVisionConfirmationEnabled, getAiVisionConfirmation, getBreakoutConfirmation, addAiConfirmationLog, getUserModelPreference, AVAILABLE_VISION_MODELS, isICTStrategyEnabled, isSMCStrategyEnabled, isPropFirmModeEnabled, getPropFirmContext, isBreakoutModeEnabled, isTrailingStopEnabled } = await import('./openai');
+          const { isAiVisionConfirmationEnabled, getAiVisionConfirmation, getBreakoutConfirmation, addAiConfirmationLog, getUserModelPreference, AVAILABLE_VISION_MODELS, isICTStrategyEnabled, isSMCStrategyEnabled, isPropFirmModeEnabled, getPropFirmContext, isBreakoutModeEnabled, isTrailingStopEnabled, hydrateBreakoutModeMap } = await import('./openai');
           if (isAiVisionConfirmationEnabled(token.userId)) {
             console.log(`[AI Vision Confirmation] Enabled for user ${token.userId} - requesting AI second opinion on ${sanitizedSymbol}`);
             const selectedModelId = getUserModelPreference(token.userId);
@@ -6512,6 +6512,15 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             }
 
             const propFirmCtx = isPropFirmModeEnabled(token.userId) ? getPropFirmContext(token.userId) : null;
+
+            // Hydrate breakout mode from DB on the execution path (covers cold-start / process restart)
+            try {
+              const userForBreakout = await storage.getUser(token.userId);
+              if (userForBreakout?.breakoutModeEnabled !== undefined) {
+                hydrateBreakoutModeMap(token.userId, userForBreakout.breakoutModeEnabled);
+              }
+            } catch (_) { /* non-fatal — fall back to in-memory value */ }
+
             const useBreakoutMode = isBreakoutModeEnabled(token.userId);
 
             if (useBreakoutMode) {
@@ -6524,6 +6533,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 analysis.tradePlan, sanitizedSymbol, sanitizedTimeframe,
                 token.userId, multiTFCandles, propFirmCtx
               );
+              // Enforce fixed TP targets in breakout mode — trailing stop is always off
+              if (analysis.tradePlan) {
+                analysis.tradePlan.trailingStopDistance = 0;
+                analysis.tradePlan.trailingStopStep = 0;
+              }
+              if (aiConfirmation) aiConfirmation.trailRecommendation = 'NONE';
             } else {
               aiConfirmation = await getAiVisionConfirmation(
                 candles, analysis.indicators, analysis.signal, analysis.confidence,

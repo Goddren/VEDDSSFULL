@@ -376,10 +376,11 @@ export function computeBreakoutScore(
   const maxScore = 7;
   const percentage = Math.round((score / maxScore) * 100);
 
+  // Grade by absolute strategy count: A = 5+/7, B = 3–4/7 (≥3 = CONFIRM), C = 2/7, PASS = 0–1/7
   let grade: 'A' | 'B' | 'C' | 'PASS';
-  if (percentage >= 70) grade = 'A';
-  else if (percentage >= 50) grade = 'B';
-  else if (percentage >= 35) grade = 'C';
+  if (score >= 5) grade = 'A';
+  else if (score >= 3) grade = 'B';
+  else if (score >= 2) grade = 'C';
   else grade = 'PASS';
 
   const buyVotes = fired.filter(s => s.direction === 'BUY').length;

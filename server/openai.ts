@@ -1548,13 +1548,13 @@ export async function getBreakoutConfirmation(
     const currentPrice = tradePlan?.entryPrice || candleData[0]?.c || 0;
     const breakoutResult = computeBreakoutScore(currentPrice, m1, m5, m15, h1, h4);
 
-    // Only Grade A (≥70%) or Grade B (≥50%) may proceed — hard gate
+    // Grade A = 5+/7 strategies, Grade B = 3–4/7 strategies (≥3 = CONFIRM). Grade C (2/7) and PASS (0–1/7) are rejected.
     if (breakoutResult.grade === 'PASS' || breakoutResult.grade === 'C') {
       return {
         confirmed: false,
         aiDirection: 'NEUTRAL',
         aiConfidence: breakoutResult.percentage,
-        reasoning: `🔴 BREAKOUT MASTER: Grade ${breakoutResult.grade} — only ${breakoutResult.score}/${breakoutResult.maxScore} strategies firing. Minimum 3/7 (Grade B) required.\n\n${breakoutResult.summary}`,
+        reasoning: `🔴 BREAKOUT MASTER: Grade ${breakoutResult.grade} — only ${breakoutResult.score}/${breakoutResult.maxScore} strategies firing. Minimum 3/7 strategies (Grade B) required to CONFIRM.\n\n${breakoutResult.summary}`,
         breakoutScore: breakoutResult.score,
         breakoutGrade: breakoutResult.grade,
         breakoutStrategies: breakoutResult.strategies,
