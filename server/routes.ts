@@ -6615,27 +6615,45 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               const currentPrice = indicators?.price?.bid || candles[0]?.c || 0;
               const maxDeviation = currentPrice * 0.05;
               let hasAdjustments = false;
-              if (typeof aiConfirmation.adjustedStopLoss === 'number' && !isNaN(aiConfirmation.adjustedStopLoss) && aiConfirmation.adjustedStopLoss > 0 &&
-                  Math.abs(aiConfirmation.adjustedStopLoss - currentPrice) < maxDeviation) {
-                analysis.tradePlan.stopLoss = aiConfirmation.adjustedStopLoss;
-                hasAdjustments = true;
-              }
-              if (typeof aiConfirmation.adjustedTakeProfit === 'number' && !isNaN(aiConfirmation.adjustedTakeProfit) && aiConfirmation.adjustedTakeProfit > 0 &&
-                  Math.abs(aiConfirmation.adjustedTakeProfit - currentPrice) < maxDeviation) {
-                analysis.tradePlan.takeProfit = aiConfirmation.adjustedTakeProfit;
-                hasAdjustments = true;
-              }
-              // Wire breakout TP ladder (TP2, TP3) into trade plan for downstream use
-              if (typeof aiConfirmation.adjustedTakeProfit2 === 'number' && aiConfirmation.adjustedTakeProfit2 > 0) {
-                analysis.tradePlan.takeProfit2 = aiConfirmation.adjustedTakeProfit2;
-              }
-              if (typeof aiConfirmation.adjustedTakeProfit3 === 'number' && aiConfirmation.adjustedTakeProfit3 > 0) {
-                analysis.tradePlan.takeProfit3 = aiConfirmation.adjustedTakeProfit3;
-              }
-              if (typeof aiConfirmation.adjustedEntry === 'number' && !isNaN(aiConfirmation.adjustedEntry) && aiConfirmation.adjustedEntry > 0 &&
-                  Math.abs(aiConfirmation.adjustedEntry - currentPrice) < maxDeviation) {
-                analysis.tradePlan.entry = aiConfirmation.adjustedEntry;
-                hasAdjustments = true;
+              if (useBreakoutMode) {
+                // Breakout mode: apply fixed ATR-derived SL/TP without deviation guard
+                if (typeof aiConfirmation.adjustedStopLoss === 'number' && !isNaN(aiConfirmation.adjustedStopLoss) && aiConfirmation.adjustedStopLoss > 0) {
+                  analysis.tradePlan.stopLoss = aiConfirmation.adjustedStopLoss;
+                  hasAdjustments = true;
+                }
+                if (typeof aiConfirmation.adjustedTakeProfit === 'number' && !isNaN(aiConfirmation.adjustedTakeProfit) && aiConfirmation.adjustedTakeProfit > 0) {
+                  analysis.tradePlan.takeProfit = aiConfirmation.adjustedTakeProfit;
+                  hasAdjustments = true;
+                }
+                if (typeof aiConfirmation.adjustedTakeProfit2 === 'number' && aiConfirmation.adjustedTakeProfit2 > 0) {
+                  analysis.tradePlan.takeProfit2 = aiConfirmation.adjustedTakeProfit2;
+                }
+                if (typeof aiConfirmation.adjustedTakeProfit3 === 'number' && aiConfirmation.adjustedTakeProfit3 > 0) {
+                  analysis.tradePlan.takeProfit3 = aiConfirmation.adjustedTakeProfit3;
+                }
+              } else {
+                if (typeof aiConfirmation.adjustedStopLoss === 'number' && !isNaN(aiConfirmation.adjustedStopLoss) && aiConfirmation.adjustedStopLoss > 0 &&
+                    Math.abs(aiConfirmation.adjustedStopLoss - currentPrice) < maxDeviation) {
+                  analysis.tradePlan.stopLoss = aiConfirmation.adjustedStopLoss;
+                  hasAdjustments = true;
+                }
+                if (typeof aiConfirmation.adjustedTakeProfit === 'number' && !isNaN(aiConfirmation.adjustedTakeProfit) && aiConfirmation.adjustedTakeProfit > 0 &&
+                    Math.abs(aiConfirmation.adjustedTakeProfit - currentPrice) < maxDeviation) {
+                  analysis.tradePlan.takeProfit = aiConfirmation.adjustedTakeProfit;
+                  hasAdjustments = true;
+                }
+                // Wire breakout TP ladder (TP2, TP3) into trade plan for downstream use
+                if (typeof aiConfirmation.adjustedTakeProfit2 === 'number' && aiConfirmation.adjustedTakeProfit2 > 0) {
+                  analysis.tradePlan.takeProfit2 = aiConfirmation.adjustedTakeProfit2;
+                }
+                if (typeof aiConfirmation.adjustedTakeProfit3 === 'number' && aiConfirmation.adjustedTakeProfit3 > 0) {
+                  analysis.tradePlan.takeProfit3 = aiConfirmation.adjustedTakeProfit3;
+                }
+                if (typeof aiConfirmation.adjustedEntry === 'number' && !isNaN(aiConfirmation.adjustedEntry) && aiConfirmation.adjustedEntry > 0 &&
+                    Math.abs(aiConfirmation.adjustedEntry - currentPrice) < maxDeviation) {
+                  analysis.tradePlan.entry = aiConfirmation.adjustedEntry;
+                  hasAdjustments = true;
+                }
               }
               // Apply AI trail recommendation: NONE disables trailing stop
               if (aiConfirmation.trailRecommendation === 'NONE') {

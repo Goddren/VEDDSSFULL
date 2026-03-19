@@ -1675,7 +1675,12 @@ INSTRUCTION: If grade is A or B and direction aligns with ${proposedSignal}, CON
       parsed = { confirmed: false, confidence: breakoutResult.percentage, reasoning: rawContent };
     }
 
-    console.log(`[Breakout Master] ${symbol} Grade:${breakoutResult.grade} Score:${breakoutResult.score}/7 Decision:${parsed.confirmed ? 'CONFIRM' : 'REJECT'}`);
+    // Grade A/B = deterministic CONFIRM — do not allow AI JSON to veto a passing grade
+    if (breakoutResult.grade === 'A' || breakoutResult.grade === 'B') {
+      parsed.confirmed = true;
+    }
+
+    console.log(`[Breakout Master] ${symbol} Grade:${breakoutResult.grade} Score:${breakoutResult.score}/7 (${breakoutResult.direction}, ${breakoutResult.alignedVotes ?? breakoutResult.score} aligned) Decision:${parsed.confirmed ? 'CONFIRM' : 'REJECT'}`);
 
     // Direction: use engine direction; fallback to proposed signal only if engine is NEUTRAL
     const direction: string = (breakoutResult.direction !== 'NEUTRAL')
