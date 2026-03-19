@@ -387,19 +387,19 @@ export function computeBreakoutScore(
   // alignedVotes = strategies that fired in the majority direction
   const alignedVotes = direction === 'BUY' ? buyVotes : direction === 'SELL' ? sellVotes : 0;
 
-  // Grade by percentage of aligned votes out of maxScore: A≥70%, B≥50%, C≥35%, PASS<35% (or NEUTRAL)
-  const alignedPct = Math.round((alignedVotes / maxScore) * 100);
+  // Grade by count of directionally-aligned votes (absolute thresholds, not %)
+  // A = ≥5 aligned | B = 3–4 aligned (CONFIRM threshold: ≥3 aligned = PASS) | C = 2 | PASS = ≤1 or NEUTRAL
   let grade: 'A' | 'B' | 'C' | 'PASS';
   if (direction === 'NEUTRAL') {
-    grade = 'PASS'; // No majority direction → always reject regardless of total fired
-  } else if (alignedPct >= 70) {
-    grade = 'A'; // ≥5/7 aligned
-  } else if (alignedPct >= 50) {
-    grade = 'B'; // ≥4/7 aligned — CONFIRM threshold
-  } else if (alignedPct >= 35) {
-    grade = 'C'; // 3/7 aligned — rejected
+    grade = 'PASS'; // No majority direction → always reject
+  } else if (alignedVotes >= 5) {
+    grade = 'A'; // Elite — 5 or more strategies aligned
+  } else if (alignedVotes >= 3) {
+    grade = 'B'; // CONFIRM: 3 or more strategies aligned in same direction
+  } else if (alignedVotes === 2) {
+    grade = 'C'; // Insufficient alignment — rejected
   } else {
-    grade = 'PASS'; // ≤2/7 aligned — rejected
+    grade = 'PASS'; // 0–1 aligned — rejected
   }
 
   // ATR from H1 candles (most stable single-timeframe basis); fallback to m15 or m5 if H1 unavailable

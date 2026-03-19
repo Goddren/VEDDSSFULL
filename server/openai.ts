@@ -1548,13 +1548,14 @@ export async function getBreakoutConfirmation(
     const currentPrice = tradePlan?.entry || tradePlan?.entryPrice || candleData[0]?.c || 0;
     const breakoutResult = computeBreakoutScore(currentPrice, m1, m5, m15, h1, h4);
 
-    // Grade A (≥70% aligned = ≥5/7) or Grade B (≥50% aligned = ≥4/7) required to CONFIRM. C and PASS rejected.
+    // Grade A (≥5 aligned) or Grade B (3–4 aligned) required to CONFIRM. C (2 aligned) and PASS (≤1/NEUTRAL) rejected.
+    // Spec: CONFIRM fires when ≥3 strategies align in the same direction.
     if (breakoutResult.grade === 'PASS' || breakoutResult.grade === 'C') {
       return {
         confirmed: false,
         aiDirection: 'NEUTRAL',
         aiConfidence: breakoutResult.percentage,
-        reasoning: `🔴 BREAKOUT MASTER: Grade ${breakoutResult.grade} — ${breakoutResult.score}/${breakoutResult.maxScore} strategies fired (direction: ${breakoutResult.direction}). Minimum Grade B (≥4 strategies aligned in same direction) required to CONFIRM.\n\n${breakoutResult.summary}`,
+        reasoning: `🔴 BREAKOUT MASTER: Grade ${breakoutResult.grade} — ${breakoutResult.score}/${breakoutResult.maxScore} strategies fired (direction: ${breakoutResult.direction}). Minimum 3 strategies must align in the same direction (Grade B) to CONFIRM.\n\n${breakoutResult.summary}`,
         breakoutScore: breakoutResult.score,
         breakoutGrade: breakoutResult.grade,
         breakoutStrategies: breakoutResult.strategies,
