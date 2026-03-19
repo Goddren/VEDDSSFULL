@@ -290,9 +290,9 @@ async function ictStructuralBreak(
   const bullishBOS = detectBOSCHOCH(h1Candles, 'BUY');
   const bearishBOS = detectBOSCHOCH(h1Candles, 'SELL');
 
-  // M15 FVG detection via smcUtils — checks if currentPrice is inside an unmitigated FVG zone
-  const bullFVG = detectFairValueGap(m15Candles, currentPrice);
-  const bearFVG = detectFairValueGap(m15Candles, currentPrice);
+  // M15 FVG detection via smcUtils — pass direction signal so function filters to correct FVG type
+  const bullFVG = detectFairValueGap(m15Candles, 'BUY');   // Returns bullish FVG if price aligns
+  const bearFVG = detectFairValueGap(m15Candles, 'SELL');  // Returns bearish FVG if price aligns
 
   const hasBullishBOS = bullishBOS.detected && bullishBOS.direction === 'BULLISH';
   const hasBearishBOS = bearishBOS.detected && bearishBOS.direction === 'BEARISH';
