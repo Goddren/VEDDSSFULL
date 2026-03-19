@@ -262,29 +262,44 @@ export function isSMCStrategyEnabled(userId: number): boolean {
   return val === undefined ? true : val;
 }
 
+/** Only call on explicit user toggle (POST). Mutates ICT/SMC/trail state. */
 export function setBreakoutModeEnabled(userId: number, enabled: boolean) {
   if (enabled) {
-    breakoutModePriorState.set(userId, {
-      ict: isICTStrategyEnabled(userId),
-      smc: isSMCStrategyEnabled(userId),
-      trail: isTrailingStopEnabled(userId),
-    });
+    // Snapshot current state before disabling — only when transitioning OFF→ON
+    if (!breakoutModeEnabledMap.get(userId)) {
+      breakoutModePriorState.set(userId, {
+        ict: isICTStrategyEnabled(userId),
+        smc: isSMCStrategyEnabled(userId),
+        trail: isTrailingStopEnabled(userId),
+      });
+    }
     ictStrategyEnabledMap.set(userId, false);
     smcStrategyEnabledMap.set(userId, false);
     trailingStopEnabledMap.set(userId, false);
   } else {
-    const prior = breakoutModePriorState.get(userId);
-    if (prior) {
-      ictStrategyEnabledMap.set(userId, prior.ict);
-      smcStrategyEnabledMap.set(userId, prior.smc);
-      trailingStopEnabledMap.set(userId, prior.trail);
-    } else {
-      ictStrategyEnabledMap.set(userId, true);
-      smcStrategyEnabledMap.set(userId, true);
-      trailingStopEnabledMap.set(userId, true);
+    // Restore prior state — only when transitioning ON→OFF
+    if (breakoutModeEnabledMap.get(userId)) {
+      const prior = breakoutModePriorState.get(userId);
+      if (prior) {
+        ictStrategyEnabledMap.set(userId, prior.ict);
+        smcStrategyEnabledMap.set(userId, prior.smc);
+        trailingStopEnabledMap.set(userId, prior.trail);
+        breakoutModePriorState.delete(userId);
+      } else {
+        ictStrategyEnabledMap.set(userId, true);
+        smcStrategyEnabledMap.set(userId, true);
+        trailingStopEnabledMap.set(userId, true);
+      }
     }
   }
   breakoutModeEnabledMap.set(userId, enabled);
+}
+
+/** Hydrate in-memory map from DB value without triggering ICT/SMC/trail side effects. */
+export function hydrateBreakoutModeMap(userId: number, enabled: boolean) {
+  if (!breakoutModeEnabledMap.has(userId)) {
+    breakoutModeEnabledMap.set(userId, enabled);
+  }
 }
 
 export function isBreakoutModeEnabled(userId: number): boolean {

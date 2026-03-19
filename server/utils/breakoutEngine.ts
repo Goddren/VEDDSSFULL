@@ -53,27 +53,46 @@ function calcBollingerBands(candles: BreakoutCandle[], period = 20, mult = 2) {
   return { upper: mean + mult * stdDev, lower: mean - mult * stdDev, middle: mean, width: 2 * mult * stdDev };
 }
 
-// ─── Strategy 1: Asian Range Breakout (ARB) ───────────────────────────────
+/** Get the UTC date string (YYYY-MM-DD) for a candle's timestamp */
+function candleDateKey(c: BreakoutCandle): string | null {
+  if (!c.t) return null;
+  const d = new Date(c.t * 1000);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+}
+
+// ─── Strategy 1: Asian Range Breakout (ARB) — date-bounded ────────────────
 function asianRangeBreakout(m15Candles: BreakoutCandle[], currentPrice: number): BreakoutStrategyResult {
   const name = 'Asian Range Breakout (ARB)';
-  const now = new Date();
-  const utcHour = now.getUTCHours();
+  if (m15Candles.length === 0) {
+    return { name, fired: false, direction: 'NEUTRAL', reason: 'No M15 candles supplied', strength: 0 };
+  }
+
+  // Determine reference day from the most recent candle
+  const refDate = candleDateKey(m15Candles[0]);
+  if (!refDate) return { name, fired: false, direction: 'NEUTRAL', reason: 'No timestamp on candles', strength: 0 };
+
+  // For current-day Asian session: same date, 00:00–07:00 UTC
+  // Candles are newest-first, so check today and yesterday (Asian session may be previous calendar day)
+  const prevDate = new Date(m15Candles[0].t! * 1000);
+  prevDate.setUTCDate(prevDate.getUTCDate() - 1);
+  const prevDateKey = `${prevDate.getUTCFullYear()}-${String(prevDate.getUTCMonth() + 1).padStart(2, '0')}-${String(prevDate.getUTCDate()).padStart(2, '0')}`;
 
   const asianCandles = m15Candles.filter((c) => {
     if (!c.t) return false;
-    const h = new Date(c.t * 1000).getUTCHours();
-    return h >= 0 && h < 7;
+    const d = new Date(c.t * 1000);
+    const dk = candleDateKey(c);
+    const h = d.getUTCHours();
+    return (dk === refDate || dk === prevDateKey) && h >= 0 && h < 7;
   });
 
   if (asianCandles.length < 4) {
-    return { name, fired: false, direction: 'NEUTRAL', reason: 'Not enough Asian session candles', strength: 0 };
+    return { name, fired: false, direction: 'NEUTRAL', reason: `Only ${asianCandles.length} Asian session candles on ${refDate}/${prevDateKey} (need 4+)`, strength: 0 };
   }
 
   const high = Math.max(...asianCandles.map(c => c.h));
   const low = Math.min(...asianCandles.map(c => c.l));
   const range = high - low;
-
-  if (range === 0) return { name, fired: false, direction: 'NEUTRAL', reason: 'Zero range', strength: 0 };
+  if (range === 0) return { name, fired: false, direction: 'NEUTRAL', reason: 'Zero Asian range', strength: 0 };
 
   const threshold = range * 0.15;
   const bullish = currentPrice > high + threshold;
@@ -91,29 +110,33 @@ function asianRangeBreakout(m15Candles: BreakoutCandle[], currentPrice: number):
   return { name, fired: false, direction: 'NEUTRAL', reason: `Price within Asian range (${low.toFixed(5)}–${high.toFixed(5)})`, strength: 0 };
 }
 
-// ─── Strategy 2: Opening Range Breakout (ORB) ─────────────────────────────
+// ─── Strategy 2: Opening Range Breakout (ORB) — date-bounded + body vs ORB range ──
 function openingRangeBreakout(m5Candles: BreakoutCandle[], currentPrice: number): BreakoutStrategyResult {
   const name = 'Opening Range Breakout (ORB)';
+  if (m5Candles.length === 0) return { name, fired: false, direction: 'NEUTRAL', reason: 'No M5 candles', strength: 0 };
 
-  const londonCandles = m5Candles.filter((c) => {
-    if (!c.t) return false;
-    const h = new Date(c.t * 1000).getUTCHours();
-    const m = new Date(c.t * 1000).getUTCMinutes();
-    return (h === 7 && m >= 0 && m < 30);
-  });
+  // Reference day: most recent candle
+  const refDate = candleDateKey(m5Candles[0]);
+  if (!refDate) return { name, fired: false, direction: 'NEUTRAL', reason: 'No timestamp on M5 candles', strength: 0 };
 
-  const nyCandles = m5Candles.filter((c) => {
+  // Date-scoped session filter helper
+  const sessionFilter = (c: BreakoutCandle, startH: number, startM: number, endH: number, endM: number) => {
     if (!c.t) return false;
-    const h = new Date(c.t * 1000).getUTCHours();
-    const m = new Date(c.t * 1000).getUTCMinutes();
-    return (h === 13 && m >= 0 && m < 30);
-  });
+    const d = new Date(c.t * 1000);
+    if (candleDateKey(c) !== refDate) return false;
+    const mins = d.getUTCHours() * 60 + d.getUTCMinutes();
+    return mins >= startH * 60 + startM && mins < endH * 60 + endM;
+  };
+
+  // London open: 07:00–07:30 UTC; NY open: 13:00–13:30 UTC
+  const londonCandles = m5Candles.filter(c => sessionFilter(c, 7, 0, 7, 30));
+  const nyCandles = m5Candles.filter(c => sessionFilter(c, 13, 0, 13, 30));
 
   const openCandles = londonCandles.length >= 3 ? londonCandles : nyCandles.length >= 3 ? nyCandles : [];
   const session = londonCandles.length >= 3 ? 'London' : 'NY';
 
   if (openCandles.length < 3) {
-    return { name, fired: false, direction: 'NEUTRAL', reason: 'Not in opening range window', strength: 0 };
+    return { name, fired: false, direction: 'NEUTRAL', reason: `No ${session} opening range window on ${refDate}`, strength: 0 };
   }
 
   const high = Math.max(...openCandles.map(c => c.h));
@@ -123,20 +146,21 @@ function openingRangeBreakout(m5Candles: BreakoutCandle[], currentPrice: number)
 
   const lastCandle = m5Candles[0];
   const bodySize = Math.abs(lastCandle.c - lastCandle.o);
-  const bodyPct = bodySize / (lastCandle.h - lastCandle.l || 1);
+  // Body must be > 50% of the OPENING RANGE (not the breakout candle's own H-L)
+  const bodyVsORBPct = bodySize / range;
 
-  const bullish = lastCandle.c > high && bodyPct > 0.5;
-  const bearish = lastCandle.c < low && bodyPct > 0.5;
+  const bullish = lastCandle.c > high && bodyVsORBPct > 0.5;
+  const bearish = lastCandle.c < low && bodyVsORBPct > 0.5;
 
   if (bullish || bearish) {
     return {
       name, fired: true,
       direction: bullish ? 'BUY' : 'SELL',
-      reason: `${session} ORB ${bullish ? 'bullish' : 'bearish'} breakout — body ${Math.round(bodyPct * 100)}% of candle`,
-      strength: bodyPct,
+      reason: `${session} ORB ${bullish ? 'bullish' : 'bearish'} breakout — body is ${Math.round(bodyVsORBPct * 100)}% of opening range`,
+      strength: Math.min(bodyVsORBPct, 1),
     };
   }
-  return { name, fired: false, direction: 'NEUTRAL', reason: `Price inside ${session} ORB (${low.toFixed(5)}–${high.toFixed(5)})`, strength: 0 };
+  return { name, fired: false, direction: 'NEUTRAL', reason: `Price inside ${session} ORB (${low.toFixed(5)}–${high.toFixed(5)}) or weak body vs ORB`, strength: 0 };
 }
 
 // ─── Strategy 3: Donchian Channel Breakout ────────────────────────────────
@@ -225,23 +249,23 @@ function supplyDemandBreak(h4Candles: BreakoutCandle[], currentPrice: number): B
     }
   }
 
-  // BUY: price has broken above demand zone top AND retested (price dipped back near zone before current candle)
+  // BUY: price broke above demand zone top AND a retest is confirmed (at least one recent H4 candle touched zone top then closed above)
   if (bestDemandZoneTop > 0 && currentPrice > bestDemandZoneTop) {
     const retest = h4Candles.slice(1, 5).some(c => c.l <= bestDemandZoneTop && c.c > bestDemandZoneTop);
-    const breakPct = Math.round(((currentPrice - bestDemandZoneTop) / bestDemandZoneTop) * 10000);
     if (retest) {
+      const breakPct = Math.round(((currentPrice - bestDemandZoneTop) / bestDemandZoneTop) * 10000);
       return { name, fired: true, direction: 'BUY', reason: `Demand zone broken & retested: ${breakPct}bps above zone (${bestDemandZoneTop.toFixed(5)}) — institutional demand confirmed`, strength: 0.85 };
     }
-    return { name, fired: true, direction: 'BUY', reason: `Demand zone broken: price ${breakPct}bps above zone top (${bestDemandZoneTop.toFixed(5)}) — pending retest`, strength: 0.65 };
+    return { name, fired: false, direction: 'NEUTRAL', reason: `Demand zone broken (${bestDemandZoneTop.toFixed(5)}) but no retest confirmation yet`, strength: 0 };
   }
-  // SELL: price has broken below supply zone bottom AND retested
+  // SELL: price broke below supply zone bottom AND a retest is confirmed
   if (bestSupplyZoneBottom < Infinity && currentPrice < bestSupplyZoneBottom) {
     const retest = h4Candles.slice(1, 5).some(c => c.h >= bestSupplyZoneBottom && c.c < bestSupplyZoneBottom);
-    const breakPct = Math.round(((bestSupplyZoneBottom - currentPrice) / bestSupplyZoneBottom) * 10000);
     if (retest) {
+      const breakPct = Math.round(((bestSupplyZoneBottom - currentPrice) / bestSupplyZoneBottom) * 10000);
       return { name, fired: true, direction: 'SELL', reason: `Supply zone broken & retested: ${breakPct}bps below zone (${bestSupplyZoneBottom.toFixed(5)}) — institutional supply confirmed`, strength: 0.85 };
     }
-    return { name, fired: true, direction: 'SELL', reason: `Supply zone broken: price ${breakPct}bps below zone bottom (${bestSupplyZoneBottom.toFixed(5)}) — pending retest`, strength: 0.65 };
+    return { name, fired: false, direction: 'NEUTRAL', reason: `Supply zone broken (${bestSupplyZoneBottom.toFixed(5)}) but no retest confirmation yet`, strength: 0 };
   }
 
   return { name, fired: false, direction: 'NEUTRAL', reason: 'Price within supply/demand zones — no confirmed break', strength: 0 };

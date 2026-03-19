@@ -6533,8 +6533,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               );
             }
 
-            // Trailing stop: disable if user has turned it off globally
-            if (!isTrailingStopEnabled(token.userId)) {
+            // Trailing stop: disable if user has turned it off globally (skip entirely in breakout mode)
+            if (!useBreakoutMode && !isTrailingStopEnabled(token.userId)) {
               if (analysis.tradePlan) {
                 analysis.tradePlan.trailingStopDistance = 0;
                 analysis.tradePlan.trailingStopStep = 0;
@@ -6598,10 +6598,10 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               }
               // Wire breakout TP ladder (TP2, TP3) into trade plan for downstream use
               if (typeof aiConfirmation.adjustedTakeProfit2 === 'number' && aiConfirmation.adjustedTakeProfit2 > 0) {
-                (analysis.tradePlan as any).takeProfit2 = aiConfirmation.adjustedTakeProfit2;
+                analysis.tradePlan.takeProfit2 = aiConfirmation.adjustedTakeProfit2;
               }
               if (typeof aiConfirmation.adjustedTakeProfit3 === 'number' && aiConfirmation.adjustedTakeProfit3 > 0) {
-                (analysis.tradePlan as any).takeProfit3 = aiConfirmation.adjustedTakeProfit3;
+                analysis.tradePlan.takeProfit3 = aiConfirmation.adjustedTakeProfit3;
               }
               if (typeof aiConfirmation.adjustedEntry === 'number' && !isNaN(aiConfirmation.adjustedEntry) && aiConfirmation.adjustedEntry > 0 &&
                   Math.abs(aiConfirmation.adjustedEntry - currentPrice) < maxDeviation) {
@@ -14404,9 +14404,9 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   app.get("/api/breakout-mode", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
     const userId = req.user!.id;
-    const { isBreakoutModeEnabled, setBreakoutModeEnabled } = await import('./openai');
+    const { isBreakoutModeEnabled, hydrateBreakoutModeMap } = await import('./openai');
     const user = await storage.getUser(userId);
-    if (user?.breakoutModeEnabled !== undefined) setBreakoutModeEnabled(userId, user.breakoutModeEnabled);
+    if (user?.breakoutModeEnabled !== undefined) hydrateBreakoutModeMap(userId, user.breakoutModeEnabled);
     res.json({ enabled: isBreakoutModeEnabled(userId) });
   });
 
@@ -14451,9 +14451,9 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   app.get("/api/user/breakout-mode", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
     const userId = req.user!.id;
-    const { isBreakoutModeEnabled, setBreakoutModeEnabled } = await import('./openai');
+    const { isBreakoutModeEnabled, hydrateBreakoutModeMap } = await import('./openai');
     const user = await storage.getUser(userId);
-    if (user?.breakoutModeEnabled !== undefined) setBreakoutModeEnabled(userId, user.breakoutModeEnabled);
+    if (user?.breakoutModeEnabled !== undefined) hydrateBreakoutModeMap(userId, user.breakoutModeEnabled);
     res.json({ enabled: isBreakoutModeEnabled(userId) });
   });
 
