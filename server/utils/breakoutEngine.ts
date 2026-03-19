@@ -372,28 +372,42 @@ export function computeBreakoutScore(
   ];
 
   const fired = strategies.filter(s => s.fired);
-  const score = fired.length;
   const maxScore = 7;
-  const percentage = Math.round((score / maxScore) * 100);
 
-  // Grade by percentage of strategies fired: A≥70%, B≥50%, C≥35%, PASS<35%
-  let grade: 'A' | 'B' | 'C' | 'PASS';
-  if (percentage >= 70) grade = 'A';
-  else if (percentage >= 50) grade = 'B';
-  else if (percentage >= 35) grade = 'C';
-  else grade = 'PASS';
-
+  // Count directional votes among fired strategies
   const buyVotes = fired.filter(s => s.direction === 'BUY').length;
   const sellVotes = fired.filter(s => s.direction === 'SELL').length;
+  // Direction is only BUY or SELL; NEUTRAL = no majority direction
   const direction: 'BUY' | 'SELL' | 'NEUTRAL' =
     buyVotes > sellVotes ? 'BUY' : sellVotes > buyVotes ? 'SELL' : 'NEUTRAL';
 
+  // Score = strategies that fired IN THE SAME (majority) direction — alignment enforced
+  const alignedVotes = direction === 'BUY' ? buyVotes : direction === 'SELL' ? sellVotes : 0;
+  const score = alignedVotes; // Only directionally-aligned strategies count toward grade
+  const percentage = Math.round((score / maxScore) * 100);
+
+  // Grade by percentage of directionally-aligned strategies fired: A≥70%, B≥50%, C≥35%, PASS<35%
+  let grade: 'A' | 'B' | 'C' | 'PASS';
+  if (direction === 'NEUTRAL') {
+    grade = 'PASS'; // No clear direction → always reject
+  } else if (percentage >= 70) {
+    grade = 'A';
+  } else if (percentage >= 50) {
+    grade = 'B';
+  } else if (percentage >= 35) {
+    grade = 'C';
+  } else {
+    grade = 'PASS';
+  }
+
   const allCandles = [...h1Candles, ...m15Candles, ...m5Candles];
   const atr = calcATR(allCandles.length > 14 ? allCandles : h1Candles, 14);
-  const sign = direction === 'BUY' ? 1 : -1;
-  const tp1 = currentPrice + sign * atr;
-  const tp2 = currentPrice + sign * atr * 2;
-  const tp3 = currentPrice + sign * atr * 3;
+  // TP direction: always BUY or SELL — never use NEUTRAL (would produce wrong-side TPs)
+  const tpDirection = direction === 'NEUTRAL' ? 'SELL' : direction; // placeholder; caller must use final confirmed direction
+  const sign = tpDirection === 'BUY' ? 1 : -1;
+  const tp1 = direction !== 'NEUTRAL' ? currentPrice + sign * atr : 0;
+  const tp2 = direction !== 'NEUTRAL' ? currentPrice + sign * atr * 2 : 0;
+  const tp3 = direction !== 'NEUTRAL' ? currentPrice + sign * atr * 3 : 0;
 
   const breakoutCandle = [...m15Candles, ...h1Candles][0];
   const slDistance = atr * 1.5;

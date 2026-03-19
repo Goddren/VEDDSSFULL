@@ -1634,16 +1634,24 @@ INSTRUCTION: If grade is A or B and direction aligns with ${proposedSignal}, CON
       const fallbackSL = bc2
         ? (fallbackDir === 'BUY' ? bc2.l : bc2.h)
         : (tradePlan?.stopLoss || null);
+      // Recompute TP ladder using final fallbackDir (BUY/SELL only, not NEUTRAL)
+      const fbSign = fallbackDir === 'BUY' ? 1 : -1;
+      const fallbackCurrentPrice = tradePlan?.entryPrice || candleData[0]?.c || 0;
+      const fallbackTP1 = breakoutResult.atr > 0 ? fallbackCurrentPrice + fbSign * breakoutResult.atr : 0;
+      const fallbackTP2 = breakoutResult.atr > 0 ? fallbackCurrentPrice + fbSign * breakoutResult.atr * 2 : 0;
+      const fallbackTP3 = breakoutResult.atr > 0 ? fallbackCurrentPrice + fbSign * breakoutResult.atr * 3 : 0;
+
+      const isGradeOk = breakoutResult.grade === 'A' || breakoutResult.grade === 'B';
+      const directionOk = breakoutResult.direction !== 'NEUTRAL' && breakoutResult.direction === fallbackDir;
       return {
-        confirmed: breakoutResult.grade !== 'PASS' && breakoutResult.grade !== 'C' &&
-          (breakoutResult.direction === proposedSignal || breakoutResult.direction === 'NEUTRAL'),
+        confirmed: isGradeOk && directionOk,
         aiDirection: fallbackDir,
         aiConfidence: breakoutResult.percentage,
         reasoning: `[Breakout Engine Only — no AI key] Grade ${breakoutResult.grade} (${breakoutResult.score}/${breakoutResult.maxScore})\n\n${breakoutResult.summary}`,
         adjustedStopLoss: fallbackSL || undefined,
-        adjustedTakeProfit: breakoutResult.tp1 || undefined,
-        adjustedTakeProfit2: breakoutResult.tp2 || undefined,
-        adjustedTakeProfit3: breakoutResult.tp3 || undefined,
+        adjustedTakeProfit: fallbackTP1 || undefined,
+        adjustedTakeProfit2: fallbackTP2 || undefined,
+        adjustedTakeProfit3: fallbackTP3 || undefined,
         breakoutScore: breakoutResult.score,
         breakoutGrade: breakoutResult.grade,
         breakoutStrategies: breakoutResult.strategies,
@@ -1684,12 +1692,18 @@ INSTRUCTION: If grade is A or B and direction aligns with ${proposedSignal}, CON
       ? parsed.adjustedSL
       : deterministicSL;
 
-    // TP ladder: AI TP1 if given, else engine computed ATR ladder (TP1=1×ATR, TP2=2×ATR, TP3=3×ATR)
+    // TP ladder: recompute using final confirmed direction (BUY/SELL only — never NEUTRAL)
+    // This ensures correct sign even if AI direction differs from engine direction
+    const finalSign = direction === 'BUY' ? 1 : -1;
+    const engineTP1 = breakoutResult.atr > 0 ? currentPrice + finalSign * breakoutResult.atr : 0;
+    const engineTP2 = breakoutResult.atr > 0 ? currentPrice + finalSign * breakoutResult.atr * 2 : 0;
+    const engineTP3 = breakoutResult.atr > 0 ? currentPrice + finalSign * breakoutResult.atr * 3 : 0;
+
     const rawTP1 = typeof parsed.adjustedTP1 === 'number' && parsed.adjustedTP1 > 0
       ? parsed.adjustedTP1
-      : breakoutResult.tp1;
-    const rawTP2 = breakoutResult.tp2;
-    const rawTP3 = breakoutResult.tp3;
+      : engineTP1;
+    const rawTP2 = engineTP2;
+    const rawTP3 = engineTP3;
 
     const breakoutQuality: 'ELITE' | 'STRONG' | 'DEVELOPING' =
       parsed.breakoutQuality === 'ELITE' || parsed.breakoutQuality === 'STRONG' ? parsed.breakoutQuality : 'DEVELOPING';

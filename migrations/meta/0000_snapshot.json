@@ -6301,6 +6301,20 @@
           "notNull": false,
           "default": false
         },
+        "breakout_mode_enabled": {
+          "name": "breakout_mode_enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false,
+          "default": false
+        },
+        "trailing_stop_enabled": {
+          "name": "trailing_stop_enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false,
+          "default": true
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",
