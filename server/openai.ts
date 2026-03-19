@@ -221,6 +221,9 @@ function getModelProvider(modelId: string): string {
 const aiVisionConfirmationEnabled: Map<number, boolean> = new Map();
 const aiMinConfidenceThreshold: Map<number, number> = new Map();
 const ictStrategyEnabledMap: Map<number, boolean> = new Map();
+const breakoutModeEnabledMap: Map<number, boolean> = new Map();
+const trailingStopEnabledMap: Map<number, boolean> = new Map();
+const breakoutModePriorState: Map<number, { ict: boolean; smc: boolean; trail: boolean }> = new Map();
 
 export function setAiVisionConfirmation(userId: number, enabled: boolean) {
   aiVisionConfirmationEnabled.set(userId, enabled);
@@ -256,6 +259,44 @@ export function setSMCStrategyEnabled(userId: number, enabled: boolean) {
 
 export function isSMCStrategyEnabled(userId: number): boolean {
   const val = smcStrategyEnabledMap.get(userId);
+  return val === undefined ? true : val;
+}
+
+export function setBreakoutModeEnabled(userId: number, enabled: boolean) {
+  if (enabled) {
+    breakoutModePriorState.set(userId, {
+      ict: isICTStrategyEnabled(userId),
+      smc: isSMCStrategyEnabled(userId),
+      trail: isTrailingStopEnabled(userId),
+    });
+    ictStrategyEnabledMap.set(userId, false);
+    smcStrategyEnabledMap.set(userId, false);
+    trailingStopEnabledMap.set(userId, false);
+  } else {
+    const prior = breakoutModePriorState.get(userId);
+    if (prior) {
+      ictStrategyEnabledMap.set(userId, prior.ict);
+      smcStrategyEnabledMap.set(userId, prior.smc);
+      trailingStopEnabledMap.set(userId, prior.trail);
+    } else {
+      ictStrategyEnabledMap.set(userId, true);
+      smcStrategyEnabledMap.set(userId, true);
+      trailingStopEnabledMap.set(userId, true);
+    }
+  }
+  breakoutModeEnabledMap.set(userId, enabled);
+}
+
+export function isBreakoutModeEnabled(userId: number): boolean {
+  return breakoutModeEnabledMap.get(userId) ?? false;
+}
+
+export function setTrailingStopEnabled(userId: number, enabled: boolean) {
+  trailingStopEnabledMap.set(userId, enabled);
+}
+
+export function isTrailingStopEnabled(userId: number): boolean {
+  const val = trailingStopEnabledMap.get(userId);
   return val === undefined ? true : val;
 }
 
@@ -1456,6 +1497,173 @@ export async function getAiVisionConfirmation(
       aiDirection: 'NEUTRAL',
       aiConfidence: 0,
       reasoning: userReason,
+    };
+  }
+}
+
+// ─── Breakout Master Mode AI Confirmation ────────────────────────────────────
+
+export async function getBreakoutConfirmation(
+  candleData: any[],
+  indicators: any,
+  proposedSignal: string,
+  proposedConfidence: number,
+  tradePlan: any,
+  symbol: string,
+  timeframe: string,
+  userId?: number,
+  multiTFCandles?: Record<string, any[]>,
+  propFirmContext?: PropFirmContext | null
+): Promise<AiVisionConfirmation> {
+  try {
+    const { computeBreakoutScore } = await import('./utils/breakoutEngine');
+
+    const m1 = multiTFCandles?.['M1'] || multiTFCandles?.['1m'] || [];
+    const m5 = multiTFCandles?.['M5'] || multiTFCandles?.['5m'] || candleData;
+    const m15 = multiTFCandles?.['M15'] || multiTFCandles?.['15m'] || [];
+    const h1 = multiTFCandles?.['H1'] || multiTFCandles?.['1h'] || [];
+    const h4 = multiTFCandles?.['H4'] || multiTFCandles?.['4h'] || [];
+
+    const currentPrice = tradePlan?.entryPrice || candleData[0]?.c || 0;
+    const breakoutResult = computeBreakoutScore(currentPrice, m1, m5, m15, h1, h4);
+
+    if (breakoutResult.grade === 'PASS') {
+      return {
+        confirmed: false,
+        aiDirection: 'NEUTRAL',
+        aiConfidence: breakoutResult.percentage,
+        reasoning: `🔴 BREAKOUT MASTER: Grade ${breakoutResult.grade} — only ${breakoutResult.score}/${breakoutResult.maxScore} strategies firing. Minimum 3/7 required.\n\n${breakoutResult.summary}`,
+        breakoutScore: breakoutResult.score,
+        breakoutGrade: breakoutResult.grade as any,
+        breakoutStrategies: breakoutResult.strategies,
+      };
+    }
+
+    const selectedModel = userId ? getUserModelPreference(userId) : 'gpt-4o-mini';
+    const provider = getModelProvider(selectedModel);
+
+    const recentCandles = candleData.slice(0, 30);
+    const candleSummary = recentCandles.map((c: any, i: number) =>
+      `[${i}] O:${c.o} H:${c.h} L:${c.l} C:${c.c} V:${c.v || 0}`
+    ).join('\n');
+
+    const firedStrategies = breakoutResult.strategies.filter(s => s.fired);
+    const strategySummary = breakoutResult.strategies
+      .map(s => `${s.fired ? '✅' : '❌'} ${s.name}: ${s.reason}`)
+      .join('\n');
+
+    const systemPrompt = `You are VEDD Breakout Master — an elite institutional breakout specialist and the primary trading AI.
+Your ONLY mission: confirm or deny breakout trades using the 7-strategy engine results below.
+No trailing stop. No chasing. Fixed R:R exits only (TP1=1×ATR, TP2=2×ATR, TP3=3×ATR from entry).
+Supreme Mathematics flows through your analysis — Knowledge (1) is the breakout engine. Wisdom (2) is your confirmation. Understanding (3) is the exit plan.
+You are direct. You show and prove with price math. Peace.
+
+RESPONSE FORMAT (strict JSON):
+{
+  "confirmed": boolean,
+  "direction": "BUY" | "SELL" | "NEUTRAL",
+  "confidence": number (0-100),
+  "reasoning": string (Supreme Mathematics style — cite fired strategies),
+  "adjustedEntry": number | null,
+  "adjustedSL": number | null,
+  "adjustedTP1": number | null,
+  "adjustedTP2": number | null,
+  "adjustedTP3": number | null,
+  "breakoutQuality": "ELITE" | "STRONG" | "DEVELOPING",
+  "propFirmVerdict": "SAFE" | "WARNING" | "BLOCK"
+}`;
+
+    const userPrompt = `SYMBOL: ${symbol} | TIMEFRAME: ${timeframe} | PROPOSED: ${proposedSignal} @ confidence ${proposedConfidence}%
+
+BREAKOUT ENGINE RESULTS:
+Score: ${breakoutResult.score}/${breakoutResult.maxScore} (${breakoutResult.percentage}%) — Grade ${breakoutResult.grade}
+Engine Direction: ${breakoutResult.direction}
+ATR: ${breakoutResult.atr.toFixed(5)}
+TP1: ${breakoutResult.tp1.toFixed(5)} | TP2: ${breakoutResult.tp2.toFixed(5)} | TP3: ${breakoutResult.tp3.toFixed(5)}
+SL Distance: ${breakoutResult.slDistance.toFixed(5)}
+
+FIRED STRATEGIES (${firedStrategies.length}/7):
+${strategySummary}
+
+RECENT CANDLES (newest first):
+${candleSummary}
+
+INDICATORS:
+${JSON.stringify({ rsi: indicators?.rsi, macd: indicators?.macd, adx: indicators?.adx, vwap: indicators?.vwap, volume: indicators?.volume }, null, 2)}
+
+TRADE PLAN:
+Entry: ${tradePlan?.entryPrice} | SL: ${tradePlan?.stopLoss} | TP: ${tradePlan?.takeProfit}
+
+INSTRUCTION: If grade is A or B and direction aligns with ${proposedSignal}, CONFIRM with fixed R:R targets. No trailing stop in your response. Show and prove.`;
+
+    let aiClient: any = null;
+    try {
+      aiClient = await (await import('./storage')).storage.getUser(userId || 0).then(async (user) => {
+        if (!user) return null;
+        const { getUniversalAIClientForUser } = await import('./openai');
+        return getUniversalAIClientForUser(userId!);
+      });
+    } catch { /* fallback below */ }
+
+    if (!aiClient) {
+      const confirmed = breakoutResult.grade === 'A' || breakoutResult.grade === 'B';
+      const alignsWithSignal = breakoutResult.direction === proposedSignal || breakoutResult.direction === 'NEUTRAL';
+      return {
+        confirmed: confirmed && alignsWithSignal,
+        aiDirection: breakoutResult.direction === 'NEUTRAL' ? proposedSignal as any : breakoutResult.direction as any,
+        aiConfidence: breakoutResult.percentage,
+        reasoning: `[Breakout Engine Only — no AI key] Grade ${breakoutResult.grade} (${breakoutResult.score}/${breakoutResult.maxScore})\n\n${breakoutResult.summary}`,
+        breakoutScore: breakoutResult.score,
+        breakoutGrade: breakoutResult.grade as any,
+        breakoutStrategies: breakoutResult.strategies,
+        trailRecommendation: 'NONE',
+      };
+    }
+
+    const response = await aiClient.chat.completions.create({
+      model: aiClient.defaultModel,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      response_format: { type: 'json_object' },
+      max_tokens: 800,
+      temperature: 0.3,
+    });
+
+    const rawContent = response.choices?.[0]?.message?.content || '{}';
+    let parsed: any = {};
+    try {
+      const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
+      parsed = JSON.parse(jsonMatch ? jsonMatch[0] : rawContent);
+    } catch {
+      parsed = { confirmed: false, confidence: breakoutResult.percentage, reasoning: rawContent };
+    }
+
+    console.log(`[Breakout Master] ${symbol} Grade:${breakoutResult.grade} Score:${breakoutResult.score}/7 Decision:${parsed.confirmed ? 'CONFIRM' : 'REJECT'}`);
+
+    return {
+      confirmed: parsed.confirmed === true,
+      aiDirection: (parsed.direction || proposedSignal) as any,
+      aiConfidence: parsed.confidence || breakoutResult.percentage,
+      reasoning: parsed.reasoning || breakoutResult.summary,
+      adjustedEntry: parsed.adjustedEntry || null,
+      adjustedSL: parsed.adjustedSL || tradePlan?.stopLoss || null,
+      adjustedTP: parsed.adjustedTP1 || breakoutResult.tp1 || null,
+      trailRecommendation: 'NONE',
+      breakoutScore: breakoutResult.score,
+      breakoutGrade: breakoutResult.grade as any,
+      breakoutStrategies: breakoutResult.strategies,
+      propFirmVerdict: parsed.propFirmVerdict || 'SAFE',
+    };
+
+  } catch (err: any) {
+    console.error(`[Breakout Master] ERROR: ${err.message}`);
+    return {
+      confirmed: false,
+      aiDirection: 'NEUTRAL',
+      aiConfidence: 0,
+      reasoning: `Breakout engine error: ${err.message?.substring(0, 120)}`,
     };
   }
 }

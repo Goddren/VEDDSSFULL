@@ -50,6 +50,8 @@ export const users = pgTable("users", {
   membershipTier: text("membership_tier").default('none'), // none, basic, pro, elite - token-gated membership
   membershipNftMint: text("membership_nft_mint"), // VEDD membership NFT mint address for elite tier
   hasVeddNft: boolean("has_vedd_nft").default(false), // Holds a VEDD membership NFT
+  breakoutModeEnabled: boolean("breakout_mode_enabled").default(false), // Breakout Master Mode for 2nd confirmation AI
+  trailingStopEnabled: boolean("trailing_stop_enabled").default(true), // Remove trailing stop from AI recommendations when false
   // faithBasedContent field temporarily removed due to database issues
   // Using localStorage instead of database column for faith-based content preferences
   // referralCode field temporarily removed due to database issues

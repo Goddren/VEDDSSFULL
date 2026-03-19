@@ -6427,7 +6427,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           analysis.confidence >= MIN_CONFIDENCE_FOR_AUTO_TRADE && 
           analysis.tradePlan) {
         try {
-          const { isAiVisionConfirmationEnabled, getAiVisionConfirmation, addAiConfirmationLog, getUserModelPreference, AVAILABLE_VISION_MODELS, isICTStrategyEnabled, isSMCStrategyEnabled, isPropFirmModeEnabled, getPropFirmContext } = await import('./openai');
+          const { isAiVisionConfirmationEnabled, getAiVisionConfirmation, getBreakoutConfirmation, addAiConfirmationLog, getUserModelPreference, AVAILABLE_VISION_MODELS, isICTStrategyEnabled, isSMCStrategyEnabled, isPropFirmModeEnabled, getPropFirmContext, isBreakoutModeEnabled, isTrailingStopEnabled } = await import('./openai');
           if (isAiVisionConfirmationEnabled(token.userId)) {
             console.log(`[AI Vision Confirmation] Enabled for user ${token.userId} - requesting AI second opinion on ${sanitizedSymbol}`);
             const selectedModelId = getUserModelPreference(token.userId);
@@ -6512,22 +6512,35 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             }
 
             const propFirmCtx = isPropFirmModeEnabled(token.userId) ? getPropFirmContext(token.userId) : null;
+            const useBreakoutMode = isBreakoutModeEnabled(token.userId);
 
-            aiConfirmation = await getAiVisionConfirmation(
-              candles,
-              analysis.indicators,
-              analysis.signal,
-              analysis.confidence,
-              analysis.tradePlan,
-              sanitizedSymbol,
-              sanitizedTimeframe,
-              token.userId,
-              newsContextForAI,
-              ictContext,
-              smcContext,
-              htfLevels.length > 0 ? htfLevels : undefined,
-              propFirmCtx
-            );
+            if (useBreakoutMode) {
+              console.log(`[Breakout Master] Mode active for user ${token.userId} — routing ${sanitizedSymbol} to 7-strategy breakout engine`);
+              const multiTFCandles: Record<string, any[]> = {};
+              htfLevels.forEach(h => { multiTFCandles[h.timeframe] = h.candles; });
+              multiTFCandles[sanitizedTimeframe] = candles;
+              aiConfirmation = await getBreakoutConfirmation(
+                candles, analysis.indicators, analysis.signal, analysis.confidence,
+                analysis.tradePlan, sanitizedSymbol, sanitizedTimeframe,
+                token.userId, multiTFCandles, propFirmCtx
+              );
+            } else {
+              aiConfirmation = await getAiVisionConfirmation(
+                candles, analysis.indicators, analysis.signal, analysis.confidence,
+                analysis.tradePlan, sanitizedSymbol, sanitizedTimeframe,
+                token.userId, newsContextForAI, ictContext, smcContext,
+                htfLevels.length > 0 ? htfLevels : undefined, propFirmCtx
+              );
+            }
+
+            // Trailing stop: disable if user has turned it off globally
+            if (!isTrailingStopEnabled(token.userId)) {
+              if (analysis.tradePlan) {
+                analysis.tradePlan.trailingStopDistance = 0;
+                analysis.tradePlan.trailingStopStep = 0;
+              }
+              if (aiConfirmation) aiConfirmation.trailRecommendation = 'NONE';
+            }
             
             // Confidence gate: AI can override low EA confidence if AI is confident enough
             // - Both pass (EA >= 80% AND AI >= threshold) → APPROVED
@@ -14379,6 +14392,42 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     }
     setPropFirmContext(req.user!.id, ctx);
     res.json({ success: true, context: getPropFirmContext(req.user!.id) });
+  });
+
+  app.get("/api/breakout-mode", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
+    const { isBreakoutModeEnabled } = await import('./openai');
+    res.json({ enabled: isBreakoutModeEnabled(req.user!.id) });
+  });
+
+  app.post("/api/breakout-mode", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
+    const { enabled } = req.body;
+    if (typeof enabled !== 'boolean') return res.status(400).json({ message: "enabled must be a boolean" });
+    const { setBreakoutModeEnabled, isBreakoutModeEnabled, isICTStrategyEnabled, isSMCStrategyEnabled, isTrailingStopEnabled } = await import('./openai');
+    setBreakoutModeEnabled(req.user!.id, enabled);
+    res.json({
+      success: true,
+      breakoutMode: isBreakoutModeEnabled(req.user!.id),
+      ict: isICTStrategyEnabled(req.user!.id),
+      smc: isSMCStrategyEnabled(req.user!.id),
+      trailingStop: isTrailingStopEnabled(req.user!.id),
+    });
+  });
+
+  app.get("/api/trailing-stop-setting", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
+    const { isTrailingStopEnabled } = await import('./openai');
+    res.json({ enabled: isTrailingStopEnabled(req.user!.id) });
+  });
+
+  app.post("/api/trailing-stop-setting", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
+    const { enabled } = req.body;
+    if (typeof enabled !== 'boolean') return res.status(400).json({ message: "enabled must be a boolean" });
+    const { setTrailingStopEnabled, isTrailingStopEnabled } = await import('./openai');
+    setTrailingStopEnabled(req.user!.id, enabled);
+    res.json({ success: true, enabled: isTrailingStopEnabled(req.user!.id) });
   });
 
   app.get("/api/ai-trading-models", async (req: Request, res: Response) => {

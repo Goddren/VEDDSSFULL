@@ -1324,6 +1324,16 @@ export default function MT5ChartDataPage() {
     enabled: aiConfirmationSetting?.enabled || false,
   });
 
+  const { data: breakoutModeSetting } = useQuery<{ enabled: boolean }>({
+    queryKey: ['/api/breakout-mode'],
+    enabled: aiConfirmationSetting?.enabled || false,
+  });
+
+  const { data: trailingStopSetting } = useQuery<{ enabled: boolean }>({
+    queryKey: ['/api/trailing-stop-setting'],
+    enabled: aiConfirmationSetting?.enabled || false,
+  });
+
   const { data: connectedPairsData } = useQuery<{ activePairs: Array<{ symbol: string }> }>({
     queryKey: ['/api/mt5/connected-pairs'],
     refetchInterval: 30000,
@@ -1464,6 +1474,41 @@ export default function MT5ChartDataPage() {
         description: data.enabled
           ? 'AI will now apply strict prop firm rules: news blocks, drawdown guards, and R:R enforcement.'
           : 'Prop firm mode off — standard confirmation rules apply.',
+      });
+    },
+  });
+
+  const toggleBreakoutModeMutation = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      const res = await apiRequest('POST', '/api/breakout-mode', { enabled });
+      return res.json();
+    },
+    onSuccess: (data: { breakoutMode: boolean; ict: boolean; smc: boolean; trailingStop: boolean }) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/breakout-mode'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/ict-strategy-setting'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/smc-strategy-setting'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/trailing-stop-setting'] });
+      toast({
+        title: data.breakoutMode ? 'Breakout Master Mode Activated' : 'Breakout Master Mode Deactivated',
+        description: data.breakoutMode
+          ? 'Breakout engine now active — 7 strategies running. ICT, SMC & trailing stop auto-paused.'
+          : 'Standard AI confirmation restored. Previous ICT/SMC/trailing stop settings recovered.',
+      });
+    },
+  });
+
+  const toggleTrailingStopMutation = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      const res = await apiRequest('POST', '/api/trailing-stop-setting', { enabled });
+      return res.json();
+    },
+    onSuccess: (data: { enabled: boolean }) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/trailing-stop-setting'] });
+      toast({
+        title: data.enabled ? 'Trailing Stop Enabled' : 'Trailing Stop Disabled',
+        description: data.enabled
+          ? 'AI will apply dynamic trailing stops to all confirmed trades.'
+          : 'Fixed TP only — no trailing stop will be applied.',
       });
     },
   });
@@ -1911,6 +1956,62 @@ export default function MT5ChartDataPage() {
                     checked={propFirmModeSetting?.enabled ?? false}
                     onCheckedChange={(checked) => togglePropFirmModeMutation.mutate(checked)}
                     disabled={togglePropFirmModeMutation.isPending}
+                  />
+                </div>
+
+                {/* Trailing Stop Toggle */}
+                <div className="border-t border-purple-500/20 pt-3 flex items-start justify-between gap-4">
+                  <div className="flex items-start gap-2 flex-1">
+                    <div className="p-1.5 rounded bg-cyan-500/10 mt-0.5">
+                      <TrendingUp className="w-3.5 h-3.5 text-cyan-400" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-white">Trailing Stop</p>
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        When enabled, AI applies a dynamic trailing stop to lock in profits as price moves in your favour. Disable for fixed TP-only exits — useful in high-volatility breakout conditions or prop firm challenges where trailing stops may trigger false exits.
+                      </p>
+                      {(trailingStopSetting?.enabled ?? true) && (
+                        <p className="text-[11px] text-cyan-300 mt-1 flex items-center gap-1">
+                          <CheckCircle className="w-3 h-3" />
+                          Dynamic trail · AI-adjusted per volatility
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <Switch
+                    checked={trailingStopSetting?.enabled ?? true}
+                    onCheckedChange={(checked) => toggleTrailingStopMutation.mutate(checked)}
+                    disabled={toggleTrailingStopMutation.isPending || breakoutModeSetting?.enabled}
+                  />
+                </div>
+
+                {/* Breakout Master Mode Toggle */}
+                <div className={`border-t pt-3 flex items-start justify-between gap-4 ${breakoutModeSetting?.enabled ? 'border-amber-500/40 bg-amber-500/5 rounded-lg px-3 pb-3' : 'border-purple-500/20'}`}>
+                  <div className="flex items-start gap-2 flex-1">
+                    <div className={`p-1.5 rounded mt-0.5 ${breakoutModeSetting?.enabled ? 'bg-amber-500/20 shadow-[0_0_8px_rgba(245,158,11,0.5)]' : 'bg-amber-500/10'}`}>
+                      <Zap className={`w-3.5 h-3.5 ${breakoutModeSetting?.enabled ? 'text-amber-300' : 'text-amber-400'}`} />
+                    </div>
+                    <div>
+                      <p className={`text-sm font-semibold ${breakoutModeSetting?.enabled ? 'text-amber-300' : 'text-white'}`}>
+                        Breakout Master Mode
+                        {breakoutModeSetting?.enabled && <span className="ml-2 text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1.5 py-0.5 rounded-full">ACTIVE</span>}
+                      </p>
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        Replaces standard AI confirmation with a 7-strategy breakout engine — ARB, ORB, Donchian breakout, Bollinger Squeeze, Supply/Demand zone break, ICT BOS+FVG, and VWAP Volume Surge. Grade A (≥70%) or B (≥50%) required to confirm. ICT, SMC, and trailing stop are auto-paused while active.
+                      </p>
+                      {breakoutModeSetting?.enabled && (
+                        <p className="text-[11px] text-amber-300 mt-1 flex items-center gap-1">
+                          <CheckCircle className="w-3 h-3" />
+                          ARB · ORB · Donchian · BB Squeeze · S/D Break · ICT BOS · VWAP Surge
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <Switch
+                    checked={breakoutModeSetting?.enabled ?? false}
+                    onCheckedChange={(checked) => toggleBreakoutModeMutation.mutate(checked)}
+                    disabled={toggleBreakoutModeMutation.isPending}
+                    className={breakoutModeSetting?.enabled ? '[&>span]:bg-amber-500' : ''}
                   />
                 </div>
               </div>

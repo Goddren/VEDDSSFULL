@@ -187,6 +187,13 @@ async function withRetry<T>(
       console.error('[startup] Lifetime→Yearly migration (non-fatal):', (err as Error).message);
     }
 
+    try {
+      await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS breakout_mode_enabled boolean DEFAULT false`);
+      await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS trailing_stop_enabled boolean DEFAULT true`);
+    } catch (err) {
+      console.error('[startup] AI settings columns migration (non-fatal):', (err as Error).message);
+    }
+
     await withRetry(() => seedSubscriptionPlans(), 'seedSubscriptionPlans');
     await withRetry(() => seedAchievements(), 'seedAchievements');
     await withRetry(() => seedAdminUser(), 'seedAdminUser');
