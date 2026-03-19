@@ -197,7 +197,7 @@ function bollingerSqueeze(h1Candles: BreakoutCandle[]): BreakoutStrategyResult {
   return { name, fired: false, direction: 'NEUTRAL', reason: 'BB squeeze detected but no breakout yet', strength: 0 };
 }
 
-// ─── Strategy 5: Supply / Demand Zone Break ───────────────────────────────
+// ─── Strategy 5: Supply / Demand Zone Break (with retest confirmation) ────
 function supplyDemandBreak(h4Candles: BreakoutCandle[], currentPrice: number): BreakoutStrategyResult {
   const name = 'Supply/Demand Zone Break';
   if (h4Candles.length < 20) {
@@ -212,35 +212,42 @@ function supplyDemandBreak(h4Candles: BreakoutCandle[], currentPrice: number): B
     const baseHigh = Math.max(...base.map(c => c.h));
     const baseLow = Math.min(...base.map(c => c.l));
     const baseRange = baseHigh - baseLow;
-
     const before = h4Candles[i + 3];
     const breakout = h4Candles[i - 1];
-
     if (!before || !breakout) continue;
-
     const impulse = Math.abs(breakout.c - before.c);
     if (impulse > baseRange * 2) {
       if (breakout.c > before.c) {
-        if (baseHigh > bestDemandZoneTop) bestDemandZoneTop = baseHigh;
+        if (baseHigh > bestDemandZoneTop) { bestDemandZoneTop = baseHigh; }
       } else {
-        if (baseLow < bestSupplyZoneBottom) bestSupplyZoneBottom = baseLow;
+        if (baseLow < bestSupplyZoneBottom) { bestSupplyZoneBottom = baseLow; }
       }
     }
   }
 
+  // BUY: price has broken above demand zone top AND retested (price dipped back near zone before current candle)
   if (bestDemandZoneTop > 0 && currentPrice > bestDemandZoneTop) {
+    const retest = h4Candles.slice(1, 5).some(c => c.l <= bestDemandZoneTop && c.c > bestDemandZoneTop);
     const breakPct = Math.round(((currentPrice - bestDemandZoneTop) / bestDemandZoneTop) * 10000);
-    return { name, fired: true, direction: 'BUY', reason: `Demand zone broken: price ${breakPct}bps above zone top (${bestDemandZoneTop.toFixed(5)})`, strength: 0.75 };
+    if (retest) {
+      return { name, fired: true, direction: 'BUY', reason: `Demand zone broken & retested: ${breakPct}bps above zone (${bestDemandZoneTop.toFixed(5)}) — institutional demand confirmed`, strength: 0.85 };
+    }
+    return { name, fired: true, direction: 'BUY', reason: `Demand zone broken: price ${breakPct}bps above zone top (${bestDemandZoneTop.toFixed(5)}) — pending retest`, strength: 0.65 };
   }
+  // SELL: price has broken below supply zone bottom AND retested
   if (bestSupplyZoneBottom < Infinity && currentPrice < bestSupplyZoneBottom) {
+    const retest = h4Candles.slice(1, 5).some(c => c.h >= bestSupplyZoneBottom && c.c < bestSupplyZoneBottom);
     const breakPct = Math.round(((bestSupplyZoneBottom - currentPrice) / bestSupplyZoneBottom) * 10000);
-    return { name, fired: true, direction: 'SELL', reason: `Supply zone broken: price ${breakPct}bps below zone bottom (${bestSupplyZoneBottom.toFixed(5)})`, strength: 0.75 };
+    if (retest) {
+      return { name, fired: true, direction: 'SELL', reason: `Supply zone broken & retested: ${breakPct}bps below zone (${bestSupplyZoneBottom.toFixed(5)}) — institutional supply confirmed`, strength: 0.85 };
+    }
+    return { name, fired: true, direction: 'SELL', reason: `Supply zone broken: price ${breakPct}bps below zone bottom (${bestSupplyZoneBottom.toFixed(5)}) — pending retest`, strength: 0.65 };
   }
 
   return { name, fired: false, direction: 'NEUTRAL', reason: 'Price within supply/demand zones — no confirmed break', strength: 0 };
 }
 
-// ─── Strategy 6: ICT Structural Break + LTF FVG Entry ────────────────────
+// ─── Strategy 6: ICT BOS/CHOCH + LTF FVG Entry (using smcUtils logic) ────
 function ictStructuralBreak(
   h1Candles: BreakoutCandle[],
   m15Candles: BreakoutCandle[],
@@ -251,36 +258,41 @@ function ictStructuralBreak(
     return { name, fired: false, direction: 'NEUTRAL', reason: 'Not enough candles for structural analysis', strength: 0 };
   }
 
+  // BOS detection: same logic as smcUtils.detectBOSCHOCH
+  // Bullish BOS = price closes above previous swing high (breaking prior internal high)
+  // Bearish BOS = price closes below previous swing low (breaking prior internal low)
   let bullishBOS = false;
   let bearishBOS = false;
-  const lookback = h1Candles.slice(0, 10);
-  for (let i = 1; i < lookback.length - 1; i++) {
-    const prev = lookback[i + 1];
-    const swingHigh = Math.max(...lookback.slice(i, i + 3).map(c => c.h));
-    const swingLow = Math.min(...lookback.slice(i, i + 3).map(c => c.l));
-    if (lookback[i - 1].c > swingHigh) bullishBOS = true;
-    if (lookback[i - 1].c < swingLow) bearishBOS = true;
+  const lookback = h1Candles.slice(0, Math.min(20, h1Candles.length));
+  // Find swing highs and lows in lookback
+  for (let i = 2; i < lookback.length - 2; i++) {
+    const isSwingHigh = lookback[i].h > lookback[i - 1].h && lookback[i].h > lookback[i + 1].h;
+    const isSwingLow = lookback[i].l < lookback[i - 1].l && lookback[i].l < lookback[i + 1].l;
+    if (isSwingHigh && lookback[0].c > lookback[i].h) bullishBOS = true;
+    if (isSwingLow && lookback[0].c < lookback[i].l) bearishBOS = true;
   }
 
+  // FVG detection in M15 (Fair Value Gap = 3-candle imbalance)
   let inBullFVG = false;
   let inBearFVG = false;
-  for (let i = 1; i < m15Candles.length - 1; i++) {
+  for (let i = 1; i < Math.min(m15Candles.length - 1, 15); i++) {
     const prev2 = m15Candles[i + 1];
-    const curr = m15Candles[i];
     const next = m15Candles[i - 1];
+    // Bullish FVG: prev2.h < next.l (gap between top of candle -2 and bottom of candle 0)
     if (prev2.h < next.l && currentPrice >= prev2.h && currentPrice <= next.l) inBullFVG = true;
+    // Bearish FVG: prev2.l > next.h
     if (prev2.l > next.h && currentPrice <= prev2.l && currentPrice >= next.h) inBearFVG = true;
   }
 
   if (bullishBOS && inBullFVG) {
-    return { name, fired: true, direction: 'BUY', reason: 'H1 bullish BOS confirmed + price in M15 bullish FVG — institutional entry zone', strength: 0.9 };
+    return { name, fired: true, direction: 'BUY', reason: 'H1 BOS (break of prior swing high) + price trading in M15 bullish FVG — ICT institutional entry zone', strength: 0.9 };
   }
   if (bearishBOS && inBearFVG) {
-    return { name, fired: true, direction: 'SELL', reason: 'H1 bearish BOS confirmed + price in M15 bearish FVG — institutional distribution zone', strength: 0.9 };
+    return { name, fired: true, direction: 'SELL', reason: 'H1 BOS (break of prior swing low) + price trading in M15 bearish FVG — ICT institutional distribution zone', strength: 0.9 };
   }
-
-  const bosMsg = bullishBOS ? 'Bullish H1 BOS (no FVG entry)' : bearishBOS ? 'Bearish H1 BOS (no FVG entry)' : 'No H1 BOS detected';
-  return { name, fired: false, direction: 'NEUTRAL', reason: bosMsg, strength: 0 };
+  if (bullishBOS) return { name, fired: false, direction: 'NEUTRAL', reason: 'H1 bullish BOS confirmed — no M15 FVG entry yet', strength: 0 };
+  if (bearishBOS) return { name, fired: false, direction: 'NEUTRAL', reason: 'H1 bearish BOS confirmed — no M15 FVG entry yet', strength: 0 };
+  return { name, fired: false, direction: 'NEUTRAL', reason: 'No H1 BOS/CHOCH detected in recent 20 candles', strength: 0 };
 }
 
 // ─── Strategy 7: VWAP + Volume Surge ─────────────────────────────────────

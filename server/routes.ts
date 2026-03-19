@@ -6596,6 +6596,13 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 analysis.tradePlan.takeProfit = aiConfirmation.adjustedTakeProfit;
                 hasAdjustments = true;
               }
+              // Wire breakout TP ladder (TP2, TP3) into trade plan for downstream use
+              if (typeof aiConfirmation.adjustedTakeProfit2 === 'number' && aiConfirmation.adjustedTakeProfit2 > 0) {
+                (analysis.tradePlan as any).takeProfit2 = aiConfirmation.adjustedTakeProfit2;
+              }
+              if (typeof aiConfirmation.adjustedTakeProfit3 === 'number' && aiConfirmation.adjustedTakeProfit3 > 0) {
+                (analysis.tradePlan as any).takeProfit3 = aiConfirmation.adjustedTakeProfit3;
+              }
               if (typeof aiConfirmation.adjustedEntry === 'number' && !isNaN(aiConfirmation.adjustedEntry) && aiConfirmation.adjustedEntry > 0 &&
                   Math.abs(aiConfirmation.adjustedEntry - currentPrice) < maxDeviation) {
                 analysis.tradePlan.entry = aiConfirmation.adjustedEntry;
@@ -14430,6 +14437,47 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   });
 
   app.post("/api/trailing-stop-setting", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
+    const { enabled } = req.body;
+    if (typeof enabled !== 'boolean') return res.status(400).json({ message: "enabled must be a boolean" });
+    const userId = req.user!.id;
+    const { setTrailingStopEnabled, isTrailingStopEnabled } = await import('./openai');
+    setTrailingStopEnabled(userId, enabled);
+    await storage.updateUser(userId, { trailingStopEnabled: enabled });
+    res.json({ success: true, enabled: isTrailingStopEnabled(userId) });
+  });
+
+  // Aliases for /api/user/breakout-mode and /api/user/trailing-stop-setting
+  app.get("/api/user/breakout-mode", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
+    const userId = req.user!.id;
+    const { isBreakoutModeEnabled, setBreakoutModeEnabled } = await import('./openai');
+    const user = await storage.getUser(userId);
+    if (user?.breakoutModeEnabled !== undefined) setBreakoutModeEnabled(userId, user.breakoutModeEnabled);
+    res.json({ enabled: isBreakoutModeEnabled(userId) });
+  });
+
+  app.post("/api/user/breakout-mode", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
+    const { enabled } = req.body;
+    if (typeof enabled !== 'boolean') return res.status(400).json({ message: "enabled must be a boolean" });
+    const userId = req.user!.id;
+    const { setBreakoutModeEnabled, isBreakoutModeEnabled, isICTStrategyEnabled, isSMCStrategyEnabled, isTrailingStopEnabled } = await import('./openai');
+    setBreakoutModeEnabled(userId, enabled);
+    await storage.updateUser(userId, { breakoutModeEnabled: enabled });
+    res.json({ success: true, breakoutMode: isBreakoutModeEnabled(userId), ict: isICTStrategyEnabled(userId), smc: isSMCStrategyEnabled(userId), trailingStop: isTrailingStopEnabled(userId) });
+  });
+
+  app.get("/api/user/trailing-stop-setting", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
+    const userId = req.user!.id;
+    const { isTrailingStopEnabled, setTrailingStopEnabled } = await import('./openai');
+    const user = await storage.getUser(userId);
+    if (user?.trailingStopEnabled !== undefined) setTrailingStopEnabled(userId, user.trailingStopEnabled);
+    res.json({ enabled: isTrailingStopEnabled(userId) });
+  });
+
+  app.post("/api/user/trailing-stop-setting", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
     const { enabled } = req.body;
     if (typeof enabled !== 'boolean') return res.status(400).json({ message: "enabled must be a boolean" });

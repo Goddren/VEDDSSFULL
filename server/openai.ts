@@ -342,6 +342,8 @@ export interface AiVisionConfirmation {
   adjustedEntry?: number;
   adjustedStopLoss?: number;
   adjustedTakeProfit?: number;
+  adjustedTakeProfit2?: number;
+  adjustedTakeProfit3?: number;
   trailRecommendation?: 'TIGHT' | 'STANDARD' | 'WIDE' | 'AGGRESSIVE' | 'NONE';
   recommendedTrailPips?: number | null;
   ictMacroValid?: boolean;
@@ -357,6 +359,10 @@ export interface AiVisionConfirmation {
   newsProximityMinutes?: number | null;
   riskPct?: number;
   dailyBufferPct?: number;
+  breakoutScore?: number;
+  breakoutGrade?: 'A' | 'B' | 'C' | 'PASS';
+  breakoutStrategies?: Array<{ name: string; fired: boolean; direction: string; reason: string; strength: number }>;
+  breakoutQuality?: 'ELITE' | 'STRONG' | 'DEVELOPING';
 }
 
 export interface AiConfirmationLogEntry {
@@ -1535,7 +1541,7 @@ export async function getBreakoutConfirmation(
         aiConfidence: breakoutResult.percentage,
         reasoning: `🔴 BREAKOUT MASTER: Grade ${breakoutResult.grade} — only ${breakoutResult.score}/${breakoutResult.maxScore} strategies firing. Minimum 3/7 (Grade B) required.\n\n${breakoutResult.summary}`,
         breakoutScore: breakoutResult.score,
-        breakoutGrade: breakoutResult.grade as any,
+        breakoutGrade: breakoutResult.grade,
         breakoutStrategies: breakoutResult.strategies,
       };
     }
@@ -1607,7 +1613,7 @@ INSTRUCTION: If grade is A or B and direction aligns with ${proposedSignal}, CON
     } catch { /* fallback below */ }
 
     if (!aiClient) {
-      const fallbackDir = breakoutResult.direction === 'NEUTRAL' ? proposedSignal : breakoutResult.direction;
+      const fallbackDir: string = breakoutResult.direction === 'NEUTRAL' ? proposedSignal : breakoutResult.direction;
       const bc2 = breakoutResult.breakoutCandle;
       const fallbackSL = bc2
         ? (fallbackDir === 'BUY' ? bc2.l - breakoutResult.atr * 0.25 : bc2.h + breakoutResult.atr * 0.25)
@@ -1615,15 +1621,16 @@ INSTRUCTION: If grade is A or B and direction aligns with ${proposedSignal}, CON
       return {
         confirmed: breakoutResult.grade !== 'PASS' && breakoutResult.grade !== 'C' &&
           (breakoutResult.direction === proposedSignal || breakoutResult.direction === 'NEUTRAL'),
-        aiDirection: fallbackDir as any,
+        aiDirection: fallbackDir,
         aiConfidence: breakoutResult.percentage,
         reasoning: `[Breakout Engine Only — no AI key] Grade ${breakoutResult.grade} (${breakoutResult.score}/${breakoutResult.maxScore})\n\n${breakoutResult.summary}`,
-        adjustedStopLoss: fallbackSL,
-        adjustedTakeProfit: breakoutResult.tp1 || null,
+        adjustedStopLoss: fallbackSL || undefined,
+        adjustedTakeProfit: breakoutResult.tp1 || undefined,
+        adjustedTakeProfit2: breakoutResult.tp2 || undefined,
+        adjustedTakeProfit3: breakoutResult.tp3 || undefined,
         breakoutScore: breakoutResult.score,
-        breakoutGrade: breakoutResult.grade as any,
+        breakoutGrade: breakoutResult.grade,
         breakoutStrategies: breakoutResult.strategies,
-        trailRecommendation: 'NONE' as any,
       };
     }
 
@@ -1650,7 +1657,7 @@ INSTRUCTION: If grade is A or B and direction aligns with ${proposedSignal}, CON
     console.log(`[Breakout Master] ${symbol} Grade:${breakoutResult.grade} Score:${breakoutResult.score}/7 Decision:${parsed.confirmed ? 'CONFIRM' : 'REJECT'}`);
 
     // Deterministic SL: use breakout candle's opposite wick (low for BUY, high for SELL)
-    const direction = (parsed.direction || breakoutResult.direction || proposedSignal) as string;
+    const direction: string = parsed.direction || breakoutResult.direction || proposedSignal;
     const bc = breakoutResult.breakoutCandle;
     const deterministicSL = bc
       ? (direction === 'BUY' ? bc.l - breakoutResult.atr * 0.25 : bc.h + breakoutResult.atr * 0.25)
@@ -1661,24 +1668,31 @@ INSTRUCTION: If grade is A or B and direction aligns with ${proposedSignal}, CON
       ? parsed.adjustedSL
       : deterministicSL;
 
-    // TP: AI TP1 if given, else use engine computed TP1 (ladder: TP1=1xATR, TP2=2xATR, TP3=3xATR)
-    const rawTP = typeof parsed.adjustedTP1 === 'number' && parsed.adjustedTP1 > 0
+    // TP ladder: AI TP1 if given, else engine computed ATR ladder (TP1=1×ATR, TP2=2×ATR, TP3=3×ATR)
+    const rawTP1 = typeof parsed.adjustedTP1 === 'number' && parsed.adjustedTP1 > 0
       ? parsed.adjustedTP1
       : breakoutResult.tp1;
+    const rawTP2 = breakoutResult.tp2;
+    const rawTP3 = breakoutResult.tp3;
+
+    const breakoutQuality: 'ELITE' | 'STRONG' | 'DEVELOPING' =
+      parsed.breakoutQuality === 'ELITE' || parsed.breakoutQuality === 'STRONG' ? parsed.breakoutQuality : 'DEVELOPING';
 
     return {
       confirmed: parsed.confirmed === true,
-      aiDirection: direction as any,
-      aiConfidence: parsed.confidence || breakoutResult.percentage,
+      aiDirection: direction,
+      aiConfidence: typeof parsed.confidence === 'number' ? parsed.confidence : breakoutResult.percentage,
       reasoning: parsed.reasoning || breakoutResult.summary,
-      adjustedEntry: typeof parsed.adjustedEntry === 'number' && parsed.adjustedEntry > 0 ? parsed.adjustedEntry : null,
-      adjustedStopLoss: rawSL,
-      adjustedTakeProfit: rawTP,
-      trailRecommendation: 'NONE' as any,
+      adjustedEntry: typeof parsed.adjustedEntry === 'number' && parsed.adjustedEntry > 0 ? parsed.adjustedEntry : undefined,
+      adjustedStopLoss: rawSL || undefined,
+      adjustedTakeProfit: rawTP1 || undefined,
+      adjustedTakeProfit2: rawTP2 || undefined,
+      adjustedTakeProfit3: rawTP3 || undefined,
       breakoutScore: breakoutResult.score,
-      breakoutGrade: breakoutResult.grade as any,
+      breakoutGrade: breakoutResult.grade,
       breakoutStrategies: breakoutResult.strategies,
-      propFirmVerdict: parsed.propFirmVerdict || 'SAFE',
+      breakoutQuality,
+      propFirmVerdict: (['SAFE', 'WARNING', 'BLOCK'] as const).includes(parsed.propFirmVerdict) ? parsed.propFirmVerdict : 'SAFE',
     };
 
   } catch (err: any) {
