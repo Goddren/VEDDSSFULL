@@ -6561,17 +6561,23 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             // - Both pass (EA >= 80% AND AI >= threshold) → APPROVED
             // - AI passes but EA doesn't (AI >= threshold) → AI OVERRIDE (trade allowed)
             // - AI fails (regardless of EA) → BLOCKED
+            // In breakout mode: bypass percentage gate — use breakout grade (A or B = pass)
             const { getAiMinConfidence } = await import('./openai');
             const AI_MIN_CONFIDENCE = getAiMinConfidence(token.userId);
             const EA_MIN_CONFIDENCE_FOR_AI_GATE = 80;
-            const aiPasses = aiConfirmation.aiConfidence >= AI_MIN_CONFIDENCE;
+            const breakoutGrade = aiConfirmation.breakoutGrade as string | undefined;
+            const aiPasses = useBreakoutMode
+              ? (breakoutGrade === 'A' || breakoutGrade === 'B') && aiConfirmation.confirmed
+              : aiConfirmation.aiConfidence >= AI_MIN_CONFIDENCE;
             const eaPasses = preConfirmConfidence >= EA_MIN_CONFIDENCE_FOR_AI_GATE;
-            const tradeAllowed = aiPasses; // AI confidence is the deciding factor
+            const tradeAllowed = aiPasses; // AI/breakout-grade is the deciding factor
 
             if (!tradeAllowed) {
-              const reason = !eaPasses
-                ? `Both below threshold (AI: ${aiConfirmation.aiConfidence}% < ${AI_MIN_CONFIDENCE}%, EA: ${preConfirmConfidence}% < ${EA_MIN_CONFIDENCE_FOR_AI_GATE}%)`
-                : `AI confidence too low (AI: ${aiConfirmation.aiConfidence}% < ${AI_MIN_CONFIDENCE}%, EA: ${preConfirmConfidence}%)`;
+              const reason = useBreakoutMode
+                ? `Breakout grade insufficient (Grade ${breakoutGrade || 'PASS'} — need Grade A or B with ≥50% strategies firing)`
+                : (!eaPasses
+                  ? `Both below threshold (AI: ${aiConfirmation.aiConfidence}% < ${AI_MIN_CONFIDENCE}%, EA: ${preConfirmConfidence}% < ${EA_MIN_CONFIDENCE_FOR_AI_GATE}%)`
+                  : `AI confidence too low (AI: ${aiConfirmation.aiConfidence}% < ${AI_MIN_CONFIDENCE}%, EA: ${preConfirmConfidence}%)`);
               console.log(`[AI Vision Confirmation] BLOCKED trade on ${sanitizedSymbol} - ${reason}: ${aiConfirmation.reasoning}`);
               analysis.alerts.push(`TRADE BLOCKED: ${reason} - ${aiConfirmation.reasoning}`);
               aiConfirmation.confirmed = false;
