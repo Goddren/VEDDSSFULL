@@ -1555,7 +1555,7 @@ export async function getBreakoutConfirmation(
         confirmed: false,
         aiDirection: 'NEUTRAL',
         aiConfidence: breakoutResult.percentage,
-        reasoning: `🔴 BREAKOUT MASTER: Grade ${breakoutResult.grade} — ${breakoutResult.score}/${breakoutResult.maxScore} strategies fired (direction: ${breakoutResult.direction}). Minimum 3 strategies must align in the same direction (Grade B) to CONFIRM.\n\n${breakoutResult.summary}`,
+        reasoning: `🔴 BREAKOUT MASTER: Grade ${breakoutResult.grade} — ${breakoutResult.alignedVotes} aligned (${breakoutResult.alignedPct}%) out of ${breakoutResult.maxScore} strategies (direction: ${breakoutResult.direction}). Minimum Grade B (≥50% aligned = ≥4/7 strategies) required to CONFIRM.\n\n${breakoutResult.summary}`,
         breakoutScore: breakoutResult.score,
         breakoutGrade: breakoutResult.grade,
         breakoutStrategies: breakoutResult.strategies,
@@ -1680,7 +1680,7 @@ INSTRUCTION: If grade is A or B and direction aligns with ${proposedSignal}, CON
       parsed.confirmed = true;
     }
 
-    console.log(`[Breakout Master] ${symbol} Grade:${breakoutResult.grade} Score:${breakoutResult.score}/7 (${breakoutResult.direction}, ${breakoutResult.alignedVotes ?? breakoutResult.score} aligned) Decision:${parsed.confirmed ? 'CONFIRM' : 'REJECT'}`);
+    console.log(`[Breakout Master] ${symbol} Grade:${breakoutResult.grade} Score:${breakoutResult.score}/${breakoutResult.maxScore} fired | ${breakoutResult.alignedVotes} aligned (${breakoutResult.alignedPct}%) Decision:${parsed.confirmed ? 'CONFIRM' : 'REJECT'}`);
 
     // Direction: use engine direction; fallback to proposed signal only if engine is NEUTRAL
     const direction: string = (breakoutResult.direction !== 'NEUTRAL')

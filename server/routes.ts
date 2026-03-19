@@ -6578,7 +6578,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
 
             if (!tradeAllowed) {
               const reason = useBreakoutMode
-                ? `Breakout grade insufficient (Grade ${breakoutGrade || 'PASS'} — need Grade B or A: minimum 3 strategies aligned in same direction)`
+                ? `Breakout grade insufficient (Grade ${breakoutGrade || 'PASS'} — need Grade B or A: ≥50% aligned = ≥4/7 strategies in same direction)`
                 : (!eaPasses
                   ? `Both below threshold (AI: ${aiConfirmation.aiConfidence}% < ${AI_MIN_CONFIDENCE}%, EA: ${preConfirmConfidence}% < ${EA_MIN_CONFIDENCE_FOR_AI_GATE}%)`
                   : `AI confidence too low (AI: ${aiConfirmation.aiConfidence}% < ${AI_MIN_CONFIDENCE}%, EA: ${preConfirmConfidence}%)`);

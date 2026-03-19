@@ -14,6 +14,8 @@ export interface BreakoutScoreResult {
   score: number;
   maxScore: number;
   percentage: number;
+  alignedVotes: number;
+  alignedPct: number;
   grade: 'A' | 'B' | 'C' | 'PASS';
   direction: 'BUY' | 'SELL' | 'NEUTRAL';
   strategies: BreakoutStrategyResult[];
@@ -386,20 +388,22 @@ export function computeBreakoutScore(
 
   // alignedVotes = strategies that fired in the majority direction
   const alignedVotes = direction === 'BUY' ? buyVotes : direction === 'SELL' ? sellVotes : 0;
+  // alignedPct = percentage of max strategies that aligned in the same direction (used for grading)
+  const alignedPct = Math.round((alignedVotes / maxScore) * 100);
 
-  // Grade by count of directionally-aligned votes (absolute thresholds, not %)
-  // A = ≥5 aligned | B = 3–4 aligned (CONFIRM threshold: ≥3 aligned = PASS) | C = 2 | PASS = ≤1 or NEUTRAL
+  // Grade by aligned-direction percentage (A≥70%, B≥50%, C≥35%, PASS<35%)
+  // CONFIRM threshold: Grade A or B (≥50% aligned = ≥4/7 strategies in same direction)
   let grade: 'A' | 'B' | 'C' | 'PASS';
   if (direction === 'NEUTRAL') {
-    grade = 'PASS'; // No majority direction → always reject
-  } else if (alignedVotes >= 5) {
-    grade = 'A'; // Elite — 5 or more strategies aligned
-  } else if (alignedVotes >= 3) {
-    grade = 'B'; // CONFIRM: 3 or more strategies aligned in same direction
-  } else if (alignedVotes === 2) {
-    grade = 'C'; // Insufficient alignment — rejected
+    grade = 'PASS'; // No majority direction → always reject regardless of total fired
+  } else if (alignedPct >= 70) {
+    grade = 'A'; // ≥5/7 aligned (71%) — Elite
+  } else if (alignedPct >= 50) {
+    grade = 'B'; // ≥4/7 aligned (57%) — CONFIRM threshold
+  } else if (alignedPct >= 35) {
+    grade = 'C'; // 3/7 aligned (43%) — below threshold, rejected
   } else {
-    grade = 'PASS'; // 0–1 aligned — rejected
+    grade = 'PASS'; // ≤2/7 aligned — rejected
   }
 
   // ATR from H1 candles (most stable single-timeframe basis); fallback to m15 or m5 if H1 unavailable
@@ -416,8 +420,8 @@ export function computeBreakoutScore(
   const breakoutCandle = [...m15Candles, ...h1Candles][0];
   const slDistance = atr * 1.5;
 
-  const summary = `Breakout Score: ${score}/${maxScore} (${percentage}%) — Grade ${grade} — ${direction}\n` +
+  const summary = `Breakout Score: ${score}/${maxScore} fired | ${alignedVotes} aligned (${alignedPct}%) — Grade ${grade} — ${direction}\n` +
     strategies.map(s => `${s.fired ? '✅' : '❌'} ${s.name}: ${s.reason}`).join('\n');
 
-  return { score, maxScore, percentage, grade, direction, strategies, atr, tp1, tp2, tp3, slDistance, breakoutCandle, summary };
+  return { score, maxScore, percentage, alignedVotes, alignedPct, grade, direction, strategies, atr, tp1, tp2, tp3, slDistance, breakoutCandle, summary };
 }
