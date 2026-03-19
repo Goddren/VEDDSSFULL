@@ -1548,13 +1548,13 @@ export async function getBreakoutConfirmation(
     const currentPrice = tradePlan?.entryPrice || candleData[0]?.c || 0;
     const breakoutResult = computeBreakoutScore(currentPrice, m1, m5, m15, h1, h4);
 
-    // Grade A = 5+/7 strategies, Grade B = 3–4/7 strategies (≥3 = CONFIRM). Grade C (2/7) and PASS (0–1/7) are rejected.
+    // Grade A (≥70%) or Grade B (≥50%) required — minimum 4/7 strategies must fire. Grade C and PASS are rejected.
     if (breakoutResult.grade === 'PASS' || breakoutResult.grade === 'C') {
       return {
         confirmed: false,
         aiDirection: 'NEUTRAL',
         aiConfidence: breakoutResult.percentage,
-        reasoning: `🔴 BREAKOUT MASTER: Grade ${breakoutResult.grade} — only ${breakoutResult.score}/${breakoutResult.maxScore} strategies firing. Minimum 3/7 strategies (Grade B) required to CONFIRM.\n\n${breakoutResult.summary}`,
+        reasoning: `🔴 BREAKOUT MASTER: Grade ${breakoutResult.grade} (${breakoutResult.percentage}%) — ${breakoutResult.score}/${breakoutResult.maxScore} strategies firing. Grade B (≥50%, minimum 4/7) required to CONFIRM.\n\n${breakoutResult.summary}`,
         breakoutScore: breakoutResult.score,
         breakoutGrade: breakoutResult.grade,
         breakoutStrategies: breakoutResult.strategies,
@@ -1630,8 +1630,9 @@ INSTRUCTION: If grade is A or B and direction aligns with ${proposedSignal}, CON
     if (!aiClient) {
       const fallbackDir: string = breakoutResult.direction === 'NEUTRAL' ? proposedSignal : breakoutResult.direction;
       const bc2 = breakoutResult.breakoutCandle;
+      // SL on opposite side of breakout candle wick: BUY → candle low, SELL → candle high
       const fallbackSL = bc2
-        ? (fallbackDir === 'BUY' ? bc2.l - breakoutResult.atr * 0.25 : bc2.h + breakoutResult.atr * 0.25)
+        ? (fallbackDir === 'BUY' ? bc2.l : bc2.h)
         : (tradePlan?.stopLoss || null);
       return {
         confirmed: breakoutResult.grade !== 'PASS' && breakoutResult.grade !== 'C' &&
@@ -1671,11 +1672,11 @@ INSTRUCTION: If grade is A or B and direction aligns with ${proposedSignal}, CON
 
     console.log(`[Breakout Master] ${symbol} Grade:${breakoutResult.grade} Score:${breakoutResult.score}/7 Decision:${parsed.confirmed ? 'CONFIRM' : 'REJECT'}`);
 
-    // Deterministic SL: use breakout candle's opposite wick (low for BUY, high for SELL)
+    // Deterministic SL: opposite wick of breakout candle — BUY → candle low, SELL → candle high (no ATR buffer)
     const direction: string = parsed.direction || breakoutResult.direction || proposedSignal;
     const bc = breakoutResult.breakoutCandle;
     const deterministicSL = bc
-      ? (direction === 'BUY' ? bc.l - breakoutResult.atr * 0.25 : bc.h + breakoutResult.atr * 0.25)
+      ? (direction === 'BUY' ? bc.l : bc.h)
       : (tradePlan?.stopLoss || null);
 
     // Use AI-returned SL if valid, otherwise use deterministic SL from breakout candle
