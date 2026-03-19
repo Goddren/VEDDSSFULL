@@ -6608,6 +6608,10 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               console.log(`[AI Vision Confirmation] ${approvalLabel} trade on ${sanitizedSymbol} (EA: ${preConfirmConfidence}% | AI: ${aiConfirmation.aiConfidence}%)${isAiOverride ? ' - AI confidence overriding low EA' : ''}: ${aiConfirmation.reasoning}`);
               analysis.alerts.push(`TRADE ${approvalLabel} (EA: ${preConfirmConfidence}% | AI: ${aiConfirmation.aiConfidence}%)${isAiOverride ? ' [AI overrode low EA]' : ''} - ${aiConfirmation.reasoning}`);
               aiConfirmation.confirmed = true;
+              // Breakout mode: synchronize analysis.signal to the confirmed breakout direction
+              if (useBreakoutMode && aiConfirmation.aiDirection && aiConfirmation.aiDirection !== 'NEUTRAL') {
+                analysis.signal = aiConfirmation.aiDirection;
+              }
               const currentPrice = indicators?.price?.bid || candles[0]?.c || 0;
               const maxDeviation = currentPrice * 0.05;
               let hasAdjustments = false;

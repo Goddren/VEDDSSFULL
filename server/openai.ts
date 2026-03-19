@@ -1620,11 +1620,7 @@ INSTRUCTION: If grade is A or B and direction aligns with ${proposedSignal}, CON
 
     let aiClient: any = null;
     try {
-      aiClient = await (await import('./storage')).storage.getUser(userId || 0).then(async (user) => {
-        if (!user) return null;
-        const { getUniversalAIClientForUser } = await import('./openai');
-        return getUniversalAIClientForUser(userId!);
-      });
+      aiClient = await getUniversalAIClientForUser(userId || 0);
     } catch { /* fallback below */ }
 
     if (!aiClient) {
@@ -1680,30 +1676,24 @@ INSTRUCTION: If grade is A or B and direction aligns with ${proposedSignal}, CON
 
     console.log(`[Breakout Master] ${symbol} Grade:${breakoutResult.grade} Score:${breakoutResult.score}/7 Decision:${parsed.confirmed ? 'CONFIRM' : 'REJECT'}`);
 
-    // Deterministic SL: opposite wick of breakout candle — BUY → candle low, SELL → candle high (no ATR buffer)
-    const direction: string = parsed.direction || breakoutResult.direction || proposedSignal;
-    const bc = breakoutResult.breakoutCandle;
-    const deterministicSL = bc
-      ? (direction === 'BUY' ? bc.l : bc.h)
+    // Direction: use engine direction; fallback to proposed signal only if engine is NEUTRAL
+    const direction: string = (breakoutResult.direction !== 'NEUTRAL')
+      ? breakoutResult.direction
+      : proposedSignal;
+
+    // Deterministic SL: opposite wick of breakout trigger candle — BUY → low, SELL → high
+    // Use most recent H1 candle as breakout trigger (most reliable timeframe for candle structure)
+    const breakoutTriggerCandle = h1.length > 0 ? h1[0] : (m15.length > 0 ? m15[0] : null);
+    const deterministicSL = breakoutTriggerCandle
+      ? (direction === 'BUY' ? breakoutTriggerCandle.l : breakoutTriggerCandle.h)
       : (tradePlan?.stopLoss || null);
 
-    // Use AI-returned SL if valid, otherwise use deterministic SL from breakout candle
-    const rawSL = typeof parsed.adjustedSL === 'number' && parsed.adjustedSL > 0
-      ? parsed.adjustedSL
-      : deterministicSL;
-
-    // TP ladder: recompute using final confirmed direction (BUY/SELL only — never NEUTRAL)
-    // This ensures correct sign even if AI direction differs from engine direction
+    // Fixed R:R ATR ladder — AI TP/SL overrides NOT honoured in breakout mode (deterministic only)
     const finalSign = direction === 'BUY' ? 1 : -1;
-    const engineTP1 = breakoutResult.atr > 0 ? currentPrice + finalSign * breakoutResult.atr : 0;
-    const engineTP2 = breakoutResult.atr > 0 ? currentPrice + finalSign * breakoutResult.atr * 2 : 0;
-    const engineTP3 = breakoutResult.atr > 0 ? currentPrice + finalSign * breakoutResult.atr * 3 : 0;
-
-    const rawTP1 = typeof parsed.adjustedTP1 === 'number' && parsed.adjustedTP1 > 0
-      ? parsed.adjustedTP1
-      : engineTP1;
-    const rawTP2 = engineTP2;
-    const rawTP3 = engineTP3;
+    const rawSL = deterministicSL;
+    const rawTP1 = breakoutResult.atr > 0 ? currentPrice + finalSign * breakoutResult.atr : 0;
+    const rawTP2 = breakoutResult.atr > 0 ? currentPrice + finalSign * breakoutResult.atr * 2 : 0;
+    const rawTP3 = breakoutResult.atr > 0 ? currentPrice + finalSign * breakoutResult.atr * 3 : 0;
 
     const breakoutQuality: 'ELITE' | 'STRONG' | 'DEVELOPING' =
       parsed.breakoutQuality === 'ELITE' || parsed.breakoutQuality === 'STRONG' ? parsed.breakoutQuality : 'DEVELOPING';
