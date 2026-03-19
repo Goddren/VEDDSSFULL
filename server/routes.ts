@@ -6565,13 +6565,13 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             // - Both pass (EA >= 80% AND AI >= threshold) → APPROVED
             // - AI passes but EA doesn't (AI >= threshold) → AI OVERRIDE (trade allowed)
             // - AI fails (regardless of EA) → BLOCKED
-            // In breakout mode: bypass percentage gate — use breakout grade (A or B = pass)
+            // In breakout mode: bypass percentage gate — confirmed=true when ≥3 strategies align (set in getBreakoutConfirmation)
             const { getAiMinConfidence } = await import('./openai');
             const AI_MIN_CONFIDENCE = getAiMinConfidence(token.userId);
             const EA_MIN_CONFIDENCE_FOR_AI_GATE = 80;
             const breakoutGrade = aiConfirmation.breakoutGrade as string | undefined;
             const aiPasses = useBreakoutMode
-              ? (breakoutGrade === 'A' || breakoutGrade === 'B') && aiConfirmation.confirmed
+              ? aiConfirmation.confirmed
               : aiConfirmation.aiConfidence >= AI_MIN_CONFIDENCE;
             const eaPasses = preConfirmConfidence >= EA_MIN_CONFIDENCE_FOR_AI_GATE;
             const tradeAllowed = aiPasses; // AI/breakout-grade is the deciding factor

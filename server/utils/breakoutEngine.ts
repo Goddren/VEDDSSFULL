@@ -394,19 +394,18 @@ export function computeBreakoutScore(
   // alignedPct = percentage of max strategies that aligned in the same direction (used for grading)
   const alignedPct = Math.round((alignedVotes / maxScore) * 100);
 
-  // Grade by aligned-direction percentage (A≥70%, B≥50%, C≥35%, PASS<35%)
-  // CONFIRM threshold: Grade A or B (≥50% aligned = ≥4/7 strategies in same direction)
+  // Grade by total-fired percentage (score / maxScore * 100) — independent of direction/alignment
+  // A ≥70% | B ≥50% | C ≥35% | PASS <35% — for display and logging only
+  // CONFIRM is controlled separately by alignedVotes >= 3 (see getBreakoutConfirmation in openai.ts)
   let grade: 'A' | 'B' | 'C' | 'PASS';
-  if (direction === 'NEUTRAL') {
-    grade = 'PASS'; // No majority direction → always reject regardless of total fired
-  } else if (alignedPct >= 70) {
-    grade = 'A'; // ≥5/7 aligned (71%) — Elite
-  } else if (alignedPct >= 50) {
-    grade = 'B'; // ≥4/7 aligned (57%) — CONFIRM threshold
-  } else if (alignedPct >= 35) {
-    grade = 'C'; // 3/7 aligned (43%) — below threshold, rejected
+  if (percentage >= 70) {
+    grade = 'A'; // ≥5/7 fired (71%)
+  } else if (percentage >= 50) {
+    grade = 'B'; // ≥4/7 fired (57%)
+  } else if (percentage >= 35) {
+    grade = 'C'; // 3/7 fired (43%)
   } else {
-    grade = 'PASS'; // ≤2/7 aligned — rejected
+    grade = 'PASS'; // ≤2/7 fired — insufficient evidence
   }
 
   // ATR from H1 candles (most stable single-timeframe basis); fallback to m15 or m5 if H1 unavailable

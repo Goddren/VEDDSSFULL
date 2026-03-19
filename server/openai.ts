@@ -1540,7 +1540,7 @@ export async function getBreakoutConfirmation(
     const { computeBreakoutScore } = await import('./utils/breakoutEngine');
 
     const m1 = multiTFCandles?.['M1'] || multiTFCandles?.['1m'] || [];
-    const m5 = multiTFCandles?.['M5'] || multiTFCandles?.['5m'] || candleData;
+    const m5 = multiTFCandles?.['M5'] || multiTFCandles?.['5m'] || [];
     const m15 = multiTFCandles?.['M15'] || multiTFCandles?.['15m'] || [];
     const h1 = multiTFCandles?.['H1'] || multiTFCandles?.['1h'] || [];
     const h4 = multiTFCandles?.['H4'] || multiTFCandles?.['4h'] || [];
@@ -1617,7 +1617,7 @@ ${JSON.stringify({ rsi: indicators?.rsi, macd: indicators?.macd, adx: indicators
 TRADE PLAN:
 Entry: ${tradePlan?.entryPrice} | SL: ${tradePlan?.stopLoss} | TP: ${tradePlan?.takeProfit}
 
-INSTRUCTION: If grade is A or B and direction aligns with ${proposedSignal}, CONFIRM with fixed R:R targets. No trailing stop in your response. Show and prove.`;
+INSTRUCTION: If grade is A, B, or C (≥3 strategies aligned in same direction) and direction aligns with ${proposedSignal}, CONFIRM with fixed R:R targets. No trailing stop in your response. Show and prove.`;
 
     let aiClient: any = null;
     try {
@@ -1638,10 +1638,11 @@ INSTRUCTION: If grade is A or B and direction aligns with ${proposedSignal}, CON
       const fallbackTP2 = breakoutResult.atr > 0 ? fallbackCurrentPrice + fbSign * breakoutResult.atr * 2 : 0;
       const fallbackTP3 = breakoutResult.atr > 0 ? fallbackCurrentPrice + fbSign * breakoutResult.atr * 3 : 0;
 
-      const isGradeOk = breakoutResult.grade === 'A' || breakoutResult.grade === 'B';
+      // CONFIRM when ≥3 strategies aligned in same direction (matches main AI path gate)
+      const isAligned = breakoutResult.alignedVotes >= 3 && breakoutResult.direction !== 'NEUTRAL';
       const directionOk = breakoutResult.direction !== 'NEUTRAL' && breakoutResult.direction === fallbackDir;
       return {
-        confirmed: isGradeOk && directionOk,
+        confirmed: isAligned && directionOk,
         aiDirection: fallbackDir,
         aiConfidence: breakoutResult.percentage,
         reasoning: `[Breakout Engine Only — no AI key] Grade ${breakoutResult.grade} (${breakoutResult.score}/${breakoutResult.maxScore})\n\n${breakoutResult.summary}`,
