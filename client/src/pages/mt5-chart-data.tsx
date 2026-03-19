@@ -1997,7 +1997,7 @@ export default function MT5ChartDataPage() {
                         {breakoutModeSetting?.enabled && <span className="ml-2 text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1.5 py-0.5 rounded-full">ACTIVE</span>}
                       </p>
                       <p className="text-xs text-gray-400 mt-0.5">
-                        Replaces standard AI confirmation with a 7-strategy breakout engine — ARB, ORB, Donchian breakout, Bollinger Squeeze, Supply/Demand zone break, ICT BOS+FVG, and VWAP Volume Surge. Grade A (≥70%) or B (≥50%) required to confirm. ICT, SMC, and trailing stop are auto-paused while active.
+                        Replaces standard AI confirmation with a 7-strategy breakout engine — ARB, ORB, Donchian breakout, Bollinger Squeeze, Supply/Demand zone break, ICT BOS+FVG, and VWAP Volume Surge. Minimum 3 strategies must align in the same direction to confirm (Grade C or above). ICT, SMC, and trailing stop are auto-paused while active.
                       </p>
                       {breakoutModeSetting?.enabled && (
                         <p className="text-[11px] text-amber-300 mt-1 flex items-center gap-1">

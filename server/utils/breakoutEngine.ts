@@ -339,19 +339,22 @@ function vwapVolumeSurge(m5Candles: BreakoutCandle[], currentPrice: number): Bre
     return { name, fired: false, direction: 'NEUTRAL', reason: `Volume not surging (${ratio}% of avg — need 150%+)`, strength: 0 };
   }
 
-  const bullish = currentPrice > vwap;
-  const bearish = currentPrice < vwap;
+  // Require an actual VWAP cross event: previous bar on opposite side, current bar crossed over
+  const prevClose = m5Candles[1]?.c ?? currentPrice;
+  const crossedAbove = currentPrice > vwap && prevClose <= vwap;
+  const crossedBelow = currentPrice < vwap && prevClose >= vwap;
 
-  if (bullish || bearish) {
+  if (crossedAbove || crossedBelow) {
     const pct = Math.round((currentVol / avgVol) * 100);
     return {
       name, fired: true,
-      direction: bullish ? 'BUY' : 'SELL',
-      reason: `Price ${bullish ? 'above' : 'below'} VWAP (${vwap.toFixed(5)}) with ${pct}% volume surge`,
+      direction: crossedAbove ? 'BUY' : 'SELL',
+      reason: `Price crossed ${crossedAbove ? 'above' : 'below'} VWAP (${vwap.toFixed(5)}) with ${pct}% volume surge (prev close: ${prevClose.toFixed(5)})`,
       strength: Math.min(pct / 300, 1),
     };
   }
-  return { name, fired: false, direction: 'NEUTRAL', reason: 'Price at VWAP equilibrium', strength: 0 };
+  const side = currentPrice > vwap ? 'above' : currentPrice < vwap ? 'below' : 'at';
+  return { name, fired: false, direction: 'NEUTRAL', reason: `No VWAP cross — price already ${side} VWAP (no cross event)`, strength: 0 };
 }
 
 // ─── Master Score Function ─────────────────────────────────────────────────
