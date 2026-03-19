@@ -1548,14 +1548,14 @@ export async function getBreakoutConfirmation(
     const currentPrice = tradePlan?.entry || tradePlan?.entryPrice || candleData[0]?.c || 0;
     const breakoutResult = computeBreakoutScore(currentPrice, m1, m5, m15, h1, h4);
 
-    // Grade A (≥5 aligned) or Grade B (3–4 aligned) required to CONFIRM. C (2 aligned) and PASS (≤1/NEUTRAL) rejected.
-    // Spec: CONFIRM fires when ≥3 strategies align in the same direction.
-    if (breakoutResult.grade === 'PASS' || breakoutResult.grade === 'C') {
+    // CONFIRM when ≥3 strategies align in same direction (Grade A, B, or C).
+    // Only PASS (≤2 aligned or NEUTRAL direction) rejects. Grade labels are for display only.
+    if (breakoutResult.alignedVotes < 3 || breakoutResult.direction === 'NEUTRAL') {
       return {
         confirmed: false,
         aiDirection: 'NEUTRAL',
         aiConfidence: breakoutResult.percentage,
-        reasoning: `🔴 BREAKOUT MASTER: Grade ${breakoutResult.grade} — ${breakoutResult.alignedVotes} aligned (${breakoutResult.alignedPct}%) out of ${breakoutResult.maxScore} strategies (direction: ${breakoutResult.direction}). Minimum Grade B (≥50% aligned = ≥4/7 strategies) required to CONFIRM.\n\n${breakoutResult.summary}`,
+        reasoning: `🔴 BREAKOUT MASTER: Grade ${breakoutResult.grade} — ${breakoutResult.alignedVotes} aligned (${breakoutResult.alignedPct}%) out of ${breakoutResult.maxScore} strategies (direction: ${breakoutResult.direction}). Minimum 3 strategies must align in same direction to CONFIRM.\n\n${breakoutResult.summary}`,
         breakoutScore: breakoutResult.score,
         breakoutGrade: breakoutResult.grade,
         breakoutStrategies: breakoutResult.strategies,
@@ -1675,8 +1675,8 @@ INSTRUCTION: If grade is A or B and direction aligns with ${proposedSignal}, CON
       parsed = { confirmed: false, confidence: breakoutResult.percentage, reasoning: rawContent };
     }
 
-    // Grade A/B = deterministic CONFIRM — do not allow AI JSON to veto a passing grade
-    if (breakoutResult.grade === 'A' || breakoutResult.grade === 'B') {
+    // ≥3 aligned = deterministic CONFIRM — AI JSON cannot veto a passing alignment score
+    if (breakoutResult.alignedVotes >= 3 && breakoutResult.direction !== 'NEUTRAL') {
       parsed.confirmed = true;
     }
 
