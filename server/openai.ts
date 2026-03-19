@@ -1546,18 +1546,17 @@ export async function getBreakoutConfirmation(
     const h4 = multiTFCandles?.['H4'] || multiTFCandles?.['4h'] || [];
 
     const currentPrice = tradePlan?.entry || tradePlan?.entryPrice || candleData[0]?.c || 0;
-    const breakoutResult = computeBreakoutScore(currentPrice, m1, m5, m15, h1, h4);
+    const breakoutResult = await computeBreakoutScore(currentPrice, m1, m5, m15, h1, h4);
 
-    // CANONICAL CONFIRM RULE: ≥3 strategies must align in the same direction.
-    // Grade labels (A/B/C/PASS) are for display; grade is based on total-fired%, not alignment%.
-    // CONFIRM = alignedVotes >= 3 AND direction != NEUTRAL (Grade A/B/C all qualify; PASS rejects).
-    // Rationale: 3/7 aligned (43%) = Grade C by score% but meets minimum directional threshold.
-    if (breakoutResult.alignedVotes < 3 || breakoutResult.direction === 'NEUTRAL') {
+    // CONFIRM requires Grade A (≥70% fired) or Grade B (≥50% fired) — spec requirement.
+    // Grade is based on total-fired% (score/maxScore*100), not aligned-vote%.
+    // Grade C (3/7 fired, 43%) and PASS (≤2/7, <35%) are rejected.
+    if (breakoutResult.grade !== 'A' && breakoutResult.grade !== 'B') {
       return {
         confirmed: false,
         aiDirection: 'NEUTRAL',
         aiConfidence: breakoutResult.percentage,
-        reasoning: `🔴 BREAKOUT MASTER: Grade ${breakoutResult.grade} — ${breakoutResult.alignedVotes} aligned (${breakoutResult.alignedPct}%) out of ${breakoutResult.maxScore} strategies (direction: ${breakoutResult.direction}). Minimum 3 strategies must align in same direction to CONFIRM.\n\n${breakoutResult.summary}`,
+        reasoning: `🔴 BREAKOUT MASTER: Grade ${breakoutResult.grade} (${breakoutResult.score}/${breakoutResult.maxScore} fired, ${breakoutResult.percentage}%) — ${breakoutResult.alignedVotes} aligned (${breakoutResult.alignedPct}%). Grade A (≥70%) or B (≥50%) required to CONFIRM.\n\n${breakoutResult.summary}`,
         breakoutScore: breakoutResult.score,
         breakoutGrade: breakoutResult.grade,
         breakoutStrategies: breakoutResult.strategies,
@@ -1619,7 +1618,7 @@ ${JSON.stringify({ rsi: indicators?.rsi, macd: indicators?.macd, adx: indicators
 TRADE PLAN:
 Entry: ${tradePlan?.entryPrice} | SL: ${tradePlan?.stopLoss} | TP: ${tradePlan?.takeProfit}
 
-INSTRUCTION: If grade is A, B, or C (≥3 strategies aligned in same direction) and direction aligns with ${proposedSignal}, CONFIRM with fixed R:R targets. No trailing stop in your response. Show and prove.`;
+INSTRUCTION: If grade is A (≥70%) or B (≥50%) and direction aligns with ${proposedSignal}, CONFIRM with fixed R:R targets. No trailing stop in your response. Show and prove.`;
 
     let aiClient: any = null;
     try {
@@ -1640,11 +1639,11 @@ INSTRUCTION: If grade is A, B, or C (≥3 strategies aligned in same direction) 
       const fallbackTP2 = breakoutResult.atr > 0 ? fallbackCurrentPrice + fbSign * breakoutResult.atr * 2 : 0;
       const fallbackTP3 = breakoutResult.atr > 0 ? fallbackCurrentPrice + fbSign * breakoutResult.atr * 3 : 0;
 
-      // CONFIRM when ≥3 strategies aligned in same direction (matches main AI path gate)
-      const isAligned = breakoutResult.alignedVotes >= 3 && breakoutResult.direction !== 'NEUTRAL';
+      // CONFIRM when grade A or B (matches main AI path gate — >=4/7 strategies fired)
+      const isGradeOk = breakoutResult.grade === 'A' || breakoutResult.grade === 'B';
       const directionOk = breakoutResult.direction !== 'NEUTRAL' && breakoutResult.direction === fallbackDir;
       return {
-        confirmed: isAligned && directionOk,
+        confirmed: isGradeOk && directionOk,
         aiDirection: fallbackDir,
         aiConfidence: breakoutResult.percentage,
         reasoning: `[Breakout Engine Only — no AI key] Grade ${breakoutResult.grade} (${breakoutResult.score}/${breakoutResult.maxScore})\n\n${breakoutResult.summary}`,
@@ -1678,8 +1677,8 @@ INSTRUCTION: If grade is A, B, or C (≥3 strategies aligned in same direction) 
       parsed = { confirmed: false, confidence: breakoutResult.percentage, reasoning: rawContent };
     }
 
-    // ≥3 aligned = deterministic CONFIRM — AI JSON cannot veto a passing alignment score
-    if (breakoutResult.alignedVotes >= 3 && breakoutResult.direction !== 'NEUTRAL') {
+    // Grade A or B = deterministic CONFIRM — AI JSON cannot veto a passing grade score
+    if (breakoutResult.grade === 'A' || breakoutResult.grade === 'B') {
       parsed.confirmed = true;
     }
 

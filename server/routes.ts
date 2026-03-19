@@ -6528,6 +6528,37 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               const multiTFCandles: Record<string, any[]> = {};
               htfLevels.forEach(h => { multiTFCandles[h.timeframe] = h.candles; });
               multiTFCandles[sanitizedTimeframe] = candles;
+
+              // Ensure breakout engine has M5, M15, H1, H4 candles regardless of chart TF
+              // Fetch any missing required TFs so all 7 strategies have adequate data
+              const requiredTFs: Array<[string, string]> = [['M5', '5m'], ['M15', '15m'], ['H1', '1h'], ['H4', '4h']];
+              const missingTFs = requiredTFs.filter(([key, alias]) =>
+                !multiTFCandles[key] && !multiTFCandles[alias] && key !== sanitizedTimeframe && alias !== sanitizedTimeframe
+              );
+              if (missingTFs.length > 0) {
+                try {
+                  const { marketDataService } = await import('./market-data');
+                  if (marketDataService.isInitialized()) {
+                    const assetType = marketDataService.detectAssetType(sanitizedSymbol);
+                    await Promise.allSettled(missingTFs.map(async ([key, alias]) => {
+                      try {
+                        const result = await marketDataService.fetchMarketData({
+                          symbol: sanitizedSymbol, assetType, timeframe: alias, limit: 80,
+                        });
+                        if (result?.bars && result.bars.length >= 5) {
+                          const mapped = result.bars.map((b: { open: number; high: number; low: number; close: number; volume: number; timestamp: number }) => ({
+                            o: b.open, h: b.high, l: b.low, c: b.close, v: b.volume, t: b.timestamp,
+                          }));
+                          multiTFCandles[key] = mapped;
+                          console.log(`[Breakout Master] Fetched ${mapped.length} ${key} candles for engine`);
+                        }
+                      } catch { /* skip missing TF */ }
+                    }));
+                  }
+                } catch (btfErr) {
+                  console.warn('[Breakout Master] Failed to fetch supplemental TF candles:', btfErr);
+                }
+              }
               aiConfirmation = await getBreakoutConfirmation(
                 candles, analysis.indicators, analysis.signal, analysis.confidence,
                 analysis.tradePlan, sanitizedSymbol, sanitizedTimeframe,
@@ -6578,7 +6609,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
 
             if (!tradeAllowed) {
               const reason = useBreakoutMode
-                ? `Breakout grade insufficient (Grade ${breakoutGrade || 'PASS'} — minimum 3 strategies must align in same direction to CONFIRM)`
+                ? `Breakout grade insufficient (Grade ${breakoutGrade || 'PASS'} — Grade A (≥70%) or B (≥50%) required to CONFIRM)`
                 : (!eaPasses
                   ? `Both below threshold (AI: ${aiConfirmation.aiConfidence}% < ${AI_MIN_CONFIDENCE}%, EA: ${preConfirmConfidence}% < ${EA_MIN_CONFIDENCE_FOR_AI_GATE}%)`
                   : `AI confidence too low (AI: ${aiConfirmation.aiConfidence}% < ${AI_MIN_CONFIDENCE}%, EA: ${preConfirmConfidence}%)`);
