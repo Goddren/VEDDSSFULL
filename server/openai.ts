@@ -1545,16 +1545,16 @@ export async function getBreakoutConfirmation(
     const h1 = multiTFCandles?.['H1'] || multiTFCandles?.['1h'] || [];
     const h4 = multiTFCandles?.['H4'] || multiTFCandles?.['4h'] || [];
 
-    const currentPrice = tradePlan?.entryPrice || candleData[0]?.c || 0;
+    const currentPrice = tradePlan?.entry || tradePlan?.entryPrice || candleData[0]?.c || 0;
     const breakoutResult = computeBreakoutScore(currentPrice, m1, m5, m15, h1, h4);
 
-    // Grade A (≥5 aligned) or Grade B (≥3 aligned) required to CONFIRM. Grade C (2) and PASS (≤1 or NEUTRAL) are rejected.
+    // Grade A (≥70% aligned = ≥5/7) or Grade B (≥50% aligned = ≥4/7) required to CONFIRM. C and PASS rejected.
     if (breakoutResult.grade === 'PASS' || breakoutResult.grade === 'C') {
       return {
         confirmed: false,
         aiDirection: 'NEUTRAL',
         aiConfidence: breakoutResult.percentage,
-        reasoning: `🔴 BREAKOUT MASTER: Grade ${breakoutResult.grade} — ${breakoutResult.score}/${breakoutResult.maxScore} strategies fired, not enough aligned in one direction. Minimum 3 strategies must align (Grade B) to CONFIRM.\n\n${breakoutResult.summary}`,
+        reasoning: `🔴 BREAKOUT MASTER: Grade ${breakoutResult.grade} — ${breakoutResult.score}/${breakoutResult.maxScore} strategies fired (direction: ${breakoutResult.direction}). Minimum Grade B (≥4 strategies aligned in same direction) required to CONFIRM.\n\n${breakoutResult.summary}`,
         breakoutScore: breakoutResult.score,
         breakoutGrade: breakoutResult.grade,
         breakoutStrategies: breakoutResult.strategies,
@@ -1636,7 +1636,7 @@ INSTRUCTION: If grade is A or B and direction aligns with ${proposedSignal}, CON
         : (tradePlan?.stopLoss || null);
       // Recompute TP ladder using final fallbackDir (BUY/SELL only, not NEUTRAL)
       const fbSign = fallbackDir === 'BUY' ? 1 : -1;
-      const fallbackCurrentPrice = tradePlan?.entryPrice || candleData[0]?.c || 0;
+      const fallbackCurrentPrice = tradePlan?.entry || tradePlan?.entryPrice || candleData[0]?.c || 0;
       const fallbackTP1 = breakoutResult.atr > 0 ? fallbackCurrentPrice + fbSign * breakoutResult.atr : 0;
       const fallbackTP2 = breakoutResult.atr > 0 ? fallbackCurrentPrice + fbSign * breakoutResult.atr * 2 : 0;
       const fallbackTP3 = breakoutResult.atr > 0 ? fallbackCurrentPrice + fbSign * breakoutResult.atr * 3 : 0;

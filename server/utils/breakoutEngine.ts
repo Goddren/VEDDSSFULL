@@ -387,21 +387,26 @@ export function computeBreakoutScore(
   // alignedVotes = strategies that fired in the majority direction
   const alignedVotes = direction === 'BUY' ? buyVotes : direction === 'SELL' ? sellVotes : 0;
 
-  // Grade is based on aligned votes:
-  // A = ≥5/7 aligned (≥71%), B = ≥3/7 aligned (CONFIRM threshold), C = 2/7, PASS = ≤1 or NEUTRAL
+  // Grade by percentage of aligned votes out of maxScore: A≥70%, B≥50%, C≥35%, PASS<35% (or NEUTRAL)
+  const alignedPct = Math.round((alignedVotes / maxScore) * 100);
   let grade: 'A' | 'B' | 'C' | 'PASS';
-  if (direction === 'NEUTRAL' || alignedVotes <= 1) {
-    grade = 'PASS';
-  } else if (alignedVotes >= 5) {
-    grade = 'A';
-  } else if (alignedVotes >= 3) {
-    grade = 'B'; // CONFIRM threshold: ≥3 strategies aligned in same direction
+  if (direction === 'NEUTRAL') {
+    grade = 'PASS'; // No majority direction → always reject regardless of total fired
+  } else if (alignedPct >= 70) {
+    grade = 'A'; // ≥5/7 aligned
+  } else if (alignedPct >= 50) {
+    grade = 'B'; // ≥4/7 aligned — CONFIRM threshold
+  } else if (alignedPct >= 35) {
+    grade = 'C'; // 3/7 aligned — rejected
   } else {
-    grade = 'C'; // 2 aligned — rejected
+    grade = 'PASS'; // ≤2/7 aligned — rejected
   }
 
-  const allCandles = [...h1Candles, ...m15Candles, ...m5Candles];
-  const atr = calcATR(allCandles.length > 14 ? allCandles : h1Candles, 14);
+  // ATR from H1 candles (most stable single-timeframe basis); fallback to m15 or m5 if H1 unavailable
+  const atrCandles = h1Candles.length >= 14 ? h1Candles
+    : m15Candles.length >= 14 ? m15Candles
+    : m5Candles;
+  const atr = calcATR(atrCandles, 14);
   // TP direction: always BUY or SELL — never NEUTRAL (0 TPs when no clear direction)
   const sign = direction === 'BUY' ? 1 : -1;
   const tp1 = direction !== 'NEUTRAL' ? currentPrice + sign * atr : 0;

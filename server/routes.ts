@@ -6533,12 +6533,16 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 analysis.tradePlan, sanitizedSymbol, sanitizedTimeframe,
                 token.userId, multiTFCandles, propFirmCtx
               );
-              // Enforce fixed TP targets in breakout mode — trailing stop is always off
+              // Enforce fixed TP targets in breakout mode — remove trailing stop fields entirely
               if (analysis.tradePlan) {
-                analysis.tradePlan.trailingStopDistance = 0;
-                analysis.tradePlan.trailingStopStep = 0;
+                delete analysis.tradePlan.trailingStopDistance;
+                delete analysis.tradePlan.trailingStopStep;
+                delete analysis.tradePlan.trailingStop;
               }
-              if (aiConfirmation) aiConfirmation.trailRecommendation = 'NONE';
+              if (aiConfirmation) {
+                delete aiConfirmation.trailRecommendation;
+                delete aiConfirmation.recommendedTrailPips;
+              }
             } else {
               aiConfirmation = await getAiVisionConfirmation(
                 candles, analysis.indicators, analysis.signal, analysis.confidence,
@@ -6574,7 +6578,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
 
             if (!tradeAllowed) {
               const reason = useBreakoutMode
-                ? `Breakout grade insufficient (Grade ${breakoutGrade || 'PASS'} — need Grade A or B: minimum 3 strategies aligned in same direction)`
+                ? `Breakout grade insufficient (Grade ${breakoutGrade || 'PASS'} — need Grade A or B: minimum 4 strategies aligned ≥50% in same direction)`
                 : (!eaPasses
                   ? `Both below threshold (AI: ${aiConfirmation.aiConfidence}% < ${AI_MIN_CONFIDENCE}%, EA: ${preConfirmConfidence}% < ${EA_MIN_CONFIDENCE_FOR_AI_GATE}%)`
                   : `AI confidence too low (AI: ${aiConfirmation.aiConfidence}% < ${AI_MIN_CONFIDENCE}%, EA: ${preConfirmConfidence}%)`);
