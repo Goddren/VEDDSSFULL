@@ -14396,38 +14396,48 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
 
   app.get("/api/breakout-mode", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
-    const { isBreakoutModeEnabled } = await import('./openai');
-    res.json({ enabled: isBreakoutModeEnabled(req.user!.id) });
+    const userId = req.user!.id;
+    const { isBreakoutModeEnabled, setBreakoutModeEnabled } = await import('./openai');
+    const user = await storage.getUser(userId);
+    if (user?.breakoutModeEnabled !== undefined) setBreakoutModeEnabled(userId, user.breakoutModeEnabled);
+    res.json({ enabled: isBreakoutModeEnabled(userId) });
   });
 
   app.post("/api/breakout-mode", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
     const { enabled } = req.body;
     if (typeof enabled !== 'boolean') return res.status(400).json({ message: "enabled must be a boolean" });
+    const userId = req.user!.id;
     const { setBreakoutModeEnabled, isBreakoutModeEnabled, isICTStrategyEnabled, isSMCStrategyEnabled, isTrailingStopEnabled } = await import('./openai');
-    setBreakoutModeEnabled(req.user!.id, enabled);
+    setBreakoutModeEnabled(userId, enabled);
+    await storage.updateUser(userId, { breakoutModeEnabled: enabled });
     res.json({
       success: true,
-      breakoutMode: isBreakoutModeEnabled(req.user!.id),
-      ict: isICTStrategyEnabled(req.user!.id),
-      smc: isSMCStrategyEnabled(req.user!.id),
-      trailingStop: isTrailingStopEnabled(req.user!.id),
+      breakoutMode: isBreakoutModeEnabled(userId),
+      ict: isICTStrategyEnabled(userId),
+      smc: isSMCStrategyEnabled(userId),
+      trailingStop: isTrailingStopEnabled(userId),
     });
   });
 
   app.get("/api/trailing-stop-setting", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
-    const { isTrailingStopEnabled } = await import('./openai');
-    res.json({ enabled: isTrailingStopEnabled(req.user!.id) });
+    const userId = req.user!.id;
+    const { isTrailingStopEnabled, setTrailingStopEnabled } = await import('./openai');
+    const user = await storage.getUser(userId);
+    if (user?.trailingStopEnabled !== undefined) setTrailingStopEnabled(userId, user.trailingStopEnabled);
+    res.json({ enabled: isTrailingStopEnabled(userId) });
   });
 
   app.post("/api/trailing-stop-setting", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
     const { enabled } = req.body;
     if (typeof enabled !== 'boolean') return res.status(400).json({ message: "enabled must be a boolean" });
+    const userId = req.user!.id;
     const { setTrailingStopEnabled, isTrailingStopEnabled } = await import('./openai');
-    setTrailingStopEnabled(req.user!.id, enabled);
-    res.json({ success: true, enabled: isTrailingStopEnabled(req.user!.id) });
+    setTrailingStopEnabled(userId, enabled);
+    await storage.updateUser(userId, { trailingStopEnabled: enabled });
+    res.json({ success: true, enabled: isTrailingStopEnabled(userId) });
   });
 
   app.get("/api/ai-trading-models", async (req: Request, res: Response) => {
