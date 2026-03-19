@@ -1548,8 +1548,10 @@ export async function getBreakoutConfirmation(
     const currentPrice = tradePlan?.entry || tradePlan?.entryPrice || candleData[0]?.c || 0;
     const breakoutResult = computeBreakoutScore(currentPrice, m1, m5, m15, h1, h4);
 
-    // CONFIRM when ≥3 strategies align in same direction (Grade A, B, or C).
-    // Only PASS (≤2 aligned or NEUTRAL direction) rejects. Grade labels are for display only.
+    // CANONICAL CONFIRM RULE: ≥3 strategies must align in the same direction.
+    // Grade labels (A/B/C/PASS) are for display; grade is based on total-fired%, not alignment%.
+    // CONFIRM = alignedVotes >= 3 AND direction != NEUTRAL (Grade A/B/C all qualify; PASS rejects).
+    // Rationale: 3/7 aligned (43%) = Grade C by score% but meets minimum directional threshold.
     if (breakoutResult.alignedVotes < 3 || breakoutResult.direction === 'NEUTRAL') {
       return {
         confirmed: false,
