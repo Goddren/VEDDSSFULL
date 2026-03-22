@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import { ChartAnalysisResponse, TrendCell } from "@shared/types";
 import fs from "fs";
+import { getStrategyContext, formatStrategyContextForPrompt } from "./services/github-strategy-context";
 
 // Asset-specific analysis configurations for improved accuracy
 interface AssetSpecificConfig {
@@ -182,8 +183,9 @@ export const AVAILABLE_VISION_MODELS = [
   { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5', description: 'Fast and affordable', tier: 'budget', provider: 'anthropic' },
   { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', description: 'Fast multimodal analysis', tier: 'budget', provider: 'google' },
   { id: 'gemini-1.5-pro-latest', name: 'Gemini 1.5 Pro', description: 'Advanced reasoning', tier: 'premium', provider: 'google' },
-  { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B', description: 'Ultra-fast inference', tier: 'budget', provider: 'groq' },
-  { id: 'mixtral-8x7b-32768', name: 'Mixtral 8x7B', description: 'Fast mixture of experts', tier: 'budget', provider: 'groq' },
+  { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B', description: 'Ultra-fast inference (text/confirmation only)', tier: 'budget', provider: 'groq', textOnly: true },
+  { id: 'meta-llama/llama-4-scout-17b-16e-instruct', name: 'Llama 4 Scout (Vision)', description: 'Fast vision model for chart analysis', tier: 'budget', provider: 'groq' },
+  { id: 'mixtral-8x7b-32768', name: 'Mixtral 8x7B', description: 'Fast mixture of experts (text/confirmation only)', tier: 'budget', provider: 'groq', textOnly: true },
   { id: 'mistral-large-latest', name: 'Mistral Large', description: 'Top-tier reasoning', tier: 'premium', provider: 'mistral' },
   { id: 'mistral-small-latest', name: 'Mistral Small', description: 'Efficient and affordable', tier: 'budget', provider: 'mistral' },
 ];
@@ -216,6 +218,24 @@ export function getUserModelPreference(userId: number): string {
 function getModelProvider(modelId: string): string {
   const model = AVAILABLE_VISION_MODELS.find(m => m.id === modelId);
   return model?.provider || 'openai';
+}
+
+// Text-only models cannot process chart images — auto-swap to a vision-capable model
+const VISION_FALLBACK: Record<string, string> = {
+  'groq': 'meta-llama/llama-4-scout-17b-16e-instruct',
+  'openai': 'gpt-4o-mini',
+  'anthropic': 'claude-sonnet-4-6',
+};
+
+function resolveVisionModel(modelId: string): string {
+  const model = AVAILABLE_VISION_MODELS.find(m => m.id === modelId);
+  if (model && (model as any).textOnly) {
+    const provider = model.provider;
+    const fallback = VISION_FALLBACK[provider] || 'gpt-4o-mini';
+    console.log(`[AI Model] ${modelId} is text-only — switching to vision model ${fallback} for chart analysis`);
+    return fallback;
+  }
+  return modelId;
 }
 
 const aiVisionConfirmationEnabled: Map<number, boolean> = new Map();
@@ -851,7 +871,7 @@ function detectWeekendRolloverRisk(): { isFridayPM: boolean; isNearRollover: boo
   return { isFridayPM, isNearRollover, minutesToRollover, warning };
 }
 
-function buildConfirmationPrompt(
+async function buildConfirmationPrompt(
   candleData: any[], indicators: any, proposedSignal: string,
   proposedConfidence: number, tradePlan: any, symbol: string, timeframe: string,
   newsContext?: { sentiment?: any; upcomingEvents?: any[]; topHeadlines?: string[] },
@@ -859,7 +879,11 @@ function buildConfirmationPrompt(
   smcContext?: SmcContext | null,
   htfLevels?: Array<{ timeframe: string; candles: Array<{ o: number; h: number; l: number; c: number; v?: number; t?: number }>; role?: string }>,
   propFirmContext?: PropFirmContext | null
-): { system: string; user: string } {
+): Promise<{ system: string; user: string }> {
+  // Fetch asset-specific strategy rules from GitHub (cached 24h, fallback to defaults)
+  const strategyCtx = await getStrategyContext(symbol).catch(() => null);
+  const strategySection = strategyCtx ? formatStrategyContextForPrompt(strategyCtx) : '';
+
   const recentCandles = candleData.slice(0, 30);
   const candleSummary = recentCandles.map((c: any, i: number) => 
     `[${i}] O:${c.o} H:${c.h} L:${c.l} C:${c.c} V:${c.v || 0}`
@@ -1171,6 +1195,7 @@ ADVANCED ANALYSIS:
 ${advStr}
 ` : ''}${newsSection}${smcSection}${ictSection}
 
+${strategySection}
 Provide your independent assessment considering ALL of the following:
 1. PRICE ACTION: Do candle patterns (engulfing, hammer, star, doji) support the direction?
 2. MOMENTUM: RSI, MACD, Stochastic alignment — any divergences?
@@ -1427,7 +1452,7 @@ export async function getAiVisionConfirmation(
       }
     }
 
-    const prompt = buildConfirmationPrompt(candleData, indicators, proposedSignal, proposedConfidence, tradePlan, symbol, timeframe, newsContext, ictContext, smcContext, htfLevels, propFirmContext);
+    const prompt = await buildConfirmationPrompt(candleData, indicators, proposedSignal, proposedConfidence, tradePlan, symbol, timeframe, newsContext, ictContext, smcContext, htfLevels, propFirmContext);
 
     console.log(`[AI Vision Confirmation] Requesting ${provider}/${selectedModel} confirmation for ${symbol} ${proposedSignal}`);
 
@@ -1942,20 +1967,56 @@ export async function getUniversalVisionClientForUser(userId: number): Promise<U
     const { storage } = await import('./storage');
     const user = await storage.getUser(userId);
     const aiCostMode = user?.aiCostMode || 'full';
+    const allKeys = await storage.getUserApiKeys(userId);
+    const activeKeys = allKeys.filter(k => k.isActive && k.isValid !== false);
 
     if (aiCostMode === 'economy') {
-      const allKeys = await storage.getUserApiKeys(userId);
-      const groqKey = allKeys.find(k => k.provider === 'groq' && k.isActive && k.isValid !== false);
+      const groqKey = activeKeys.find(k => k.provider === 'groq');
       const client = await buildGroqVisionClient(groqKey?.apiKey);
       if (client) {
         console.log(`[AI] Economy vision mode for user ${userId} — routing to Groq Llama 4 Scout Vision`);
         return client;
       }
     }
+
+    // Vision priority order: anthropic (Claude — best vision) → openai (GPT-4o) → groq-vision
+    // Explicitly skip text-only Groq models for image analysis
+    const VISION_PROVIDER_PRIORITY = ['anthropic', 'openai', 'google', 'mistral'];
+    for (const provider of VISION_PROVIDER_PRIORITY) {
+      const key = activeKeys.find(k => k.provider === provider);
+      if (!key?.apiKey) continue;
+      try {
+        await storage.updateUserApiKeyUsage(userId, provider);
+        if (provider === 'anthropic') {
+          console.log(`[AI Vision] Using Anthropic Claude for chart analysis (user ${userId})`);
+          return new AnthropicAsOpenAI(key.apiKey);
+        }
+        if (provider === 'openai') {
+          const client = new OpenAI({ apiKey: key.apiKey }) as any;
+          client.defaultModel = 'gpt-4o';
+          client.provider = 'openai';
+          console.log(`[AI Vision] Using OpenAI GPT-4o for chart analysis (user ${userId})`);
+          return client as UniversalAIClient;
+        }
+        return buildOpenAICompatClient(provider, key.apiKey);
+      } catch (e) {
+        console.error(`[AI Vision] Failed to build ${provider} client:`, e);
+      }
+    }
+
+    // Groq vision fallback (llama-4-scout supports images)
+    const groqKey = activeKeys.find(k => k.provider === 'groq');
+    if (groqKey?.apiKey) {
+      const client = await buildGroqVisionClient(groqKey.apiKey);
+      if (client) {
+        console.log(`[AI Vision] Falling back to Groq Llama 4 Scout Vision (user ${userId})`);
+        return client;
+      }
+    }
   } catch (e) {
     console.error('Error building vision client, falling back to universal client:', e);
   }
-  // Full mode or no Groq key: use standard universal client (GPT-4o supports vision)
+  // Last resort: platform OpenAI key
   return getUniversalAIClientForUser(userId);
 }
 
@@ -1990,7 +2051,9 @@ export { getAssetSpecificConfig, getAssetSpecificPrompt };
 export async function analyzeChartImage(base64Image: string, knownSymbol?: string, userId?: number): Promise<ChartAnalysisResponse> {
   try {
     const aiClient = userId ? await getUniversalVisionClientForUser(userId) : getOpenAIInstance();
-    const selectedModel = (aiClient as any).defaultModel || (userId ? getUserModelPreference(userId) : 'gpt-4o');
+    const rawModel = (aiClient as any).defaultModel || (userId ? getUserModelPreference(userId) : 'gpt-4o');
+    const selectedModel = resolveVisionModel(rawModel);
+    if (selectedModel !== rawModel) (aiClient as any).defaultModel = selectedModel;
     const openai = aiClient;
     
     // Get asset-specific prompt if symbol is provided
