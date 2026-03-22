@@ -878,11 +878,21 @@ async function buildConfirmationPrompt(
   ictContext?: IctContext | null,
   smcContext?: SmcContext | null,
   htfLevels?: Array<{ timeframe: string; candles: Array<{ o: number; h: number; l: number; c: number; v?: number; t?: number }>; role?: string }>,
-  propFirmContext?: PropFirmContext | null
+  propFirmContext?: PropFirmContext | null,
+  userId?: number
 ): Promise<{ system: string; user: string }> {
   // Fetch asset-specific strategy rules from GitHub (cached 24h, fallback to defaults)
   const strategyCtx = await getStrategyContext(symbol).catch(() => null);
   const strategySection = strategyCtx ? formatStrategyContextForPrompt(strategyCtx) : '';
+
+  // Inject historical paper trade accuracy to improve AI self-correction
+  let accuracyContext = '';
+  if (userId) {
+    try {
+      const { getAIAccuracyContext } = await import('./services/paper-trade-tracker');
+      accuracyContext = await getAIAccuracyContext(userId, symbol);
+    } catch {}
+  }
 
   const recentCandles = candleData.slice(0, 30);
   const candleSummary = recentCandles.map((c: any, i: number) => 
@@ -1196,6 +1206,7 @@ ${advStr}
 ` : ''}${newsSection}${smcSection}${ictSection}
 
 ${strategySection}
+${accuracyContext}
 Provide your independent assessment considering ALL of the following:
 1. PRICE ACTION: Do candle patterns (engulfing, hammer, star, doji) support the direction?
 2. MOMENTUM: RSI, MACD, Stochastic alignment — any divergences?
@@ -1452,7 +1463,7 @@ export async function getAiVisionConfirmation(
       }
     }
 
-    const prompt = await buildConfirmationPrompt(candleData, indicators, proposedSignal, proposedConfidence, tradePlan, symbol, timeframe, newsContext, ictContext, smcContext, htfLevels, propFirmContext);
+    const prompt = await buildConfirmationPrompt(candleData, indicators, proposedSignal, proposedConfidence, tradePlan, symbol, timeframe, newsContext, ictContext, smcContext, htfLevels, propFirmContext, userId);
 
     console.log(`[AI Vision Confirmation] Requesting ${provider}/${selectedModel} confirmation for ${symbol} ${proposedSignal}`);
 

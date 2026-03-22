@@ -3,6 +3,9 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { User, userApiKeys } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
+import { createPaperTrade, getPaperTradeStats, resolvePaperTrade } from "./services/paper-trade-tracker";
+import { paperTrades } from "@shared/schema";
+import { db } from "./db";
 import { db } from "./db";
 import { scrypt, randomBytes } from "crypto";
 import { promisify } from "util";
@@ -14692,9 +14695,80 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     });
   }
 
+  // ─── Paper Trade AI Training Routes ─────────────────────────────────────────
+  app.post("/api/paper-trades", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    try {
+      const trade = await createPaperTrade({ userId, ...req.body });
+      res.json(trade);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/paper-trades", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    try {
+      const stats = await getPaperTradeStats(userId);
+      res.json(stats);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/paper-trades/list", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    try {
+      const { desc } = await import("drizzle-orm");
+      const trades = await db.select().from(paperTrades)
+        .where(eq(paperTrades.userId, userId))
+        .orderBy(desc(paperTrades.createdAt))
+        .limit(100);
+      res.json(trades);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.put("/api/paper-trades/:id/notes", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const tradeId = parseInt(req.params.id);
+    try {
+      await db.update(paperTrades)
+        .set({ notes: req.body.notes })
+        .where(and(eq(paperTrades.id, tradeId), eq(paperTrades.userId, userId)));
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.put("/api/paper-trades/:id/outcome", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const tradeId = parseInt(req.params.id);
+    try {
+      const { outcome, pnlPips, pnlPercent, currentPrice } = req.body;
+      if (currentPrice) {
+        await resolvePaperTrade(tradeId, currentPrice);
+      } else {
+        await db.update(paperTrades)
+          .set({ outcome, pnlPips, pnlPercent, resolvedAt: new Date() })
+          .where(and(eq(paperTrades.id, tradeId), eq(paperTrades.userId, userId)));
+      }
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   const httpServer = createServer(app);
-  
+
   streamingService.initialize(httpServer);
-  
+
   return httpServer;
 }

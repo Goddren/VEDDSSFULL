@@ -1680,3 +1680,47 @@ export const insertWearToEarnClaimSchema = createInsertSchema(wearToEarnClaims).
 
 export type WearToEarnClaim = typeof wearToEarnClaims.$inferSelect;
 export type InsertWearToEarnClaim = z.infer<typeof insertWearToEarnClaimSchema>;
+
+// ─── Paper Trades — AI Training Journal ──────────────────────────────────────
+export const paperTrades = pgTable("paper_trades", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  symbol: text("symbol").notNull(),
+  timeframe: text("timeframe").notNull(),
+  direction: text("direction").notNull(), // 'BUY' | 'SELL'
+  entryPrice: real("entry_price").notNull(),
+  stopLoss: real("stop_loss"),
+  takeProfit: real("take_profit"),
+  aiConfidence: real("ai_confidence").notNull(),
+  aiModel: text("ai_model"),
+  aiProvider: text("ai_provider"),
+  aiReasoning: text("ai_reasoning"),
+  confluenceScore: real("confluence_score"),
+  confluenceGrade: text("confluence_grade"),
+  githubStrategyUsed: boolean("github_strategy_used").default(false),
+  outcome: text("outcome").default('pending'), // 'pending' | 'win' | 'loss' | 'breakeven'
+  priceAt1h: real("price_at_1h"),
+  priceAt4h: real("price_at_4h"),
+  priceAt24h: real("price_at_24h"),
+  pnlPips: real("pnl_pips"),
+  pnlPercent: real("pnl_percent"),
+  resolvedAt: timestamp("resolved_at"),
+  notes: text("notes"),
+  analysisId: integer("analysis_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertPaperTradeSchema = createInsertSchema(paperTrades).omit({
+  id: true,
+  createdAt: true,
+  resolvedAt: true,
+  priceAt1h: true,
+  priceAt4h: true,
+  priceAt24h: true,
+  outcome: true,
+  pnlPips: true,
+  pnlPercent: true,
+});
+
+export type PaperTrade = typeof paperTrades.$inferSelect;
+export type InsertPaperTrade = z.infer<typeof insertPaperTradeSchema>;

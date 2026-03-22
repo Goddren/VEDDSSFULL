@@ -69,6 +69,7 @@ import VeddTokenomics from "@/pages/vedd-tokenomics";
 import VeddClothingPage from "@/pages/vedd-clothing";
 import LiveMonitorPage from "@/pages/live-monitor";
 import WeeklyStrategyPage from "@/pages/weekly-strategy";
+import PaperTradesPage from "@/pages/paper-trades";
 import SevenEightPage from "@/pages/seven-eight";
 import StreakBanner from "@/components/StreakBanner";
 import { OnboardingTutorial } from "@/components/onboarding-tutorial";
@@ -177,6 +178,7 @@ function AppLayout() {
             <ProtectedRoute path="/webhooks" component={WebhooksPage} />
             <ProtectedRoute path="/mt5-chart-data" component={MT5ChartDataPage} />
             <ProtectedRoute path="/weekly-strategy" component={WeeklyStrategyPage} />
+            <ProtectedRoute path="/paper-trades" component={PaperTradesPage} />
             <ProtectedRoute path="/notification-settings" component={NotificationSettings} />
             <ProtectedRoute path="/ai-api-keys" component={AiApiKeysPage} />
             <ProtectedRoute path="/ai-trading-models" component={AiTradingModelsPage} />
