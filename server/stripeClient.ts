@@ -44,16 +44,20 @@ let stripeSync: any = null;
 
 export async function getStripeSync() {
   if (!stripeSync) {
-    const { StripeSync } = await import('stripe-replit-sync');
-    const secretKey = await getStripeSecretKey();
-
-    stripeSync = new StripeSync({
-      poolConfig: {
-        connectionString: process.env.DATABASE_URL!,
-        max: 2,
-      },
-      stripeSecretKey: secretKey,
-    });
+    try {
+      const { StripeSync } = await import('stripe-replit-sync');
+      const secretKey = await getStripeSecretKey();
+      stripeSync = new StripeSync({
+        poolConfig: {
+          connectionString: process.env.DATABASE_URL!,
+          max: 2,
+        },
+        stripeSecretKey: secretKey,
+      });
+    } catch (e) {
+      console.warn('[Stripe] stripe-replit-sync not available — Stripe sync disabled (non-Replit environment)');
+      stripeSync = null;
+    }
   }
   return stripeSync;
 }
