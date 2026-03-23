@@ -14,6 +14,9 @@ const app = express();
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: false, limit: '10mb' }));
 
+// Health check endpoint — must respond before Vite compiles (Railway health check)
+app.get("/health", (_req, res) => res.status(200).json({ status: "ok" }));
+
 // Set up authentication
 setupAuth(app);
 
