@@ -137,11 +137,8 @@ async function withRetry<T>(
 
   // Use Railway's dynamic PORT env var, fallback to 5000 for local dev
   const port = parseInt(process.env.PORT || '5000', 10);
-  server.listen({
-    port,
-    host: "0.0.0.0",
-    reusePort: true,
-  }, () => {
+  console.log(`[railway-debug] PORT env=${process.env.PORT} parsed=${port}`);
+  server.listen(port, "0.0.0.0", () => {
     log(`serving on port ${port}`);
   });
 
