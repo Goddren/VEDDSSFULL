@@ -2227,6 +2227,55 @@ const trainingModules: TrainingModule[] = [
   }
 ];
 
+function AmbassadorEarningsCalculator() {
+  const [referrals, setReferrals] = useState(10);
+  const starterPct = 0.6; // assume 60% sign up Starter, 40% Premium
+  const premiumPct = 0.4;
+  const starterPrice = 49.95;
+  const premiumPrice = 149.99;
+
+  const tier = referrals >= 100 ? 'Platinum' : referrals >= 40 ? 'Gold' : referrals >= 15 ? 'Silver' : referrals >= 5 ? 'Bronze' : 'None';
+  const commissionRate = tier === 'Platinum' ? 0.15 : tier === 'Gold' ? 0.10 : tier === 'Silver' ? 0.05 : 0;
+  const monthlyEarnings = Math.round(
+    (referrals * starterPct * starterPrice * commissionRate) +
+    (referrals * premiumPct * premiumPrice * commissionRate)
+  );
+  const credits = referrals * 500;
+
+  return (
+    <div className="rounded-xl bg-gray-800/50 border border-gray-700 p-5">
+      <p className="font-semibold text-white mb-4 text-sm flex items-center gap-2">
+        <span>📊</span> Earnings Calculator
+      </p>
+      <div className="mb-4">
+        <label className="text-xs text-gray-400 block mb-2">Referrals per month: <span className="text-white font-bold">{referrals}</span></label>
+        <input
+          type="range" min={1} max={150} value={referrals}
+          onChange={e => setReferrals(Number(e.target.value))}
+          className="w-full accent-amber-500"
+        />
+        <div className="flex justify-between text-xs text-gray-500 mt-1"><span>1</span><span>150</span></div>
+      </div>
+      <div className="grid grid-cols-3 gap-3 text-center">
+        <div className="bg-gray-700/50 rounded-lg p-3">
+          <p className="text-lg font-bold text-amber-400">{tier}</p>
+          <p className="text-xs text-gray-400">Your Tier</p>
+        </div>
+        <div className="bg-gray-700/50 rounded-lg p-3">
+          <p className="text-lg font-bold text-green-400">${monthlyEarnings.toLocaleString()}</p>
+          <p className="text-xs text-gray-400">Est. Monthly</p>
+        </div>
+        <div className="bg-gray-700/50 rounded-lg p-3">
+          <p className="text-lg font-bold text-blue-400">{credits.toLocaleString()}</p>
+          <p className="text-xs text-gray-400">Credits Earned</p>
+        </div>
+      </div>
+      {tier === 'None' && <p className="text-xs text-gray-500 mt-3 text-center">Reach 5 referrals to unlock Bronze tier and start earning</p>}
+      {tier !== 'None' && <p className="text-xs text-gray-400 mt-3 text-center">Estimate based on {Math.round(commissionRate*100)}% commission on mixed Starter/Premium subscriptions</p>}
+    </div>
+  );
+}
+
 export default function AmbassadorTrainingPage() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -3475,34 +3524,71 @@ export default function AmbassadorTrainingPage() {
             </CardFooter>
           </Card>
 
-          <Card className="bg-gray-900/50 border-gray-800">
+          {/* Tier System + Earnings Card */}
+          <Card className="bg-gray-900/50 border-amber-500/30 col-span-1 md:col-span-2 lg:col-span-3">
             <CardHeader>
-              <div className="w-12 h-12 rounded-xl bg-green-500/20 flex items-center justify-center mb-2">
-                <TrendingUp className="w-6 h-6 text-green-400" />
+              <div className="flex items-center gap-3 mb-2">
+                <div className="w-12 h-12 rounded-xl bg-amber-500/20 flex items-center justify-center">
+                  <TrendingUp className="w-6 h-6 text-amber-400" />
+                </div>
+                <div>
+                  <CardTitle className="text-lg">Ambassador Tiers & Earnings</CardTitle>
+                  <CardDescription>Refer more traders, unlock higher commissions & free subscriptions</CardDescription>
+                </div>
               </div>
-              <CardTitle>Referral Benefits</CardTitle>
-              <CardDescription>Earn while promoting</CardDescription>
             </CardHeader>
-            <CardContent>
-              <ul className="space-y-2 text-sm text-gray-400">
-                <li className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-green-400" />
-                  Earn credits per referral
-                </li>
-                <li className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-green-400" />
-                  Recurring commissions
-                </li>
-                <li className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-green-400" />
-                  Exclusive ambassador perks
-                </li>
-              </ul>
+            <CardContent className="space-y-6">
+              {/* Tier Grid */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {[
+                  { tier: "Bronze", icon: "🥉", req: "5 referrals", credits: "500 credits/mo", commission: "—", perk: "500 credits per sign-up", color: "border-amber-700/50 bg-amber-900/20", badge: "text-amber-600" },
+                  { tier: "Silver", icon: "🥈", req: "15 referrals", credits: "1,500 credits/mo", commission: "5% recurring", perk: "$2.50/mo per Starter sub", color: "border-gray-400/40 bg-gray-700/20", badge: "text-gray-300" },
+                  { tier: "Gold", icon: "🥇", req: "40 referrals", credits: "Free Pro plan", commission: "10% recurring", perk: "Free Premium + ~$150/mo passive", color: "border-yellow-500/40 bg-yellow-900/20", badge: "text-yellow-400" },
+                  { tier: "Platinum", icon: "💎", req: "100+ referrals", credits: "Free Yearly plan", commission: "15% + revenue share", perk: "Free Yearly + ~$450/mo passive", color: "border-cyan-500/40 bg-cyan-900/20", badge: "text-cyan-400" },
+                ].map((t) => (
+                  <div key={t.tier} className={`rounded-xl p-4 border ${t.color}`}>
+                    <div className="text-2xl mb-1">{t.icon}</div>
+                    <p className={`font-bold text-base mb-0.5 ${t.badge}`}>{t.tier}</p>
+                    <p className="text-xs text-gray-400 mb-2">{t.req}</p>
+                    <div className="space-y-1">
+                      <p className="text-xs text-green-400 font-medium">{t.credits}</p>
+                      {t.commission !== "—" && <p className="text-xs text-blue-400">{t.commission}</p>}
+                      <p className="text-xs text-gray-300 italic">{t.perk}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Earnings Calculator */}
+              <AmbassadorEarningsCalculator />
+
+              {/* Pay with Credits CTA */}
+              <div className="rounded-xl bg-gradient-to-r from-amber-900/30 to-yellow-900/20 border border-amber-500/30 p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div>
+                  <p className="font-semibold text-white text-sm mb-0.5">Use your credits to pay for VEDD Pro</p>
+                  <p className="text-xs text-gray-400">Starter = 4,995 credits · Premium = 14,999 credits · Yearly = 99,999 credits</p>
+                </div>
+                <Link href="/subscription">
+                  <Button size="sm" className="bg-amber-500 hover:bg-amber-400 text-black font-semibold whitespace-nowrap">
+                    Pay with Credits
+                  </Button>
+                </Link>
+              </div>
+
+              {/* Payout Info */}
+              <div className="bg-gray-800/60 rounded-xl p-4 border border-gray-700/50">
+                <p className="font-semibold text-white text-sm mb-3">How payouts work</p>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs text-gray-400">
+                  <div className="flex gap-2"><span className="text-green-400 font-bold">1.</span><span>Credits are awarded instantly when a referred user signs up using your link.</span></div>
+                  <div className="flex gap-2"><span className="text-green-400 font-bold">2.</span><span>Recurring commissions are calculated monthly when referrals renew their paid plan.</span></div>
+                  <div className="flex gap-2"><span className="text-green-400 font-bold">3.</span><span>Redeem credits in the subscription page or request a USDC payout once you reach 10,000 credits (~$100).</span></div>
+                </div>
+              </div>
             </CardContent>
             <CardFooter>
               <Link href="/social-hub" className="w-full">
-                <Button variant="outline" className="w-full">
-                  View Referral Program
+                <Button variant="outline" className="w-full border-amber-500/40 text-amber-400 hover:bg-amber-500/10">
+                  View My Referral Dashboard
                 </Button>
               </Link>
             </CardFooter>

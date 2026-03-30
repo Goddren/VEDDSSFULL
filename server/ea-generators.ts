@@ -941,7 +941,7 @@ void UpdateInfoPanel()
    
    // Update Open Trades
    int open_trades = CountOpenPositions();
-   ObjectSetString(0, TEXT_INFO + "Trades_val", OBJPROP_TEXT, IntegerToString(open_trades) + " / " + IntegerToString(MaxSimultaneousTrades));
+   ObjectSetString(0, TEXT_INFO + "Trades_val", OBJPROP_TEXT, IntegerToString(open_trades) + " / " + IntegerToString(MaxOpenTrades));
    ObjectSetInteger(0, TEXT_INFO + "Trades_val", OBJPROP_COLOR, open_trades > 0 ? BuyColor : clrWhite);
    
    // Update Status
@@ -3367,6 +3367,22 @@ int CountPositions(ENUM_POSITION_TYPE pos_type)
       if(PositionGetInteger(POSITION_MAGIC) != MagicNumber) continue;
       if((ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE) == pos_type)
          count++;
+   }
+   return count;
+}
+//+------------------------------------------------------------------+
+//| Count all open positions for this EA on this symbol              |
+//+------------------------------------------------------------------+
+int CountOpenPositions()
+{
+   int count = 0;
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket <= 0) continue;
+      if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+      if(PositionGetInteger(POSITION_MAGIC) != MagicNumber) continue;
+      count++;
    }
    return count;
 }

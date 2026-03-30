@@ -3,7 +3,7 @@ import { apiRequest } from '@/lib/queryClient';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/use-auth';
 import { useLocation } from 'wouter';
-import { Loader2, Check, X, Zap, Crown, Star, ChevronDown, ChevronUp, Sparkles, TrendingUp, Bot, Shield } from 'lucide-react';
+import { Loader2, Check, X, Zap, Crown, Star, ChevronDown, ChevronUp, Sparkles, TrendingUp, Bot, Shield, Gift, Users } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -31,6 +31,13 @@ type Subscription = {
   monthlySocialShareCount: number;
   analysisLimit: number;
   socialShareLimit: number;
+};
+
+// Ambassador credits required to pay for each plan (1 credit = $0.01)
+const AMBASSADOR_CREDIT_COSTS: Record<number, number> = {
+  2: 4995,   // Starter $49.95
+  3: 14999,  // Premium $149.99
+  4: 99999,  // Yearly $999.99
 };
 
 const PLAN_META: Record<number, {
@@ -131,6 +138,53 @@ export default function SubscriptionPage() {
   const queryClient = useQueryClient();
   const [selectedPlanId, setSelectedPlanId] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [creditLoading, setCreditLoading] = useState<number | null>(null);
+
+  // Fetch ambassador credit balance
+  const { data: creditData } = useQuery<{ balance: number }>({
+    queryKey: ['/api/ambassador/credits'],
+    queryFn: async () => {
+      const res = await apiRequest('GET', '/api/ambassador/credits');
+      return res.json();
+    },
+    enabled: !!user,
+  });
+  const creditBalance = creditData?.balance ?? 0;
+
+  const handlePayWithCredits = async (planId: number) => {
+    if (!user) {
+      toast({ title: 'Login Required', description: 'Please log in to use ambassador credits.', variant: 'default' });
+      setLocation('/auth');
+      return;
+    }
+    const cost = AMBASSADOR_CREDIT_COSTS[planId];
+    if (creditBalance < cost) {
+      toast({
+        title: 'Insufficient Credits',
+        description: `You need ${cost.toLocaleString()} credits but only have ${creditBalance.toLocaleString()}. Keep referring traders to earn more!`,
+        variant: 'destructive',
+      });
+      return;
+    }
+    try {
+      setCreditLoading(planId);
+      const res = await apiRequest('POST', '/api/subscription/pay-with-credits', { planId });
+      const result = await res.json();
+      if (result.success) {
+        toast({ title: 'Subscription Activated!', description: `You are now on the ${result.planName} plan. ${cost.toLocaleString()} credits deducted.` });
+        queryClient.invalidateQueries({ queryKey: ['/api/subscription'] });
+        queryClient.invalidateQueries({ queryKey: ['/api/ambassador/credits'] });
+        window.location.reload();
+      } else {
+        toast({ title: 'Payment Failed', description: result.message || 'Could not process credit payment.', variant: 'destructive' });
+      }
+    } catch (err) {
+      toast({ title: 'Error', description: err instanceof Error ? err.message : 'An error occurred.', variant: 'destructive' });
+    } finally {
+      setCreditLoading(null);
+    }
+  };
+
   const beaconsLinks: Record<number, string> = {
     2: 'https://shop.beacons.ai/vedd/0b05e744-972f-442f-a686-a9ae7698173c',
     3: 'https://shop.beacons.ai/vedd/7a28ca06-c694-4e0b-9f2c-e4b9992cb478',
@@ -238,9 +292,22 @@ export default function SubscriptionPage() {
           </p>
           <div className="flex flex-wrap items-center justify-center gap-4 text-sm text-muted-foreground">
             <span className="flex items-center gap-1.5"><Check className="h-4 w-4 text-green-500" /> Cancel anytime</span>
-            <span className="flex items-center gap-1.5"><Check className="h-4 w-4 text-green-500" /> Pay with USD or VEDD tokens</span>
+            <span className="flex items-center gap-1.5"><Check className="h-4 w-4 text-green-500" /> Pay with USD, VEDD tokens, or Ambassador Credits</span>
             <span className="flex items-center gap-1.5"><Check className="h-4 w-4 text-green-500" /> Replaces 7+ separate tools</span>
           </div>
+          {user && creditBalance > 0 && (
+            <div className="mt-6 inline-flex items-center gap-2 px-4 py-2 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-500 text-sm font-medium">
+              <Gift className="h-4 w-4" />
+              You have <strong>{creditBalance.toLocaleString()}</strong> ambassador credits — use them to pay for a plan below!
+            </div>
+          )}
+          {user && creditBalance === 0 && (
+            <div className="mt-6 inline-flex items-center gap-2 px-4 py-2 rounded-full bg-muted/40 border border-border text-muted-foreground text-sm">
+              <Users className="h-4 w-4" />
+              Earn ambassador credits by referring traders —
+              <a href="/ambassador-training" className="text-primary underline ml-1">Start here</a>
+            </div>
+          )}
         </div>
       </div>
 
@@ -354,6 +421,21 @@ export default function SubscriptionPage() {
                         planName={plan.name}
                         priceUsd={plan.price / 100}
                       />
+                      {/* Ambassador Credits Payment */}
+                      {AMBASSADOR_CREDIT_COSTS[plan.id] && (
+                        <Button
+                          variant="outline"
+                          className={`w-full gap-2 border-amber-500/40 text-amber-500 hover:bg-amber-500/10 ${creditBalance >= AMBASSADOR_CREDIT_COSTS[plan.id] ? '' : 'opacity-50'}`}
+                          onClick={() => handlePayWithCredits(plan.id)}
+                          disabled={creditLoading === plan.id}
+                          title={creditBalance < AMBASSADOR_CREDIT_COSTS[plan.id] ? `Need ${AMBASSADOR_CREDIT_COSTS[plan.id].toLocaleString()} credits — you have ${creditBalance.toLocaleString()}` : ''}
+                        >
+                          {creditLoading === plan.id
+                            ? <Loader2 className="h-4 w-4 animate-spin" />
+                            : <Gift className="h-4 w-4" />}
+                          Pay with Credits — {AMBASSADOR_CREDIT_COSTS[plan.id].toLocaleString()}
+                        </Button>
+                      )}
                     </>
                   )}
                 </div>

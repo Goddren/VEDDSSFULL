@@ -705,7 +705,7 @@ Return ONLY a JSON object with:
   "reasoning": "brief explanation of how you detected it"
 }`;
 
-            const { getUniversalAIClientForUser: _getOAI1 } = await import('./openai');
+            const { getUniversalVisionClientForUser: _getOAI1 } = await import('./openai');
             const client = await _getOAI1((req.user as User).id);
 
             const response = await client.chat.completions.create({

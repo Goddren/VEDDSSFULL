@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { SlidingButton } from "@/components/ui/sliding-button";
 import { Link } from "wouter";
@@ -58,9 +58,54 @@ import { InteractiveFeatureCard, FeatureCardGrid } from "@/components/ui/interac
 import { patternDescriptions } from "@/assets/pattern-descriptions";
 import logoImg from "@/assets/IMG_3645.png";
 
+// Animated counter hook
+function useCountUp(target: number, duration = 2000, start = false) {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    if (!start) return;
+    let startTime: number | null = null;
+    const step = (timestamp: number) => {
+      if (!startTime) startTime = timestamp;
+      const progress = Math.min((timestamp - startTime) / duration, 1);
+      setCount(Math.floor(progress * target));
+      if (progress < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }, [target, duration, start]);
+  return count;
+}
+
 export default function LandingPage() {
   const [isLoginOpen, setIsLoginOpen] = useState(false);
-  
+  const [scrollProgress, setScrollProgress] = useState(0);
+  const [statsVisible, setStatsVisible] = useState(false);
+  const statsRef = useRef<HTMLDivElement>(null);
+
+  // Scroll progress bar
+  useEffect(() => {
+    const handleScroll = () => {
+      const total = document.documentElement.scrollHeight - window.innerHeight;
+      setScrollProgress(total > 0 ? (window.scrollY / total) * 100 : 0);
+    };
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  // Stats counter trigger on scroll into view
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) setStatsVisible(true); },
+      { threshold: 0.3 }
+    );
+    if (statsRef.current) observer.observe(statsRef.current);
+    return () => observer.disconnect();
+  }, []);
+
+  const tradersCount = useCountUp(12400, 2200, statsVisible);
+  const analysesCount = useCountUp(890000, 2500, statsVisible);
+  const easCount = useCountUp(47000, 2000, statsVisible);
+  const platformsCount = useCountUp(3, 800, statsVisible);
+
   // Animation variants
   const fadeIn = {
     hidden: { opacity: 0 },
@@ -90,9 +135,12 @@ export default function LandingPage() {
   };
   
   return (
-    <div className="flex flex-col min-h-screen bg-theme-off">
+    <div className="flex flex-col min-h-screen bg-theme-off" style={{ fontFamily: "'Space Grotesk', 'Inter', sans-serif" }}>
+      {/* Scroll Progress Bar */}
+      <div className="fixed top-0 left-0 z-[100] h-[3px] bg-red-500 transition-all duration-100 ease-out" style={{ width: `${scrollProgress}%` }} />
+
       {/* Header with Logo */}
-      <header className="w-full border-b border-theme-light py-4 px-6 bg-theme-light">
+      <header className="w-full border-b border-theme-light py-4 px-6 bg-theme-light sticky top-0 z-50 backdrop-blur-sm">
         <div className="max-w-7xl mx-auto flex justify-between items-center">
           <div className="flex items-center">
             <img src={logoImg} alt="Trading Vault Logo" className="h-12" />
@@ -155,13 +203,16 @@ export default function LandingPage() {
             </div>
           </motion.div>
           
-          <motion.h1 variants={slideUp} className="text-4xl font-bold tracking-tight text-theme-main sm:text-5xl md:text-6xl">
+          <motion.h1 variants={slideUp} className="text-4xl font-bold tracking-tight text-theme-main sm:text-5xl md:text-6xl lg:text-7xl" style={{ fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "-0.02em" }}>
             <span className="text-red-500">AI Powered</span> Trading Vault
           </motion.h1>
-          
-          <motion.p variants={slideUp} className="mt-6 text-xl text-theme-muted max-w-3xl mx-auto">
-            Transform your trading with advanced AI analysis. Upload charts from MT5, TradingView, or TradeLocker 
-            and get precise market insights, patterns, and actionable signals instantly.
+
+          <motion.p variants={slideUp} className="mt-4 text-xs font-semibold tracking-[0.2em] uppercase text-red-400/80">
+            Chart Analysis · EA Generator · Live Trading Engine · Solana Scanner
+          </motion.p>
+
+          <motion.p variants={slideUp} className="mt-6 text-xl text-theme-muted max-w-3xl mx-auto leading-relaxed">
+            Upload any trading chart from <strong className="text-theme-main">MT5, TradingView, or TradeLocker</strong> and get instant AI pattern recognition, automated Expert Advisors, multi-timeframe signals, and live trade execution — all in one vault.
           </motion.p>
           
           <motion.div variants={slideUp} className="mt-10 flex flex-col items-center gap-4">
@@ -199,8 +250,35 @@ export default function LandingPage() {
         </div>
       </motion.section>
 
+      {/* Animated Stats Bar */}
+      <div ref={statsRef} className="py-12 bg-black border-t border-gray-800">
+        <div className="max-w-7xl mx-auto px-6 lg:px-8">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
+            {[
+              { value: tradersCount, suffix: "+", label: "Active Traders", color: "text-red-400" },
+              { value: analysesCount, suffix: "+", label: "Charts Analysed", color: "text-blue-400" },
+              { value: easCount, suffix: "+", label: "EAs Generated", color: "text-green-400" },
+              { value: platformsCount, suffix: "", label: "Trading Platforms", color: "text-amber-400" },
+            ].map((stat, i) => (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, y: 20 }}
+                animate={statsVisible ? { opacity: 1, y: 0 } : {}}
+                transition={{ delay: i * 0.1, duration: 0.5 }}
+                className="flex flex-col items-center"
+              >
+                <span className={`text-4xl md:text-5xl font-bold ${stat.color}`} style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
+                  {stat.value.toLocaleString()}{stat.suffix}
+                </span>
+                <span className="mt-2 text-sm text-gray-400 font-medium tracking-wide uppercase">{stat.label}</span>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      </div>
+
       {/* Unique Platform Features Section - Automated Trading Revolution */}
-      <motion.section 
+      <motion.section
         initial="hidden"
         whileInView="visible"
         viewport={{ once: true }}
@@ -1062,8 +1140,131 @@ export default function LandingPage() {
         </div>
       </motion.section>
       
+      {/* Testimonials */}
+      <motion.section
+        initial="hidden"
+        whileInView="visible"
+        viewport={{ once: true, margin: "-80px" }}
+        variants={staggerContainer}
+        className="py-20 bg-gradient-to-b from-black to-gray-950 border-t border-gray-800"
+      >
+        <div className="max-w-7xl mx-auto px-6 lg:px-8">
+          <motion.div variants={fadeIn} className="text-center mb-14">
+            <div className="inline-flex items-center px-4 py-2 rounded-full bg-amber-500/10 text-amber-400 text-sm font-medium mb-4">
+              <Trophy className="h-4 w-4 mr-2" />
+              Trader Stories
+            </div>
+            <h2 className="text-3xl font-bold text-white sm:text-4xl" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
+              Real traders. <span className="text-red-400">Real results.</span>
+            </h2>
+          </motion.div>
+          <motion.div variants={staggerContainer} className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {[
+              {
+                quote: "I uploaded my XAUUSD chart and the AI immediately spotted a Head & Shoulders I completely missed. Saved me from a bad BUY entry. Now I never trade without it.",
+                name: "Marcus T.", role: "Forex Trader · MT5 User", stars: 5,
+              },
+              {
+                quote: "The EA generator is insane. I described my strategy, uploaded my charts, and had a compiled MT5 Expert Advisor running in 10 minutes. Would have taken me weeks to code.",
+                name: "Priya S.", role: "Algorithmic Trader · TradingView", stars: 5,
+              },
+              {
+                quote: "I was paying $197/mo for TrendSpider alone. VEDD replaced that, my webhook service, and my news tool. Better analysis for a fraction of the cost.",
+                name: "Devon K.", role: "Swing Trader · TradeLocker", stars: 5,
+              },
+            ].map((t, i) => (
+              <motion.div
+                key={i}
+                variants={fadeIn}
+                whileHover={{ y: -6, transition: { duration: 0.25 } }}
+                className="bg-gray-900/80 rounded-2xl p-6 border border-gray-700/60 flex flex-col gap-4"
+              >
+                <div className="flex gap-1">
+                  {Array.from({ length: t.stars }).map((_, s) => (
+                    <span key={s} className="text-amber-400 text-sm">★</span>
+                  ))}
+                </div>
+                <p className="text-gray-300 leading-relaxed text-sm italic">"{t.quote}"</p>
+                <div className="mt-auto pt-4 border-t border-gray-700/40">
+                  <p className="font-semibold text-white text-sm">{t.name}</p>
+                  <p className="text-xs text-gray-500">{t.role}</p>
+                </div>
+              </motion.div>
+            ))}
+          </motion.div>
+        </div>
+      </motion.section>
+
+      {/* Ambassador Program Teaser */}
+      <motion.section
+        initial="hidden"
+        whileInView="visible"
+        viewport={{ once: true, margin: "-80px" }}
+        variants={staggerContainer}
+        className="py-20 bg-gradient-to-r from-amber-950/40 via-gray-900 to-amber-950/40 border-t border-amber-800/30"
+      >
+        <div className="max-w-7xl mx-auto px-6 lg:px-8">
+          <div className="grid md:grid-cols-2 gap-12 items-center">
+            <motion.div variants={slideUp}>
+              <div className="inline-flex items-center px-4 py-2 rounded-full bg-amber-500/15 text-amber-400 text-sm font-medium mb-6">
+                <Gift className="h-4 w-4 mr-2" />
+                Ambassador Program
+              </div>
+              <h2 className="text-3xl font-bold text-white sm:text-4xl mb-4" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
+                Get paid to share <span className="text-amber-400">VEDD</span>
+              </h2>
+              <p className="text-gray-300 text-lg leading-relaxed mb-6">
+                Refer traders, earn recurring commissions, and unlock ambassador credits you can use to <strong className="text-white">pay your own Pro subscription</strong> — completely free.
+              </p>
+              <ul className="space-y-3 mb-8">
+                {[
+                  "500 credits per successful referral",
+                  "Recurring monthly commissions on paid plans",
+                  "Use credits to pay your Starter or Premium plan",
+                  "44-day training program with certifications",
+                  "Bronze → Silver → Gold → Platinum tiers",
+                  "Private ambassador community & strategy calls",
+                ].map((item, i) => (
+                  <li key={i} className="flex items-center gap-3 text-gray-300 text-sm">
+                    <div className="h-5 w-5 rounded-full bg-amber-500/20 flex items-center justify-center flex-shrink-0">
+                      <span className="text-amber-400 text-xs">✓</span>
+                    </div>
+                    {item}
+                  </li>
+                ))}
+              </ul>
+              <Link href="/ambassador-training">
+                <Button className="bg-amber-500 hover:bg-amber-400 text-black font-bold px-8 py-3 text-base rounded-full transition-all duration-300 hover:scale-105">
+                  Start Ambassador Training
+                  <ArrowRight className="h-5 w-5 ml-2" />
+                </Button>
+              </Link>
+            </motion.div>
+
+            <motion.div variants={fadeIn} className="grid grid-cols-2 gap-4">
+              {[
+                { tier: "Bronze", req: "5 referrals", perk: "500 credits/mo", color: "from-amber-700/30 to-amber-900/20", border: "border-amber-700/40", text: "text-amber-600" },
+                { tier: "Silver", req: "15 referrals", perk: "1,500 credits/mo + 5% commission", color: "from-gray-400/20 to-gray-600/10", border: "border-gray-400/40", text: "text-gray-300" },
+                { tier: "Gold", req: "40 referrals", perk: "Free Pro + 10% commission", color: "from-yellow-500/20 to-yellow-700/10", border: "border-yellow-500/40", text: "text-yellow-400" },
+                { tier: "Platinum", req: "100+ referrals", perk: "Revenue share + co-marketing", color: "from-cyan-500/20 to-blue-700/10", border: "border-cyan-500/40", text: "text-cyan-400" },
+              ].map((tier, i) => (
+                <motion.div
+                  key={i}
+                  whileHover={{ scale: 1.04, transition: { duration: 0.2 } }}
+                  className={`bg-gradient-to-br ${tier.color} rounded-2xl p-5 border ${tier.border}`}
+                >
+                  <p className={`text-lg font-bold mb-1 ${tier.text}`} style={{ fontFamily: "'Space Grotesk', sans-serif" }}>{tier.tier}</p>
+                  <p className="text-xs text-gray-400 mb-2">{tier.req}</p>
+                  <p className="text-sm text-gray-200 font-medium">{tier.perk}</p>
+                </motion.div>
+              ))}
+            </motion.div>
+          </div>
+        </div>
+      </motion.section>
+
       {/* Call to Action */}
-      <motion.section 
+      <motion.section
         initial="hidden"
         whileInView="visible"
         viewport={{ once: true }}

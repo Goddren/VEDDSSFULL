@@ -10,9 +10,9 @@ import { db } from "./db";
 import { sql } from "drizzle-orm";
 
 const app = express();
-// Increase the JSON payload limit to handle larger images (10MB)
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: false, limit: '10mb' }));
+// Increase the JSON payload limit to handle bulk chart uploads (multiple base64 images)
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: false, limit: '50mb' }));
 
 // Health check endpoint — must respond before Vite compiles (Railway health check)
 app.get("/health", (_req, res) => res.status(200).json({ status: "ok" }));
