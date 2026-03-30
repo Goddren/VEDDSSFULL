@@ -1681,41 +1681,46 @@ export const insertWearToEarnClaimSchema = createInsertSchema(wearToEarnClaims).
 export type WearToEarnClaim = typeof wearToEarnClaims.$inferSelect;
 export type InsertWearToEarnClaim = z.infer<typeof insertWearToEarnClaimSchema>;
 
-// ── AI Confirmation Outcomes ──────────────────────────────────────────────────
-// Persists every 2nd-confirmation decision with the indicator snapshot at
-// the moment the decision was made, then records the actual trade outcome
-// (WIN/LOSS) once the position closes. The learning service reads this table
-// to find which conditions consistently lead to profitable confirmations.
-
-export const aiConfirmationOutcomes = pgTable("ai_confirmation_outcomes", {
+// ─── Paper Trades — AI Training Journal ──────────────────────────────────────
+export const paperTrades = pgTable("paper_trades", {
   id: serial("id").primaryKey(),
-  userId: integer("user_id").references(() => users.id).notNull(),
+  userId: integer("user_id").notNull().references(() => users.id),
   symbol: text("symbol").notNull(),
-  timeframe: text("timeframe"),
-  direction: text("direction").notNull(),         // 'BUY' | 'SELL'
-  session: text("session"),                        // 'London' | 'NY' | 'Asian'
-  aiDecision: text("ai_decision").notNull(),       // 'APPROVED' | 'REJECTED' | 'ADJUSTED' | 'AI_OVERRIDE'
-  aiConfidence: integer("ai_confidence"),
-  proposedConfidence: integer("proposed_confidence"),
-  confluenceScore: integer("confluence_score"),
-  confluenceGrade: text("confluence_grade"),       // 'A+' | 'A' | 'B' | 'C' | 'D'
-  rsiValue: real("rsi_value"),
-  adxValue: real("adx_value"),
-  macdDirection: text("macd_direction"),           // 'BULLISH' | 'BEARISH' | 'NEUTRAL'
-  ictMacroValid: boolean("ict_macro_valid"),
-  smcVerdict: text("smc_verdict"),                // 'CONFIRM' | 'REQUIRE_BETTER_PRICE' | 'PASS'
-  htfAligned: boolean("htf_aligned"),
-  newsConflict: boolean("news_conflict"),
-  tradeOutcome: text("trade_outcome").default('PENDING'), // 'WIN' | 'LOSS' | 'BREAKEVEN' | 'PENDING'
-  actualPips: real("actual_pips"),
-  confirmedAt: timestamp("confirmed_at").defaultNow().notNull(),
-  closedAt: timestamp("closed_at"),
+  timeframe: text("timeframe").notNull(),
+  direction: text("direction").notNull(), // 'BUY' | 'SELL'
+  entryPrice: real("entry_price").notNull(),
+  stopLoss: real("stop_loss"),
+  takeProfit: real("take_profit"),
+  aiConfidence: real("ai_confidence").notNull(),
+  aiModel: text("ai_model"),
+  aiProvider: text("ai_provider"),
+  aiReasoning: text("ai_reasoning"),
+  confluenceScore: real("confluence_score"),
+  confluenceGrade: text("confluence_grade"),
+  githubStrategyUsed: boolean("github_strategy_used").default(false),
+  outcome: text("outcome").default('pending'), // 'pending' | 'win' | 'loss' | 'breakeven'
+  priceAt1h: real("price_at_1h"),
+  priceAt4h: real("price_at_4h"),
+  priceAt24h: real("price_at_24h"),
+  pnlPips: real("pnl_pips"),
+  pnlPercent: real("pnl_percent"),
+  resolvedAt: timestamp("resolved_at"),
+  notes: text("notes"),
+  analysisId: integer("analysis_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-export const insertAiConfirmationOutcomeSchema = createInsertSchema(aiConfirmationOutcomes).omit({
+export const insertPaperTradeSchema = createInsertSchema(paperTrades).omit({
   id: true,
-  confirmedAt: true,
+  createdAt: true,
+  resolvedAt: true,
+  priceAt1h: true,
+  priceAt4h: true,
+  priceAt24h: true,
+  outcome: true,
+  pnlPips: true,
+  pnlPercent: true,
 });
 
-export type AiConfirmationOutcome = typeof aiConfirmationOutcomes.$inferSelect;
-export type InsertAiConfirmationOutcome = z.infer<typeof insertAiConfirmationOutcomeSchema>;
+export type PaperTrade = typeof paperTrades.$inferSelect;
+export type InsertPaperTrade = z.infer<typeof insertPaperTradeSchema>;
