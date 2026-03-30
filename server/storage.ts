@@ -48,11 +48,9 @@ import {
   internalWallets, withdrawalRequests, aiTradeResults, userApiKeys,
   weeklyStrategies, type WeeklyStrategy,
   aiModelConfigs,
-  aiConfirmationOutcomes,
-  type AiConfirmationOutcome, type InsertAiConfirmationOutcome,
 } from "@shared/schema";
 import { db, pool } from "./db";
-import { eq, and, sql, desc, isNull, gte, lte } from "drizzle-orm";
+import { eq, and, sql, desc, isNull } from "drizzle-orm";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import crypto from "crypto";
@@ -1571,55 +1569,6 @@ export class DatabaseStorage implements IStorage {
       ))
       .limit(1);
     return results[0];
-  }
-
-  // ── AI Confirmation Outcomes (learning loop) ────────────────────────────────
-
-  async createConfirmationOutcome(data: InsertAiConfirmationOutcome): Promise<AiConfirmationOutcome> {
-    const [result] = await db.insert(aiConfirmationOutcomes).values(data).returning();
-    return result;
-  }
-
-  // Called when a trade closes: find the most recent PENDING confirmation for
-  // this user + symbol + direction within the last 24 hours and mark its outcome.
-  async resolveConfirmationOutcome(
-    userId: number,
-    symbol: string,
-    direction: string,
-    tradeOutcome: string,
-    actualPips: number
-  ): Promise<void> {
-    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const rows = await db
-      .select()
-      .from(aiConfirmationOutcomes)
-      .where(
-        and(
-          eq(aiConfirmationOutcomes.userId, userId),
-          eq(aiConfirmationOutcomes.symbol, symbol.toUpperCase()),
-          eq(aiConfirmationOutcomes.direction, direction),
-          eq(aiConfirmationOutcomes.tradeOutcome, 'PENDING'),
-          gte(aiConfirmationOutcomes.confirmedAt, since)
-        )
-      )
-      .orderBy(desc(aiConfirmationOutcomes.confirmedAt))
-      .limit(1);
-
-    if (rows.length > 0) {
-      await db
-        .update(aiConfirmationOutcomes)
-        .set({ tradeOutcome, actualPips, closedAt: new Date() })
-        .where(eq(aiConfirmationOutcomes.id, rows[0].id));
-    }
-  }
-
-  async getConfirmationOutcomes(userId: number, limit = 200): Promise<AiConfirmationOutcome[]> {
-    return db
-      .select()
-      .from(aiConfirmationOutcomes)
-      .where(eq(aiConfirmationOutcomes.userId, userId))
-      .orderBy(desc(aiConfirmationOutcomes.confirmedAt))
-      .limit(limit);
   }
 
   async getAiTradeAccuracy(userId: number): Promise<{ daily: number; weekly: number; monthly: number; yearly: number; allTime: number; totalTrades: number; wins: number; losses: number }> {
