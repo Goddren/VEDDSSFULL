@@ -78,9 +78,6 @@ function useCountUp(target: number, duration = 2000, start = false) {
 export default function LandingPage() {
   const [isLoginOpen, setIsLoginOpen] = useState(false);
   const [scrollProgress, setScrollProgress] = useState(0);
-  const [statsVisible, setStatsVisible] = useState(false);
-  const statsRef = useRef<HTMLDivElement>(null);
-
   // Scroll progress bar
   useEffect(() => {
     const handleScroll = () => {
@@ -90,21 +87,6 @@ export default function LandingPage() {
     window.addEventListener("scroll", handleScroll, { passive: true });
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
-
-  // Stats counter trigger on scroll into view
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      ([entry]) => { if (entry.isIntersecting) setStatsVisible(true); },
-      { threshold: 0.3 }
-    );
-    if (statsRef.current) observer.observe(statsRef.current);
-    return () => observer.disconnect();
-  }, []);
-
-  const tradersCount = useCountUp(12400, 2200, statsVisible);
-  const analysesCount = useCountUp(890000, 2500, statsVisible);
-  const easCount = useCountUp(47000, 2000, statsVisible);
-  const platformsCount = useCountUp(3, 800, statsVisible);
 
   // Animation variants
   const fadeIn = {
@@ -249,33 +231,6 @@ export default function LandingPage() {
           </motion.div>
         </div>
       </motion.section>
-
-      {/* Animated Stats Bar */}
-      <div ref={statsRef} className="py-12 bg-black border-t border-gray-800">
-        <div className="max-w-7xl mx-auto px-6 lg:px-8">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
-            {[
-              { value: tradersCount, suffix: "+", label: "Active Traders", color: "text-red-400" },
-              { value: analysesCount, suffix: "+", label: "Charts Analysed", color: "text-blue-400" },
-              { value: easCount, suffix: "+", label: "EAs Generated", color: "text-green-400" },
-              { value: platformsCount, suffix: "", label: "Trading Platforms", color: "text-amber-400" },
-            ].map((stat, i) => (
-              <motion.div
-                key={i}
-                initial={{ opacity: 0, y: 20 }}
-                animate={statsVisible ? { opacity: 1, y: 0 } : {}}
-                transition={{ delay: i * 0.1, duration: 0.5 }}
-                className="flex flex-col items-center"
-              >
-                <span className={`text-4xl md:text-5xl font-bold ${stat.color}`} style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
-                  {stat.value.toLocaleString()}{stat.suffix}
-                </span>
-                <span className="mt-2 text-sm text-gray-400 font-medium tracking-wide uppercase">{stat.label}</span>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-      </div>
 
       {/* Unique Platform Features Section - Automated Trading Revolution */}
       <motion.section

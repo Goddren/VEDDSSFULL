@@ -2234,13 +2234,13 @@ function AmbassadorEarningsCalculator() {
   const starterPrice = 49.95;
   const premiumPrice = 149.99;
 
-  const tier = referrals >= 100 ? 'Platinum' : referrals >= 40 ? 'Gold' : referrals >= 15 ? 'Silver' : referrals >= 5 ? 'Bronze' : 'None';
+  const tier = referrals >= 100 ? 'Platinum' : referrals >= 60 ? 'Gold' : referrals >= 30 ? 'Silver' : referrals >= 10 ? 'Bronze' : 'None';
   const commissionRate = tier === 'Platinum' ? 0.15 : tier === 'Gold' ? 0.10 : tier === 'Silver' ? 0.05 : 0;
   const monthlyEarnings = Math.round(
     (referrals * starterPct * starterPrice * commissionRate) +
     (referrals * premiumPct * premiumPrice * commissionRate)
   );
-  const credits = referrals * 500;
+  const credits = referrals * 500; // 500 credits per referral — 30 referrals = 15,000 = Pro monthly
 
   return (
     <div className="rounded-xl bg-gray-800/50 border border-gray-700 p-5">
@@ -2270,7 +2270,7 @@ function AmbassadorEarningsCalculator() {
           <p className="text-xs text-gray-400">Credits Earned</p>
         </div>
       </div>
-      {tier === 'None' && <p className="text-xs text-gray-500 mt-3 text-center">Reach 5 referrals to unlock Bronze tier and start earning</p>}
+      {tier === 'None' && <p className="text-xs text-gray-500 mt-3 text-center">Reach 10 referrals to unlock Bronze tier — 5,000 credits covers your Starter plan</p>}
       {tier !== 'None' && <p className="text-xs text-gray-400 mt-3 text-center">Estimate based on {Math.round(commissionRate*100)}% commission on mixed Starter/Premium subscriptions</p>}
     </div>
   );
@@ -3541,10 +3541,10 @@ export default function AmbassadorTrainingPage() {
               {/* Tier Grid */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {[
-                  { tier: "Bronze", icon: "🥉", req: "5 referrals", credits: "500 credits/mo", commission: "—", perk: "500 credits per sign-up", color: "border-amber-700/50 bg-amber-900/20", badge: "text-amber-600" },
-                  { tier: "Silver", icon: "🥈", req: "15 referrals", credits: "1,500 credits/mo", commission: "5% recurring", perk: "$2.50/mo per Starter sub", color: "border-gray-400/40 bg-gray-700/20", badge: "text-gray-300" },
-                  { tier: "Gold", icon: "🥇", req: "40 referrals", credits: "Free Pro plan", commission: "10% recurring", perk: "Free Premium + ~$150/mo passive", color: "border-yellow-500/40 bg-yellow-900/20", badge: "text-yellow-400" },
-                  { tier: "Platinum", icon: "💎", req: "100+ referrals", credits: "Free Yearly plan", commission: "15% + revenue share", perk: "Free Yearly + ~$450/mo passive", color: "border-cyan-500/40 bg-cyan-900/20", badge: "text-cyan-400" },
+                  { tier: "Bronze", icon: "🥉", req: "10 referrals", credits: "5,000 credits/mo", commission: "—", perk: "Covers Starter plan (4,995 credits)", color: "border-amber-700/50 bg-amber-900/20", badge: "text-amber-600" },
+                  { tier: "Silver", icon: "🥈", req: "30 referrals", credits: "15,000 credits/mo", commission: "5% recurring", perk: "Covers Pro plan (14,999 credits) + cash", color: "border-gray-400/40 bg-gray-700/20", badge: "text-gray-300" },
+                  { tier: "Gold", icon: "🥇", req: "60 referrals", credits: "30,000 credits/mo", commission: "10% recurring", perk: "2× Pro covered + ~$150/mo passive", color: "border-yellow-500/40 bg-yellow-900/20", badge: "text-yellow-400" },
+                  { tier: "Platinum", icon: "💎", req: "100+ referrals", credits: "50,000+ credits/mo", commission: "15% + revenue share", perk: "Yearly covered + ~$450/mo passive", color: "border-cyan-500/40 bg-cyan-900/20", badge: "text-cyan-400" },
                 ].map((t) => (
                   <div key={t.tier} className={`rounded-xl p-4 border ${t.color}`}>
                     <div className="text-2xl mb-1">{t.icon}</div>
@@ -3565,8 +3565,8 @@ export default function AmbassadorTrainingPage() {
               {/* Pay with Credits CTA */}
               <div className="rounded-xl bg-gradient-to-r from-amber-900/30 to-yellow-900/20 border border-amber-500/30 p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                 <div>
-                  <p className="font-semibold text-white text-sm mb-0.5">Use your credits to pay for VEDD Pro</p>
-                  <p className="text-xs text-gray-400">Starter = 4,995 credits · Premium = 14,999 credits · Yearly = 99,999 credits</p>
+                  <p className="font-semibold text-white text-sm mb-0.5">Complete your journey — pay for Pro with credits</p>
+                  <p className="text-xs text-gray-400">Complete the full ambassador & content training, then use referral credits to cover your monthly Pro plan. 30 referrals = 15,000 credits = Pro covered.</p>
                 </div>
                 <Link href="/subscription">
                   <Button size="sm" className="bg-amber-500 hover:bg-amber-400 text-black font-semibold whitespace-nowrap">
@@ -3577,11 +3577,11 @@ export default function AmbassadorTrainingPage() {
 
               {/* Payout Info */}
               <div className="bg-gray-800/60 rounded-xl p-4 border border-gray-700/50">
-                <p className="font-semibold text-white text-sm mb-3">How payouts work</p>
+                <p className="font-semibold text-white text-sm mb-3">How credits & payouts work</p>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs text-gray-400">
-                  <div className="flex gap-2"><span className="text-green-400 font-bold">1.</span><span>Credits are awarded instantly when a referred user signs up using your link.</span></div>
-                  <div className="flex gap-2"><span className="text-green-400 font-bold">2.</span><span>Recurring commissions are calculated monthly when referrals renew their paid plan.</span></div>
-                  <div className="flex gap-2"><span className="text-green-400 font-bold">3.</span><span>Redeem credits in the subscription page or request a USDC payout once you reach 10,000 credits (~$100).</span></div>
+                  <div className="flex gap-2"><span className="text-green-400 font-bold">1.</span><span>Complete the full ambassador training & social content journey to unlock your referral link and start earning 500 credits per sign-up.</span></div>
+                  <div className="flex gap-2"><span className="text-green-400 font-bold">2.</span><span>Build your referrals to 30/month (Silver tier) and your credits cover your Pro subscription every month — free membership for sharing VEDD.</span></div>
+                  <div className="flex gap-2"><span className="text-green-400 font-bold">3.</span><span>Surplus credits convert to cash: request a USDC payout once you reach 10,000 credits (~$100). Higher tiers earn recurring commissions too.</span></div>
                 </div>
               </div>
             </CardContent>
