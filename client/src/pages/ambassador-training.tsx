@@ -2905,9 +2905,21 @@ export default function AmbassadorTrainingPage() {
               </div>
               <div>
                 <CardTitle className="text-white text-xl">Social Content Hub</CardTitle>
-                <CardDescription className="text-gray-400 text-sm">Ready-to-post content for every AI tool — click any card to copy instantly</CardDescription>
+                <CardDescription className="text-gray-400 text-sm">Step 3 of your ambassador journey — post content, earn credits, cover your Pro plan</CardDescription>
               </div>
             </div>
+
+            {/* Journey directions banner */}
+            <div className="mt-4 rounded-xl bg-gradient-to-r from-rose-900/40 to-pink-900/20 border border-rose-500/30 p-4">
+              <p className="text-white text-sm font-semibold mb-1">How social content pays for your Pro subscription</p>
+              <ol className="text-xs text-gray-300 space-y-1 list-none">
+                <li><span className="text-rose-400 font-bold mr-2">1.</span>Complete the full ambassador training modules above (steps 1 &amp; 2).</li>
+                <li><span className="text-rose-400 font-bold mr-2">2.</span>Post the content below on your platforms — always include your referral link in bio/caption.</li>
+                <li><span className="text-rose-400 font-bold mr-2">3.</span>Each sign-up through your link = 500 credits. Reach 30 referrals/month (Silver tier) and your credits fully cover the Pro plan (14,999 credits) every month.</li>
+                <li><span className="text-rose-400 font-bold mr-2">4.</span>Surplus credits convert to cash — request a USDC payout at 10,000 credits (~$100).</li>
+              </ol>
+            </div>
+
             <div className="flex gap-2 flex-wrap mt-4">
               {([
                 { id: 'twitter', label: 'Twitter / X', icon: Twitter, color: 'blue' },
