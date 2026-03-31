@@ -3,9 +3,6 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { User, userApiKeys } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
-import { createPaperTrade, getPaperTradeStats, resolvePaperTrade } from "./services/paper-trade-tracker";
-import { paperTrades } from "@shared/schema";
-import { db } from "./db";
 import { db } from "./db";
 import { scrypt, randomBytes } from "crypto";
 import { promisify } from "util";
@@ -2346,6 +2343,63 @@ Respond ONLY in valid JSON format with these exact keys:
         message: "Error cancelling subscription", 
         error: error instanceof Error ? error.message : "Unknown error" 
       });
+    }
+  });
+
+  // Get ambassador credit balance for the logged-in user
+  app.get("/api/ambassador/credits", async (req: Request, res: Response) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+      const userId = (req.user as Express.User).id;
+      const user = await storage.getUser(userId);
+      // Credits stored in user.referralCredits (default 0)
+      const balance = (user as any)?.referralCredits ?? 0;
+      res.json({ balance });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch credit balance" });
+    }
+  });
+
+  // Pay for a subscription plan using ambassador credits
+  app.post("/api/subscription/pay-with-credits", async (req: Request, res: Response) => {
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ message: "Authentication required" });
+      }
+      const userId = (req.user as Express.User).id;
+      const { planId } = req.body;
+
+      const CREDIT_COSTS: Record<number, number> = { 2: 4995, 3: 14999, 4: 99999 };
+      const cost = CREDIT_COSTS[planId];
+      if (!cost) {
+        return res.status(400).json({ message: "Invalid plan for credit payment" });
+      }
+
+      const user = await storage.getUser(userId);
+      const balance = (user as any)?.referralCredits ?? 0;
+      if (balance < cost) {
+        return res.status(400).json({ message: `Insufficient credits. Need ${cost}, have ${balance}.` });
+      }
+
+      // Deduct credits and activate subscription
+      await storage.updateUser(userId, { referralCredits: balance - cost } as any);
+      const plans = await storage.getSubscriptionPlans();
+      const plan = plans.find((p: any) => p.id === planId);
+      if (!plan) return res.status(404).json({ message: "Plan not found" });
+
+      await storage.updateUserSubscription(userId, {
+        planId,
+        status: 'active',
+        currentPeriodStart: new Date(),
+        currentPeriodEnd: new Date(Date.now() + (planId === 4 ? 365 : 30) * 24 * 60 * 60 * 1000),
+      });
+
+      res.json({ success: true, planName: plan.name, creditsDeducted: cost });
+    } catch (error) {
+      console.error("Error processing credit payment:", error);
+      res.status(500).json({ message: "Failed to process credit payment", error: error instanceof Error ? error.message : "Unknown error" });
     }
   });
 
@@ -5254,6 +5308,21 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 profitLoss: closedTrade.profit || 0,
                 closedAt: new Date(),
               });
+
+              // Update confirmation outcome so the learning service can compute accuracy
+              try {
+                const pips = closedTrade.profitPips ?? closedTrade.profit ?? 0;
+                await storage.resolveConfirmationOutcome(
+                  token.userId,
+                  (closedTrade.symbol || existingResult.symbol || '').toUpperCase(),
+                  existingResult.direction,
+                  result,
+                  pips
+                );
+                // Clear learning cache so next signal gets fresh insights
+                const { clearLearningCache } = await import('./services/confirmation-learning');
+                clearLearningCache(token.userId);
+              } catch (_lcErr) { /* non-critical */ }
               recordEngineResult(token.userId, {
                 symbol: (closedTrade.symbol || existingResult.symbol || 'UNKNOWN').toUpperCase(),
                 profit: closedTrade.profit || 0,
@@ -6430,7 +6499,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           analysis.confidence >= MIN_CONFIDENCE_FOR_AUTO_TRADE && 
           analysis.tradePlan) {
         try {
-          const { isAiVisionConfirmationEnabled, getAiVisionConfirmation, getBreakoutConfirmation, addAiConfirmationLog, getUserModelPreference, AVAILABLE_VISION_MODELS, isICTStrategyEnabled, isSMCStrategyEnabled, isPropFirmModeEnabled, getPropFirmContext, isBreakoutModeEnabled, isTrailingStopEnabled, hydrateBreakoutModeMap } = await import('./openai');
+          const { isAiVisionConfirmationEnabled, getAiVisionConfirmation, getBreakoutConfirmation, addAiConfirmationLog, getUserModelPreference, AVAILABLE_VISION_MODELS, isICTStrategyEnabled, isSMCStrategyEnabled, isPropFirmModeEnabled, getPropFirmContext, isBreakoutModeEnabled, isTrailingStopEnabled, setTrailingStopEnabled, hydrateBreakoutModeMap } = await import('./openai');
           if (isAiVisionConfirmationEnabled(token.userId)) {
             console.log(`[AI Vision Confirmation] Enabled for user ${token.userId} - requesting AI second opinion on ${sanitizedSymbol}`);
             const selectedModelId = getUserModelPreference(token.userId);
@@ -6578,14 +6647,99 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 delete aiConfirmation.recommendedTrailPips;
               }
             } else {
+              // Build live performance stats for this symbol to feed into the 2nd confirmation AI
+              // This allows the AI to self-calibrate thresholds based on actual trade outcomes
+              let symbolPerfStats;
+              try {
+                const recentLogs = await storage.getTradelockerTradeLogs(token.userId, 60);
+                const symLogs = recentLogs.filter((t: any) =>
+                  (t.symbol || '').toUpperCase() === sanitizedSymbol.toUpperCase() &&
+                  t.profit !== null && t.profit !== undefined
+                );
+                if (symLogs.length >= 3) {
+                  const wins = symLogs.filter((t: any) => t.profit > 0);
+                  const buyTrades = symLogs.filter((t: any) => t.direction === 'BUY');
+                  const sellTrades = symLogs.filter((t: any) => t.direction === 'SELL');
+                  const buyWins = buyTrades.filter((t: any) => t.profit > 0);
+                  const sellWins = sellTrades.filter((t: any) => t.profit > 0);
+
+                  // Detect recent streak (last 5 trades)
+                  const lastFive = symLogs.slice(0, 5);
+                  let streak = 0;
+                  const firstResult = lastFive[0]?.profit > 0;
+                  for (const t of lastFive) {
+                    if ((t.profit > 0) === firstResult) streak++;
+                    else break;
+                  }
+                  const recentStreak = firstResult ? streak : -streak;
+
+                  // Session detection from close time
+                  const sessionWins: Record<string, number> = { London: 0, NY: 0, Asian: 0 };
+                  const sessionTotals: Record<string, number> = { London: 0, NY: 0, Asian: 0 };
+                  for (const t of symLogs) {
+                    if (!t.closeTime) continue;
+                    const h = new Date(t.closeTime).getUTCHours();
+                    const sess = h >= 8 && h < 16 ? 'London' : h >= 13 && h < 22 ? 'NY' : 'Asian';
+                    sessionTotals[sess]++;
+                    if (t.profit > 0) sessionWins[sess]++;
+                  }
+                  let bestSession: string | undefined;
+                  let worstSession: string | undefined;
+                  let bestWR = -1, worstWR = 2;
+                  for (const sess of ['London', 'NY', 'Asian']) {
+                    if (sessionTotals[sess] < 2) continue;
+                    const wr = sessionWins[sess] / sessionTotals[sess];
+                    if (wr > bestWR) { bestWR = wr; bestSession = sess; }
+                    if (wr < worstWR) { worstWR = wr; worstSession = sess; }
+                  }
+
+                  // Average R:R from pips won vs lost
+                  const avgWinPips = wins.length > 0 ? wins.reduce((s: number, t: any) => s + Math.abs(t.profit), 0) / wins.length : 0;
+                  const losers = symLogs.filter((t: any) => t.profit <= 0);
+                  const avgLossPips = losers.length > 0 ? losers.reduce((s: number, t: any) => s + Math.abs(t.profit), 0) / losers.length : 1;
+                  const avgRR = avgLossPips > 0 ? avgWinPips / avgLossPips : 0;
+
+                  symbolPerfStats = {
+                    symbol: sanitizedSymbol,
+                    totalTrades: symLogs.length,
+                    winRate: wins.length / symLogs.length,
+                    buyWinRate: buyTrades.length > 0 ? buyWins.length / buyTrades.length : 0.5,
+                    sellWinRate: sellTrades.length > 0 ? sellWins.length / sellTrades.length : 0.5,
+                    avgRR,
+                    bestSession,
+                    worstSession,
+                    recentStreak,
+                    avgWinPips,
+                    avgLossPips,
+                  };
+                }
+              } catch (_perfErr) {
+                // Non-critical — proceed without stats if lookup fails
+              }
+
+              // Fetch learned insights from historical confirmation outcomes
+              let learnedInsights: string | undefined;
+              try {
+                const { getLearnedInsights } = await import('./services/confirmation-learning');
+                learnedInsights = await getLearnedInsights(token.userId, sanitizedSymbol);
+              } catch (_le) { /* non-critical */ }
+
               aiConfirmation = await getAiVisionConfirmation(
                 candles, analysis.indicators, analysis.signal, analysis.confidence,
                 analysis.tradePlan, sanitizedSymbol, sanitizedTimeframe,
                 token.userId, newsContextForAI, ictContext, smcContext,
-                htfLevels.length > 0 ? htfLevels : undefined, propFirmCtx
+                htfLevels.length > 0 ? htfLevels : undefined, propFirmCtx,
+                symbolPerfStats, learnedInsights
               );
             }
 
+            // Trailing stop: hydrate from DB first so server restarts don't reset to default-on
+            {
+              const dbUser = await storage.getUser(token.userId);
+              if (dbUser?.trailingStopEnabled !== undefined) {
+                setTrailingStopEnabled(token.userId, dbUser.trailingStopEnabled);
+              }
+            }
             // Trailing stop: disable if user has turned it off globally (skip entirely in breakout mode)
             if (!useBreakoutMode && !isTrailingStopEnabled(token.userId)) {
               if (analysis.tradePlan) {
@@ -6782,6 +6936,46 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 modelUsed: modelInfo?.name || selectedModelId,
                 ...logExtraContext,
               });
+
+              // Persist confirmation snapshot to DB for the learning loop
+              try {
+                const now = new Date();
+                const utcH = now.getUTCHours();
+                const confirmSession = utcH < 7 ? 'Asian' : utcH < 13 ? 'London' : 'NY';
+                const ind = analysis.indicators || {};
+                const macdHist = ind.macd?.histogram ?? ind.macdHistogram ?? null;
+                const macdDir = macdHist === null ? 'NEUTRAL' : macdHist > 0 ? 'BULLISH' : 'BEARISH';
+                const htfAlignedFlag = htfLevels.length > 0
+                  ? htfLevels.every((tf: any) => {
+                      if (!tf.candles || tf.candles.length < 2) return true;
+                      const last = tf.candles[0].c;
+                      const prev = tf.candles[1].c;
+                      const htfDir = last > prev ? 'BUY' : 'SELL';
+                      return htfDir === analysis.signal;
+                    })
+                  : null;
+
+                await storage.createConfirmationOutcome({
+                  userId: token.userId,
+                  symbol: sanitizedSymbol,
+                  timeframe: sanitizedTimeframe,
+                  direction: analysis.signal,
+                  session: confirmSession,
+                  aiDecision: isAiOverride ? 'AI_OVERRIDE' : (hasAdjustments ? 'ADJUSTED' : 'APPROVED'),
+                  aiConfidence: aiConfirmation.aiConfidence,
+                  proposedConfidence: preConfirmConfidence,
+                  confluenceScore: aiConfirmation.confluenceScore ?? null,
+                  confluenceGrade: aiConfirmation.confluenceGrade ?? null,
+                  rsiValue: ind.rsi ?? ind.rsi14 ?? null,
+                  adxValue: ind.adx ?? null,
+                  macdDirection: macdDir,
+                  ictMacroValid: aiConfirmation.ictMacroValid ?? null,
+                  smcVerdict: aiConfirmation.smcVerdict ?? null,
+                  htfAligned: htfAlignedFlag,
+                  newsConflict: logExtraContext?.newsConflict ?? null,
+                  tradeOutcome: 'PENDING',
+                });
+              } catch (_dbErr) { /* non-critical — never block the trade */ }
             }
           }
         } catch (confirmError) {
@@ -14695,80 +14889,9 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     });
   }
 
-  // ─── Paper Trade AI Training Routes ─────────────────────────────────────────
-  app.post("/api/paper-trades", async (req: Request, res: Response) => {
-    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
-    const userId = (req.user as User).id;
-    try {
-      const trade = await createPaperTrade({ userId, ...req.body });
-      res.json(trade);
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
-    }
-  });
-
-  app.get("/api/paper-trades", async (req: Request, res: Response) => {
-    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
-    const userId = (req.user as User).id;
-    try {
-      const stats = await getPaperTradeStats(userId);
-      res.json(stats);
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
-    }
-  });
-
-  app.get("/api/paper-trades/list", async (req: Request, res: Response) => {
-    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
-    const userId = (req.user as User).id;
-    try {
-      const { desc } = await import("drizzle-orm");
-      const trades = await db.select().from(paperTrades)
-        .where(eq(paperTrades.userId, userId))
-        .orderBy(desc(paperTrades.createdAt))
-        .limit(100);
-      res.json(trades);
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
-    }
-  });
-
-  app.put("/api/paper-trades/:id/notes", async (req: Request, res: Response) => {
-    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
-    const userId = (req.user as User).id;
-    const tradeId = parseInt(req.params.id);
-    try {
-      await db.update(paperTrades)
-        .set({ notes: req.body.notes })
-        .where(and(eq(paperTrades.id, tradeId), eq(paperTrades.userId, userId)));
-      res.json({ success: true });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
-    }
-  });
-
-  app.put("/api/paper-trades/:id/outcome", async (req: Request, res: Response) => {
-    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
-    const userId = (req.user as User).id;
-    const tradeId = parseInt(req.params.id);
-    try {
-      const { outcome, pnlPips, pnlPercent, currentPrice } = req.body;
-      if (currentPrice) {
-        await resolvePaperTrade(tradeId, currentPrice);
-      } else {
-        await db.update(paperTrades)
-          .set({ outcome, pnlPips, pnlPercent, resolvedAt: new Date() })
-          .where(and(eq(paperTrades.id, tradeId), eq(paperTrades.userId, userId)));
-      }
-      res.json({ success: true });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
-    }
-  });
-
   const httpServer = createServer(app);
-
+  
   streamingService.initialize(httpServer);
-
+  
   return httpServer;
 }
