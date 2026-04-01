@@ -49,7 +49,10 @@ type WeeklyStrategy = {
 export default function WeeklyStrategyPage() {
   const { toast } = useToast();
   const [profitTarget, setProfitTarget] = useState("400");
+  const [profitMode, setProfitMode] = useState<'dollar'|'percent'>('dollar');
+  const [profitPercent, setProfitPercent] = useState("20");
   const [accountBalance, setAccountBalance] = useState("100");
+  const [autoBalanceSource, setAutoBalanceSource] = useState<string | null>(null);
   const [lotSize, setLotSize] = useState("");
   const [selectedPairs, setSelectedPairs] = useState<string[]>(["XAUUSD", "GBPJPY", "NAS100"]);
   const [pairInput, setPairInput] = useState("");
@@ -85,8 +88,30 @@ export default function WeeklyStrategyPage() {
 
   const { data: brainSummary, isLoading: brainLoading } = useQuery<any[]>({
     queryKey: ['/api/brain/summary'],
-    refetchInterval: 120000, // refresh every 2 mins
+    refetchInterval: 120000,
   });
+
+  // Auto-detect connected account balance (MT5 or TradeLocker)
+  const { data: mt5AccountData } = useQuery<any>({
+    queryKey: ['/api/mt5/account-data'],
+    refetchInterval: 30000,
+  });
+  const { data: tlConnection } = useQuery<any>({
+    queryKey: ['/api/tradelocker/connection'],
+  });
+
+  // Pre-fill balance from connected account whenever data arrives
+  useEffect(() => {
+    const mt5Balance = mt5AccountData?.accounts?.[0]?.balance ?? (mt5AccountData?.connected ? mt5AccountData?.balance : null);
+    const tlBalance = (tlConnection as any)?.accountBalance ?? (tlConnection as any)?.balance ?? null;
+    if (mt5Balance && mt5Balance > 0) {
+      setAccountBalance(String(Math.round(mt5Balance * 100) / 100));
+      setAutoBalanceSource('MT5');
+    } else if (tlBalance && tlBalance > 0) {
+      setAccountBalance(String(Math.round(tlBalance * 100) / 100));
+      setAutoBalanceSource('TradeLocker');
+    }
+  }, [mt5AccountData, tlConnection]);
 
   const toggleLiveMutation = useMutation({
     mutationFn: async (enabled: boolean) => {
@@ -2162,44 +2187,202 @@ export default function WeeklyStrategyPage() {
               <CardDescription>Tell the AI where you want to go. It handles entries, exits, lot sizing, and risk.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
-              <div className="space-y-2">
-                <Label className="text-gray-300 text-sm">Quick Presets</Label>
-                <div className="grid grid-cols-3 gap-2">
-                  {[
-                    { balance: '100', target: '400', label: '$100 → $500' },
-                    { balance: '100', target: '700', label: '$100 → $800' },
-                    { balance: '200', target: '800', label: '$200 → $1,000' },
-                  ].map(preset => (
-                    <Button key={preset.label} variant="outline" size="sm"
-                      className={`text-xs ${accountBalance === preset.balance && profitTarget === preset.target ? 'border-orange-500 text-orange-400 bg-orange-500/10' : 'border-gray-700 text-gray-400'}`}
-                      onClick={() => { setAccountBalance(preset.balance); setProfitTarget(preset.target); }}>
-                      {preset.label}
-                    </Button>
-                  ))}
+
+              {/* ── Account Balance (auto-detected) ────────────── */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <Label className="text-gray-300 text-sm">Account Balance ($)</Label>
+                  {autoBalanceSource && (
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                      ✓ Auto-detected from {autoBalanceSource}
+                    </span>
+                  )}
                 </div>
+                <div className="relative">
+                  <Input
+                    type="number"
+                    value={accountBalance}
+                    onChange={e => { setAccountBalance(e.target.value); setAutoBalanceSource(null); }}
+                    placeholder="e.g. 1000"
+                    className="bg-gray-900 border-gray-700 text-white pr-20"
+                  />
+                  {autoBalanceSource && (
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-emerald-400">Live</span>
+                  )}
+                </div>
+                {!autoBalanceSource && (
+                  <p className="text-gray-600 text-xs mt-1">Connect MT5 or TradeLocker to auto-fill your live balance</p>
+                )}
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label className="text-gray-300 text-sm">Starting Balance ($)</Label>
-                  <Input type="number" value={accountBalance} onChange={e => setAccountBalance(e.target.value)} placeholder="100" className="mt-1 bg-gray-900 border-gray-700 text-white" />
+
+              {/* ── Profit Target ($ or %) ──────────────────────── */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <Label className="text-gray-300 text-sm">Profit Target</Label>
+                  <div className="flex bg-gray-800 rounded-lg p-0.5">
+                    <button
+                      onClick={() => {
+                        setProfitMode('dollar');
+                        if (profitPercent && accountBalance && parseFloat(accountBalance) > 0) {
+                          setProfitTarget(String(Math.round(parseFloat(accountBalance) * parseFloat(profitPercent) / 100)));
+                        }
+                      }}
+                      className={`text-xs px-3 py-1 rounded-md transition-all ${profitMode === 'dollar' ? 'bg-orange-600 text-white' : 'text-gray-400 hover:text-white'}`}
+                    >$ Dollar</button>
+                    <button
+                      onClick={() => {
+                        setProfitMode('percent');
+                        if (profitTarget && accountBalance && parseFloat(accountBalance) > 0) {
+                          setProfitPercent(String(Math.round(parseFloat(profitTarget) / parseFloat(accountBalance) * 100)));
+                        }
+                      }}
+                      className={`text-xs px-3 py-1 rounded-md transition-all ${profitMode === 'percent' ? 'bg-orange-600 text-white' : 'text-gray-400 hover:text-white'}`}
+                    >% Percent</button>
+                  </div>
                 </div>
-                <div>
-                  <Label className="text-gray-300 text-sm">Profit Target ($)</Label>
-                  <Input type="number" value={profitTarget} onChange={e => setProfitTarget(e.target.value)} placeholder="400" className="mt-1 bg-gray-900 border-gray-700 text-white" />
-                </div>
+                {profitMode === 'dollar' ? (
+                  <Input
+                    type="number"
+                    value={profitTarget}
+                    onChange={e => {
+                      setProfitTarget(e.target.value);
+                      if (accountBalance && parseFloat(accountBalance) > 0 && parseFloat(e.target.value) > 0) {
+                        setProfitPercent(String(Math.round(parseFloat(e.target.value) / parseFloat(accountBalance) * 100)));
+                      }
+                    }}
+                    placeholder="e.g. 200"
+                    className="bg-gray-900 border-gray-700 text-white"
+                  />
+                ) : (
+                  <div className="relative">
+                    <Input
+                      type="number"
+                      value={profitPercent}
+                      onChange={e => {
+                        setProfitPercent(e.target.value);
+                        if (accountBalance && parseFloat(accountBalance) > 0 && parseFloat(e.target.value) > 0) {
+                          setProfitTarget(String(Math.round(parseFloat(accountBalance) * parseFloat(e.target.value) / 100)));
+                        }
+                      }}
+                      placeholder="e.g. 20"
+                      className="bg-gray-900 border-gray-700 text-white pr-8"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">%</span>
+                  </div>
+                )}
+                {profitMode === 'percent' && profitTarget && parseFloat(profitTarget) > 0 && (
+                  <p className="text-orange-400 text-xs mt-1">= ${parseFloat(profitTarget).toFixed(2)} profit in dollar terms</p>
+                )}
+                {profitMode === 'dollar' && profitPercent && parseFloat(profitPercent) > 0 && (
+                  <p className="text-orange-400 text-xs mt-1">= {parseFloat(profitPercent).toFixed(1)}% of your account</p>
+                )}
               </div>
-              {accountBalance && profitTarget && parseFloat(accountBalance) > 0 && (
-                <div className="bg-gradient-to-r from-orange-900/20 to-red-900/20 rounded-lg p-4 border border-orange-500/20 flex justify-between items-center">
-                  <div>
-                    <p className="text-gray-400 text-xs">Growth Target</p>
-                    <p className="text-white font-bold text-xl">${accountBalance} <ArrowUpRight className="w-4 h-4 inline text-orange-400" /> ${parseFloat(accountBalance) + parseFloat(profitTarget)}</p>
+
+              {/* ── Goal Summary + Pip Value + Risk Warning ─────── */}
+              {accountBalance && profitTarget && parseFloat(accountBalance) > 0 && parseFloat(profitTarget) > 0 && (() => {
+                const bal = parseFloat(accountBalance);
+                const target = parseFloat(profitTarget);
+                const pct = (target / bal * 100).toFixed(1);
+                const multiplier = ((bal + target) / bal).toFixed(2);
+
+                // Pip value estimate (rough avg across common pairs)
+                // XAUUSD: ~$1/pip per 0.01 lot → $10/pip per 0.1 lot
+                // GBPUSD/EURUSD: ~$1/pip per 0.01 lot
+                // Assume 0.01 lot base, 10 pips avg profit per trade
+                const estLot = Math.max(0.01, bal * 0.01 / 100); // 1% risk sizing
+                const pipValuePerLot = 10; // $10 per pip for standard 0.1 lot on most pairs
+                const avgPipsPerTrade = 20;
+                const estPipValue = estLot * pipValuePerLot;
+                const tradesNeeded = Math.ceil(target / (avgPipsPerTrade * estPipValue));
+                const pipsForGoal = Math.round(target / estPipValue);
+
+                // Risk scenarios
+                const risk1pct = bal * 0.01;
+                const risk2pct = bal * 0.02;
+                const drawdownWarning = parseFloat(pct) > 50;
+                const drawdownCaution = parseFloat(pct) > 20;
+
+                return (
+                  <div className="space-y-3">
+                    {/* Goal card */}
+                    <div className="bg-gradient-to-r from-orange-900/20 to-red-900/20 rounded-xl p-4 border border-orange-500/20">
+                      <div className="grid grid-cols-3 gap-3 text-center">
+                        <div>
+                          <p className="text-gray-400 text-xs mb-1">Goal</p>
+                          <p className="text-white font-bold">${bal.toFixed(0)} → ${(bal + target).toFixed(0)}</p>
+                          <p className="text-orange-400 text-xs">+{pct}%</p>
+                        </div>
+                        <div>
+                          <p className="text-gray-400 text-xs mb-1">Multiplier</p>
+                          <p className="text-orange-400 font-bold text-lg">{multiplier}x</p>
+                        </div>
+                        <div>
+                          <p className="text-gray-400 text-xs mb-1">~Trades Needed</p>
+                          <p className="text-white font-bold">{tradesNeeded}</p>
+                          <p className="text-gray-500 text-xs">@ 20 pips avg</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Pip value breakdown */}
+                    <div className="bg-blue-900/20 border border-blue-500/20 rounded-xl p-3">
+                      <p className="text-blue-300 text-xs font-semibold mb-2 flex items-center gap-1.5">📐 Pip Value Needed</p>
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        <div className="bg-gray-900/60 rounded-lg p-2">
+                          <p className="text-gray-500">Total pips to goal</p>
+                          <p className="text-white font-bold">{pipsForGoal} pips</p>
+                          <p className="text-gray-600 text-[10px]">at {estLot} lot size</p>
+                        </div>
+                        <div className="bg-gray-900/60 rounded-lg p-2">
+                          <p className="text-gray-500">Pip value</p>
+                          <p className="text-white font-bold">${estPipValue.toFixed(2)}/pip</p>
+                          <p className="text-gray-600 text-[10px]">at {estLot} lot</p>
+                        </div>
+                        <div className="bg-gray-900/60 rounded-lg p-2">
+                          <p className="text-gray-500">Per-day target</p>
+                          <p className="text-white font-bold">${(target / 5).toFixed(2)}</p>
+                          <p className="text-gray-600 text-[10px]">spread over 5 days</p>
+                        </div>
+                        <div className="bg-gray-900/60 rounded-lg p-2">
+                          <p className="text-gray-500">Pips/day needed</p>
+                          <p className="text-white font-bold">{Math.round(pipsForGoal / 5)} pips</p>
+                          <p className="text-gray-600 text-[10px]">across selected pairs</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Risk warning */}
+                    <div className={`rounded-xl p-3 border ${drawdownWarning ? 'bg-red-900/30 border-red-500/40' : drawdownCaution ? 'bg-amber-900/20 border-amber-500/30' : 'bg-gray-900/40 border-gray-700/40'}`}>
+                      <p className={`text-xs font-semibold mb-2 flex items-center gap-1.5 ${drawdownWarning ? 'text-red-400' : drawdownCaution ? 'text-amber-400' : 'text-gray-400'}`}>
+                        {drawdownWarning ? '⚠️ HIGH RISK WARNING' : drawdownCaution ? '⚠️ Moderate Risk' : '✓ Risk Overview'}
+                      </p>
+                      <div className="grid grid-cols-3 gap-2 text-xs">
+                        <div className="bg-gray-900/60 rounded-lg p-2 text-center">
+                          <p className="text-gray-500 text-[10px] mb-0.5">1% Risk/Trade</p>
+                          <p className="text-white font-medium">${risk1pct.toFixed(2)}</p>
+                          <p className="text-gray-600 text-[10px]">max loss/trade</p>
+                        </div>
+                        <div className="bg-gray-900/60 rounded-lg p-2 text-center">
+                          <p className="text-gray-500 text-[10px] mb-0.5">2% Risk/Trade</p>
+                          <p className="text-amber-400 font-medium">${risk2pct.toFixed(2)}</p>
+                          <p className="text-gray-600 text-[10px]">max loss/trade</p>
+                        </div>
+                        <div className="bg-gray-900/60 rounded-lg p-2 text-center">
+                          <p className="text-gray-500 text-[10px] mb-0.5">5-Loss Streak</p>
+                          <p className="text-red-400 font-medium">-${(risk2pct * 5).toFixed(2)}</p>
+                          <p className="text-gray-600 text-[10px]">at 2% risk</p>
+                        </div>
+                      </div>
+                      {drawdownWarning && (
+                        <p className="text-red-300 text-[10px] mt-2 leading-relaxed">⚠️ A {pct}% target requires very aggressive trading. Losses can exceed this amount. Consider splitting into multiple weeks or using Prop Firm mode for discipline.</p>
+                      )}
+                      {drawdownCaution && !drawdownWarning && (
+                        <p className="text-amber-300 text-[10px] mt-2 leading-relaxed">A {pct}% target is achievable but requires consistent execution. Use 1–2% risk per trade to protect capital on losing streaks.</p>
+                      )}
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <p className="text-gray-400 text-xs">Multiplier</p>
-                    <p className="text-orange-400 font-bold text-xl">{formGrowthMultiplier}x</p>
-                  </div>
-                </div>
-              )}
+                );
+              })()}
               <div>
                 <Label className="text-gray-300 text-sm">Strategy Mode</Label>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mt-1">
@@ -2237,20 +2420,36 @@ export default function WeeklyStrategyPage() {
                 </div>
               </div>
               <div>
-                <Label className="text-gray-300 text-sm">Select Pairs</Label>
+                <div className="flex items-center justify-between mb-1">
+                  <Label className="text-gray-300 text-sm">Select Pairs <span className="text-gray-500 font-normal">(pick 1 or more — all optional)</span></Label>
+                  <span className={`text-xs px-2 py-0.5 rounded-full ${selectedPairs.length > 0 ? 'bg-orange-500/20 text-orange-400' : 'bg-gray-800 text-gray-500'}`}>
+                    {selectedPairs.length} selected
+                  </span>
+                </div>
                 <div className="flex flex-wrap gap-1.5 mt-1">
                   {POPULAR_PAIRS.map(pair => (
-                    <Badge key={pair} className={`cursor-pointer text-xs transition-all ${selectedPairs.includes(pair) ? 'bg-orange-500/30 text-orange-300 border-orange-500/50' : 'bg-gray-900 text-gray-500 border-gray-700 hover:border-gray-500'}`}
+                    <Badge key={pair} className={`cursor-pointer text-xs transition-all select-none ${selectedPairs.includes(pair) ? 'bg-orange-500/30 text-orange-300 border-orange-500/50' : 'bg-gray-900 text-gray-500 border-gray-700 hover:border-gray-500'}`}
                       onClick={() => togglePair(pair)}>
                       {selectedPairs.includes(pair) && <CheckCircle className="w-2.5 h-2.5 mr-1" />}{pair}
                     </Badge>
                   ))}
                 </div>
+                {selectedPairs.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {selectedPairs.map(p => (
+                      <span key={p} className="inline-flex items-center gap-1 text-xs bg-orange-900/30 text-orange-300 border border-orange-500/30 rounded-md px-2 py-0.5">
+                        {p}
+                        <button onClick={() => togglePair(p)} className="text-orange-500 hover:text-orange-200 ml-0.5">×</button>
+                      </span>
+                    ))}
+                  </div>
+                )}
                 <div className="flex gap-2 mt-2">
-                  <Input value={pairInput} onChange={e => setPairInput(e.target.value)} placeholder="Add custom pair..."
+                  <Input value={pairInput} onChange={e => setPairInput(e.target.value)} placeholder="Add custom pair (e.g. BTCUSD)..."
                     className="bg-gray-900 border-gray-700 text-white flex-1 text-sm" onKeyDown={e => e.key === 'Enter' && addCustomPair()} />
                   <Button variant="outline" size="sm" onClick={addCustomPair}>Add</Button>
                 </div>
+                <p className="text-gray-600 text-xs mt-1">The AI will generate a daily plan for each selected pair. You can add any pair your broker supports.</p>
               </div>
               <Button className="w-full bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-500 hover:to-red-500 text-white font-semibold py-5 text-base"
                 onClick={() => generateMutation.mutate()} disabled={generateMutation.isPending || selectedPairs.length === 0}>
