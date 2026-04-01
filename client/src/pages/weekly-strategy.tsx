@@ -534,6 +534,47 @@ export default function WeeklyStrategyPage() {
 
       <div className="max-w-7xl mx-auto p-4 space-y-4">
 
+        {/* ─── Weekly Plan Progress (always visible at top) ── */}
+        {strategy?.hasStrategy && (
+          <div className="rounded-xl bg-gradient-to-r from-gray-900/80 to-gray-900/60 border border-gray-800 px-4 py-3">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <TrendingUp className="w-4 h-4 text-orange-400" />
+                <span className="text-white font-semibold text-sm">Weekly Growth Plan</span>
+                {plan?.feasibility && (
+                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                    plan.feasibility === 'ACHIEVABLE' ? 'bg-emerald-500/20 text-emerald-400' :
+                    plan.feasibility === 'AGGRESSIVE' ? 'bg-orange-500/20 text-orange-400' :
+                    'bg-red-500/20 text-red-400'
+                  }`}>{plan.feasibility}</span>
+                )}
+              </div>
+              <div className="flex items-center gap-3 text-xs">
+                <span className="text-gray-400">${(strategy.currentProfit || 0).toFixed(2)} / ${strategy.profitTarget}</span>
+                <span className="text-orange-400 font-bold text-sm">{strategy.progressPercentage || 0}%</span>
+              </div>
+            </div>
+            <div className="h-2.5 bg-gray-800 rounded-full overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all duration-700"
+                style={{
+                  width: `${Math.min(100, strategy.progressPercentage || 0)}%`,
+                  background: (strategy.progressPercentage || 0) >= 100
+                    ? 'linear-gradient(90deg,#10b981,#34d399)'
+                    : (strategy.progressPercentage || 0) >= 60
+                    ? 'linear-gradient(90deg,#f59e0b,#fbbf24)'
+                    : 'linear-gradient(90deg,#dc2626,#ef4444)'
+                }}
+              />
+            </div>
+            <div className="flex items-center gap-4 mt-2 text-xs text-gray-500">
+              <span>{strategy.progressTrades ?? 0} trades</span>
+              <span>{strategy.progressWinRate ?? 0}% win rate</span>
+              {liveMode?.live && <span className="text-emerald-400 animate-pulse">● EA Guidance LIVE</span>}
+            </div>
+          </div>
+        )}
+
         {/* ─── Tab Navigation ──────────────────────────────── */}
         <div className="flex gap-1 p-1 bg-gray-900/60 border border-gray-800 rounded-xl mb-6 overflow-x-auto">
           {([
@@ -1804,6 +1845,123 @@ export default function WeeklyStrategyPage() {
                   disabled={toggleLiveMutation.isPending}
                 />
               </div>
+
+              {/* ── AI Thinking Panel (visible when LIVE) ──────── */}
+              {liveMode?.live && (
+                <div className="mt-4 pt-4 border-t border-emerald-500/20">
+                  <p className="text-emerald-400 text-xs font-semibold uppercase tracking-wide mb-3 flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse inline-block" />
+                    What the AI is thinking right now
+                  </p>
+
+                  {/* Latest AI log entry expanded */}
+                  {aiLogs && aiLogs.length > 0 ? (
+                    <div className="space-y-3">
+                      {/* Most recent decision */}
+                      {(() => {
+                        const latest = aiLogs[0];
+                        const isApproved = latest?.decision === 'CONFIRMED' || latest?.decision === 'APPROVED' || latest?.decision === 'AI_OVERRIDE';
+                        const isRejected = latest?.decision === 'REJECTED' || latest?.decision === 'BLOCKED';
+                        return (
+                          <div className={`rounded-xl p-3 border ${isApproved ? 'border-emerald-500/30 bg-emerald-900/20' : isRejected ? 'border-red-500/30 bg-red-900/20' : 'border-gray-700/50 bg-gray-800/40'}`}>
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="flex items-center gap-2">
+                                <span className="text-white font-bold text-sm">{latest.symbol}</span>
+                                <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${latest.direction === 'BUY' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>{latest.direction}</span>
+                                <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${isApproved ? 'bg-emerald-500/20 text-emerald-300' : isRejected ? 'bg-red-500/20 text-red-300' : 'bg-gray-700 text-gray-400'}`}>{latest.decision}</span>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-white font-bold text-sm">{latest.aiConfidence ?? latest.confidence ?? '—'}%</p>
+                                <p className="text-gray-500 text-[10px]">AI confidence</p>
+                              </div>
+                            </div>
+
+                            {/* Confluence grade + score */}
+                            {(latest.confluenceGrade || latest.confluenceScore !== undefined) && (
+                              <div className="flex items-center gap-3 mb-2">
+                                {latest.confluenceGrade && (
+                                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                                    latest.confluenceGrade.startsWith('A') ? 'bg-emerald-500/20 text-emerald-400' :
+                                    latest.confluenceGrade === 'B' ? 'bg-blue-500/20 text-blue-400' :
+                                    'bg-gray-700 text-gray-400'
+                                  }`}>Grade {latest.confluenceGrade}</span>
+                                )}
+                                {latest.confluenceScore !== undefined && (
+                                  <span className="text-gray-400 text-xs">Score {latest.confluenceScore}/12</span>
+                                )}
+                                {latest.session && (
+                                  <span className="text-gray-500 text-xs">{latest.session} session</span>
+                                )}
+                              </div>
+                            )}
+
+                            {/* AI reasoning */}
+                            {latest.reasoning && (
+                              <p className="text-gray-300 text-xs leading-relaxed bg-gray-900/50 rounded-lg p-2 mb-2">{latest.reasoning}</p>
+                            )}
+
+                            {/* Key factors */}
+                            <div className="flex flex-wrap gap-1.5">
+                              {latest.ictMacroValid !== undefined && (
+                                <span className={`text-[10px] px-1.5 py-0.5 rounded ${latest.ictMacroValid ? 'bg-emerald-900/40 text-emerald-400' : 'bg-gray-800 text-gray-500'}`}>ICT Macro {latest.ictMacroValid ? '✓' : '✗'}</span>
+                              )}
+                              {latest.smcVerdict && (
+                                <span className={`text-[10px] px-1.5 py-0.5 rounded ${latest.smcVerdict === 'CONFIRM' ? 'bg-blue-900/40 text-blue-400' : 'bg-gray-800 text-gray-500'}`}>SMC {latest.smcVerdict}</span>
+                              )}
+                              {latest.adxValue && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-800 text-gray-400">ADX {Math.round(latest.adxValue)}</span>
+                              )}
+                              {latest.rsiValue && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-800 text-gray-400">RSI {Math.round(latest.rsiValue)}</span>
+                              )}
+                              {latest.htfAligned !== undefined && (
+                                <span className={`text-[10px] px-1.5 py-0.5 rounded ${latest.htfAligned ? 'bg-emerald-900/40 text-emerald-400' : 'bg-gray-800 text-gray-500'}`}>HTF {latest.htfAligned ? 'Aligned ✓' : 'Diverging ✗'}</span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      {/* Recent decisions feed */}
+                      {aiLogs.length > 1 && (
+                        <div>
+                          <p className="text-gray-600 text-[10px] uppercase tracking-wide mb-1.5">Recent decisions</p>
+                          <div className="space-y-1">
+                            {aiLogs.slice(1, 5).map((log: any, i: number) => {
+                              const approved = log.decision === 'CONFIRMED' || log.decision === 'APPROVED' || log.decision === 'AI_OVERRIDE';
+                              const rejected = log.decision === 'REJECTED' || log.decision === 'BLOCKED';
+                              return (
+                                <div key={i} className="flex items-center justify-between bg-gray-800/40 rounded-lg px-3 py-1.5 text-xs">
+                                  <div className="flex items-center gap-2">
+                                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${approved ? 'bg-emerald-400' : rejected ? 'bg-red-400' : 'bg-gray-500'}`} />
+                                    <span className="text-white font-medium">{log.symbol}</span>
+                                    <span className={log.direction === 'BUY' ? 'text-emerald-400' : 'text-red-400'}>{log.direction}</span>
+                                    <span className="text-gray-500">{log.decision}</span>
+                                  </div>
+                                  <div className="flex items-center gap-2 text-gray-500">
+                                    {log.confluenceGrade && <span className="font-bold text-gray-400">{log.confluenceGrade}</span>}
+                                    <span>{log.aiConfidence ?? log.confidence ?? '—'}%</span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="bg-gray-800/40 rounded-xl p-4 text-center">
+                      <div className="flex items-center justify-center gap-2 mb-2">
+                        <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
+                        <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" style={{ animationDelay: '0.2s' }} />
+                        <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" style={{ animationDelay: '0.4s' }} />
+                      </div>
+                      <p className="text-gray-400 text-sm">AI is monitoring markets...</p>
+                      <p className="text-gray-600 text-xs mt-1">Waiting for EA signals to evaluate. Decisions will appear here as trades are analysed.</p>
+                    </div>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
