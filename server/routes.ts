@@ -6418,8 +6418,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         console.log(`[News Context] Error fetching news for ${sanitizedSymbol}:`, newsErr instanceof Error ? newsErr.message : 'Unknown');
       }
       
-      // --- DAILY TRADE CAP HELPER ---
-      async function getDailyTradeCountForPair(userId: number, symbol: string, dateStr: string): Promise<number> {
+      // --- DAILY TRADE CAP HELPER (arrow fn avoids strict-mode function-in-block error) ---
+      const getDailyTradeCountForPair = async (userId: number, symbol: string, dateStr: string): Promise<number> => {
         try {
           const allTodayLogs = await storage.getTradelockerTradeLogs(userId, 200);
           const rows = allTodayLogs.filter((t: any) => {

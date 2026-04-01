@@ -1730,13 +1730,21 @@ export const aiConfirmationOutcomes = pgTable("ai_confirmation_outcomes", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull().references(() => users.id),
   symbol: text("symbol").notNull(),
+  timeframe: text("timeframe"),
   direction: text("direction").notNull(), // 'BUY' | 'SELL'
   confluenceGrade: text("confluence_grade"), // 'A+' | 'A' | 'B' | 'C' | 'D'
+  confluenceScore: real("confluence_score"),
   session: text("session"), // 'London' | 'NY' | 'Asian' | etc.
   ictMacroValid: boolean("ict_macro_valid"),
   smcVerdict: text("smc_verdict"), // 'CONFIRM' | 'PASS' | 'REQUIRE_BETTER_PRICE'
   adxValue: real("adx_value"),
-  aiDecision: text("ai_decision"), // 'CONFIRMED' | 'REJECTED'
+  rsiValue: real("rsi_value"),
+  macdDirection: text("macd_direction"),
+  htfAligned: boolean("htf_aligned"),
+  newsConflict: boolean("news_conflict"),
+  aiDecision: text("ai_decision"), // 'CONFIRMED' | 'REJECTED' | 'EA_ONLY' | 'MANUAL' | 'AI_OVERRIDE' | 'ADJUSTED'
+  aiConfidence: real("ai_confidence"),
+  proposedConfidence: real("proposed_confidence"),
   tradeOutcome: text("trade_outcome").default('PENDING'), // 'PENDING' | 'WIN' | 'LOSS' | 'BREAKEVEN'
   actualPips: real("actual_pips"),
   confirmedAt: timestamp("confirmed_at").defaultNow().notNull(),
