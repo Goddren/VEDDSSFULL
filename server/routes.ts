@@ -7978,7 +7978,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
   app.post("/api/weekly-strategy/generate", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
-    const { profitTarget, pairs, accountBalance, riskLevel, lotSize, strategyMode } = req.body;
+    const { profitTarget, pairs, accountBalance, riskLevel, lotSize, strategyMode, tradingDays, pairDayAssignments } = req.body;
 
     if (!profitTarget || !pairs || !Array.isArray(pairs) || pairs.length === 0 || !accountBalance) {
       return res.status(400).json({ error: "profitTarget, pairs (array), and accountBalance are required" });
@@ -8082,17 +8082,38 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         sniper: `SNIPER MODE: 2-4 surgical trades only. Wait for perfect confluence of ALL learned patterns. Larger positions, precise entries, tight risk. Each trade is a calculated kill shot.`,
       };
 
+      // Build risk level instructions
+      const activeTradingDays: string[] = Array.isArray(tradingDays) && tradingDays.length > 0
+        ? tradingDays
+        : ['Monday','Tuesday','Wednesday','Thursday','Friday'];
+      const pinnedPairs = pairDayAssignments && typeof pairDayAssignments === 'object' ? pairDayAssignments : {};
+      const pinnedInstructions = Object.entries(pinnedPairs)
+        .filter(([, ps]) => Array.isArray(ps) && (ps as string[]).length > 0)
+        .map(([day, ps]) => `  - ${(ps as string[]).join(', ')} must ONLY trade on ${day}`)
+        .join('\n');
+
+      const riskInstructions: Record<string, string> = {
+        conservative: 'CONSERVATIVE RISK: 0.5% risk per trade maximum, 1.5% max daily loss, reduce lot sizes by 50% from standard sizing. Prioritise capital preservation over hit rate.',
+        moderate: 'MODERATE RISK: 1–1.5% risk per trade, 2.5% max daily loss, standard lot sizing. Balance growth with protection.',
+        aggressive: 'AGGRESSIVE RISK: 2–3% risk per trade, 5% max daily loss, full Kelly sizing. Maximum growth focus — user acknowledges compounding loss risk.',
+      };
+      const selectedRisk = riskLevel && riskInstructions[riskLevel] ? riskLevel : 'moderate';
+
       const prompt = `You are VEDD SS AI - a SELF-LEARNING autonomous trading engine with FULL CONTROL. You have studied this trader's entire history and evolved your strategy.
 
 STRATEGY MODE: ${hftMode.toUpperCase()}
 ${hftDescriptions[hftMode] || hftDescriptions.aggressive}
 
+RISK LEVEL: ${selectedRisk.toUpperCase()}
+${riskInstructions[selectedRisk]}
+
 ACCOUNT GROWTH CHALLENGE:
 - Starting Balance: $${accountBalance}
 - Weekly Profit Target: $${profitTarget}
-- Goal Balance: $${accountBalance + profitTarget} (${growthMultiplier}x growth)
-- Preferred Lot Size: ${lotSize || 'AI decides optimal sizing'}
+- Goal Balance: $${(parseFloat(accountBalance) + parseFloat(profitTarget)).toFixed(2)} (${growthMultiplier}x growth)
+- Preferred Lot Size: ${lotSize || 'AI decides optimal sizing based on risk level above'}
 - Selected Pairs: ${pairs.join(', ')}
+- ACTIVE TRADING DAYS: ${activeTradingDays.join(', ')} — DO NOT generate trades for any other days${pinnedInstructions ? `\n- PAIR DAY CONSTRAINTS:\n${pinnedInstructions}` : ''}
 
 AI CONTROL STATUS: FULL AUTONOMOUS CONTROL
 - You have complete authority over trade entries, exits, lot sizing, and risk
@@ -8130,11 +8151,7 @@ Respond with ONLY valid JSON:
   "suggestedTarget": number,
   "growthStrategy": "Description of the compound growth approach",
   "weeklyPlan": {
-    "Monday": { "pairs": [{"symbol": "EURUSD", "direction": "BUY or SELL or BOTH", "confidence": 0-100, "session": "London/New York/Asian/Overlap", "reason": "specific reason based on data", "estimatedPips": number, "lotSize": number, "maxTrades": number, "entryCondition": "specific condition to enter"}], "dailyTarget": number, "projectedBalance": number },
-    "Tuesday": { ... },
-    "Wednesday": { ... },
-    "Thursday": { ... },
-    "Friday": { ... }
+    ${activeTradingDays.map(d => `"${d}": { "pairs": [{"symbol": "EURUSD", "direction": "BUY or SELL or BOTH", "confidence": 0-100, "session": "London/New York/Asian/Overlap", "reason": "specific reason", "estimatedPips": number, "lotSize": number, "maxTrades": number, "entryCondition": "specific condition"}], "dailyTarget": number, "projectedBalance": number }`).join(',\n    ')}
   },
   "pairRankings": [{"symbol": "EURUSD", "overallScore": 0-100, "bestDay": "Tuesday", "bestSession": "London", "winRate": number, "recommendation": "Primary/Secondary/Avoid", "optimalLotSize": number, "avgPipsPerTrade": number}],
   "riskManagement": {
@@ -8226,7 +8243,9 @@ Respond with ONLY valid JSON:
         profitTarget,
         pairs,
         accountBalance,
-        riskLevel: riskLevel || 'ai-controlled',
+        riskLevel: selectedRisk,
+        tradingDays: activeTradingDays,
+        pairDayAssignments: pinnedPairs,
         lotSize: lotSize || 'auto',
         strategyMode: hftMode,
         plan,

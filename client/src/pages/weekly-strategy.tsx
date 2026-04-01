@@ -57,6 +57,10 @@ export default function WeeklyStrategyPage() {
   const [selectedPairs, setSelectedPairs] = useState<string[]>(["XAUUSD", "GBPJPY", "NAS100"]);
   const [pairInput, setPairInput] = useState("");
   const [strategyMode, setStrategyMode] = useState("aggressive");
+  const [riskLevel, setRiskLevel] = useState<'conservative'|'moderate'|'aggressive'>('moderate');
+  const [tradingDays, setTradingDays] = useState<string[]>(['Monday','Tuesday','Wednesday','Thursday','Friday']);
+  const [pairDayAssignments, setPairDayAssignments] = useState<Record<string,string[]>>({});
+  const [showPinPairs, setShowPinPairs] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
   const [showBrain, setShowBrain] = useState(false);
   const [showWeeklyPlan, setShowWeeklyPlan] = useState(false);
@@ -137,9 +141,11 @@ export default function WeeklyStrategyPage() {
         profitTarget: parseFloat(profitTarget),
         pairs: selectedPairs,
         accountBalance: parseFloat(accountBalance),
-        riskLevel: 'ai-controlled',
+        riskLevel,
         lotSize: lotSize || undefined,
         strategyMode,
+        tradingDays,
+        pairDayAssignments,
       });
       return res.json();
     },
@@ -2043,7 +2049,16 @@ export default function WeeklyStrategyPage() {
                     <CardContent className="space-y-3">
                       {dayNames.map(day => {
                         const dayPlan = plan.weeklyPlan?.[day];
-                        if (!dayPlan) return null;
+                        // Show "No Trading Day" card for skipped days
+                        if (!dayPlan) {
+                          return (
+                            <div key={day} className="bg-gray-900/30 border border-gray-800 rounded-xl p-3 flex items-center gap-3 opacity-50">
+                              <ChevronRight className="w-3.5 h-3.5 text-gray-600" />
+                              <span className="text-gray-600 text-sm font-medium">{day}</span>
+                              <span className="text-gray-700 text-xs">— No Trading Day</span>
+                            </div>
+                          );
+                        }
                         return (
                           <div key={day} className="bg-gray-900/50 rounded-xl p-4 space-y-2">
                             <div className="flex items-center justify-between">
@@ -2059,7 +2074,10 @@ export default function WeeklyStrategyPage() {
                               <div key={i} className="bg-gray-800/50 rounded-lg p-3 text-xs space-y-1">
                                 <div className="flex items-center justify-between">
                                   <div className="flex items-center gap-2">
-                                    <span className="text-white font-medium">{p.symbol}</span>
+                                    <span className="text-white font-medium flex items-center gap-1">
+                                      {(pairDayAssignments[day] || []).includes(p.symbol) && <span title="Pinned to this day">📌</span>}
+                                      {p.symbol}
+                                    </span>
                                     <Badge className={`text-[9px] ${p.direction === 'BUY' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>{p.direction}</Badge>
                                     <Badge variant="outline" className="text-[9px] text-gray-400"><Clock className="w-2 h-2 mr-0.5" />{p.session}</Badge>
                                   </div>
@@ -2383,6 +2401,39 @@ export default function WeeklyStrategyPage() {
                   </div>
                 );
               })()}
+              {/* ── Risk Level Selector ──────────────────────────── */}
+              <div>
+                <Label className="text-gray-300 text-sm mb-2 block">Risk Level</Label>
+                <div className="grid grid-cols-3 gap-2">
+                  {([
+                    { id: 'conservative', label: 'Conservative', icon: '🟢', sub: '0.5% risk/trade · 1.5% max loss', color: 'emerald' },
+                    { id: 'moderate',     label: 'Moderate',     icon: '🟡', sub: '1–1.5% risk/trade · 2.5% max', color: 'amber' },
+                    { id: 'aggressive',   label: 'Aggressive',   icon: '🔴', sub: '2–3% risk/trade · 5% max loss', color: 'red' },
+                  ] as const).map(r => (
+                    <button key={r.id} onClick={() => setRiskLevel(r.id)}
+                      className={`text-left p-3 rounded-xl border transition-all ${
+                        riskLevel === r.id
+                          ? r.color === 'emerald' ? 'border-emerald-500 bg-emerald-500/10 text-emerald-300'
+                          : r.color === 'amber'   ? 'border-amber-500 bg-amber-500/10 text-amber-300'
+                          : 'border-red-500 bg-red-500/10 text-red-300'
+                          : 'border-gray-700 bg-gray-900/50 text-gray-400 hover:border-gray-500'
+                      }`}>
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <span className="text-base">{r.icon}</span>
+                        <span className="font-semibold text-xs">{r.label}</span>
+                      </div>
+                      <p className="text-[9px] text-gray-500 leading-tight">{r.sub}</p>
+                    </button>
+                  ))}
+                </div>
+                {riskLevel === 'aggressive' && (
+                  <div className="mt-2 p-2 rounded-lg bg-red-900/30 border border-red-500/30 text-red-300 text-xs flex items-start gap-2">
+                    <span className="mt-0.5">⚠️</span>
+                    <span>Aggressive mode compounds losses quickly — only suitable for funded or experienced accounts. Ensure you can absorb a 5% single-day drawdown.</span>
+                  </div>
+                )}
+              </div>
+
               <div>
                 <Label className="text-gray-300 text-sm">Strategy Mode</Label>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mt-1">
@@ -2451,10 +2502,79 @@ export default function WeeklyStrategyPage() {
                 </div>
                 <p className="text-gray-600 text-xs mt-1">The AI will generate a daily plan for each selected pair. You can add any pair your broker supports.</p>
               </div>
+              {/* ── Trading Schedule ────────────────────────────── */}
+              <div>
+                <Label className="text-gray-300 text-sm mb-2 block">Trading Schedule <span className="text-gray-500 font-normal">(tap to toggle days off)</span></Label>
+                <div className="flex gap-2 flex-wrap">
+                  {(['Monday','Tuesday','Wednesday','Thursday','Friday'] as const).map(day => {
+                    const active = tradingDays.includes(day);
+                    return (
+                      <button key={day} onClick={() => setTradingDays(prev =>
+                        prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]
+                      )}
+                        className={`px-3 py-2 rounded-lg text-xs font-medium border transition-all ${
+                          active ? 'bg-orange-500/20 border-orange-500/50 text-orange-300' : 'bg-gray-900/60 border-gray-700 text-gray-600 line-through'
+                        }`}>
+                        {day.slice(0,3)}
+                      </button>
+                    );
+                  })}
+                </div>
+                {tradingDays.length < 5 && (
+                  <p className="text-gray-500 text-xs mt-1.5">
+                    {5 - tradingDays.length} day{5 - tradingDays.length > 1 ? 's' : ''} skipped — AI won't generate trades for those days.
+                  </p>
+                )}
+
+                {/* Pin pairs to specific days — optional advanced section */}
+                <button
+                  onClick={() => setShowPinPairs(p => !p)}
+                  className="mt-3 flex items-center gap-1.5 text-xs text-gray-400 hover:text-white transition-colors"
+                >
+                  <span className="text-base">{showPinPairs ? '▾' : '▸'}</span>
+                  Advanced: Pin pairs to specific days (optional)
+                </button>
+
+                {showPinPairs && tradingDays.length > 0 && selectedPairs.length > 0 && (
+                  <div className="mt-3 grid gap-3" style={{ gridTemplateColumns: `repeat(${tradingDays.length}, minmax(0, 1fr))` }}>
+                    {tradingDays.map(day => (
+                      <div key={day} className="bg-gray-900/60 border border-gray-700 rounded-xl p-2">
+                        <p className="text-gray-400 text-[10px] font-semibold mb-2 text-center">{day.slice(0,3)}</p>
+                        <div className="flex flex-col gap-1">
+                          {selectedPairs.map(pair => {
+                            const pinned = (pairDayAssignments[day] || []).includes(pair);
+                            return (
+                              <button key={pair} onClick={() => {
+                                setPairDayAssignments(prev => {
+                                  const current = prev[day] || [];
+                                  const updated = pinned ? current.filter(p => p !== pair) : [...current, pair];
+                                  return { ...prev, [day]: updated };
+                                });
+                              }}
+                                className={`text-[9px] px-1.5 py-1 rounded-md border text-left transition-all flex items-center gap-1 ${
+                                  pinned ? 'bg-orange-500/20 border-orange-500/40 text-orange-300' : 'border-gray-700 text-gray-500 hover:border-gray-500'
+                                }`}>
+                                {pinned && <span>📌</span>}{pair}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {showPinPairs && Object.values(pairDayAssignments).some(v => v.length > 0) && (
+                  <p className="text-orange-400 text-xs mt-2">📌 Pinned pairs will only trade on their assigned days. Leave blank to let AI decide.</p>
+                )}
+              </div>
+
               <Button className="w-full bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-500 hover:to-red-500 text-white font-semibold py-5 text-base"
-                onClick={() => generateMutation.mutate()} disabled={generateMutation.isPending || selectedPairs.length === 0}>
+                onClick={() => generateMutation.mutate()} disabled={generateMutation.isPending || selectedPairs.length === 0 || tradingDays.length === 0}>
                 {generateMutation.isPending ? <><RefreshCw className="w-4 h-4 mr-2 animate-spin" /> AI Building Plan...</> : <><Rocket className="w-4 h-4 mr-2" /> Generate Growth Strategy</>}
               </Button>
+              {tradingDays.length === 0 && (
+                <p className="text-red-400 text-xs text-center -mt-3">Select at least 1 trading day</p>
+              )}
             </CardContent>
           </Card>
         )}
