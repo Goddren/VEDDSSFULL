@@ -20,6 +20,7 @@ import {
 import { SiSolana } from 'react-icons/si';
 import { formatDistanceToNow } from 'date-fns';
 import { useState, useEffect } from 'react';
+import { WeeklyProgressWidget } from '@/components/WeeklyProgressWidget';
 
 interface SolStatus {
   running: boolean;
@@ -178,6 +179,8 @@ export default function LiveMonitorPage() {
       </div>
 
       <div className="flex-1 px-3 py-3 space-y-3 max-w-lg mx-auto w-full">
+
+        <WeeklyProgressWidget className="mb-6" />
 
         {/* Engine Status Chips */}
         <div className="grid grid-cols-2 gap-2">

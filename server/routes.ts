@@ -116,6 +116,15 @@ if (!fs.existsSync(uploadsDir)) {
 }
 
 // Helper function to get affected currency pairs for a given currency
+function getCurrentTradingSession(): string {
+  const hour = new Date().getUTCHours();
+  if (hour >= 0 && hour < 7) return 'Asian';
+  if (hour >= 7 && hour < 10) return 'London';
+  if (hour >= 10 && hour < 12) return 'Overlap';
+  if (hour >= 12 && hour < 17) return 'New York';
+  return 'Off-Hours';
+}
+
 function getAffectedPairs(currency: string): string[] {
   const pairMap: Record<string, string[]> = {
     'USD': ['EUR/USD', 'GBP/USD', 'USD/JPY', 'USD/CHF', 'AUD/USD', 'USD/CAD'],
@@ -6409,6 +6418,23 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         console.log(`[News Context] Error fetching news for ${sanitizedSymbol}:`, newsErr instanceof Error ? newsErr.message : 'Unknown');
       }
       
+      // --- DAILY TRADE CAP HELPER ---
+      async function getDailyTradeCountForPair(userId: number, symbol: string, dateStr: string): Promise<number> {
+        try {
+          const allTodayLogs = await storage.getTradelockerTradeLogs(userId, 200);
+          const rows = allTodayLogs.filter((t: any) => {
+            if (!t.createdAt) return false;
+            const tradeDate = new Date(t.createdAt).toISOString().slice(0, 10);
+            const symMatch = (t.symbol || '').toUpperCase().replace('/', '') === symbol.toUpperCase().replace('/', '');
+            return tradeDate === dateStr && symMatch && t.action === 'OPEN';
+          });
+          return rows.length;
+        } catch (err) {
+          console.error('[TradeCapCheck] Failed, failing open:', err);
+          return 0; // fail-open — never block trades on DB error
+        }
+      }
+
       // VEDD SS AI Plan Integration: Check if live mode is active and adjust trading based on plan
       let veddSSAIActive = false;
       let veddSSAIMatch: any = null;
@@ -6431,10 +6457,24 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             
             if (matchingPairPlan) {
               veddSSAIMatch = matchingPairPlan;
+
+              // --- HARD TRADE CAP: block if maxTrades reached for this pair today ---
+              if (matchingPairPlan?.maxTrades) {
+                const todayDateStr = new Date().toISOString().slice(0, 10);
+                const todayCount = await getDailyTradeCountForPair(token.userId, normalizedSymbol, todayDateStr);
+                if (todayCount >= matchingPairPlan.maxTrades) {
+                  console.log(`[SS Engine] Trade cap BLOCKED ${normalizedSymbol} — ${todayCount}/${matchingPairPlan.maxTrades} daily trades reached`);
+                  // Don't execute trade, skip to NEUTRAL
+                  analysis.signal = 'NEUTRAL';
+                  analysis.alerts = analysis.alerts || [];
+                  analysis.alerts.push(`Daily trade cap reached for ${normalizedSymbol} (${todayCount}/${matchingPairPlan.maxTrades}). Waiting for tomorrow.`);
+                }
+              }
+
               const planDirection = matchingPairPlan.direction;
               const planConfidence = matchingPairPlan.confidence || 70;
               const planLotSize = matchingPairPlan.lotSize;
-              
+
               // If EA signal aligns with VEDD SS AI plan, boost confidence
               if (planDirection === 'BOTH' || planDirection === analysis.signal) {
                 const boostAmount = Math.min(15, Math.round(planConfidence * 0.15));
@@ -7131,6 +7171,35 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                     lastError: null,
                   });
                   console.log(`[BUILD] BORN (9)! Trade MANIFESTED on TradeLocker! Order: ${tradelockerResult.orderId}. Word is BOND!`);
+
+                  // Record for brain learning
+                  if (aiConfirmation && (aiConfirmation as any).breakoutGrade) {
+                    // Breakout trade
+                    try {
+                      await storage.createConfirmationOutcome({
+                        userId: token.userId,
+                        symbol: sanitizedSymbol,
+                        direction: analysis.signal as 'BUY' | 'SELL',
+                        tradeSource: 'breakout',
+                        confluenceGrade: (aiConfirmation as any)?.breakoutGrade || 'C',
+                        session: getCurrentTradingSession(),
+                        aiDecision: 'CONFIRMED',
+                      } as any);
+                    } catch (e) { /* non-blocking */ }
+                  } else if (!aiConfirmation) {
+                    // EA-only trade (no AI confirmation ran)
+                    try {
+                      await storage.createConfirmationOutcome({
+                        userId: token.userId,
+                        symbol: sanitizedSymbol,
+                        direction: analysis.signal as 'BUY' | 'SELL',
+                        tradeSource: 'ea_only',
+                        confluenceGrade: null,
+                        session: getCurrentTradingSession(),
+                        aiDecision: 'EA_ONLY',
+                      } as any);
+                    } catch (e) { /* non-blocking */ }
+                  }
                 } else {
                   await storage.updateTradelockerConnection(tlConnection.id, {
                     lastError: tradelockerResult.error,
@@ -10033,6 +10102,19 @@ Respond with ONLY valid JSON:
       tradesLearned: brain?.totalTradesAnalyzed || 0,
       recommendedMode: brain?.overallWinRate >= 60 ? 'aggressive' : brain?.hftReadiness?.scalpingViable ? 'scalping' : 'session_breakout',
     });
+  });
+
+  // Brain learning summary — win rates by trade source, symbol, grade
+  app.get("/api/brain/summary", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const userId = (req.user as any).id;
+    try {
+      const summary = await (storage as any).getBrainSummary(userId);
+      res.json(summary);
+    } catch (err) {
+      console.error('[Brain Summary]', err);
+      res.status(500).json({ error: "Failed to load brain summary" });
+    }
   });
 
   // ==================== VEDD AI LIVE TRADING ENGINE ====================

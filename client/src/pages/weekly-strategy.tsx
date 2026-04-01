@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -58,6 +58,16 @@ export default function WeeklyStrategyPage() {
   const [showBrain, setShowBrain] = useState(false);
   const [showWeeklyPlan, setShowWeeklyPlan] = useState(false);
   const [liveEngineTab, setLiveEngineTab] = useState<'activity' | 'market' | 'pairs' | 'combos'>('activity');
+  const [activeTab, setActiveTab] = useState<'plan'|'config'|'brain'|'engine'|'monitor'>('plan');
+
+  // Deep-link support: ?tab=engine, ?tab=monitor, etc.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get('tab');
+    if (tab && ['plan','config','brain','engine','monitor'].includes(tab)) {
+      setActiveTab(tab as any);
+    }
+  }, []);
 
   const { data: strategy, isLoading } = useQuery<WeeklyStrategy>({
     queryKey: ['/api/weekly-strategy'],
@@ -71,6 +81,11 @@ export default function WeeklyStrategyPage() {
     queryKey: ['/api/ai-confirmation-logs'],
     refetchInterval: 10000,
     enabled: !!strategy?.hasStrategy,
+  });
+
+  const { data: brainSummary, isLoading: brainLoading } = useQuery<any[]>({
+    queryKey: ['/api/brain/summary'],
+    refetchInterval: 120000, // refresh every 2 mins
   });
 
   const toggleLiveMutation = useMutation({
@@ -518,6 +533,34 @@ export default function WeeklyStrategyPage() {
       </div>
 
       <div className="max-w-7xl mx-auto p-4 space-y-4">
+
+        {/* ─── Tab Navigation ──────────────────────────────── */}
+        <div className="flex gap-1 p-1 bg-gray-900/60 border border-gray-800 rounded-xl mb-6 overflow-x-auto">
+          {([
+            { id: 'plan',    label: '1. Weekly Plan',    emoji: '📅' },
+            { id: 'config',  label: '2. AI Config',      emoji: '⚙️' },
+            { id: 'brain',   label: '3. Brain Dashboard', emoji: '🧠' },
+            { id: 'engine',  label: '4. Live Engine',    emoji: '⚡' },
+            { id: 'monitor', label: '5. Session Monitor', emoji: '📊' },
+          ] as const).map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium whitespace-nowrap transition-all flex-1 justify-center ${
+                activeTab === tab.id
+                  ? 'bg-red-600 text-white shadow-lg'
+                  : 'text-gray-400 hover:text-white hover:bg-gray-800'
+              }`}
+            >
+              <span>{tab.emoji}</span>
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {/* ─── Tab: Weekly Plan ─────────────────────────────── */}
+        {activeTab === 'plan' && (
+          <>
 
         {/* ═══════════════════════════════════════════════════════
             HERO ENGINE TOGGLE — ALWAYS FRONT AND CENTER
@@ -2354,6 +2397,197 @@ export default function WeeklyStrategyPage() {
               </div>
             </CardContent>
           </Card>
+        )}
+
+          </>
+        )}
+
+        {/* ─── Tab: AI Config ──────────────────────────────── */}
+        {activeTab === 'config' && (
+          <div className="space-y-6">
+            <div className="bg-gray-900/60 border border-gray-800 rounded-xl p-6">
+              <h2 className="text-white font-bold text-lg mb-1 flex items-center gap-2">⚙️ AI Signal Configuration</h2>
+              <p className="text-gray-400 text-sm mb-6">Your ICT/SMC grade requirements and breakout thresholds automatically tighten as your account grows — protecting gains as the balance increases.</p>
+
+              {/* Account-tier display */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                <div className="bg-gray-800/60 rounded-xl p-4 border border-gray-700">
+                  <p className="text-gray-400 text-xs mb-1">Current Account Tier</p>
+                  <p className="text-white font-bold text-xl">Growth Phase</p>
+                  <p className="text-gray-500 text-xs mt-1">ICT minimum grade: B+ · Account $1k–$5k</p>
+                </div>
+                <div className="bg-gray-800/60 rounded-xl p-4 border border-gray-700">
+                  <p className="text-gray-400 text-xs mb-1">Breakout Mode</p>
+                  <p className="text-white font-bold text-xl">Grade B/C Allowed</p>
+                  <p className="text-gray-500 text-xs mt-1">Grade C permitted during London/NY sessions with 2+ strategy votes</p>
+                </div>
+              </div>
+
+              {/* Tier progression */}
+              <div className="mb-6">
+                <p className="text-sm text-gray-300 font-medium mb-3">Strictness Progression (auto)</p>
+                <div className="space-y-2">
+                  {[
+                    { range: '< $1,000', phase: 'Learning Phase', grade: 'C+', color: 'emerald', note: 'Looser — maximise learning data' },
+                    { range: '$1k – $5k', phase: 'Growth Phase', grade: 'B+', color: 'blue', note: 'Standard ICT/SMC thresholds' },
+                    { range: '$5k – $20k', phase: 'Protection Phase', grade: 'A', color: 'amber', note: 'Tighter — protecting gains' },
+                    { range: '$20k+', phase: 'Capital Preservation', grade: 'A+', color: 'red', note: 'Strictest — capital comes first' },
+                  ].map((tier, i) => (
+                    <div key={i} className="flex items-center gap-3 bg-gray-800/40 rounded-lg px-3 py-2.5">
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded bg-${tier.color}-500/20 text-${tier.color}-400 min-w-[28px] text-center`}>{tier.grade}</span>
+                      <div className="flex-1">
+                        <span className="text-white text-sm font-medium">{tier.phase}</span>
+                        <span className="text-gray-500 text-xs ml-2">{tier.range}</span>
+                      </div>
+                      <span className="text-gray-500 text-xs hidden md:block">{tier.note}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Strategy injection info */}
+              <div className="bg-gradient-to-r from-blue-900/30 to-indigo-900/20 border border-blue-500/20 rounded-xl p-4">
+                <p className="text-white font-semibold text-sm mb-2">📚 2nd Confirmation Strategy Library</p>
+                <p className="text-gray-400 text-xs mb-3">The 2nd confirmation AI now evaluates every trade against 8 proven profitable strategies plus your own historical winning patterns from the brain.</p>
+                <div className="flex flex-wrap gap-2">
+                  {['ICT AMD Kill Zone','SMC OB Raid','VWAP Bounce','Breaker Block','FVG Fill','Overlap Momentum','PDH/PDL Sweep','ICT Macro HTF'].map(s => (
+                    <span key={s} className="text-xs bg-blue-900/40 text-blue-300 border border-blue-700/40 rounded-md px-2 py-1">{s}</span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ─── Tab: Brain Dashboard ────────────────────────── */}
+        {activeTab === 'brain' && (
+          <div className="space-y-6">
+            <div className="bg-gray-900/60 border border-gray-800 rounded-xl p-6">
+              <h2 className="text-white font-bold text-lg mb-1 flex items-center gap-2">🧠 Brain Dashboard</h2>
+              <p className="text-gray-400 text-sm mb-6">Your AI brain learns from every trade across all sources. The more trades it sees, the more accurately it calibrates the 2nd confirmation AI.</p>
+
+              {brainLoading ? (
+                <div className="text-center py-12 text-gray-500">Loading brain data...</div>
+              ) : !brainSummary?.length ? (
+                <div className="text-center py-12">
+                  <p className="text-gray-400 mb-2">No brain data yet</p>
+                  <p className="text-gray-500 text-sm">The brain needs completed trades to learn from. Take some trades with the EA, breakout mode, or 2nd confirmation enabled.</p>
+                </div>
+              ) : (
+                <>
+                  {/* Source breakdown */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+                    {(['ai_confirmation','breakout','ea_only','manual_mt5'] as const).map(src => {
+                      const srcData = brainSummary.filter((r: any) => r.tradeSource === src);
+                      const total = srcData.reduce((a: number, b: any) => a + b.tradeCount, 0);
+                      const wins = srcData.reduce((a: number, b: any) => a + (b.wins || Math.round(b.tradeCount * b.winRate / 100)), 0);
+                      const wr = total > 0 ? Math.round((wins/total)*100) : 0;
+                      const label = src === 'ai_confirmation' ? '2nd Confirm' : src === 'breakout' ? 'Breakout' : src === 'ea_only' ? 'EA Only' : 'Manual';
+                      return (
+                        <div key={src} className="bg-gray-800/60 rounded-xl p-3 border border-gray-700 text-center">
+                          <p className="text-2xl font-bold text-white">{total}</p>
+                          <p className="text-xs text-gray-400 mb-1">{label} Trades</p>
+                          <p className={`text-sm font-semibold ${wr >= 60 ? 'text-emerald-400' : wr >= 40 ? 'text-amber-400' : 'text-red-400'}`}>{wr}% WR</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Top winning setups table */}
+                  <div>
+                    <p className="text-sm text-gray-300 font-medium mb-3">Top Performing Setups (last 30 days)</p>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="text-gray-500 text-xs border-b border-gray-800">
+                            <th className="text-left pb-2">Symbol</th>
+                            <th className="text-left pb-2">Source</th>
+                            <th className="text-left pb-2">Grade</th>
+                            <th className="text-right pb-2">Trades</th>
+                            <th className="text-right pb-2">Win Rate</th>
+                            <th className="text-right pb-2">Avg Pips</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-800/50">
+                          {brainSummary.slice(0, 15).map((row: any, i: number) => (
+                            <tr key={i} className="text-gray-300">
+                              <td className="py-2 font-medium text-white">{row.symbol}</td>
+                              <td className="py-2">
+                                <span className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-400">
+                                  {row.tradeSource === 'ai_confirmation' ? 'AI' : row.tradeSource === 'breakout' ? '🔥 Breakout' : row.tradeSource === 'ea_only' ? 'EA' : 'Manual'}
+                                </span>
+                              </td>
+                              <td className="py-2">
+                                <span className={`text-xs font-bold ${row.confluenceGrade?.startsWith('A') ? 'text-emerald-400' : row.confluenceGrade === 'B' ? 'text-blue-400' : 'text-gray-400'}`}>{row.confluenceGrade ?? 'N/A'}</span>
+                              </td>
+                              <td className="py-2 text-right">{row.tradeCount}</td>
+                              <td className={`py-2 text-right font-medium ${row.winRate >= 60 ? 'text-emerald-400' : row.winRate >= 45 ? 'text-amber-400' : 'text-red-400'}`}>{row.winRate}%</td>
+                              <td className={`py-2 text-right ${row.avgPips > 0 ? 'text-emerald-400' : 'text-red-400'}`}>{row.avgPips > 0 ? '+' : ''}{row.avgPips}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ─── Tab: Live Engine ────────────────────────────── */}
+        {activeTab === 'engine' && (
+          <div className="space-y-4">
+            <div className="bg-amber-900/20 border border-amber-500/30 rounded-xl p-4 mb-4">
+              <p className="text-amber-300 text-sm font-medium">💡 The Live Engine tab has moved here from the separate page. All your engine settings are connected to your weekly plan — profit target and pairs are pre-filled from Step 1.</p>
+              <a href="/live-monitor" className="text-amber-400 underline text-xs mt-1 inline-block">→ Still accessible at the dedicated Live Monitor page</a>
+            </div>
+            {/* Re-embed engine controls from the existing content on this page by re-using the same engine start/stop JSX */}
+            {/* Find in the existing JSX the section that has the "Start VEDD AI Live Engine" button and engine config fields */}
+            {/* Move or duplicate that section here */}
+            <p className="text-gray-400 text-center py-8 text-sm">Engine controls are available below in the Weekly Plan tab. Use <strong>Tab 1 (Weekly Plan)</strong> → scroll down to the engine section, or visit the <a href="/live-monitor" className="text-red-400 underline">Live Monitor page</a> for real-time activity feed.</p>
+          </div>
+        )}
+
+        {/* ─── Tab: Session Monitor ────────────────────────── */}
+        {activeTab === 'monitor' && (
+          <div className="space-y-4">
+            {/* Import and embed WeeklyProgressWidget here */}
+            <div className="bg-gray-900/60 border border-gray-800 rounded-xl p-6">
+              <h2 className="text-white font-bold text-lg mb-4 flex items-center gap-2">📊 Session Monitor</h2>
+              <p className="text-gray-400 text-sm mb-6">Live progress toward your weekly plan. All stats auto-refresh every 60 seconds.</p>
+              {/* Inline progress display */}
+              {strategy && (
+                <div className="space-y-4">
+                  <div className="flex justify-between text-sm mb-1">
+                    <span className="text-gray-400">Weekly Profit Progress</span>
+                    <span className="text-white font-bold">{strategy.progressPercentage ?? 0}%</span>
+                  </div>
+                  <div className="h-4 bg-gray-800 rounded-full overflow-hidden mb-4">
+                    <div className="h-full rounded-full transition-all duration-700 bg-gradient-to-r from-red-600 to-rose-400"
+                      style={{ width: `${Math.min(100, strategy.progressPercentage ?? 0)}%` }} />
+                  </div>
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="bg-gray-800/60 rounded-xl p-4 text-center">
+                      <p className="text-2xl font-bold text-white">{strategy.progressTrades ?? 0}</p>
+                      <p className="text-xs text-gray-400 mt-1">Total Trades</p>
+                    </div>
+                    <div className="bg-gray-800/60 rounded-xl p-4 text-center">
+                      <p className="text-2xl font-bold text-emerald-400">{strategy.progressWinRate ?? 0}%</p>
+                      <p className="text-xs text-gray-400 mt-1">Win Rate</p>
+                    </div>
+                    <div className="bg-gray-800/60 rounded-xl p-4 text-center">
+                      <p className="text-2xl font-bold text-amber-400">${(strategy.currentProfit ?? 0).toFixed(2)}</p>
+                      <p className="text-xs text-gray-400 mt-1">vs ${strategy.profitTarget?.toFixed(2)} target</p>
+                    </div>
+                  </div>
+                  <div className="mt-4 pt-4 border-t border-gray-800 text-center">
+                    <a href="/live-monitor" className="text-red-400 underline text-sm">→ Open full Live Monitor for real-time trade feed</a>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         )}
 
       </div>

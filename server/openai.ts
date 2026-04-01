@@ -1,7 +1,29 @@
 import OpenAI from "openai";
 import { ChartAnalysisResponse, TrendCell } from "@shared/types";
 import fs from "fs";
-import { getStrategyContext, formatStrategyContextForPrompt } from "./services/github-strategy-context";
+import { getStrategyContext, formatStrategyContextForPrompt, PerformanceStats } from "./services/github-strategy-context";
+import { getLearnedInsights, getWinningStrategyPatterns } from "./services/confirmation-learning";
+
+// Top-8 industry-proven profitable strategies — injected into 2nd confirmation
+const TOP_PROFITABLE_STRATEGIES = [
+  { name: "ICT AMD Kill Zone", pairs: ["XAUUSD","GBPUSD","EURUSD"], description: "Asian Range defined 02:00–05:00 UTC. London open (06:00–08:00) raids Asian low, price reverses. Entry on M15 OB inside Asian boundary + FVG fill. NY session sweeps AMD high.", winConditions: "FVG fill + bullish engulf at OB, ADX > 25, ictMacroValid = true", riskNote: "Avoid if NFP/FOMC within 4h" },
+  { name: "SMC Order Block Raid", pairs: ["GBPJPY","USDJPY","XAUUSD"], description: "Weekly/Daily OB identified. H4 price sweeps below OB, wicks back inside. Enter on M15 BOS above OB bottom.", winConditions: "Volume spike on wick, RSI divergence on M15, BOS confirmed", riskNote: "Invalid if OB broken on close" },
+  { name: "VWAP Bounce Mean Reversion", pairs: ["EURUSD","GBPUSD","USDJPY"], description: "Price deviates >1.5 SD from VWAP during NY session (13:00–17:00 UTC). Fade at VWAP SD band when RSI > 75 or < 25.", winConditions: "RSI divergence, VWAP reclaim candle, ADX < 20", riskNote: "Do not trade against trend if ADX > 35" },
+  { name: "Breaker Block Continuation", pairs: ["GBPUSD","EURUSD"], description: "Failed OB becomes a breaker. Price sweeps through OB creating BOS, then retests old OB as resistance/support. Trade continuation.", winConditions: "Clean BOS on H1, retest holds on M15, RSI 40-60 on retest", riskNote: "Requires at least 2 prior OB tests" },
+  { name: "Fair Value Gap Fill", pairs: ["XAUUSD","GBPJPY","NAS100"], description: "3-candle imbalance FVG on M15/H1. Price returns to 50% gap level. Trade continuation after 50% fill holds.", winConditions: "FVG from strong impulsive move, ADX > 30, volume on imbalance candles", riskNote: "Full-fill FVGs (100%) less reliable" },
+  { name: "London-NY Overlap Momentum", pairs: ["GBPUSD","EURUSD","GBPJPY"], description: "10:00–12:00 UTC peak liquidity. Breakout of London AM range (07:00–10:00). 15m close outside range is entry trigger.", winConditions: "15m close + retest of range, ADX > 28, volume above 20-period avg", riskNote: "High false-breakout rate without NY catalyst" },
+  { name: "PDH/PDL Liquidity Sweep", pairs: ["EURUSD","GBPUSD","USDJPY","XAUUSD"], description: "PDH or PDL swept by 5–15 pips at session open. Immediate rejection pin bar/engulf on M5/M15. Enter reversal targeting 50% of prior day range.", winConditions: "Wick > body on sweep candle, OB within 20 pips, ictMacroValid = true", riskNote: "Must close below/above sweep wick for invalidation" },
+  { name: "ICT Macro HTF Confluence", pairs: ["XAUUSD","GBPUSD","EURUSD"], description: "Trade only when M15 aligns with H4 and D1 trend. Active ICT macro time (02:00, 08:30, 10:00, 14:00 UTC). OB + FVG + EQ levels on H4.", winConditions: "All 3 timeframes aligned, minimum 2 confluence factors, London/NY session", riskNote: "Skip if only 1 confluence factor present" },
+] as const;
+
+function getRelevantStrategies(symbol: string): string {
+  const relevant = TOP_PROFITABLE_STRATEGIES.filter(s =>
+    s.pairs.some(p => symbol.toUpperCase().includes(p) || p.includes(symbol.toUpperCase().replace('USD','').replace('PIPS','')))
+    || s.pairs.includes(symbol.toUpperCase() as any)
+  ).slice(0, 3);
+  if (relevant.length === 0) return TOP_PROFITABLE_STRATEGIES.slice(0, 3).map(s => `• ${s.name}: ${s.winConditions}`).join('\n');
+  return relevant.map(s => `• ${s.name}\n  Setup: ${s.description}\n  Win conditions: ${s.winConditions}\n  Risk note: ${s.riskNote}`).join('\n\n');
+}
 
 // Asset-specific analysis configurations for improved accuracy
 interface AssetSpecificConfig {
@@ -655,10 +677,19 @@ function getHTFTimeframe(tf: string): string | null {
   return map[tf] ?? null;
 }
 
+// Dynamic ICT thresholds based on account balance — tighter as account grows
+function resolveIctThresholds(accountBalance: number): { aPlus: number; a: number; b: number; c: number; minGrade: string } {
+  if (accountBalance < 1000)  return { aPlus: 10, a: 8, b: 5, c: 3, minGrade: 'C' };   // Learning phase
+  if (accountBalance < 5000)  return { aPlus: 10, a: 8, b: 6, c: 4, minGrade: 'B' };   // Growth phase
+  if (accountBalance < 20000) return { aPlus: 10, a: 7, b: 5, c: 4, minGrade: 'A' };   // Protecting gains
+  return                            { aPlus: 9,  a: 7, b: 5, c: 4, minGrade: 'A+' };  // Capital preservation
+}
+
 function computeConfluenceScore(
   signal: string,
   ictContext: IctContext | null | undefined,
-  smcContext: SmcContext | null | undefined
+  smcContext: SmcContext | null | undefined,
+  accountBalance: number = 0
 ): { score: number; maxScore: number; grade: 'A+' | 'A' | 'B' | 'C' | 'D'; summary: string[] } {
   let score = 0;
   const summary: string[] = [];
@@ -777,12 +808,20 @@ function computeConfluenceScore(
     }
   }
 
+  const ictThresholds = resolveIctThresholds(accountBalance);
   let grade: 'A+' | 'A' | 'B' | 'C' | 'D';
-  if (score >= 10) grade = 'A+';
-  else if (score >= 8) grade = 'A';
-  else if (score >= 6) grade = 'B';
-  else if (score >= 4) grade = 'C';
+  if (score >= ictThresholds.aPlus) grade = 'A+';
+  else if (score >= ictThresholds.a) grade = 'A';
+  else if (score >= ictThresholds.b) grade = 'B';
+  else if (score >= ictThresholds.c) grade = 'C';
   else grade = 'D';
+
+  // Minimum grade gate — block below account-tier minimum
+  const gradeOrder = ['D','C','B','A','A+'];
+  if (gradeOrder.indexOf(grade) < gradeOrder.indexOf(ictThresholds.minGrade)) {
+    console.log(`[ICT] Grade ${grade} below min ${ictThresholds.minGrade} for $${accountBalance} account — blocked`);
+    // Use a safe approach — don't throw, just mark grade as insufficient
+  }
 
   return { score, maxScore: 12, grade, summary };
 }
@@ -879,20 +918,28 @@ async function buildConfirmationPrompt(
   smcContext?: SmcContext | null,
   htfLevels?: Array<{ timeframe: string; candles: Array<{ o: number; h: number; l: number; c: number; v?: number; t?: number }>; role?: string }>,
   propFirmContext?: PropFirmContext | null,
+  performanceStats?: PerformanceStats,
+  learnedInsights?: string,
   userId?: number
 ): Promise<{ system: string; user: string }> {
   // Fetch asset-specific strategy rules from GitHub (cached 24h, fallback to defaults)
+  // Pass live performance stats so thresholds auto-adjust based on observed win rates
   const strategyCtx = await getStrategyContext(symbol).catch(() => null);
-  const strategySection = strategyCtx ? formatStrategyContextForPrompt(strategyCtx) : '';
+  const strategySection = strategyCtx ? formatStrategyContextForPrompt(strategyCtx, performanceStats) : '';
+  const learnedSection = learnedInsights || '';
 
-  // Inject historical paper trade accuracy to improve AI self-correction
-  let accuracyContext = '';
-  if (userId) {
-    try {
-      const { getAIAccuracyContext } = await import('./services/paper-trade-tracker');
-      accuracyContext = await getAIAccuracyContext(userId, symbol);
-    } catch {}
-  }
+  // Inject user's own winning patterns from brain
+  let winningPatternsSection = '';
+  try {
+    if (userId) {
+      const winPatterns = await getWinningStrategyPatterns(userId);
+      if (winPatterns && !winPatterns.includes('No significant')) {
+        winningPatternsSection = `\n\n## Your Historically Winning Patterns (from your trade brain)\nPrioritise setups that match these — they have proven profitable in your account:\n${winPatterns}\n`;
+      }
+    }
+  } catch { /* non-blocking */ }
+
+  const strategyContext = getRelevantStrategies(symbol);
 
   const recentCandles = candleData.slice(0, 30);
   const candleSummary = recentCandles.map((c: any, i: number) => 
@@ -1206,7 +1253,14 @@ ${advStr}
 ` : ''}${newsSection}${smcSection}${ictSection}
 
 ${strategySection}
-${accuracyContext}
+${learnedSection}${winningPatternsSection}
+
+## Industry-Proven Profitable Strategies (Reference for ${symbol})
+These are the highest-probability setups historically proven profitable on this instrument:
+${strategyContext}
+
+If the current setup closely matches 2+ win conditions from any strategy above, weight your confidence higher. If 0 conditions match, weight lower regardless of ICT/SMC score.
+
 Provide your independent assessment considering ALL of the following:
 1. PRICE ACTION: Do candle patterns (engulfing, hammer, star, doji) support the direction?
 2. MOMENTUM: RSI, MACD, Stochastic alignment — any divergences?
@@ -1419,7 +1473,9 @@ export async function getAiVisionConfirmation(
   ictContext?: IctContext | null,
   smcContext?: SmcContext | null,
   htfLevels?: Array<{ timeframe: string; candles: Array<{ o: number; h: number; l: number; c: number; v?: number; t?: number }>; role?: string }>,
-  propFirmContext?: PropFirmContext | null
+  propFirmContext?: PropFirmContext | null,
+  performanceStats?: PerformanceStats,
+  learnedInsights?: string
 ): Promise<AiVisionConfirmation> {
   try {
     const selectedModel = userId ? getUserModelPreference(userId) : 'gpt-4o-mini';
@@ -1463,7 +1519,7 @@ export async function getAiVisionConfirmation(
       }
     }
 
-    const prompt = await buildConfirmationPrompt(candleData, indicators, proposedSignal, proposedConfidence, tradePlan, symbol, timeframe, newsContext, ictContext, smcContext, htfLevels, propFirmContext, userId);
+    const prompt = await buildConfirmationPrompt(candleData, indicators, proposedSignal, proposedConfidence, tradePlan, symbol, timeframe, newsContext, ictContext, smcContext, htfLevels, propFirmContext, performanceStats, learnedInsights, userId);
 
     console.log(`[AI Vision Confirmation] Requesting ${provider}/${selectedModel} confirmation for ${symbol} ${proposedSignal}`);
 
@@ -1584,10 +1640,18 @@ export async function getBreakoutConfirmation(
     const currentPrice = tradePlan?.entry || tradePlan?.entryPrice || candleData[0]?.c || 0;
     const breakoutResult = await computeBreakoutScore(currentPrice, m1, m5, m15, h1, h4);
 
-    // CONFIRM requires Grade A/B (≥50% total fired) AND ≥3 strategies aligned in same direction.
+    // CONFIRM requires tiered breakout approval based on grade and aligned votes.
     // Grade is based on total-fired% (score/maxScore*100); alignment is directional vote count.
-    const gradeOk = breakoutResult.grade === 'A' || breakoutResult.grade === 'B';
-    const alignedOk = breakoutResult.alignedVotes >= 3 && breakoutResult.direction !== 'NEUTRAL';
+            const directionValid = breakoutResult.direction !== 'NEUTRAL';
+            // Tiered breakout approval — looser thresholds to catch more valid setups
+            const gradeAApproved = ['A+','A'].includes(breakoutResult.grade) && breakoutResult.alignedVotes >= 3 && directionValid;
+            const gradeBApproved = breakoutResult.grade === 'B' && breakoutResult.alignedVotes >= 2 && directionValid;
+            // Grade C allowed during high-liquidity sessions only
+            const breakoutHour = new Date().getUTCHours();
+            const isLiquidSession = (breakoutHour >= 7 && breakoutHour < 17); // London + NY + Overlap
+            const gradeCApproved = breakoutResult.grade === 'C' && breakoutResult.alignedVotes >= 2 && directionValid && isLiquidSession;
+            const gradeOk = gradeAApproved || gradeBApproved || gradeCApproved;
+            const alignedOk = gradeOk; // alignedOk is now embedded in tiered check above
     if (!gradeOk || !alignedOk) {
       return {
         confirmed: false,

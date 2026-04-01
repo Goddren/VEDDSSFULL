@@ -384,7 +384,7 @@ export async function computeBreakoutScore(
   const alignedPct = Math.round((alignedVotes / maxScore) * 100);
 
   // Grade by total-fired percentage (score / maxScore * 100) — independent of direction/alignment
-  // A ≥70% | B ≥50% | C ≥35% | PASS <35% — for display and logging only
+  // A ≥70% | B ≥50% | C ≥35% | C ≥29% | PASS <29% — for display and logging only
   // CONFIRM is controlled separately by alignedVotes >= 3 (see getBreakoutConfirmation in openai.ts)
   let grade: 'A' | 'B' | 'C' | 'PASS';
   if (percentage >= 70) {
@@ -393,8 +393,10 @@ export async function computeBreakoutScore(
     grade = 'B'; // ≥4/7 fired (57%)
   } else if (percentage >= 35) {
     grade = 'C'; // 3/7 fired (43%)
+  } else if (percentage >= 29) {
+    grade = 'C'; // 2/7 fired (≈29%) — minimum viable breakout signal
   } else {
-    grade = 'PASS'; // ≤2/7 fired — insufficient evidence
+    grade = 'PASS'; // 0-1/7 fired — insufficient evidence
   }
 
   // ATR from H1 candles (most stable single-timeframe basis); fallback to m15 or m5 if H1 unavailable

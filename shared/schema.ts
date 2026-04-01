@@ -1724,3 +1724,35 @@ export const insertPaperTradeSchema = createInsertSchema(paperTrades).omit({
 
 export type PaperTrade = typeof paperTrades.$inferSelect;
 export type InsertPaperTrade = z.infer<typeof insertPaperTradeSchema>;
+
+// ── AI Confirmation Outcomes (learning loop) ──────────────────────────────────
+export const aiConfirmationOutcomes = pgTable("ai_confirmation_outcomes", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  symbol: text("symbol").notNull(),
+  direction: text("direction").notNull(), // 'BUY' | 'SELL'
+  confluenceGrade: text("confluence_grade"), // 'A+' | 'A' | 'B' | 'C' | 'D'
+  session: text("session"), // 'London' | 'NY' | 'Asian' | etc.
+  ictMacroValid: boolean("ict_macro_valid"),
+  smcVerdict: text("smc_verdict"), // 'CONFIRM' | 'PASS' | 'REQUIRE_BETTER_PRICE'
+  adxValue: real("adx_value"),
+  aiDecision: text("ai_decision"), // 'CONFIRMED' | 'REJECTED'
+  tradeOutcome: text("trade_outcome").default('PENDING'), // 'PENDING' | 'WIN' | 'LOSS' | 'BREAKEVEN'
+  actualPips: real("actual_pips"),
+  confirmedAt: timestamp("confirmed_at").defaultNow().notNull(),
+  closedAt: timestamp("closed_at"),
+  tradeSource: text('trade_source').default('ai_confirmation'),
+});
+
+export const insertAiConfirmationOutcomeSchema = createInsertSchema(aiConfirmationOutcomes).omit({
+  id: true,
+  confirmedAt: true,
+  closedAt: true,
+  tradeOutcome: true,
+  actualPips: true,
+});
+
+export type AiConfirmationOutcome = typeof aiConfirmationOutcomes.$inferSelect;
+export type InsertAiConfirmationOutcome = z.infer<typeof insertAiConfirmationOutcomeSchema> & {
+  tradeSource?: string;
+};
