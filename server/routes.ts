@@ -6449,7 +6449,33 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           const todayName = dayNames[new Date().getUTCDay()];
           const todayPlan = veddStrategy.plan.weeklyPlan[todayName];
           
-          if (todayPlan?.pairs) {
+          // ── Smart Pair Escalation: rank pairs by brain win-rate ──────────────
+          let smartUnlockedPairs: string[] | null = null;
+          if (veddStrategy.smartEscalation) {
+            const brainData = (global as any).mt5BrainData?.[token.userId];
+            const pairKnowledge = brainData?.pairKnowledge || veddStrategy.pairStats || {};
+            const allPlanPairs = (veddStrategy.pairs || []) as string[];
+            // Sort pairs by win rate descending; start with top 2, unlock more if account is up
+            const currentProfit = veddStrategy.currentProfit || 0;
+            const profitPct = veddStrategy.accountBalance > 0 ? (currentProfit / veddStrategy.accountBalance) * 100 : 0;
+            const sorted = [...allPlanPairs].sort((a, b) => {
+              const wrA = pairKnowledge[a]?.winRate ?? pairKnowledge[a]?.overallScore ?? 50;
+              const wrB = pairKnowledge[b]?.winRate ?? pairKnowledge[b]?.overallScore ?? 50;
+              return wrB - wrA;
+            });
+            // Unlock tiers: always top-2 → +1 pair per 25% of weekly target reached
+            const unlockedCount = Math.min(sorted.length, 2 + Math.floor(profitPct / 25));
+            smartUnlockedPairs = sorted.slice(0, unlockedCount).map(p => p.toUpperCase().replace('/', ''));
+            console.log(`[VEDD SS AI Smart Escalation] Unlocked ${unlockedCount}/${sorted.length} pairs (profit +${profitPct.toFixed(1)}%): ${smartUnlockedPairs.join(', ')}`);
+          }
+
+          // If today is a skipped day (no plan entry or explicitly skipped), block all trades
+          if (!todayPlan || todayPlan.skip === true) {
+            console.log(`[VEDD SS AI] BLOCKED ${sanitizedSymbol} — ${todayName} is a skipped trading day.`);
+            analysis.signal = 'NEUTRAL';
+            analysis.alerts = analysis.alerts || [];
+            analysis.alerts.push(`VEDD SS AI: ${todayName} is a non-trading day in your weekly plan. All trades blocked.`);
+          } else if (todayPlan?.pairs) {
             const normalizedSymbol = sanitizedSymbol.toUpperCase().replace('/', '');
             const matchingPairPlan = todayPlan.pairs.find((p: any) => 
               (p.symbol || '').toUpperCase().replace('/', '') === normalizedSymbol
@@ -6494,8 +6520,29 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 (global as any).veddSSAILotOverride[`${token.userId}_${normalizedSymbol}`] = planLotSize;
               }
             } else {
-              // Pair not in today's plan
-              console.log(`[VEDD SS AI] ${sanitizedSymbol} not in today's plan (${todayName}). Plan has: ${todayPlan.pairs.map((p: any) => p.symbol).join(', ')}`);
+              // Pair not in today's plan — check overrides before blocking
+              const eaConf = analysis.confidence || 0;
+              const aiConf = (analysis as any).aiConfidence || 0;
+              const dualHighConf = veddStrategy.highConfidenceOverride && eaConf >= 85 && aiConf >= 85;
+              const smartUnlocked = smartUnlockedPairs && smartUnlockedPairs.includes(normalizedSymbol);
+
+              if (dualHighConf) {
+                // 85%+ on both EA and AI — allow the trade from full pair pool
+                console.log(`[VEDD SS AI] HIGH CONFIDENCE OVERRIDE on ${sanitizedSymbol}: EA ${eaConf}% + AI ${aiConf}% ≥ 85%. Trade allowed from full pool.`);
+                analysis.alerts = analysis.alerts || [];
+                analysis.alerts.push(`VEDD SS AI: High-confidence override active — ${sanitizedSymbol} cleared with ${eaConf}% EA + ${aiConf}% AI confidence.`);
+              } else if (smartUnlocked) {
+                // Smart escalation unlocked this pair based on brain win-rate ranking
+                console.log(`[VEDD SS AI] SMART ESCALATION unlocked ${sanitizedSymbol} based on brain win-rate ranking.`);
+                analysis.alerts = analysis.alerts || [];
+                analysis.alerts.push(`VEDD SS AI: Smart Escalation — ${sanitizedSymbol} unlocked by brain win-rate ranking.`);
+              } else {
+                // Hard block — not scheduled and no override applies
+                console.log(`[VEDD SS AI] BLOCKED ${sanitizedSymbol} — not in today's plan (${todayName}). Plan has: ${todayPlan.pairs.map((p: any) => p.symbol).join(', ')}`);
+                analysis.signal = 'NEUTRAL';
+                analysis.alerts = analysis.alerts || [];
+                analysis.alerts.push(`VEDD SS AI: ${sanitizedSymbol} is NOT scheduled for ${todayName}. Today's pairs: ${todayPlan.pairs.map((p: any) => p.symbol).join(', ')}. Trade blocked.`);
+              }
             }
           }
         }
@@ -7978,7 +8025,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
   app.post("/api/weekly-strategy/generate", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
-    const { profitTarget, pairs, accountBalance, riskLevel, lotSize, strategyMode, tradingDays, pairDayAssignments } = req.body;
+    const { profitTarget, pairs, accountBalance, riskLevel, lotSize, strategyMode, tradingDays, pairDayAssignments, smartEscalation, highConfidenceOverride } = req.body;
 
     if (!profitTarget || !pairs || !Array.isArray(pairs) || pairs.length === 0 || !accountBalance) {
       return res.status(400).json({ error: "profitTarget, pairs (array), and accountBalance are required" });
@@ -8250,6 +8297,8 @@ Respond with ONLY valid JSON:
         strategyMode: hftMode,
         plan,
         pairStats,
+        smartEscalation: smartEscalation === true,
+        highConfidenceOverride: highConfidenceOverride !== false, // default true
         generatedAt: new Date().toISOString(),
         weekStart: getWeekStart(),
         progressTrades: [],

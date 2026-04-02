@@ -60,6 +60,8 @@ export default function WeeklyStrategyPage() {
   const [riskLevel, setRiskLevel] = useState<'conservative'|'moderate'|'aggressive'>('moderate');
   const [tradingDays, setTradingDays] = useState<string[]>(['Monday','Tuesday','Wednesday','Thursday','Friday']);
   const [pairDayAssignments, setPairDayAssignments] = useState<Record<string,string[]>>({});
+  const [smartEscalation, setSmartEscalation] = useState(false);
+  const [highConfidenceOverride, setHighConfidenceOverride] = useState(true);
   const [showPinPairs, setShowPinPairs] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
   const [showBrain, setShowBrain] = useState(false);
@@ -146,6 +148,8 @@ export default function WeeklyStrategyPage() {
         strategyMode,
         tradingDays,
         pairDayAssignments,
+        smartEscalation,
+        highConfidenceOverride,
       });
       return res.json();
     },
@@ -2566,6 +2570,51 @@ export default function WeeklyStrategyPage() {
                 {showPinPairs && Object.values(pairDayAssignments).some(v => v.length > 0) && (
                   <p className="text-orange-400 text-xs mt-2">📌 Pinned pairs will only trade on their assigned days. Leave blank to let AI decide.</p>
                 )}
+              </div>
+
+              {/* ── AI Engine Intelligence Toggles ─────────────── */}
+              <div className="rounded-xl border border-gray-700 bg-gray-900/50 p-4 space-y-3">
+                <p className="text-gray-300 text-sm font-semibold flex items-center gap-2">
+                  <Brain className="w-4 h-4 text-purple-400" /> AI Engine Intelligence Options
+                </p>
+
+                {/* Smart Pair Escalation */}
+                <div className="flex items-start justify-between gap-3 p-3 rounded-lg bg-gray-800/60 border border-gray-700/50">
+                  <div className="flex-1">
+                    <p className="text-white text-sm font-medium">Smart Pair Escalation</p>
+                    <p className="text-gray-400 text-xs mt-0.5">
+                      AI uses Brain win-rate data to rank your pairs by accuracy. Starts with highest-accuracy pairs and unlocks more mid-week only if the account is growing and accuracy holds. Automatically tightens back down if a losing streak hits.
+                    </p>
+                    {smartEscalation && (
+                      <p className="text-purple-400 text-xs mt-1 font-medium">✓ Active — Brain data will rank and gate your pairs each day</p>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => setSmartEscalation(v => !v)}
+                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none ${smartEscalation ? 'bg-purple-600' : 'bg-gray-600'}`}
+                  >
+                    <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg transition-transform ${smartEscalation ? 'translate-x-5' : 'translate-x-0'}`} />
+                  </button>
+                </div>
+
+                {/* High Confidence Override */}
+                <div className="flex items-start justify-between gap-3 p-3 rounded-lg bg-gray-800/60 border border-gray-700/50">
+                  <div className="flex-1">
+                    <p className="text-white text-sm font-medium">High Confidence Override <span className="text-amber-400 text-xs font-normal ml-1">(85%+ EA &amp; AI)</span></p>
+                    <p className="text-gray-400 text-xs mt-0.5">
+                      When BOTH the EA signal confidence AND the AI second-opinion confidence reach 85% or above, that trade is allowed to fire from <strong className="text-white">any pair in your full pool</strong> — even if it's not today's assigned pair. Only the highest-conviction setups get through.
+                    </p>
+                    {highConfidenceOverride && (
+                      <p className="text-amber-400 text-xs mt-1 font-medium">✓ Active — 85%+ dual-confirmation trades will fire from any pair</p>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => setHighConfidenceOverride(v => !v)}
+                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none ${highConfidenceOverride ? 'bg-amber-500' : 'bg-gray-600'}`}
+                  >
+                    <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg transition-transform ${highConfidenceOverride ? 'translate-x-5' : 'translate-x-0'}`} />
+                  </button>
+                </div>
               </div>
 
               <Button className="w-full bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-500 hover:to-red-500 text-white font-semibold py-5 text-base"
