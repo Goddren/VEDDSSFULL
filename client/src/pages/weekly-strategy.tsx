@@ -80,6 +80,7 @@ export default function WeeklyStrategyPage() {
 
   const { data: strategy, isLoading } = useQuery<WeeklyStrategy>({
     queryKey: ['/api/weekly-strategy'],
+    refetchInterval: 30000, // refresh strategy display every 30s
   });
 
   const { data: liveMode } = useQuery<{ live: boolean; hasStrategy: boolean }>({
@@ -164,19 +165,33 @@ export default function WeeklyStrategyPage() {
   });
 
   const updateProgressMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (silent?: boolean) => {
       const res = await apiRequest('POST', '/api/weekly-strategy/update-progress', {});
-      return res.json();
+      const data = await res.json();
+      return { ...data, silent };
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['/api/weekly-strategy'] });
       setActiveTrades(data.activeTrades || []);
       setUnrealizedPnL(data.unrealizedPnL || 0);
       setLastPositionUpdate(data.lastPositionUpdate || null);
-      const activeMsg = data.activeTradeCount > 0 ? ` | ${data.activeTradeCount} active trade(s)` : '';
-      toast({ title: "Progress Synced", description: `$${data.currentProfit} closed P&L | $${data.unrealizedPnL || 0} unrealized${activeMsg}` });
+      if (!data.silent) {
+        const activeMsg = data.activeTradeCount > 0 ? ` | ${data.activeTradeCount} active trade(s)` : '';
+        toast({ title: "Progress Synced", description: `$${data.currentProfit} closed P&L | $${data.unrealizedPnL || 0} unrealized${activeMsg}` });
+      }
     },
   });
+
+  // Auto-sync progress every 60 seconds when a strategy is active (silent — no toast)
+  useEffect(() => {
+    if (!strategy?.hasStrategy) return;
+    updateProgressMutation.mutate(true); // immediate silent sync on mount
+    const interval = setInterval(() => {
+      updateProgressMutation.mutate(true);
+    }, 60000);
+    return () => clearInterval(interval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [strategy?.hasStrategy]);
 
   const deleteMutation = useMutation({
     mutationFn: async () => {
