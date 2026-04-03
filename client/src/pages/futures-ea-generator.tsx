@@ -35,7 +35,7 @@ const STRATEGY_TYPES = [
 ];
 
 const PROP_FIRM_PRESETS = [
-  { value: '',                   label: 'None — Personal Account' },
+  { value: 'none',               label: 'None — Personal Account' },
   { value: 'TOPSTEP',            label: 'Topstep' },
   { value: 'APEX',               label: 'Apex Trader Funding' },
   { value: 'BULENOX',            label: 'Bulenox' },
@@ -69,7 +69,7 @@ export default function FuturesEaGenerator() {
   const [symbol, setSymbol]               = useState('NQ');
   const [strategyType, setStrategyType]   = useState('day_trading');
   const [contracts, setContracts]         = useState(1);
-  const [propFirmPreset, setPropFirmPreset] = useState('');
+  const [propFirmPreset, setPropFirmPreset] = useState('none');
   const [accountSize, setAccountSize]     = useState(50000);
   const [dailyLossLimit, setDailyLossLimit] = useState(1500);
   const [atrMultiplier, setAtrMultiplier] = useState(1.5);
@@ -97,12 +97,13 @@ export default function FuturesEaGenerator() {
   function handlePropFirmChange(preset: string) {
     setPropFirmPreset(preset);
     setExitOnSessionClose(preset === 'TOPSTEP');
-    setDailyLossLimit(getDailyLossDefault(preset, accountSize));
+    setDailyLossLimit(getDailyLossDefault(preset === 'none' ? '' : preset, accountSize));
   }
 
   function handleAccountSizeChange(size: number) {
     setAccountSize(size);
-    if (propFirmPreset) setDailyLossLimit(getDailyLossDefault(propFirmPreset, size));
+    if (propFirmPreset && propFirmPreset !== 'none')
+      setDailyLossLimit(getDailyLossDefault(propFirmPreset, size));
   }
 
   // Generate and download NinjaScript
@@ -114,7 +115,7 @@ export default function FuturesEaGenerator() {
         contracts,
         useTrailingStop,
         trailingStopTicks,
-        propFirmPreset: propFirmPreset || undefined,
+        propFirmPreset: (propFirmPreset && propFirmPreset !== 'none') ? propFirmPreset : undefined,
         dailyLossLimitDollars: dailyLossLimit,
         maxContractsPerTrade,
         atrMultiplier,
@@ -145,8 +146,11 @@ export default function FuturesEaGenerator() {
       const a = document.createElement('a');
       a.href = url;
       a.download = `${safeName}.cs`;
+      a.style.display = 'none';
+      document.body.appendChild(a);
       a.click();
-      URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
       toast({ title: 'NinjaScript Downloaded', description: `${safeName}.cs saved to your downloads folder.` });
     },
     onError: (err: any) => {
@@ -310,7 +314,7 @@ export default function FuturesEaGenerator() {
               </div>
             </div>
 
-            {propFirmPreset && (
+            {propFirmPreset && propFirmPreset !== 'none' && (
               <div className="mt-4 flex flex-wrap gap-2">
                 <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20 text-xs">
                   <ShieldCheck className="w-3 h-3 mr-1" />

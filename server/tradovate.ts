@@ -127,8 +127,8 @@ export class TradovateService {
       password,
       appId: process.env.TRADOVATE_APP_ID || 'VEDD',
       appVersion: '1.0',
-      cid: 0,
-      sec: '',
+      cid: process.env.TRADOVATE_CID ? parseInt(process.env.TRADOVATE_CID, 10) : 0,
+      sec: process.env.TRADOVATE_SEC || '',
     };
 
     const response = await fetch(`${this.baseUrl}/auth/accesstokenrequest`, {

@@ -76,7 +76,18 @@ export default function FuturesConnect() {
       toast({ title: "Tradovate Connected", description: "Futures account connected successfully" });
       setPassword('');
     },
-    onError: (err: any) => toast({ title: "Connection Failed", description: err.message, variant: "destructive" }),
+    onError: (err: any) => {
+      // Parse clean message from raw "400: {\"error\":\"...\"}" format
+      let msg = err.message || 'Connection failed';
+      try {
+        const jsonStart = msg.indexOf('{');
+        if (jsonStart !== -1) {
+          const parsed = JSON.parse(msg.slice(jsonStart));
+          msg = parsed.error || msg;
+        }
+      } catch {}
+      toast({ title: "Connection Failed", description: msg, variant: "destructive" });
+    },
   });
 
   const disconnectMutation = useMutation({
@@ -149,6 +160,15 @@ export default function FuturesConnect() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            <div className="p-3 rounded-lg bg-blue-900/20 border border-blue-500/20 text-xs text-blue-300">
+              <span className="font-semibold">⚙️ API access required:</span> Before connecting, make sure API access is enabled on your Tradovate account at{' '}
+              <a href="https://trader.tradovate.com/account-settings" target="_blank" rel="noopener noreferrer"
+                className="underline text-blue-400 hover:text-blue-300">Account Settings → API Access</a>.
+              {' '}Then set <code className="bg-blue-900/40 px-1 rounded font-mono">TRADOVATE_CID</code> and{' '}
+              <code className="bg-blue-900/40 px-1 rounded font-mono">TRADOVATE_SEC</code> in your Render environment variables from your{' '}
+              <a href="https://tradovate.com/api" target="_blank" rel="noopener noreferrer"
+                className="underline text-blue-400 hover:text-blue-300">Tradovate API dashboard</a>.
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-xs text-gray-400 mb-1 block">Tradovate Username</label>
