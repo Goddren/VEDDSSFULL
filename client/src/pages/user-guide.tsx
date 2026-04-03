@@ -1,12 +1,12 @@
 import { useState } from 'react';
-import { 
-  BookOpen, 
-  Upload, 
-  BarChart2, 
-  Zap, 
-  Store, 
-  Share2, 
-  Users, 
+import {
+  BookOpen,
+  Upload,
+  BarChart2,
+  Zap,
+  Store,
+  Share2,
+  Users,
   Trophy,
   Bell,
   CreditCard,
@@ -21,7 +21,9 @@ import {
   Calendar,
   MessageSquare,
   Settings,
-  Star
+  Star,
+  Code2,
+  ShieldCheck
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -423,6 +425,122 @@ const guideSections: GuideSection[] = [
     ]
   },
   {
+    id: 'futures-trading',
+    title: 'Futures Trading',
+    icon: TrendingUp,
+    description: 'Connect Tradovate, trade futures with prop firm rules, and generate NinjaTrader 8 strategies',
+    content: [
+      {
+        heading: 'Connecting Your Tradovate Account',
+        steps: [
+          'Go to Futures Connect from the More menu in the header (or navigate to /futures-connect)',
+          'Enter your Tradovate username and password — demo or live accounts are both supported',
+          'Select your account type: Demo (paper trading) or Live',
+          'Optionally select a Prop Firm Preset (Topstep, Apex, Bulenox, etc.) if you are trading a funded account',
+          'Choose your account size — this auto-fills the correct daily loss limit for your prop firm',
+          'Click Connect — VEDD verifies your credentials against the Tradovate API and fetches your account balance',
+          'Once connected, your live account balance, open P&L, and closed P&L refresh automatically'
+        ],
+        tips: [
+          'Use Demo mode first to verify the connection before switching to Live',
+          'Your Tradovate password is encrypted (AES-256) before being stored — it is never stored in plain text',
+          'If you see "Authentication failed", double-check you are using your Tradovate web login credentials, not an API key'
+        ]
+      },
+      {
+        heading: 'Prop Firm Drawdown Gauge',
+        steps: [
+          'When a prop firm preset is selected, the drawdown gauge appears below your account balance',
+          'Three bars track the key risk limits in real time:',
+          '  1. Trailing Drawdown Buffer — distance between your current equity and the trailing floor (floor moves with peak equity)',
+          '  2. Daily Loss Budget — how much of today\'s daily loss limit you have used',
+          '  3. Profit Target Progress — progress toward the account\'s required profit target',
+          'SAFE (green): All limits have healthy headroom — normal trading',
+          'WARNING (amber): Approaching a limit — reduce position size and trade cautiously',
+          'DANGER (red): Very close to a breach — consider stopping for the day',
+          'BREACHED (pulsing red): A rule has been violated — the account is at risk. Stop trading immediately',
+          'The trailing drawdown floor moves UP when your peak equity increases — it never moves back down'
+        ],
+        tips: [
+          'Topstep has the strictest trailing drawdown: once equity peaks, your floor is locked at peak − trailing limit',
+          'Always check the drawdown gauge before placing a trade during a poor day',
+          'The daily loss limit resets at midnight — the trailing drawdown does NOT reset'
+        ]
+      },
+      {
+        heading: 'Futures Instruments Reference',
+        steps: [
+          'VEDD supports 18 futures instruments across 4 asset classes:',
+          'INDEX FUTURES: NQ (Nasdaq E-Mini $5/tick), MNQ (Micro Nasdaq $0.50/tick), ES (S&P E-Mini $12.50/tick), MES (Micro S&P $1.25/tick), YM (Dow E-Mini $5/tick), MYM (Micro Dow $0.50/tick), RTY (Russell E-Mini $5/tick), M2K (Micro Russell $0.50/tick)',
+          'METALS: GC (Gold $10/tick at $0.10), MGC (Micro Gold $1/tick)',
+          'ENERGY: CL (Crude Oil $10/tick at $0.01), MCL (Micro Crude $1/tick)',
+          'BONDS: ZN (10-Year T-Note $15.625/tick), ZB (30-Year T-Bond $31.25/tick)',
+          'OTHER: SI (Silver $25/tick), SIL (Micro Silver $12.50/tick), NG (Natural Gas $10/tick)',
+          'Tick values shown above are per-tick dollar value — critical for position sizing and risk calculation',
+          'Use the Contract Size Calculator on the Futures Connect page to calculate how many contracts to trade based on your account balance, risk %, entry, and stop loss'
+        ],
+        tips: [
+          'Micro contracts (MNQ, MES, MYM, M2K, MGC, MCL) are 1/10th the size of their standard counterpart — ideal for small accounts and prop firm challenges',
+          'Gold (GC) tick value is $10 per tick — one full point move = $100. Very different from forex pip values',
+          'NQ moves fast — one 1-point move on NQ = $20. Always verify your stop loss distance in ticks before placing orders'
+        ]
+      },
+      {
+        heading: 'Executing Futures Trades via VEDD',
+        steps: [
+          'With an active Tradovate connection, go to Futures Connect → scroll to the Execute section',
+          'Select your instrument (e.g., NQ), direction (Long/Short), and number of contracts',
+          'Optionally set a stop loss price and take profit price',
+          'VEDD runs a pre-flight drawdown check before every order — if your daily limit or trailing drawdown is too close, the trade is blocked with a clear message',
+          'On success, the order is sent to Tradovate and logged in your trade history',
+          'View all executed trades in the Trade History table on the Futures Connect page'
+        ],
+        tips: [
+          'The pre-flight drawdown check uses your live account balance pulled fresh from Tradovate — not cached data',
+          'Orders are market orders by default. Limit order support is planned for a future release',
+          'Trade logs store: symbol, direction, contracts, stop loss, take profit, Tradovate order ID, and execution status'
+        ]
+      },
+      {
+        heading: 'NinjaTrader 8 EA Generator',
+        steps: [
+          'Go to Futures EA Generator from the More menu (or /futures-ea-generator)',
+          'Select your futures instrument (NQ, ES, YM, GC, CL, or any micro equivalent)',
+          'Choose a strategy type: Day Trading, Scalping, Swing Trading, or News Breakout',
+          'Set your trade parameters: contracts, ATR stop loss multiplier, risk:reward ratio',
+          'Select your prop firm preset — daily loss limits are auto-filled based on your account size',
+          'Toggle optional features: Trailing Stop (with configurable tick distance), Exit on Session Close, Both Long & Short entries',
+          'Click "Download .cs File" — a complete C# NinjaScript strategy file downloads immediately',
+          'The generated code includes: EMA 20/50, RSI 14, ATR 14, ADX 14 indicators, daily P&L circuit breaker, max trades per day guard, and full OnExecutionUpdate tracking'
+        ],
+        tips: [
+          'The daily loss circuit breaker is embedded in OnBarUpdate — the strategy halts and flattens positions when the limit is hit',
+          'NinjaScript uses Calculate.OnBarClose by default — suitable for most day trading and swing strategies',
+          'Always test with NinjaTrader Simulation Mode first. Go to Accounts → Simulation in NT8 to paper trade'
+        ]
+      },
+      {
+        heading: 'Installing Your NinjaScript in NinjaTrader 8',
+        steps: [
+          'Open NinjaTrader 8 and connect to your data provider',
+          'Go to: Tools → Edit NinjaScript → Strategy',
+          'Click "New" and enter your strategy class name exactly as shown in the generator (e.g., VEDD_NQ_Strategy)',
+          'Delete the default template code and paste the full contents of your downloaded .cs file',
+          'Press F5 to compile — fix any errors (usually just namespace mismatches)',
+          'Open a chart for your instrument (e.g., NQ 03-25, 5 Minute)',
+          'Right-click the chart → Strategies → Add Strategy → select your strategy',
+          'Configure parameters in the dialog: contracts, daily loss limit, ATR multiplier, R:R ratio',
+          'Click OK — the strategy is now live on your chart. Monitor the strategy panel below the chart'
+        ],
+        tips: [
+          'The strategy name in the NinjaScript dialog must exactly match the class name in the code',
+          'For prop firm accounts: enable IsExitOnSessionCloseStrategy for Topstep (auto-set when Topstep preset is selected)',
+          'NinjaTrader log output (Control Center → Log) shows real-time strategy messages including daily limit hits'
+        ]
+      }
+    ]
+  },
+  {
     id: 'mobile-features',
     title: 'Mobile Features',
     icon: Bell,
@@ -512,7 +630,15 @@ const faqs = [
   },
   {
     question: 'What trading platforms are supported?',
-    answer: 'AI Trading Vault supports chart uploads from MT4, MT5, TradingView, and TradeLocker. EA code can be generated for MT5, TradingView (Pine Script), and TradeLocker.'
+    answer: 'AI Trading Vault supports chart uploads from MT4, MT5, TradingView, and TradeLocker. EA code can be generated for MT5, TradingView (Pine Script), TradeLocker, and NinjaTrader 8 (NinjaScript C# — for futures trading). Live trade execution is supported via MT5, TradeLocker, and Tradovate (futures).'
+  },
+  {
+    question: 'Can VEDD trade futures? Which prop firms are supported?',
+    answer: 'Yes — Phase 1 Futures support is live. Connect your Tradovate account (demo or live) via the Futures Connect page. Supported prop firm presets with auto-enforced drawdown rules: Topstep, Apex Trader Funding, Bulenox, Earn2Trade, and Take Profit Trader. The drawdown gauge tracks trailing drawdown, daily loss budget, and profit target progress in real time. Instruments include NQ, ES, YM, GC, CL, and all micro equivalents.'
+  },
+  {
+    question: 'What is the NinjaScript EA Generator?',
+    answer: 'The Futures EA Generator creates production-ready C# NinjaScript strategy files for NinjaTrader 8. Configure your instrument, strategy type, risk parameters, and prop firm rules — then download the .cs file and paste it directly into NinjaTrader 8. The generated strategy includes RSI, EMA 20/50, ATR, ADX indicators, a daily loss circuit breaker embedded in OnBarUpdate, and max trades per day guard.'
   },
   {
     question: 'How do I earn money from the EA Marketplace?',
@@ -550,6 +676,12 @@ export default function UserGuidePage() {
           <p className="text-gray-400 text-lg max-w-2xl mx-auto">
             Everything you need to know about using AI Trading Vault for smarter trading decisions
           </p>
+          <div className="flex flex-wrap justify-center gap-2 mt-4">
+            <span className="bg-blue-500/20 text-blue-300 border border-blue-500/30 text-xs px-3 py-1 rounded-full">Forex & Crypto</span>
+            <span className="bg-purple-500/20 text-purple-300 border border-purple-500/30 text-xs px-3 py-1 rounded-full">Futures / NinjaTrader 8</span>
+            <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs px-3 py-1 rounded-full">MT5 / TradeLocker</span>
+            <span className="bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs px-3 py-1 rounded-full">Prop Firm Rules</span>
+          </div>
         </div>
 
         <div className="mb-8 max-w-xl mx-auto">

@@ -318,13 +318,13 @@ function RealWorldExampleCard({ example }: { example: RealWorldExample }) {
 
 // Weekly content schedule for ambassadors
 const weeklySchedule = [
-  { day: 'Monday', action: 'YouTube Tutorial', details: 'Deep dive: MT5 EA setup, account balance tracking, or mobile features', icon: Video },
-  { day: 'Tuesday', action: 'Quick Tip Reel', details: '30-60 sec tip: gestures, news sentiment, or Daily P&L tracking', icon: Camera },
-  { day: 'Wednesday', action: 'Live Session', details: 'Real-time chart analysis + demo account balance breakdown', icon: Mic },
-  { day: 'Thursday', action: 'News Trading Demo', details: 'Show extreme news sentiment trading on live events', icon: TrendingUp },
-  { day: 'Friday', action: 'Mobile App Showcase', details: 'Demo PWA install, gestures, push notifications', icon: Monitor },
-  { day: 'Saturday', action: 'Twitter/X Space', details: 'Q&A on new features + trading strategies', icon: MessageSquare },
-  { day: 'Sunday', action: 'Weekly Recap & CTA', details: 'Highlight account gains + subscription push', icon: Megaphone }
+  { day: 'Monday', action: 'YouTube Tutorial', details: 'Deep dive: MT5 EA setup, Tradovate futures connect, NinjaScript generator, or prop firm drawdown guide', icon: Video },
+  { day: 'Tuesday', action: 'Quick Tip Reel', details: '30-60 sec tip: gestures, news sentiment, drawdown gauge, or tick value calculator', icon: Camera },
+  { day: 'Wednesday', action: 'Live Session', details: 'Real-time chart analysis OR live futures trading demo with Tradovate connection', icon: Mic },
+  { day: 'Thursday', action: 'News + Futures Demo', details: 'Show news trading on live events, or show NQ/ES futures signals with prop firm rules active', icon: TrendingUp },
+  { day: 'Friday', action: 'EA Generator Showcase', details: 'Generate MT5 EA or NinjaScript strategy live on camera — show the .cs file downloading', icon: Monitor },
+  { day: 'Saturday', action: 'Twitter/X Space', details: 'Q&A on features — include futures, prop firm presets, and NinjaTrader questions', icon: MessageSquare },
+  { day: 'Sunday', action: 'Weekly Recap & CTA', details: 'Highlight account gains + push subscription and futures features', icon: Megaphone }
 ];
 
 // Success metrics for ambassadors
@@ -406,12 +406,15 @@ const trainingModules: TrainingModule[] = [
           'AI Trading Vault is a cutting-edge chart analysis platform designed to empower traders and analysts with intuitive tools for technical market insights',
           'Our mission is to make professional-grade charting accessible, educational, and community-driven',
           'Features include AI-powered chart analysis, EA generation, marketplace, and social trading',
-          'Available for Forex, Stocks, Crypto, and Indices traders on MT5, TradingView, and TradeLocker'
+          'Phase 1 Futures trading is now live — connect Tradovate, trade NQ/ES/YM/GC with real-time prop firm drawdown tracking',
+          'Available for Forex, Stocks, Crypto, Futures, and Indices traders on MT5, TradingView, TradeLocker, and NinjaTrader 8'
         ],
         keyPoints: [
           { title: 'AI-Powered Analysis', description: 'Upload any chart screenshot and get instant pattern recognition, trend analysis, and trading recommendations powered by GPT-4o.', icon: Sparkles },
           { title: 'Expert Advisor Generation', description: 'Turn your chart analysis into automated trading strategies - no coding required. Generate MT5 EA code with one click.', icon: Target },
-          { title: 'Marketplace & Community', description: 'Share your strategies, subscribe to top performers, and earn passive income from your trading expertise.', icon: Users }
+          { title: 'Marketplace & Community', description: 'Share your strategies, subscribe to top performers, and earn passive income from your trading expertise.', icon: Users },
+          { title: 'Futures + Prop Firm Trading', description: 'Connect Tradovate and trade NQ, ES, YM, Gold, Crude Oil futures with real-time drawdown protection for Topstep, Apex, Bulenox and more.', icon: TrendingUp },
+          { title: 'NinjaTrader 8 EA Generator', description: 'Generate production-ready NinjaScript C# strategies with daily loss circuit breakers and prop firm rules baked in — zero coding required.', icon: Bot }
         ],
         realWorldExamples: [
           { scenario: 'A beginner trader uploaded their first EUR/USD chart', outcome: 'The AI identified a hidden Head & Shoulders pattern they would have missed, saving them from a losing trade', lesson: 'AI analysis catches patterns that human eyes often overlook, especially for newer traders', type: 'success' },
@@ -439,7 +442,9 @@ const trainingModules: TrainingModule[] = [
         ],
         realWorldExamples: [
           { scenario: 'A part-time trader with a full-time job', outcome: 'Used AI analysis during lunch breaks to identify setups, then placed trades after work. Saved 2+ hours daily.', lesson: 'AI Trading Vault fits around your schedule - analyze charts anytime, anywhere', type: 'success' },
-          { scenario: 'Trader paid $500 for a custom EA that didn\'t work', outcome: 'Many traders waste money on EAs that don\'t match their strategy', lesson: 'With AI Trading Vault, you generate EAs based on YOUR analysis - no wasted money on generic solutions', type: 'warning' }
+          { scenario: 'Trader paid $500 for a custom EA that didn\'t work', outcome: 'Many traders waste money on EAs that don\'t match their strategy', lesson: 'With AI Trading Vault, you generate EAs based on YOUR analysis - no wasted money on generic solutions', type: 'warning' },
+          { scenario: 'Prop firm trader passed a Topstep $50K challenge', outcome: 'Used VEDD\'s Tradovate connection and drawdown gauge to monitor their trailing drawdown limit in real time — never got caught off-guard by a breach', lesson: 'Real-time prop firm drawdown tracking means you trade with confidence, not guesswork', type: 'success' },
+          { scenario: 'NinjaTrader trader spent 3 days trying to code a stop-loss strategy', outcome: 'Gave up and found VEDD Futures EA Generator — downloaded a NQ strategy with ATR stops and daily loss circuit breaker in under 2 minutes', lesson: 'You don\'t need to know C# to automate futures trading. VEDD generates NinjaScript for you.', type: 'insight' }
         ],
         tips: [
           'Focus on time-saving benefits for busy traders',
@@ -461,7 +466,7 @@ const trainingModules: TrainingModule[] = [
   {
     id: 'platforms-intro',
     title: 'Trading Platforms Explained',
-    description: 'Introduction to MT5, TradingView, and TradeLocker for first-time traders',
+    description: 'Introduction to MT5, TradingView, TradeLocker, Tradovate, and NinjaTrader 8 for first-time traders',
     duration: '20 min',
     icon: Monitor,
     image: platformsImg,
@@ -580,14 +585,15 @@ const trainingModules: TrainingModule[] = [
         content: [
           'Upload: Take a screenshot of your chart from any platform and upload to AI Trading Vault',
           'Analyze: Our AI examines patterns, trends, and key levels automatically',
-          'Generate: Create Expert Advisor code for MT5 or set up webhooks for TradeLocker',
+          'Generate: Create Expert Advisor code for MT5, NinjaScript for NinjaTrader 8, or set up webhooks for TradeLocker',
           'Stream: Use our MT5 EA to send live chart data for real-time AI analysis',
+          'Futures: Connect Tradovate directly — live account balance, drawdown gauge, and trade execution without leaving VEDD',
           'Trade: Apply the AI insights on your preferred platform'
         ],
         keyPoints: [
-          { title: 'Universal Compatibility', description: 'Any chart screenshot works. MT5, TradingView, TradeLocker, or even a phone photo of your screen.', icon: Camera },
-          { title: '4-Step Workflow', description: 'Upload → Analyze → Generate → Trade. Simple process that works the same regardless of your platform.', icon: Target },
-          { title: 'Live Streaming Option', description: 'For MT5 users: our EA streams chart data continuously for real-time AI analysis without manual uploads.', icon: Zap }
+          { title: 'Universal Compatibility', description: 'Any chart screenshot works. MT5, TradingView, TradeLocker, NinjaTrader, or even a phone photo of your screen.', icon: Camera },
+          { title: '5-Step Workflow', description: 'Upload → Analyze → Generate → Connect → Trade. The same simple process works across all platforms.', icon: Target },
+          { title: 'Futures Native Integration', description: 'For futures traders: connect Tradovate directly. Execute NQ/ES/YM/GC trades and track prop firm drawdown rules in real time.', icon: TrendingUp }
         ],
         realWorldExamples: [
           { scenario: 'Trader switched from MT5 to TradingView mid-strategy', outcome: 'AI Trading Vault analyzed both platforms\' charts seamlessly - no learning curve', lesson: 'Platform-agnostic analysis means you can switch tools without retraining', type: 'success' }
@@ -613,21 +619,25 @@ const trainingModules: TrainingModule[] = [
         content: [
           'MT5: Best for Forex traders who want automated trading (EAs) and broker integration',
           'TradingView: Best for visual analysis, community learning, and multi-market coverage',
-          'TradeLocker: Best for prop traders and those wanting modern, streamlined execution',
-          'Many traders use multiple platforms - e.g., TradingView for analysis, MT5 for execution',
+          'TradeLocker: Best for Forex/indices prop traders wanting modern, streamlined execution',
+          'Tradovate + NinjaTrader 8: Best for futures traders (NQ, ES, YM, GC, CL) — especially prop firm challenges',
+          'Many traders use multiple platforms - e.g., TradingView for analysis, MT5 or NinjaTrader for execution',
           'AI Trading Vault supports all of them, so start with what feels comfortable'
         ],
         keyPoints: [
-          { title: 'MT5 = Automation', description: 'Choose MT5 if you want Expert Advisors to trade for you automatically, or if your broker requires it.', icon: Zap },
+          { title: 'MT5 = Forex Automation', description: 'Choose MT5 if you want Expert Advisors to trade Forex automatically, or if your broker requires it.', icon: Zap },
           { title: 'TradingView = Learning', description: 'Choose TradingView if you\'re learning, want community insights, or trade multiple markets.', icon: Users },
-          { title: 'TradeLocker = Prop Trading', description: 'Choose TradeLocker if you\'re trading with a prop firm or want webhook-based signal execution.', icon: Award }
+          { title: 'TradeLocker = Forex Prop Trading', description: 'Choose TradeLocker if you\'re trading Forex with a prop firm or want webhook-based signal execution.', icon: Award },
+          { title: 'Tradovate + NT8 = Futures Prop', description: 'Choose Tradovate + NinjaTrader 8 if you trade US futures — VEDD manages your drawdown and generates your NinjaScript strategy.', icon: TrendingUp }
         ],
         realWorldExamples: [
-          { scenario: 'Trader uses TradingView for analysis + MT5 for execution', outcome: 'Gets best of both worlds: social learning + automated trading', lesson: 'Many successful traders use multiple platforms for different purposes', type: 'insight' }
+          { scenario: 'Trader uses TradingView for analysis + MT5 for execution', outcome: 'Gets best of both worlds: social learning + automated trading', lesson: 'Many successful traders use multiple platforms for different purposes', type: 'insight' },
+          { scenario: 'Futures prop firm trader was manually calculating trailing drawdown on a spreadsheet', outcome: 'Switched to VEDD Tradovate integration — drawdown gauge updates every refresh automatically', lesson: 'The right tools eliminate the mental load of rule-tracking so you can focus on trading', type: 'success' }
         ],
         tips: [
           'Reassure beginners that there is no wrong choice',
-          'Suggest starting with TradingView for learning since its browser-based'
+          'Suggest starting with TradingView for learning since it\'s browser-based',
+          'For futures/prop firm audience: lead with Tradovate + NinjaTrader 8 — this is a strong differentiator vs other AI trading tools'
         ]
       }
     ]
@@ -2974,8 +2984,20 @@ export default function AmbassadorTrainingPage() {
                     text: 'Generated a complete MT5 Expert Advisor from my chart analysis in under 60 seconds. No coding. No outsourcing. No $500 developer fee.\n\nJust VEDD AI + my strategy = automated trading robot. 💻\n\n#VEDDAI #MT5 #ExpertAdvisor #AlgoTrading #NoCode',
                   },
                   {
+                    id: 'tw-8', tool: 'Futures Connect', color: 'purple',
+                    text: 'Just connected my Tradovate account to VEDD AI — live NQ futures balance, open P&L, and trailing drawdown all tracked in one dashboard. 📊\n\nNo more jumping between 3 apps. One screen, full picture.\n\n#VEDDAI #FuturesTrading #NQ #NinjaTrader #PropFirm #Topstep',
+                  },
+                  {
+                    id: 'tw-9', tool: 'NinjaScript Generator', color: 'indigo',
+                    text: 'Generated a complete NinjaTrader 8 NinjaScript strategy in under 60 seconds. No C# knowledge. No developer. Just selected NQ, set my R:R, and downloaded the .cs file. 🤖\n\nDaily loss circuit breaker is baked right in — prop firm safe.\n\n#VEDDAI #NinjaTrader #NinjaScript #FuturesTrading #AlgoTrading #Topstep',
+                  },
+                  {
+                    id: 'tw-10', tool: 'Prop Firm Gauge', color: 'emerald',
+                    text: 'VEDD now shows your prop firm drawdown gauge in real time — trailing drawdown buffer, daily loss budget, profit target progress. All three bars in one view. 🟢\n\nIf any bar hits red, the system blocks new trades automatically.\n\nNo more guessing if you\'re near your limit.\n\n#VEDDAI #PropFirm #Topstep #ApexFunding #FuturesTrading #Drawdown',
+                  },
+                  {
                     id: 'tw-7', tool: 'Hashtag Packs', color: 'gray',
-                    text: 'FOREX PACK:\n#Forex #ForexTrading #ForexSignals #XAUUSD #GBPUSD #MT5 #TradingBot #AlgoTrading #VEDDAI\n\nCRYPTO PACK:\n#Solana #SOL #Crypto #DeFi #SolanaTrading #CryptoTrading #Web3 #VEDDAI\n\nGENERAL TRADING:\n#Trading #TradingSignals #TradingStrategy #TradingPsychology #SmartMoney #VEDDAI',
+                    text: 'FOREX PACK:\n#Forex #ForexTrading #ForexSignals #XAUUSD #GBPUSD #MT5 #TradingBot #AlgoTrading #VEDDAI\n\nCRYPTO PACK:\n#Solana #SOL #Crypto #DeFi #SolanaTrading #CryptoTrading #Web3 #VEDDAI\n\nFUTURES PACK:\n#FuturesTrading #NQ #ES #GoldFutures #NinjaTrader #PropFirm #Topstep #ApexFunding #VEDDAI\n\nGENERAL TRADING:\n#Trading #TradingSignals #TradingStrategy #TradingPsychology #SmartMoney #VEDDAI',
                   },
                 ].map(post => (
                   <Card key={post.id} className="bg-gray-800/60 border-gray-700 hover:border-gray-600 transition-all">
@@ -3024,6 +3046,20 @@ export default function AmbassadorTrainingPage() {
                     demo: '📱 DEMO (5–30s):\n→ Show Brain status panel: "47 trades analyzed, 8 pairs learned"\n→ Zoom to per-pair win rate breakdown\n→ Show Brain Enforcer blocking a losing signal\n→ Text: "It blocked this GBPUSD trade — pair was on 3-loss streak"\n→ Show autonomous signal being generated from brain data',
                     cta: '🔗 CTA (30–35s): "Your AI that learns YOUR market — link in bio"',
                     caption: 'Most trading bots are dumb. This one learns. 🧠\n\nVEDD Self-Learning Brain analyzes every trade you make and builds a model of your market — which pairs you win on, which sessions, which direction.\n\nThe more you use it, the more personalized it becomes.\n\nThis is not a generic signal service. This is YOUR AI.\n\n#VEDDAI #TradingBot #MachineLearning #AI #Forex #SmartTrading',
+                  },
+                  {
+                    id: 'ig-5', tool: 'Futures Connect', duration: '45 sec Reel',
+                    hook: '⚡ HOOK (0–5s): "I connected my Tradovate prop firm account to an AI — it now tells me when I\'m about to breach my drawdown limit"',
+                    demo: '📱 DEMO (5–45s):\n→ Show VEDD Futures Connect page loading\n→ Zoom in on the drawdown gauge: 3 progress bars (trailing DD, daily loss, profit target)\n→ Show gauge color: green = SAFE\n→ Simulate: close a losing trade — daily loss bar moves to DANGER (red)\n→ Text overlay: "System blocked new trades automatically — prop firm rules enforced"\n→ Show contract calculator: "2 contracts = $450 risk on NQ"\n→ Text: "No more mentally calculating tick values mid-trade"',
+                    cta: '🔗 CTA (45–50s): "Futures traders — link in bio. VEDD supports Topstep, Apex, Bulenox and more."',
+                    caption: 'The prop firm drawdown check I wish I had earlier 😤\n\nVEDD now connects to Tradovate and shows your:\n✅ Trailing drawdown buffer\n✅ Daily loss budget used\n✅ Profit target progress\n\nAll in real time. If any limit is close, it blocks new trades before you breach.\n\nCurrently supports Topstep, Apex, Bulenox, Earn2Trade, Take Profit Trader.\n\nLink in bio 👆\n\n#FuturesTrading #PropFirm #Topstep #ApexFunding #VEDDAI #NQ #ES #TradingBot',
+                  },
+                  {
+                    id: 'ig-6', tool: 'NinjaScript Generator', duration: '30 sec Reel',
+                    hook: '⚡ HOOK (0–5s): "I generated a NinjaTrader 8 strategy file in 60 seconds — no C# coding"',
+                    demo: '📱 DEMO (5–30s):\n→ Show VEDD Futures EA Generator page\n→ Select NQ, Day Trading strategy type\n→ Set contracts, ATR multiplier, R:R ratio\n→ Select Topstep preset — daily loss limit auto-fills\n→ Click Download — .cs file downloads\n→ Paste into NinjaTrader 8 editor, press F5\n→ Strategy compiles clean\n→ Text: "Daily loss circuit breaker built in — prop firm safe"',
+                    cta: '🔗 CTA (30–35s): "NinjaTrader traders — VEDD generates your strategy. Link in bio."',
+                    caption: 'No C# knowledge. No developer. Just download and trade. 💻\n\nVEDD Futures EA Generator → select your instrument (NQ, ES, YM, GC, CL) → configure risk → download NinjaScript .cs file → paste into NinjaTrader 8.\n\nThe generated strategy includes:\n🛡️ Daily loss circuit breaker\n📊 RSI, EMA 20/50, ATR, ADX\n🔄 Trailing stop option\n✅ Session close exit (Topstep compliant)\n\nLink in bio 👆\n\n#NinjaTrader #NinjaScript #FuturesTrading #VEDDAI #AlgoTrading #PropFirm #NQ',
                   },
                   {
                     id: 'ig-4', tool: 'Chart Analysis', duration: '30 sec Reel',
@@ -3108,6 +3144,24 @@ export default function AmbassadorTrainingPage() {
                       'Turn Your Trading Strategy Into an Automated Robot — Free Tool',
                     ],
                     description: 'Step-by-step tutorial: how to turn your chart analysis into a fully working MT5 Expert Advisor using VEDD AI — no programming required.\n\n⏱️ TIMESTAMPS:\n0:00 — Why most traders fail at automation\n2:00 — VEDD EA Generator: how it works\n4:00 — Live demo: generating an EA from scratch\n7:00 — Installing the EA on MT5\n10:00 — Backtesting the generated EA\n13:00 — Uploading to the marketplace\n\n🔗 Generate your first EA free: [YOUR LINK]\n\n#MT5 #ExpertAdvisor #ForexBot #VEDDAI #TradingAutomation',
+                  },
+                  {
+                    id: 'yt-5', tool: 'Futures Connect', category: 'Prop Firm',
+                    titles: [
+                      'VEDD AI + Tradovate: The Prop Firm Drawdown Tracker You Need in 2025',
+                      'How I Track My Topstep Drawdown in Real Time (VEDD Futures Dashboard)',
+                      'Futures Prop Firm Setup — Topstep, Apex, Bulenox Rules on Autopilot',
+                    ],
+                    description: 'Full walkthrough: connecting your Tradovate account to VEDD AI and using the prop firm drawdown gauge to stay within your funded account rules.\n\n⏱️ TIMESTAMPS:\n0:00 — Why prop firm traders need a drawdown tracker\n2:00 — Connecting Tradovate to VEDD (demo + live)\n5:00 — Selecting your prop firm preset (Topstep, Apex, Bulenox etc.)\n8:00 — Reading the drawdown gauge: 3 bars explained\n11:00 — What happens when you hit DANGER / BREACHED\n14:00 — Contract size calculator: tick values explained\n17:00 — Executing a futures trade through VEDD\n\n🔗 Try VEDD Futures free: [YOUR LINK]\n\n#PropFirm #Topstep #FuturesTrading #Tradovate #VEDDAI #DrawdownTracker',
+                  },
+                  {
+                    id: 'yt-6', tool: 'NinjaScript Generator', category: 'Tutorial',
+                    titles: [
+                      'Generate a NinjaTrader 8 Strategy in 60 Seconds — No Coding (VEDD AI)',
+                      'NinjaScript EA Generator: NQ Strategy With Prop Firm Rules Built In',
+                      'I Generated a Topstep-Safe NinjaTrader Bot — Full Setup Guide 2025',
+                    ],
+                    description: 'Complete tutorial: use VEDD AI to generate a NinjaTrader 8 NinjaScript strategy (.cs file) with daily loss circuit breaker, ATR stops, and prop firm compliance built in.\n\n⏱️ TIMESTAMPS:\n0:00 — Why NinjaTrader traders need automation\n2:00 — VEDD Futures EA Generator overview\n4:00 — Selecting instrument: NQ, ES, GC, YM\n6:00 — Strategy type: day trading vs scalping\n8:00 — Prop firm settings: Topstep daily limits auto-filled\n10:00 — Downloading the .cs file\n12:00 — Installing in NinjaTrader 8 (step-by-step)\n16:00 — Attaching to a chart and watching it run\n19:00 — How the daily loss circuit breaker works\n\n🔗 Generate your NinjaScript free: [YOUR LINK]\n\n#NinjaTrader #NinjaScript #FuturesTrading #VEDDAI #PropFirm #AlgoTrading #NQ',
                   },
                 ].map(item => (
                   <Card key={item.id} className="bg-gray-800/60 border-gray-700">
