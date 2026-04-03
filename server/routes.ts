@@ -58,6 +58,7 @@ import { getGoldSentiment, getMockGoldSentiment, isTelegramConfigured } from "./
 import { encryptPassword, executeMT5SignalOnTradeLocker, TradeLockerService, decryptPassword } from "./tradelocker";
 import { getPipSize, getPipValue } from "./utils/pipUtils";
 import veddTokenRouter from "./routes/vedd-token";
+import tradovateRouter from "./routes/tradovate";
 import { veddTokenService } from "./services/vedd-token-service";
 import { streamingService } from "./streaming";
 import { scanAndAnalyzeTokens, searchSolanaToken, analyzeToken, fetchTrendingSolanaTokens, fetchMultiDexTokens, type DexSource } from "./solana-scanner";
@@ -226,6 +227,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Register VEDD token routes
   app.use('/api/vedd', veddTokenRouter);
+  app.use('/api', tradovateRouter);
 
   // Health check endpoint for keeping the app awake and verifying connectivity
   app.get("/api/health", (_req: Request, res: Response) => {

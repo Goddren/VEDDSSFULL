@@ -714,6 +714,63 @@ export const insertTradelockerTradeLogSchema = createInsertSchema(tradelockerTra
 export type TradelockerTradeLog = typeof tradelockerTradeLogs.$inferSelect;
 export type InsertTradelockerTradeLog = z.infer<typeof insertTradelockerTradeLogSchema>;
 
+// ─── Tradovate Connections (Futures Prop Firm Trading) ───────────────────────
+export const tradovateConnections = pgTable("tradovate_connections", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull().unique(),
+  username: text("username").notNull(),
+  encryptedPassword: text("encrypted_password").notNull(),
+  accountId: text("account_id"),
+  accountType: text("account_type").notNull().default('demo'), // 'demo' | 'live'
+  isActive: boolean("is_active").notNull().default(true),
+  propFirmPreset: text("prop_firm_preset"), // 'TOPSTEP' | 'APEX' | 'BULENOX' | 'EARN2TRADE' | 'CUSTOM'
+  propFirmAccountSize: real("prop_firm_account_size"),
+  accessToken: text("access_token"),
+  tokenExpiresAt: timestamp("token_expires_at"),
+  peakEquity: real("peak_equity"),         // trailing drawdown high-water mark
+  startingBalance: real("starting_balance"),
+  lastConnectedAt: timestamp("last_connected_at"),
+  lastError: text("last_error"),
+  tradeCount: integer("trade_count").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertTradovateConnectionSchema = createInsertSchema(tradovateConnections).omit({
+  id: true, accessToken: true, tokenExpiresAt: true, peakEquity: true,
+  lastConnectedAt: true, lastError: true, tradeCount: true, createdAt: true, updatedAt: true,
+});
+
+export type TradovateConnection = typeof tradovateConnections.$inferSelect;
+export type InsertTradovateConnection = z.infer<typeof insertTradovateConnectionSchema>;
+
+// ─── Tradovate Trade Logs ────────────────────────────────────────────────────
+export const tradovateTradeLogs = pgTable("tradovate_trade_logs", {
+  id: serial("id").primaryKey(),
+  connectionId: integer("connection_id").references(() => tradovateConnections.id).notNull(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  action: text("action").notNull(),           // 'OPEN' | 'CLOSE' | 'MODIFY'
+  symbol: text("symbol").notNull(),           // 'NQ', 'ES', 'GC', etc.
+  direction: text("direction").notNull(),     // 'BUY' | 'SELL'
+  contracts: integer("contracts").notNull(),
+  entryPrice: real("entry_price"),
+  stopLoss: real("stop_loss"),
+  takeProfit: real("take_profit"),
+  tradovateOrderId: text("tradovate_order_id"),
+  status: text("status").notNull(),           // 'pending' | 'executed' | 'failed' | 'rejected'
+  errorMessage: text("error_message"),
+  tickValue: real("tick_value"),
+  realizedPnl: real("realized_pnl"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertTradovateTradeLogSchema = createInsertSchema(tradovateTradeLogs).omit({
+  id: true, createdAt: true,
+});
+
+export type TradovateTradeLog = typeof tradovateTradeLogs.$inferSelect;
+export type InsertTradovateTradeLog = z.infer<typeof insertTradovateTradeLogSchema>;
+
 // AI Trade Results - tracks accuracy of AI signals
 export const aiTradeResults = pgTable("ai_trade_results", {
   id: serial("id").primaryKey(),

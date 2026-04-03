@@ -3,6 +3,7 @@ import {
   userProfiles, follows, analysisFeedback, analysisViews, priceAlerts,
   savedEAs, eaSubscriptions, marketDataSnapshots, marketDataRefreshJobs, eaShareAssets, userStreaks, scenarioAnalyses,
   webhookConfigs, webhookLogs, mt5ApiTokens, mt5SignalLogs, tradelockerConnections, tradelockerTradeLogs,
+  tradovateConnections, tradovateTradeLogs,
   ambassadorTrainingProgress, ambassadorCertifications, governanceProposals, governanceVotes,
   ambassadorContentProgress, ambassadorContentStats,
   ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants,
@@ -20,6 +21,7 @@ import {
   type WebhookConfig, type InsertWebhookConfig, type WebhookLog, type InsertWebhookLog,
   type Mt5ApiToken, type InsertMt5ApiToken, type Mt5SignalLog, type InsertMt5SignalLog,
   type TradelockerConnection, type InsertTradelockerConnection, type TradelockerTradeLog, type InsertTradelockerTradeLog,
+  type TradovateConnection, type InsertTradovateConnection, type TradovateTradeLog, type InsertTradovateTradeLog,
   type AmbassadorTrainingProgress, type InsertAmbassadorTrainingProgress,
   type AmbassadorCertification, type InsertAmbassadorCertification,
   type GovernanceProposal, type InsertGovernanceProposal, type GovernanceVote, type InsertGovernanceVote,
@@ -268,7 +270,16 @@ export interface IStorage {
   // TradeLocker Trade Log methods
   createTradelockerTradeLog(log: InsertTradelockerTradeLog): Promise<TradelockerTradeLog>;
   getTradelockerTradeLogs(userId: number, limit?: number): Promise<TradelockerTradeLog[]>;
-  
+
+  // Tradovate Connection methods (futures prop firm trading)
+  createTradovateConnection(connection: InsertTradovateConnection): Promise<TradovateConnection>;
+  getTradovateConnection(id: number): Promise<TradovateConnection | undefined>;
+  getUserTradovateConnection(userId: number): Promise<TradovateConnection | undefined>;
+  updateTradovateConnection(id: number, data: Partial<TradovateConnection>): Promise<TradovateConnection | undefined>;
+  deleteTradovateConnection(id: number): Promise<boolean>;
+  createTradovateTradeLog(log: InsertTradovateTradeLog): Promise<TradovateTradeLog>;
+  getTradovateTradeLogs(userId: number, limit?: number): Promise<TradovateTradeLog[]>;
+
   // AI Trade Results methods
   createAiTradeResult(result: InsertAiTradeResult): Promise<AiTradeResult>;
   updateAiTradeResult(id: number, userId: number, data: Partial<AiTradeResult>): Promise<AiTradeResult | undefined>;
@@ -1516,6 +1527,48 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(tradelockerTradeLogs)
       .where(eq(tradelockerTradeLogs.userId, userId))
       .orderBy(desc(tradelockerTradeLogs.createdAt))
+      .limit(limit);
+  }
+
+  // ── Tradovate Connection methods ──────────────────────────────────────────
+  async createTradovateConnection(connection: InsertTradovateConnection): Promise<TradovateConnection> {
+    const [result] = await db.insert(tradovateConnections).values(connection as any).returning();
+    return result;
+  }
+
+  async getTradovateConnection(id: number): Promise<TradovateConnection | undefined> {
+    const [result] = await db.select().from(tradovateConnections).where(eq(tradovateConnections.id, id));
+    return result;
+  }
+
+  async getUserTradovateConnection(userId: number): Promise<TradovateConnection | undefined> {
+    const [result] = await db.select().from(tradovateConnections).where(eq(tradovateConnections.userId, userId));
+    return result;
+  }
+
+  async updateTradovateConnection(id: number, data: Partial<TradovateConnection>): Promise<TradovateConnection | undefined> {
+    const [result] = await db.update(tradovateConnections)
+      .set({ ...(data as any), updatedAt: new Date() })
+      .where(eq(tradovateConnections.id, id))
+      .returning();
+    return result;
+  }
+
+  async deleteTradovateConnection(id: number): Promise<boolean> {
+    await db.delete(tradovateTradeLogs).where(eq(tradovateTradeLogs.connectionId, id));
+    await db.delete(tradovateConnections).where(eq(tradovateConnections.id, id));
+    return true;
+  }
+
+  async createTradovateTradeLog(log: InsertTradovateTradeLog): Promise<TradovateTradeLog> {
+    const [result] = await db.insert(tradovateTradeLogs).values(log as any).returning();
+    return result;
+  }
+
+  async getTradovateTradeLogs(userId: number, limit: number = 100): Promise<TradovateTradeLog[]> {
+    return await db.select().from(tradovateTradeLogs)
+      .where(eq(tradovateTradeLogs.userId, userId))
+      .orderBy(desc(tradovateTradeLogs.createdAt))
       .limit(limit);
   }
 

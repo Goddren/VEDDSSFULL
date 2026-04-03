@@ -37,7 +37,7 @@ import {
   Award, Users, Newspaper, Wand2, Clock, Briefcase, Zap, HelpCircle,
   BookOpen, GraduationCap, FileText, Lightbulb, ChevronDown, MoreHorizontal,
   BarChart3, Webhook, Wallet, Scan, Coins, KeyRound, Rocket, Brain, Shirt,
-  Radio, Star, CheckCircle2, AlertTriangle, Loader2, ExternalLink
+  Radio, Star, CheckCircle2, AlertTriangle, Loader2, ExternalLink, TrendingUp, Code2
 } from 'lucide-react';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 
@@ -143,6 +143,8 @@ const Header: React.FC = () => {
   // Secondary nav items shown in "More" dropdown
   const moreNavItems = [
     { name: 'Live Monitor', path: '/live-monitor', active: location === '/live-monitor', icon: <Radio className="h-4 w-4 mr-2" /> },
+    { name: 'Futures Connect', path: '/futures-connect', active: location === '/futures-connect', icon: <TrendingUp className="h-4 w-4 mr-2" /> },
+    { name: 'Futures EA Gen', path: '/futures-ea-generator', active: location === '/futures-ea-generator', icon: <Code2 className="h-4 w-4 mr-2" /> },
     { name: 'Solana Scanner', path: '/solana-scanner', active: location === '/solana-scanner', icon: <Scan className="h-4 w-4 mr-2" /> },
     { name: 'VEDD Tokenomics', path: '/vedd-tokenomics', active: location === '/vedd-tokenomics', icon: <Coins className="h-4 w-4 mr-2" /> },
     { name: 'VEDD Clothing', path: '/vedd-clothing', active: location === '/vedd-clothing', icon: <Shirt className="h-4 w-4 mr-2" /> },

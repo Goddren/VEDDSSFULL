@@ -69,7 +69,8 @@ import VeddTokenomics from "@/pages/vedd-tokenomics";
 import VeddClothingPage from "@/pages/vedd-clothing";
 import LiveMonitorPage from "@/pages/live-monitor";
 import WeeklyStrategyPage from "@/pages/weekly-strategy";
-import PaperTradesPage from "@/pages/paper-trades";
+import FuturesConnectPage from "@/pages/futures-connect";
+import FuturesEaGeneratorPage from "@/pages/futures-ea-generator";
 import SevenEightPage from "@/pages/seven-eight";
 import StreakBanner from "@/components/StreakBanner";
 import { OnboardingTutorial } from "@/components/onboarding-tutorial";
@@ -178,7 +179,6 @@ function AppLayout() {
             <ProtectedRoute path="/webhooks" component={WebhooksPage} />
             <ProtectedRoute path="/mt5-chart-data" component={MT5ChartDataPage} />
             <ProtectedRoute path="/weekly-strategy" component={WeeklyStrategyPage} />
-            <ProtectedRoute path="/paper-trades" component={PaperTradesPage} />
             <ProtectedRoute path="/notification-settings" component={NotificationSettings} />
             <ProtectedRoute path="/ai-api-keys" component={AiApiKeysPage} />
             <ProtectedRoute path="/ai-trading-models" component={AiTradingModelsPage} />
@@ -194,6 +194,8 @@ function AppLayout() {
             <Route path="/vedd-tokenomics" component={VeddTokenomics} />
             <ProtectedRoute path="/vedd-clothing" component={VeddClothingPage} />
             <ProtectedRoute path="/live-monitor" component={LiveMonitorPage} />
+            <ProtectedRoute path="/futures-connect" component={FuturesConnectPage} />
+            <ProtectedRoute path="/futures-ea-generator" component={FuturesEaGeneratorPage} />
             
             <Route component={NotFound} />
           </Switch>
