@@ -62,6 +62,7 @@ export default function WeeklyStrategyPage() {
   const [pairDayAssignments, setPairDayAssignments] = useState<Record<string,string[]>>({});
   const [smartEscalation, setSmartEscalation] = useState(false);
   const [highConfidenceOverride, setHighConfidenceOverride] = useState(true);
+  const [confirmationModel, setConfirmationModel] = useState<string>('gpt-4o');
   const [showPinPairs, setShowPinPairs] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
   const [showBrain, setShowBrain] = useState(false);
@@ -209,6 +210,33 @@ export default function WeeklyStrategyPage() {
   const [lastPositionUpdate, setLastPositionUpdate] = useState<string | null>(null);
   const [selectedSignalMode, setSelectedSignalMode] = useState("aggressive");
   const [autoExecuteSignals, setAutoExecuteSignals] = useState(false);
+
+  // Load available vision models + user's current model preference
+  const { data: aiModelsData } = useQuery<any>({
+    queryKey: ['/api/ai-trading-models'],
+  });
+  const visionModels = (aiModelsData?.availableModels || []).filter((m: any) => !m.textOnly);
+
+  // Load & sync user's saved model preference
+  useQuery<any>({
+    queryKey: ['/api/ai-trading-models/config'],
+    onSuccess: (data: any) => {
+      if (data?.selectedModel) setConfirmationModel(data.selectedModel);
+    },
+  } as any);
+
+  const setModelMutation = useMutation({
+    mutationFn: async (modelId: string) => {
+      const res = await apiRequest('POST', '/api/ai-trading-models/set-model', { modelId });
+      return res.json();
+    },
+    onSuccess: () => toast({ title: "Model Updated", description: `2nd confirmation now uses ${confirmationModel}` }),
+  });
+
+  const handleSetConfirmationModel = (modelId: string) => {
+    setConfirmationModel(modelId);
+    setModelMutation.mutate(modelId);
+  };
 
   const { data: brainStatus } = useQuery<any>({
     queryKey: ['/api/vedd-brain/status'],
@@ -1886,6 +1914,26 @@ export default function WeeklyStrategyPage() {
                       {liveMode?.live && <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-[10px] animate-pulse">LIVE</Badge>}
                     </div>
                     <p className="text-gray-500 text-xs">{liveMode?.live ? 'Guiding your MT5 EA trades in real-time' : 'Toggle to activate AI trade guidance for MT5 EA'}</p>
+                    {/* Inline model selector */}
+                    <div className="flex items-center gap-2 mt-1.5">
+                      <span className="text-gray-600 text-[10px]">Model:</span>
+                      <select
+                        className="bg-gray-800 border border-gray-700 text-gray-300 text-[10px] rounded px-2 py-0.5 focus:outline-none focus:border-blue-500"
+                        value={confirmationModel}
+                        onChange={e => handleSetConfirmationModel(e.target.value)}
+                      >
+                        {visionModels.length > 0 ? visionModels.map((m: any) => (
+                          <option key={m.id} value={m.id}>{m.name}</option>
+                        )) : (
+                          <>
+                            <option value="gpt-4o">GPT-4o</option>
+                            <option value="gpt-4o-mini">GPT-4o Mini</option>
+                            <option value="meta-llama/llama-4-scout-17b-16e-instruct">Llama 4 Scout</option>
+                          </>
+                        )}
+                      </select>
+                      <span className="text-[10px] text-blue-400">✓ vision</span>
+                    </div>
                   </div>
                 </div>
                 <FeatureToggle
@@ -1915,10 +1963,17 @@ export default function WeeklyStrategyPage() {
                         return (
                           <div className={`rounded-xl p-3 border ${isApproved ? 'border-emerald-500/30 bg-emerald-900/20' : isRejected ? 'border-red-500/30 bg-red-900/20' : 'border-gray-700/50 bg-gray-800/40'}`}>
                             <div className="flex items-center justify-between mb-2">
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-2 flex-wrap">
                                 <span className="text-white font-bold text-sm">{latest.symbol}</span>
                                 <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${latest.direction === 'BUY' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>{latest.direction}</span>
                                 <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${isApproved ? 'bg-emerald-500/20 text-emerald-300' : isRejected ? 'bg-red-500/20 text-red-300' : 'bg-gray-700 text-gray-400'}`}>{latest.decision}</span>
+                                {/* Model indicator badge */}
+                                {(latest.modelUsed || latest.providerUsed) && (
+                                  <span className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                                    <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18" /></svg>
+                                    {latest.modelUsed || latest.providerUsed?.toUpperCase()}
+                                  </span>
+                                )}
                               </div>
                               <div className="text-right">
                                 <p className="text-white font-bold text-sm">{latest.aiConfidence ?? latest.confidence ?? '—'}%</p>

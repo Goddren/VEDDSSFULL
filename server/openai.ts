@@ -1478,8 +1478,12 @@ export async function getAiVisionConfirmation(
   learnedInsights?: string
 ): Promise<AiVisionConfirmation> {
   try {
-    const selectedModel = userId ? getUserModelPreference(userId) : 'gpt-4o-mini';
+    // Always resolve to a vision-capable model — text-only models (Groq Llama 3.3, Mixtral)
+    // cannot process chart images and return unreliable low-confidence scores that block trades
+    const rawModel = userId ? getUserModelPreference(userId) : 'gpt-4o';
+    const selectedModel = resolveVisionModel(rawModel);
     const provider = getModelProvider(selectedModel);
+    console.log(`[AI Confirmation] Vision model resolved: ${rawModel} → ${selectedModel} (${provider}) for userId=${userId}`);
     const confluenceResult = computeConfluenceScore(proposedSignal, ictContext, smcContext);
 
     // Pre-check: hard news block for prop firm mode (saves API credits)
@@ -1586,6 +1590,8 @@ export async function getAiVisionConfirmation(
       propFirmReason: typeof result.propFirmReason === 'string' ? result.propFirmReason : undefined,
       newsBlocked: false,
       newsProximityMinutes: null,
+      modelUsed: selectedModel,
+      providerUsed: provider,
     };
   } catch (error: any) {
     const errMsg = error?.message || String(error);

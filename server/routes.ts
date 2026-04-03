@@ -6874,7 +6874,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 smcVerdict: aiConfirmation.smcVerdict,
                 smcQuality: aiConfirmation.smcQuality,
                 smcReason: aiConfirmation.smcReason,
-                modelUsed: modelInfo?.name || selectedModelId,
+                modelUsed: (aiConfirmation as any).modelUsed || modelInfo?.name || selectedModelId,
+                providerUsed: (aiConfirmation as any).providerUsed || modelInfo?.provider || undefined,
                 ...logExtraContext,
               });
             } else {
@@ -7020,7 +7021,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 smcVerdict: aiConfirmation.smcVerdict,
                 smcQuality: aiConfirmation.smcQuality,
                 smcReason: aiConfirmation.smcReason,
-                modelUsed: modelInfo?.name || selectedModelId,
+                modelUsed: (aiConfirmation as any).modelUsed || modelInfo?.name || selectedModelId,
+                providerUsed: (aiConfirmation as any).providerUsed || modelInfo?.provider || undefined,
                 ...logExtraContext,
               });
 
@@ -7061,6 +7063,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   htfAligned: htfAlignedFlag,
                   newsConflict: logExtraContext?.newsConflict ?? null,
                   tradeOutcome: 'PENDING',
+                  modelUsed: (aiConfirmation as any).modelUsed || (modelInfo?.name) || undefined,
+                  providerUsed: (aiConfirmation as any).providerUsed || undefined,
                 });
               } catch (_dbErr) { /* non-critical — never block the trade */ }
             }

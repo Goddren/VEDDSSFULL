@@ -1750,6 +1750,8 @@ export const aiConfirmationOutcomes = pgTable("ai_confirmation_outcomes", {
   confirmedAt: timestamp("confirmed_at").defaultNow().notNull(),
   closedAt: timestamp("closed_at"),
   tradeSource: text('trade_source').default('ai_confirmation'),
+  modelUsed: text('model_used'),   // e.g. 'gpt-4o', 'claude-3-5-sonnet', 'llama-4-scout'
+  providerUsed: text('provider_used'), // e.g. 'openai', 'anthropic', 'groq'
 });
 
 export const insertAiConfirmationOutcomeSchema = createInsertSchema(aiConfirmationOutcomes).omit({
@@ -1763,4 +1765,6 @@ export const insertAiConfirmationOutcomeSchema = createInsertSchema(aiConfirmati
 export type AiConfirmationOutcome = typeof aiConfirmationOutcomes.$inferSelect;
 export type InsertAiConfirmationOutcome = z.infer<typeof insertAiConfirmationOutcomeSchema> & {
   tradeSource?: string;
+  modelUsed?: string;
+  providerUsed?: string;
 };
