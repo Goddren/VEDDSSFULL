@@ -39,6 +39,10 @@ export default function FuturesConnect() {
   const [calcSL, setCalcSL] = useState('');
   const [calcResult, setCalcResult] = useState<any>(null);
 
+  const { data: apiStatus } = useQuery<{ configured: boolean; message: string }>({
+    queryKey: ['/api/tradovate/api-status'],
+  });
+
   const { data: connection, isLoading: connLoading } = useQuery<any>({
     queryKey: ['/api/tradovate/connection'],
   });
@@ -160,15 +164,18 @@ export default function FuturesConnect() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="p-3 rounded-lg bg-blue-900/20 border border-blue-500/20 text-xs text-blue-300">
-              <span className="font-semibold">⚙️ API access required:</span> Before connecting, make sure API access is enabled on your Tradovate account at{' '}
-              <a href="https://trader.tradovate.com/account-settings" target="_blank" rel="noopener noreferrer"
-                className="underline text-blue-400 hover:text-blue-300">Account Settings → API Access</a>.
-              {' '}Then set <code className="bg-blue-900/40 px-1 rounded font-mono">TRADOVATE_CID</code> and{' '}
-              <code className="bg-blue-900/40 px-1 rounded font-mono">TRADOVATE_SEC</code> in your Render environment variables from your{' '}
-              <a href="https://tradovate.com/api" target="_blank" rel="noopener noreferrer"
-                className="underline text-blue-400 hover:text-blue-300">Tradovate API dashboard</a>.
-            </div>
+            {/* API status check — show warning if admin hasn't configured cid/sec yet */}
+            {apiStatus && !apiStatus.configured ? (
+              <div className="p-3 rounded-lg bg-amber-900/20 border border-amber-500/30 text-xs text-amber-300">
+                <span className="font-semibold">⏳ Tradovate API integration coming soon.</span>{' '}
+                Our team is finalising the API connection. Check back shortly — you will not need to configure anything yourself.
+              </div>
+            ) : (
+              <div className="p-3 rounded-lg bg-emerald-900/20 border border-emerald-500/20 text-xs text-emerald-300">
+                <span className="font-semibold">✓ API ready.</span>{' '}
+                Just enter your Tradovate username and password below — VEDD handles the API connection automatically. No technical setup needed.
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-xs text-gray-400 mb-1 block">Tradovate Username</label>
@@ -241,10 +248,22 @@ export default function FuturesConnect() {
               </div>
             )}
 
-            <Button onClick={() => connectMutation.mutate()} disabled={!username || !password || connectMutation.isPending}
+            <Button
+              onClick={() => connectMutation.mutate()}
+              disabled={!username || !password || connectMutation.isPending || (apiStatus !== undefined && !apiStatus.configured)}
               className="w-full bg-blue-600 hover:bg-blue-700">
               {connectMutation.isPending ? 'Connecting...' : 'Connect Tradovate'}
             </Button>
+            {/* Reset stuck connection — shows if a previous attempt left a broken connection */}
+            <div className="text-center">
+              <button
+                onClick={() => disconnectMutation.mutate()}
+                className="text-xs text-gray-600 hover:text-gray-400 underline"
+                disabled={disconnectMutation.isPending}
+              >
+                Having trouble? Reset previous connection attempt
+              </button>
+            </div>
           </CardContent>
         </Card>
       ) : (

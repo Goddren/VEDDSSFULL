@@ -25,6 +25,35 @@ function getRelevantStrategies(symbol: string): string {
   return relevant.map(s => `• ${s.name}\n  Setup: ${s.description}\n  Win conditions: ${s.winConditions}\n  Risk note: ${s.riskNote}`).join('\n\n');
 }
 
+// Export all 8 strategies for use in weekly plan generation and other modules
+export function getAllStrategiesForPairs(pairList: string[]): string {
+  const seen = new Set<string>();
+  const results: string[] = [];
+  for (const pair of pairList) {
+    const relevant = TOP_PROFITABLE_STRATEGIES.filter(s =>
+      s.pairs.some(p => pair.toUpperCase().replace('/','').includes(p) || p.includes(pair.toUpperCase().replace('/','').replace('USD','').replace('PIPS','')))
+      || s.pairs.includes(pair.toUpperCase().replace('/','') as any)
+    );
+    for (const s of relevant) {
+      if (!seen.has(s.name)) {
+        seen.add(s.name);
+        results.push(`• ${s.name} (${s.pairs.join(', ')})\n  Setup: ${s.description}\n  Win conditions: ${s.winConditions}\n  Risk note: ${s.riskNote}`);
+      }
+    }
+  }
+  // Always include at least the top 4 even if no pair match
+  if (results.length < 4) {
+    for (const s of TOP_PROFITABLE_STRATEGIES) {
+      if (!seen.has(s.name)) {
+        seen.add(s.name);
+        results.push(`• ${s.name} (${s.pairs.join(', ')})\n  Setup: ${s.description}\n  Win conditions: ${s.winConditions}\n  Risk note: ${s.riskNote}`);
+        if (results.length >= 5) break;
+      }
+    }
+  }
+  return results.join('\n\n');
+}
+
 // Asset-specific analysis configurations for improved accuracy
 interface AssetSpecificConfig {
   assetType: 'forex' | 'gold' | 'crypto' | 'indices';

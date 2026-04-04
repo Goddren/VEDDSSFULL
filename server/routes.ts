@@ -8048,7 +8048,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       const connectedPairs = (global as any).mt5ConnectedPairs?.[userId] || {};
 
       // Get current EA settings dynamically
-      const { isAiVisionConfirmationEnabled: isAiEnabled, getAiMinConfidence: getMinConf, getUserModelPreference: getModelPref, getUniversalAIClientForUser: getAiInstance } = await import('./openai');
+      const { isAiVisionConfirmationEnabled: isAiEnabled, getAiMinConfidence: getMinConf, getUserModelPreference: getModelPref, getUniversalAIClientForUser: getAiInstance, getAllStrategiesForPairs } = await import('./openai');
       const aiEnabled = isAiEnabled(userId);
       const aiMinConf = getMinConf(userId);
       const eaEnabled = (global as any).mt5EaEnabled?.[userId] !== false;
@@ -8152,6 +8152,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       };
       const selectedRisk = riskLevel && riskInstructions[riskLevel] ? riskLevel : 'moderate';
 
+      const provenStrategies = getAllStrategiesForPairs(pairs);
+
       const prompt = `You are VEDD SS AI - a SELF-LEARNING autonomous trading engine with FULL CONTROL. You have studied this trader's entire history and evolved your strategy.
 
 STRATEGY MODE: ${hftMode.toUpperCase()}
@@ -8175,6 +8177,11 @@ AI CONTROL STATUS: FULL AUTONOMOUS CONTROL
 - You can generate signals WITHOUT waiting for MT5 data
 - Trailing Stop: You decide (TIGHT/STANDARD/WIDE/AGGRESSIVE/OFF)
 - Breakout Detection: ${Object.keys(breakoutSettings).length > 0 ? 'Active for ' + Object.keys(breakoutSettings).filter(k => breakoutSettings[k]).join(', ') : 'Available'}
+
+PROVEN INDUSTRY STRATEGIES (SAME AS 2ND CONFIRMATION AI):
+These are the exact strategies the 2nd confirmation AI uses to validate trades. Build your weekly plan around these high-probability setups for maximum alignment between plan and live confirmation:
+
+${provenStrategies}
 
 SELF-LEARNED BRAIN INSIGHTS:
 ${brainInsights}

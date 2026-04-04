@@ -23,6 +23,16 @@ function getUserId(req: Request): number {
   return (req.user as any).id;
 }
 
+// ── GET /api/tradovate/api-status ─────────────────────────────────────────────
+// Tells the frontend whether VEDD's Tradovate API app credentials are configured.
+// cid/sec are APP-LEVEL (set once in Render by admin) — users only need their own username/password.
+router.get('/tradovate/api-status', (_req: Request, res: Response) => {
+  const cid = process.env.TRADOVATE_CID;
+  const sec = process.env.TRADOVATE_SEC;
+  const configured = !!(cid && parseInt(cid, 10) > 0 && sec && sec.length > 0);
+  res.json({ configured, message: configured ? 'Tradovate API ready' : 'Tradovate API credentials not yet configured by admin' });
+});
+
 // ── GET /api/tradovate/connection ─────────────────────────────────────────────
 router.get('/tradovate/connection', async (req: Request, res: Response) => {
   if (!requireAuth(req, res)) return;
