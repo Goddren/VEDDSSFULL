@@ -6,7 +6,7 @@ import { storage } from '../storage';
 import { encryptPassword, decryptPassword, TradovateService, getOrCreateTradovateService, executeFuturesSignal } from '../tradovate';
 import { FUTURES_INSTRUMENTS, calculateContractSize, calculateContractRisk, getInstrument } from '../futures-instruments';
 import { FUTURES_PROP_FIRM_PRESETS, evaluateFuturesDrawdown, buildPresetsTableResponse, getPreset } from '../futures-prop-firms';
-import { generateNinjaScriptStrategy } from '../ninjatrader-generators';
+import { generateNinjaScriptStrategy, getFuturesStrategiesForSymbol, FUTURES_PROVEN_STRATEGIES } from '../ninjatrader-generators';
 
 const router = Router();
 
@@ -323,6 +323,20 @@ router.post('/tradovate/execute', async (req: Request, res: Response) => {
 // ── GET /api/futures/instruments ──────────────────────────────────────────────
 router.get('/futures/instruments', (_req: Request, res: Response) => {
   res.json({ instruments: Object.values(FUTURES_INSTRUMENTS) });
+});
+
+// ── GET /api/futures/strategies/:symbol ───────────────────────────────────────
+// Returns the VEDD proven strategies for a given futures symbol
+router.get('/futures/strategies/:symbol', (req: Request, res: Response) => {
+  const { symbol } = req.params;
+  const strategies = getFuturesStrategiesForSymbol(symbol);
+  res.json({ symbol: symbol.toUpperCase(), strategies, total: FUTURES_PROVEN_STRATEGIES.length });
+});
+
+// ── GET /api/futures/strategies ────────────────────────────────────────────────
+// Returns all proven strategies
+router.get('/futures/strategies', (_req: Request, res: Response) => {
+  res.json({ strategies: FUTURES_PROVEN_STRATEGIES });
 });
 
 // ── GET /api/futures/prop-firm-presets ────────────────────────────────────────

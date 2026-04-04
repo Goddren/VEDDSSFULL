@@ -40,6 +40,126 @@ interface TimeframeAnalysis {
   };
 }
 
+// ─── VEDD Proven Strategies — same 8 used by the 2nd confirmation AI ──────────
+// Mapped to futures instruments for NinjaScript embedding
+export const FUTURES_PROVEN_STRATEGIES: Array<{
+  name: string;
+  symbols: string[];   // futures symbols this strategy applies to
+  category: string;
+  setup: string;
+  winConditions: string;
+  riskNote: string;
+  sessionFilter: string;
+  ninjaConditions: { long: string[]; short: string[] };
+}> = [
+  {
+    name: 'ICT AMD Kill Zone',
+    symbols: ['GC','MGC','NQ','MNQ','ES','MES'],
+    category: 'ICT',
+    setup: 'Asian Range defined 02:00–05:00 ET. London open (07:00–09:00 ET) raids Asian low/high, price reverses. Enter on M15 OB inside Asian boundary + FVG fill.',
+    winConditions: 'FVG fill + bullish/bearish engulf at OB, ADX > 25',
+    riskNote: 'Avoid within 1h of major economic release (NFP, FOMC, CPI)',
+    sessionFilter: 'London Open (07:00–09:30 ET)',
+    ninjaConditions: {
+      long:  ['adx14 > 25', 'rsi14 < 55', 'Close[0] > ema20', 'Close[1] < ema20'],
+      short: ['adx14 > 25', 'rsi14 > 45', 'Close[0] < ema20', 'Close[1] > ema20'],
+    },
+  },
+  {
+    name: 'SMC Order Block Raid',
+    symbols: ['GC','MGC','CL','MCL'],
+    category: 'SMC',
+    setup: 'Daily/H4 OB identified. Price sweeps through OB, wicks back inside. Enter on M15 BOS (break of structure) above OB bottom.',
+    winConditions: 'Volume spike on wick, RSI divergence on M15, BOS confirmed',
+    riskNote: 'Invalid if OB broken on a close — wait for next setup',
+    sessionFilter: 'London or NY Session',
+    ninjaConditions: {
+      long:  ['rsi14 < 50', 'Close[0] > ema50', 'adx14 > 20', 'atr14 > atr14[5]'],
+      short: ['rsi14 > 50', 'Close[0] < ema50', 'adx14 > 20', 'atr14 > atr14[5]'],
+    },
+  },
+  {
+    name: 'VWAP Bounce Mean Reversion',
+    symbols: ['ES','MES','NQ','MNQ','YM','MYM','RTY','M2K','CL','MCL'],
+    category: 'VWAP',
+    setup: 'Price deviates >1.5 SD from VWAP during NY session (13:00–17:00 UTC). Fade at VWAP SD band when RSI extreme.',
+    winConditions: 'RSI divergence, VWAP reclaim candle, ADX < 20 (ranging market)',
+    riskNote: 'Do NOT trade against strong trend if ADX > 35',
+    sessionFilter: 'NY Session (09:30–16:00 ET)',
+    ninjaConditions: {
+      long:  ['rsi14 < 35', 'adx14 < 30', 'Close[0] < ema50', 'Close[0] > Close[1]'],
+      short: ['rsi14 > 65', 'adx14 < 30', 'Close[0] > ema50', 'Close[0] < Close[1]'],
+    },
+  },
+  {
+    name: 'Fair Value Gap Fill',
+    symbols: ['NQ','MNQ','ES','MES','GC','MGC','RTY','M2K'],
+    category: 'ICT',
+    setup: '3-candle imbalance (FVG) on M15/H1. Price returns to 50% gap level. Trade continuation after 50% fill holds.',
+    winConditions: 'FVG from strong impulsive move, ADX > 30, volume on imbalance candles',
+    riskNote: 'Full-fill FVGs (100%) are less reliable — target 50% only',
+    sessionFilter: 'Any active session with volume',
+    ninjaConditions: {
+      long:  ['Close[0] > ema20', 'rsi14 > 45 && rsi14 < 65', 'adx14 > 25', 'ema20 > ema50'],
+      short: ['Close[0] < ema20', 'rsi14 > 35 && rsi14 < 55', 'adx14 > 25', 'ema20 < ema50'],
+    },
+  },
+  {
+    name: 'London-NY Overlap Momentum',
+    symbols: ['NQ','MNQ','ES','MES','YM','MYM','RTY','M2K'],
+    category: 'Session',
+    setup: '10:00–12:00 ET peak liquidity window. Breakout of London AM range (07:00–10:00 ET). 15m close outside range triggers entry.',
+    winConditions: '15m close + retest of range, ADX > 28, volume above 20-period avg',
+    riskNote: 'High false-breakout rate without NY catalyst — check economic calendar',
+    sessionFilter: 'London-NY Overlap (10:00–12:00 ET)',
+    ninjaConditions: {
+      long:  ['Close[0] > ema20', 'ema20 > ema50', 'adx14 > 28', 'rsi14 > 50'],
+      short: ['Close[0] < ema20', 'ema20 < ema50', 'adx14 > 28', 'rsi14 < 50'],
+    },
+  },
+  {
+    name: 'PDH/PDL Liquidity Sweep',
+    symbols: ['GC','MGC','CL','MCL','NQ','MNQ','ES','MES','YM','MYM'],
+    category: 'Liquidity',
+    setup: 'Prior day high or low swept at session open. Immediate rejection pin bar/engulf on M5/M15. Enter reversal targeting 50% of prior day range.',
+    winConditions: 'Wick > body on sweep candle, OB within 20 ticks, ictMacroValid = true',
+    riskNote: 'Must close back below/above sweep wick for invalidation',
+    sessionFilter: 'Session Open (first 30 min)',
+    ninjaConditions: {
+      long:  ['rsi14 < 45', 'Close[0] > Close[1]', 'adx14 > 18', 'atr14 > atr14[3]'],
+      short: ['rsi14 > 55', 'Close[0] < Close[1]', 'adx14 > 18', 'atr14 > atr14[3]'],
+    },
+  },
+  {
+    name: 'ICT Macro HTF Confluence',
+    symbols: ['GC','MGC','NQ','MNQ','ES','MES','CL','MCL'],
+    category: 'ICT',
+    setup: 'Trade only when M15 aligns with H4 and D1 trend. Active ICT macro time windows (02:00, 08:30, 10:00, 14:00 ET). OB + FVG + EQ levels visible on H4.',
+    winConditions: 'All timeframes aligned, minimum 2 confluence factors, London/NY session',
+    riskNote: 'Skip if only 1 confluence factor — wait for full alignment',
+    sessionFilter: 'ICT Macro Windows',
+    ninjaConditions: {
+      long:  ['Close[0] > ema20', 'ema20 > ema50', 'adx14 > 22', 'rsi14 > 42 && rsi14 < 68'],
+      short: ['Close[0] < ema20', 'ema20 < ema50', 'adx14 > 22', 'rsi14 > 32 && rsi14 < 58'],
+    },
+  },
+];
+
+// Get strategies relevant to a futures symbol
+export function getFuturesStrategiesForSymbol(symbol: string): typeof FUTURES_PROVEN_STRATEGIES {
+  const upper = symbol.toUpperCase();
+  return FUTURES_PROVEN_STRATEGIES.filter(s => s.symbols.includes(upper));
+}
+
+// Format strategies as NinjaScript header comments
+function buildStrategyComments(symbol: string): string {
+  const strategies = getFuturesStrategiesForSymbol(symbol);
+  if (strategies.length === 0) return '// No specific strategies mapped for this instrument';
+  return strategies.map((s, i) =>
+    `// Strategy ${i + 1}: ${s.name} [${s.category}]\n//   Setup: ${s.setup.slice(0, 80)}...\n//   Win Conditions: ${s.winConditions}\n//   Session: ${s.sessionFilter}`
+  ).join('\n//\n');
+}
+
 const ASSET_CONFIGS: Record<string, { atrMult: number; rr: number; confirmations: number; category: string }> = {
   NQ:  { atrMult: 1.5, rr: 2.5, confirmations: 3, category: 'index' },
   MNQ: { atrMult: 1.5, rr: 2.5, confirmations: 3, category: 'index' },
@@ -146,6 +266,11 @@ export function generateNinjaScriptStrategy(
     : '// Custom futures instrument';
 
   const date = new Date().toISOString().slice(0, 10);
+  const strategyComments = buildStrategyComments(upperSymbol);
+  const matchedStrategies = getFuturesStrategiesForSymbol(upperSymbol);
+  const strategyNames = matchedStrategies.length > 0
+    ? matchedStrategies.map(s => s.name).join(', ')
+    : 'General Momentum + Trend Following';
 
   return `// ============================================================
 // VEDD Trading AI — NinjaTrader 8 Strategy
@@ -156,6 +281,11 @@ export function generateNinjaScriptStrategy(
 // Daily Loss Limit: $${dailyLossLimit}
 // ${tickNote}
 // ============================================================
+//
+// EMBEDDED VEDD PROVEN STRATEGIES (same as 2nd confirmation AI):
+// ${strategyNames}
+//
+${strategyComments}
 //
 // INSTALLATION:
 // 1. Open NinjaTrader 8

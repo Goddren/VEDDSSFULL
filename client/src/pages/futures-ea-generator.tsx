@@ -84,9 +84,17 @@ export default function FuturesEaGenerator() {
   const [showAdvanced, setShowAdvanced]   = useState(false);
   const [generatedCode, setGeneratedCode] = useState<string | null>(null);
 
+  const [expandedStrategy, setExpandedStrategy] = useState<string | null>(null);
+
   // Fetch instrument details
   const { data: instrumentsData } = useQuery<{ instruments: any[] }>({
     queryKey: ['/api/futures/instruments'],
+  });
+
+  // Fetch proven strategies for the selected symbol
+  const { data: strategiesData } = useQuery<{ strategies: any[] }>({
+    queryKey: [`/api/futures/strategies/${symbol}`],
+    enabled: !!symbol,
   });
 
   const selectedInstrument = instrumentsData?.instruments?.find(
@@ -253,6 +261,72 @@ export default function FuturesEaGenerator() {
             </CardContent>
           </Card>
         </div>
+
+        {/* VEDD Proven Strategies for selected instrument */}
+        {strategiesData && strategiesData.strategies.length > 0 && (
+          <Card className="bg-gray-900 border-gray-800">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-semibold text-gray-300 flex items-center gap-2">
+                <Zap className="w-4 h-4 text-amber-400" />
+                VEDD Proven Strategies for {symbol}
+                <Badge className="ml-auto bg-amber-500/10 text-amber-400 border-amber-500/20 text-[10px]">
+                  {strategiesData.strategies.length} strategies embedded in EA
+                </Badge>
+              </CardTitle>
+              <p className="text-gray-500 text-xs mt-1">
+                These are the same strategies used by the 2nd confirmation AI. They will be embedded as logic conditions and comments in your NinjaScript file.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {strategiesData.strategies.map((s: any) => (
+                <div key={s.name} className="border border-gray-700/50 rounded-lg overflow-hidden">
+                  <button
+                    className="w-full flex items-center justify-between px-3 py-2.5 bg-gray-800/40 hover:bg-gray-800/70 transition-colors text-left"
+                    onClick={() => setExpandedStrategy(expandedStrategy === s.name ? null : s.name)}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                        s.category === 'ICT' ? 'bg-purple-500/20 text-purple-300' :
+                        s.category === 'SMC' ? 'bg-blue-500/20 text-blue-300' :
+                        s.category === 'VWAP' ? 'bg-cyan-500/20 text-cyan-300' :
+                        s.category === 'Liquidity' ? 'bg-amber-500/20 text-amber-300' :
+                        'bg-green-500/20 text-green-300'
+                      }`}>{s.category}</span>
+                      <span className="text-white text-xs font-medium">{s.name}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-gray-600 text-[10px]">{s.sessionFilter}</span>
+                      {expandedStrategy === s.name
+                        ? <ChevronUp className="w-3.5 h-3.5 text-gray-500" />
+                        : <ChevronDown className="w-3.5 h-3.5 text-gray-500" />}
+                    </div>
+                  </button>
+                  {expandedStrategy === s.name && (
+                    <div className="px-3 py-3 bg-gray-950/40 space-y-2 text-xs">
+                      <p className="text-gray-300"><span className="text-gray-500 font-medium">Setup: </span>{s.setup}</p>
+                      <p className="text-emerald-400"><span className="text-gray-500 font-medium">Win conditions: </span>{s.winConditions}</p>
+                      <p className="text-amber-400/80"><span className="text-gray-500 font-medium">Risk note: </span>{s.riskNote}</p>
+                      <div className="mt-2 flex gap-3">
+                        <div className="flex-1">
+                          <p className="text-gray-500 mb-1 font-medium">Long entry conditions:</p>
+                          {s.ninjaConditions?.long?.map((c: string, i: number) => (
+                            <p key={i} className="text-green-400 font-mono text-[10px]">{'  '}✓ {c}</p>
+                          ))}
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-gray-500 mb-1 font-medium">Short entry conditions:</p>
+                          {s.ninjaConditions?.short?.map((c: string, i: number) => (
+                            <p key={i} className="text-red-400 font-mono text-[10px]">{'  '}✓ {c}</p>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        )}
 
         {/* Prop Firm + Risk Settings */}
         <Card className="bg-gray-900 border-gray-800">
