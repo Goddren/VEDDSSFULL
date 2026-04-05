@@ -8259,7 +8259,7 @@ Respond with ONLY valid JSON:
             { role: "user", content: prompt }
           ],
           ...(supportsJsonFormat ? { response_format: { type: "json_object" } } : {}),
-          max_tokens: 3000,
+          max_tokens: 6000,
           temperature: 0.4,
         });
       } catch (aiError: any) {
