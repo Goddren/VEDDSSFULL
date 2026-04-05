@@ -26,7 +26,8 @@ class MarketDataService {
   }
   
   private selectProvider(assetType: AssetType): MarketDataProvider | null {
-    for (const [_, provider] of this.providers) {
+    const values = Array.from(this.providers.values());
+    for (const provider of values) {
       if (provider.supportedAssets.includes(assetType)) {
         return provider;
       }

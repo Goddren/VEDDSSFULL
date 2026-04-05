@@ -498,16 +498,16 @@ export function startFuturesScanner(config: FuturesScanConfig): FuturesScanState
   stopFuturesScanner(config.userId);
 
   const fullConfig: FuturesScanConfig = {
-    symbols: DEFAULT_FUTURES_SYMBOLS,
-    scanIntervalMs: 120000,
-    minConfidence: 70,
-    maxOpenTrades: 3,
-    riskPerTrade: 1,
-    accountBalance: 50000,
-    aiMode: 'full',
-    propFirmDailyDrawdownLimit: 2,
-    enableAutoExecution: false,
-    ...config,
+    userId: config.userId,
+    symbols: Array.isArray(config.symbols) && config.symbols.length > 0 ? config.symbols : DEFAULT_FUTURES_SYMBOLS,
+    scanIntervalMs: config.scanIntervalMs || 120000,
+    minConfidence: config.minConfidence || 70,
+    maxOpenTrades: config.maxOpenTrades || 3,
+    riskPerTrade: config.riskPerTrade || 1,
+    accountBalance: config.accountBalance || 50000,
+    aiMode: config.aiMode || 'full',
+    propFirmDailyDrawdownLimit: config.propFirmDailyDrawdownLimit ?? 2,
+    enableAutoExecution: config.enableAutoExecution === true,
   };
 
   scannerStates[config.userId] = {
