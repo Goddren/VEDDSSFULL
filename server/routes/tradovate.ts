@@ -7,6 +7,12 @@ import { encryptPassword, decryptPassword, TradovateService, getOrCreateTradovat
 import { FUTURES_INSTRUMENTS, calculateContractSize, calculateContractRisk, getInstrument } from '../futures-instruments';
 import { FUTURES_PROP_FIRM_PRESETS, evaluateFuturesDrawdown, buildPresetsTableResponse, getPreset } from '../futures-prop-firms';
 import { generateNinjaScriptStrategy, getFuturesStrategiesForSymbol, FUTURES_PROVEN_STRATEGIES } from '../ninjatrader-generators';
+import {
+  startFuturesScanner, stopFuturesScanner,
+  getFuturesScannerState, getFuturesScannerActivities, getFuturesScannerSignals,
+  recordFuturesTradeOutcome, DEFAULT_FUTURES_SYMBOLS,
+  type FuturesScanConfig,
+} from '../services/futures-scanner';
 
 const router = Router();
 
@@ -384,6 +390,93 @@ router.post('/futures/generate-ninjatrader', async (req: Request, res: Response)
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// ── POST /api/tradovate/scanner/start ─────────────────────────────────────────
+router.post('/tradovate/scanner/start', async (req: Request, res: Response) => {
+  if (!requireAuth(req, res)) return;
+  const userId = getUserId(req);
+  try {
+    const connection = await storage.getUserTradovateConnection(userId);
+    const {
+      symbols, scanIntervalMs, minConfidence, maxOpenTrades,
+      riskPerTrade, accountBalance, aiMode,
+      propFirmDailyDrawdownLimit, enableAutoExecution,
+    } = req.body;
+
+    const config: FuturesScanConfig = {
+      userId,
+      symbols: Array.isArray(symbols) && symbols.length > 0 ? symbols : DEFAULT_FUTURES_SYMBOLS,
+      scanIntervalMs: scanIntervalMs || 120000,
+      minConfidence: minConfidence || 70,
+      maxOpenTrades: maxOpenTrades || 3,
+      riskPerTrade: riskPerTrade || 1,
+      accountBalance: accountBalance || 50000,
+      aiMode: aiMode || 'full',
+      propFirmDailyDrawdownLimit: propFirmDailyDrawdownLimit ?? 2,
+      enableAutoExecution: enableAutoExecution === true && !!(connection?.isActive),
+    };
+
+    const state = startFuturesScanner(config);
+    res.json({ success: true, status: state.status, config: state.config });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/tradovate/scanner/stop ──────────────────────────────────────────
+router.post('/tradovate/scanner/stop', (req: Request, res: Response) => {
+  if (!requireAuth(req, res)) return;
+  const userId = getUserId(req);
+  stopFuturesScanner(userId);
+  res.json({ success: true, status: 'stopped' });
+});
+
+// ── GET /api/tradovate/scanner/status ─────────────────────────────────────────
+router.get('/tradovate/scanner/status', (req: Request, res: Response) => {
+  if (!requireAuth(req, res)) return;
+  const userId = getUserId(req);
+  const state = getFuturesScannerState(userId);
+  if (!state) return res.json({ status: 'stopped', running: false });
+  res.json({
+    status: state.status,
+    running: state.status === 'running',
+    scanCount: state.scanCount,
+    lastScanAt: state.lastScanAt,
+    wins: state.wins,
+    losses: state.losses,
+    dailyLossHalted: state.dailyLossHalted,
+    config: state.config,
+    marketSnapshot: state.marketSnapshot,
+    symbolPerformance: state.symbolPerformance,
+  });
+});
+
+// ── GET /api/tradovate/scanner/activities ─────────────────────────────────────
+router.get('/tradovate/scanner/activities', (req: Request, res: Response) => {
+  if (!requireAuth(req, res)) return;
+  const userId = getUserId(req);
+  const limit = parseInt((req.query.limit as string) || '50', 10);
+  res.json({ activities: getFuturesScannerActivities(userId, limit) });
+});
+
+// ── GET /api/tradovate/scanner/signals ────────────────────────────────────────
+router.get('/tradovate/scanner/signals', (req: Request, res: Response) => {
+  if (!requireAuth(req, res)) return;
+  const userId = getUserId(req);
+  const limit = parseInt((req.query.limit as string) || '20', 10);
+  res.json({ signals: getFuturesScannerSignals(userId, limit) });
+});
+
+// ── POST /api/tradovate/scanner/outcome ──────────────────────────────────────
+// Call this when a trade closes to feed the self-learning system
+router.post('/tradovate/scanner/outcome', (req: Request, res: Response) => {
+  if (!requireAuth(req, res)) return;
+  const userId = getUserId(req);
+  const { symbol, won, rMultiple } = req.body;
+  if (!symbol || typeof won !== 'boolean') return res.status(400).json({ error: 'symbol and won required' });
+  recordFuturesTradeOutcome(userId, symbol, won, rMultiple || 0);
+  res.json({ success: true });
 });
 
 export default router;

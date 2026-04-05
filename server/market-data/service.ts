@@ -106,29 +106,34 @@ class MarketDataService {
   }
   
   detectAssetType(symbol: string): AssetType {
-    const upper = symbol.toUpperCase();
-    
+    const upper = symbol.toUpperCase().replace(/1!$/, ''); // strip continuous contract suffix
+
+    const futuresSymbols = ['NQ', 'MNQ', 'ES', 'MES', 'YM', 'MYM', 'RTY', 'M2K', 'GC', 'MGC', 'SI', 'SIL', 'CL', 'MCL', 'NG', 'ZN', 'ZB'];
+    if (futuresSymbols.includes(upper)) {
+      return 'futures';
+    }
+
     const metals = ['XAU', 'XAG', 'XPT', 'XPD'];
     if (metals.some(m => upper.startsWith(m))) {
       return 'forex';
     }
-    
+
     const forexPairs = ['EUR', 'GBP', 'USD', 'JPY', 'CHF', 'AUD', 'CAD', 'NZD'];
     const forexPattern = forexPairs.some(c => upper.startsWith(c) || upper.includes(`/${c}`));
     if (forexPattern && (upper.length === 6 || upper.includes('/'))) {
       return 'forex';
     }
-    
+
     const cryptoSymbols = ['BTC', 'ETH', 'XRP', 'LTC', 'ADA', 'DOT', 'DOGE', 'SOL', 'AVAX', 'MATIC'];
     if (cryptoSymbols.some(c => upper.startsWith(c))) {
       return 'crypto';
     }
-    
+
     const indices = ['SPX', 'NDX', 'DJI', 'VIX', 'FTSE', 'DAX', 'NI225'];
     if (indices.some(i => upper.includes(i))) {
       return 'index';
     }
-    
+
     return 'stock';
   }
   

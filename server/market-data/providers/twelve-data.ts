@@ -10,9 +10,17 @@ const FOREX_PAIRS = ['EUR/USD', 'GBP/USD', 'USD/JPY', 'USD/CHF', 'AUD/USD', 'USD
 const CRYPTO_PAIRS = ['BTC/USD', 'ETH/USD', 'XRP/USD', 'LTC/USD', 'ADA/USD', 'DOT/USD', 'DOGE/USD',
   'SOL/USD', 'AVAX/USD', 'MATIC/USD'];
 
+// Twelve Data continuous contract symbol map for futures
+const FUTURES_TD_SYMBOL_MAP: Record<string, string> = {
+  NQ: 'NQ1!', MNQ: 'MNQ1!', ES: 'ES1!', MES: 'MES1!',
+  YM: 'YM1!', MYM: 'MYM1!', RTY: 'RTY1!', M2K: 'M2K1!',
+  GC: 'GC1!', MGC: 'MGC1!', SI: 'SI1!', SIL: 'SIL1!',
+  CL: 'CL1!', MCL: 'MCL1!', NG: 'NG1!', ZN: 'ZN1!', ZB: 'ZB1!',
+};
+
 export class TwelveDataProvider implements MarketDataProvider {
   name = 'twelvedata';
-  supportedAssets: AssetType[] = ['forex', 'stock', 'crypto', 'index'];
+  supportedAssets: AssetType[] = ['forex', 'stock', 'crypto', 'index', 'futures'];
   
   private apiKey: string;
   
@@ -27,7 +35,12 @@ export class TwelveDataProvider implements MarketDataProvider {
   
   private normalizeSymbol(symbol: string, assetType: AssetType): string {
     let normalized = symbol.toUpperCase().replace('_', '/');
-    
+
+    if (assetType === 'futures') {
+      const root = normalized.replace(/1!$/, '');
+      return FUTURES_TD_SYMBOL_MAP[root] || `${root}1!`;
+    }
+
     if (!normalized.includes('/')) {
       if (assetType === 'forex' && normalized.length === 6) {
         normalized = `${normalized.slice(0, 3)}/${normalized.slice(3)}`;
