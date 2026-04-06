@@ -71,6 +71,7 @@ import LiveMonitorPage from "@/pages/live-monitor";
 import WeeklyStrategyPage from "@/pages/weekly-strategy";
 import FuturesConnectPage from "@/pages/futures-connect";
 import FuturesEaGeneratorPage from "@/pages/futures-ea-generator";
+import FuturesLiveFeedPage from "@/pages/futures-live-feed";
 import SevenEightPage from "@/pages/seven-eight";
 import StreakBanner from "@/components/StreakBanner";
 import { OnboardingTutorial } from "@/components/onboarding-tutorial";
@@ -196,6 +197,7 @@ function AppLayout() {
             <ProtectedRoute path="/live-monitor" component={LiveMonitorPage} />
             <ProtectedRoute path="/futures-connect" component={FuturesConnectPage} />
             <ProtectedRoute path="/futures-ea-generator" component={FuturesEaGeneratorPage} />
+            <ProtectedRoute path="/futures-live-feed" component={FuturesLiveFeedPage} />
             
             <Route component={NotFound} />
           </Switch>
