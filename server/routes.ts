@@ -8256,26 +8256,47 @@ Respond with ONLY valid JSON:
         return res.status(500).json({ error: 'No AI API key configured. Please add an API key in the AI API Keys page.' });
       }
 
-      const modelToUse = selectedModel;
-      const supportsJsonFormat = true;
+      // For weekly strategy, prefer fast high-limit models
+      const isGroq = selectedModel.includes('llama') || selectedModel.includes('mixtral') || selectedModel.includes('gemma');
+      const isOpenAI = selectedModel.includes('gpt') || selectedModel.includes('o1') || selectedModel.includes('o3');
+      let modelToUse = selectedModel;
+      if (isOpenAI) modelToUse = 'gpt-4o-mini'; // highest TPM limits on OpenAI
+      if (isGroq) modelToUse = 'llama-3.1-8b-instant'; // highest TPM on Groq free tier
+
+      const supportsJsonFormat = !modelToUse.includes('o1');
 
       let response: any;
-      try {
-        response = await openaiInstance.chat.completions.create({
-          model: modelToUse,
-          messages: [
-            { role: "system", content: "You are an expert trading strategist. Always respond with valid JSON only. No markdown, no explanation, just the JSON object." },
-            { role: "user", content: prompt }
-          ],
-          ...(supportsJsonFormat ? { response_format: { type: "json_object" } } : {}),
-          max_tokens: 4000,
-          temperature: 0.4,
-        });
-      } catch (aiError: any) {
-        const errMsg = aiError.message || '';
-        const errStatus = aiError.status || aiError.statusCode || 0;
+      let lastAiError: any;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          response = await openaiInstance.chat.completions.create({
+            model: modelToUse,
+            messages: [
+              { role: "system", content: "You are an expert trading strategist. Always respond with valid JSON only. No markdown, no explanation, just the JSON object." },
+              { role: "user", content: prompt }
+            ],
+            ...(supportsJsonFormat ? { response_format: { type: "json_object" } } : {}),
+            max_tokens: 4000,
+            temperature: 0.4,
+          });
+          lastAiError = null;
+          break;
+        } catch (aiError: any) {
+          lastAiError = aiError;
+          const errStatus = aiError.status || aiError.statusCode || 0;
+          const errMsg = aiError.message || '';
+          if ((errMsg.includes('rate') || errMsg.includes('429') || errStatus === 429) && attempt < 3) {
+            await new Promise(r => setTimeout(r, attempt * 3000));
+            continue;
+          }
+          break;
+        }
+      }
+      if (lastAiError) {
+        const errMsg = lastAiError.message || '';
+        const errStatus = lastAiError.status || lastAiError.statusCode || 0;
         if (errMsg.includes('rate') || errMsg.includes('quota') || errMsg.includes('429') || errStatus === 429) {
-          return res.status(429).json({ error: 'AI rate limit hit. Please wait a moment and try again, or switch to a different AI provider.' });
+          return res.status(429).json({ error: 'AI rate limit hit after 3 attempts. Try switching to a different AI provider in AI API Keys settings.' });
         }
         if (errStatus === 401 || errMsg.includes('Incorrect API key') || errMsg.includes('invalid_api_key') || errMsg.includes('authentication_error')) {
           return res.status(401).json({ error: 'AI API key is invalid or expired. Please update your API key.' });
