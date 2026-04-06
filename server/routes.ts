@@ -8257,11 +8257,14 @@ Respond with ONLY valid JSON:
       }
 
       // For weekly strategy, prefer fast high-limit models
-      const isGroq = selectedModel.includes('llama') || selectedModel.includes('mixtral') || selectedModel.includes('gemma');
-      const isOpenAI = selectedModel.includes('gpt') || selectedModel.includes('o1') || selectedModel.includes('o3');
+      const providerName = (openaiInstance as any).provider || 'openai';
+      const isGroq = providerName === 'groq' || selectedModel.includes('llama') || selectedModel.includes('mixtral');
+      const isOpenAI = providerName === 'openai';
       let modelToUse = selectedModel;
-      if (isOpenAI) modelToUse = 'gpt-4o-mini'; // highest TPM limits on OpenAI
-      if (isGroq) modelToUse = 'llama-3.1-8b-instant'; // highest TPM on Groq free tier
+      if (isOpenAI) modelToUse = 'gpt-4o-mini';
+      if (isGroq) modelToUse = 'llama-3.1-8b-instant';
+
+      console.log(`[Weekly Strategy] Using provider=${providerName} model=${modelToUse} for user ${userId}`);
 
       const supportsJsonFormat = !modelToUse.includes('o1');
 
@@ -8285,7 +8288,8 @@ Respond with ONLY valid JSON:
           lastAiError = aiError;
           const errStatus = aiError.status || aiError.statusCode || 0;
           const errMsg = aiError.message || '';
-          if ((errMsg.includes('rate') || errMsg.includes('429') || errStatus === 429) && attempt < 3) {
+          console.error(`[Weekly Strategy] AI error attempt ${attempt}/3 — status=${errStatus} type=${aiError.type || aiError.error?.type} msg=${errMsg.substring(0, 200)}`);
+          if ((errStatus === 429 || errMsg.includes('rate') || errMsg.includes('429')) && attempt < 3) {
             await new Promise(r => setTimeout(r, attempt * 3000));
             continue;
           }
@@ -8295,13 +8299,15 @@ Respond with ONLY valid JSON:
       if (lastAiError) {
         const errMsg = lastAiError.message || '';
         const errStatus = lastAiError.status || lastAiError.statusCode || 0;
-        if (errMsg.includes('rate') || errMsg.includes('quota') || errMsg.includes('429') || errStatus === 429) {
-          return res.status(429).json({ error: 'AI rate limit hit after 3 attempts. Try switching to a different AI provider in AI API Keys settings.' });
+        const errType = lastAiError.type || lastAiError.error?.type || '';
+        console.error(`[Weekly Strategy] Final AI error — status=${errStatus} type=${errType} provider=${providerName} model=${modelToUse} msg=${errMsg}`);
+        if (errStatus === 429 || errMsg.includes('rate') || errMsg.includes('quota') || errMsg.includes('429')) {
+          return res.status(429).json({ error: `Rate limit on ${providerName}/${modelToUse}. Check Render logs for details. Try a different provider.` });
         }
         if (errStatus === 401 || errMsg.includes('Incorrect API key') || errMsg.includes('invalid_api_key') || errMsg.includes('authentication_error')) {
           return res.status(401).json({ error: 'AI API key is invalid or expired. Please update your API key.' });
         }
-        return res.status(500).json({ error: `AI error: ${errMsg || 'Unknown error. Please try again.'}` });
+        return res.status(500).json({ error: `AI error (${providerName}): ${errMsg.substring(0, 100)}` });
       }
 
       const content = response.choices[0]?.message?.content || '';
