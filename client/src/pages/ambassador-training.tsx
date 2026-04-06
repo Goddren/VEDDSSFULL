@@ -321,7 +321,7 @@ const weeklySchedule = [
   { day: 'Monday', action: 'YouTube Tutorial', details: 'Deep dive: MT5 EA setup, Tradovate futures connect, NinjaScript generator, or prop firm drawdown guide', icon: Video },
   { day: 'Tuesday', action: 'Quick Tip Reel', details: '30-60 sec tip: gestures, news sentiment, drawdown gauge, or tick value calculator', icon: Camera },
   { day: 'Wednesday', action: 'Live Session', details: 'Real-time chart analysis OR live futures trading demo with Tradovate connection', icon: Mic },
-  { day: 'Thursday', action: 'News + Futures Demo', details: 'Show news trading on live events, or show NQ/ES futures signals with prop firm rules active', icon: TrendingUp },
+  { day: 'Thursday', action: 'Futures AI Live Feed Demo', details: 'Screen-record the Futures Live Feed running — show a live BUY/SELL signal appearing for NQ or ES with entry, SL, TP, and confidence score. Highlight the prop firm halt protection and self-learning scanner.', icon: TrendingUp },
   { day: 'Friday', action: 'EA Generator Showcase', details: 'Generate MT5 EA or NinjaScript strategy live on camera — show the .cs file downloading', icon: Monitor },
   { day: 'Saturday', action: 'Twitter/X Space', details: 'Q&A on features — include futures, prop firm presets, and NinjaTrader questions', icon: MessageSquare },
   { day: 'Sunday', action: 'Weekly Recap & CTA', details: 'Highlight account gains + push subscription and futures features', icon: Megaphone }
@@ -413,7 +413,7 @@ const trainingModules: TrainingModule[] = [
           { title: 'AI-Powered Analysis', description: 'Upload any chart screenshot and get instant pattern recognition, trend analysis, and trading recommendations powered by GPT-4o.', icon: Sparkles },
           { title: 'Expert Advisor Generation', description: 'Turn your chart analysis into automated trading strategies - no coding required. Generate MT5 EA code with one click.', icon: Target },
           { title: 'Marketplace & Community', description: 'Share your strategies, subscribe to top performers, and earn passive income from your trading expertise.', icon: Users },
-          { title: 'Futures + Prop Firm Trading', description: 'Connect Tradovate and trade NQ, ES, YM, Gold, Crude Oil futures with real-time drawdown protection for Topstep, Apex, Bulenox and more.', icon: TrendingUp },
+          { title: 'Futures AI Live Feed', description: 'A continuous AI scanner watches NQ, ES, YM, GC, CL every 2 minutes — posting live BUY/SELL signals with entry, SL, TP, and confidence score. Auto-halts when prop firm daily loss limit is hit.', icon: TrendingUp },
           { title: 'NinjaTrader 8 EA Generator', description: 'Generate production-ready NinjaScript C# strategies with daily loss circuit breakers and prop firm rules baked in — zero coding required.', icon: Bot }
         ],
         realWorldExamples: [

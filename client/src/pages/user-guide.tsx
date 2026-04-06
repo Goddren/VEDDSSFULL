@@ -502,6 +502,24 @@ const guideSections: GuideSection[] = [
         ]
       },
       {
+        heading: 'Futures AI Live Feed',
+        steps: [
+          'Go to Futures Live Feed from the More menu (or navigate to /futures-live-feed)',
+          'Click "Start Scanner" — the AI immediately begins scanning NQ, ES, YM, GC, CL and micro equivalents every 2 minutes',
+          'Live signals appear in real time showing: symbol, BUY/SELL direction, confidence %, entry price, stop loss, take profit, and the AI\'s reasoning',
+          'The Activity Log shows exactly what the scanner is doing at each step',
+          'Symbol Performance cards track win rate and average confidence per instrument as the scanner learns',
+          'If your daily prop firm loss limit is hit, the scanner automatically halts and displays a red warning banner',
+          'Click "Stop" at any time to pause scanning — all signals and activity history remain visible'
+        ],
+        tips: [
+          'Signals auto-refresh every 5 seconds — no need to manually reload the page',
+          'High confidence signals (80%+) show a green badge, medium (65-79%) yellow, lower signals gray',
+          'Use the Live Feed alongside the Futures Connect page to execute the signals that match your setup',
+          'The scanner self-learns from recorded trade outcomes — use /api/tradovate/scanner/outcome to feed results back'
+        ]
+      },
+      {
         heading: 'NinjaTrader 8 EA Generator',
         steps: [
           'Go to Futures EA Generator from the More menu (or /futures-ea-generator)',
@@ -634,7 +652,7 @@ const faqs = [
   },
   {
     question: 'Can VEDD trade futures? Which prop firms are supported?',
-    answer: 'Yes — Phase 1 Futures support is live. Connect your Tradovate account (demo or live) via the Futures Connect page. Supported prop firm presets with auto-enforced drawdown rules: Topstep, Apex Trader Funding, Bulenox, Earn2Trade, and Take Profit Trader. The drawdown gauge tracks trailing drawdown, daily loss budget, and profit target progress in real time. Instruments include NQ, ES, YM, GC, CL, and all micro equivalents.'
+    answer: 'Yes — Phase 1 Futures support is live. Connect your Tradovate account (demo or live) via the Futures Connect page. The Futures AI Live Feed page runs a continuous AI market scanner across NQ, ES, YM, GC, CL and micro equivalents — generating real-time BUY/SELL signals with entry, SL, and TP levels every 2 minutes. Supported prop firm presets with auto-enforced drawdown rules: Topstep, Apex Trader Funding, Bulenox, Earn2Trade, and Take Profit Trader. The scanner automatically halts when your daily loss limit is reached.'
   },
   {
     question: 'What is the NinjaScript EA Generator?',
