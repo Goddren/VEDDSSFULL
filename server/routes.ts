@@ -8121,10 +8121,10 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       // Build AI prompt - full AI control, HFT-aware strategy
       const growthMultiplier = ((accountBalance + profitTarget) / accountBalance).toFixed(1);
       const brain = (global as any).veddAIBrain?.[userId];
-      const brainInsights = brain?.learningInsights?.join('\n') || 'No prior learning data available';
+      const allInsights = brain?.learningInsights || [];
+      const brainInsights = allInsights.length > 0 ? allInsights.slice(-10).join('\n') : 'No prior learning data available';
       const brainKnowledge = brain?.pairKnowledge ? JSON.stringify(
-        Object.fromEntries(pairs.map(p => [p.toUpperCase().replace('/', ''), brain.pairKnowledge[p.toUpperCase().replace('/', '')] || 'No data'])),
-        null, 2
+        Object.fromEntries(pairs.map(p => [p.toUpperCase().replace('/', ''), brain.pairKnowledge[p.toUpperCase().replace('/', '')] || 'No data']))
       ) : 'Brain not yet trained';
 
       const hftDescriptions: Record<string, string> = {
@@ -8190,7 +8190,7 @@ DEEP PAIR KNOWLEDGE (from brain learning):
 ${brainKnowledge}
 
 TRADER'S REAL-TIME PERFORMANCE DATA:
-${JSON.stringify(pairStats, null, 2)}
+${JSON.stringify(pairStats)}
 
 STRATEGY REQUIREMENTS:
 1. Create an AGGRESSIVE but CALCULATED growth plan to hit $${profitTarget} profit
@@ -8259,7 +8259,7 @@ Respond with ONLY valid JSON:
             { role: "user", content: prompt }
           ],
           ...(supportsJsonFormat ? { response_format: { type: "json_object" } } : {}),
-          max_tokens: 6000,
+          max_tokens: 4000,
           temperature: 0.4,
         });
       } catch (aiError: any) {
