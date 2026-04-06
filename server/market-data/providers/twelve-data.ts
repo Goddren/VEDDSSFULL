@@ -10,12 +10,12 @@ const FOREX_PAIRS = ['EUR/USD', 'GBP/USD', 'USD/JPY', 'USD/CHF', 'AUD/USD', 'USD
 const CRYPTO_PAIRS = ['BTC/USD', 'ETH/USD', 'XRP/USD', 'LTC/USD', 'ADA/USD', 'DOT/USD', 'DOGE/USD',
   'SOL/USD', 'AVAX/USD', 'MATIC/USD'];
 
-// Twelve Data continuous contract symbol map for futures
+// Twelve Data continuous contract symbol map for futures (exchange suffix required)
 const FUTURES_TD_SYMBOL_MAP: Record<string, string> = {
-  NQ: 'NQ1!', MNQ: 'MNQ1!', ES: 'ES1!', MES: 'MES1!',
-  YM: 'YM1!', MYM: 'MYM1!', RTY: 'RTY1!', M2K: 'M2K1!',
-  GC: 'GC1!', MGC: 'MGC1!', SI: 'SI1!', SIL: 'SIL1!',
-  CL: 'CL1!', MCL: 'MCL1!', NG: 'NG1!', ZN: 'ZN1!', ZB: 'ZB1!',
+  NQ: 'NQ1!:CME', MNQ: 'MNQ1!:CME', ES: 'ES1!:CME', MES: 'MES1!:CME',
+  YM: 'YM1!:CBOT', MYM: 'MYM1!:CBOT', RTY: 'RTY1!:CME', M2K: 'M2K1!:CME',
+  GC: 'GC1!:COMEX', MGC: 'MGC1!:COMEX', SI: 'SI1!:COMEX', SIL: 'SIL1!:COMEX',
+  CL: 'CL1!:NYMEX', MCL: 'MCL1!:NYMEX', NG: 'NG1!:NYMEX', ZN: 'ZN1!:CBOT', ZB: 'ZB1!:CBOT',
 };
 
 export class TwelveDataProvider implements MarketDataProvider {
@@ -37,8 +37,9 @@ export class TwelveDataProvider implements MarketDataProvider {
     let normalized = symbol.toUpperCase().replace('_', '/');
 
     if (assetType === 'futures') {
-      const root = normalized.replace(/1!$/, '');
-      return FUTURES_TD_SYMBOL_MAP[root] || `${root}1!`;
+      // Strip any existing exchange suffix or 1! before lookup
+      const root = normalized.replace(/1!.*$/, '').replace(/:.*$/, '');
+      return FUTURES_TD_SYMBOL_MAP[root] || `${root}1!:CME`;
     }
 
     if (!normalized.includes('/')) {
