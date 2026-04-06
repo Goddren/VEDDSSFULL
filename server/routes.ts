@@ -8122,10 +8122,15 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       const growthMultiplier = ((accountBalance + profitTarget) / accountBalance).toFixed(1);
       const brain = (global as any).veddAIBrain?.[userId];
       const allInsights = brain?.learningInsights || [];
-      const brainInsights = allInsights.length > 0 ? allInsights.slice(-10).join('\n') : 'No prior learning data available';
-      const brainKnowledge = brain?.pairKnowledge ? JSON.stringify(
-        Object.fromEntries(pairs.map(p => [p.toUpperCase().replace('/', ''), brain.pairKnowledge[p.toUpperCase().replace('/', '')] || 'No data']))
-      ) : 'Brain not yet trained';
+      const brainInsights = allInsights.length > 0 ? allInsights.slice(-5).join('\n') : 'No prior learning data';
+      const brainKnowledge = brain?.pairKnowledge
+        ? pairs.map(p => {
+            const k = p.toUpperCase().replace('/', '');
+            const d = brain.pairKnowledge[k];
+            if (!d) return `${k}: no data`;
+            return `${k}: wr=${d.winRate ?? '?'}% dir=${d.preferredDirection ?? '?'} trades=${d.totalTrades ?? 0}`;
+          }).join(', ')
+        : 'Brain not yet trained';
 
       const hftDescriptions: Record<string, string> = {
         scalping: `SCALPING (HFT) MODE: Design for 10-20+ trades/day with 3-8 pip targets. Quick in/out within 5-30 minutes. Tight stops. Compound after every 3-5 winning trades. Focus on spread-efficient pairs.`,
@@ -8152,7 +8157,11 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       };
       const selectedRisk = riskLevel && riskInstructions[riskLevel] ? riskLevel : 'moderate';
 
-      const provenStrategies = getAllStrategiesForPairs(pairs);
+      const provenStrategies = getAllStrategiesForPairs(pairs)
+        .split('\n\n')
+        .map(s => s.split('\n').filter(l => !l.startsWith('  Setup:')).join('\n'))
+        .join('\n')
+        .substring(0, 800);
 
       const prompt = `You are VEDD SS AI - a SELF-LEARNING autonomous trading engine with FULL CONTROL. You have studied this trader's entire history and evolved your strategy.
 
@@ -8190,7 +8199,7 @@ DEEP PAIR KNOWLEDGE (from brain learning):
 ${brainKnowledge}
 
 TRADER'S REAL-TIME PERFORMANCE DATA:
-${JSON.stringify(pairStats)}
+${JSON.stringify(Object.fromEntries(Object.entries(pairStats).map(([k,v]: [string,any]) => [k, { wr: v.winRate, trades: v.totalTrades, buyWR: v.buyWinRate, sellWR: v.sellWinRate, sig: v.lastSignal }])))}
 
 STRATEGY REQUIREMENTS:
 1. Create an AGGRESSIVE but CALCULATED growth plan to hit $${profitTarget} profit
