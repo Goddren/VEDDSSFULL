@@ -8246,68 +8246,77 @@ Respond with ONLY valid JSON:
   }
 }`;
 
-      let openaiInstance: any;
-      let selectedModel: string;
-      try {
-        openaiInstance = await getAiInstance(userId);
-        selectedModel = (openaiInstance as any).defaultModel || getModelPref(userId);
-      } catch (e: any) {
-        console.error('[Weekly Strategy] Failed to get AI instance:', e.message);
-        return res.status(500).json({ error: 'No AI API key configured. Please add an API key in the AI API Keys page.' });
+      // Weekly strategy: build candidate clients in order of rate-limit friendliness
+      // Groq llama-3.1-8b-instant has 20K TPM free — much better than OpenAI Tier 1
+      const { storage: _stratStorage } = await import('./storage');
+      const _allKeys = await _stratStorage.getUserApiKeys(userId);
+      const _activeKeys = _allKeys.filter((k: any) => k.isActive && k.isValid !== false);
+
+      type StratClient = { client: any; model: string; provider: string };
+      const candidates: StratClient[] = [];
+
+      const _groqKey = _activeKeys.find((k: any) => k.provider === 'groq');
+      if (_groqKey?.apiKey) {
+        const OpenAISDK = (await import('openai')).default;
+        const gc = new OpenAISDK({ apiKey: _groqKey.apiKey, baseURL: 'https://api.groq.com/openai/v1' }) as any;
+        candidates.push({ client: gc, model: 'llama-3.1-8b-instant', provider: 'groq' });
+      }
+      const _openaiKey = _activeKeys.find((k: any) => k.provider === 'openai');
+      if (_openaiKey?.apiKey) {
+        const OpenAISDK = (await import('openai')).default;
+        const oc = new OpenAISDK({ apiKey: _openaiKey.apiKey }) as any;
+        candidates.push({ client: oc, model: 'gpt-4o-mini', provider: 'openai' });
+      }
+      if (candidates.length === 0) {
+        // fallback to whatever getAiInstance returns
+        try {
+          const fb = await getAiInstance(userId) as any;
+          candidates.push({ client: fb, model: 'gpt-4o-mini', provider: fb.provider || 'openai' });
+        } catch {
+          return res.status(500).json({ error: 'No AI API key configured. Please add a Groq or OpenAI key in AI API Keys settings.' });
+        }
       }
 
-      // For weekly strategy, prefer fast high-limit models
-      const providerName = (openaiInstance as any).provider || 'openai';
-      const isGroq = providerName === 'groq' || selectedModel.includes('llama') || selectedModel.includes('mixtral');
-      const isOpenAI = providerName === 'openai';
-      let modelToUse = selectedModel;
-      if (isOpenAI) modelToUse = 'gpt-4o-mini';
-      if (isGroq) modelToUse = 'llama-3.1-8b-instant';
-
-      console.log(`[Weekly Strategy] Using provider=${providerName} model=${modelToUse} for user ${userId}`);
-
-      const supportsJsonFormat = !modelToUse.includes('o1');
+      console.log(`[Weekly Strategy] Candidates: ${candidates.map(c => `${c.provider}/${c.model}`).join(', ')} for user ${userId}`);
 
       let response: any;
       let lastAiError: any;
-      for (let attempt = 1; attempt <= 3; attempt++) {
+      for (const candidate of candidates) {
+        const supportsJson = !candidate.model.includes('o1');
         try {
-          response = await openaiInstance.chat.completions.create({
-            model: modelToUse,
+          console.log(`[Weekly Strategy] Trying ${candidate.provider}/${candidate.model}...`);
+          response = await candidate.client.chat.completions.create({
+            model: candidate.model,
             messages: [
               { role: "system", content: "You are an expert trading strategist. Always respond with valid JSON only. No markdown, no explanation, just the JSON object." },
               { role: "user", content: prompt }
             ],
-            ...(supportsJsonFormat ? { response_format: { type: "json_object" } } : {}),
+            ...(supportsJson ? { response_format: { type: "json_object" } } : {}),
             max_tokens: 4000,
             temperature: 0.4,
           });
+          console.log(`[Weekly Strategy] Success with ${candidate.provider}/${candidate.model}`);
           lastAiError = null;
           break;
         } catch (aiError: any) {
           lastAiError = aiError;
           const errStatus = aiError.status || aiError.statusCode || 0;
           const errMsg = aiError.message || '';
-          console.error(`[Weekly Strategy] AI error attempt ${attempt}/3 — status=${errStatus} type=${aiError.type || aiError.error?.type} msg=${errMsg.substring(0, 200)}`);
-          if ((errStatus === 429 || errMsg.includes('rate') || errMsg.includes('429')) && attempt < 3) {
-            await new Promise(r => setTimeout(r, attempt * 3000));
-            continue;
-          }
-          break;
+          console.error(`[Weekly Strategy] ${candidate.provider}/${candidate.model} failed — status=${errStatus} type=${aiError.error?.type || aiError.type} msg=${errMsg.substring(0, 150)}`);
+          // Only move to next candidate on 429, auth errors stop immediately
+          if (errStatus === 401 || errMsg.includes('invalid_api_key') || errMsg.includes('authentication_error')) break;
         }
       }
       if (lastAiError) {
         const errMsg = lastAiError.message || '';
         const errStatus = lastAiError.status || lastAiError.statusCode || 0;
-        const errType = lastAiError.type || lastAiError.error?.type || '';
-        console.error(`[Weekly Strategy] Final AI error — status=${errStatus} type=${errType} provider=${providerName} model=${modelToUse} msg=${errMsg}`);
-        if (errStatus === 429 || errMsg.includes('rate') || errMsg.includes('quota') || errMsg.includes('429')) {
-          return res.status(429).json({ error: `Rate limit on ${providerName}/${modelToUse}. Check Render logs for details. Try a different provider.` });
+        if (errStatus === 429 || errMsg.includes('rate') || errMsg.includes('quota')) {
+          return res.status(429).json({ error: 'All AI providers hit rate limits. Wait 1 minute and try again, or add a Groq API key (free at console.groq.com).' });
         }
-        if (errStatus === 401 || errMsg.includes('Incorrect API key') || errMsg.includes('invalid_api_key') || errMsg.includes('authentication_error')) {
-          return res.status(401).json({ error: 'AI API key is invalid or expired. Please update your API key.' });
+        if (errStatus === 401 || errMsg.includes('invalid_api_key') || errMsg.includes('authentication_error')) {
+          return res.status(401).json({ error: 'AI API key is invalid or expired. Please update your key in AI API Keys settings.' });
         }
-        return res.status(500).json({ error: `AI error (${providerName}): ${errMsg.substring(0, 100)}` });
+        return res.status(500).json({ error: `AI error: ${errMsg.substring(0, 100)}` });
       }
 
       const content = response.choices[0]?.message?.content || '';
