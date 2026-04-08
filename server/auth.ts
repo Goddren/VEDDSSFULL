@@ -29,14 +29,15 @@ async function comparePasswords(supplied: string, stored: string) {
 }
 
 export function setupAuth(app: Express) {
-  // Use simple in-memory session with no external store
   const sessionSettings: session.SessionOptions = {
+    store: storage.sessionStore,
     secret: process.env.SESSION_SECRET || 'trading-chart-app-secret',
     resave: false,
     saveUninitialized: false,
     cookie: {
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
-      secure: false
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
     }
   };
 
