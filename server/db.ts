@@ -19,9 +19,10 @@ const DATABASE_URL =
   'postgres://localhost:5432/veddai';
 
 const isNeon = DATABASE_URL.includes('neon.tech');
+const isSupabase = DATABASE_URL.includes('supabase.co');
 const isHelium = DATABASE_URL.includes('helium') || (process.env.PGHOST && !DATABASE_URL.includes('neon.tech'));
-// No SSL for helium (internal Replit network); SSL required for Neon or other external hosts
-const needsSsl = isNeon || (!DATABASE_URL.includes('localhost') && !isHelium);
+// No SSL for helium (internal Replit network); SSL required for Neon, Supabase, or other external hosts
+const needsSsl = isNeon || isSupabase || (!DATABASE_URL.includes('localhost') && !isHelium);
 
 console.log(`[db] Connecting to: ${DATABASE_URL.replace(/:\/\/[^@]+@/, '://***@')}`);
 
@@ -29,7 +30,7 @@ console.log(`[db] Connecting to: ${DATABASE_URL.replace(/:\/\/[^@]+@/, '://***@'
 export const pool = new pg.Pool({
   connectionString: DATABASE_URL,
   ssl: needsSsl ? { rejectUnauthorized: false } : false,
-  connectionTimeoutMillis: isNeon ? 10000 : 5000,
+  connectionTimeoutMillis: 30000,
   idleTimeoutMillis: 30000,
   max: 10,
 });
@@ -37,7 +38,7 @@ export const pool = new pg.Pool({
 // postgres-js client for Drizzle ORM
 export const client = postgres(DATABASE_URL, {
   ssl: needsSsl ? 'require' : false,
-  connect_timeout: isNeon ? 15 : 5,
+  connect_timeout: 30,
   max: 10,
   idle_timeout: 30,
   max_lifetime: 1800,
