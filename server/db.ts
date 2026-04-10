@@ -36,6 +36,11 @@ export const pool = new pg.Pool({
   max: 10,
 });
 
+// Prevent unhandled pool errors from crashing the process
+pool.on('error', (err) => {
+  console.error('[db] Pool error (non-fatal):', err.message);
+});
+
 // postgres-js client for Drizzle ORM
 // prepare:false required for Supabase pooler (PgBouncer transaction mode doesn't support prepared statements)
 export const client = postgres(DATABASE_URL, {
