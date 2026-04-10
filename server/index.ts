@@ -9,6 +9,14 @@ import { execSync } from "child_process";
 import { db } from "./db";
 import { sql } from "drizzle-orm";
 
+// Prevent DB connection errors from crashing the server
+process.on('unhandledRejection', (reason: any) => {
+  console.error('[process] Unhandled rejection (non-fatal):', reason?.message ?? reason);
+});
+process.on('uncaughtException', (err: any) => {
+  console.error('[process] Uncaught exception (non-fatal):', err?.message ?? err);
+});
+
 const app = express();
 // Increase the JSON payload limit to handle bulk chart uploads (multiple base64 images)
 app.use(express.json({ limit: '50mb' }));
