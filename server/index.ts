@@ -82,7 +82,7 @@ async function withRetry<T>(
       return await fn();
     } catch (err: any) {
       const isDisabled = err?.message?.includes('endpoint has been disabled');
-      const isConnRefused = err?.code === 'ECONNREFUSED' || err?.message?.includes('connect');
+      const isConnRefused = err?.code === 'ECONNREFUSED' || err?.code === 'ENETUNREACH' || err?.message?.includes('connect');
       const isRetryable = isDisabled || isConnRefused || err?.code === 'XX000';
 
       if (attempt === maxAttempts || !isRetryable) {
@@ -123,7 +123,6 @@ async function withRetry<T>(
     const message = err.message || "Internal Server Error";
 
     res.status(status).json({ message });
-    throw err;
   });
 
   // importantly only setup vite in development and after

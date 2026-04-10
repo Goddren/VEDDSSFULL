@@ -19,7 +19,8 @@ const DATABASE_URL =
   'postgres://localhost:5432/veddai';
 
 const isNeon = DATABASE_URL.includes('neon.tech');
-const isSupabase = DATABASE_URL.includes('supabase.co');
+const isSupabase = DATABASE_URL.includes('supabase.co') || DATABASE_URL.includes('supabase.com');
+const isSupabasePooler = DATABASE_URL.includes('pooler.supabase.com');
 const isHelium = DATABASE_URL.includes('helium') || (process.env.PGHOST && !DATABASE_URL.includes('neon.tech'));
 // No SSL for helium (internal Replit network); SSL required for Neon, Supabase, or other external hosts
 const needsSsl = isNeon || isSupabase || (!DATABASE_URL.includes('localhost') && !isHelium);
@@ -36,12 +37,14 @@ export const pool = new pg.Pool({
 });
 
 // postgres-js client for Drizzle ORM
+// prepare:false required for Supabase pooler (PgBouncer transaction mode doesn't support prepared statements)
 export const client = postgres(DATABASE_URL, {
   ssl: needsSsl ? 'require' : false,
   connect_timeout: 30,
   max: 10,
   idle_timeout: 30,
   max_lifetime: 1800,
+  prepare: !isSupabasePooler,
 });
 
 // Drizzle ORM instance
