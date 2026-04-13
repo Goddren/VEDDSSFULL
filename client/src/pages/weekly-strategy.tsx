@@ -301,6 +301,7 @@ export default function WeeklyStrategyPage() {
   const [enginePropFirmDrawdown, setEnginePropFirmDrawdown] = useState(4);
   const [enginePyramiding, setEnginePyramiding] = useState(false);
   const [engineKellyCriterion, setEngineKellyCriterion] = useState(false);
+  const [engineBrainLearningMode, setEngineBrainLearningMode] = useState(true);
   const [engineDrawdownShield, setEngineDrawdownShield] = useState(true);
   const [engineShieldThreshold, setEngineShieldThreshold] = useState(3);
   const [engineAdaptiveScan, setEngineAdaptiveScan] = useState(true);
@@ -386,6 +387,7 @@ export default function WeeklyStrategyPage() {
         propFirmDailyDrawdownLimit: enginePropFirmDrawdown,
         enablePyramiding: enginePyramiding,
         useKellyCriterion: engineKellyCriterion,
+        brainLearningMode: engineBrainLearningMode,
         drawdownShieldThreshold: engineDrawdownShield ? engineShieldThreshold : 0,
         adaptiveScanInterval: engineAdaptiveScan,
         dailyLossLimit: engineDailyLossLimit,
@@ -1266,6 +1268,23 @@ export default function WeeklyStrategyPage() {
                     {enginePyramiding && (
                       <p className="text-[10px] text-emerald-400/80 mt-1.5">📈 Adds 50% lot at +15 pips profit, parent SL moves to breakeven. Max 2 layers.</p>
                     )}
+                  </div>
+
+                  {/* ── Brain Learning Mode Toggle ── */}
+                  <div className={`rounded-xl border p-3 transition-all ${engineBrainLearningMode ? 'border-blue-500/60 bg-blue-500/10' : 'border-gray-700 bg-gray-900/30'}`}>
+                    <label className="flex items-center gap-2 cursor-pointer" onClick={() => setEngineBrainLearningMode(p => !p)}>
+                      <input type="checkbox" checked={engineBrainLearningMode} onChange={() => {}} className="accent-blue-500" />
+                      <div>
+                        <span className="text-xs font-semibold text-blue-300">🧠 Brain Learning Mode</span>
+                        {engineBrainLearningMode && <Badge className="ml-2 bg-blue-500/30 text-blue-200 border-blue-500/50 text-[9px]">LOCKED AT 0.01</Badge>}
+                        {!engineBrainLearningMode && <Badge className="ml-2 bg-gray-600/30 text-gray-300 border-gray-500/50 text-[9px]">FULL SIZING</Badge>}
+                      </div>
+                    </label>
+                    <p className="text-[10px] text-blue-400/80 mt-1.5">
+                      {engineBrainLearningMode
+                        ? '🔒 Lot size locked at 0.01 while AI learns. Auto-unlocks to full risk sizing once brain hits 10+ trades & 65%+ win rate.'
+                        : '⚡ Full risk-based lot sizing active immediately. Disable only if brain is already trained.'}
+                    </p>
                   </div>
 
                   {/* ── Kelly Mode Preset ── */}

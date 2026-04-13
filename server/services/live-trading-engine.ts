@@ -163,6 +163,7 @@ interface LiveEngineConfig {
   adaptiveScanInterval: boolean;
   enablePyramiding: boolean;
   useKellyCriterion: boolean;
+  brainLearningMode: boolean;
   drawdownShieldThreshold: number;
   // Safety
   dailyLossLimit: number;
@@ -606,6 +607,7 @@ function getDefaultConfig(userId: number): LiveEngineConfig {
     adaptiveScanInterval: true,
     enablePyramiding: false,
     useKellyCriterion: false,
+    brainLearningMode: true,
     drawdownShieldThreshold: 3,
     dailyLossLimit: 5,
     aiMode: 'full',
@@ -2541,9 +2543,35 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
     const entryPrice = parseNum(decision.entryPrice);
     const stopLoss = parseNum(decision.stopLoss);
     const takeProfit = parseNum(decision.takeProfit);
-    const rawLotBase = parseNum(decision.lotSize) || config.baseLotSize || 0.01;
+    // ── Brain Learning Mode: lock at 0.01 until 65%+ WR (if toggle ON) ──
+    let brainLocked = false;
+    let brainTotalTrades = 0;
+    let brainOverallWinRate = 0;
+    if (config.brainLearningMode) {
+      const brainData = (global as any).veddAIBrain?.[userId];
+      if (brainData?.pairKnowledge) {
+        const pairs = Object.values(brainData.pairKnowledge) as any[];
+        const totals = pairs.reduce((acc: any, p: any) => {
+          acc.trades += (p.totalTrades || 0);
+          acc.wins += Math.round((p.totalTrades || 0) * ((p.winRate ?? p.buyWinRate ?? 50) / 100));
+          return acc;
+        }, { trades: 0, wins: 0 });
+        brainTotalTrades = totals.trades;
+        brainOverallWinRate = totals.trades >= 5 ? Math.round((totals.wins / totals.trades) * 100) : 0;
+      }
+      brainLocked = brainTotalTrades < 10 || brainOverallWinRate < 65;
+      addActivity(userId, {
+        type: 'info',
+        symbol: decision.symbol,
+        message: brainLocked
+          ? `🧠 Learning Mode: lot locked at 0.01 (${brainTotalTrades}/10 trades, ${brainOverallWinRate}%/65% WR) — full sizing unlocks automatically`
+          : `🧠 Brain unlocked: ${brainTotalTrades} trades @ ${brainOverallWinRate}% WR — full risk sizing active`,
+      });
+    }
+
+    const rawLotBase = brainLocked ? 0.01 : (parseNum(decision.lotSize) || config.baseLotSize || 0.01);
     // Apply brain-tuned lot multiplier (Kelly-based, clamped 0.5–1.5)
-    const brainMult = (decision as any)._brainLotMultiplier || 1.0;
+    const brainMult = brainLocked ? 1.0 : ((decision as any)._brainLotMultiplier || 1.0);
     const rawLotSize = Math.round(rawLotBase * brainMult * 100) / 100;
     const isSmallAccount = config.accountBalance > 0 && config.accountBalance < 500;
     const safeMaxLot = isSmallAccount
