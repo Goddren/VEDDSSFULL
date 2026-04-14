@@ -70,12 +70,11 @@ export default function GrantsFundingPage() {
   const [typeFilter, setTypeFilter] = useState("all");
   const [selectedApplication, setSelectedApplication] = useState<GrantApplication | null>(null);
 
-  // Redirect non-ambassador/non-admin users
-  if (!user) return <Redirect to="/auth" />;
-  if (!user.isAmbassador && !user.isAdmin) return <Redirect to="/dashboard" />;
+  const hasAccess = !!(user && (user.isAmbassador || user.isAdmin));
 
   const { data: grants = [], refetch: refetchGrants } = useQuery<Grant[]>({
     queryKey: ["/api/grants", typeFilter],
+    enabled: hasAccess,
     queryFn: async () => {
       const url = typeFilter === "all" ? "/api/grants" : `/api/grants?grantType=${typeFilter}`;
       return await apiRequest("GET", url) as Grant[];
@@ -84,11 +83,13 @@ export default function GrantsFundingPage() {
 
   const { data: applications = [], refetch: refetchApps } = useQuery<GrantApplication[]>({
     queryKey: ["/api/grants/applications"],
+    enabled: hasAccess,
     queryFn: () => apiRequest("GET", "/api/grants/applications") as Promise<GrantApplication[]>,
   });
 
   const { data: stats } = useQuery<DashboardStats>({
     queryKey: ["/api/grants/dashboard"],
+    enabled: hasAccess,
     queryFn: () => apiRequest("GET", "/api/grants/dashboard") as Promise<DashboardStats>,
   });
 
@@ -125,6 +126,10 @@ export default function GrantsFundingPage() {
       toast({ title: "Application deleted" });
     },
   });
+
+  // Redirects AFTER all hooks
+  if (!user) return <Redirect to="/auth" />;
+  if (!user.isAmbassador && !user.isAdmin) return <Redirect to="/dashboard" />;
 
   const handleApplyToGrant = (grant: Grant) => {
     const existing = applications.find(a => a.grantId === grant.id);
