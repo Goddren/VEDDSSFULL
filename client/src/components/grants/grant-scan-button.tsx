@@ -16,32 +16,30 @@ export function GrantScanButton({ onScanComplete, isAdmin, grantTypes }: GrantSc
 
   const handleScan = async () => {
     setScanning(true);
+    toast({
+      title: "Scanning for grants...",
+      description: "AI is searching for relevant funding opportunities. This takes ~20 seconds.",
+    });
     try {
-      await apiRequest("POST", "/api/grants/scan", {
+      const res = await apiRequest("POST", "/api/grants/scan", {
         grantTypes: grantTypes || (isAdmin
           ? ['business_fintech','community_dev','ambassador_education','international','ai_focused']
           : ['ambassador_education','community_dev']),
       });
+      const data = await res.json();
+      onScanComplete();
       toast({
-        title: "Grant scan started",
-        description: "AI is scanning for relevant grants. Results will appear in ~30 seconds.",
+        title: `✅ Scan complete — ${data.grantsFound || 0} grants found`,
+        description: `${data.grantsCreated || 0} new grants added to your list.`,
       });
-      // Poll for completion
-      setTimeout(() => {
-        setScanning(false);
-        onScanComplete();
-        toast({
-          title: "Grants updated",
-          description: "New grant opportunities have been loaded.",
-        });
-      }, 30000);
     } catch (err: any) {
-      setScanning(false);
       toast({
         title: "Scan failed",
-        description: err.message || "Failed to start grant scan",
+        description: err.message || "Failed to scan for grants. Check your AI API key is set.",
         variant: "destructive",
       });
+    } finally {
+      setScanning(false);
     }
   };
 

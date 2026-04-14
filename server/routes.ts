@@ -15192,7 +15192,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     return u;
   };
 
-  // POST /api/grants/scan — trigger AI grant scan
+  // POST /api/grants/scan — trigger AI grant scan (synchronous — waits for completion)
   app.post("/api/grants/scan", async (req: Request, res: Response) => {
     const user = requireGrantAccess(req, res); if (!user) return;
     const grantTypes = req.body.grantTypes || (user.isAdmin
@@ -15206,12 +15206,11 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       status: 'running',
     } as any);
 
-    // Run scan async
-    (async () => {
-      try {
-        const results = await scanGrantsWithAI(grantTypes, user.isAdmin);
-        let created = 0;
-        for (const g of results) {
+    try {
+      const results = await scanGrantsWithAI(grantTypes, !!user.isAdmin);
+      let created = 0;
+      for (const g of results) {
+        try {
           await storage.upsertGrant({
             title: g.title,
             funder: g.funder,
@@ -15228,23 +15227,26 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
             source: 'ai_scan',
           } as any);
           created++;
+        } catch (upsertErr: any) {
+          console.error('[Grants] upsert error for', g.title, upsertErr.message);
         }
-        await storage.updateGrantScanSession(session.id, {
-          status: 'completed',
-          grantsFound: results.length,
-          grantsCreated: created,
-          completedAt: new Date(),
-        });
-      } catch (err: any) {
-        await storage.updateGrantScanSession(session.id, {
-          status: 'failed',
-          errorMessage: err.message,
-          completedAt: new Date(),
-        });
       }
-    })();
-
-    res.json({ success: true, sessionId: session.id, message: "Grant scan started. Refresh in ~30 seconds." });
+      await storage.updateGrantScanSession(session.id, {
+        status: 'completed',
+        grantsFound: results.length,
+        grantsCreated: created,
+        completedAt: new Date(),
+      });
+      res.json({ success: true, sessionId: session.id, grantsFound: results.length, grantsCreated: created });
+    } catch (err: any) {
+      console.error('[Grants] scan error:', err.message);
+      await storage.updateGrantScanSession(session.id, {
+        status: 'failed',
+        errorMessage: err.message,
+        completedAt: new Date(),
+      }).catch(() => {});
+      res.status(500).json({ error: 'Grant scan failed', details: err.message });
+    }
   });
 
   // GET /api/grants/dashboard — pipeline stats
