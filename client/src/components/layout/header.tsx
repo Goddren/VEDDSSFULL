@@ -463,6 +463,16 @@ const Header: React.FC = () => {
                     <GraduationCap className="h-4 w-4 mr-2" />
                     Ambassador Program
                   </Link>
+                  {(user?.isAmbassador || user?.isAdmin) && (
+                    <Link
+                      href="/grants"
+                      onClick={handleMobileNavClick}
+                      className={`text-lg font-medium transition-colors flex items-center ${location === '/grants' ? 'text-green-400' : 'text-green-500 hover:text-green-400'}`}
+                    >
+                      <DollarSign className="h-4 w-4 mr-2" />
+                      Grants & Funding
+                    </Link>
+                  )}
                   <button
                     onClick={handleLogout}
                     className="text-lg font-medium transition-colors flex items-center text-muted-foreground hover:text-foreground text-left"
