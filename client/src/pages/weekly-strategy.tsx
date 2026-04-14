@@ -176,6 +176,7 @@ export default function WeeklyStrategyPage() {
       setActiveTrades(data.activeTrades || []);
       setUnrealizedPnL(data.unrealizedPnL || 0);
       setLastPositionUpdate(data.lastPositionUpdate || null);
+      if (data.pairDailyStats) setPairDailyStats(data.pairDailyStats);
       if (!data.silent) {
         const activeMsg = data.activeTradeCount > 0 ? ` | ${data.activeTradeCount} active trade(s)` : '';
         toast({ title: "Progress Synced", description: `$${data.currentProfit} closed P&L | $${data.unrealizedPnL || 0} unrealized${activeMsg}` });
@@ -208,6 +209,7 @@ export default function WeeklyStrategyPage() {
   const [activeTrades, setActiveTrades] = useState<any[]>([]);
   const [unrealizedPnL, setUnrealizedPnL] = useState(0);
   const [lastPositionUpdate, setLastPositionUpdate] = useState<string | null>(null);
+  const [pairDailyStats, setPairDailyStats] = useState<Record<string, any>>({});
   const [selectedSignalMode, setSelectedSignalMode] = useState("aggressive");
   const [autoExecuteSignals, setAutoExecuteSignals] = useState(false);
 
@@ -2163,26 +2165,104 @@ export default function WeeklyStrategyPage() {
                                 {dayPlan.projectedBalance && <Badge className="bg-blue-500/20 text-blue-400 text-[10px]">Balance: ${dayPlan.projectedBalance}</Badge>}
                               </div>
                             </div>
-                            {(dayPlan.pairs || []).map((p: any, i: number) => (
-                              <div key={i} className="bg-gray-800/50 rounded-lg p-3 text-xs space-y-1">
+                            {(dayPlan.pairs || []).map((p: any, i: number) => {
+                              const sym = (p.symbol || '').toUpperCase().replace('/', '');
+                              const stats = pairDailyStats[sym];
+                              const isToday = day === new Date().toLocaleDateString('en-US', { weekday: 'long' });
+                              const dailyTarget = dayPlan.dailyTarget || 0;
+                              const pairTargetShare = dayPlan.pairs?.length > 0 ? dailyTarget / dayPlan.pairs.length : 0;
+                              const todayProfit = stats?.profitToday || 0;
+                              const todayProgress = pairTargetShare > 0 ? Math.min(100, Math.round((todayProfit / pairTargetShare) * 100)) : 0;
+                              const hasOpenTrade = stats?.openLots > 0;
+                              return (
+                              <div key={i} className={`rounded-lg p-3 text-xs space-y-2 border ${
+                                hasOpenTrade ? 'bg-blue-950/40 border-blue-700/40' :
+                                isToday && stats?.tradesToday > 0 ? 'bg-gray-800/70 border-gray-700/60' :
+                                'bg-gray-800/50 border-gray-700/30'
+                              }`}>
+                                {/* Row 1: symbol + direction + session + confidence */}
                                 <div className="flex items-center justify-between">
                                   <div className="flex items-center gap-2">
-                                    <span className="text-white font-medium flex items-center gap-1">
+                                    <span className="text-white font-semibold flex items-center gap-1">
                                       {(pairDayAssignments[day] || []).includes(p.symbol) && <span title="Pinned to this day">📌</span>}
                                       {p.symbol}
                                     </span>
-                                    <Badge className={`text-[9px] ${p.direction === 'BUY' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>{p.direction}</Badge>
+                                    <Badge className={`text-[9px] ${p.direction === 'BUY' ? 'bg-emerald-500/20 text-emerald-400' : p.direction === 'SELL' ? 'bg-red-500/20 text-red-400' : 'bg-yellow-500/20 text-yellow-400'}`}>{p.direction}</Badge>
                                     <Badge variant="outline" className="text-[9px] text-gray-400"><Clock className="w-2 h-2 mr-0.5" />{p.session}</Badge>
+                                    {hasOpenTrade && <Badge className="text-[9px] bg-blue-500/20 text-blue-300 border-blue-500/40 animate-pulse">● OPEN {stats.openLots}L</Badge>}
                                   </div>
                                   <div className="flex gap-3 text-[10px]">
                                     <span className="text-purple-400">{p.confidence}%</span>
                                     <span className="text-gray-400">~{p.estimatedPips} pips</span>
-                                    <span className="text-orange-400">{p.lotSize} lots</span>
+                                    <span className="text-orange-400 font-medium">{p.lotSize} lots</span>
                                   </div>
                                 </div>
+
+                                {/* Row 2: live trade stats for today */}
+                                {isToday && stats && (
+                                  <div className="grid grid-cols-4 gap-1.5 pt-1 border-t border-gray-700/50">
+                                    <div className="bg-gray-900/60 rounded p-1.5 text-center">
+                                      <p className="text-[9px] text-gray-500 mb-0.5">Trades Today</p>
+                                      <p className="text-white font-bold text-xs">{stats.tradesToday}</p>
+                                    </div>
+                                    <div className="bg-gray-900/60 rounded p-1.5 text-center">
+                                      <p className="text-[9px] text-gray-500 mb-0.5">W / L</p>
+                                      <p className="text-xs font-bold">
+                                        <span className="text-emerald-400">{stats.winsToday}</span>
+                                        <span className="text-gray-600"> / </span>
+                                        <span className="text-red-400">{stats.lossesToday}</span>
+                                      </p>
+                                    </div>
+                                    <div className="bg-gray-900/60 rounded p-1.5 text-center">
+                                      <p className="text-[9px] text-gray-500 mb-0.5">Win Rate</p>
+                                      <p className={`text-xs font-bold ${stats.winRateToday >= 60 ? 'text-emerald-400' : stats.winRateToday >= 40 ? 'text-yellow-400' : 'text-red-400'}`}>
+                                        {stats.tradesToday > 0 ? `${stats.winRateToday}%` : '—'}
+                                      </p>
+                                    </div>
+                                    <div className="bg-gray-900/60 rounded p-1.5 text-center">
+                                      <p className="text-[9px] text-gray-500 mb-0.5">P&L Today</p>
+                                      <p className={`text-xs font-bold ${todayProfit > 0 ? 'text-emerald-400' : todayProfit < 0 ? 'text-red-400' : 'text-gray-400'}`}>
+                                        {todayProfit > 0 ? '+' : ''}${todayProfit.toFixed(2)}
+                                      </p>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Row 3: daily target progress bar (today only) */}
+                                {isToday && pairTargetShare > 0 && (
+                                  <div>
+                                    <div className="flex justify-between text-[9px] text-gray-500 mb-0.5">
+                                      <span>Daily target: ${pairTargetShare.toFixed(0)}</span>
+                                      <span className={todayProgress >= 100 ? 'text-emerald-400 font-bold' : 'text-gray-400'}>{todayProgress}%</span>
+                                    </div>
+                                    <div className="h-1 bg-gray-700 rounded-full overflow-hidden">
+                                      <div className="h-full rounded-full transition-all duration-500"
+                                        style={{
+                                          width: `${Math.max(0, todayProgress)}%`,
+                                          background: todayProgress >= 100 ? '#10b981' : todayProgress >= 60 ? '#f59e0b' : '#ef4444'
+                                        }} />
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Row 4: week totals (collapsed, shown for all days) */}
+                                {stats && stats.tradesWeek > 0 && (
+                                  <div className="flex items-center gap-3 text-[9px] text-gray-500 pt-0.5">
+                                    <span>Week: <span className="text-white">{stats.tradesWeek} trades</span></span>
+                                    <span><span className="text-emerald-400">{stats.winsWeek}W</span> / <span className="text-red-400">{stats.lossesWeek}L</span></span>
+                                    <span className={stats.profitWeek >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+                                      {stats.profitWeek >= 0 ? '+' : ''}${stats.profitWeek.toFixed(2)}
+                                    </span>
+                                    {hasOpenTrade && <span className={`${stats.openProfit >= 0 ? 'text-blue-400' : 'text-orange-400'}`}>
+                                      Open: {stats.openProfit >= 0 ? '+' : ''}${stats.openProfit.toFixed(2)}
+                                    </span>}
+                                  </div>
+                                )}
+
                                 {p.entryCondition && <p className="text-gray-500 pl-2 border-l-2 border-orange-500/30">{p.entryCondition}</p>}
                               </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         );
                       })}

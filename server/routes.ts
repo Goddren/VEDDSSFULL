@@ -8473,6 +8473,57 @@ Respond with ONLY valid JSON:
       };
     });
 
+    // ── Per-pair daily stats ──────────────────────────────────────────
+    const todayStart = new Date(); todayStart.setUTCHours(0,0,0,0);
+    const pairDailyStats: Record<string, {
+      tradesToday: number; winsToday: number; lossesToday: number;
+      profitToday: number; winRateToday: number;
+      tradesWeek: number; winsWeek: number; lossesWeek: number;
+      profitWeek: number; winRateWeek: number;
+      openLots: number; openProfit: number;
+    }> = {};
+
+    for (const pair of planPairs) {
+      // Today's closed trades for this pair (from DB)
+      const pairDbToday = dbWeekTrades.filter((t: any) => {
+        const sym = (t.symbol || '').toUpperCase().replace('/', '');
+        return sym === pair && new Date(t.closedAt || t.createdAt) >= todayStart;
+      });
+      // Today's from cache
+      const pairCacheToday = cacheWeekTrades.filter((t: any) => {
+        const sym = (t.symbol || '').toUpperCase().replace('/', '');
+        return sym === pair && new Date(t.closeTime || t.timestamp || 0) >= todayStart;
+      });
+      // Week totals
+      const pairDbWeek = dbWeekTrades.filter((t: any) => (t.symbol || '').toUpperCase().replace('/', '') === pair);
+      const pairCacheWeek = cacheWeekTrades.filter((t: any) => (t.symbol || '').toUpperCase().replace('/', '') === pair);
+
+      const todayTrades = pairDbToday.length + pairCacheToday.length;
+      const todayWins = pairDbToday.filter((t: any) => t.result === 'WIN').length + pairCacheToday.filter((t: any) => (t.profit||0) > 0).length;
+      const todayLosses = pairDbToday.filter((t: any) => t.result === 'LOSS').length + pairCacheToday.filter((t: any) => (t.profit||0) < 0).length;
+      const todayProfit = pairDbToday.reduce((s: number, t: any) => s + (t.profitLoss||0), 0) + pairCacheToday.reduce((s: number, t: any) => s + (t.profit||0), 0);
+
+      const weekTrades2 = pairDbWeek.length + pairCacheWeek.length;
+      const weekWins = pairDbWeek.filter((t: any) => t.result === 'WIN').length + pairCacheWeek.filter((t: any) => (t.profit||0) > 0).length;
+      const weekLosses = pairDbWeek.filter((t: any) => t.result === 'LOSS').length + pairCacheWeek.filter((t: any) => (t.profit||0) < 0).length;
+      const weekProfit = pairDbWeek.reduce((s: number, t: any) => s + (t.profitLoss||0), 0) + pairCacheWeek.reduce((s: number, t: any) => s + (t.profit||0), 0);
+
+      // Open position for this pair
+      const openPos = activeTrades.find((p: any) => (p.symbol||'').toUpperCase().replace('/','') === pair);
+
+      pairDailyStats[pair] = {
+        tradesToday: todayTrades, winsToday: todayWins, lossesToday: todayLosses,
+        profitToday: Math.round(todayProfit * 100) / 100,
+        winRateToday: todayTrades > 0 ? Math.round((todayWins / todayTrades) * 100) : 0,
+        tradesWeek: weekTrades2, winsWeek: weekWins, lossesWeek: weekLosses,
+        profitWeek: Math.round(weekProfit * 100) / 100,
+        winRateWeek: weekTrades2 > 0 ? Math.round((weekWins / weekTrades2) * 100) : 0,
+        openLots: openPos?.lots || 0,
+        openProfit: openPos ? Math.round((openPos.profit||0) * 100) / 100 : 0,
+      };
+    }
+    // ─────────────────────────────────────────────────────────────────
+
     const totalProfit = closedProfit + unrealizedPnL;
     strategy.currentProfit = Math.round(closedProfit * 100) / 100;
     strategy.progressTrades = weekTrades.length;
@@ -8503,6 +8554,7 @@ Respond with ONLY valid JSON:
       totalPnL: Math.round(totalProfit * 100) / 100,
       veddSSAILive: isLive,
       lastPositionUpdate: openPosData?.lastUpdated || null,
+      pairDailyStats,
     });
   });
 
