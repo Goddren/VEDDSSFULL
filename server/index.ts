@@ -199,6 +199,63 @@ async function withRetry<T>(
       console.error('[startup] AI settings columns migration (non-fatal):', (err as Error).message);
     }
 
+    try {
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS grants (
+        id serial PRIMARY KEY,
+        title text NOT NULL,
+        description text NOT NULL,
+        grant_type text NOT NULL,
+        funder text NOT NULL,
+        funding_amount text,
+        deadline timestamp,
+        eligibility_criteria jsonb,
+        target_audience text DEFAULT 'both',
+        geographic_scope text DEFAULT 'US',
+        application_url text,
+        ai_scan_notes text,
+        relevance_score integer DEFAULT 0,
+        is_active boolean DEFAULT true,
+        is_verified boolean DEFAULT false,
+        is_featured boolean DEFAULT false,
+        source text DEFAULT 'ai_scan',
+        last_scanned_at timestamp,
+        created_at timestamp DEFAULT now() NOT NULL,
+        updated_at timestamp DEFAULT now() NOT NULL
+      )`);
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS grant_applications (
+        id serial PRIMARY KEY,
+        user_id integer REFERENCES users(id),
+        grant_id integer REFERENCES grants(id),
+        status text DEFAULT 'draft',
+        proposal_mode text NOT NULL DEFAULT 'auto',
+        proposal_content text,
+        proposal_sections jsonb,
+        proposal_version integer DEFAULT 1,
+        submitted_at timestamp,
+        awarded_at timestamp,
+        awarded_amount text,
+        rejection_reason text,
+        application_notes text,
+        created_at timestamp DEFAULT now() NOT NULL,
+        updated_at timestamp DEFAULT now() NOT NULL
+      )`);
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS grant_scan_sessions (
+        id serial PRIMARY KEY,
+        triggered_by integer REFERENCES users(id),
+        scan_type text NOT NULL,
+        grant_types_scanned jsonb,
+        grants_found integer DEFAULT 0,
+        grants_created integer DEFAULT 0,
+        status text DEFAULT 'pending',
+        error_message text,
+        started_at timestamp DEFAULT now() NOT NULL,
+        completed_at timestamp
+      )`);
+      console.log('[startup] Grants tables created/verified.');
+    } catch (err) {
+      console.error('[startup] Grants tables migration (non-fatal):', (err as Error).message);
+    }
+
     await withRetry(() => seedSubscriptionPlans(), 'seedSubscriptionPlans');
     await withRetry(() => seedAchievements(), 'seedAchievements');
     await withRetry(() => seedAdminUser(), 'seedAdminUser');

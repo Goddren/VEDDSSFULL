@@ -15,7 +15,7 @@ async function hashPasswordForWallet(password: string) {
   const buf = (await scryptAsync(password, salt, 64)) as Buffer;
   return `${buf.toString("hex")}.${salt}`;
 }
-import { analyzeChartImage, testOpenAIApiKey, generateTradingTip, generateMarketTrendPredictions, generatePresentationOutline } from "./openai";
+import { analyzeChartImage, testOpenAIApiKey, generateTradingTip, generateMarketTrendPredictions, generatePresentationOutline, scanGrantsWithAI, generateGrantProposal } from "./openai";
 import { setupTwilio, sendTradingSignal } from "./twilio";
 import { checkUserAchievements } from "./achievement-tracker";
 import { generateMT5EACode, generateTradingViewCode, generateTradeLockerCode } from './ea-generators';
@@ -15097,9 +15097,228 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     });
   }
 
+  // ─── GRANTS & FUNDING ─────────────────────────────────────────────────────
+
+  // Auth guard helper for grants (ambassadors + admins)
+  const requireGrantAccess = (req: Request, res: Response): User | null => {
+    if (!req.isAuthenticated()) { res.status(401).json({ error: "Authentication required" }); return null; }
+    const u = req.user as User;
+    if (!u.isAmbassador && !u.isAdmin) { res.status(403).json({ error: "Ambassador or admin access required" }); return null; }
+    return u;
+  };
+
+  // POST /api/grants/scan — trigger AI grant scan
+  app.post("/api/grants/scan", async (req: Request, res: Response) => {
+    const user = requireGrantAccess(req, res); if (!user) return;
+    const grantTypes = req.body.grantTypes || (user.isAdmin
+      ? ['business_fintech','community_dev','ambassador_education','international','ai_focused']
+      : ['ambassador_education','community_dev']);
+
+    const session = await storage.createGrantScanSession({
+      triggeredBy: user.id,
+      scanType: user.isAdmin ? 'full' : 'targeted',
+      grantTypesScanned: grantTypes,
+      status: 'running',
+    } as any);
+
+    // Run scan async
+    (async () => {
+      try {
+        const results = await scanGrantsWithAI(grantTypes, user.isAdmin);
+        let created = 0;
+        for (const g of results) {
+          await storage.upsertGrant({
+            title: g.title,
+            funder: g.funder,
+            description: g.description,
+            grantType: g.grantType,
+            fundingAmount: g.fundingAmount || null,
+            deadline: g.deadline ? new Date(g.deadline) : null,
+            eligibilityCriteria: g.eligibilityCriteria,
+            targetAudience: g.targetAudience || 'both',
+            geographicScope: g.geographicScope || 'US',
+            applicationUrl: g.applicationUrl || null,
+            aiScanNotes: g.aiScanNotes || null,
+            relevanceScore: g.relevanceScore || 75,
+            source: 'ai_scan',
+          } as any);
+          created++;
+        }
+        await storage.updateGrantScanSession(session.id, {
+          status: 'completed',
+          grantsFound: results.length,
+          grantsCreated: created,
+          completedAt: new Date(),
+        });
+      } catch (err: any) {
+        await storage.updateGrantScanSession(session.id, {
+          status: 'failed',
+          errorMessage: err.message,
+          completedAt: new Date(),
+        });
+      }
+    })();
+
+    res.json({ success: true, sessionId: session.id, message: "Grant scan started. Refresh in ~30 seconds." });
+  });
+
+  // GET /api/grants/dashboard — pipeline stats
+  app.get("/api/grants/dashboard", async (req: Request, res: Response) => {
+    const user = requireGrantAccess(req, res); if (!user) return;
+    const stats = await storage.getGrantDashboardStats(user.id, !!user.isAdmin);
+    res.json(stats);
+  });
+
+  // GET /api/grants/applications — list applications
+  app.get("/api/grants/applications", async (req: Request, res: Response) => {
+    const user = requireGrantAccess(req, res); if (!user) return;
+    if (user.isAdmin) {
+      const apps = await storage.getAllGrantApplications();
+      res.json(apps);
+    } else {
+      const apps = await storage.getGrantApplicationsByUser(user.id);
+      res.json(apps);
+    }
+  });
+
+  // GET /api/grants — list grants
+  app.get("/api/grants", async (req: Request, res: Response) => {
+    const user = requireGrantAccess(req, res); if (!user) return;
+    const { grantType, isActive } = req.query;
+    const targetAudience = user.isAdmin ? undefined : 'ambassador';
+    const grants = await storage.getGrants({
+      grantType: grantType as string | undefined,
+      targetAudience,
+      isActive: isActive !== undefined ? isActive === 'true' : true,
+    });
+    res.json(grants);
+  });
+
+  // POST /api/grants — manually add a grant (admin only)
+  app.post("/api/grants", async (req: Request, res: Response) => {
+    const user = requireGrantAccess(req, res); if (!user) return;
+    if (!user.isAdmin) return res.status(403).json({ error: "Admin only" });
+    const grant = await storage.createGrant({ ...req.body, source: 'manual' });
+    res.json(grant);
+  });
+
+  // GET /api/grants/:id — single grant
+  app.get("/api/grants/:id", async (req: Request, res: Response) => {
+    const user = requireGrantAccess(req, res); if (!user) return;
+    const grant = await storage.getGrantById(parseInt(req.params.id));
+    if (!grant) return res.status(404).json({ error: "Grant not found" });
+    res.json(grant);
+  });
+
+  // PATCH /api/grants/:id — update/verify grant (admin only)
+  app.patch("/api/grants/:id", async (req: Request, res: Response) => {
+    const user = requireGrantAccess(req, res); if (!user) return;
+    if (!user.isAdmin) return res.status(403).json({ error: "Admin only" });
+    const updated = await storage.updateGrant(parseInt(req.params.id), req.body);
+    res.json(updated);
+  });
+
+  // POST /api/grants/:grantId/apply — start draft application
+  app.post("/api/grants/:grantId/apply", async (req: Request, res: Response) => {
+    const user = requireGrantAccess(req, res); if (!user) return;
+    const grantId = parseInt(req.params.grantId);
+    const grant = await storage.getGrantById(grantId);
+    if (!grant) return res.status(404).json({ error: "Grant not found" });
+    const app2 = await storage.createGrantApplication({
+      userId: user.id,
+      grantId,
+      status: 'draft',
+      proposalMode: req.body.proposalMode || 'auto',
+    } as any);
+    const result = await storage.getGrantApplicationById(app2.id);
+    res.json(result);
+  });
+
+  // PATCH /api/grants/applications/:appId — update application
+  app.patch("/api/grants/applications/:appId", async (req: Request, res: Response) => {
+    const user = requireGrantAccess(req, res); if (!user) return;
+    const appId = parseInt(req.params.appId);
+    const existing = await storage.getGrantApplicationById(appId);
+    if (!existing) return res.status(404).json({ error: "Application not found" });
+    if (existing.userId !== user.id && !user.isAdmin) return res.status(403).json({ error: "Forbidden" });
+    const updateData: any = { ...req.body };
+    if (req.body.status === 'applied') updateData.submittedAt = new Date();
+    if (req.body.status === 'awarded') updateData.awardedAt = new Date();
+    const updated = await storage.updateGrantApplication(appId, updateData);
+    if (req.body.status === 'awarded') {
+      checkUserAchievements({ userId: existing.userId, trigger: 'grant_awarded' }).catch(() => {});
+    }
+    res.json(updated);
+  });
+
+  // DELETE /api/grants/applications/:appId
+  app.delete("/api/grants/applications/:appId", async (req: Request, res: Response) => {
+    const user = requireGrantAccess(req, res); if (!user) return;
+    const appId = parseInt(req.params.appId);
+    const existing = await storage.getGrantApplicationById(appId);
+    if (!existing) return res.status(404).json({ error: "Application not found" });
+    if (existing.userId !== user.id && !user.isAdmin) return res.status(403).json({ error: "Forbidden" });
+    await storage.deleteGrantApplication(appId);
+    res.json({ success: true });
+  });
+
+  // POST /api/grants/applications/:appId/generate-proposal
+  app.post("/api/grants/applications/:appId/generate-proposal", async (req: Request, res: Response) => {
+    const user = requireGrantAccess(req, res); if (!user) return;
+    const appId = parseInt(req.params.appId);
+    const existing = await storage.getGrantApplicationById(appId);
+    if (!existing) return res.status(404).json({ error: "Application not found" });
+    if (existing.userId !== user.id && !user.isAdmin) return res.status(403).json({ error: "Forbidden" });
+
+    const mode = req.body.mode || existing.proposalMode || 'auto';
+    const options = req.body.options || {};
+
+    try {
+      const result = await generateGrantProposal(existing.grant, mode as any, options);
+      const updatedSections = mode === 'guided' && options.sectionKey
+        ? { ...(existing.proposalSections as any || {}), ...result.sections }
+        : undefined;
+
+      const updated = await storage.updateGrantApplication(appId, {
+        proposalContent: result.content,
+        proposalMode: mode,
+        proposalVersion: (existing.proposalVersion || 1) + 1,
+        ...(updatedSections ? { proposalSections: updatedSections } : {}),
+      });
+      res.json({ ...updated, grant: existing.grant });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to generate proposal", details: err.message });
+    }
+  });
+
+  // GET /api/grants/applications/:appId/export — plain text export
+  app.get("/api/grants/applications/:appId/export", async (req: Request, res: Response) => {
+    const user = requireGrantAccess(req, res); if (!user) return;
+    const appId = parseInt(req.params.appId);
+    const existing = await storage.getGrantApplicationById(appId);
+    if (!existing) return res.status(404).json({ error: "Application not found" });
+    if (existing.userId !== user.id && !user.isAdmin) return res.status(403).json({ error: "Forbidden" });
+    const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    const exportText = [
+      "===================================",
+      "GRANT PROPOSAL — VEDD AI Trading",
+      "===================================",
+      `Grant: ${existing.grant.title} | Funder: ${existing.grant.funder} | Date: ${date}`,
+      "===================================",
+      "",
+      existing.proposalContent || "(No proposal content yet — generate a proposal first)",
+      "",
+      "===================================",
+      "veddbuild.com",
+      "===================================",
+    ].join("\n");
+    res.setHeader('Content-Type', 'text/plain');
+    res.send(exportText);
+  });
+
   const httpServer = createServer(app);
-  
+
   streamingService.initialize(httpServer);
-  
+
   return httpServer;
 }

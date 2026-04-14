@@ -37,7 +37,8 @@ import {
   Award, Users, Newspaper, Wand2, Clock, Briefcase, Zap, HelpCircle,
   BookOpen, GraduationCap, FileText, Lightbulb, ChevronDown, MoreHorizontal,
   BarChart3, Webhook, Wallet, Scan, Coins, KeyRound, Rocket, Brain, Shirt,
-  Radio, Star, CheckCircle2, AlertTriangle, Loader2, ExternalLink, TrendingUp, Code2, Activity
+  Radio, Star, CheckCircle2, AlertTriangle, Loader2, ExternalLink, TrendingUp, Code2, Activity,
+  DollarSign
 } from 'lucide-react';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 
@@ -251,6 +252,18 @@ const Header: React.FC = () => {
                   Ambassador
                 </Button>
               </Link>
+              {(user?.isAmbassador || user?.isAdmin) && (
+                <Link href="/grants">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="border-green-500/50 text-green-400 hover:bg-green-500/10"
+                  >
+                    <DollarSign className="h-4 w-4 mr-1" />
+                    Grants
+                  </Button>
+                </Link>
+              )}
             </div>
 
             <ThemeToggle />

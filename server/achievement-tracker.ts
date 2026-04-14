@@ -167,6 +167,9 @@ async function calculateProgressUpdate(
       if (trigger === 'share_analysis' && achievement.name.includes('Share')) {
         return 1;
       }
+      if (trigger === 'grant_awarded' && achievement.name === 'Grant Champion') {
+        return 1;
+      }
       // Add more special achievement triggers as needed
       break;
   }

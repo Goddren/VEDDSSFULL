@@ -3,27 +3,28 @@ import { Home, LineChart, Scan, BarChart3, Menu } from 'lucide-react';
 import { useState } from 'react';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
-import { 
-  Settings, 
-  History, 
-  CreditCard, 
-  Award, 
-  Users, 
-  Newspaper, 
-  Clock, 
-  Briefcase, 
-  Zap, 
-  HelpCircle, 
-  BookOpen, 
-  GraduationCap, 
-  Lightbulb, 
+import {
+  Settings,
+  History,
+  CreditCard,
+  Award,
+  Users,
+  Newspaper,
+  Clock,
+  Briefcase,
+  Zap,
+  HelpCircle,
+  BookOpen,
+  GraduationCap,
+  Lightbulb,
   Coins,
-  Webhook, 
+  Webhook,
   Wallet,
   User,
   LogOut,
   Layers,
-  Shirt
+  Shirt,
+  DollarSign,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { isMobileDevice } from '@/lib/pwa';
@@ -53,6 +54,7 @@ const allNavItems = [
   { name: 'Community', path: '/community', icon: Users },
   { name: 'Achievements', path: '/achievements', icon: Award },
   { name: 'Ambassador Training', path: '/ambassador-training', icon: GraduationCap },
+  { name: 'Grants & Funding', path: '/grants', icon: DollarSign },
   { name: 'User Guide', path: '/user-guide', icon: BookOpen },
   { name: 'Blog', path: '/blog', icon: Newspaper },
   { name: 'Pricing', path: '/subscription', icon: CreditCard },

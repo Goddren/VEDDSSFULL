@@ -52,6 +52,10 @@ import {
   aiModelConfigs,
   aiConfirmationOutcomes,
   type AiConfirmationOutcome, type InsertAiConfirmationOutcome,
+  grants, grantApplications, grantScanSessions,
+  type Grant, type InsertGrant,
+  type GrantApplication, type InsertGrantApplication,
+  type GrantScanSession, type InsertGrantScanSession,
 } from "@shared/schema";
 import { db, pool } from "./db";
 import { eq, and, sql, desc, isNull, gte, lte } from "drizzle-orm";
@@ -393,6 +397,28 @@ export interface IStorage {
   getActiveUserApiKey(userId: number, provider: string): Promise<UserApiKey | undefined>;
   getAiModelConfig(userId: number): Promise<AiModelConfig | undefined>;
   upsertAiModelConfig(userId: number, data: Partial<InsertAiModelConfig>): Promise<AiModelConfig>;
+
+  // Grants & Funding methods
+  createGrant(grant: InsertGrant): Promise<Grant>;
+  getGrants(filters?: { grantType?: string; targetAudience?: string; isActive?: boolean }): Promise<Grant[]>;
+  getGrantById(id: number): Promise<Grant | undefined>;
+  upsertGrant(grant: InsertGrant): Promise<Grant>;
+  updateGrant(id: number, data: Partial<Grant>): Promise<Grant | undefined>;
+  createGrantApplication(application: InsertGrantApplication): Promise<GrantApplication>;
+  getGrantApplicationsByUser(userId: number): Promise<(GrantApplication & { grant: Grant })[]>;
+  getAllGrantApplications(): Promise<(GrantApplication & { grant: Grant; user: { id: number; username: string; fullName: string | null } })[]>;
+  getGrantApplicationById(id: number): Promise<(GrantApplication & { grant: Grant }) | undefined>;
+  updateGrantApplication(id: number, data: Partial<GrantApplication>): Promise<GrantApplication | undefined>;
+  deleteGrantApplication(id: number): Promise<boolean>;
+  createGrantScanSession(session: InsertGrantScanSession): Promise<GrantScanSession>;
+  updateGrantScanSession(id: number, data: Partial<GrantScanSession>): Promise<GrantScanSession | undefined>;
+  getGrantDashboardStats(userId: number, isAdmin: boolean): Promise<{
+    totalGrants: number;
+    myApplications: number;
+    awarded: number;
+    inProgress: number;
+    totalFundingAwarded: string;
+  }>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2569,6 +2595,137 @@ export class DatabaseStorage implements IStorage {
       .values({ userId, ...data } as any)
       .returning();
     return created;
+  }
+
+  // ── Grants & Funding ─────────────────────────────────────────────────────
+  async createGrant(grant: InsertGrant): Promise<Grant> {
+    const [result] = await db.insert(grants).values(grant as any).returning();
+    return result;
+  }
+
+  async getGrants(filters?: { grantType?: string; targetAudience?: string; isActive?: boolean }): Promise<Grant[]> {
+    const conditions: any[] = [];
+    if (filters?.grantType) conditions.push(eq(grants.grantType, filters.grantType));
+    if (filters?.isActive !== undefined) conditions.push(eq(grants.isActive, filters.isActive));
+    if (filters?.targetAudience && filters.targetAudience !== 'both') {
+      conditions.push(sql`(${grants.targetAudience} = ${filters.targetAudience} OR ${grants.targetAudience} = 'both')`);
+    }
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+    return await db.select().from(grants)
+      .where(whereClause)
+      .orderBy(desc(grants.relevanceScore), desc(grants.createdAt));
+  }
+
+  async getGrantById(id: number): Promise<Grant | undefined> {
+    const [result] = await db.select().from(grants).where(eq(grants.id, id));
+    return result;
+  }
+
+  async upsertGrant(grant: InsertGrant): Promise<Grant> {
+    // Try to find existing by title + funder
+    const [existing] = await db.select().from(grants)
+      .where(and(eq(grants.title, grant.title), eq(grants.funder, grant.funder)));
+    if (existing) {
+      const [updated] = await db.update(grants)
+        .set({ ...grant, updatedAt: new Date(), lastScannedAt: new Date() } as any)
+        .where(eq(grants.id, existing.id))
+        .returning();
+      return updated;
+    }
+    const [created] = await db.insert(grants)
+      .values({ ...grant, lastScannedAt: new Date() } as any)
+      .returning();
+    return created;
+  }
+
+  async updateGrant(id: number, data: Partial<Grant>): Promise<Grant | undefined> {
+    const [updated] = await db.update(grants)
+      .set({ ...data, updatedAt: new Date() } as any)
+      .where(eq(grants.id, id))
+      .returning();
+    return updated;
+  }
+
+  async createGrantApplication(application: InsertGrantApplication): Promise<GrantApplication> {
+    const [result] = await db.insert(grantApplications).values(application as any).returning();
+    return result;
+  }
+
+  async getGrantApplicationsByUser(userId: number): Promise<(GrantApplication & { grant: Grant })[]> {
+    const results = await db.select({
+      application: grantApplications,
+      grant: grants,
+    }).from(grantApplications)
+      .innerJoin(grants, eq(grantApplications.grantId, grants.id))
+      .where(eq(grantApplications.userId, userId))
+      .orderBy(desc(grantApplications.updatedAt));
+    return results.map(r => ({ ...r.application, grant: r.grant }));
+  }
+
+  async getAllGrantApplications(): Promise<(GrantApplication & { grant: Grant; user: { id: number; username: string; fullName: string | null } })[]> {
+    const results = await db.select({
+      application: grantApplications,
+      grant: grants,
+      user: { id: users.id, username: users.username, fullName: users.fullName },
+    }).from(grantApplications)
+      .innerJoin(grants, eq(grantApplications.grantId, grants.id))
+      .innerJoin(users, eq(grantApplications.userId, users.id))
+      .orderBy(desc(grantApplications.updatedAt));
+    return results.map(r => ({ ...r.application, grant: r.grant, user: r.user }));
+  }
+
+  async getGrantApplicationById(id: number): Promise<(GrantApplication & { grant: Grant }) | undefined> {
+    const [result] = await db.select({
+      application: grantApplications,
+      grant: grants,
+    }).from(grantApplications)
+      .innerJoin(grants, eq(grantApplications.grantId, grants.id))
+      .where(eq(grantApplications.id, id));
+    if (!result) return undefined;
+    return { ...result.application, grant: result.grant };
+  }
+
+  async updateGrantApplication(id: number, data: Partial<GrantApplication>): Promise<GrantApplication | undefined> {
+    const [updated] = await db.update(grantApplications)
+      .set({ ...data, updatedAt: new Date() } as any)
+      .where(eq(grantApplications.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteGrantApplication(id: number): Promise<boolean> {
+    const result = await db.delete(grantApplications).where(eq(grantApplications.id, id));
+    return true;
+  }
+
+  async createGrantScanSession(sess: InsertGrantScanSession): Promise<GrantScanSession> {
+    const [result] = await db.insert(grantScanSessions).values(sess as any).returning();
+    return result;
+  }
+
+  async updateGrantScanSession(id: number, data: Partial<GrantScanSession>): Promise<GrantScanSession | undefined> {
+    const [updated] = await db.update(grantScanSessions)
+      .set(data as any)
+      .where(eq(grantScanSessions.id, id))
+      .returning();
+    return updated;
+  }
+
+  async getGrantDashboardStats(userId: number, isAdmin: boolean): Promise<{
+    totalGrants: number;
+    myApplications: number;
+    awarded: number;
+    inProgress: number;
+    totalFundingAwarded: string;
+  }> {
+    const [{ count: totalGrants }] = await db.select({ count: sql<number>`count(*)::int` }).from(grants).where(eq(grants.isActive, true));
+    const allApps = await db.select({ status: grantApplications.status, awardedAmount: grantApplications.awardedAmount })
+      .from(grantApplications)
+      .where(isAdmin ? undefined : eq(grantApplications.userId, userId));
+    const myApplications = allApps.length;
+    const awarded = allApps.filter(a => a.status === 'awarded').length;
+    const inProgress = allApps.filter(a => ['applied', 'under_review'].includes(a.status || '')).length;
+    return { totalGrants, myApplications, awarded, inProgress, totalFundingAwarded: `${awarded} grants` };
   }
 }
 

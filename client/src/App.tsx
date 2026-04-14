@@ -73,6 +73,7 @@ import FuturesConnectPage from "@/pages/futures-connect";
 import FuturesEaGeneratorPage from "@/pages/futures-ea-generator";
 import FuturesLiveFeedPage from "@/pages/futures-live-feed";
 import SevenEightPage from "@/pages/seven-eight";
+import GrantsFundingPage from "@/pages/grants-funding";
 import StreakBanner from "@/components/StreakBanner";
 import { OnboardingTutorial } from "@/components/onboarding-tutorial";
 import { MobileFAB } from "@/components/mobile-fab";
@@ -184,6 +185,9 @@ function AppLayout() {
             <ProtectedRoute path="/ai-api-keys" component={AiApiKeysPage} />
             <ProtectedRoute path="/ai-trading-models" component={AiTradingModelsPage} />
             
+            {/* Grants & Funding (Ambassador + Admin) */}
+            <ProtectedRoute path="/grants" component={GrantsFundingPage} />
+
             {/* Admin routes */}
             <ProtectedRoute path="/admin/vedd-pool" component={AdminVeddPool} />
             <ProtectedRoute path="/vedd-wallet" component={VeddWalletPage} />

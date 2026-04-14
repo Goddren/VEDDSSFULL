@@ -171,5 +171,14 @@ export const initialAchievements: InsertAchievement[] = [
     points: 100,
     threshold: 1,
     isSecret: true
+  },
+  {
+    name: "Grant Champion",
+    description: "Successfully secure your first grant award for VEDD",
+    category: "special",
+    icon: "trophy",
+    points: 100,
+    threshold: 1,
+    isSecret: false
   }
 ];
