@@ -8435,7 +8435,6 @@ Respond with ONLY valid JSON:
 
     const openPosData = (global as any).mt5OpenPositions?.[userId];
     const allOpenPositions = openPosData?.positions || [];
-    const planPairs = (strategy.pairs || []).map((p: string) => p.toUpperCase().replace('/', ''));
     const activeTrades = allOpenPositions.filter((p: any) => {
       const sym = (p.symbol || '').toUpperCase().replace('/', '');
       return planPairs.includes(sym);
