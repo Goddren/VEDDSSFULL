@@ -77,24 +77,31 @@ export default function GrantsFundingPage() {
     enabled: hasAccess,
     queryFn: async () => {
       const url = typeFilter === "all" ? "/api/grants" : `/api/grants?grantType=${typeFilter}`;
-      return await apiRequest("GET", url) as Grant[];
+      const res = await apiRequest("GET", url);
+      return res.json();
     },
   });
 
   const { data: applications = [], refetch: refetchApps } = useQuery<GrantApplication[]>({
     queryKey: ["/api/grants/applications"],
     enabled: hasAccess,
-    queryFn: () => apiRequest("GET", "/api/grants/applications") as Promise<GrantApplication[]>,
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/grants/applications");
+      return res.json();
+    },
   });
 
   const { data: stats } = useQuery<DashboardStats>({
     queryKey: ["/api/grants/dashboard"],
     enabled: hasAccess,
-    queryFn: () => apiRequest("GET", "/api/grants/dashboard") as Promise<DashboardStats>,
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/grants/dashboard");
+      return res.json();
+    },
   });
 
   const startApplicationMutation = useMutation({
-    mutationFn: (grantId: number) => apiRequest("POST", `/api/grants/${grantId}/apply`, { proposalMode: 'auto' }),
+    mutationFn: async (grantId: number) => { const res = await apiRequest("POST", `/api/grants/${grantId}/apply`, { proposalMode: 'auto' }); return res.json(); },
     onSuccess: (newApp: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/grants/applications"] });
       queryClient.invalidateQueries({ queryKey: ["/api/grants/dashboard"] });
@@ -106,8 +113,8 @@ export default function GrantsFundingPage() {
   });
 
   const updateStatusMutation = useMutation({
-    mutationFn: ({ appId, status }: { appId: number; status: string }) =>
-      apiRequest("PATCH", `/api/grants/applications/${appId}`, { status }),
+    mutationFn: async ({ appId, status }: { appId: number; status: string }) => {
+      const res = await apiRequest("PATCH", `/api/grants/applications/${appId}`, { status }); return res.json(); },
     onSuccess: (updated: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/grants/applications"] });
       queryClient.invalidateQueries({ queryKey: ["/api/grants/dashboard"] });
@@ -117,7 +124,7 @@ export default function GrantsFundingPage() {
   });
 
   const deleteApplicationMutation = useMutation({
-    mutationFn: (appId: number) => apiRequest("DELETE", `/api/grants/applications/${appId}`),
+    mutationFn: async (appId: number) => { const res = await apiRequest("DELETE", `/api/grants/applications/${appId}`); return res.json(); },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/grants/applications"] });
       queryClient.invalidateQueries({ queryKey: ["/api/grants/dashboard"] });
