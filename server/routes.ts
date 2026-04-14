@@ -8380,23 +8380,57 @@ Respond with ONLY valid JSON:
   app.post("/api/weekly-strategy/update-progress", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
-    const strategy = (global as any).mt5WeeklyStrategies?.[userId];
-    if (!strategy) return res.status(404).json({ error: "No active strategy" });
 
-    const closedTradesCache = (global as any).mt5ClosedTrades || {};
-    const closedTrades = closedTradesCache[userId]?.trades || [];
+    // Load strategy from memory OR database (survives deploys)
+    let strategy = (global as any).mt5WeeklyStrategies?.[userId];
+    if (!strategy) {
+      const dbStrat = await storage.getActiveWeeklyStrategy(userId);
+      if (!dbStrat) return res.status(404).json({ error: "No active strategy" });
+      strategy = {
+        profitTarget: dbStrat.profitTarget, accountBalance: dbStrat.accountBalance,
+        pairs: dbStrat.pairs, riskLevel: dbStrat.riskLevel, lotSize: dbStrat.lotSize,
+        plan: dbStrat.plan, pairStats: dbStrat.pairStats, generatedAt: dbStrat.generatedAt,
+        weekStart: dbStrat.weekStart,
+        currentProfit: dbStrat.currentProfit || 0, progressTrades: dbStrat.progressTrades || 0,
+        progressWinRate: dbStrat.progressWinRate || 0, progressPercentage: dbStrat.progressPercentage || 0,
+      };
+      (global as any).mt5WeeklyStrategies = (global as any).mt5WeeklyStrategies || {};
+      (global as any).mt5WeeklyStrategies[userId] = strategy;
+    }
+
     const weekStart = new Date(strategy.weekStart);
-    
-    const weekTrades = closedTrades.filter((t: any) => {
-      const tradeDate = new Date(t.closeTime || t.timestamp || 0);
-      return tradeDate >= weekStart && strategy.pairs.some((p: string) => 
-        (t.symbol || '').toUpperCase().replace('/', '') === p.toUpperCase().replace('/', '')
-      );
+    const planPairs = (strategy.pairs || []).map((p: string) => p.toUpperCase().replace('/', ''));
+
+    // ── Primary source: ai_trade_results DB (persists across deploys) ──
+    const dbTrades = await storage.getAiTradeResults(userId, 500);
+    const dbWeekTrades = dbTrades.filter((t: any) => {
+      const tradeDate = new Date(t.closedAt || t.createdAt);
+      const sym = (t.symbol || '').toUpperCase().replace('/', '');
+      return tradeDate >= weekStart
+        && planPairs.includes(sym)
+        && t.result && t.result !== 'PENDING';
     });
 
-    const closedProfit = weekTrades.reduce((sum: number, t: any) => sum + (t.profit || 0), 0);
-    const tradeCount = weekTrades.length;
-    const wins = weekTrades.filter((t: any) => t.profit > 0).length;
+    // ── Supplement: global closed trades cache (catches trades not yet in DB) ──
+    const cachedTrades: any[] = ((global as any).mt5ClosedTrades?.[userId]?.trades || []);
+    const dbTickets = new Set(dbWeekTrades.map((t: any) => t.mt5Ticket).filter(Boolean));
+    const cacheWeekTrades = cachedTrades.filter((t: any) => {
+      const tradeDate = new Date(t.closeTime || t.timestamp || 0);
+      const sym = (t.symbol || '').toUpperCase().replace('/', '');
+      const ticket = t.ticket?.toString();
+      return tradeDate >= weekStart
+        && planPairs.includes(sym)
+        && (!ticket || !dbTickets.has(ticket)); // don't double-count
+    });
+
+    // Merge both sources
+    const dbProfit = dbWeekTrades.reduce((s: number, t: any) => s + (t.profitLoss || 0), 0);
+    const cacheProfit = cacheWeekTrades.reduce((s: number, t: any) => s + (t.profit || 0), 0);
+    const closedProfit = dbProfit + cacheProfit;
+
+    const tradeCount = dbWeekTrades.length + cacheWeekTrades.length;
+    const wins = dbWeekTrades.filter((t: any) => t.result === 'WIN').length
+               + cacheWeekTrades.filter((t: any) => (t.profit || 0) > 0).length;
     const winRate = tradeCount > 0 ? Math.round((wins / tradeCount) * 100) : 0;
 
     const openPosData = (global as any).mt5OpenPositions?.[userId];
