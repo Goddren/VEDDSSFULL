@@ -2839,7 +2839,8 @@ export interface GrantScanResult {
 
 export async function scanGrantsWithAI(
   grantTypes: string[],
-  isAdmin: boolean
+  isAdmin: boolean,
+  userId?: number
 ): Promise<GrantScanResult[]> {
   const typeLabels: Record<string, string> = {
     business_fintech: "Business Development & Fintech",
@@ -2850,48 +2851,37 @@ export async function scanGrantsWithAI(
   };
   const typesText = grantTypes.map(t => typeLabels[t] || t).join(", ");
 
-  const prompt = `You are a grant research specialist. Based on your knowledge of real grant programs, foundations, and government initiatives that existed before your training cutoff, identify ${isAdmin ? '20-25' : '10-15'} grants relevant to the following organization:
+  const systemPrompt = "You are an expert grant researcher specializing in fintech, community development, and technology education funding. Return only valid JSON with a 'grants' array.";
+  const userPrompt = `Based on your knowledge of real grant programs, foundations, and government initiatives, identify ${isAdmin ? '20-25' : '10-15'} grants relevant to this organization:
 
 ${VEDD_IDENTITY_CONTEXT}
 
 Focus on grant categories: ${typesText}
 
-For each grant, provide accurate information based on known programs. Include:
-- Federal programs (SBA, CDFI Fund, EDA, NSF, HUD)
-- State/local programs
-- Private foundations (Kauffman Foundation, JPMorgan Chase Foundation, etc.)
-- Corporate grant programs
-- Fintech/startup accelerator grants
+Include: Federal programs (SBA, CDFI Fund, EDA, NSF, HUD), private foundations (Kauffman, JPMorgan Chase, etc.), corporate grants, fintech accelerators.
 
-Return a JSON object with a "grants" array. Each grant must have:
-{
-  "title": "exact grant program name",
-  "funder": "organization/agency name",
-  "description": "2-3 sentence description of what this funds and why it's relevant to VEDD",
-  "fundingAmount": "dollar range as text e.g. '$10,000–$100,000' or 'Up to $500,000'",
-  "deadline": null or "YYYY-MM-DD if known rolling deadline",
-  "eligibilityCriteria": ["criterion 1", "criterion 2", "criterion 3"],
-  "applicationUrl": "known URL or funder's main website",
-  "grantType": one of: "business_fintech"|"community_dev"|"ambassador_education"|"international"|"ai_focused",
-  "targetAudience": one of: "business"|"ambassador"|"both",
-  "geographicScope": "US" or specific state/region,
-  "relevanceScore": integer 60-100 based on fit with VEDD's mission,
-  "aiScanNotes": "1-2 sentences on why this is a strong match and any key requirements"
-}`;
+Return JSON: { "grants": [ { "title", "funder", "description", "fundingAmount", "deadline" (null or YYYY-MM-DD), "eligibilityCriteria" (array), "applicationUrl", "grantType" (business_fintech|community_dev|ambassador_education|international|ai_focused), "targetAudience" (business|ambassador|both), "geographicScope", "relevanceScore" (60-100), "aiScanNotes" } ] }`;
 
   try {
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o",
+    // Use user's stored API key via universal client
+    const aiClient = userId ? await getUniversalAIClientForUser(userId) : null;
+
+    let content: string | null = null;
+    const client = aiClient || openai;
+    const model = aiClient ? aiClient.defaultModel : "gpt-4o";
+
+    const response = await client.chat.completions.create({
+      model,
       messages: [
-        { role: "system", content: "You are an expert grant researcher specializing in fintech, community development, and technology education funding. Return only valid JSON." },
-        { role: "user", content: prompt }
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt }
       ],
       response_format: { type: "json_object" },
       max_tokens: 6000,
       temperature: 0.4,
     });
+    content = response.choices[0]?.message?.content || null;
 
-    const content = response.choices[0]?.message?.content;
     if (!content) throw new Error("No response from AI");
     const parsed = JSON.parse(content);
     return (parsed.grants || []) as GrantScanResult[];
@@ -2908,6 +2898,7 @@ export async function generateGrantProposal(
     sectionKey?: string;
     userInputs?: Record<string, string>;
     templateType?: 'ambassador_program' | 'fintech_expansion' | 'community_dev';
+    userId?: number;
   }
 ): Promise<{ content: string; sections?: Record<string, string> }> {
 
@@ -2921,58 +2912,46 @@ Funding Amount: ${grant.fundingAmount || 'Not specified'}
 Eligibility: ${Array.isArray(grant.eligibilityCriteria) ? grant.eligibilityCriteria.join(', ') : 'See grant requirements'}
 `;
 
-  if (mode === 'auto') {
-    const prompt = `Write a complete, professional grant proposal for VEDD AI Trading applying to the following grant.
+  const aiClient = options?.userId ? await getUniversalAIClientForUser(options.userId) : null;
+  const client = aiClient || openai;
+  const model = aiClient ? aiClient.defaultModel : "gpt-4o";
 
-${baseContext}
-
-Write a comprehensive proposal (1500-2500 words) with these clearly labeled sections:
-## EXECUTIVE SUMMARY
-## ORGANIZATIONAL BACKGROUND
-## PROJECT DESCRIPTION
-## GOALS AND OBJECTIVES
-## BUDGET NARRATIVE
-## IMPACT STATEMENT
-## CONCLUSION
-
-Make it compelling, specific to VEDD's mission, and tailored to what this funder values. Use professional grant writing tone. Include specific metrics, timelines, and measurable outcomes.`;
-
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: [
-        { role: "system", content: "You are an expert grant writer specializing in fintech, community development, and technology education. Write compelling, fundable proposals." },
-        { role: "user", content: prompt }
-      ],
-      max_tokens: 3500,
+  const callAI = async (systemMsg: string, userMsg: string, maxTokens = 3500): Promise<string> => {
+    const response = await client.chat.completions.create({
+      model,
+      messages: [{ role: "system", content: systemMsg }, { role: "user", content: userMsg }],
+      max_tokens: maxTokens,
       temperature: 0.6,
     });
-    return { content: response.choices[0]?.message?.content || '' };
+    return response.choices[0]?.message?.content || '';
+  };
+
+  if (mode === 'auto') {
+    const content = await callAI(
+      "You are an expert grant writer specializing in fintech, community development, and technology education. Write compelling, fundable proposals.",
+      `Write a complete, professional grant proposal for VEDD AI Trading applying to the following grant.\n\n${baseContext}\n\nWrite a comprehensive proposal (1500-2500 words) with these clearly labeled sections:\n## EXECUTIVE SUMMARY\n## ORGANIZATIONAL BACKGROUND\n## PROJECT DESCRIPTION\n## GOALS AND OBJECTIVES\n## BUDGET NARRATIVE\n## IMPACT STATEMENT\n## CONCLUSION\n\nMake it compelling, specific to VEDD's mission, and tailored to what this funder values.`,
+      3500
+    );
+    return { content };
   }
 
   if (mode === 'guided') {
     const sectionKey = options?.sectionKey || 'executiveSummary';
     const userInputs = options?.userInputs || {};
-
     const sectionPrompts: Record<string, string> = {
       executiveSummary: `Write a compelling 200-300 word Executive Summary for a grant proposal.${userInputs.focus ? ` Focus: ${userInputs.focus}` : ''}\n\n${baseContext}`,
-      orgBackground: `Write a 250-350 word Organizational Background section for VEDD AI Trading.${userInputs.achievements ? ` Key achievements to highlight: ${userInputs.achievements}` : ''}\n\n${baseContext}`,
-      projectDescription: `Write a 300-400 word Project Description section.${userInputs.projectDetails ? ` Project specifics: ${userInputs.projectDetails}` : ''}\n\n${baseContext}`,
-      goalsObjectives: `Write a 200-300 word Goals & Objectives section with SMART goals.${userInputs.goals ? ` Specific goals: ${userInputs.goals}` : ''}\n\n${baseContext}`,
-      budgetNarrative: `Write a 200-300 word Budget Narrative section.${userInputs.budgetItems ? ` Budget items: ${userInputs.budgetItems}` : ''} Funding amount: ${grant.fundingAmount || 'TBD'}.\n\n${baseContext}`,
-      impactStatement: `Write a compelling 250-350 word Impact Statement.${userInputs.impactMetrics ? ` Impact metrics: ${userInputs.impactMetrics}` : ''}\n\n${baseContext}`,
+      orgBackground: `Write a 250-350 word Organizational Background section for VEDD AI Trading.${userInputs.achievements ? ` Key achievements: ${userInputs.achievements}` : ''}\n\n${baseContext}`,
+      projectDescription: `Write a 300-400 word Project Description section.${userInputs.projectDetails ? ` Details: ${userInputs.projectDetails}` : ''}\n\n${baseContext}`,
+      goalsObjectives: `Write a 200-300 word Goals & Objectives section with SMART goals.${userInputs.goals ? ` Goals: ${userInputs.goals}` : ''}\n\n${baseContext}`,
+      budgetNarrative: `Write a 200-300 word Budget Narrative. Funding: ${grant.fundingAmount || 'TBD'}.${userInputs.budgetItems ? ` Items: ${userInputs.budgetItems}` : ''}\n\n${baseContext}`,
+      impactStatement: `Write a compelling 250-350 word Impact Statement.${userInputs.impactMetrics ? ` Metrics: ${userInputs.impactMetrics}` : ''}\n\n${baseContext}`,
     };
-
-    const prompt = sectionPrompts[sectionKey] || sectionPrompts.executiveSummary;
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: [
-        { role: "system", content: "You are an expert grant writer. Write only the requested section, professionally and concisely." },
-        { role: "user", content: prompt }
-      ],
-      max_tokens: 800,
-      temperature: 0.6,
-    });
-    return { content: response.choices[0]?.message?.content || '', sections: { [sectionKey]: response.choices[0]?.message?.content || '' } };
+    const content = await callAI(
+      "You are an expert grant writer. Write only the requested section, professionally and concisely.",
+      sectionPrompts[sectionKey] || sectionPrompts.executiveSummary,
+      800
+    );
+    return { content, sections: { [sectionKey]: content } };
   }
 
   if (mode === 'template') {
@@ -2980,23 +2959,17 @@ Make it compelling, specific to VEDD's mission, and tailored to what this funder
       grant.grantType === 'ambassador_education' ? 'ambassador_program' :
       grant.grantType === 'community_dev' ? 'community_dev' : 'fintech_expansion'
     );
-
     const templates: Record<string, string> = {
-      ambassador_program: `Customize this grant proposal template for VEDD's Ambassador Program:\n\n${baseContext}\n\nTemplate focus: Ambassador network expansion, financial literacy training, community outreach, certified educator development. Emphasize the 44-day training curriculum, NFT-based certification, and inter-city community impact.`,
-      fintech_expansion: `Customize this grant proposal template for VEDD's Fintech Platform:\n\n${baseContext}\n\nTemplate focus: AI trading technology, democratizing financial tools, technology innovation, platform development, market accessibility for underserved communities.`,
-      community_dev: `Customize this grant proposal template for VEDD's Community Development Work:\n\n${baseContext}\n\nTemplate focus: Inter-city economic empowerment, minority financial inclusion, faith-based community partnerships, neighborhood economic development, wealth-building education.`,
+      ambassador_program: `Customize for VEDD's Ambassador Program:\n\n${baseContext}\n\nFocus: Ambassador network expansion, financial literacy training, 44-day training curriculum, NFT certification, inter-city community impact.`,
+      fintech_expansion: `Customize for VEDD's Fintech Platform:\n\n${baseContext}\n\nFocus: AI trading technology, democratizing financial tools, underserved communities.`,
+      community_dev: `Customize for VEDD's Community Development:\n\n${baseContext}\n\nFocus: Inter-city economic empowerment, minority financial inclusion, faith-based community partnerships.`,
     };
-
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: [
-        { role: "system", content: "You are an expert grant writer. Create a complete proposal using the VEDD brand template framework. Include all standard sections: Executive Summary, Organizational Background, Project Description, Goals & Objectives, Budget Narrative, Impact Statement." },
-        { role: "user", content: templates[templateType] + "\n\nWrite a complete 1200-1800 word proposal tailored to this specific grant opportunity." }
-      ],
-      max_tokens: 3000,
-      temperature: 0.5,
-    });
-    return { content: response.choices[0]?.message?.content || '' };
+    const content = await callAI(
+      "You are an expert grant writer. Create a complete proposal with all standard sections: Executive Summary, Organizational Background, Project Description, Goals & Objectives, Budget Narrative, Impact Statement.",
+      templates[templateType] + "\n\nWrite a complete 1200-1800 word proposal tailored to this specific grant opportunity.",
+      3000
+    );
+    return { content };
   }
 
   return { content: '' };

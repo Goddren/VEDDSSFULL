@@ -15207,7 +15207,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     } as any);
 
     try {
-      const results = await scanGrantsWithAI(grantTypes, !!user.isAdmin);
+      const results = await scanGrantsWithAI(grantTypes, !!user.isAdmin, user.id);
       let created = 0;
       for (const g of results) {
         try {
@@ -15361,7 +15361,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     const options = req.body.options || {};
 
     try {
-      const result = await generateGrantProposal(existing.grant, mode as any, options);
+      const result = await generateGrantProposal(existing.grant, mode as any, { ...options, userId: user.id });
       const updatedSections = mode === 'guided' && options.sectionKey
         ? { ...(existing.proposalSections as any || {}), ...result.sections }
         : undefined;
