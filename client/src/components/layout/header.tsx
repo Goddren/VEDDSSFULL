@@ -379,6 +379,16 @@ const Header: React.FC = () => {
                       </div>
                     </Link>
                   </DropdownMenuItem>
+                  {(user?.isAmbassador || user?.isAdmin) && (
+                    <DropdownMenuItem className="cursor-pointer" asChild>
+                      <Link href="/grants">
+                        <div className="flex items-center w-full text-green-400">
+                          <DollarSign className="mr-2 h-4 w-4" />
+                          <span>Grants & Funding</span>
+                        </div>
+                      </Link>
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={handleLogout} className="cursor-pointer">
                     <LogOut className="mr-2 h-4 w-4" />
