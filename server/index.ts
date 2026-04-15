@@ -200,6 +200,41 @@ async function withRetry<T>(
     }
 
     try {
+      await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_code text UNIQUE`);
+      await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by integer`);
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS referral_visits (
+        id serial PRIMARY KEY,
+        referral_code text NOT NULL,
+        referrer_id integer REFERENCES users(id),
+        visitor_id integer REFERENCES users(id),
+        visitor_ip text,
+        user_agent text,
+        visited_at timestamp DEFAULT now() NOT NULL,
+        signed_up boolean DEFAULT false,
+        signed_up_at timestamp,
+        subscribed boolean DEFAULT false,
+        subscribed_at timestamp,
+        reminder_sent boolean DEFAULT false,
+        reminder_sent_at timestamp
+      )`);
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS dm_keywords (
+        id serial PRIMARY KEY,
+        user_id integer REFERENCES users(id) NOT NULL,
+        keyword text NOT NULL,
+        response_template text NOT NULL,
+        platform text DEFAULT 'all',
+        is_active boolean DEFAULT true,
+        trigger_count integer DEFAULT 0,
+        last_triggered_at timestamp,
+        created_at timestamp DEFAULT now() NOT NULL,
+        updated_at timestamp DEFAULT now() NOT NULL
+      )`);
+      console.log('[startup] Referral & DM keyword tables created/verified.');
+    } catch (err) {
+      console.error('[startup] Referral/DM tables migration (non-fatal):', (err as Error).message);
+    }
+
+    try {
       await db.execute(sql`CREATE TABLE IF NOT EXISTS grants (
         id serial PRIMARY KEY,
         title text NOT NULL,

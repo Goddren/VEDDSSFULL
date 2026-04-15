@@ -94,6 +94,24 @@ export function setupAuth(app: Express) {
         password: hashedPassword,
       });
 
+      // Handle referral code if provided during signup
+      const refCode = req.body.referralCode || req.query.ref;
+      if (refCode) {
+        try {
+          const referrer = await storage.getUserByReferralCode(refCode as string);
+          if (referrer && referrer.id !== user.id) {
+            // Tag the new user as referred
+            await storage.updateUser(user.id, { referredBy: referrer.id } as any);
+            // Record the referral
+            await storage.recordReferral(referrer.id, user.id);
+            // Mark visit as signed up
+            await storage.markReferralSignup(refCode as string, user.id);
+          }
+        } catch (refErr) {
+          console.error('[auth] Referral tracking error (non-fatal):', refErr);
+        }
+      }
+
       req.login(user, (err) => {
         if (err) return next(err);
         // Omit password from response

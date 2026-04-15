@@ -19,7 +19,30 @@ type RegisterFormValues = z.infer<typeof insertUserSchema>;
 
 export default function AuthPage() {
   const [activeTab, setActiveTab] = useState<string>("login");
+  const [referralCode, setReferralCode] = useState<string | null>(null);
   const { user, isLoading, loginMutation, registerMutation } = useAuth();
+
+  // Capture referral code from URL and store in sessionStorage
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const ref = params.get('ref');
+    const stored = sessionStorage.getItem('referralCode');
+    const code = ref || stored;
+    if (code) {
+      sessionStorage.setItem('referralCode', code);
+      setReferralCode(code);
+      // Switch to register tab automatically when a referral link is used
+      if (ref) setActiveTab("register");
+      // Track the visit server-side (only if it came from URL param)
+      if (ref) {
+        fetch('/api/referral/track', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ referralCode: code }),
+        }).catch(() => {});
+      }
+    }
+  }, []);
   
   // Apply dark mode from localStorage on component mount
   useEffect(() => {
@@ -77,7 +100,11 @@ export default function AuthPage() {
   const onRegisterSubmit = (values: RegisterFormValues) => {
     // Remove confirmPassword which is not in the schema
     const { confirmPassword, ...registerData } = values as RegisterFormValues & { confirmPassword: string };
-    registerMutation.mutate(registerData);
+    // Attach referral code if present
+    const dataWithRef = referralCode ? { ...registerData, referralCode } : registerData;
+    registerMutation.mutate(dataWithRef as any, {
+      onSuccess: () => { sessionStorage.removeItem('referralCode'); setReferralCode(null); }
+    });
   };
 
   // Redirect if already logged in
@@ -188,6 +215,13 @@ export default function AuthPage() {
             </TabsContent>
 
             <TabsContent value="register">
+              {referralCode && (
+                <div className="mb-3 p-3 bg-amber-500/15 border border-amber-500/30 rounded-lg flex items-center gap-2 text-sm">
+                  <span className="text-amber-400">🎁</span>
+                  <span className="text-amber-300 font-medium">Referral link active!</span>
+                  <span className="text-muted-foreground text-xs">You and your referrer both earn credits when you join.</span>
+                </div>
+              )}
               <Card>
                 <CardHeader>
                   <CardTitle>Create an Account</CardTitle>

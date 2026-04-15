@@ -74,6 +74,8 @@ import FuturesEaGeneratorPage from "@/pages/futures-ea-generator";
 import FuturesLiveFeedPage from "@/pages/futures-live-feed";
 import SevenEightPage from "@/pages/seven-eight";
 import GrantsFundingPage from "@/pages/grants-funding";
+import ReferralHubPage from "@/pages/referral-hub";
+import AmbassadorRecruitmentPage from "@/pages/ambassador-recruitment";
 import StreakBanner from "@/components/StreakBanner";
 import { OnboardingTutorial } from "@/components/onboarding-tutorial";
 import { MobileFAB } from "@/components/mobile-fab";
@@ -187,6 +189,12 @@ function AppLayout() {
             
             {/* Grants & Funding (Ambassador + Admin) */}
             <ProtectedRoute path="/grants" component={GrantsFundingPage} />
+
+            {/* Referral Hub */}
+            <ProtectedRoute path="/referral" component={ReferralHubPage} />
+
+            {/* Ambassador Recruitment Hub */}
+            <ProtectedRoute path="/ambassador/recruitment" component={AmbassadorRecruitmentPage} />
 
             {/* Admin routes */}
             <ProtectedRoute path="/admin/vedd-pool" component={AdminVeddPool} />

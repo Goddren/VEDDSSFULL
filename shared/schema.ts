@@ -54,9 +54,9 @@ export const users = pgTable("users", {
   trailingStopEnabled: boolean("trailing_stop_enabled").default(true), // Remove trailing stop from AI recommendations when false
   // faithBasedContent field temporarily removed due to database issues
   // Using localStorage instead of database column for faith-based content preferences
-  // referralCode field temporarily removed due to database issues
+  referralCode: text("referral_code").unique(),
+  referredBy: integer("referred_by"),
   referralCredits: integer("referral_credits").default(0), // Ambassador/referral credit balance
-  // referredBy field temporarily removed due to database issues
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -298,6 +298,45 @@ export const insertReferralSchema = createInsertSchema(referrals).omit({
   createdAt: true,
   completedAt: true,
 });
+
+// Referral Visits — tracks every link click (anonymous + registered)
+export const referralVisits = pgTable("referral_visits", {
+  id: serial("id").primaryKey(),
+  referralCode: text("referral_code").notNull(),
+  referrerId: integer("referrer_id").references(() => users.id),
+  visitorId: integer("visitor_id").references(() => users.id), // set when they register
+  visitorIp: text("visitor_ip"),
+  userAgent: text("user_agent"),
+  visitedAt: timestamp("visited_at").defaultNow().notNull(),
+  signedUp: boolean("signed_up").default(false),
+  signedUpAt: timestamp("signed_up_at"),
+  subscribed: boolean("subscribed").default(false),
+  subscribedAt: timestamp("subscribed_at"),
+  reminderSent: boolean("reminder_sent").default(false),
+  reminderSentAt: timestamp("reminder_sent_at"),
+});
+
+export const insertReferralVisitSchema = createInsertSchema(referralVisits).omit({ id: true, visitedAt: true });
+export type ReferralVisit = typeof referralVisits.$inferSelect;
+export type InsertReferralVisit = z.infer<typeof insertReferralVisitSchema>;
+
+// DM Automation Keywords — ManyChat-style keyword triggers for ambassadors
+export const dmKeywords = pgTable("dm_keywords", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  keyword: text("keyword").notNull(),
+  responseTemplate: text("response_template").notNull(),
+  platform: text("platform").default("all"), // 'instagram'|'twitter'|'facebook'|'tiktok'|'all'
+  isActive: boolean("is_active").default(true),
+  triggerCount: integer("trigger_count").default(0),
+  lastTriggeredAt: timestamp("last_triggered_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertDmKeywordSchema = createInsertSchema(dmKeywords).omit({ id: true, createdAt: true, updatedAt: true });
+export type DmKeyword = typeof dmKeywords.$inferSelect;
+export type InsertDmKeyword = z.infer<typeof insertDmKeywordSchema>;
 
 export type AnalysisFeedback = typeof analysisFeedback.$inferSelect;
 export type InsertAnalysisFeedback = z.infer<typeof insertAnalysisFeedbackSchema>;

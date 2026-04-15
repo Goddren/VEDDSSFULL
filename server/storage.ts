@@ -56,6 +56,9 @@ import {
   type Grant, type InsertGrant,
   type GrantApplication, type InsertGrantApplication,
   type GrantScanSession, type InsertGrantScanSession,
+  referralVisits, dmKeywords,
+  type ReferralVisit, type InsertReferralVisit,
+  type DmKeyword, type InsertDmKeyword,
 } from "@shared/schema";
 import { db, pool } from "./db";
 import { eq, and, sql, desc, isNull, gte, lte } from "drizzle-orm";
@@ -167,7 +170,19 @@ export interface IStorage {
   completeReferral(referralId: number): Promise<Referral | undefined>;
   getReferralLeaderboard(limit?: number): Promise<{ username: string; referrals: number }[]>;
   addReferralCredits(userId: number, credits: number): Promise<User | undefined>;
-  
+  // Referral visit tracking
+  trackReferralVisit(data: { referralCode: string; visitorIp?: string; userAgent?: string }): Promise<ReferralVisit>;
+  getReferralStats(userId: number): Promise<{ totalClicks: number; signedUp: number; subscribed: number; notSubscribed: number; pendingReminder: number }>;
+  markReferralSignup(referralCode: string, visitorId: number): Promise<void>;
+  markReferralSubscribed(visitorId: number): Promise<void>;
+  sendReferralReminders(referrerId: number): Promise<number>;
+  // DM Keywords
+  getDmKeywords(userId: number): Promise<DmKeyword[]>;
+  createDmKeyword(data: InsertDmKeyword): Promise<DmKeyword>;
+  updateDmKeyword(id: number, userId: number, data: Partial<DmKeyword>): Promise<DmKeyword | undefined>;
+  deleteDmKeyword(id: number, userId: number): Promise<boolean>;
+  incrementDmTrigger(id: number): Promise<void>;
+
   // Price Alert methods
   createPriceAlert(alert: InsertPriceAlert): Promise<PriceAlert>;
   getPriceAlert(id: number): Promise<PriceAlert | undefined>;
@@ -857,17 +872,7 @@ export class DatabaseStorage implements IStorage {
     return `${userId.toString(36)}${randomPart}`;
   }
   
-  async saveReferralCode(userId: number, code: string): Promise<User | undefined> {
-    // This is a temporary implementation until the referral_code column is added to the database
-    // For now, just return the user without updating the referral code
-    return this.getUser(userId);
-  }
-  
-  async getUserByReferralCode(code: string): Promise<User | undefined> {
-    // This is a temporary implementation until the referral_code column is added to the database
-    // For now, just return undefined since we can't look up users by referral code
-    return undefined;
-  }
+  // saveReferralCode and getUserByReferralCode implemented further below with real DB columns
   
   async recordReferral(referrerId: number, referredId: number): Promise<Referral> {
     const [newReferral] = await db
@@ -933,6 +938,97 @@ export class DatabaseStorage implements IStorage {
       .where(eq(users.id, userId))
       .returning();
     return updatedUser;
+  }
+
+  async saveReferralCode(userId: number, code: string): Promise<User | undefined> {
+    const [updated] = await db.update(users).set({ referralCode: code } as any).where(eq(users.id, userId)).returning();
+    return updated;
+  }
+
+  async getUserByReferralCode(code: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq((users as any).referralCode, code));
+    return user;
+  }
+
+  async trackReferralVisit(data: { referralCode: string; visitorIp?: string; userAgent?: string }): Promise<ReferralVisit> {
+    // look up referrer
+    const referrer = await this.getUserByReferralCode(data.referralCode);
+    const [visit] = await db.insert(referralVisits).values({
+      referralCode: data.referralCode,
+      referrerId: referrer?.id ?? null,
+      visitorIp: data.visitorIp ?? null,
+      userAgent: data.userAgent ?? null,
+    } as any).returning();
+    return visit;
+  }
+
+  async getReferralStats(userId: number): Promise<{ totalClicks: number; signedUp: number; subscribed: number; notSubscribed: number; pendingReminder: number }> {
+    const user = await this.getUser(userId);
+    const code = (user as any)?.referralCode;
+    if (!code) return { totalClicks: 0, signedUp: 0, subscribed: 0, notSubscribed: 0, pendingReminder: 0 };
+    const visits = await db.select().from(referralVisits).where(eq(referralVisits.referralCode, code));
+    const totalClicks = visits.length;
+    const signedUpVisits = visits.filter(v => v.signedUp);
+    const signedUp = signedUpVisits.length;
+    const subscribed = signedUpVisits.filter(v => v.subscribed).length;
+    const notSubscribed = signedUp - subscribed;
+    const pendingReminder = signedUpVisits.filter(v => !v.subscribed && !v.reminderSent).length;
+    return { totalClicks, signedUp, subscribed, notSubscribed, pendingReminder };
+  }
+
+  async markReferralSignup(referralCode: string, visitorId: number): Promise<void> {
+    await db.update(referralVisits)
+      .set({ visitorId, signedUp: true, signedUpAt: new Date() } as any)
+      .where(eq(referralVisits.referralCode, referralCode));
+  }
+
+  async markReferralSubscribed(visitorId: number): Promise<void> {
+    await db.update(referralVisits)
+      .set({ subscribed: true, subscribedAt: new Date() } as any)
+      .where(eq(referralVisits.visitorId, visitorId));
+  }
+
+  async sendReferralReminders(referrerId: number): Promise<number> {
+    // Mark all non-subscribed signed-up visitors as reminder-sent (in-app notification)
+    const user = await this.getUser(referrerId);
+    const code = (user as any)?.referralCode;
+    if (!code) return 0;
+    const unreminded = await db.select().from(referralVisits)
+      .where(eq(referralVisits.referralCode, code));
+    const targets = unreminded.filter(v => v.signedUp && !v.subscribed && !v.reminderSent && v.visitorId);
+    for (const visit of targets) {
+      if (visit.visitorId) {
+        await db.update(referralVisits)
+          .set({ reminderSent: true, reminderSentAt: new Date() } as any)
+          .where(eq(referralVisits.id, visit.id));
+      }
+    }
+    return targets.length;
+  }
+
+  async getDmKeywords(userId: number): Promise<DmKeyword[]> {
+    return db.select().from(dmKeywords).where(eq(dmKeywords.userId, userId));
+  }
+
+  async createDmKeyword(data: InsertDmKeyword): Promise<DmKeyword> {
+    const [kw] = await db.insert(dmKeywords).values(data).returning();
+    return kw;
+  }
+
+  async updateDmKeyword(id: number, userId: number, data: Partial<DmKeyword>): Promise<DmKeyword | undefined> {
+    const [updated] = await db.update(dmKeywords).set({ ...data, updatedAt: new Date() } as any)
+      .where(eq(dmKeywords.id, id)).returning();
+    return updated;
+  }
+
+  async deleteDmKeyword(id: number, userId: number): Promise<boolean> {
+    const result = await db.delete(dmKeywords).where(eq(dmKeywords.id, id));
+    return true;
+  }
+
+  async incrementDmTrigger(id: number): Promise<void> {
+    await db.update(dmKeywords).set({ triggerCount: sql`trigger_count + 1`, lastTriggeredAt: new Date() } as any)
+      .where(eq(dmKeywords.id, id));
   }
 
   async createTradingStrategy(strategy: any): Promise<number> {

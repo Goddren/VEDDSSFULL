@@ -253,16 +253,28 @@ const Header: React.FC = () => {
                 </Button>
               </Link>
               {(user?.isAmbassador || user?.isAdmin) && (
-                <Link href="/grants">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="border-green-500/50 text-green-400 hover:bg-green-500/10"
-                  >
-                    <DollarSign className="h-4 w-4 mr-1" />
-                    Grants
-                  </Button>
-                </Link>
+                <>
+                  <Link href="/referral">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="border-amber-500/50 text-amber-400 hover:bg-amber-500/10"
+                    >
+                      <Users className="h-4 w-4 mr-1" />
+                      Referral
+                    </Button>
+                  </Link>
+                  <Link href="/grants">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="border-green-500/50 text-green-400 hover:bg-green-500/10"
+                    >
+                      <DollarSign className="h-4 w-4 mr-1" />
+                      Grants
+                    </Button>
+                  </Link>
+                </>
               )}
             </div>
 
@@ -380,14 +392,32 @@ const Header: React.FC = () => {
                     </Link>
                   </DropdownMenuItem>
                   {(user?.isAmbassador || user?.isAdmin) && (
-                    <DropdownMenuItem className="cursor-pointer" asChild>
-                      <Link href="/grants">
-                        <div className="flex items-center w-full text-green-400">
-                          <DollarSign className="mr-2 h-4 w-4" />
-                          <span>Grants & Funding</span>
-                        </div>
-                      </Link>
-                    </DropdownMenuItem>
+                    <>
+                      <DropdownMenuItem className="cursor-pointer" asChild>
+                        <Link href="/referral">
+                          <div className="flex items-center w-full text-amber-400">
+                            <Users className="mr-2 h-4 w-4" />
+                            <span>Referral Hub</span>
+                          </div>
+                        </Link>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem className="cursor-pointer" asChild>
+                        <Link href="/ambassador/recruitment">
+                          <div className="flex items-center w-full text-blue-400">
+                            <GraduationCap className="mr-2 h-4 w-4" />
+                            <span>Recruit Ambassadors</span>
+                          </div>
+                        </Link>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem className="cursor-pointer" asChild>
+                        <Link href="/grants">
+                          <div className="flex items-center w-full text-green-400">
+                            <DollarSign className="mr-2 h-4 w-4" />
+                            <span>Grants & Funding</span>
+                          </div>
+                        </Link>
+                      </DropdownMenuItem>
+                    </>
                   )}
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={handleLogout} className="cursor-pointer">
@@ -474,14 +504,32 @@ const Header: React.FC = () => {
                     Ambassador Program
                   </Link>
                   {(user?.isAmbassador || user?.isAdmin) && (
-                    <Link
-                      href="/grants"
-                      onClick={handleMobileNavClick}
-                      className={`text-lg font-medium transition-colors flex items-center ${location === '/grants' ? 'text-green-400' : 'text-green-500 hover:text-green-400'}`}
-                    >
-                      <DollarSign className="h-4 w-4 mr-2" />
-                      Grants & Funding
-                    </Link>
+                    <>
+                      <Link
+                        href="/referral"
+                        onClick={handleMobileNavClick}
+                        className={`text-lg font-medium transition-colors flex items-center ${location === '/referral' ? 'text-amber-400' : 'text-amber-500 hover:text-amber-400'}`}
+                      >
+                        <Users className="h-4 w-4 mr-2" />
+                        Referral Hub
+                      </Link>
+                      <Link
+                        href="/ambassador/recruitment"
+                        onClick={handleMobileNavClick}
+                        className={`text-lg font-medium transition-colors flex items-center ${location === '/ambassador/recruitment' ? 'text-blue-400' : 'text-blue-500 hover:text-blue-400'}`}
+                      >
+                        <GraduationCap className="h-4 w-4 mr-2" />
+                        Recruit Ambassadors
+                      </Link>
+                      <Link
+                        href="/grants"
+                        onClick={handleMobileNavClick}
+                        className={`text-lg font-medium transition-colors flex items-center ${location === '/grants' ? 'text-green-400' : 'text-green-500 hover:text-green-400'}`}
+                      >
+                        <DollarSign className="h-4 w-4 mr-2" />
+                        Grants & Funding
+                      </Link>
+                    </>
                   )}
                   <button
                     onClick={handleLogout}

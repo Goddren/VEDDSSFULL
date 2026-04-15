@@ -15403,6 +15403,142 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     res.send(exportText);
   });
 
+  // ─── REFERRAL HUB ──────────────────────────────────────────────────────────
+
+  // Auto-generate referral code for a user if they don't have one
+  async function ensureReferralCode(userId: number): Promise<string> {
+    const user = await storage.getUser(userId);
+    if ((user as any)?.referralCode) return (user as any).referralCode;
+    const code = await storage.generateReferralCode(userId);
+    await storage.saveReferralCode(userId, code);
+    return code;
+  }
+
+  // GET /api/referral/my-link — get current user's referral link + code
+  app.get("/api/referral/my-link", async (req, res) => {
+    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+    const code = await ensureReferralCode(req.user.id);
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    res.json({
+      code,
+      url: `${baseUrl}/auth?ref=${code}`,
+      shortUrl: `${baseUrl}/r/${code}`,
+    });
+  });
+
+  // GET /api/referral/leaderboard — top referrers
+  app.get("/api/referral/leaderboard", async (req, res) => {
+    try {
+      const leaderboard = await storage.getReferralLeaderboard(10);
+      res.json(leaderboard);
+    } catch (err) {
+      res.json([]);
+    }
+  });
+
+  // GET /api/referral/stats — get click/signup/subscribe stats
+  app.get("/api/referral/stats", async (req, res) => {
+    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+    const stats = await storage.getReferralStats(req.user.id);
+    res.json(stats);
+  });
+
+  // POST /api/referral/track — track a link visit (called from frontend on /auth?ref=CODE load)
+  app.post("/api/referral/track", async (req, res) => {
+    const { referralCode } = req.body;
+    if (!referralCode) return res.status(400).json({ message: "referralCode required" });
+    try {
+      const visit = await storage.trackReferralVisit({
+        referralCode,
+        visitorIp: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+      res.json({ tracked: true, visitId: visit.id });
+    } catch (err) {
+      res.status(500).json({ message: "Failed to track visit" });
+    }
+  });
+
+  // POST /api/referral/remind — send reminder notifications to all non-subscribed signups
+  app.post("/api/referral/remind", async (req, res) => {
+    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+    const count = await storage.sendReferralReminders(req.user.id);
+    res.json({ reminded: count, message: `${count} reminder(s) sent` });
+  });
+
+  // Short URL redirect: /r/:code → /auth?ref=:code
+  app.get("/r/:code", async (req, res) => {
+    const { code } = req.params;
+    // track the visit silently
+    storage.trackReferralVisit({ referralCode: code, visitorIp: req.ip, userAgent: req.headers['user-agent'] }).catch(() => {});
+    res.redirect(`/auth?ref=${code}`);
+  });
+
+  // ─── DM AUTOMATION (KEYWORD TRIGGERS) ──────────────────────────────────────
+
+  // GET /api/dm-keywords — list user's keywords
+  app.get("/api/dm-keywords", async (req, res) => {
+    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+    const keywords = await storage.getDmKeywords(req.user.id);
+    res.json(keywords);
+  });
+
+  // POST /api/dm-keywords — create a new keyword trigger
+  app.post("/api/dm-keywords", async (req, res) => {
+    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+    const { keyword, responseTemplate, platform } = req.body;
+    if (!keyword || !responseTemplate) return res.status(400).json({ message: "keyword and responseTemplate required" });
+    const kw = await storage.createDmKeyword({
+      userId: req.user.id,
+      keyword: keyword.toLowerCase().trim(),
+      responseTemplate,
+      platform: platform || 'all',
+      isActive: true,
+    });
+    res.json(kw);
+  });
+
+  // PATCH /api/dm-keywords/:id — update keyword trigger
+  app.patch("/api/dm-keywords/:id", async (req, res) => {
+    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+    const id = parseInt(req.params.id);
+    const updated = await storage.updateDmKeyword(id, req.user.id, req.body);
+    if (!updated) return res.status(404).json({ message: "Keyword not found" });
+    res.json(updated);
+  });
+
+  // DELETE /api/dm-keywords/:id — delete keyword
+  app.delete("/api/dm-keywords/:id", async (req, res) => {
+    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+    const id = parseInt(req.params.id);
+    await storage.deleteDmKeyword(id, req.user.id);
+    res.json({ deleted: true });
+  });
+
+  // POST /api/dm-keywords/:id/generate — generate a personalized DM response using AI
+  app.post("/api/dm-keywords/:id/generate", async (req, res) => {
+    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+    const id = parseInt(req.params.id);
+    const { senderName, context } = req.body;
+    const keywords = await storage.getDmKeywords(req.user.id);
+    const kw = keywords.find(k => k.id === id);
+    if (!kw) return res.status(404).json({ message: "Keyword not found" });
+
+    // Personalize the template with sender name
+    let response = kw.responseTemplate;
+    if (senderName) {
+      response = response.replace(/\{name\}/gi, senderName).replace(/\{Name\}/g, senderName);
+    }
+    // Add context if provided
+    if (context) {
+      response = `${response}\n\n(Context: ${context})`;
+    }
+
+    // increment trigger count
+    await storage.incrementDmTrigger(id);
+    res.json({ response, keyword: kw.keyword });
+  });
+
   const httpServer = createServer(app);
 
   streamingService.initialize(httpServer);
