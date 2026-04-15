@@ -38,7 +38,7 @@ import {
   BookOpen, GraduationCap, FileText, Lightbulb, ChevronDown, MoreHorizontal,
   BarChart3, Webhook, Wallet, Scan, Coins, KeyRound, Rocket, Brain, Shirt,
   Radio, Star, CheckCircle2, AlertTriangle, Loader2, ExternalLink, TrendingUp, Code2, Activity,
-  DollarSign
+  DollarSign, Globe, Search
 } from 'lucide-react';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 
@@ -428,6 +428,22 @@ const Header: React.FC = () => {
                         </Link>
                       </DropdownMenuItem>
                       <DropdownMenuItem className="cursor-pointer" asChild>
+                        <Link href="/ambassador/recruitment?tab=leadpages">
+                          <div className="flex items-center w-full text-purple-400">
+                            <Globe className="mr-2 h-4 w-4" />
+                            <span>My Lead Page</span>
+                          </div>
+                        </Link>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem className="cursor-pointer" asChild>
+                        <Link href="/ambassador/recruitment?tab=social">
+                          <div className="flex items-center w-full text-pink-400">
+                            <Search className="mr-2 h-4 w-4" />
+                            <span>Social Scanner</span>
+                          </div>
+                        </Link>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem className="cursor-pointer" asChild>
                         <Link href="/grants">
                           <div className="flex items-center w-full text-green-400">
                             <DollarSign className="mr-2 h-4 w-4" />
@@ -546,6 +562,22 @@ const Header: React.FC = () => {
                       >
                         <GraduationCap className="h-4 w-4 mr-2" />
                         Recruit Ambassadors
+                      </Link>
+                      <Link
+                        href="/ambassador/recruitment?tab=leadpages"
+                        onClick={handleMobileNavClick}
+                        className="text-lg font-medium transition-colors flex items-center text-purple-500 hover:text-purple-400"
+                      >
+                        <Globe className="h-4 w-4 mr-2" />
+                        My Lead Page
+                      </Link>
+                      <Link
+                        href="/ambassador/recruitment?tab=social"
+                        onClick={handleMobileNavClick}
+                        className="text-lg font-medium transition-colors flex items-center text-pink-500 hover:text-pink-400"
+                      >
+                        <Search className="h-4 w-4 mr-2" />
+                        Social Scanner
                       </Link>
                       <Link
                         href="/grants"

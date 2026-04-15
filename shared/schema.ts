@@ -1997,4 +1997,69 @@ export const insertTokenInvestmentSchema = createInsertSchema(tokenInvestments).
   lastYieldCalculatedAt: true, withdrawnAt: true, createdAt: true, updatedAt: true,
 });
 export type TokenInvestment = typeof tokenInvestments.$inferSelect;
+
+// ─── AMBASSADOR LEAD GENERATION ────────────────────────────────
+
+export const landingPageQuizzes = pgTable("landing_page_quizzes", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  title: text("title").notNull().default("My VEDD Landing Page"),
+  slug: text("slug").notNull().unique(),
+  headline: text("headline").default("Are You Ready for Financial Freedom?"),
+  subheadline: text("subheadline").default("Answer 5 quick questions to get your FREE trading assessment"),
+  questions: jsonb("questions").notNull().default([]),
+  ctaText: text("cta_text").default("Get My Free Trading Assessment"),
+  thankYouMessage: text("thank_you_message").default("Thanks! Your ambassador will reach out within 24 hours."),
+  brandColor: text("brand_color").default("#ef4444"),
+  isActive: boolean("is_active").default(true),
+  leadCount: integer("lead_count").default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const quizLeads = pgTable("quiz_leads", {
+  id: serial("id").primaryKey(),
+  quizId: integer("quiz_id").references(() => landingPageQuizzes.id),
+  ambassadorId: integer("ambassador_id").references(() => users.id).notNull(),
+  firstName: text("first_name").notNull(),
+  lastName: text("last_name"),
+  email: text("email"),
+  phone: text("phone"),
+  answers: jsonb("answers"),
+  leadScore: integer("lead_score").default(0),
+  leadQuality: text("lead_quality").default("cold"),
+  status: text("status").default("new"),
+  source: text("source").default("landing_page"),
+  platform: text("platform"),
+  profileUrl: text("profile_url"),
+  bioSnippet: text("bio_snippet"),
+  aiInsights: text("ai_insights"),
+  notes: text("notes"),
+  convertedAt: timestamp("converted_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const socialLeadScans = pgTable("social_lead_scans", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  platform: text("platform").notNull(),
+  keywords: text("keywords").notNull(),
+  searchUrls: jsonb("search_urls"),
+  outreachKit: text("outreach_kit"),
+  leadsAdded: integer("leads_added").default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertLandingPageQuizSchema = createInsertSchema(landingPageQuizzes).omit({ id: true, createdAt: true, updatedAt: true });
+export type LandingPageQuiz = typeof landingPageQuizzes.$inferSelect;
+export type InsertLandingPageQuiz = z.infer<typeof insertLandingPageQuizSchema>;
+
+export const insertQuizLeadSchema = createInsertSchema(quizLeads).omit({ id: true, createdAt: true, updatedAt: true });
+export type QuizLead = typeof quizLeads.$inferSelect;
+export type InsertQuizLead = z.infer<typeof insertQuizLeadSchema>;
+
+export const insertSocialLeadScanSchema = createInsertSchema(socialLeadScans).omit({ id: true, createdAt: true });
+export type SocialLeadScan = typeof socialLeadScans.$inferSelect;
+export type InsertSocialLeadScan = z.infer<typeof insertSocialLeadScanSchema>;
 export type InsertTokenInvestment = z.infer<typeof insertTokenInvestmentSchema>;

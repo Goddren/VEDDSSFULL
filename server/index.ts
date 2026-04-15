@@ -332,6 +332,60 @@ async function withRetry<T>(
       console.error('[startup] Grants tables migration (non-fatal):', (err as Error).message);
     }
 
+    try {
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS landing_page_quizzes (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) NOT NULL,
+        title TEXT NOT NULL DEFAULT 'My VEDD Landing Page',
+        slug TEXT UNIQUE NOT NULL,
+        headline TEXT DEFAULT 'Are You Ready for Financial Freedom?',
+        subheadline TEXT DEFAULT 'Answer 5 quick questions to get your FREE trading assessment',
+        questions JSONB NOT NULL DEFAULT '[]',
+        cta_text TEXT DEFAULT 'Get My Free Trading Assessment',
+        thank_you_message TEXT DEFAULT 'Thanks! Your ambassador will reach out within 24 hours.',
+        brand_color TEXT DEFAULT '#ef4444',
+        is_active BOOLEAN DEFAULT true,
+        lead_count INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+        updated_at TIMESTAMP DEFAULT NOW() NOT NULL
+      )`);
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS quiz_leads (
+        id SERIAL PRIMARY KEY,
+        quiz_id INTEGER REFERENCES landing_page_quizzes(id),
+        ambassador_id INTEGER REFERENCES users(id) NOT NULL,
+        first_name TEXT NOT NULL,
+        last_name TEXT,
+        email TEXT,
+        phone TEXT,
+        answers JSONB,
+        lead_score INTEGER DEFAULT 0,
+        lead_quality TEXT DEFAULT 'cold',
+        status TEXT DEFAULT 'new',
+        source TEXT DEFAULT 'landing_page',
+        platform TEXT,
+        profile_url TEXT,
+        bio_snippet TEXT,
+        ai_insights TEXT,
+        notes TEXT,
+        converted_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+        updated_at TIMESTAMP DEFAULT NOW() NOT NULL
+      )`);
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS social_lead_scans (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) NOT NULL,
+        platform TEXT NOT NULL,
+        keywords TEXT NOT NULL,
+        search_urls JSONB,
+        outreach_kit TEXT,
+        leads_added INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL
+      )`);
+      console.log('[startup] Ambassador lead generation tables created/verified.');
+    } catch (err) {
+      console.error('[startup] Ambassador lead generation tables migration (non-fatal):', (err as Error).message);
+    }
+
     await withRetry(() => seedSubscriptionPlans(), 'seedSubscriptionPlans');
     await withRetry(() => seedAchievements(), 'seedAchievements');
     await withRetry(() => seedAdminUser(), 'seedAdminUser');

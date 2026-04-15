@@ -25,6 +25,8 @@ import {
   Layers,
   Shirt,
   DollarSign,
+  Globe,
+  Search,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { isMobileDevice } from '@/lib/pwa';
@@ -55,6 +57,8 @@ const allNavItems = [
   { name: 'Achievements', path: '/achievements', icon: Award },
   { name: 'Ambassador Training', path: '/ambassador-training', icon: GraduationCap },
   { name: 'Recruit Ambassadors', path: '/ambassador/recruitment', icon: Users },
+  { name: 'My Lead Page', path: '/ambassador/recruitment?tab=leadpages', icon: Globe },
+  { name: 'Social Scanner', path: '/ambassador/recruitment?tab=social', icon: Search },
   { name: 'Token Investments', path: '/token-investments', icon: Coins },
   { name: 'Referral Hub', path: '/referral', icon: DollarSign },
   { name: 'Grants & Funding', path: '/grants', icon: DollarSign },

@@ -15,7 +15,7 @@ async function hashPasswordForWallet(password: string) {
   const buf = (await scryptAsync(password, salt, 64)) as Buffer;
   return `${buf.toString("hex")}.${salt}`;
 }
-import { analyzeChartImage, testOpenAIApiKey, generateTradingTip, generateMarketTrendPredictions, generatePresentationOutline, scanGrantsWithAI, generateGrantProposal } from "./openai";
+import { analyzeChartImage, testOpenAIApiKey, generateTradingTip, generateMarketTrendPredictions, generatePresentationOutline, scanGrantsWithAI, generateGrantProposal, generateSocialOutreachKit, enrichLeadWithAI } from "./openai";
 import { setupTwilio, sendTradingSignal } from "./twilio";
 import { checkUserAchievements } from "./achievement-tracker";
 import { generateMT5EACode, generateTradingViewCode, generateTradeLockerCode } from './ea-generators';
@@ -8556,9 +8556,51 @@ Respond with ONLY valid JSON:
 
     const totalProfit = closedProfit + unrealizedPnL;
     strategy.currentProfit = Math.round(closedProfit * 100) / 100;
-    strategy.progressTrades = weekTrades.length;
+    strategy.progressTrades = tradeCount;   // fix: was referencing undefined `weekTrades`
     strategy.progressWinRate = winRate;
     strategy.progressPercentage = Math.min(100, Math.max(0, Math.round((closedProfit / strategy.profitTarget) * 100)));
+
+    // ── Daily profit (today's closed P&L including open unrealized) ──────────
+    const todayAllDbTrades = dbTrades.filter((t: any) => {
+      const tradeDate = new Date(t.closedAt || t.createdAt);
+      return tradeDate >= todayStart && t.result && t.result !== 'PENDING';
+    });
+    const todayAllCacheTrades = cachedTrades.filter((t: any) => {
+      const tradeDate = new Date(t.closeTime || t.timestamp || 0);
+      return tradeDate >= todayStart;
+    });
+    // De-duplicate cache against DB by ticket
+    const todayDbTickets = new Set(todayAllDbTrades.map((t: any) => t.mt5Ticket).filter(Boolean));
+    const todayCacheDeduped = todayAllCacheTrades.filter((t: any) => {
+      const ticket = t.ticket?.toString();
+      return !ticket || !todayDbTickets.has(ticket);
+    });
+    const todayClosedProfit =
+      todayAllDbTrades.reduce((s: number, t: any) => s + (t.profitLoss || 0), 0) +
+      todayCacheDeduped.reduce((s: number, t: any) => s + (t.profit || 0), 0);
+    const todayTotalProfit = Math.round((todayClosedProfit + unrealizedPnL) * 100) / 100;
+
+    // Daily target = weekly target / 5 trading days (Mon–Fri)
+    const tradingDaysInWeek = 5;
+    const daysLeft = getDaysRemainingInWeek();
+    const dailyTarget = strategy.profitTarget > 0
+      ? Math.round((strategy.profitTarget / tradingDaysInWeek) * 100) / 100
+      : 0;
+
+    // Today's progress: closed only (objective) + optional unrealized overlay
+    const dailyProgressClosed = dailyTarget > 0
+      ? Math.min(100, Math.max(0, Math.round((todayClosedProfit / dailyTarget) * 100)))
+      : 0;
+    // Include unrealized in the "total including open" metric
+    const dailyProgressTotal = dailyTarget > 0
+      ? Math.min(100, Math.max(0, Math.round((todayTotalProfit / dailyTarget) * 100)))
+      : 0;
+
+    // Today's win/loss counts across all pairs
+    const todayWinsAll = todayAllDbTrades.filter((t: any) => t.result === 'WIN').length
+      + todayCacheDeduped.filter((t: any) => (t.profit || 0) > 0).length;
+    const todayTradesAll = todayAllDbTrades.length + todayCacheDeduped.length;
+    const todayWinRateAll = todayTradesAll > 0 ? Math.round((todayWinsAll / todayTradesAll) * 100) : 0;
 
     try {
       await storage.updateWeeklyStrategyProgress(userId, {
@@ -8577,7 +8619,7 @@ Respond with ONLY valid JSON:
       progressWinRate: winRate,
       progressPercentage: strategy.progressPercentage,
       targetRemaining: Math.round((strategy.profitTarget - closedProfit) * 100) / 100,
-      daysRemaining: getDaysRemainingInWeek(),
+      daysRemaining: daysLeft,
       activeTrades: activeTradeDetails,
       activeTradeCount: activeTrades.length,
       unrealizedPnL: Math.round(unrealizedPnL * 100) / 100,
@@ -8585,6 +8627,15 @@ Respond with ONLY valid JSON:
       veddSSAILive: isLive,
       lastPositionUpdate: openPosData?.lastUpdated || null,
       pairDailyStats,
+      // ── Daily progress (new) ──
+      todayClosedProfit: Math.round(todayClosedProfit * 100) / 100,
+      todayTotalProfit,
+      dailyTarget,
+      dailyProgressClosed,
+      dailyProgressTotal,
+      todayTrades: todayTradesAll,
+      todayWins: todayWinsAll,
+      todayWinRate: todayWinRateAll,
     });
   });
 
@@ -15701,6 +15752,182 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     // increment trigger count
     await storage.incrementDmTrigger(id);
     res.json({ response, keyword: kw.keyword });
+  });
+
+  // ─── AMBASSADOR LEAD GENERATION ───────────────────────────────────────────────
+
+  // GET /api/ambassador/landing-page — get or create user's quiz
+  app.get("/api/ambassador/landing-page", async (req, res) => {
+    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+    if (!req.user.isAmbassador && !req.user.isAdmin) return res.status(403).json({ message: "Ambassador access required" });
+    try {
+      const quiz = await storage.getOrCreateLandingPageQuiz(req.user.id, (req.user as any).referralCode || String(req.user.id));
+      res.json(quiz);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // PATCH /api/ambassador/landing-page — update quiz
+  app.patch("/api/ambassador/landing-page", async (req, res) => {
+    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+    if (!req.user.isAmbassador && !req.user.isAdmin) return res.status(403).json({ message: "Ambassador access required" });
+    try {
+      const quiz = await storage.getOrCreateLandingPageQuiz(req.user.id, (req.user as any).referralCode || String(req.user.id));
+      const updated = await storage.updateLandingPageQuiz(quiz.id, req.body);
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/ambassador/landing-page/preview — returns quiz data for preview
+  app.get("/api/ambassador/landing-page/preview", async (req, res) => {
+    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+    try {
+      const quiz = await storage.getOrCreateLandingPageQuiz(req.user.id, (req.user as any).referralCode || String(req.user.id));
+      res.json(quiz);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/lp/:slug/info — PUBLIC: get quiz info for rendering
+  app.get("/api/lp/:slug/info", async (req, res) => {
+    try {
+      const quiz = await storage.getLandingPageQuizBySlug(req.params.slug);
+      if (!quiz || !quiz.isActive) return res.status(404).json({ message: "Landing page not found" });
+      // Return quiz data plus ambassador name
+      res.json(quiz);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/lp/:slug — PUBLIC: submit quiz lead
+  app.post("/api/lp/:slug", async (req, res) => {
+    try {
+      const lead = await storage.submitQuizLead(req.params.slug, req.body);
+      res.json(lead);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  // GET /api/ambassador/leads — list own leads
+  app.get("/api/ambassador/leads", async (req, res) => {
+    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+    if (!req.user.isAmbassador && !req.user.isAdmin) return res.status(403).json({ message: "Ambassador access required" });
+    try {
+      const filters: { status?: string; source?: string; leadQuality?: string } = {};
+      if (req.query.status) filters.status = String(req.query.status);
+      if (req.query.source) filters.source = String(req.query.source);
+      if (req.query.quality) filters.leadQuality = String(req.query.quality);
+      const leads = await storage.getLeadsByAmbassador(req.user.id, filters);
+      res.json(leads);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/ambassador/leads — add manual lead
+  app.post("/api/ambassador/leads", async (req, res) => {
+    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+    if (!req.user.isAmbassador && !req.user.isAdmin) return res.status(403).json({ message: "Ambassador access required" });
+    try {
+      const lead = await storage.createLead({
+        ...req.body,
+        ambassadorId: req.user.id,
+        source: req.body.source || 'manual',
+      });
+      res.json(lead);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  // PATCH /api/ambassador/leads/:id — update lead status/notes
+  app.patch("/api/ambassador/leads/:id", async (req, res) => {
+    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+    if (!req.user.isAmbassador && !req.user.isAdmin) return res.status(403).json({ message: "Ambassador access required" });
+    try {
+      const id = parseInt(req.params.id);
+      const updated = await storage.updateLead(id, req.body);
+      res.json(updated);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  // DELETE /api/ambassador/leads/:id — delete lead
+  app.delete("/api/ambassador/leads/:id", async (req, res) => {
+    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+    if (!req.user.isAmbassador && !req.user.isAdmin) return res.status(403).json({ message: "Ambassador access required" });
+    try {
+      const id = parseInt(req.params.id);
+      await storage.deleteLead(id);
+      res.json({ deleted: true });
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  // POST /api/ambassador/leads/:id/enrich — AI enrich a lead
+  app.post("/api/ambassador/leads/:id/enrich", async (req, res) => {
+    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+    if (!req.user.isAmbassador && !req.user.isAdmin) return res.status(403).json({ message: "Ambassador access required" });
+    try {
+      const id = parseInt(req.params.id);
+      const leads = await storage.getLeadsByAmbassador(req.user.id);
+      const lead = leads.find(l => l.id === id);
+      if (!lead) return res.status(404).json({ message: "Lead not found" });
+      const insights = await enrichLeadWithAI({
+        firstName: lead.firstName,
+        bioSnippet: lead.bioSnippet || undefined,
+        platform: lead.platform || undefined,
+        answers: (lead.answers as Array<{ questionId: string | number; answer: string }>) || [],
+      });
+      const aiInsights = JSON.stringify(insights);
+      const updated = await storage.updateLead(id, { aiInsights });
+      res.json({ ...updated, parsedInsights: insights });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/ambassador/social-scan — create scan with AI outreach kit
+  app.post("/api/ambassador/social-scan", async (req, res) => {
+    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+    if (!req.user.isAmbassador && !req.user.isAdmin) return res.status(403).json({ message: "Ambassador access required" });
+    try {
+      const { platform, keywords } = req.body;
+      if (!platform || !keywords) return res.status(400).json({ message: "platform and keywords are required" });
+      const ambassadorName = req.user.fullName || req.user.username || 'Ambassador';
+      const kit = await generateSocialOutreachKit(platform, keywords, ambassadorName);
+      const scan = await storage.createSocialLeadScan({
+        userId: req.user.id,
+        platform,
+        keywords,
+        searchUrls: kit.searchUrls as unknown as string,
+        outreachKit: JSON.stringify(kit),
+        leadsAdded: 0,
+      });
+      res.json({ ...scan, kit });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/ambassador/social-scans — list past scans
+  app.get("/api/ambassador/social-scans", async (req, res) => {
+    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+    if (!req.user.isAmbassador && !req.user.isAdmin) return res.status(403).json({ message: "Ambassador access required" });
+    try {
+      const scans = await storage.getSocialLeadScansByUser(req.user.id);
+      res.json(scans);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   const httpServer = createServer(app);

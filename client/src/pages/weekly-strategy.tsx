@@ -177,9 +177,19 @@ export default function WeeklyStrategyPage() {
       setUnrealizedPnL(data.unrealizedPnL || 0);
       setLastPositionUpdate(data.lastPositionUpdate || null);
       if (data.pairDailyStats) setPairDailyStats(data.pairDailyStats);
+      // Store daily progress data
+      if (data.dailyTarget !== undefined) {
+        setDailyTarget(data.dailyTarget);
+        setTodayClosedProfit(data.todayClosedProfit || 0);
+        setTodayTotalProfit(data.todayTotalProfit || 0);
+        setDailyProgressClosed(data.dailyProgressClosed || 0);
+        setDailyProgressTotal(data.dailyProgressTotal || 0);
+        setTodayTrades(data.todayTrades || 0);
+        setTodayWinRate(data.todayWinRate || 0);
+      }
       if (!data.silent) {
         const activeMsg = data.activeTradeCount > 0 ? ` | ${data.activeTradeCount} active trade(s)` : '';
-        toast({ title: "Progress Synced", description: `$${data.currentProfit} closed P&L | $${data.unrealizedPnL || 0} unrealized${activeMsg}` });
+        toast({ title: "Progress Synced", description: `Today: $${data.todayClosedProfit?.toFixed(2) || 0} | Week: $${data.currentProfit} | ${data.unrealizedPnL || 0} unrealized${activeMsg}` });
       }
     },
   });
@@ -212,6 +222,15 @@ export default function WeeklyStrategyPage() {
   const [pairDailyStats, setPairDailyStats] = useState<Record<string, any>>({});
   const [selectedSignalMode, setSelectedSignalMode] = useState("aggressive");
   const [autoExecuteSignals, setAutoExecuteSignals] = useState(false);
+
+  // Daily progress tracking
+  const [dailyTarget, setDailyTarget] = useState(0);
+  const [todayClosedProfit, setTodayClosedProfit] = useState(0);
+  const [todayTotalProfit, setTodayTotalProfit] = useState(0);
+  const [dailyProgressClosed, setDailyProgressClosed] = useState(0);
+  const [dailyProgressTotal, setDailyProgressTotal] = useState(0);
+  const [todayTrades, setTodayTrades] = useState(0);
+  const [todayWinRate, setTodayWinRate] = useState(0);
 
   // Load available vision models + user's current model preference
   const { data: aiModelsData } = useQuery<any>({
@@ -616,44 +635,113 @@ export default function WeeklyStrategyPage() {
 
       <div className="max-w-7xl mx-auto p-4 space-y-4">
 
-        {/* ─── Weekly Plan Progress (always visible at top) ── */}
+        {/* ─── Progress Meters (always visible at top) ── */}
         {strategy?.hasStrategy && (
-          <div className="rounded-xl bg-gradient-to-r from-gray-900/80 to-gray-900/60 border border-gray-800 px-4 py-3">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <TrendingUp className="w-4 h-4 text-orange-400" />
-                <span className="text-white font-semibold text-sm">Weekly Growth Plan</span>
-                {plan?.feasibility && (
-                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
-                    plan.feasibility === 'ACHIEVABLE' ? 'bg-emerald-500/20 text-emerald-400' :
-                    plan.feasibility === 'AGGRESSIVE' ? 'bg-orange-500/20 text-orange-400' :
-                    'bg-red-500/20 text-red-400'
-                  }`}>{plan.feasibility}</span>
+          <div className="rounded-xl bg-gradient-to-r from-gray-900/80 to-gray-900/60 border border-gray-800 px-4 py-4 space-y-4">
+
+            {/* TODAY'S DAILY METER — PRIMARY */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+                  <span className="text-white font-semibold text-sm">Today's Profit</span>
+                  <span className="text-[10px] text-gray-500 font-mono">
+                    {new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                  </span>
+                </div>
+                <div className="flex items-center gap-3 text-xs">
+                  <span className="text-gray-400">
+                    ${todayClosedProfit.toFixed(2)}
+                    {todayTotalProfit > todayClosedProfit && (
+                      <span className="text-yellow-400/70"> (+${(todayTotalProfit - todayClosedProfit).toFixed(2)} open)</span>
+                    )}
+                    {' '}/ ${dailyTarget > 0 ? dailyTarget.toFixed(2) : ((strategy.profitTarget || 0) / 5).toFixed(2)}
+                  </span>
+                  <span className={`font-bold text-sm ${
+                    dailyProgressClosed >= 100 ? 'text-emerald-400' :
+                    dailyProgressClosed >= 60 ? 'text-cyan-400' :
+                    dailyProgressClosed >= 30 ? 'text-yellow-400' : 'text-red-400'
+                  }`}>{dailyProgressClosed}%</span>
+                </div>
+              </div>
+              {/* Progress track with two overlaid bars */}
+              <div className="relative h-3.5 bg-gray-800 rounded-full overflow-hidden">
+                {/* Unrealized (open) progress — background layer */}
+                {dailyProgressTotal > dailyProgressClosed && (
+                  <div
+                    className="absolute top-0 left-0 h-full rounded-full opacity-40 transition-all duration-700"
+                    style={{
+                      width: `${Math.min(100, dailyProgressTotal)}%`,
+                      background: 'linear-gradient(90deg,#f59e0b,#fbbf24)',
+                    }}
+                  />
+                )}
+                {/* Closed (realized) progress — foreground layer */}
+                <div
+                  className="absolute top-0 left-0 h-full rounded-full transition-all duration-700"
+                  style={{
+                    width: `${Math.min(100, dailyProgressClosed)}%`,
+                    background: dailyProgressClosed >= 100
+                      ? 'linear-gradient(90deg,#10b981,#34d399)'
+                      : dailyProgressClosed >= 60
+                      ? 'linear-gradient(90deg,#06b6d4,#22d3ee)'
+                      : dailyProgressClosed >= 30
+                      ? 'linear-gradient(90deg,#f59e0b,#fbbf24)'
+                      : 'linear-gradient(90deg,#dc2626,#ef4444)',
+                  }}
+                />
+              </div>
+              <div className="flex items-center gap-4 mt-1 text-[11px] text-gray-500">
+                <span>{todayTrades} trade{todayTrades !== 1 ? 's' : ''} today</span>
+                <span>{todayWinRate}% win rate</span>
+                {todayTotalProfit > todayClosedProfit && (
+                  <span className="text-yellow-400/60">● {(dailyProgressTotal - dailyProgressClosed)}% unrealized</span>
+                )}
+                {dailyProgressClosed >= 100 && (
+                  <span className="text-emerald-400 font-semibold">✓ Daily target hit!</span>
                 )}
               </div>
-              <div className="flex items-center gap-3 text-xs">
-                <span className="text-gray-400">${(strategy.currentProfit || 0).toFixed(2)} / ${strategy.profitTarget}</span>
-                <span className="text-orange-400 font-bold text-sm">{strategy.progressPercentage || 0}%</span>
+            </div>
+
+            {/* WEEKLY METER — SECONDARY */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center gap-2">
+                  <TrendingUp className="w-3.5 h-3.5 text-orange-400" />
+                  <span className="text-gray-300 font-medium text-xs">Weekly Goal</span>
+                  {plan?.feasibility && (
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                      plan.feasibility === 'ACHIEVABLE' ? 'bg-emerald-500/20 text-emerald-400' :
+                      plan.feasibility === 'AGGRESSIVE' ? 'bg-orange-500/20 text-orange-400' :
+                      'bg-red-500/20 text-red-400'
+                    }`}>{plan.feasibility}</span>
+                  )}
+                </div>
+                <div className="flex items-center gap-3 text-xs">
+                  <span className="text-gray-500">${(strategy.currentProfit || 0).toFixed(2)} / ${strategy.profitTarget}</span>
+                  <span className="text-orange-400 font-semibold text-xs">{strategy.progressPercentage || 0}%</span>
+                </div>
+              </div>
+              <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all duration-700"
+                  style={{
+                    width: `${Math.min(100, strategy.progressPercentage || 0)}%`,
+                    background: (strategy.progressPercentage || 0) >= 100
+                      ? 'linear-gradient(90deg,#10b981,#34d399)'
+                      : (strategy.progressPercentage || 0) >= 60
+                      ? 'linear-gradient(90deg,#f59e0b,#fbbf24)'
+                      : 'linear-gradient(90deg,#dc2626,#ef4444)',
+                  }}
+                />
+              </div>
+              <div className="flex items-center gap-4 mt-1 text-[11px] text-gray-500">
+                <span>{strategy.progressTrades ?? 0} trades this week</span>
+                <span>{strategy.progressWinRate ?? 0}% win rate</span>
+                {liveMode?.live && <span className="text-emerald-400 animate-pulse">● EA LIVE</span>}
               </div>
             </div>
-            <div className="h-2.5 bg-gray-800 rounded-full overflow-hidden">
-              <div
-                className="h-full rounded-full transition-all duration-700"
-                style={{
-                  width: `${Math.min(100, strategy.progressPercentage || 0)}%`,
-                  background: (strategy.progressPercentage || 0) >= 100
-                    ? 'linear-gradient(90deg,#10b981,#34d399)'
-                    : (strategy.progressPercentage || 0) >= 60
-                    ? 'linear-gradient(90deg,#f59e0b,#fbbf24)'
-                    : 'linear-gradient(90deg,#dc2626,#ef4444)'
-                }}
-              />
-            </div>
-            <div className="flex items-center gap-4 mt-2 text-xs text-gray-500">
-              <span>{strategy.progressTrades ?? 0} trades</span>
-              <span>{strategy.progressWinRate ?? 0}% win rate</span>
-              {liveMode?.live && <span className="text-emerald-400 animate-pulse">● EA Guidance LIVE</span>}
-            </div>
+
           </div>
         )}
 

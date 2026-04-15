@@ -62,6 +62,10 @@ import {
   investmentPools, tokenInvestments,
   type InvestmentPool, type InsertInvestmentPool,
   type TokenInvestment, type InsertTokenInvestment,
+  landingPageQuizzes, quizLeads, socialLeadScans,
+  type LandingPageQuiz, type InsertLandingPageQuiz,
+  type QuizLead, type InsertQuizLead,
+  type SocialLeadScan, type InsertSocialLeadScan,
 } from "@shared/schema";
 import { db, pool } from "./db";
 import { eq, and, sql, desc, isNull, gte, lte } from "drizzle-orm";
@@ -456,6 +460,22 @@ export interface IStorage {
     inProgress: number;
     totalFundingAwarded: string;
   }>;
+
+  // Landing page quiz
+  getOrCreateLandingPageQuiz(userId: number, referralCode: string): Promise<LandingPageQuiz>;
+  getLandingPageQuizBySlug(slug: string): Promise<LandingPageQuiz | undefined>;
+  updateLandingPageQuiz(id: number, data: Partial<InsertLandingPageQuiz>): Promise<LandingPageQuiz>;
+
+  // Quiz leads / lead list
+  getLeadsByAmbassador(ambassadorId: number, filters?: { status?: string; source?: string; leadQuality?: string }): Promise<QuizLead[]>;
+  createLead(lead: InsertQuizLead): Promise<QuizLead>;
+  updateLead(id: number, data: Partial<InsertQuizLead>): Promise<QuizLead>;
+  deleteLead(id: number): Promise<void>;
+  submitQuizLead(quizSlug: string, leadData: Record<string, unknown>): Promise<QuizLead>;
+
+  // Social scans
+  createSocialLeadScan(scan: InsertSocialLeadScan): Promise<SocialLeadScan>;
+  getSocialLeadScansByUser(userId: number): Promise<SocialLeadScan[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2951,6 +2971,112 @@ export class DatabaseStorage implements IStorage {
     const awarded = allApps.filter(a => a.status === 'awarded').length;
     const inProgress = allApps.filter(a => ['applied', 'under_review'].includes(a.status || '')).length;
     return { totalGrants, myApplications, awarded, inProgress, totalFundingAwarded: `${awarded} grants` };
+  }
+
+  // ─── AMBASSADOR LEAD GENERATION ───────────────────────────────────────────────
+
+  async getOrCreateLandingPageQuiz(userId: number, referralCode: string): Promise<LandingPageQuiz> {
+    const [existing] = await db.select().from(landingPageQuizzes).where(eq(landingPageQuizzes.userId, userId));
+    if (existing) return existing;
+
+    // Build slug from user name + referral code
+    const [user] = await db.select().from(users).where(eq(users.id, userId));
+    const namePart = (user?.fullName || user?.username || 'ambassador')
+      .toLowerCase()
+      .replace(/\s+/g, '-')
+      .replace(/[^a-z0-9-]/g, '')
+      .slice(0, 30);
+    const slug = `${namePart}-${referralCode || userId}`.slice(0, 50);
+
+    const [quiz] = await db.insert(landingPageQuizzes).values({
+      userId,
+      slug,
+      title: 'My VEDD Landing Page',
+      questions: [] as unknown as string,
+    } as any).returning();
+    return quiz;
+  }
+
+  async getLandingPageQuizBySlug(slug: string): Promise<LandingPageQuiz | undefined> {
+    const [quiz] = await db.select().from(landingPageQuizzes).where(eq(landingPageQuizzes.slug, slug));
+    return quiz;
+  }
+
+  async updateLandingPageQuiz(id: number, data: Partial<InsertLandingPageQuiz>): Promise<LandingPageQuiz> {
+    const [updated] = await db.update(landingPageQuizzes)
+      .set({ ...data, updatedAt: new Date() } as any)
+      .where(eq(landingPageQuizzes.id, id))
+      .returning();
+    return updated;
+  }
+
+  async getLeadsByAmbassador(ambassadorId: number, filters?: { status?: string; source?: string; leadQuality?: string }): Promise<QuizLead[]> {
+    const conditions: ReturnType<typeof eq>[] = [eq(quizLeads.ambassadorId, ambassadorId)];
+    if (filters?.status) conditions.push(eq(quizLeads.status, filters.status));
+    if (filters?.source) conditions.push(eq(quizLeads.source, filters.source));
+    if (filters?.leadQuality) conditions.push(eq(quizLeads.leadQuality, filters.leadQuality));
+    return await db.select().from(quizLeads).where(and(...conditions)).orderBy(desc(quizLeads.createdAt));
+  }
+
+  async createLead(lead: InsertQuizLead): Promise<QuizLead> {
+    const [created] = await db.insert(quizLeads).values(lead as any).returning();
+    return created;
+  }
+
+  async updateLead(id: number, data: Partial<InsertQuizLead>): Promise<QuizLead> {
+    const [updated] = await db.update(quizLeads)
+      .set({ ...data, updatedAt: new Date() } as any)
+      .where(eq(quizLeads.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteLead(id: number): Promise<void> {
+    await db.delete(quizLeads).where(eq(quizLeads.id, id));
+  }
+
+  async submitQuizLead(quizSlug: string, leadData: Record<string, unknown>): Promise<QuizLead> {
+    const [quiz] = await db.select().from(landingPageQuizzes).where(eq(landingPageQuizzes.slug, quizSlug));
+    if (!quiz) throw new Error('Quiz not found');
+
+    const answers = (leadData.answers as Array<{ questionId: string | number; answer: string }>) || [];
+    const questions = (quiz.questions as Array<{ id: string | number; text: string; yesScore?: number }>) || [];
+    const yesCount = answers.filter(a => a.answer === 'yes').length;
+    const totalQ = questions.length || 1;
+    const leadScore = Math.round((yesCount / totalQ) * 100);
+    const leadQuality = leadScore >= 70 ? 'hot' : leadScore >= 40 ? 'warm' : 'cold';
+
+    const [lead] = await db.insert(quizLeads).values({
+      quizId: quiz.id,
+      ambassadorId: quiz.userId,
+      firstName: (leadData.firstName as string) || 'Unknown',
+      lastName: (leadData.lastName as string) || null,
+      email: (leadData.email as string) || null,
+      phone: (leadData.phone as string) || null,
+      answers: answers as unknown as string,
+      leadScore,
+      leadQuality,
+      status: 'new',
+      source: 'landing_page',
+    } as any).returning();
+
+    // Increment quiz lead count
+    await db.update(landingPageQuizzes)
+      .set({ leadCount: (quiz.leadCount || 0) + 1, updatedAt: new Date() } as any)
+      .where(eq(landingPageQuizzes.id, quiz.id));
+
+    return lead;
+  }
+
+  async createSocialLeadScan(scan: InsertSocialLeadScan): Promise<SocialLeadScan> {
+    const [created] = await db.insert(socialLeadScans).values(scan as any).returning();
+    return created;
+  }
+
+  async getSocialLeadScansByUser(userId: number): Promise<SocialLeadScan[]> {
+    return await db.select().from(socialLeadScans)
+      .where(eq(socialLeadScans.userId, userId))
+      .orderBy(desc(socialLeadScans.createdAt));
   }
 }
 

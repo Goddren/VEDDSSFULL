@@ -9,14 +9,18 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useLocation } from "wouter";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import {
   Users, MessageSquare, Zap, BookOpen, Target, Copy, Check,
   Plus, Trash2, Edit2, Save, X, ChevronRight, Star, TrendingUp,
   Instagram, Twitter, Facebook, Hash, Play, RefreshCw, Lightbulb,
   Calendar, Award, DollarSign, BarChart3, Bot, Megaphone,
+  Globe, Search, Sparkles, ExternalLink, ChevronDown, ChevronUp,
+  Flame, Phone, Mail, Link2, Loader2,
 } from "lucide-react";
 import { Redirect } from "wouter";
 
@@ -28,6 +32,88 @@ interface DmKeyword {
   isActive: boolean;
   triggerCount: number;
 }
+
+interface QuizQuestion {
+  id: string | number;
+  text: string;
+  yesScore: number;
+}
+
+interface LandingPageQuiz {
+  id: number;
+  userId: number;
+  title: string;
+  slug: string;
+  headline: string | null;
+  subheadline: string | null;
+  questions: QuizQuestion[];
+  ctaText: string | null;
+  thankYouMessage: string | null;
+  brandColor: string | null;
+  isActive: boolean | null;
+  leadCount: number | null;
+  createdAt: string;
+}
+
+interface QuizLead {
+  id: number;
+  quizId: number | null;
+  ambassadorId: number;
+  firstName: string;
+  lastName: string | null;
+  email: string | null;
+  phone: string | null;
+  answers: Array<{ questionId: string | number; answer: string }> | null;
+  leadScore: number | null;
+  leadQuality: string | null;
+  status: string | null;
+  source: string | null;
+  platform: string | null;
+  profileUrl: string | null;
+  bioSnippet: string | null;
+  aiInsights: string | null;
+  notes: string | null;
+  convertedAt: string | null;
+  createdAt: string;
+}
+
+interface SocialLeadScan {
+  id: number;
+  userId: number;
+  platform: string;
+  keywords: string;
+  searchUrls: Array<{ label: string; url: string; description: string }> | null;
+  outreachKit: string | null;
+  leadsAdded: number | null;
+  createdAt: string;
+}
+
+interface OutreachKit {
+  hashtags: string[];
+  searchQueries: string[];
+  searchUrls: Array<{ label: string; url: string; description: string }>;
+  dmScript: string;
+  commentScript: string;
+  profileKeywords: string[];
+  bestTimeToPost: string;
+  tips: string[];
+}
+
+const STARTER_QUESTIONS: QuizQuestion[] = [
+  { id: "q1", text: "Are you currently looking for ways to grow your income?", yesScore: 5 },
+  { id: "q2", text: "Have you ever tried trading or investing before?", yesScore: 4 },
+  { id: "q3", text: "Are you open to learning a proven trading system?", yesScore: 5 },
+  { id: "q4", text: "Do you have at least 30 minutes a day to dedicate to building wealth?", yesScore: 4 },
+  { id: "q5", text: "Are you serious about achieving financial freedom in the next 12 months?", yesScore: 5 },
+];
+
+const SOCIAL_PLATFORMS = [
+  { id: "twitter", label: "Twitter / X", icon: Twitter, color: "text-sky-400" },
+  { id: "instagram", label: "Instagram", icon: Instagram, color: "text-pink-400" },
+  { id: "facebook", label: "Facebook", icon: Facebook, color: "text-blue-500" },
+  { id: "linkedin", label: "LinkedIn", icon: Globe, color: "text-blue-400" },
+  { id: "tiktok", label: "TikTok", icon: Hash, color: "text-purple-400" },
+];
 
 const PLATFORM_ICONS: Record<string, any> = {
   instagram: Instagram,
@@ -238,6 +324,8 @@ export default function AmbassadorRecruitmentPage() {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [location] = useLocation();
+  const urlTab = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "").get("tab") || "training";
 
   const [newKeyword, setNewKeyword] = useState("");
   const [newTemplate, setNewTemplate] = useState("");
@@ -250,8 +338,144 @@ export default function AmbassadorRecruitmentPage() {
   const [senderName, setSenderName] = useState("");
   const [copiedResponse, setCopiedResponse] = useState(false);
 
+  // Lead Pages tab state
+  const [quizEditOpen, setQuizEditOpen] = useState(false);
+  const [editQuiz, setEditQuiz] = useState<Partial<LandingPageQuiz>>({});
+  const [leadFilter, setLeadFilter] = useState("all");
+  const [addLeadOpen, setAddLeadOpen] = useState(false);
+  const [newLeadForm, setNewLeadForm] = useState({ firstName: "", lastName: "", email: "", phone: "", profileUrl: "", bioSnippet: "", platform: "", source: "manual" });
+  const [expandedLead, setExpandedLead] = useState<number | null>(null);
+  const [copiedUrl, setCopiedUrl] = useState(false);
+
+  // Social Scanner tab state
+  const [selectedPlatform, setSelectedPlatform] = useState("twitter");
+  const [scanKeywords, setScanKeywords] = useState("");
+  const [scanResult, setScanResult] = useState<(SocialLeadScan & { kit?: OutreachKit }) | null>(null);
+  const [expandedScan, setExpandedScan] = useState<number | null>(null);
+  const [addProspectOpen, setAddProspectOpen] = useState(false);
+  const [prospectForm, setProspectForm] = useState({ firstName: "", lastName: "", profileUrl: "", bioSnippet: "", platform: selectedPlatform });
+  const [copiedText, setCopiedText] = useState<string | null>(null);
+
   // All hooks must be before any early returns
   const isAmbassador = user?.isAmbassador || user?.isAdmin;
+
+  // Lead Pages queries
+  const { data: landingPageQuiz, refetch: refetchQuiz } = useQuery<LandingPageQuiz>({
+    queryKey: ["/api/ambassador/landing-page"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/ambassador/landing-page");
+      return res.json();
+    },
+    enabled: !!isAmbassador,
+  });
+
+  const { data: leads = [], refetch: refetchLeads } = useQuery<QuizLead[]>({
+    queryKey: ["/api/ambassador/leads"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/ambassador/leads");
+      return res.json();
+    },
+    enabled: !!isAmbassador,
+  });
+
+  const { data: pastScans = [] } = useQuery<SocialLeadScan[]>({
+    queryKey: ["/api/ambassador/social-scans"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/ambassador/social-scans");
+      return res.json();
+    },
+    enabled: !!isAmbassador,
+  });
+
+  const updateQuizMutation = useMutation({
+    mutationFn: async (data: Partial<LandingPageQuiz>) => {
+      const res = await apiRequest("PATCH", "/api/ambassador/landing-page", data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/ambassador/landing-page"] });
+      setQuizEditOpen(false);
+      toast({ title: "Landing page updated!" });
+    },
+    onError: () => toast({ title: "Failed to update landing page", variant: "destructive" }),
+  });
+
+  const createLeadMutation = useMutation({
+    mutationFn: async (data: typeof newLeadForm) => {
+      const res = await apiRequest("POST", "/api/ambassador/leads", data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/ambassador/leads"] });
+      setAddLeadOpen(false);
+      setNewLeadForm({ firstName: "", lastName: "", email: "", phone: "", profileUrl: "", bioSnippet: "", platform: "", source: "manual" });
+      toast({ title: "Lead added!" });
+    },
+    onError: () => toast({ title: "Failed to add lead", variant: "destructive" }),
+  });
+
+  const updateLeadMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: Partial<QuizLead> }) => {
+      const res = await apiRequest("PATCH", `/api/ambassador/leads/${id}`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/ambassador/leads"] });
+    },
+    onError: () => toast({ title: "Failed to update lead", variant: "destructive" }),
+  });
+
+  const deleteLeadMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("DELETE", `/api/ambassador/leads/${id}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/ambassador/leads"] });
+      toast({ title: "Lead deleted" });
+    },
+  });
+
+  const enrichLeadMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("POST", `/api/ambassador/leads/${id}/enrich`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/ambassador/leads"] });
+      toast({ title: "Lead enriched with AI!", description: "AI insights added." });
+    },
+    onError: () => toast({ title: "AI enrichment failed", variant: "destructive" }),
+  });
+
+  const socialScanMutation = useMutation({
+    mutationFn: async (data: { platform: string; keywords: string }) => {
+      const res = await apiRequest("POST", "/api/ambassador/social-scan", data);
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setScanResult(data);
+      queryClient.invalidateQueries({ queryKey: ["/api/ambassador/social-scans"] });
+      toast({ title: "Outreach kit generated!" });
+    },
+    onError: () => toast({ title: "Failed to generate outreach kit", variant: "destructive" }),
+  });
+
+  const addProspectMutation = useMutation({
+    mutationFn: async (data: typeof prospectForm) => {
+      const res = await apiRequest("POST", "/api/ambassador/leads", { ...data, source: "social_scan" });
+      return res.json();
+    },
+    onSuccess: (newLead) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/ambassador/leads"] });
+      setAddProspectOpen(false);
+      setProspectForm({ firstName: "", lastName: "", profileUrl: "", bioSnippet: "", platform: selectedPlatform });
+      toast({ title: "Prospect added!", description: "Enriching with AI..." });
+      // Auto-enrich
+      enrichLeadMutation.mutate(newLead.id);
+    },
+    onError: () => toast({ title: "Failed to add prospect", variant: "destructive" }),
+  });
 
   const { data: keywords = [], isLoading: kwLoading } = useQuery<DmKeyword[]>({
     queryKey: ["/api/dm-keywords"],
@@ -324,7 +548,7 @@ export default function AmbassadorRecruitmentPage() {
   return (
     <div className="container max-w-4xl mx-auto px-4 py-6 pb-24">
       {/* Header */}
-      <div className="mb-6">
+      <div className="mb-4">
         <div className="flex items-center gap-2 mb-1">
           <Users className="w-6 h-6 text-blue-400" />
           <h1 className="text-2xl font-bold">Ambassador Recruitment Hub</h1>
@@ -334,12 +558,43 @@ export default function AmbassadorRecruitmentPage() {
         </p>
       </div>
 
-      <Tabs defaultValue="training">
+      {/* ── Quick-access: My Lead Page shortcut ── */}
+      {landingPageQuiz && (
+        <div className="mb-5 rounded-xl border border-purple-500/30 bg-purple-500/5 px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
+          <div className="flex items-center gap-2 shrink-0">
+            <Globe className="w-4 h-4 text-purple-400" />
+            <span className="text-sm font-semibold text-purple-300">My Lead Page</span>
+            <Badge className="bg-purple-500/20 text-purple-300 border-purple-500/30 text-[10px]">
+              {landingPageQuiz.leadCount || 0} leads
+            </Badge>
+          </div>
+          <code className="flex-1 text-xs text-muted-foreground bg-black/30 rounded px-2 py-1 truncate">
+            {typeof window !== "undefined" ? window.location.origin : ""}/lp/{landingPageQuiz.slug}
+          </code>
+          <div className="flex gap-2 shrink-0">
+            <Button size="sm" variant="outline" className="h-7 text-xs border-purple-500/40 text-purple-300 hover:bg-purple-500/10"
+              onClick={() => {
+                navigator.clipboard.writeText(`${window.location.origin}/lp/${landingPageQuiz.slug}`);
+                toast({ title: "Lead page link copied!" });
+              }}>
+              <Copy className="w-3 h-3 mr-1" /> Copy Link
+            </Button>
+            <Button size="sm" variant="outline" className="h-7 text-xs border-purple-500/40 text-purple-300 hover:bg-purple-500/10"
+              onClick={() => window.open(`/lp/${landingPageQuiz.slug}`, "_blank")}>
+              <ExternalLink className="w-3 h-3 mr-1" /> Preview
+            </Button>
+          </div>
+        </div>
+      )}
+
+      <Tabs defaultValue={urlTab}>
         <TabsList className="flex flex-wrap gap-1 h-auto mb-6">
           <TabsTrigger value="training" className="text-xs">Training Modules</TabsTrigger>
           <TabsTrigger value="44day" className="text-xs">44-Day Plan</TabsTrigger>
           <TabsTrigger value="dm" className="text-xs">DM Automation</TabsTrigger>
           <TabsTrigger value="scripts" className="text-xs">Scripts</TabsTrigger>
+          <TabsTrigger value="leadpages" className="text-xs">Lead Pages</TabsTrigger>
+          <TabsTrigger value="social" className="text-xs">Social Scanner</TabsTrigger>
         </TabsList>
 
         {/* ── TRAINING MODULES ── */}
@@ -750,6 +1005,580 @@ And honestly? The free tier exists so you don't have to take my word for it. You
                 <ChevronRight className="w-4 h-4" />
               </Button>
             </div>
+          </div>
+        </TabsContent>
+
+        {/* ── LEAD PAGES ── */}
+        <TabsContent value="leadpages">
+          <div className="space-y-6">
+            {/* My Landing Page card */}
+            <Card className="border-border/50">
+              <CardHeader className="pb-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Globe className="w-4 h-4 text-red-400" />
+                      My Landing Page
+                    </CardTitle>
+                    <CardDescription className="text-xs mt-1">Share this link to capture leads automatically</CardDescription>
+                  </div>
+                  <Dialog open={quizEditOpen} onOpenChange={setQuizEditOpen}>
+                    <DialogTrigger asChild>
+                      <Button size="sm" variant="outline" className="gap-1 text-xs"
+                        onClick={() => setEditQuiz({
+                          headline: landingPageQuiz?.headline || "",
+                          subheadline: landingPageQuiz?.subheadline || "",
+                          ctaText: landingPageQuiz?.ctaText || "",
+                          thankYouMessage: landingPageQuiz?.thankYouMessage || "",
+                          questions: landingPageQuiz?.questions || [],
+                        })}>
+                        <Edit2 className="w-3.5 h-3.5" /> Edit Page
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+                      <DialogHeader>
+                        <DialogTitle>Edit Landing Page</DialogTitle>
+                      </DialogHeader>
+                      <div className="space-y-4 pt-2">
+                        <div>
+                          <Label className="text-xs">Headline</Label>
+                          <Input value={editQuiz.headline || ""} onChange={e => setEditQuiz(q => ({ ...q, headline: e.target.value }))} placeholder="Are You Ready for Financial Freedom?" />
+                        </div>
+                        <div>
+                          <Label className="text-xs">Subheadline</Label>
+                          <Input value={editQuiz.subheadline || ""} onChange={e => setEditQuiz(q => ({ ...q, subheadline: e.target.value }))} placeholder="Answer 5 quick questions..." />
+                        </div>
+                        <div>
+                          <Label className="text-xs">CTA Button Text</Label>
+                          <Input value={editQuiz.ctaText || ""} onChange={e => setEditQuiz(q => ({ ...q, ctaText: e.target.value }))} placeholder="Get My Free Trading Assessment" />
+                        </div>
+                        <div>
+                          <Label className="text-xs">Thank You Message</Label>
+                          <Textarea value={editQuiz.thankYouMessage || ""} onChange={e => setEditQuiz(q => ({ ...q, thankYouMessage: e.target.value }))} rows={2} />
+                        </div>
+
+                        {/* Questions */}
+                        <div>
+                          <div className="flex items-center justify-between mb-2">
+                            <Label className="text-xs">Quiz Questions ({(editQuiz.questions || []).length}/10)</Label>
+                            <div className="flex gap-1">
+                              <Button size="sm" variant="outline" className="text-xs h-7 px-2"
+                                onClick={() => setEditQuiz(q => ({ ...q, questions: STARTER_QUESTIONS }))}>
+                                Use Starter Set
+                              </Button>
+                              {(editQuiz.questions || []).length < 10 && (
+                                <Button size="sm" variant="outline" className="text-xs h-7 px-2"
+                                  onClick={() => setEditQuiz(q => ({
+                                    ...q,
+                                    questions: [...(q.questions || []), { id: `q${Date.now()}`, text: "", yesScore: 4 }],
+                                  }))}>
+                                  <Plus className="w-3 h-3" />
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                          <div className="space-y-2">
+                            {(editQuiz.questions || []).map((q, i) => (
+                              <div key={q.id} className="flex gap-2 items-start">
+                                <Input
+                                  className="flex-1 text-xs h-8"
+                                  value={q.text}
+                                  onChange={e => {
+                                    const qs = [...(editQuiz.questions || [])];
+                                    qs[i] = { ...qs[i], text: e.target.value };
+                                    setEditQuiz(eq => ({ ...eq, questions: qs }));
+                                  }}
+                                  placeholder={`Question ${i + 1}`}
+                                />
+                                <Select value={String(q.yesScore)} onValueChange={v => {
+                                  const qs = [...(editQuiz.questions || [])];
+                                  qs[i] = { ...qs[i], yesScore: Number(v) };
+                                  setEditQuiz(eq => ({ ...eq, questions: qs }));
+                                }}>
+                                  <SelectTrigger className="w-16 h-8 text-xs"><SelectValue /></SelectTrigger>
+                                  <SelectContent>
+                                    {[1,2,3,4,5].map(n => <SelectItem key={n} value={String(n)} className="text-xs">{n}</SelectItem>)}
+                                  </SelectContent>
+                                </Select>
+                                <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0"
+                                  onClick={() => {
+                                    const qs = (editQuiz.questions || []).filter((_, j) => j !== i);
+                                    setEditQuiz(eq => ({ ...eq, questions: qs }));
+                                  }}>
+                                  <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        <Button className="w-full" disabled={updateQuizMutation.isPending}
+                          onClick={() => updateQuizMutation.mutate(editQuiz as Partial<LandingPageQuiz>)}>
+                          {updateQuizMutation.isPending ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />Saving...</> : "Save Changes"}
+                        </Button>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {landingPageQuiz ? (
+                  <div className="space-y-3">
+                    <div className="bg-muted/40 rounded-lg p-3 flex items-center gap-2">
+                      <code className="text-xs flex-1 break-all text-muted-foreground">
+                        {window.location.origin}/lp/{landingPageQuiz.slug}
+                      </code>
+                      <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0"
+                        onClick={() => {
+                          navigator.clipboard.writeText(`${window.location.origin}/lp/${landingPageQuiz.slug}`);
+                          setCopiedUrl(true);
+                          toast({ title: "URL copied!" });
+                          setTimeout(() => setCopiedUrl(false), 2500);
+                        }}>
+                        {copiedUrl ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
+                      </Button>
+                      <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0"
+                        onClick={() => window.open(`/lp/${landingPageQuiz.slug}`, '_blank')}>
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                    <div className="flex gap-4 text-xs text-muted-foreground">
+                      <span className="flex items-center gap-1"><Users className="w-3.5 h-3.5" /> {landingPageQuiz.leadCount || 0} leads captured</span>
+                      <span className="flex items-center gap-1"><Hash className="w-3.5 h-3.5" /> {(landingPageQuiz.questions || []).length} questions</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center py-4 text-muted-foreground text-sm">Loading your landing page...</div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Lead List */}
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-semibold text-sm flex items-center gap-2">
+                  <Users className="w-4 h-4 text-blue-400" />
+                  Lead List ({leads.length})
+                </h3>
+                <Dialog open={addLeadOpen} onOpenChange={setAddLeadOpen}>
+                  <DialogTrigger asChild>
+                    <Button size="sm" className="gap-1 text-xs h-8"><Plus className="w-3.5 h-3.5" /> Add Lead</Button>
+                  </DialogTrigger>
+                  <DialogContent className="max-w-md">
+                    <DialogHeader><DialogTitle>Add Manual Lead</DialogTitle></DialogHeader>
+                    <div className="space-y-3 pt-2">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div><Label className="text-xs">First Name *</Label><Input value={newLeadForm.firstName} onChange={e => setNewLeadForm(f => ({ ...f, firstName: e.target.value }))} /></div>
+                        <div><Label className="text-xs">Last Name</Label><Input value={newLeadForm.lastName} onChange={e => setNewLeadForm(f => ({ ...f, lastName: e.target.value }))} /></div>
+                      </div>
+                      <div><Label className="text-xs">Email</Label><Input type="email" value={newLeadForm.email} onChange={e => setNewLeadForm(f => ({ ...f, email: e.target.value }))} /></div>
+                      <div><Label className="text-xs">Phone</Label><Input value={newLeadForm.phone} onChange={e => setNewLeadForm(f => ({ ...f, phone: e.target.value }))} /></div>
+                      <div><Label className="text-xs">Profile URL</Label><Input value={newLeadForm.profileUrl} onChange={e => setNewLeadForm(f => ({ ...f, profileUrl: e.target.value }))} placeholder="https://..." /></div>
+                      <div><Label className="text-xs">Bio Snippet (for AI enrichment)</Label><Textarea rows={2} value={newLeadForm.bioSnippet} onChange={e => setNewLeadForm(f => ({ ...f, bioSnippet: e.target.value }))} /></div>
+                      <Button className="w-full" disabled={createLeadMutation.isPending || !newLeadForm.firstName}
+                        onClick={() => createLeadMutation.mutate(newLeadForm)}>
+                        {createLeadMutation.isPending ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />Adding...</> : "Add Lead"}
+                      </Button>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              </div>
+
+              {/* Stats row */}
+              {leads.length > 0 && (
+                <div className="grid grid-cols-3 gap-2 mb-4">
+                  <div className="bg-muted/30 rounded-lg p-3 text-center">
+                    <p className="text-2xl font-bold">{leads.length}</p>
+                    <p className="text-xs text-muted-foreground">Total Leads</p>
+                  </div>
+                  <div className="bg-red-500/10 rounded-lg p-3 text-center">
+                    <p className="text-2xl font-bold text-red-400">{leads.filter(l => l.leadQuality === 'hot').length}</p>
+                    <p className="text-xs text-muted-foreground">Hot Leads</p>
+                  </div>
+                  <div className="bg-green-500/10 rounded-lg p-3 text-center">
+                    <p className="text-2xl font-bold text-green-400">
+                      {leads.length > 0 ? Math.round((leads.filter(l => l.status === 'converted').length / leads.length) * 100) : 0}%
+                    </p>
+                    <p className="text-xs text-muted-foreground">Conversion</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Filter tabs */}
+              <div className="flex flex-wrap gap-1 mb-3">
+                {["all","hot","warm","cold","contacted","converted"].map(f => (
+                  <Button key={f} size="sm" variant={leadFilter === f ? "default" : "outline"} className="text-xs h-7 px-2"
+                    onClick={() => setLeadFilter(f)}>
+                    {f === "hot" && <Flame className="w-3 h-3 mr-1 text-red-400" />}
+                    {f.charAt(0).toUpperCase() + f.slice(1)}
+                  </Button>
+                ))}
+              </div>
+
+              {/* Lead cards */}
+              <div className="space-y-2">
+                {leads
+                  .filter(l => {
+                    if (leadFilter === "all") return true;
+                    if (["hot","warm","cold"].includes(leadFilter)) return l.leadQuality === leadFilter;
+                    return l.status === leadFilter;
+                  })
+                  .map(lead => (
+                    <Card key={lead.id} className="border-border/50">
+                      <CardContent className="p-3">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-semibold text-sm">{lead.firstName} {lead.lastName}</span>
+                              <Badge className={`text-xs ${lead.leadQuality === 'hot' ? 'bg-red-500/20 text-red-400' : lead.leadQuality === 'warm' ? 'bg-amber-500/20 text-amber-400' : 'bg-blue-500/20 text-blue-400'}`}>
+                                {lead.leadQuality === 'hot' && <Flame className="w-3 h-3 mr-1" />}
+                                {lead.leadQuality}
+                              </Badge>
+                              <Badge variant="outline" className="text-xs">{lead.source}</Badge>
+                              {lead.platform && <Badge variant="outline" className="text-xs">{lead.platform}</Badge>}
+                            </div>
+                            <div className="flex gap-3 mt-1 flex-wrap">
+                              {lead.email && <span className="text-xs text-muted-foreground flex items-center gap-1"><Mail className="w-3 h-3" />{lead.email}</span>}
+                              {lead.phone && <span className="text-xs text-muted-foreground flex items-center gap-1"><Phone className="w-3 h-3" />{lead.phone}</span>}
+                              {lead.profileUrl && (
+                                <a href={lead.profileUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-400 flex items-center gap-1">
+                                  <Link2 className="w-3 h-3" />Profile
+                                </a>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <Select value={lead.status || "new"} onValueChange={v => updateLeadMutation.mutate({ id: lead.id, data: { status: v } })}>
+                              <SelectTrigger className="h-7 text-xs w-28"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                {["new","contacted","qualified","converted","not_interested"].map(s => (
+                                  <SelectItem key={s} value={s} className="text-xs">{s.replace('_',' ')}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <Button size="icon" variant="ghost" className="h-7 w-7"
+                              onClick={() => setExpandedLead(expandedLead === lead.id ? null : lead.id)}>
+                              {expandedLead === lead.id ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                            </Button>
+                          </div>
+                        </div>
+
+                        {expandedLead === lead.id && (
+                          <div className="mt-3 space-y-2 border-t border-border/50 pt-3">
+                            {lead.aiInsights && (() => {
+                              try {
+                                const insights = JSON.parse(lead.aiInsights);
+                                return (
+                                  <div className="bg-purple-500/10 border border-purple-500/20 rounded-lg p-3">
+                                    <p className="text-xs font-semibold text-purple-400 mb-1 flex items-center gap-1"><Sparkles className="w-3.5 h-3.5" /> AI Insights</p>
+                                    <p className="text-xs text-muted-foreground"><span className="font-medium">Interest:</span> {insights.interestLevel}</p>
+                                    <p className="text-xs text-muted-foreground"><span className="font-medium">Approach:</span> {insights.approach}</p>
+                                    <p className="text-xs text-muted-foreground"><span className="font-medium">Opener:</span> {insights.suggestedOpener}</p>
+                                  </div>
+                                );
+                              } catch { return null; }
+                            })()}
+                            <div>
+                              <Label className="text-xs">Notes</Label>
+                              <Textarea
+                                rows={2} className="text-xs mt-1"
+                                defaultValue={lead.notes || ""}
+                                onBlur={e => {
+                                  if (e.target.value !== (lead.notes || "")) {
+                                    updateLeadMutation.mutate({ id: lead.id, data: { notes: e.target.value } });
+                                  }
+                                }}
+                                placeholder="Add notes..."
+                              />
+                            </div>
+                            <div className="flex gap-2">
+                              <Button size="sm" variant="outline" className="text-xs gap-1 flex-1"
+                                disabled={enrichLeadMutation.isPending}
+                                onClick={() => enrichLeadMutation.mutate(lead.id)}>
+                                {enrichLeadMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-purple-400" />}
+                                Enrich with AI
+                              </Button>
+                              <Button size="sm" variant="ghost" className="text-xs text-red-400 hover:text-red-300 gap-1"
+                                onClick={() => deleteLeadMutation.mutate(lead.id)}>
+                                <Trash2 className="w-3.5 h-3.5" /> Delete
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  ))}
+                {leads.filter(l => {
+                  if (leadFilter === "all") return true;
+                  if (["hot","warm","cold"].includes(leadFilter)) return l.leadQuality === leadFilter;
+                  return l.status === leadFilter;
+                }).length === 0 && (
+                  <div className="text-center py-8 text-muted-foreground text-sm">
+                    {leads.length === 0 ? "No leads yet. Share your landing page to start capturing leads!" : `No ${leadFilter} leads found.`}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </TabsContent>
+
+        {/* ── SOCIAL SCANNER ── */}
+        <TabsContent value="social">
+          <div className="space-y-6">
+            {/* Platform selector */}
+            <Card className="border-border/50">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Search className="w-4 h-4 text-blue-400" />
+                  Social Lead Scanner
+                </CardTitle>
+                <CardDescription className="text-xs">Generate deep-link search URLs + AI outreach kit for any platform</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div>
+                  <Label className="text-xs mb-2 block">Select Platform</Label>
+                  <div className="flex flex-wrap gap-2">
+                    {SOCIAL_PLATFORMS.map(p => {
+                      const Icon = p.icon;
+                      return (
+                        <Button
+                          key={p.id}
+                          size="sm"
+                          variant={selectedPlatform === p.id ? "default" : "outline"}
+                          className={`gap-1.5 text-xs h-8 ${selectedPlatform === p.id ? "" : p.color}`}
+                          onClick={() => setSelectedPlatform(p.id)}
+                        >
+                          <Icon className="w-3.5 h-3.5" />
+                          {p.label}
+                        </Button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <Label className="text-xs mb-1 block">Target Keywords / Interests</Label>
+                  <Textarea
+                    rows={3}
+                    value={scanKeywords}
+                    onChange={e => setScanKeywords(e.target.value)}
+                    placeholder="e.g. forex trading, financial freedom, passive income, crypto signals, day trading"
+                    className="text-sm"
+                  />
+                </div>
+
+                <Button
+                  className="w-full gap-2"
+                  disabled={socialScanMutation.isPending || !scanKeywords.trim()}
+                  onClick={() => socialScanMutation.mutate({ platform: selectedPlatform, keywords: scanKeywords })}
+                >
+                  {socialScanMutation.isPending ? (
+                    <><Loader2 className="w-4 h-4 animate-spin" /> AI generating your personalized outreach strategy...</>
+                  ) : (
+                    <><Sparkles className="w-4 h-4" /> Generate Outreach Kit</>
+                  )}
+                </Button>
+              </CardContent>
+            </Card>
+
+            {/* Scan Results */}
+            {scanResult?.kit && (
+              <div className="space-y-4">
+                {/* Search Links */}
+                <Card className="border-border/50">
+                  <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><ExternalLink className="w-3.5 h-3.5 text-blue-400" /> Search Links</CardTitle></CardHeader>
+                  <CardContent className="space-y-2">
+                    {(scanResult.kit.searchUrls || []).map((u, i) => (
+                      <div key={i} className="flex items-start gap-2 p-2 bg-muted/30 rounded-lg">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-semibold">{u.label}</p>
+                          <p className="text-xs text-muted-foreground">{u.description}</p>
+                        </div>
+                        <Button size="sm" variant="outline" className="text-xs h-7 shrink-0 gap-1"
+                          onClick={() => window.open(u.url, '_blank')}>
+                          <ExternalLink className="w-3 h-3" /> Open
+                        </Button>
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+
+                {/* Hashtags */}
+                <Card className="border-border/50">
+                  <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><Hash className="w-3.5 h-3.5 text-green-400" /> Top Hashtags</CardTitle></CardHeader>
+                  <CardContent>
+                    <div className="flex flex-wrap gap-1.5">
+                      {(scanResult.kit.hashtags || []).map((h, i) => (
+                        <button key={i}
+                          className="text-xs bg-green-500/10 text-green-400 border border-green-500/20 rounded-full px-2 py-0.5 hover:bg-green-500/20 transition-colors"
+                          onClick={() => {
+                            navigator.clipboard.writeText(h);
+                            setCopiedText(h);
+                            toast({ title: `Copied: ${h}` });
+                            setTimeout(() => setCopiedText(null), 2000);
+                          }}>
+                          {copiedText === h ? <Check className="w-3 h-3 inline mr-1" /> : null}
+                          {h}
+                        </button>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* DM Script */}
+                <Card className="border-border/50">
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-sm flex items-center gap-2"><MessageSquare className="w-3.5 h-3.5 text-purple-400" /> DM Script</CardTitle>
+                      <Button size="sm" variant="ghost" className="h-7 text-xs gap-1"
+                        onClick={() => { navigator.clipboard.writeText(scanResult.kit!.dmScript); toast({ title: "DM script copied!" }); }}>
+                        <Copy className="w-3.5 h-3.5" /> Copy
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <pre className="text-xs text-muted-foreground whitespace-pre-wrap bg-muted/30 p-3 rounded-lg leading-relaxed">{scanResult.kit.dmScript}</pre>
+                  </CardContent>
+                </Card>
+
+                {/* Comment Script */}
+                <Card className="border-border/50">
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-sm flex items-center gap-2"><MessageSquare className="w-3.5 h-3.5 text-amber-400" /> Comment Script</CardTitle>
+                      <Button size="sm" variant="ghost" className="h-7 text-xs gap-1"
+                        onClick={() => { navigator.clipboard.writeText(scanResult.kit!.commentScript); toast({ title: "Comment script copied!" }); }}>
+                        <Copy className="w-3.5 h-3.5" /> Copy
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-xs text-muted-foreground bg-muted/30 p-3 rounded-lg">{scanResult.kit.commentScript}</p>
+                  </CardContent>
+                </Card>
+
+                {/* Profile Keywords + Tips */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <Card className="border-border/50">
+                    <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><Target className="w-3.5 h-3.5 text-red-400" /> Profile Keywords</CardTitle></CardHeader>
+                    <CardContent>
+                      <div className="flex flex-wrap gap-1">
+                        {(scanResult.kit.profileKeywords || []).map((k, i) => (
+                          <Badge key={i} variant="outline" className="text-xs">{k}</Badge>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="border-border/50">
+                    <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><Calendar className="w-3.5 h-3.5 text-sky-400" /> Best Time to Post</CardTitle></CardHeader>
+                    <CardContent>
+                      <p className="text-xs text-muted-foreground">{scanResult.kit.bestTimeToPost}</p>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* Platform Tips */}
+                <Card className="border-border/50">
+                  <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><Lightbulb className="w-3.5 h-3.5 text-yellow-400" /> Platform Tips</CardTitle></CardHeader>
+                  <CardContent>
+                    <ul className="space-y-1.5">
+                      {(scanResult.kit.tips || []).map((t, i) => (
+                        <li key={i} className="flex items-start gap-2 text-xs text-muted-foreground">
+                          <ChevronRight className="w-3.5 h-3.5 text-yellow-400 shrink-0 mt-0.5" />
+                          {t}
+                        </li>
+                      ))}
+                    </ul>
+                  </CardContent>
+                </Card>
+
+                {/* Add Prospect from this scan */}
+                <Card className="border-red-500/20 border">
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-semibold">Found a prospect?</p>
+                        <p className="text-xs text-muted-foreground">Add them manually — AI will enrich their profile automatically</p>
+                      </div>
+                      <Dialog open={addProspectOpen} onOpenChange={setAddProspectOpen}>
+                        <DialogTrigger asChild>
+                          <Button size="sm" className="gap-1 shrink-0 bg-red-600 hover:bg-red-500 text-white"><Plus className="w-3.5 h-3.5" /> Add Lead</Button>
+                        </DialogTrigger>
+                        <DialogContent className="max-w-md">
+                          <DialogHeader><DialogTitle>Add Prospect from Scan</DialogTitle></DialogHeader>
+                          <div className="space-y-3 pt-2">
+                            <div className="grid grid-cols-2 gap-2">
+                              <div><Label className="text-xs">First Name *</Label><Input value={prospectForm.firstName} onChange={e => setProspectForm(f => ({ ...f, firstName: e.target.value }))} /></div>
+                              <div><Label className="text-xs">Last Name</Label><Input value={prospectForm.lastName} onChange={e => setProspectForm(f => ({ ...f, lastName: e.target.value }))} /></div>
+                            </div>
+                            <div><Label className="text-xs">Profile URL</Label><Input value={prospectForm.profileUrl} onChange={e => setProspectForm(f => ({ ...f, profileUrl: e.target.value }))} placeholder="https://..." /></div>
+                            <div><Label className="text-xs">Bio Snippet (paste their bio)</Label><Textarea rows={3} value={prospectForm.bioSnippet} onChange={e => setProspectForm(f => ({ ...f, bioSnippet: e.target.value }))} placeholder="Paste bio or profile description..." /></div>
+                            <Button className="w-full" disabled={addProspectMutation.isPending || !prospectForm.firstName}
+                              onClick={() => addProspectMutation.mutate({ ...prospectForm, platform: selectedPlatform })}>
+                              {addProspectMutation.isPending ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />Adding & Enriching...</> : "Add + AI Enrich"}
+                            </Button>
+                          </div>
+                        </DialogContent>
+                      </Dialog>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
+            {/* Past Scans */}
+            {pastScans.length > 0 && (
+              <div>
+                <h3 className="font-semibold text-sm mb-3 flex items-center gap-2">
+                  <RefreshCw className="w-4 h-4 text-muted-foreground" />
+                  Past Scans ({pastScans.length})
+                </h3>
+                <div className="space-y-2">
+                  {pastScans.map(scan => (
+                    <Card key={scan.id} className="border-border/50">
+                      <CardContent className="p-3">
+                        <button
+                          className="w-full flex items-center justify-between gap-2"
+                          onClick={() => setExpandedScan(expandedScan === scan.id ? null : scan.id)}
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            {(() => {
+                              const PIcon = SOCIAL_PLATFORMS.find(p => p.id === scan.platform)?.icon || Globe;
+                              return <PIcon className="w-4 h-4 text-muted-foreground shrink-0" />;
+                            })()}
+                            <div className="text-left min-w-0">
+                              <p className="text-xs font-semibold capitalize">{scan.platform}</p>
+                              <p className="text-xs text-muted-foreground truncate">{scan.keywords}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-xs text-muted-foreground">{scan.leadsAdded || 0} leads</span>
+                            <span className="text-xs text-muted-foreground">{new Date(scan.createdAt).toLocaleDateString()}</span>
+                            {expandedScan === scan.id ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                          </div>
+                        </button>
+                        {expandedScan === scan.id && scan.outreachKit && (() => {
+                          try {
+                            const kit: OutreachKit = JSON.parse(scan.outreachKit);
+                            return (
+                              <div className="mt-3 pt-3 border-t border-border/50 space-y-2">
+                                <div className="flex flex-wrap gap-1">
+                                  {(kit.hashtags || []).slice(0,8).map((h, i) => (
+                                    <Badge key={i} variant="outline" className="text-xs">{h}</Badge>
+                                  ))}
+                                </div>
+                                <p className="text-xs text-muted-foreground">{kit.tips?.[0]}</p>
+                              </div>
+                            );
+                          } catch { return null; }
+                        })()}
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </TabsContent>
       </Tabs>

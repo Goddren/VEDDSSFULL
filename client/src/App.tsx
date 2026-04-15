@@ -76,6 +76,7 @@ import SevenEightPage from "@/pages/seven-eight";
 import GrantsFundingPage from "@/pages/grants-funding";
 import ReferralHubPage from "@/pages/referral-hub";
 import AmbassadorRecruitmentPage from "@/pages/ambassador-recruitment";
+import AmbassadorLandingPage from "@/pages/ambassador-landing-page";
 import TokenInvestmentsPage from "@/pages/token-investments";
 import StreakBanner from "@/components/StreakBanner";
 import { OnboardingTutorial } from "@/components/onboarding-tutorial";
@@ -199,6 +200,9 @@ function AppLayout() {
 
             {/* Ambassador Recruitment Hub */}
             <ProtectedRoute path="/ambassador/recruitment" component={AmbassadorRecruitmentPage} />
+
+            {/* Ambassador Landing Page (public, no auth required) */}
+            <Route path="/lp/:slug" component={AmbassadorLandingPage} />
 
             {/* Admin routes */}
             <ProtectedRoute path="/admin/vedd-pool" component={AdminVeddPool} />

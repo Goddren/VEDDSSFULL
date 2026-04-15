@@ -2974,3 +2974,133 @@ Eligibility: ${Array.isArray(grant.eligibilityCriteria) ? grant.eligibilityCrite
 
   return { content: '' };
 }
+
+// ─── AMBASSADOR LEAD GENERATION AI ────────────────────────────────
+
+export async function generateSocialOutreachKit(
+  platform: string,
+  keywords: string,
+  ambassadorName: string
+): Promise<{
+  hashtags: string[];
+  searchQueries: string[];
+  searchUrls: { label: string; url: string; description: string }[];
+  dmScript: string;
+  commentScript: string;
+  profileKeywords: string[];
+  bestTimeToPost: string;
+  tips: string[];
+}> {
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+  const encodedKeywords = encodeURIComponent(keywords);
+  const firstHashtag = keywords.split(/[\s,]+/)[0]?.replace('#', '') || 'trading';
+
+  const systemPrompt = `You are a social media lead generation expert for VEDD Trading AI — a fintech/forex/crypto trading education platform with AI signal tools, an ambassador program, and Solana token investments. You help ambassadors find and convert prospects into VEDD subscribers.`;
+
+  const userPrompt = `Generate a complete lead generation outreach kit for ambassador "${ambassadorName}" targeting ${platform} using these keywords/interests: "${keywords}".
+
+Return a JSON object with these exact fields:
+- hashtags: string[] — 10-15 best hashtags for ${platform} matching these interests
+- searchQueries: string[] — 8-10 specific search query strings to find trading/finance prospects
+- searchUrls: { label: string, url: string, description: string }[] — 4-6 deep-link search URLs for ${platform}. Use these URL patterns:
+  * Twitter/X: https://twitter.com/search?q={encoded_query}&f=people
+  * Instagram: https://www.instagram.com/explore/tags/{hashtag}/
+  * LinkedIn: https://www.linkedin.com/search/results/people/?keywords={encoded_query}
+  * Facebook: https://www.facebook.com/search/people/?q={encoded_query}
+  * TikTok: https://www.tiktok.com/search?q={encoded_query}
+- dmScript: string — 150-200 word personalized DM template for ${platform}, referencing trading/financial freedom, signed by ${ambassadorName}. Include [NAME] placeholder.
+- commentScript: string — 2-3 sentence comment to leave on target posts, curiosity-driven
+- profileKeywords: string[] — 8-10 keywords to look for in bios when scanning profiles
+- bestTimeToPost: string — best times to engage on ${platform} for this audience
+- tips: string[] — 3-4 platform-specific tactics for finding and converting prospects on ${platform}
+
+Pre-generate the URLs using encoded versions of: "${encodedKeywords}" and hashtag: "${firstHashtag}"`;
+
+  const response = await openai.chat.completions.create({
+    model: "gpt-4o",
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ],
+    response_format: { type: "json_object" },
+    max_tokens: 2000,
+  });
+
+  const raw = response.choices[0]?.message?.content || '{}';
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return {
+      hashtags: [],
+      searchQueries: [],
+      searchUrls: [],
+      dmScript: '',
+      commentScript: '',
+      profileKeywords: [],
+      bestTimeToPost: '',
+      tips: [],
+    };
+  }
+}
+
+export async function enrichLeadWithAI(lead: {
+  firstName: string;
+  bioSnippet?: string;
+  platform?: string;
+  answers?: Array<{ questionId: string | number; answer: string }>;
+}): Promise<{
+  interestLevel: string;
+  approach: string;
+  talkingPoints: string[];
+  suggestedOpener: string;
+  summary: string;
+}> {
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+  const answersText = lead.answers && lead.answers.length > 0
+    ? `Quiz answers: ${lead.answers.map(a => `Q${a.questionId}: ${a.answer}`).join(', ')}`
+    : 'No quiz answers provided.';
+
+  const bioText = lead.bioSnippet ? `Bio/Profile snippet: "${lead.bioSnippet}"` : 'No bio provided.';
+  const platformText = lead.platform ? `Found on: ${lead.platform}` : '';
+
+  const prompt = `Analyze this VEDD Trading AI prospect and return a JSON assessment (max 150 words total across all fields):
+
+Name: ${lead.firstName}
+${platformText}
+${bioText}
+${answersText}
+
+Return JSON with:
+- interestLevel: "High" | "Medium" | "Low"
+- approach: string — 1-2 sentence best outreach approach for this person
+- talkingPoints: string[] — 3 key talking points based on their profile/answers
+- suggestedOpener: string — a specific first message opener (1-2 sentences, natural, not salesy)
+- summary: string — 1 sentence overall assessment
+
+Base on VEDD's offerings: AI trading signals, financial education, passive income through referrals, trading community.`;
+
+  const response = await openai.chat.completions.create({
+    model: "gpt-4o",
+    messages: [
+      { role: "system", content: "You are a lead qualification expert for VEDD Trading AI. Be concise and actionable." },
+      { role: "user", content: prompt },
+    ],
+    response_format: { type: "json_object" },
+    max_tokens: 400,
+  });
+
+  const raw = response.choices[0]?.message?.content || '{}';
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return {
+      interestLevel: 'Medium',
+      approach: 'Standard outreach recommended.',
+      talkingPoints: ['AI trading signals', 'Financial freedom', 'Ambassador income'],
+      suggestedOpener: `Hey ${lead.firstName}, noticed you're interested in trading — have you seen what AI can do for your charts?`,
+      summary: 'Prospect requires manual review.',
+    };
+  }
+}
