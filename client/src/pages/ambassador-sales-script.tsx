@@ -1,15 +1,18 @@
 import { useState } from 'react';
 import { Link } from 'wouter';
 import { useToast } from '@/hooks/use-toast';
+import { useQuery } from '@tanstack/react-query';
+import { apiRequest } from '@/lib/queryClient';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import {
   ChevronDown, ChevronUp, Copy, Check, Phone, ArrowLeft,
   MessageSquare, Users, DollarSign, Target, Lightbulb,
   HelpCircle, X, CheckCircle, ChevronRight, ChevronLeft,
-  Mic, ClipboardList, TrendingUp, Mail
+  Mic, ClipboardList, TrendingUp, Mail, Link2, Share2
 } from 'lucide-react';
 
 const STEPS = [
@@ -94,6 +97,24 @@ export default function AmbassadorSalesScriptPage() {
   const [step, setStep] = useState(0);
   const [hookVariant, setHookVariant] = useState(0);
   const [notes, setNotes] = useState<Record<number, string>>({});
+  const { toast } = useToast();
+  const [linkCopied, setLinkCopied] = useState(false);
+
+  const { data: referralData } = useQuery<{ code: string; url: string; shortUrl: string }>({
+    queryKey: ["/api/referral/my-link"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/referral/my-link");
+      return res.json();
+    },
+  });
+
+  const copyReferralLink = () => {
+    if (!referralData?.url) return;
+    navigator.clipboard.writeText(referralData.url);
+    setLinkCopied(true);
+    toast({ title: "Referral link copied!", description: "Ready to share with your prospect." });
+    setTimeout(() => setLinkCopied(false), 2500);
+  };
 
   const hooks = [
     {
@@ -319,6 +340,38 @@ Looking forward to hearing how you get on!
             <Badge variant="outline" className="text-xs">8 Steps</Badge>
             <Badge variant="outline" className="text-xs">Copy-Ready Scripts</Badge>
           </div>
+        </div>
+
+        {/* Referral Link — always visible at top of call script */}
+        <div className="mb-6 p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl">
+          <div className="flex items-center gap-2 mb-2">
+            <Link2 className="h-4 w-4 text-amber-400" />
+            <p className="text-sm font-semibold text-amber-400">Your Referral Link — Send this at the end of every call</p>
+          </div>
+          <div className="flex gap-2">
+            <Input
+              value={referralData?.url || "Loading your referral link..."}
+              readOnly
+              className="font-mono text-xs bg-background/60"
+            />
+            <Button size="sm" className="shrink-0 gap-1.5 bg-amber-500 hover:bg-amber-400 text-black" onClick={copyReferralLink}>
+              {linkCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+              {linkCopied ? "Copied!" : "Copy"}
+            </Button>
+            {referralData?.url && (
+              <Button size="sm" variant="outline" className="shrink-0" onClick={() => {
+                if (navigator.share) {
+                  navigator.share({ title: "Try VEDD AI Free", url: referralData.url });
+                } else { copyReferralLink(); }
+              }}>
+                <Share2 className="h-3.5 w-3.5" />
+              </Button>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground mt-2">
+            Code: <span className="font-mono font-bold text-amber-400">{referralData?.code || "—"}</span>
+            {" · "}Every signup through this link tracks back to you automatically.
+          </p>
         </div>
 
         {/* Progress Stepper */}

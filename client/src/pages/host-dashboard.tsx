@@ -139,6 +139,22 @@ export default function HostDashboardPage() {
   const [isLive, setIsLive] = useState(false);
   const [recordingUrl, setRecordingUrl] = useState("");
 
+  // Fetch referral link to attach to all event share links
+  const { data: referralData } = useQuery<{ code: string; url: string; shortUrl: string }>({
+    queryKey: ["/api/referral/my-link"],
+    queryFn: async () => {
+      const { apiRequest } = await import("@/lib/queryClient");
+      const res = await apiRequest("GET", "/api/referral/my-link");
+      return res.json();
+    },
+  });
+
+  // Helper: build event share link with referral code appended
+  const buildShareLink = (shareSlug: string) => {
+    const base = `${window.location.origin}/event/${shareSlug}?action=register`;
+    return referralData?.code ? `${base}&ref=${referralData.code}` : base;
+  };
+
   const { data: hostedEvents, isLoading: eventsLoading } = useQuery<HostedEvent[]>({
     queryKey: ["/api/ambassador/host/my-events"],
   });
@@ -498,13 +514,13 @@ export default function HostDashboardPage() {
                               variant="secondary" 
                               size="sm"
                               onClick={() => {
-                                const shareLink = event.shareSlug 
-                                  ? `${window.location.origin}/event/${event.shareSlug}?action=register`
+                                const shareLink = event.shareSlug
+                                  ? buildShareLink(event.shareSlug)
                                   : event.recordingUrl!;
                                 navigator.clipboard.writeText(shareLink);
-                                toast({ 
-                                  title: "Link Copied!", 
-                                  description: "Share this link - recipients can register directly!" 
+                                toast({
+                                  title: "Link Copied!",
+                                  description: referralData?.code ? "Referral link copied — signups will track back to you!" : "Share this link - recipients can register directly!"
                                 });
                               }}
                               className="flex items-center gap-1"
@@ -962,11 +978,11 @@ export default function HostDashboardPage() {
                   size="sm"
                   className="border-purple-500/50 text-purple-400 hover:bg-purple-500/10"
                   onClick={() => {
-                    const shareLink = `${window.location.origin}/event/${presenterEvent.shareSlug}?action=register`;
+                    const shareLink = buildShareLink(presenterEvent.shareSlug);
                     navigator.clipboard.writeText(shareLink);
-                    toast({ 
-                      title: "Event Link Copied!", 
-                      description: "Share this link so attendees can register" 
+                    toast({
+                      title: "Event Link Copied!",
+                      description: referralData?.code ? `Referral code ${referralData.code} embedded — signups track to you!` : "Share this link so attendees can register"
                     });
                   }}
                 >

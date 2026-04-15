@@ -3,7 +3,7 @@ import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import path from "path";
 import { setupAuth } from "./auth";
-import { seedAchievements, seedSubscriptionPlans, seedAdminUser } from "./seed";
+import { seedAchievements, seedSubscriptionPlans, seedAdminUser, seedInvestmentPools } from "./seed";
 import { initializeMarketDataService } from "./market-data";
 import { execSync } from "child_process";
 import { db } from "./db";
@@ -235,6 +235,47 @@ async function withRetry<T>(
     }
 
     try {
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS investment_pools (
+        id serial PRIMARY KEY,
+        name text NOT NULL,
+        slug text NOT NULL UNIQUE,
+        pool_type text NOT NULL,
+        description text NOT NULL,
+        apy_rate real NOT NULL,
+        lock_period_days integer NOT NULL DEFAULT 0,
+        min_investment real NOT NULL DEFAULT 100,
+        max_investment real,
+        risk_level text NOT NULL DEFAULT 'low',
+        total_pool_size real NOT NULL DEFAULT 0,
+        total_invested real NOT NULL DEFAULT 0,
+        total_yield_paid real NOT NULL DEFAULT 0,
+        is_active boolean NOT NULL DEFAULT true,
+        is_paused boolean NOT NULL DEFAULT false,
+        created_by integer REFERENCES users(id),
+        created_at timestamp DEFAULT now() NOT NULL,
+        updated_at timestamp DEFAULT now() NOT NULL
+      )`);
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS token_investments (
+        id serial PRIMARY KEY,
+        user_id integer REFERENCES users(id) NOT NULL,
+        pool_id integer REFERENCES investment_pools(id) NOT NULL,
+        amount_invested real NOT NULL,
+        current_value real NOT NULL,
+        yield_earned real NOT NULL DEFAULT 0,
+        status text NOT NULL DEFAULT 'active',
+        start_date timestamp DEFAULT now() NOT NULL,
+        maturity_date timestamp,
+        last_yield_calculated_at timestamp DEFAULT now() NOT NULL,
+        withdrawn_at timestamp,
+        created_at timestamp DEFAULT now() NOT NULL,
+        updated_at timestamp DEFAULT now() NOT NULL
+      )`);
+      console.log('[startup] Investment pool tables created/verified.');
+    } catch (err) {
+      console.error('[startup] Investment pool tables migration (non-fatal):', (err as Error).message);
+    }
+
+    try {
       await db.execute(sql`CREATE TABLE IF NOT EXISTS grants (
         id serial PRIMARY KEY,
         title text NOT NULL,
@@ -294,6 +335,7 @@ async function withRetry<T>(
     await withRetry(() => seedSubscriptionPlans(), 'seedSubscriptionPlans');
     await withRetry(() => seedAchievements(), 'seedAchievements');
     await withRetry(() => seedAdminUser(), 'seedAdminUser');
+    await withRetry(() => seedInvestmentPools(), 'seedInvestmentPools');
 
     // Initialize market data service for Live AI Refresh
     initializeMarketDataService();

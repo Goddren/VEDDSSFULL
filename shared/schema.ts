@@ -1946,3 +1946,55 @@ export const insertGrantScanSessionSchema = createInsertSchema(grantScanSessions
 
 export type GrantScanSession = typeof grantScanSessions.$inferSelect;
 export type InsertGrantScanSession = z.infer<typeof insertGrantScanSessionSchema>;
+
+// ── Token-Backed Investments ──────────────────────────────────────────────────
+
+export const investmentPools = pgTable("investment_pools", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  slug: text("slug").notNull().unique(),              // 'stake' | 'community' | 'growth' | 'elite'
+  poolType: text("pool_type").notNull(),              // 'stake' | 'community' | 'growth' | 'elite'
+  description: text("description").notNull(),
+  apyRate: real("apy_rate").notNull(),                // 0.12 = 12% APY
+  lockPeriodDays: integer("lock_period_days").notNull().default(0), // 0 = flexible
+  minInvestment: real("min_investment").notNull().default(100),
+  maxInvestment: real("max_investment"),              // null = unlimited
+  riskLevel: text("risk_level").notNull().default("low"), // 'low' | 'medium' | 'high'
+  totalPoolSize: real("total_pool_size").notNull().default(0),   // VEDD seeded by admin
+  totalInvested: real("total_invested").notNull().default(0),   // sum of active positions
+  totalYieldPaid: real("total_yield_paid").notNull().default(0),
+  isActive: boolean("is_active").notNull().default(true),
+  isPaused: boolean("is_paused").notNull().default(false),
+  createdBy: integer("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertInvestmentPoolSchema = createInsertSchema(investmentPools).omit({
+  id: true, totalInvested: true, totalYieldPaid: true, createdAt: true, updatedAt: true,
+});
+export type InvestmentPool = typeof investmentPools.$inferSelect;
+export type InsertInvestmentPool = z.infer<typeof insertInvestmentPoolSchema>;
+
+export const tokenInvestments = pgTable("token_investments", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  poolId: integer("pool_id").references(() => investmentPools.id).notNull(),
+  amountInvested: real("amount_invested").notNull(),
+  currentValue: real("current_value").notNull(),
+  yieldEarned: real("yield_earned").notNull().default(0),
+  status: text("status").notNull().default("active"), // 'active' | 'matured' | 'withdrawn' | 'cancelled'
+  startDate: timestamp("start_date").defaultNow().notNull(),
+  maturityDate: timestamp("maturity_date"),           // null for flexible pools
+  lastYieldCalculatedAt: timestamp("last_yield_calculated_at").defaultNow().notNull(),
+  withdrawnAt: timestamp("withdrawn_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertTokenInvestmentSchema = createInsertSchema(tokenInvestments).omit({
+  id: true, currentValue: true, yieldEarned: true, status: true,
+  lastYieldCalculatedAt: true, withdrawnAt: true, createdAt: true, updatedAt: true,
+});
+export type TokenInvestment = typeof tokenInvestments.$inferSelect;
+export type InsertTokenInvestment = z.infer<typeof insertTokenInvestmentSchema>;

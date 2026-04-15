@@ -55,6 +55,7 @@ const allNavItems = [
   { name: 'Achievements', path: '/achievements', icon: Award },
   { name: 'Ambassador Training', path: '/ambassador-training', icon: GraduationCap },
   { name: 'Recruit Ambassadors', path: '/ambassador/recruitment', icon: Users },
+  { name: 'Token Investments', path: '/token-investments', icon: Coins },
   { name: 'Referral Hub', path: '/referral', icon: DollarSign },
   { name: 'Grants & Funding', path: '/grants', icon: DollarSign },
   { name: 'User Guide', path: '/user-guide', icon: BookOpen },

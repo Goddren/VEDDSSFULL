@@ -254,6 +254,16 @@ const Header: React.FC = () => {
               </Link>
               {(user?.isAmbassador || user?.isAdmin) && (
                 <>
+                  <Link href="/token-investments">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="border-amber-500/50 text-amber-400 hover:bg-amber-500/10"
+                    >
+                      <Coins className="h-4 w-4 mr-1" />
+                      Invest
+                    </Button>
+                  </Link>
                   <Link href="/referral">
                     <Button
                       variant="outline"
@@ -394,6 +404,14 @@ const Header: React.FC = () => {
                   {(user?.isAmbassador || user?.isAdmin) && (
                     <>
                       <DropdownMenuItem className="cursor-pointer" asChild>
+                        <Link href="/token-investments">
+                          <div className="flex items-center w-full text-amber-400">
+                            <Coins className="mr-2 h-4 w-4" />
+                            <span>Token Investments</span>
+                          </div>
+                        </Link>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem className="cursor-pointer" asChild>
                         <Link href="/referral">
                           <div className="flex items-center w-full text-amber-400">
                             <Users className="mr-2 h-4 w-4" />
@@ -505,6 +523,14 @@ const Header: React.FC = () => {
                   </Link>
                   {(user?.isAmbassador || user?.isAdmin) && (
                     <>
+                      <Link
+                        href="/token-investments"
+                        onClick={handleMobileNavClick}
+                        className={`text-lg font-medium transition-colors flex items-center ${location === '/token-investments' ? 'text-amber-400' : 'text-amber-500 hover:text-amber-400'}`}
+                      >
+                        <Coins className="h-4 w-4 mr-2" />
+                        Token Investments
+                      </Link>
                       <Link
                         href="/referral"
                         onClick={handleMobileNavClick}

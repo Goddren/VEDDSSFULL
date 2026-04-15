@@ -76,6 +76,7 @@ import SevenEightPage from "@/pages/seven-eight";
 import GrantsFundingPage from "@/pages/grants-funding";
 import ReferralHubPage from "@/pages/referral-hub";
 import AmbassadorRecruitmentPage from "@/pages/ambassador-recruitment";
+import TokenInvestmentsPage from "@/pages/token-investments";
 import StreakBanner from "@/components/StreakBanner";
 import { OnboardingTutorial } from "@/components/onboarding-tutorial";
 import { MobileFAB } from "@/components/mobile-fab";
@@ -189,6 +190,9 @@ function AppLayout() {
             
             {/* Grants & Funding (Ambassador + Admin) */}
             <ProtectedRoute path="/grants" component={GrantsFundingPage} />
+
+            {/* Token-Backed Investments */}
+            <ProtectedRoute path="/token-investments" component={TokenInvestmentsPage} />
 
             {/* Referral Hub */}
             <ProtectedRoute path="/referral" component={ReferralHubPage} />

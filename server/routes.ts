@@ -2737,6 +2737,36 @@ Respond ONLY in valid JSON format with these exact keys:
     }
   });
 
+  // Live VEDD token price from DexScreener (pump.fun SOL token)
+  app.get('/api/vedd/live-price', async (_req: Request, res: Response) => {
+    try {
+      const mint = 'Ch7WbPBy5XjL1UULwWYwh75DsVdXhFUVXtiNvNGopump';
+      const response = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${mint}`);
+      if (!response.ok) throw new Error('DexScreener API error');
+      const data = await response.json() as any;
+      const pairs = data.pairs || [];
+      // Find the highest liquidity pair
+      const best = pairs.sort((a: any, b: any) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0))[0];
+      if (best) {
+        return res.json({
+          priceUsd: parseFloat(best.priceUsd || '0'),
+          priceNative: parseFloat(best.priceNative || '0'),
+          marketCap: best.marketCap || 0,
+          volume24h: best.volume?.h24 || 0,
+          priceChange24h: best.priceChange?.h24 || 0,
+          liquidity: best.liquidity?.usd || 0,
+          dexUrl: best.url,
+          pairAddress: best.pairAddress,
+          source: 'dexscreener',
+        });
+      }
+      // Fallback to hardcoded rate
+      res.json({ priceUsd: 0.0000036, source: 'fallback' });
+    } catch (err) {
+      res.json({ priceUsd: 0.0000036, source: 'fallback' });
+    }
+  });
+
   // Get VEDD token prices for plans
   app.get('/api/vedd/prices', async (_req: Request, res: Response) => {
     try {
@@ -15401,6 +15431,140 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     ].join("\n");
     res.setHeader('Content-Type', 'text/plain');
     res.send(exportText);
+  });
+
+  // ─── TOKEN-BACKED INVESTMENTS ───────────────────────────────────────────────
+
+  // Yield accrual helper — called before reads and in batch
+  async function accrueYieldForUser(userId: number) {
+    const positions = await storage.getUserInvestments(userId);
+    const active = positions.filter(p => p.status === 'active');
+    for (const pos of active) {
+      const pool = await storage.getInvestmentPool(pos.poolId);
+      if (!pool) continue;
+      const now = new Date();
+      const lastCalc = pos.lastYieldCalculatedAt ? new Date(pos.lastYieldCalculatedAt) : new Date(pos.startDate);
+      const daysSince = (now.getTime() - lastCalc.getTime()) / (1000 * 60 * 60 * 24);
+      if (daysSince < 0.001) continue;
+      const dailyRate = pool.apyRate / 365;
+      const newYield = pos.currentValue * dailyRate * daysSince;
+      const newCurrentValue = pos.currentValue + newYield;
+      const newYieldEarned = pos.yieldEarned + newYield;
+      let newStatus: string = pos.status;
+      if (pool.lockPeriodDays > 0 && pos.maturityDate && now >= new Date(pos.maturityDate)) {
+        newStatus = 'matured';
+      }
+      await storage.updateInvestment(pos.id, {
+        currentValue: newCurrentValue,
+        yieldEarned: newYieldEarned,
+        lastYieldCalculatedAt: now,
+        status: newStatus as any,
+      });
+    }
+  }
+
+  // GET /api/investments/pools
+  app.get("/api/investments/pools", async (req, res) => {
+    const pools = await storage.getInvestmentPools(true);
+    res.json(pools);
+  });
+
+  // GET /api/investments/pools/:id
+  app.get("/api/investments/pools/:id", async (req, res) => {
+    const pool = await storage.getInvestmentPool(parseInt(req.params.id));
+    if (!pool) return res.status(404).json({ message: "Pool not found" });
+    res.json(pool);
+  });
+
+  // GET /api/investments/my-positions
+  app.get("/api/investments/my-positions", async (req, res) => {
+    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+    await accrueYieldForUser(req.user.id);
+    const positions = await storage.getUserInvestments(req.user.id);
+    res.json(positions);
+  });
+
+  // GET /api/investments/my-summary
+  app.get("/api/investments/my-summary", async (req, res) => {
+    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+    await accrueYieldForUser(req.user.id);
+    const summary = await storage.getUserInvestmentSummary(req.user.id);
+    res.json(summary);
+  });
+
+  // POST /api/investments/invest
+  app.post("/api/investments/invest", async (req, res) => {
+    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+    const { poolId, amount } = req.body;
+    if (!poolId || !amount || amount <= 0) return res.status(400).json({ message: "poolId and amount required" });
+    const pool = await storage.getInvestmentPool(poolId);
+    if (!pool) return res.status(404).json({ message: "Pool not found" });
+    if (!pool.isActive || pool.isPaused) return res.status(400).json({ message: "This pool is not currently accepting investments" });
+    if (amount < pool.minInvestment) return res.status(400).json({ message: `Minimum investment is ${pool.minInvestment} VEDD` });
+    if (pool.maxInvestment && amount > pool.maxInvestment) return res.status(400).json({ message: `Maximum investment is ${pool.maxInvestment} VEDD` });
+    // Check wallet
+    const wallet = await storage.getOrCreateInternalWallet(req.user.id);
+    if (!wallet || wallet.veddBalance < amount) return res.status(400).json({ message: "Insufficient VEDD balance in your wallet" });
+    // Deduct
+    await storage.updateInternalWalletBalance(req.user.id, -amount);
+    const maturityDate = pool.lockPeriodDays > 0
+      ? new Date(Date.now() + pool.lockPeriodDays * 24 * 60 * 60 * 1000)
+      : null;
+    const investment = await storage.createInvestment({ userId: req.user.id, poolId, amountInvested: amount, maturityDate });
+    res.json(investment);
+  });
+
+  // POST /api/investments/:id/withdraw
+  app.post("/api/investments/:id/withdraw", async (req, res) => {
+    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+    const id = parseInt(req.params.id);
+    const position = await storage.getInvestment(id);
+    if (!position) return res.status(404).json({ message: "Investment not found" });
+    if (position.userId !== req.user.id) return res.status(403).json({ message: "Not your investment" });
+    if (position.status === 'withdrawn' || position.status === 'cancelled') {
+      return res.status(400).json({ message: `Investment is already ${position.status}` });
+    }
+    const pool = await storage.getInvestmentPool(position.poolId);
+    if (pool && pool.lockPeriodDays > 0 && position.maturityDate && position.status !== 'matured') {
+      if (new Date() < new Date(position.maturityDate)) {
+        const daysLeft = Math.ceil((new Date(position.maturityDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+        return res.status(400).json({ message: `Investment locked for ${daysLeft} more day(s)` });
+      }
+    }
+    await accrueYieldForUser(req.user.id);
+    const updated = await storage.getInvestment(id);
+    if (!updated) return res.status(404).json({ message: "Investment not found" });
+    await storage.updateInternalWalletBalance(req.user.id, updated.currentValue);
+    if (pool) {
+      await storage.updateInvestmentPool(pool.id, {
+        totalInvested: Math.max(0, pool.totalInvested - updated.amountInvested),
+        totalYieldPaid: pool.totalYieldPaid + updated.yieldEarned,
+      });
+    }
+    await storage.updateInvestment(id, { status: 'withdrawn' as any, withdrawnAt: new Date() });
+    res.json({ success: true, returned: updated.currentValue, yieldEarned: updated.yieldEarned });
+  });
+
+  // Admin investment routes
+  app.get("/api/admin/investments/pools", async (req, res) => {
+    if (!req.user?.isAdmin) return res.status(403).json({ message: "Admin only" });
+    const pools = await storage.getInvestmentPools(false);
+    res.json(pools);
+  });
+  app.post("/api/admin/investments/pools", async (req, res) => {
+    if (!req.user?.isAdmin) return res.status(403).json({ message: "Admin only" });
+    const pool = await storage.createInvestmentPool({ ...req.body, createdBy: req.user.id });
+    res.json(pool);
+  });
+  app.patch("/api/admin/investments/pools/:id", async (req, res) => {
+    if (!req.user?.isAdmin) return res.status(403).json({ message: "Admin only" });
+    const pool = await storage.updateInvestmentPool(parseInt(req.params.id), req.body);
+    res.json(pool);
+  });
+  app.get("/api/admin/investments/positions", async (req, res) => {
+    if (!req.user?.isAdmin) return res.status(403).json({ message: "Admin only" });
+    const positions = await storage.getAllActiveInvestments();
+    res.json(positions);
   });
 
   // ─── REFERRAL HUB ──────────────────────────────────────────────────────────

@@ -59,6 +59,9 @@ import {
   referralVisits, dmKeywords,
   type ReferralVisit, type InsertReferralVisit,
   type DmKeyword, type InsertDmKeyword,
+  investmentPools, tokenInvestments,
+  type InvestmentPool, type InsertInvestmentPool,
+  type TokenInvestment, type InsertTokenInvestment,
 } from "@shared/schema";
 import { db, pool } from "./db";
 import { eq, and, sql, desc, isNull, gte, lte } from "drizzle-orm";
@@ -182,6 +185,25 @@ export interface IStorage {
   updateDmKeyword(id: number, userId: number, data: Partial<DmKeyword>): Promise<DmKeyword | undefined>;
   deleteDmKeyword(id: number, userId: number): Promise<boolean>;
   incrementDmTrigger(id: number): Promise<void>;
+
+  getOrCreateInternalWallet(userId: number): Promise<InternalWallet>;
+  updateInternalWalletBalance(userId: number, delta: number): Promise<InternalWallet>;
+
+  // Investment Pool methods
+  getInvestmentPools(activeOnly?: boolean): Promise<InvestmentPool[]>;
+  getInvestmentPool(id: number): Promise<InvestmentPool | undefined>;
+  getInvestmentPoolBySlug(slug: string): Promise<InvestmentPool | undefined>;
+  createInvestmentPool(data: InsertInvestmentPool): Promise<InvestmentPool>;
+  updateInvestmentPool(id: number, data: Partial<InvestmentPool>): Promise<InvestmentPool | undefined>;
+  // Token Investment (position) methods
+  getUserInvestments(userId: number): Promise<TokenInvestment[]>;
+  getUserActiveInvestments(userId: number): Promise<TokenInvestment[]>;
+  getInvestment(id: number): Promise<TokenInvestment | undefined>;
+  createInvestment(data: { userId: number; poolId: number; amountInvested: number; maturityDate: Date | null }): Promise<TokenInvestment>;
+  updateInvestment(id: number, data: Partial<TokenInvestment>): Promise<TokenInvestment | undefined>;
+  getInvestmentsNeedingYieldUpdate(): Promise<TokenInvestment[]>;
+  getUserInvestmentSummary(userId: number): Promise<{ totalInvested: number; totalCurrentValue: number; totalYieldEarned: number; roiPercent: number; activeCount: number }>;
+  getAllActiveInvestments(): Promise<TokenInvestment[]>;
 
   // Price Alert methods
   createPriceAlert(alert: InsertPriceAlert): Promise<PriceAlert>;
@@ -1029,6 +1051,99 @@ export class DatabaseStorage implements IStorage {
   async incrementDmTrigger(id: number): Promise<void> {
     await db.update(dmKeywords).set({ triggerCount: sql`trigger_count + 1`, lastTriggeredAt: new Date() } as any)
       .where(eq(dmKeywords.id, id));
+  }
+
+  // ── Investment Pool Implementations ──────────────────────────────────────────
+
+  async getInvestmentPools(activeOnly = true): Promise<InvestmentPool[]> {
+    if (activeOnly) {
+      return db.select().from(investmentPools).where(eq(investmentPools.isActive, true));
+    }
+    return db.select().from(investmentPools);
+  }
+
+  async getInvestmentPool(id: number): Promise<InvestmentPool | undefined> {
+    const [pool] = await db.select().from(investmentPools).where(eq(investmentPools.id, id));
+    return pool;
+  }
+
+  async getInvestmentPoolBySlug(slug: string): Promise<InvestmentPool | undefined> {
+    const [pool] = await db.select().from(investmentPools).where(eq(investmentPools.slug, slug));
+    return pool;
+  }
+
+  async createInvestmentPool(data: InsertInvestmentPool): Promise<InvestmentPool> {
+    const [pool] = await db.insert(investmentPools).values(data).returning();
+    return pool;
+  }
+
+  async updateInvestmentPool(id: number, data: Partial<InvestmentPool>): Promise<InvestmentPool | undefined> {
+    const [pool] = await db.update(investmentPools)
+      .set({ ...data, updatedAt: new Date() } as any)
+      .where(eq(investmentPools.id, id))
+      .returning();
+    return pool;
+  }
+
+  async getUserInvestments(userId: number): Promise<TokenInvestment[]> {
+    return db.select().from(tokenInvestments).where(eq(tokenInvestments.userId, userId));
+  }
+
+  async getUserActiveInvestments(userId: number): Promise<TokenInvestment[]> {
+    return db.select().from(tokenInvestments)
+      .where(eq(tokenInvestments.userId, userId));
+  }
+
+  async getInvestment(id: number): Promise<TokenInvestment | undefined> {
+    const [inv] = await db.select().from(tokenInvestments).where(eq(tokenInvestments.id, id));
+    return inv;
+  }
+
+  async createInvestment(data: { userId: number; poolId: number; amountInvested: number; maturityDate: Date | null }): Promise<TokenInvestment> {
+    const [inv] = await db.insert(tokenInvestments).values({
+      userId: data.userId,
+      poolId: data.poolId,
+      amountInvested: data.amountInvested,
+      currentValue: data.amountInvested, // starts equal to principal
+      yieldEarned: 0,
+      status: 'active',
+      maturityDate: data.maturityDate,
+    } as any).returning();
+    // Update pool total invested
+    await db.update(investmentPools)
+      .set({ totalInvested: sql`total_invested + ${data.amountInvested}`, updatedAt: new Date() } as any)
+      .where(eq(investmentPools.id, data.poolId));
+    return inv;
+  }
+
+  async updateInvestment(id: number, data: Partial<TokenInvestment>): Promise<TokenInvestment | undefined> {
+    const [inv] = await db.update(tokenInvestments)
+      .set({ ...data, updatedAt: new Date() } as any)
+      .where(eq(tokenInvestments.id, id))
+      .returning();
+    return inv;
+  }
+
+  async getInvestmentsNeedingYieldUpdate(): Promise<TokenInvestment[]> {
+    const cutoff = new Date(Date.now() - 23 * 60 * 60 * 1000);
+    return db.select().from(tokenInvestments)
+      .where(eq(tokenInvestments.status, 'active'));
+  }
+
+  async getUserInvestmentSummary(userId: number): Promise<{ totalInvested: number; totalCurrentValue: number; totalYieldEarned: number; roiPercent: number; activeCount: number }> {
+    const investments = await db.select().from(tokenInvestments)
+      .where(eq(tokenInvestments.userId, userId));
+    const nonCancelled = investments.filter(i => i.status !== 'cancelled');
+    const active = investments.filter(i => i.status === 'active' || i.status === 'matured');
+    const totalInvested = nonCancelled.reduce((sum, i) => sum + i.amountInvested, 0);
+    const totalCurrentValue = nonCancelled.reduce((sum, i) => sum + i.currentValue, 0);
+    const totalYieldEarned = nonCancelled.reduce((sum, i) => sum + i.yieldEarned, 0);
+    const roiPercent = totalInvested > 0 ? ((totalCurrentValue - totalInvested) / totalInvested) * 100 : 0;
+    return { totalInvested, totalCurrentValue, totalYieldEarned, roiPercent, activeCount: active.length };
+  }
+
+  async getAllActiveInvestments(): Promise<TokenInvestment[]> {
+    return db.select().from(tokenInvestments).where(eq(tokenInvestments.status, 'active'));
   }
 
   async createTradingStrategy(strategy: any): Promise<number> {
@@ -2467,6 +2582,20 @@ export class DatabaseStorage implements IStorage {
         .returning();
       return result;
     }
+  }
+
+  async getOrCreateInternalWallet(userId: number): Promise<InternalWallet> {
+    return this.createOrUpdateInternalWallet(userId, {});
+  }
+
+  async updateInternalWalletBalance(userId: number, delta: number): Promise<InternalWallet> {
+    const wallet = await this.getOrCreateInternalWallet(userId);
+    const newBalance = Math.max(0, (wallet.veddBalance || 0) + delta);
+    const [result] = await db.update(internalWallets)
+      .set({ veddBalance: newBalance, lastActivityAt: new Date() })
+      .where(eq(internalWallets.userId, userId))
+      .returning();
+    return result;
   }
 
   // Withdrawal Request methods

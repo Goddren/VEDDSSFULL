@@ -1,7 +1,7 @@
 import { storage } from "./storage";
 import { initialAchievements } from "./data/achievement-seeds";
 import { db } from "./db";
-import { subscriptionPlans } from "@shared/schema";
+import { subscriptionPlans, investmentPools } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { scrypt, randomBytes } from "crypto";
 import { promisify } from "util";
@@ -206,4 +206,76 @@ export async function seedAdminUser() {
     });
     console.log(`[seed] Admin user created with temp password.`);
   }
+}
+/**
+ * Seed 4 default VEDD investment pools
+ */
+export async function seedInvestmentPools() {
+  const existing = await db.select().from(investmentPools);
+  if (existing.length > 0) {
+    return; // already seeded
+  }
+  const pools = [
+    {
+      name: "VEDD Stake Pool",
+      slug: "stake",
+      poolType: "stake",
+      description: "Lock your VEDD tokens for 30 days and earn a stable 8% APY. Principal and yield are returned at maturity. Ideal for holders who want steady, low-risk returns.",
+      apyRate: 0.08,
+      lockPeriodDays: 30,
+      minInvestment: 500,
+      maxInvestment: null,
+      riskLevel: "low",
+      totalPoolSize: 500000,
+      isActive: true,
+      isPaused: false,
+    },
+    {
+      name: "Community Flex Pool",
+      slug: "community",
+      poolType: "community",
+      description: "Flexible staking with no lock period. Earn 5% APY and withdraw anytime. Perfect for ambassadors who want liquidity while still earning on idle tokens.",
+      apyRate: 0.05,
+      lockPeriodDays: 0,
+      minInvestment: 100,
+      maxInvestment: 50000,
+      riskLevel: "low",
+      totalPoolSize: 250000,
+      isActive: true,
+      isPaused: false,
+    },
+    {
+      name: "VEDD Growth Fund",
+      slug: "growth",
+      poolType: "growth",
+      description: "Medium-term fund targeting 15% APY over 90 days. Designed for ambassadors building their VEDD position and looking for consistent compounding growth.",
+      apyRate: 0.15,
+      lockPeriodDays: 90,
+      minInvestment: 1000,
+      maxInvestment: null,
+      riskLevel: "medium",
+      totalPoolSize: 750000,
+      isActive: true,
+      isPaused: false,
+    },
+    {
+      name: "Elite Vault",
+      slug: "elite",
+      poolType: "elite",
+      description: "Premium 180-day vault for serious VEDD holders. Earn 24% APY on a 6-month commitment. Exclusive tier for committed community members and top ambassadors.",
+      apyRate: 0.24,
+      lockPeriodDays: 180,
+      minInvestment: 5000,
+      maxInvestment: null,
+      riskLevel: "high",
+      totalPoolSize: 1000000,
+      isActive: true,
+      isPaused: false,
+    },
+  ];
+
+  for (const pool of pools) {
+    await db.insert(investmentPools).values(pool as any);
+  }
+  console.log('[seed] Investment pools seeded (4 pools).');
 }
