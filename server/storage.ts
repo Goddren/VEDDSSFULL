@@ -66,6 +66,8 @@ import {
   type LandingPageQuiz, type InsertLandingPageQuiz,
   type QuizLead, type InsertQuizLead,
   type SocialLeadScan, type InsertSocialLeadScan,
+  blogPosts,
+  type BlogPost, type InsertBlogPost,
 } from "@shared/schema";
 import { db, pool } from "./db";
 import { eq, and, sql, desc, isNull, gte, lte } from "drizzle-orm";
@@ -476,6 +478,15 @@ export interface IStorage {
   // Social scans
   createSocialLeadScan(scan: InsertSocialLeadScan): Promise<SocialLeadScan>;
   getSocialLeadScansByUser(userId: number): Promise<SocialLeadScan[]>;
+
+  // Blog posts
+  getBlogPosts(filters?: { isPublished?: boolean; category?: string; limit?: number }): Promise<BlogPost[]>;
+  getBlogPostBySlug(slug: string): Promise<BlogPost | undefined>;
+  getBlogPostById(id: number): Promise<BlogPost | undefined>;
+  createBlogPost(post: InsertBlogPost): Promise<BlogPost>;
+  updateBlogPost(id: number, data: Partial<InsertBlogPost>): Promise<BlogPost>;
+  deleteBlogPost(id: number): Promise<void>;
+  incrementBlogPostViews(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -3077,6 +3088,58 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(socialLeadScans)
       .where(eq(socialLeadScans.userId, userId))
       .orderBy(desc(socialLeadScans.createdAt));
+  }
+
+  // ─── BLOG POSTS ────────────────────────────────────────────────
+
+  async getBlogPosts(filters?: { isPublished?: boolean; category?: string; limit?: number }): Promise<BlogPost[]> {
+    let query = db.select().from(blogPosts).$dynamic();
+    const conditions = [];
+    if (filters?.isPublished !== undefined) {
+      conditions.push(eq(blogPosts.isPublished, filters.isPublished));
+    }
+    if (filters?.category) {
+      conditions.push(eq(blogPosts.category, filters.category));
+    }
+    if (conditions.length > 0) {
+      query = query.where(and(...conditions));
+    }
+    query = query.orderBy(desc(blogPosts.createdAt));
+    if (filters?.limit) {
+      query = query.limit(filters.limit);
+    }
+    return await query;
+  }
+
+  async getBlogPostBySlug(slug: string): Promise<BlogPost | undefined> {
+    const [post] = await db.select().from(blogPosts).where(eq(blogPosts.slug, slug));
+    return post;
+  }
+
+  async getBlogPostById(id: number): Promise<BlogPost | undefined> {
+    const [post] = await db.select().from(blogPosts).where(eq(blogPosts.id, id));
+    return post;
+  }
+
+  async createBlogPost(post: InsertBlogPost): Promise<BlogPost> {
+    const [created] = await db.insert(blogPosts).values(post as any).returning();
+    return created;
+  }
+
+  async updateBlogPost(id: number, data: Partial<InsertBlogPost>): Promise<BlogPost> {
+    const [updated] = await db.update(blogPosts)
+      .set({ ...data, updatedAt: new Date() } as any)
+      .where(eq(blogPosts.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteBlogPost(id: number): Promise<void> {
+    await db.delete(blogPosts).where(eq(blogPosts.id, id));
+  }
+
+  async incrementBlogPostViews(id: number): Promise<void> {
+    await db.execute(sql`UPDATE blog_posts SET view_count = COALESCE(view_count, 0) + 1 WHERE id = ${id}`);
   }
 }
 

@@ -3104,3 +3104,151 @@ Base on VEDD's offerings: AI trading signals, financial education, passive incom
     };
   }
 }
+
+// ─── VEDD BLOG POST GENERATOR ────────────────────────────────────────────────
+
+function generateSlug(title: string): string {
+  const base = title
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .trim()
+    .substring(0, 60);
+  return `${base}-${Date.now().toString(36)}`;
+}
+
+function estimateReadTime(html: string): string {
+  const text = html.replace(/<[^>]+>/g, ' ');
+  const wordCount = text.trim().split(/\s+/).length;
+  const minutes = Math.ceil(wordCount / 200);
+  return `${minutes} min read`;
+}
+
+export async function generateVeddBlogPost(topic?: string): Promise<{
+  title: string;
+  slug: string;
+  excerpt: string;
+  content: string;
+  category: string;
+  tags: string[];
+  readTime: string;
+  currentEventsContext: string;
+}> {
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+  const today = new Date().toISOString().split('T')[0];
+
+  // Step 1: Identify current hot topics (or use provided topic)
+  let chosenTopic: string;
+  let currentEventsContext: string;
+
+  if (topic) {
+    chosenTopic = topic;
+    currentEventsContext = `User-specified topic: ${topic}`;
+  } else {
+    const topicsResponse = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "system",
+          content: "You are a financial market analyst. Identify current hot topics in trading and finance based on your training data. Focus on what is trending, volatile, or widely discussed among traders right now.",
+        },
+        {
+          role: "user",
+          content: `Today is ${today}. Identify 3 current hot topics in trading/finance/crypto that traders are most interested in. Consider: ongoing market trends, economic events, interest rate decisions, crypto movements, forex volatility, gold/commodities, AI in trading, economic uncertainty, major indices performance. Return a JSON object with: { "topics": ["topic1", "topic2", "topic3"], "chosen": "the single best topic for a VEDD Trading AI blog post", "context": "1-2 sentences describing the current market context for the chosen topic" }`,
+        },
+      ],
+      response_format: { type: "json_object" },
+      max_tokens: 300,
+    });
+
+    const topicsRaw = topicsResponse.choices[0]?.message?.content || '{}';
+    let topicsData: { topics?: string[]; chosen?: string; context?: string } = {};
+    try {
+      topicsData = JSON.parse(topicsRaw);
+    } catch {
+      topicsData = { chosen: "Forex market volatility and AI trading strategies", context: "Markets are experiencing significant volatility creating opportunities for disciplined traders." };
+    }
+    chosenTopic = topicsData.chosen || "Forex market volatility and AI trading strategies";
+    currentEventsContext = topicsData.context || `Auto-selected topic based on current market conditions as of ${today}`;
+  }
+
+  // Step 2: Generate the full VEDD-branded article
+  const systemPrompt = `You are the content writer for VEDD Trading AI, a faith-driven financial education platform.
+
+VEDD BRAND VOICE:
+- Brand: VEDD Trading AI (AI signal engine called "VEDD SS AI")
+- Tone: Confident, empowering, faith-driven, educational
+- Key phrases: "financial freedom", "God's timing", "discipline", "strategic", "abundance mindset"
+- Occasionally reference scripture naturally (not forced) — e.g., Proverbs, Philippians 4:13
+- Target audience: Everyday people learning forex/crypto trading, aspiring ambassadors, side-hustle seekers
+- Always tie current events back to VEDD tools: VEDD SS AI signal engine, Weekly Strategy Plan, Solana scanner, Ambassador program, 44-day trading system
+- Every article ends with a CTA to join VEDD or try a free demo
+
+CONTENT RULES:
+- Length: 600-900 words
+- Use HTML tags: <h2>, <h3>, <p>, <ul>/<li>, <strong>, <em>
+- Use headings to break up sections
+- Bold key trading terms and important phrases
+- Write in second person ("you", "your trades")
+- Practical, actionable advice — not just theory
+- CTA at the end linking to sign up or the platform
+
+OUTPUT: Return a JSON object with these exact fields:
+{
+  "title": "compelling SEO-friendly title (max 80 chars)",
+  "excerpt": "2-sentence summary that hooks readers (max 200 chars)",
+  "category": one of: "Trading Strategy" | "Trading Psychology" | "Technical Analysis" | "Crypto Trading" | "Forex Trading" | "Market Analysis" | "Financial Education",
+  "tags": ["tag1", "tag2", "tag3", "tag4"],
+  "content": "full HTML article content"
+}`;
+
+  const articleResponse = await openai.chat.completions.create({
+    model: "gpt-4o",
+    messages: [
+      { role: "system", content: systemPrompt },
+      {
+        role: "user",
+        content: `Write a VEDD Trading AI blog post about: ${chosenTopic}\n\nMarket context: ${currentEventsContext}\n\nMake it timely, relevant to current market conditions, and show how VEDD's tools help traders navigate these conditions. Include practical takeaways.`,
+      },
+    ],
+    response_format: { type: "json_object" },
+    max_tokens: 1800,
+  });
+
+  const articleRaw = articleResponse.choices[0]?.message?.content || '{}';
+  let articleData: {
+    title?: string;
+    excerpt?: string;
+    category?: string;
+    tags?: string[];
+    content?: string;
+  } = {};
+
+  try {
+    articleData = JSON.parse(articleRaw);
+  } catch {
+    articleData = {
+      title: `Market Insight: ${chosenTopic}`,
+      excerpt: "VEDD Trading AI brings you the latest market analysis to help you trade with confidence and precision.",
+      category: "Market Analysis",
+      tags: ["Trading", "VEDD", "Market Analysis"],
+      content: `<p>Markets are moving. Are you positioned to take advantage? With VEDD Trading AI, you have the tools, signals, and community to make informed decisions every day.</p><p><a href="/auth">Join VEDD today and start your journey to financial freedom.</a></p>`,
+    };
+  }
+
+  const title = articleData.title || `Trading Insight: ${chosenTopic}`;
+  const content = articleData.content || '';
+
+  return {
+    title,
+    slug: generateSlug(title),
+    excerpt: articleData.excerpt || `Discover how ${chosenTopic} creates opportunities for disciplined traders using VEDD's AI-powered tools.`,
+    content,
+    category: articleData.category || "Trading Strategy",
+    tags: articleData.tags || ["Trading", "VEDD", "Market Analysis"],
+    readTime: estimateReadTime(content),
+    currentEventsContext,
+  };
+}

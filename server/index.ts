@@ -4,6 +4,7 @@ import { setupVite, serveStatic, log } from "./vite";
 import path from "path";
 import { setupAuth } from "./auth";
 import { seedAchievements, seedSubscriptionPlans, seedAdminUser, seedInvestmentPools } from "./seed";
+import { seedBlogPosts } from "./blog-seed";
 import { initializeMarketDataService } from "./market-data";
 import { execSync } from "child_process";
 import { db } from "./db";
@@ -386,10 +387,38 @@ async function withRetry<T>(
       console.error('[startup] Ambassador lead generation tables migration (non-fatal):', (err as Error).message);
     }
 
+    try {
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS blog_posts (
+        id SERIAL PRIMARY KEY,
+        title TEXT NOT NULL,
+        slug TEXT UNIQUE NOT NULL,
+        excerpt TEXT NOT NULL,
+        content TEXT NOT NULL,
+        category TEXT NOT NULL DEFAULT 'Trading Strategy',
+        tags JSONB DEFAULT '[]',
+        cover_image TEXT,
+        author_id INTEGER REFERENCES users(id),
+        author_name TEXT DEFAULT 'VEDD Team',
+        is_published BOOLEAN DEFAULT false,
+        is_featured BOOLEAN DEFAULT false,
+        ai_generated BOOLEAN DEFAULT false,
+        current_events_context TEXT,
+        read_time TEXT DEFAULT '5 min read',
+        view_count INTEGER DEFAULT 0,
+        published_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+        updated_at TIMESTAMP DEFAULT NOW() NOT NULL
+      )`);
+      console.log('[startup] blog_posts table created/verified.');
+    } catch (err) {
+      console.error('[startup] blog_posts table migration (non-fatal):', (err as Error).message);
+    }
+
     await withRetry(() => seedSubscriptionPlans(), 'seedSubscriptionPlans');
     await withRetry(() => seedAchievements(), 'seedAchievements');
     await withRetry(() => seedAdminUser(), 'seedAdminUser');
     await withRetry(() => seedInvestmentPools(), 'seedInvestmentPools');
+    await withRetry(() => seedBlogPosts(), 'seedBlogPosts');
 
     // Initialize market data service for Live AI Refresh
     initializeMarketDataService();

@@ -15,7 +15,7 @@ async function hashPasswordForWallet(password: string) {
   const buf = (await scryptAsync(password, salt, 64)) as Buffer;
   return `${buf.toString("hex")}.${salt}`;
 }
-import { analyzeChartImage, testOpenAIApiKey, generateTradingTip, generateMarketTrendPredictions, generatePresentationOutline, scanGrantsWithAI, generateGrantProposal, generateSocialOutreachKit, enrichLeadWithAI } from "./openai";
+import { analyzeChartImage, testOpenAIApiKey, generateTradingTip, generateMarketTrendPredictions, generatePresentationOutline, scanGrantsWithAI, generateGrantProposal, generateSocialOutreachKit, enrichLeadWithAI, generateVeddBlogPost } from "./openai";
 import { setupTwilio, sendTradingSignal } from "./twilio";
 import { checkUserAchievements } from "./achievement-tracker";
 import { generateMT5EACode, generateTradingViewCode, generateTradeLockerCode } from './ea-generators';
@@ -15927,6 +15927,136 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       res.json(scans);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ─── BLOG ───────────────────────────────────────────────────────────────────
+
+  // GET /api/blog — list published posts (public)
+  app.get("/api/blog", async (req, res) => {
+    try {
+      const category = typeof req.query.category === 'string' ? req.query.category : undefined;
+      const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : undefined;
+      // Admins can see all; public sees only published
+      const isAdmin = !!(req.user as any)?.isAdmin;
+      const posts = await storage.getBlogPosts({
+        isPublished: isAdmin ? undefined : true,
+        category,
+        limit,
+      });
+      res.json(posts);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/blog/:slug — get single post by slug + increment views
+  app.get("/api/blog/:slug", async (req, res) => {
+    try {
+      const post = await storage.getBlogPostBySlug(req.params.slug);
+      if (!post) return res.status(404).json({ error: "Post not found" });
+      // Only return unpublished posts to admins
+      if (!post.isPublished && !(req.user as any)?.isAdmin) {
+        return res.status(404).json({ error: "Post not found" });
+      }
+      // Increment view count async (don't await)
+      storage.incrementBlogPostViews(post.id).catch(() => {});
+      res.json(post);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/blog/generate — AI generate a new post (admin only)
+  app.post("/api/blog/generate", async (req, res) => {
+    if (!(req.user as any)?.isAdmin) return res.status(403).json({ error: "Admin only" });
+    try {
+      const { topic, save } = req.body as { topic?: string; save?: boolean };
+      const generated = await generateVeddBlogPost(topic);
+      if (save) {
+        const saved = await storage.createBlogPost({
+          ...generated,
+          isPublished: true,
+          isFeatured: false,
+          aiGenerated: true,
+          publishedAt: new Date(),
+          tags: generated.tags,
+        } as any);
+        return res.json({ saved: true, post: saved });
+      }
+      res.json({ saved: false, post: generated });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/blog — create/save a post (admin only)
+  app.post("/api/blog", async (req, res) => {
+    if (!(req.user as any)?.isAdmin) return res.status(403).json({ error: "Admin only" });
+    try {
+      const data = req.body;
+      if (data.isPublished && !data.publishedAt) {
+        data.publishedAt = new Date();
+      }
+      const post = await storage.createBlogPost(data);
+      res.status(201).json(post);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // PATCH /api/blog/:id/publish — toggle published status (admin only)
+  app.patch("/api/blog/:id/publish", async (req, res) => {
+    if (!(req.user as any)?.isAdmin) return res.status(403).json({ error: "Admin only" });
+    try {
+      const id = parseInt(req.params.id, 10);
+      const post = await storage.getBlogPostById(id);
+      if (!post) return res.status(404).json({ error: "Post not found" });
+      const updated = await storage.updateBlogPost(id, {
+        isPublished: !post.isPublished,
+        publishedAt: !post.isPublished ? new Date() : post.publishedAt,
+      } as any);
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // PATCH /api/blog/:id/feature — toggle featured status (admin only)
+  app.patch("/api/blog/:id/feature", async (req, res) => {
+    if (!(req.user as any)?.isAdmin) return res.status(403).json({ error: "Admin only" });
+    try {
+      const id = parseInt(req.params.id, 10);
+      const post = await storage.getBlogPostById(id);
+      if (!post) return res.status(404).json({ error: "Post not found" });
+      const updated = await storage.updateBlogPost(id, { isFeatured: !post.isFeatured } as any);
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // PATCH /api/blog/:id — update post (admin only)
+  app.patch("/api/blog/:id", async (req, res) => {
+    if (!(req.user as any)?.isAdmin) return res.status(403).json({ error: "Admin only" });
+    try {
+      const id = parseInt(req.params.id, 10);
+      const updated = await storage.updateBlogPost(id, req.body);
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // DELETE /api/blog/:id — delete post (admin only)
+  app.delete("/api/blog/:id", async (req, res) => {
+    if (!(req.user as any)?.isAdmin) return res.status(403).json({ error: "Admin only" });
+    try {
+      const id = parseInt(req.params.id, 10);
+      await storage.deleteBlogPost(id);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
   });
 

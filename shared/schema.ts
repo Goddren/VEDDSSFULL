@@ -2062,4 +2062,32 @@ export type InsertQuizLead = z.infer<typeof insertQuizLeadSchema>;
 export const insertSocialLeadScanSchema = createInsertSchema(socialLeadScans).omit({ id: true, createdAt: true });
 export type SocialLeadScan = typeof socialLeadScans.$inferSelect;
 export type InsertSocialLeadScan = z.infer<typeof insertSocialLeadScanSchema>;
+
+// ─── BLOG POSTS ────────────────────────────────────────────────
+
+export const blogPosts = pgTable("blog_posts", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  slug: text("slug").notNull().unique(),
+  excerpt: text("excerpt").notNull(),
+  content: text("content").notNull(), // HTML content
+  category: text("category").notNull().default("Trading Strategy"),
+  tags: jsonb("tags").default([]), // string[]
+  coverImage: text("cover_image"), // URL or null
+  authorId: integer("author_id").references(() => users.id),
+  authorName: text("author_name").default("VEDD Team"),
+  isPublished: boolean("is_published").default(false),
+  isFeatured: boolean("is_featured").default(false),
+  aiGenerated: boolean("ai_generated").default(false),
+  currentEventsContext: text("current_events_context"), // what news was used
+  readTime: text("read_time").default("5 min read"),
+  viewCount: integer("view_count").default(0),
+  publishedAt: timestamp("published_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertBlogPostSchema = createInsertSchema(blogPosts).omit({ id: true, createdAt: true, updatedAt: true });
+export type BlogPost = typeof blogPosts.$inferSelect;
+export type InsertBlogPost = z.infer<typeof insertBlogPostSchema>;
 export type InsertTokenInvestment = z.infer<typeof insertTokenInvestmentSchema>;

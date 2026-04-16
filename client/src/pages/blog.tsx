@@ -1,176 +1,592 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link } from 'wouter';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog';
 import { EarlyAccessForm } from '@/components/early-access/early-access-form';
-import { ArrowRight, Calendar, Clock, TrendingUp, LineChart, PieChart } from 'lucide-react';
+import {
+  ArrowRight,
+  Calendar,
+  Clock,
+  Eye,
+  Sparkles,
+  Trash2,
+  Edit,
+  Star,
+  Globe,
+  EyeOff,
+  RefreshCw,
+  Loader2,
+} from 'lucide-react';
+import { useAuth } from '@/hooks/use-auth';
+import { apiRequest } from '@/lib/queryClient';
 
-// Sample blog articles data
-const articles = [
-  {
-    id: 1,
-    title: 'Master Chart Pattern Recognition with AI',
-    excerpt: 'Learn how artificial intelligence is revolutionizing chart pattern recognition for traders.',
-    date: 'April 12, 2024',
-    readTime: '6 min read',
-    category: 'Trading Strategy',
-    imageUrl: '/assets/blog-chart-patterns.jpg',
-    icon: <TrendingUp className="h-5 w-5" />,
-    content: `
-      <p>Pattern recognition is one of the most crucial skills for successful trading. Traditional methods require years of practice and experience, but with the rise of AI technology, traders now have access to powerful tools that can identify patterns with remarkable accuracy.</p>
-      
-      <p>Our AI-powered chart analysis tool can identify over 30 different chart patterns including:</p>
-      <ul>
-        <li>Head and Shoulders</li>
-        <li>Double Tops and Bottoms</li>
-        <li>Triangles (Ascending, Descending, Symmetrical)</li>
-        <li>Flags and Pennants</li>
-        <li>Wedges (Rising and Falling)</li>
-      </ul>
-      
-      <p>By utilizing advanced machine learning algorithms trained on millions of historical chart examples, our system can detect patterns that might be invisible to the human eye. This gives traders a significant edge in the market, allowing them to make more informed decisions based on reliable pattern identification.</p>
-      
-      <p>Furthermore, our system doesn't just identify patterns—it also provides confidence scores, potential price targets, and risk assessment based on pattern quality and market conditions.</p>
-    `
-  },
-  {
-    id: 2,
-    title: 'The Psychology of Successful Trading: Faith and Discipline',
-    excerpt: 'Explore how combining trading psychology principles with faith-based wisdom can improve your performance.',
-    date: 'April 8, 2024',
-    readTime: '8 min read',
-    category: 'Trading Psychology',
-    imageUrl: '/assets/blog-psychology.jpg',
-    icon: <PieChart className="h-5 w-5" />,
-    content: `
-      <p>Trading success is as much about mindset as it is about strategy. The most sophisticated trading systems will fail in the hands of someone who lacks discipline, patience, and emotional control.</p>
-      
-      <p>Many successful traders integrate spiritual principles into their trading approach. Proverbs like "The plans of the diligent lead to profit as surely as haste leads to poverty" (Proverbs 21:5) remind us of the importance of careful planning and patience.</p>
-      
-      <p>Here are several psychological principles that align with spiritual wisdom:</p>
-      <ul>
-        <li><strong>Patience</strong> - Waiting for high-probability setups rather than forcing trades</li>
-        <li><strong>Discipline</strong> - Following your trading plan even when emotions try to take over</li>
-        <li><strong>Humility</strong> - Accepting that the market is larger than any individual</li>
-        <li><strong>Gratitude</strong> - Being thankful for both wins and the lessons that come from losses</li>
-      </ul>
-      
-      <p>Our integrated approach combines cutting-edge technology with timeless wisdom, helping traders develop both the analytical skills and the psychological resilience needed for long-term success in the markets.</p>
-    `
-  },
-  {
-    id: 3,
-    title: 'How to Leverage AI for Better Entry and Exit Points',
-    excerpt: 'Discover how artificial intelligence can help you time your market entries and exits with greater precision.',
-    date: 'April 5, 2024',
-    readTime: '5 min read',
-    category: 'Technical Analysis',
-    imageUrl: '/assets/blog-ai-trading.jpg',
-    icon: <LineChart className="h-5 w-5" />,
-    content: `
-      <p>Timing is everything in trading. Enter too early, and you might watch your position go against you unnecessarily. Enter too late, and you've missed much of the move. The same applies to exits—taking profits too soon means leaving money on the table, while holding too long risks giving back gains.</p>
-      
-      <p>Our AI system analyzes multiple timeframes simultaneously to identify optimal entry and exit points based on:</p>
-      <ul>
-        <li>Support and resistance levels across different timeframes</li>
-        <li>Volume analysis and unusual activity</li>
-        <li>Momentum indicators and divergences</li>
-        <li>Market structure and swing points</li>
-        <li>Volatility patterns and potential price targets</li>
-      </ul>
-      
-      <p>By processing these factors faster and more comprehensively than any human could, our AI provides specific price levels for entries, stop-losses, and take-profit targets. This removes much of the guesswork from trading and helps maintain a disciplined approach.</p>
-      
-      <p>Early access users are reporting significant improvements in their risk-reward ratios and overall profitability after implementing our AI-suggested entry and exit points in their trading strategies.</p>
-    `
-  }
+// ─── Types ───────────────────────────────────────────────────────────────────
+
+interface BlogPost {
+  id: number;
+  title: string;
+  slug: string;
+  excerpt: string;
+  content: string;
+  category: string;
+  tags: string[];
+  coverImage?: string | null;
+  authorName: string;
+  isPublished: boolean;
+  isFeatured: boolean;
+  aiGenerated: boolean;
+  readTime: string;
+  viewCount: number;
+  publishedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface GeneratedPost {
+  title: string;
+  slug: string;
+  excerpt: string;
+  content: string;
+  category: string;
+  tags: string[];
+  readTime: string;
+  currentEventsContext: string;
+}
+
+// ─── Topic Suggestion Chips ──────────────────────────────────────────────────
+
+const TOPIC_CHIPS = [
+  'Forex volatility',
+  'Crypto bull run',
+  'Fed interest rates',
+  'Gold trading',
+  'AI in trading',
+  'VEDD Ambassador',
+  'Passive income strategies',
 ];
 
-// Blog article component
-function BlogArticle({ article, isExpanded, toggleExpand }: { 
-  article: typeof articles[0], 
-  isExpanded: boolean, 
-  toggleExpand: () => void 
+// ─── Blog Post Card ──────────────────────────────────────────────────────────
+
+function BlogPostCard({
+  post,
+  isAdmin,
+  onDelete,
+  onTogglePublish,
+  onToggleFeature,
+}: {
+  post: BlogPost;
+  isAdmin: boolean;
+  onDelete: (id: number) => void;
+  onTogglePublish: (id: number) => void;
+  onToggleFeature: (id: number) => void;
 }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const formattedDate = post.publishedAt
+    ? new Date(post.publishedAt).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      })
+    : new Date(post.createdAt).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      });
+
   return (
     <div className="bg-black/50 backdrop-blur-sm border border-gray-800 rounded-lg overflow-hidden hover:border-red-800/50 transition-all duration-300">
       <div className="p-6">
-        <div className="flex items-center mb-3">
-          <span className="inline-flex items-center justify-center p-2 bg-red-900/30 rounded-full text-red-400 mr-3">
-            {article.icon}
+        {/* Header row: category, badges, views */}
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          <span className="text-xs font-medium text-red-400 uppercase bg-red-900/20 px-2 py-1 rounded-full">
+            {post.category}
           </span>
-          <span className="text-xs font-medium text-red-400 uppercase">{article.category}</span>
+          {post.aiGenerated && (
+            <span className="inline-flex items-center gap-1 text-xs font-medium text-purple-400 bg-purple-900/20 px-2 py-1 rounded-full">
+              <Sparkles className="h-3 w-3" /> AI Generated
+            </span>
+          )}
+          {post.isFeatured && (
+            <span className="inline-flex items-center gap-1 text-xs font-medium text-yellow-400 bg-yellow-900/20 px-2 py-1 rounded-full">
+              <Star className="h-3 w-3" /> Featured
+            </span>
+          )}
+          {isAdmin && !post.isPublished && (
+            <Badge variant="outline" className="text-xs text-orange-400 border-orange-700">
+              DRAFT
+            </Badge>
+          )}
+          <span className="ml-auto inline-flex items-center gap-1 text-xs text-gray-500">
+            <Eye className="h-3 w-3" /> {post.viewCount ?? 0}
+          </span>
         </div>
-        
-        <h3 className="text-xl md:text-2xl font-bold text-white mb-3">{article.title}</h3>
-        
-        <div className="flex items-center text-gray-400 text-sm mb-4">
-          <Calendar className="h-4 w-4 mr-1" />
-          <span className="mr-3">{article.date}</span>
-          <Clock className="h-4 w-4 mr-1" />
-          <span>{article.readTime}</span>
+
+        {/* Title */}
+        <h3 className="text-xl md:text-2xl font-bold text-white mb-3">{post.title}</h3>
+
+        {/* Meta row */}
+        <div className="flex flex-wrap items-center text-gray-400 text-sm mb-4 gap-3">
+          <span className="inline-flex items-center gap-1">
+            <Calendar className="h-4 w-4" /> {formattedDate}
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <Clock className="h-4 w-4" /> {post.readTime}
+          </span>
         </div>
-        
-        {isExpanded ? (
-          <div className="text-gray-300 mb-6">
-            <div dangerouslySetInnerHTML={{ __html: article.content }} className="prose prose-invert max-w-none prose-p:text-gray-300 prose-li:text-gray-300" />
-          </div>
+
+        {/* Content */}
+        {expanded ? (
+          <div
+            className="text-gray-300 mb-6 prose prose-invert max-w-none prose-p:text-gray-300 prose-li:text-gray-300 prose-headings:text-white prose-strong:text-white"
+            dangerouslySetInnerHTML={{ __html: post.content }}
+          />
         ) : (
-          <p className="text-gray-300 mb-6">{article.excerpt}</p>
+          <p className="text-gray-300 mb-6">{post.excerpt}</p>
         )}
-        
-        <div className="flex items-center justify-between">
+
+        {/* Tags */}
+        {post.tags && post.tags.length > 0 && (
+          <div className="flex flex-wrap gap-1 mb-4">
+            {post.tags.map((tag: string) => (
+              <span key={tag} className="text-xs text-gray-500 bg-gray-800 px-2 py-0.5 rounded">
+                #{tag}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* Action row */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <Button
             variant="outline"
             className="text-white border-gray-700 hover:bg-gray-800"
-            onClick={toggleExpand}
+            onClick={() => setExpanded(!expanded)}
           >
-            {isExpanded ? 'Show Less' : 'Read More'}
+            {expanded ? 'Show Less' : 'Read More'}
           </Button>
-          
-          <EarlyAccessForm />
+
+          <div className="flex items-center gap-2">
+            {isAdmin && (
+              <>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-blue-400 hover:text-blue-300 hover:bg-blue-900/20"
+                  onClick={() => onTogglePublish(post.id)}
+                  title={post.isPublished ? 'Unpublish' : 'Publish'}
+                >
+                  {post.isPublished ? <EyeOff className="h-4 w-4" /> : <Globe className="h-4 w-4" />}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-yellow-400 hover:text-yellow-300 hover:bg-yellow-900/20"
+                  onClick={() => onToggleFeature(post.id)}
+                  title={post.isFeatured ? 'Unfeature' : 'Feature'}
+                >
+                  <Star className={`h-4 w-4 ${post.isFeatured ? 'fill-yellow-400' : ''}`} />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-red-400 hover:text-red-300 hover:bg-red-900/20"
+                  onClick={() => onDelete(post.id)}
+                  title="Delete"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </>
+            )}
+            {!isAdmin && <EarlyAccessForm />}
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-export default function BlogPage() {
-  // State to track which article is expanded
-  const [expandedArticleId, setExpandedArticleId] = React.useState<number | null>(null);
-  
-  // Toggle expanded state for an article
-  const toggleExpand = (articleId: number) => {
-    setExpandedArticleId(expandedArticleId === articleId ? null : articleId);
+// ─── Generate Dialog ─────────────────────────────────────────────────────────
+
+function GenerateDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+}) {
+  const queryClient = useQueryClient();
+  const [topic, setTopic] = useState('');
+  const [generated, setGenerated] = useState<GeneratedPost | null>(null);
+  const [editMode, setEditMode] = useState(false);
+  const [editTitle, setEditTitle] = useState('');
+  const [editExcerpt, setEditExcerpt] = useState('');
+  const [editCategory, setEditCategory] = useState('');
+
+  const generateMutation = useMutation({
+    mutationFn: async (t?: string) => {
+      const res = await apiRequest('POST', '/api/blog/generate', { topic: t || undefined });
+      return res.json();
+    },
+    onSuccess: (data: { post: GeneratedPost }) => {
+      setGenerated(data.post);
+      setEditTitle(data.post.title);
+      setEditExcerpt(data.post.excerpt);
+      setEditCategory(data.post.category);
+      setEditMode(false);
+    },
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: async (publish: boolean) => {
+      if (!generated) return;
+      const payload = {
+        ...(editMode
+          ? { ...generated, title: editTitle, excerpt: editExcerpt, category: editCategory }
+          : generated),
+        isPublished: publish,
+        isFeatured: false,
+        aiGenerated: true,
+        publishedAt: publish ? new Date().toISOString() : null,
+      };
+      const res = await apiRequest('POST', '/api/blog', payload);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/blog'] });
+      setGenerated(null);
+      setTopic('');
+      onOpenChange(false);
+    },
+  });
+
+  const handleGenerate = () => {
+    generateMutation.mutate(topic || undefined);
   };
-  
+
+  const handleRegenerate = () => {
+    setGenerated(null);
+    generateMutation.mutate(topic || undefined);
+  };
+
+  const isLoading = generateMutation.isPending;
+  const isSaving = saveMutation.isPending;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto bg-gray-950 border border-gray-800 text-white">
+        <DialogHeader>
+          <DialogTitle className="text-2xl font-bold flex items-center gap-2">
+            <Sparkles className="h-6 w-6 text-red-400" />
+            Generate AI Blog Post
+          </DialogTitle>
+          <DialogDescription className="text-gray-400">
+            Let VEDD AI write a VEDD-branded trading article. Leave blank to pick a hot market topic.
+          </DialogDescription>
+        </DialogHeader>
+
+        {!generated ? (
+          <div className="space-y-4 mt-2">
+            {/* Topic input */}
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-1">
+                Topic (optional)
+              </label>
+              <Input
+                value={topic}
+                onChange={(e) => setTopic(e.target.value)}
+                placeholder="Leave blank to let AI pick a hot market topic, or enter a specific topic"
+                className="bg-gray-900 border-gray-700 text-white placeholder:text-gray-500"
+                disabled={isLoading}
+              />
+            </div>
+
+            {/* Topic chips */}
+            <div className="flex flex-wrap gap-2">
+              {TOPIC_CHIPS.map((chip) => (
+                <button
+                  key={chip}
+                  type="button"
+                  onClick={() => setTopic(chip)}
+                  className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${
+                    topic === chip
+                      ? 'bg-red-900/50 border-red-600 text-red-300'
+                      : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-red-700 hover:text-red-400'
+                  }`}
+                  disabled={isLoading}
+                >
+                  {chip}
+                </button>
+              ))}
+            </div>
+
+            {generateMutation.isError && (
+              <p className="text-red-400 text-sm">
+                Error: {(generateMutation.error as Error).message}
+              </p>
+            )}
+
+            <Button
+              onClick={handleGenerate}
+              disabled={isLoading}
+              className="w-full bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-700 hover:to-rose-700 text-white"
+            >
+              {isLoading ? (
+                <span className="flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  ✨ AI is writing your VEDD-styled article...
+                </span>
+              ) : (
+                <span className="flex items-center gap-2">
+                  <Sparkles className="h-4 w-4" />
+                  Generate Post
+                </span>
+              )}
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-4 mt-2">
+            {/* Preview */}
+            <div className="bg-gray-900 border border-gray-700 rounded-lg p-4 space-y-3">
+              {editMode ? (
+                <>
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">Title</label>
+                    <Input
+                      value={editTitle}
+                      onChange={(e) => setEditTitle(e.target.value)}
+                      className="bg-gray-800 border-gray-600 text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">Excerpt</label>
+                    <Textarea
+                      value={editExcerpt}
+                      onChange={(e) => setEditExcerpt(e.target.value)}
+                      className="bg-gray-800 border-gray-600 text-white"
+                      rows={2}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">Category</label>
+                    <Input
+                      value={editCategory}
+                      onChange={(e) => setEditCategory(e.target.value)}
+                      className="bg-gray-800 border-gray-600 text-white"
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <h3 className="text-xl font-bold text-white">{generated.title}</h3>
+                  <p className="text-gray-400 text-sm">{generated.excerpt}</p>
+                  <div className="flex flex-wrap gap-2 text-xs text-gray-500">
+                    <span className="bg-red-900/20 text-red-400 px-2 py-0.5 rounded">
+                      {generated.category}
+                    </span>
+                    <span>{generated.readTime}</span>
+                    {generated.tags?.map((t) => (
+                      <span key={t} className="bg-gray-800 px-2 py-0.5 rounded">
+                        #{t}
+                      </span>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              <div className="border-t border-gray-700 pt-3">
+                <p className="text-xs text-gray-500 mb-2 italic">
+                  Context: {generated.currentEventsContext}
+                </p>
+                <div
+                  className="prose prose-invert prose-sm max-w-none prose-p:text-gray-300 prose-li:text-gray-300 prose-headings:text-white prose-strong:text-white max-h-64 overflow-y-auto"
+                  dangerouslySetInnerHTML={{ __html: generated.content }}
+                />
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setEditMode(!editMode)}
+                className="border-gray-600 text-gray-300 hover:bg-gray-800"
+              >
+                <Edit className="h-4 w-4 mr-1" />
+                {editMode ? 'Done Editing' : 'Edit'}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleRegenerate}
+                disabled={isLoading || isSaving}
+                className="border-gray-600 text-gray-300 hover:bg-gray-800"
+              >
+                <RefreshCw className="h-4 w-4 mr-1" />
+                Regenerate
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => saveMutation.mutate(false)}
+                disabled={isSaving}
+                className="bg-gray-700 hover:bg-gray-600 text-white ml-auto"
+              >
+                {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save as Draft'}
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => saveMutation.mutate(true)}
+                disabled={isSaving}
+                className="bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-700 hover:to-rose-700 text-white"
+              >
+                {isSaving ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <>
+                    <Globe className="h-4 w-4 mr-1" />
+                    Publish Now
+                  </>
+                )}
+              </Button>
+            </div>
+
+            {saveMutation.isError && (
+              <p className="text-red-400 text-sm">
+                Save error: {(saveMutation.error as Error).message}
+              </p>
+            )}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Main Blog Page ──────────────────────────────────────────────────────────
+
+export default function BlogPage() {
+  const { user } = useAuth();
+  const isAdmin = !!(user as any)?.isAdmin;
+  const queryClient = useQueryClient();
+
+  const [generateDialogOpen, setGenerateDialogOpen] = useState(false);
+
+  const { data: posts = [], isLoading, isError } = useQuery<BlogPost[]>({
+    queryKey: ['/api/blog'],
+    queryFn: async () => {
+      const res = await apiRequest('GET', '/api/blog');
+      return res.json();
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest('DELETE', `/api/blog/${id}`);
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['/api/blog'] }),
+  });
+
+  const togglePublishMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest('PATCH', `/api/blog/${id}/publish`);
+      return res.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['/api/blog'] }),
+  });
+
+  const toggleFeatureMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest('PATCH', `/api/blog/${id}/feature`);
+      return res.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['/api/blog'] }),
+  });
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-black via-gray-900 to-black">
       <div className="max-w-5xl mx-auto px-4 py-16 sm:px-6 lg:px-8">
+        {/* Header */}
         <div className="text-center mb-12">
           <h1 className="text-3xl md:text-4xl font-extrabold text-white mb-4">
-            Trading <span className="bg-clip-text text-transparent bg-gradient-to-r from-red-500 to-red-800">Insights</span>
+            Trading{' '}
+            <span className="bg-clip-text text-transparent bg-gradient-to-r from-red-500 to-red-800">
+              Insights
+            </span>
           </h1>
           <p className="text-xl text-gray-300 max-w-3xl mx-auto">
             Expert analysis, trading strategies, and market wisdom to help you succeed in the markets.
           </p>
         </div>
-        
-        <div className="grid grid-cols-1 gap-8">
-          {articles.map(article => (
-            <BlogArticle 
-              key={article.id} 
-              article={article} 
-              isExpanded={expandedArticleId === article.id}
-              toggleExpand={() => toggleExpand(article.id)}
-            />
-          ))}
-        </div>
-        
+
+        {/* Admin: Generate AI Post button */}
+        {isAdmin && (
+          <div className="mb-8 flex justify-center">
+            <Button
+              onClick={() => setGenerateDialogOpen(true)}
+              className="bg-gradient-to-r from-red-600 via-rose-600 to-red-700 hover:from-red-700 hover:to-rose-800 text-white shadow-lg shadow-red-500/30 hover:shadow-red-500/50 transition-all duration-300 transform hover:scale-105 px-6 py-3 text-base"
+            >
+              <Sparkles className="mr-2 h-5 w-5" />
+              ✨ Generate AI Blog Post
+            </Button>
+          </div>
+        )}
+
+        {/* Blog post list */}
+        {isLoading && (
+          <div className="flex justify-center items-center py-20">
+            <Loader2 className="h-8 w-8 animate-spin text-red-400" />
+          </div>
+        )}
+
+        {isError && (
+          <div className="text-center py-12 text-gray-400">
+            <p>Failed to load blog posts. Please try again later.</p>
+          </div>
+        )}
+
+        {!isLoading && !isError && posts.length === 0 && (
+          <div className="text-center py-12 text-gray-400">
+            <p>No posts published yet. Check back soon!</p>
+          </div>
+        )}
+
+        {!isLoading && !isError && posts.length > 0 && (
+          <div className="grid grid-cols-1 gap-8">
+            {posts.map((post) => (
+              <BlogPostCard
+                key={post.id}
+                post={post}
+                isAdmin={isAdmin}
+                onDelete={(id) => {
+                  if (confirm('Delete this post?')) deleteMutation.mutate(id);
+                }}
+                onTogglePublish={(id) => togglePublishMutation.mutate(id)}
+                onToggleFeature={(id) => toggleFeatureMutation.mutate(id)}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* CTA section */}
         <div className="mt-16 text-center">
           <h2 className="text-2xl font-bold text-white mb-6">Ready to Elevate Your Trading?</h2>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link href="/auth">
-              <Button size="lg" className="bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-700 hover:to-rose-700 text-white shadow-lg shadow-red-500/30 hover:shadow-red-500/50 transition-all duration-300 transform hover:scale-105">
+              <Button
+                size="lg"
+                className="bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-700 hover:to-rose-700 text-white shadow-lg shadow-red-500/30 hover:shadow-red-500/50 transition-all duration-300 transform hover:scale-105"
+              >
                 Sign Up Now <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
             </Link>
@@ -178,6 +594,9 @@ export default function BlogPage() {
           </div>
         </div>
       </div>
+
+      {/* Generate Dialog */}
+      <GenerateDialog open={generateDialogOpen} onOpenChange={setGenerateDialogOpen} />
     </div>
   );
 }
