@@ -9,6 +9,20 @@ export default {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
+        '2xl': '16px',
+        '3xl': '20px',
+        '4xl': '24px',
+      },
+      backdropBlur: {
+        xs: '2px',
+      },
+      boxShadow: {
+        'glow-red': '0 0 20px rgba(239, 68, 68, 0.3)',
+        'glow-cyan': '0 0 20px rgba(6, 182, 212, 0.3)',
+        'glow-amber': '0 0 20px rgba(245, 158, 11, 0.3)',
+        'glow-purple': '0 0 20px rgba(168, 85, 247, 0.3)',
+        'glow-green': '0 0 20px rgba(16, 185, 129, 0.3)',
+        'card': '0 4px 24px rgba(0,0,0,0.3)',
       },
       colors: {
         background: "hsl(var(--background))",

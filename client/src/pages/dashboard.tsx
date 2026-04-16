@@ -236,841 +236,658 @@ const Dashboard: React.FC = () => {
   // Get the most recent analyses
   const recentAnalyses = analyses.slice(0, 5);
   
+  // Greeting based on time of day
+  const greeting = React.useMemo(() => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Good morning';
+    if (hour < 17) return 'Good afternoon';
+    return 'Good evening';
+  }, []);
+
+  const displayName = user?.fullName?.split(' ')[0] || user?.username || 'Trader';
+
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+
   return (
-    <div className="min-h-screen bg-gray-950">
-      {/* Header with glassmorphism effect */}
-      <div className="bg-gray-900/80 backdrop-blur-sm border-b border-gray-800 sticky top-0 z-10">
-        <div className="container mx-auto px-4 md:px-8 py-6">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <div className="flex items-center gap-4">
-              <div>
-                <h1 className="text-2xl md:text-3xl font-bold text-white">Trader Dashboard</h1>
-                <p className="text-gray-400 mt-1">Track your analyses, patterns, and trading signals</p>
-              </div>
-              
-              {/* Add Trader Level Badge in the header */}
-              {totalAchievementPoints > 0 && (
-                <div className="flex items-center gap-2 bg-gradient-to-r from-amber-600/20 to-amber-600/10 border border-amber-500/20 p-2 rounded-lg">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-500/20 text-amber-500">
-                    <Trophy className="h-4 w-4" />
-                  </div>
-                  <div>
-                    <div className="text-amber-400 font-medium text-sm flex items-center">
-                      Level {getUserLevel(totalAchievementPoints).level}
-                      <span className="text-xs text-amber-500/60 ml-1">
-                        • {getUserLevel(totalAchievementPoints).title}
-                      </span>
-                    </div>
-                    <div className="w-32 h-1.5 bg-gray-800 rounded-full mt-1">
-                      <div 
-                        className="h-1.5 rounded-full bg-gradient-to-r from-amber-500 to-yellow-600" 
-                        style={{ width: `${getUserLevel(totalAchievementPoints).progress}%` }}
-                      ></div>
-                    </div>
-                  </div>
-                </div>
-              )}
+    <div className="min-h-screen bg-[#080b12] pb-safe">
+
+      {/* ── Hero Greeting Bar ────────────────────────────────────────────── */}
+      <div className="page-header-grad">
+        <div className="container mx-auto px-4 md:px-6">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h1 className="text-xl font-bold text-white">
+                {greeting}, {displayName} 👋
+              </h1>
+              <p className="stat-label mt-1">{dateStr}</p>
             </div>
-            <div className="flex items-center gap-3">
-              <AISourceBadge />
-              <Link href="/webhooks">
-                <Button className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white shadow-lg shadow-blue-900/30 rounded-full px-6 border border-blue-500/20" data-testid="button-mt5-copier">
-                  <Zap className="h-4 w-4 mr-2" />
-                  MT5 Trade Copier
-                </Button>
-              </Link>
-              <Link href="/analysis">
-                <Button className="bg-gradient-to-r from-rose-600 to-rose-700 hover:from-rose-700 hover:to-rose-800 text-white shadow-lg shadow-rose-900/30 rounded-full px-6 border border-rose-500/20">
-                  <div className="mr-2 h-5 w-5 rounded-full bg-white/20 flex items-center justify-center">
-                    <Plus className="h-3 w-3" />
-                  </div>
-                  New Analysis
-                </Button>
-              </Link>
+            <div className="flex flex-col items-end gap-2 shrink-0">
+              <div className="flex items-center gap-2">
+                <span className="live-dot" />
+                <span className="text-xs font-semibold text-emerald-400">VEDD AI</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <AISourceBadge />
+                <span className={`status-pill ${ssEngineRunning ? 'status-pill-live' : 'status-pill-off'}`}>
+                  {ssEngineRunning ? 'Engine Live' : 'Engine Idle'}
+                </span>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="container mx-auto px-4 md:px-8 py-8">
-
+      <div className="container mx-auto px-4 md:px-6 pt-4">
         <AIKeyNudgeBanner />
 
-        {/* ─── AI Command Center ─────────────────────────────────────────── */}
-        <Card className="bg-gradient-to-br from-gray-900 via-gray-900 to-gray-800 border-gray-700 shadow-2xl mb-8 overflow-hidden">
-          <CardHeader className="pb-3 border-b border-gray-800">
-            <div className="flex items-center justify-between flex-wrap gap-3">
-              <div className="flex items-center gap-3">
-                <div className="relative">
-                  <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-violet-600 to-indigo-700 flex items-center justify-center shadow-lg shadow-violet-900/40">
-                    <Cpu className="h-5 w-5 text-white" />
-                  </div>
-                  <span className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-emerald-400 border-2 border-gray-900 animate-pulse" />
-                </div>
-                <div>
-                  <CardTitle className="text-white text-lg">AI Command Center</CardTitle>
-                  <CardDescription className="text-gray-400 text-xs">Live status of all autonomous AI tools — each runs independently</CardDescription>
-                </div>
-              </div>
-              <Link href="/weekly-strategy">
-                <Button variant="outline" size="sm" className="border-violet-500/30 text-violet-400 hover:bg-violet-500/10 text-xs gap-1">
-                  <ExternalLink className="h-3 w-3" /> Full Settings
-                </Button>
-              </Link>
+        {/* ── Quick Stats Row ───────────────────────────────────────────── */}
+        <div className="scroll-row mb-6">
+          {/* Win Rate */}
+          <div className="glass-card glow-red p-4 min-w-[140px]">
+            <p className="stat-label mb-2">Win Rate</p>
+            <p className="stat-value grad-text-red" data-testid="text-accuracy-rate">
+              {isLoading ? '--' : `${accuracyRate}%`}
+            </p>
+            <div className="w-full bg-white/5 rounded-full h-1 mt-3">
+              <div className="bg-gradient-to-r from-rose-500 to-red-400 h-1 rounded-full transition-all duration-700" style={{ width: `${accuracyRate}%` }} />
             </div>
-          </CardHeader>
-          <CardContent className="pt-4 pb-4">
-            {/* Conflict advisory banner */}
+          </div>
+
+          {/* Trade Grade */}
+          <div className="glass-card glow-amber p-4 min-w-[140px]">
+            <p className="stat-label mb-2">Trade Grade</p>
+            <p className="stat-value grad-text-gold">
+              {userProfile?.tradeGrade ? `${userProfile.tradeGrade}` : '--'}
+            </p>
+          </div>
+
+          {/* Analyses Run */}
+          <div className="glass-card glow-cyan p-4 min-w-[140px]">
+            <p className="stat-label mb-2">Analyses Run</p>
+            <p className="stat-value grad-text-cyan">
+              {isLoading ? '--' : totalAnalyses}
+            </p>
+          </div>
+
+          {/* Achievements */}
+          <div className="glass-card glow-purple p-4 min-w-[140px]">
+            <p className="stat-label mb-2">Achievements</p>
+            <p className="stat-value" style={{ background: 'linear-gradient(135deg,#c084fc,#a855f7)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
+              {Array.isArray(userAchievements) ? userAchievements.filter((ua: any) => ua.isCompleted).length : 0}
+            </p>
+          </div>
+
+          {/* Level badge */}
+          {totalAchievementPoints > 0 && (
+            <div className="glass-card glow-green p-4 min-w-[160px]">
+              <p className="stat-label mb-2">Trader Level</p>
+              <p className="stat-value text-emerald-400">Lv.{getUserLevel(totalAchievementPoints).level}</p>
+              <p className="text-[10px] text-gray-500 mt-1">{getUserLevel(totalAchievementPoints).title}</p>
+              <div className="w-full bg-white/5 rounded-full h-1 mt-2">
+                <div className="bg-gradient-to-r from-emerald-500 to-teal-400 h-1 rounded-full" style={{ width: `${getUserLevel(totalAchievementPoints).progress}%` }} />
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ── AI Command Center ─────────────────────────────────────────── */}
+        <div className="glass-card mb-6 overflow-hidden">
+          <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-white/5">
+            <div className="flex items-center gap-3">
+              <div className="icon-tile-sm bg-violet-500/20">
+                <Cpu className="h-4 w-4 text-violet-400" />
+              </div>
+              <div>
+                <p className="text-white font-semibold text-sm">AI Command Center</p>
+                <p className="stat-label text-[10px]">Live autonomous engines</p>
+              </div>
+            </div>
+            <Link href="/weekly-strategy">
+              <Button variant="outline" size="sm" className="border-violet-500/30 text-violet-400 hover:bg-violet-500/10 text-xs gap-1 rounded-xl">
+                <ExternalLink className="h-3 w-3" /> Settings
+              </Button>
+            </Link>
+          </div>
+          <div className="p-4">
             {bothLiveActive && (
-              <div className="mb-4 flex items-start gap-3 bg-amber-500/10 border border-amber-500/30 rounded-lg px-4 py-3">
+              <div className="mb-3 flex items-start gap-3 bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-3">
                 <AlertTriangle className="h-4 w-4 text-amber-400 mt-0.5 shrink-0" />
-                <div>
-                  <p className="text-amber-300 text-sm font-medium">Both live trading engines are active</p>
-                  <p className="text-amber-400/70 text-xs mt-0.5">SS Engine (Forex) and Sol Engine (Solana) can run simultaneously — they trade different markets. Monitor your capital allocation across both.</p>
-                </div>
+                <p className="text-amber-300 text-xs">Both live engines active — SS Engine (Forex) and Sol Engine (Solana) trade different markets.</p>
               </div>
             )}
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-              {/* SS AI Engine */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
               <Link href="/weekly-strategy" className="block">
-                <div className={`rounded-xl border p-3 h-full cursor-pointer transition-all hover:scale-[1.02] ${ssEngineRunning ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-gray-800/60 border-gray-700/50'}`}>
+                <div className={`rounded-2xl border p-3 h-full cursor-pointer transition-all hover:scale-[1.02] ${ssEngineRunning ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-white/[0.02] border-white/08'}`}>
                   <div className="flex items-center justify-between mb-2">
-                    <div className={`h-8 w-8 rounded-lg flex items-center justify-center ${ssEngineRunning ? 'bg-emerald-500/20' : 'bg-gray-700/60'}`}>
+                    <div className={`icon-tile-sm ${ssEngineRunning ? 'bg-emerald-500/20' : 'bg-white/5'}`}>
                       <Bot className={`h-4 w-4 ${ssEngineRunning ? 'text-emerald-400' : 'text-gray-500'}`} />
                     </div>
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${ssEngineRunning ? 'bg-emerald-500/20 text-emerald-400' : 'bg-gray-700 text-gray-500'}`}>
-                      {ssEngineRunning ? 'ACTIVE' : 'IDLE'}
-                    </span>
+                    <span className={`status-pill ${ssEngineRunning ? 'status-pill-live' : 'status-pill-off'}`}>{ssEngineRunning ? 'ON' : 'IDLE'}</span>
                   </div>
-                  <p className="text-white text-xs font-semibold leading-tight">SS AI Engine</p>
+                  <p className="text-white text-xs font-semibold">SS AI Engine</p>
                   <p className="text-gray-500 text-[10px] mt-0.5">Forex auto-trader</p>
                 </div>
               </Link>
-
-              {/* VEDD Brain */}
               <Link href="/weekly-strategy" className="block">
-                <div className={`rounded-xl border p-3 h-full cursor-pointer transition-all hover:scale-[1.02] ${brainLearned ? 'bg-violet-500/10 border-violet-500/30' : 'bg-gray-800/60 border-gray-700/50'}`}>
+                <div className={`rounded-2xl border p-3 h-full cursor-pointer transition-all hover:scale-[1.02] ${brainLearned ? 'bg-violet-500/10 border-violet-500/30' : 'bg-white/[0.02] border-white/08'}`}>
                   <div className="flex items-center justify-between mb-2">
-                    <div className={`h-8 w-8 rounded-lg flex items-center justify-center ${brainLearned ? 'bg-violet-500/20' : 'bg-gray-700/60'}`}>
+                    <div className={`icon-tile-sm ${brainLearned ? 'bg-violet-500/20' : 'bg-white/5'}`}>
                       <Brain className={`h-4 w-4 ${brainLearned ? 'text-violet-400' : 'text-gray-500'}`} />
                     </div>
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${brainLearned ? 'bg-violet-500/20 text-violet-400' : 'bg-gray-700 text-gray-500'}`}>
-                      {brainLearned ? `${brainStatus?.pairsLearned ?? 0} PAIRS` : 'LEARNING'}
-                    </span>
+                    <span className={`status-pill ${brainLearned ? 'status-pill-live' : 'status-pill-warning'}`}>{brainLearned ? `${brainStatus?.pairsLearned ?? 0}P` : 'LRN'}</span>
                   </div>
-                  <p className="text-white text-xs font-semibold leading-tight">VEDD Brain</p>
+                  <p className="text-white text-xs font-semibold">VEDD Brain</p>
                   <p className="text-gray-500 text-[10px] mt-0.5">Self-learning signals</p>
                 </div>
               </Link>
-
-              {/* Sol Engine */}
               <Link href="/solana-scanner" className="block">
-                <div className={`rounded-xl border p-3 h-full cursor-pointer transition-all hover:scale-[1.02] ${solLiveActive ? 'bg-blue-500/10 border-blue-500/30' : solPaperActive ? 'bg-amber-500/10 border-amber-500/30' : 'bg-gray-800/60 border-gray-700/50'}`}>
+                <div className={`rounded-2xl border p-3 h-full cursor-pointer transition-all hover:scale-[1.02] ${solLiveActive ? 'bg-blue-500/10 border-blue-500/30' : solPaperActive ? 'bg-amber-500/10 border-amber-500/30' : 'bg-white/[0.02] border-white/08'}`}>
                   <div className="flex items-center justify-between mb-2">
-                    <div className={`h-8 w-8 rounded-lg flex items-center justify-center ${solLiveActive ? 'bg-blue-500/20' : solPaperActive ? 'bg-amber-500/20' : 'bg-gray-700/60'}`}>
+                    <div className={`icon-tile-sm ${solLiveActive ? 'bg-blue-500/20' : solPaperActive ? 'bg-amber-500/20' : 'bg-white/5'}`}>
                       <SiSolana className={`h-4 w-4 ${solLiveActive ? 'text-blue-400' : solPaperActive ? 'text-amber-400' : 'text-gray-500'}`} />
                     </div>
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${solLiveActive ? 'bg-blue-500/20 text-blue-400' : solPaperActive ? 'bg-amber-500/20 text-amber-400' : 'bg-gray-700 text-gray-500'}`}>
-                      {solLiveActive ? 'LIVE' : solPaperActive ? 'PAPER' : 'IDLE'}
-                    </span>
+                    <span className={`status-pill ${solLiveActive ? 'status-pill-live' : solPaperActive ? 'status-pill-warning' : 'status-pill-off'}`}>{solLiveActive ? 'LIVE' : solPaperActive ? 'PAPER' : 'IDLE'}</span>
                   </div>
-                  <p className="text-white text-xs font-semibold leading-tight">Sol Engine</p>
+                  <p className="text-white text-xs font-semibold">Sol Engine</p>
                   <p className="text-gray-500 text-[10px] mt-0.5">Solana auto-trader</p>
                 </div>
               </Link>
-
-              {/* News & Events */}
               <Link href="/news-alerts" className="block">
-                <div className="rounded-xl border p-3 h-full cursor-pointer transition-all hover:scale-[1.02] bg-rose-500/10 border-rose-500/30">
+                <div className="rounded-2xl border p-3 h-full cursor-pointer transition-all hover:scale-[1.02] bg-rose-500/10 border-rose-500/30">
                   <div className="flex items-center justify-between mb-2">
-                    <div className="h-8 w-8 rounded-lg flex items-center justify-center bg-rose-500/20">
+                    <div className="icon-tile-sm bg-rose-500/20">
                       <Newspaper className="h-4 w-4 text-rose-400" />
                     </div>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-400">LIVE</span>
+                    <span className="status-pill status-pill-live">LIVE</span>
                   </div>
-                  <p className="text-white text-xs font-semibold leading-tight">News & Events</p>
+                  <p className="text-white text-xs font-semibold">News & Events</p>
                   <p className="text-gray-500 text-[10px] mt-0.5">Sentiment alerts</p>
                 </div>
               </Link>
-
-              {/* Breakout Monitor */}
               <Link href="/volatility-meter" className="block">
-                <div className="rounded-xl border p-3 h-full cursor-pointer transition-all hover:scale-[1.02] bg-cyan-500/10 border-cyan-500/30">
+                <div className="rounded-2xl border p-3 h-full cursor-pointer transition-all hover:scale-[1.02] bg-cyan-500/10 border-cyan-500/30">
                   <div className="flex items-center justify-between mb-2">
-                    <div className="h-8 w-8 rounded-lg flex items-center justify-center bg-cyan-500/20">
+                    <div className="icon-tile-sm bg-cyan-500/20">
                       <Radio className="h-4 w-4 text-cyan-400" />
                     </div>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-400">ON</span>
+                    <span className="status-pill status-pill-live">ON</span>
                   </div>
-                  <p className="text-white text-xs font-semibold leading-tight">Breakout Monitor</p>
+                  <p className="text-white text-xs font-semibold">Breakout Monitor</p>
                   <p className="text-gray-500 text-[10px] mt-0.5">Session breakouts</p>
                 </div>
               </Link>
             </div>
-
-            <div className="mt-3 flex flex-wrap gap-2 text-[10px] text-gray-600">
-              <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-400 inline-block" /> Active</span>
-              <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-400 inline-block" /> Paper mode</span>
-              <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-gray-600 inline-block" /> Idle</span>
-              <span className="ml-auto text-gray-700">SS Engine + Sol Engine trade different markets — safe to run together</span>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Stats Overview */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-5 mb-10">
-          {/* Card 1 - Total Analyses */}
-          <Card className="bg-gradient-to-br from-gray-900 to-gray-800 border-gray-800 shadow-xl hover:shadow-2xl hover:shadow-rose-900/10 transition-all duration-300 overflow-hidden relative group">
-            <div className="absolute inset-0 bg-gradient-to-r from-rose-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <CardDescription className="text-gray-400">Total Analyses</CardDescription>
-                <div className="h-8 w-8 rounded-full bg-rose-600/20 flex items-center justify-center">
-                  <BarChart2 className="h-4 w-4 text-rose-500" />
-                </div>
-              </div>
-              <CardTitle className="text-3xl font-bold text-white">{isLoading ? '--' : totalAnalyses}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center text-sm text-gray-400">
-                <div className="flex items-center text-emerald-500 mr-2">
-                  <TrendingUp className="h-3 w-3 mr-1" />
-                  <span>+3</span>
-                </div>
-                from last week
-              </div>
-            </CardContent>
-          </Card>
-          
-          {/* Card 2 - Buy Signals */}
-          <Card className="bg-gradient-to-br from-gray-900 to-gray-800 border-gray-800 shadow-xl hover:shadow-2xl hover:shadow-emerald-900/10 transition-all duration-300 overflow-hidden relative group">
-            <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <CardDescription className="text-gray-400">Buy Signals</CardDescription>
-                <div className="h-8 w-8 rounded-full bg-emerald-600/20 flex items-center justify-center">
-                  <TrendingUp className="h-4 w-4 text-emerald-500" />
-                </div>
-              </div>
-              <CardTitle className="text-3xl font-bold text-white">{isLoading ? '--' : buySignals}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center text-sm text-gray-400">
-                <div className="flex items-center text-rose-500 mr-2">
-                  <TrendingDown className="h-3 w-3 mr-1" />
-                  <span>-2</span>
-                </div>
-                from last week
-              </div>
-            </CardContent>
-          </Card>
-          
-          {/* Card 3 - Sell Signals */}
-          <Card className="bg-gradient-to-br from-gray-900 to-gray-800 border-gray-800 shadow-xl hover:shadow-2xl hover:shadow-rose-900/10 transition-all duration-300 overflow-hidden relative group">
-            <div className="absolute inset-0 bg-gradient-to-r from-rose-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <CardDescription className="text-gray-400">Sell Signals</CardDescription>
-                <div className="h-8 w-8 rounded-full bg-rose-600/20 flex items-center justify-center">
-                  <TrendingDown className="h-4 w-4 text-rose-500" />
-                </div>
-              </div>
-              <CardTitle className="text-3xl font-bold text-white">{isLoading ? '--' : sellSignals}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center text-sm text-gray-400">
-                <div className="flex items-center text-emerald-500 mr-2">
-                  <TrendingUp className="h-3 w-3 mr-1" />
-                  <span>+5</span>
-                </div>
-                from last week
-              </div>
-            </CardContent>
-          </Card>
-          
-          {/* Card 4 - Accuracy Rate */}
-          <Card className="bg-gradient-to-br from-gray-900 to-gray-800 border-gray-800 shadow-xl hover:shadow-2xl hover:shadow-amber-900/10 transition-all duration-300 overflow-hidden relative group">
-            <div className="absolute inset-0 bg-gradient-to-r from-amber-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <CardDescription className="text-gray-400">Accuracy Rate</CardDescription>
-                <div className="h-8 w-8 rounded-full bg-amber-600/20 flex items-center justify-center">
-                  <Activity className="h-4 w-4 text-amber-500" />
-                </div>
-              </div>
-              <CardTitle className="text-3xl font-bold text-white" data-testid="text-accuracy-rate">
-                {isLoading ? '--' : `${accuracyRate}%`}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="w-full bg-gray-700/40 rounded-full h-1.5 mt-1">
-                <div 
-                  className="bg-gradient-to-r from-emerald-500 to-amber-500 h-1.5 rounded-full transition-all duration-500" 
-                  style={{ width: `${accuracyRate}%` }}
-                ></div>
-              </div>
-              <p className="text-xs text-gray-500 mt-2">
-                {totalAnalyses > 0 ? 'Based on your analysis confidence' : 'Start analyzing to track accuracy'}
-              </p>
-            </CardContent>
-          </Card>
+          </div>
         </div>
 
-        {/* Main content grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Recent Analyses - Spans 2 columns */}
-          <div className="lg:col-span-2">
-            <Card className="bg-gray-900 border-gray-800 shadow-xl">
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle className="text-xl text-white">Recent Analyses</CardTitle>
-                    <CardDescription>Your most recent chart analyses</CardDescription>
-                  </div>
-                  <Link href="/historical">
-                    <Button variant="ghost" className="text-gray-400 hover:text-white rounded-full px-4 border border-gray-800 hover:border-rose-500/30 hover:bg-rose-500/10">
-                      <span>View All</span>
-                      <ChevronRight className="h-4 w-4 ml-1" />
-                    </Button>
-                  </Link>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {isLoading ? (
-                  <div className="flex justify-center py-12">
-                    <div className="w-8 h-8 border-4 border-gray-700 border-t-rose-500 rounded-full animate-spin"></div>
-                  </div>
-                ) : isError ? (
-                  <div className="text-center py-12 text-gray-400">
-                    <div className="rounded-full bg-gray-800 w-16 h-16 mx-auto flex items-center justify-center mb-4">
-                      <Activity className="h-8 w-8 text-rose-500/50" />
-                    </div>
-                    <p>Error loading analyses</p>
-                  </div>
-                ) : analyses?.length === 0 ? (
-                  <div className="text-center py-12 text-gray-400">
-                    <div className="rounded-full bg-gray-800 w-16 h-16 mx-auto flex items-center justify-center mb-4">
-                      <BarChart2 className="h-8 w-8 text-rose-500/50" />
-                    </div>
-                    <p>No analyses yet. Upload your first chart to get started.</p>
-                    <Link href="/analysis">
-                      <Button className="mt-6 bg-gradient-to-r from-rose-600 to-rose-700 hover:from-rose-700 hover:to-rose-800 text-white shadow-lg shadow-rose-900/30 rounded-full px-6 border border-rose-500/20">
-                        <div className="mr-2 h-6 w-6 rounded-full bg-white/20 flex items-center justify-center">
-                          <Plus className="h-4 w-4" />
-                        </div>
-                        Analyze Chart
-                      </Button>
-                    </Link>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {recentAnalyses && recentAnalyses.map((analysis) => (
-                      <Link key={analysis.id} href={`/analysis/${analysis.id}`}>
-                        <div className="bg-gray-950 border border-gray-800 p-4 rounded-xl flex items-center justify-between hover:bg-gray-900 hover:border-rose-500/30 transition-all duration-300 cursor-pointer group">
-                          <div className="flex items-center">
-                            <div className="h-16 w-16 md:h-20 md:w-20 rounded-lg bg-gray-900 mr-4 overflow-hidden border border-gray-800 shadow-md">
-                              <img 
-                                src={analysis.imageUrl} 
-                                alt="Chart thumbnail" 
-                                className="h-full w-full object-cover"
-                              />
-                            </div>
-                            <div>
-                              <h4 className="font-medium text-white flex items-center gap-1.5">
-                                {analysis.symbol || 'Unknown Symbol'}
-                                <span className={`text-xs px-2 py-0.5 rounded-full ${
-                                  analysis.direction?.toLowerCase() === 'buy' 
-                                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/20' 
-                                    : 'bg-rose-500/20 text-rose-400 border border-rose-500/20'
-                                }`}>
-                                  {analysis.direction}
-                                </span>
-                              </h4>
-                              <div className="flex items-center mt-1">
-                                <span className="text-xs text-gray-500 flex items-center mr-3">
-                                  <Clock className="h-3 w-3 mr-1" />
-                                  {new Date(analysis.createdAt).toLocaleDateString()}
-                                </span>
-                                <span className="text-xs text-gray-500 flex items-center">
-                                  <Calendar className="h-3 w-3 mr-1" />
-                                  {analysis.timeframe || 'Unknown Timeframe'}
-                                </span>
-                              </div>
-                              <p className="text-gray-400 text-sm mt-1.5 line-clamp-1">
-                                {analysis.trend ? 
-                                  `Trend: ${analysis.trend} • Confidence: ${analysis.confidence}` : 
-                                  'Analysis details not available'}
-                              </p>
-                            </div>
-                          </div>
-                          <ChevronRight className="h-5 w-5 text-gray-500 group-hover:text-rose-500 transition-colors" />
-                        </div>
-                      </Link>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+        {/* ── Feature Tiles Grid ────────────────────────────────────────── */}
+        <div className="mb-6">
+          <p className="stat-label mb-3">Trading Core</p>
+          <div className="tile-grid mb-4">
+            <Link href="/analysis" className="feature-tile">
+              <div className="icon-tile bg-red-500/15">
+                <BarChart2 className="h-6 w-6 text-red-400" />
+              </div>
+              <div>
+                <p className="text-white text-[13px] font-medium">Analysis</p>
+                <p className="text-gray-500 text-[11px] mt-0.5">AI chart analysis</p>
+              </div>
+            </Link>
+            <Link href="/weekly-strategy" className="feature-tile">
+              <div className="icon-tile bg-red-500/15">
+                <TrendingUp className="h-6 w-6 text-red-400" />
+              </div>
+              <div>
+                <p className="text-white text-[13px] font-medium">Weekly Strategy</p>
+                <p className="text-gray-500 text-[11px] mt-0.5">SS AI engine</p>
+              </div>
+            </Link>
+            <Link href="/multi-timeframe" className="feature-tile">
+              <div className="icon-tile bg-red-500/15">
+                <Clock className="h-6 w-6 text-red-400" />
+              </div>
+              <div>
+                <p className="text-white text-[13px] font-medium">Multi-TF EA</p>
+                <p className="text-gray-500 text-[11px] mt-0.5">Multi-timeframe EAs</p>
+              </div>
+            </Link>
+            <Link href="/ea-marketplace" className="feature-tile">
+              <div className="icon-tile bg-red-500/15">
+                <Zap className="h-6 w-6 text-red-400" />
+              </div>
+              <div>
+                <p className="text-white text-[13px] font-medium">Marketplace</p>
+                <p className="text-gray-500 text-[11px] mt-0.5">EA marketplace</p>
+              </div>
+            </Link>
           </div>
 
-          {/* Dashboard Right Column */}
-          <div className="space-y-6">
-            {/* Host Status Card - shows if user has hosted events */}
-            {hostStats && (hostStats.totalEventsHosted > 0 || hostStats.upcomingEvents > 0) && (
-              <Card className="bg-gradient-to-br from-yellow-900/40 to-orange-900/30 border-yellow-500/40 shadow-xl">
-                <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="h-10 w-10 rounded-full bg-gradient-to-br from-yellow-500 to-orange-600 flex items-center justify-center">
-                        <Trophy className="h-5 w-5 text-white" />
+          <p className="stat-label mb-3">AI &amp; Data</p>
+          <div className="tile-grid mb-4">
+            <Link href="/solana-scanner" className="feature-tile">
+              <div className="icon-tile bg-cyan-500/15">
+                <SiSolana className="h-6 w-6 text-cyan-400" />
+              </div>
+              <div>
+                <p className="text-white text-[13px] font-medium">SOL Scanner</p>
+                <p className="text-gray-500 text-[11px] mt-0.5">Solana signals</p>
+              </div>
+            </Link>
+            <Link href="/mt5-chart-data" className="feature-tile">
+              <div className="icon-tile bg-cyan-500/15">
+                <Activity className="h-6 w-6 text-cyan-400" />
+              </div>
+              <div>
+                <p className="text-white text-[13px] font-medium">MT5 Data</p>
+                <p className="text-gray-500 text-[11px] mt-0.5">Live chart data</p>
+              </div>
+            </Link>
+            <Link href="/what-if" className="feature-tile">
+              <div className="icon-tile bg-cyan-500/15">
+                <Lightbulb className="h-6 w-6 text-cyan-400" />
+              </div>
+              <div>
+                <p className="text-white text-[13px] font-medium">What If</p>
+                <p className="text-gray-500 text-[11px] mt-0.5">Scenario analysis</p>
+              </div>
+            </Link>
+            <Link href="/historical" className="feature-tile">
+              <div className="icon-tile bg-cyan-500/15">
+                <Info className="h-6 w-6 text-cyan-400" />
+              </div>
+              <div>
+                <p className="text-white text-[13px] font-medium">Historical</p>
+                <p className="text-gray-500 text-[11px] mt-0.5">Past analyses</p>
+              </div>
+            </Link>
+          </div>
+
+          <p className="stat-label mb-3">Community &amp; Growth</p>
+          <div className="tile-grid mb-4">
+            <Link href="/community" className="feature-tile">
+              <div className="icon-tile bg-purple-500/15">
+                <Users className="h-6 w-6 text-purple-400" />
+              </div>
+              <div>
+                <p className="text-white text-[13px] font-medium">Community</p>
+                <p className="text-gray-500 text-[11px] mt-0.5">Traders hub</p>
+              </div>
+            </Link>
+            <Link href="/ambassador/recruitment" className="feature-tile">
+              <div className="icon-tile bg-purple-500/15">
+                <Sparkles className="h-6 w-6 text-purple-400" />
+              </div>
+              <div>
+                <p className="text-white text-[13px] font-medium">Ambassador</p>
+                <p className="text-gray-500 text-[11px] mt-0.5">Recruitment hub</p>
+              </div>
+            </Link>
+            <Link href="/referral" className="feature-tile">
+              <div className="icon-tile bg-amber-500/15">
+                <Smile className="h-6 w-6 text-amber-400" />
+              </div>
+              <div>
+                <p className="text-white text-[13px] font-medium">Referral Hub</p>
+                <p className="text-gray-500 text-[11px] mt-0.5">Earn referrals</p>
+              </div>
+            </Link>
+            <Link href="/ambassador/recruitment?tab=leadpages" className="feature-tile">
+              <div className="icon-tile bg-amber-500/15">
+                <Power className="h-6 w-6 text-amber-400" />
+              </div>
+              <div>
+                <p className="text-white text-[13px] font-medium">My Lead Page</p>
+                <p className="text-gray-500 text-[11px] mt-0.5">Custom lead page</p>
+              </div>
+            </Link>
+          </div>
+
+          <p className="stat-label mb-3">Finance</p>
+          <div className="tile-grid">
+            <Link href="/token-investments" className="feature-tile">
+              <div className="icon-tile bg-amber-500/15">
+                <Coins className="h-6 w-6 text-amber-400" />
+              </div>
+              <div>
+                <p className="text-white text-[13px] font-medium">Token Invest</p>
+                <p className="text-gray-500 text-[11px] mt-0.5">Token investments</p>
+              </div>
+            </Link>
+            <Link href="/vedd-wallet" className="feature-tile">
+              <div className="icon-tile bg-green-500/15">
+                <CalendarCheck className="h-6 w-6 text-green-400" />
+              </div>
+              <div>
+                <p className="text-white text-[13px] font-medium">Wallet</p>
+                <p className="text-gray-500 text-[11px] mt-0.5">VEDD wallet</p>
+              </div>
+            </Link>
+            <Link href="/achievements" className="feature-tile">
+              <div className="icon-tile bg-green-500/15">
+                <Trophy className="h-6 w-6 text-green-400" />
+              </div>
+              <div>
+                <p className="text-white text-[13px] font-medium">Achievements</p>
+                <p className="text-gray-500 text-[11px] mt-0.5">Your rewards</p>
+              </div>
+            </Link>
+            <Link href="/blog" className="feature-tile">
+              <div className="icon-tile bg-green-500/15">
+                <Newspaper className="h-6 w-6 text-green-400" />
+              </div>
+              <div>
+                <p className="text-white text-[13px] font-medium">Blog</p>
+                <p className="text-gray-500 text-[11px] mt-0.5">Trading insights</p>
+              </div>
+            </Link>
+          </div>
+        </div>
+
+        {/* ── MT5 Pairs + Recent Analyses ──────────────────────────────── */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
+          {/* Connected Pairs */}
+          <div className="glass-card p-4">
+            <p className="stat-label mb-3">Connected MT5 Pairs</p>
+            <ConnectedPairs />
+          </div>
+
+          {/* Recent Analyses */}
+          <div className="glass-card p-4">
+            <div className="flex items-center justify-between mb-3">
+              <p className="stat-label">Recent Analyses</p>
+              <Link href="/historical">
+                <Button variant="ghost" size="sm" className="text-gray-400 hover:text-white text-xs rounded-xl h-7 px-3 border border-white/05 hover:border-rose-500/30 hover:bg-rose-500/10">
+                  View All <ChevronRight className="h-3 w-3 ml-1" />
+                </Button>
+              </Link>
+            </div>
+            {isLoading ? (
+              <div className="flex justify-center py-8">
+                <div className="w-6 h-6 border-2 border-white/10 border-t-rose-500 rounded-full animate-spin" />
+              </div>
+            ) : analyses?.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                <BarChart2 className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                <p className="text-sm">No analyses yet</p>
+                <Link href="/analysis">
+                  <Button size="sm" className="mt-3 bg-rose-500/20 text-rose-400 border border-rose-500/30 hover:bg-rose-500/30 rounded-xl">
+                    <Plus className="h-3 w-3 mr-1" /> Analyze Chart
+                  </Button>
+                </Link>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {recentAnalyses.slice(0, 3).map((analysis) => (
+                  <Link key={analysis.id} href={`/analysis/${analysis.id}`}>
+                    <div className="flex items-center gap-3 p-3 rounded-2xl bg-white/[0.02] border border-white/05 hover:bg-white/[0.05] hover:border-rose-500/20 transition-all cursor-pointer group">
+                      <div className="h-12 w-12 rounded-xl overflow-hidden border border-white/08 shrink-0">
+                        <img src={analysis.imageUrl} alt="Chart" className="h-full w-full object-cover" />
                       </div>
-                      <div>
-                        <CardTitle className="text-lg text-white flex items-center gap-2">
-                          Community Host
-                          <span className="text-xs bg-yellow-500/30 text-yellow-300 px-2 py-0.5 rounded-full">
-                            {hostStats.hostTier}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-white text-sm font-medium truncate">{analysis.symbol || 'Unknown'}</span>
+                          <span className={`status-pill ${analysis.direction?.toLowerCase() === 'buy' ? 'status-pill-live' : 'status-pill-warning'}`}>
+                            {analysis.direction}
                           </span>
-                        </CardTitle>
-                        <CardDescription className="text-yellow-400/80">
-                          {hostStats.upcomingEvents > 0 ? `${hostStats.upcomingEvents} upcoming event${hostStats.upcomingEvents > 1 ? 's' : ''}` : 'View your host dashboard'}
-                        </CardDescription>
-                      </div>
-                    </div>
-                    <Link href="/host-dashboard">
-                      <Button size="sm" className="bg-yellow-600 hover:bg-yellow-500 text-white">
-                        Host Dashboard
-                        <ChevronRight className="h-4 w-4 ml-1" />
-                      </Button>
-                    </Link>
-                  </div>
-                </CardHeader>
-                <CardContent className="pt-0">
-                  <div className="flex gap-4 text-sm">
-                    <div className="bg-black/20 rounded-lg px-3 py-2 text-center flex-1">
-                      <div className="text-xl font-bold text-yellow-400">{hostStats.totalEventsHosted}</div>
-                      <div className="text-xs text-gray-400">Events Hosted</div>
-                    </div>
-                    <div className="bg-black/20 rounded-lg px-3 py-2 text-center flex-1">
-                      <div className="text-xl font-bold text-green-400">{hostStats.tokensEarned}</div>
-                      <div className="text-xs text-gray-400">VEDD Earned</div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-            
-            {/* Events You're Hosting */}
-            {upcomingHostedEvents.length > 0 && (
-              <Card className="bg-gradient-to-br from-purple-900/40 to-gray-900 border-purple-500/40 shadow-xl">
-                <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="h-8 w-8 rounded-full bg-purple-500/30 flex items-center justify-center">
-                        <Trophy className="h-4 w-4 text-purple-400" />
-                      </div>
-                      <div>
-                        <CardTitle className="text-lg text-white">You're Hosting</CardTitle>
-                        <CardDescription className="text-purple-400/80">Events you're presenting</CardDescription>
-                      </div>
-                    </div>
-                    <Link href="/host-dashboard">
-                      <Button variant="ghost" size="sm" className="text-purple-400 hover:text-purple-300 hover:bg-purple-500/10">
-                        Host Dashboard
-                        <ChevronRight className="h-4 w-4 ml-1" />
-                      </Button>
-                    </Link>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  {upcomingHostedEvents.map((event) => (
-                    <Link key={event.id} href="/host-dashboard">
-                      <div className="bg-gray-900/60 border border-purple-500/30 rounded-lg p-3 hover:bg-gray-800/60 transition-colors cursor-pointer">
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1 min-w-0">
-                            <h4 className="font-medium text-white truncate">{event.title}</h4>
-                            <div className="flex items-center gap-3 mt-1 text-sm text-gray-400">
-                              {event.scheduledDate && (
-                                <>
-                                  <span className="flex items-center gap-1">
-                                    <Calendar className="h-3 w-3" />
-                                    {new Date(event.scheduledDate).toLocaleDateString()}
-                                  </span>
-                                  <span className="flex items-center gap-1">
-                                    <Clock className="h-3 w-3" />
-                                    {new Date(event.scheduledDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                  </span>
-                                </>
-                              )}
-                              {event.attendeeCount !== undefined && (
-                                <span className="flex items-center gap-1">
-                                  <Users className="h-3 w-3" />
-                                  {event.attendeeCount} registered
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-1 text-xs bg-purple-500/30 text-purple-300 px-2 py-1 rounded-full">
-                            <Trophy className="h-3 w-3" />
-                            Host
-                          </div>
                         </div>
+                        <p className="text-gray-500 text-xs mt-0.5">{analysis.timeframe} · {new Date(analysis.createdAt).toLocaleDateString()}</p>
                       </div>
-                    </Link>
-                  ))}
-                </CardContent>
-              </Card>
-            )}
-            
-            {/* Upcoming Registered Events */}
-            <Card className="bg-gradient-to-br from-amber-900/30 to-gray-900 border-amber-500/30 shadow-xl">
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="h-8 w-8 rounded-full bg-amber-500/20 flex items-center justify-center">
-                      <CalendarCheck className="h-4 w-4 text-amber-400" />
+                      <ChevronRight className="h-4 w-4 text-gray-600 group-hover:text-rose-400 transition-colors shrink-0" />
                     </div>
-                    <div>
-                      <CardTitle className="text-lg text-white">Your Upcoming Events</CardTitle>
-                      <CardDescription className="text-amber-400/80">Events you've registered for</CardDescription>
-                    </div>
-                  </div>
-                  <Link href="/ambassador-training">
-                    <Button variant="ghost" size="sm" className="text-amber-400 hover:text-amber-300 hover:bg-amber-500/10">
-                      Browse Events
-                      <ChevronRight className="h-4 w-4 ml-1" />
-                    </Button>
                   </Link>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── Events section ────────────────────────────────────────────── */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
+          {/* Upcoming Events */}
+          <div className="glass-card p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <div className="icon-tile-sm bg-amber-500/15">
+                  <CalendarCheck className="h-4 w-4 text-amber-400" />
                 </div>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {upcomingEvents.length > 0 ? (
-                  upcomingEvents.map((reg) => (
-                    <div 
-                      key={reg.event.id}
-                      className={`bg-gray-900/60 border rounded-lg p-3 hover:bg-gray-800/60 transition-colors ${reg.event.status === 'live' ? 'border-red-500/50 bg-red-950/30' : 'border-amber-500/20'}`}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            {reg.event.status === 'live' && (
-                              <span className="flex items-center gap-1 text-xs bg-red-500 text-white px-2 py-0.5 rounded-full animate-pulse">
-                                <span className="h-2 w-2 rounded-full bg-white"></span>
-                                LIVE
-                              </span>
-                            )}
-                            <h4 className="font-medium text-white truncate">{reg.event.title}</h4>
-                          </div>
-                          <div className="flex items-center gap-3 mt-1 text-sm text-gray-400">
-                            {reg.event.scheduledDate && (
-                              <>
-                                <span className="flex items-center gap-1">
-                                  <Calendar className="h-3 w-3" />
-                                  {new Date(reg.event.scheduledDate).toLocaleDateString()}
-                                </span>
-                                <span className="flex items-center gap-1">
-                                  <Clock className="h-3 w-3" />
-                                  {new Date(reg.event.scheduledDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                </span>
-                              </>
-                            )}
-                          </div>
+                <p className="text-white text-sm font-semibold">Upcoming Events</p>
+              </div>
+              <Link href="/ambassador-training">
+                <Button variant="ghost" size="sm" className="text-amber-400 text-xs hover:bg-amber-500/10 rounded-xl h-7 px-3">Browse</Button>
+              </Link>
+            </div>
+            {upcomingEvents.length > 0 ? (
+              <div className="space-y-2">
+                {upcomingEvents.map((reg) => (
+                  <div key={reg.event.id} className={`p-3 rounded-2xl border transition-colors ${reg.event.status === 'live' ? 'bg-red-500/08 border-red-500/30' : 'bg-white/[0.02] border-white/05'}`}>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          {reg.event.status === 'live' && (
+                            <span className="status-pill status-pill-live animate-pulse">LIVE</span>
+                          )}
+                          <h4 className="text-white text-sm font-medium truncate">{reg.event.title}</h4>
                         </div>
-                        {reg.event.status === 'live' ? (
-                          <Button 
-                            size="sm" 
-                            className="bg-red-600 hover:bg-red-500 text-white shrink-0"
-                            onClick={async () => {
-                              try {
-                                const res = await fetch(`/api/ambassador/events/${reg.event.id}/stream`, { credentials: 'include' });
-                                const data = await res.json();
-                                if (data.meetingLink) {
-                                  window.open(data.meetingLink, '_blank');
-                                } else {
-                                  alert('Meeting link not available yet. Please try again.');
-                                }
-                              } catch (err) {
-                                alert('Failed to get stream link. Please try again.');
-                              }
-                            }}
-                          >
-                            <Video className="h-3 w-3 mr-1" />
-                            Join Live
-                          </Button>
-                        ) : (
-                          <div className="flex items-center gap-1 text-xs bg-emerald-500/20 text-emerald-400 px-2 py-1 rounded-full shrink-0">
-                            <Users className="h-3 w-3" />
-                            Registered
-                          </div>
+                        {reg.event.scheduledDate && (
+                          <p className="text-gray-500 text-xs mt-1 flex items-center gap-1">
+                            <Calendar className="h-3 w-3" />
+                            {new Date(reg.event.scheduledDate).toLocaleDateString()} · {new Date(reg.event.scheduledDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </p>
                         )}
                       </div>
-                    </div>
-                  ))
-                ) : (
-                  <div className="text-center py-4 text-gray-400">
-                    <CalendarCheck className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                    <p className="text-sm">No upcoming events</p>
-                    <p className="text-xs text-gray-500 mt-1">Browse events in Ambassador Training to register</p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-            
-            {/* Completed Events with Recordings */}
-            {registeredEventsData?.events?.some(reg => reg.event.status === 'completed') && (
-              <Card className="bg-gradient-to-br from-purple-900/30 to-gray-900 border-purple-500/30 shadow-xl">
-                <CardHeader className="pb-3">
-                  <div className="flex items-center gap-2">
-                    <div className="h-8 w-8 rounded-full bg-purple-500/20 flex items-center justify-center">
-                      <Video className="h-4 w-4 text-purple-400" />
-                    </div>
-                    <div>
-                      <CardTitle className="text-lg text-white">Event Recordings</CardTitle>
-                      <CardDescription className="text-purple-400/80">Watch past events you attended</CardDescription>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  {registeredEventsData?.events
-                    ?.filter(reg => reg.event.status === 'completed')
-                    .slice(0, 3)
-                    .map((reg) => (
-                      <div 
-                        key={`recording-${reg.event.id}`}
-                        className="bg-gray-900/60 border border-purple-500/20 rounded-lg p-3"
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex-1 min-w-0">
-                            <h4 className="font-medium text-white truncate">{reg.event.title}</h4>
-                            <p className="text-xs text-gray-400 mt-1">Completed event</p>
-                          </div>
-                          <Button 
-                            size="sm" 
-                            variant="outline"
-                            className="border-purple-500/50 text-purple-300 hover:bg-purple-500/20 shrink-0"
-                            onClick={async () => {
-                              try {
-                                const res = await fetch(`/api/ambassador/events/${reg.event.id}/recording`, { credentials: 'include' });
-                                const data = await res.json();
-                                if (data.recordingUrl) {
-                                  window.open(data.recordingUrl, '_blank');
-                                } else {
-                                  alert('Recording not available yet. The host may still be uploading it.');
-                                }
-                              } catch (err) {
-                                alert('Recording not available yet.');
-                              }
-                            }}
-                          >
-                            <Video className="h-3 w-3 mr-1" />
-                            Watch
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                </CardContent>
-              </Card>
-            )}
-            
-            {/* VEDD Token Rewards Panel */}
-            <div className="mb-6">
-              <VeddRewardsPanel />
-            </div>
-
-            {/* Wear to Earn Card */}
-            <Card className="mb-6 bg-gradient-to-br from-amber-950/30 via-gray-900 to-gray-900 border-amber-500/25">
-              <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2 text-amber-400 text-base">
-                  <Shirt className="w-5 h-5" />
-                  VEDD Clothing Rewards
-                </CardTitle>
-                <CardDescription className="text-xs">Scan your VEDD clothing tag to earn tokens</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {wearStats && wearStats.totalClaims > 0 ? (
-                  <div className="space-y-3">
-                    <div className="grid grid-cols-3 gap-3">
-                      {[
-                        { label: 'Items', value: wearStats.totalClaims, color: 'text-amber-400' },
-                        { label: 'VEDD Earned', value: `${wearStats.totalVeddEarned}`, color: 'text-yellow-400' },
-                        { label: 'Pending', value: wearStats.pendingClaims, color: 'text-blue-400' },
-                      ].map(s => (
-                        <div key={s.label} className="text-center p-2 rounded-lg bg-gray-800/50 border border-gray-700/30">
-                          <p className={`text-lg font-bold ${s.color}`}>{s.value}</p>
-                          <p className="text-[10px] text-gray-500">{s.label}</p>
-                        </div>
-                      ))}
-                    </div>
-                    <Link href="/vedd-clothing">
-                      <Button size="sm" className="w-full bg-amber-500 hover:bg-amber-400 text-black font-semibold">
-                        <QrCode className="w-3 h-3 mr-2" />
-                        Claim Another Item
-                      </Button>
-                    </Link>
-                  </div>
-                ) : (
-                  <div className="text-center py-2 space-y-3">
-                    <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/20 mx-auto">
-                      <Shirt className="w-6 h-6 text-amber-400/60" />
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-300 font-medium">Earn 50 VEDD per item</p>
-                      <p className="text-xs text-gray-500 mt-1">Buy VEDD clothing and scan the QR code on the tag</p>
-                    </div>
-                    <div className="flex gap-2">
-                      <Link href="/vedd-clothing" className="flex-1">
-                        <Button size="sm" className="w-full bg-amber-500 hover:bg-amber-400 text-black font-semibold text-xs">
-                          <QrCode className="w-3 h-3 mr-1" />
-                          Scan Tag
+                      {reg.event.status === 'live' ? (
+                        <Button size="sm" className="bg-red-600 hover:bg-red-500 text-white shrink-0 rounded-xl text-xs"
+                          onClick={async () => {
+                            try {
+                              const res = await fetch(`/api/ambassador/events/${reg.event.id}/stream`, { credentials: 'include' });
+                              const data = await res.json();
+                              if (data.meetingLink) window.open(data.meetingLink, '_blank');
+                              else alert('Meeting link not available yet.');
+                            } catch { alert('Failed to get stream link.'); }
+                          }}>
+                          <Video className="h-3 w-3 mr-1" /> Join
                         </Button>
-                      </Link>
-                      <a href="https://replit.com/@goddren/VeddVerse?s=app" target="_blank" rel="noopener noreferrer" className="flex-1">
-                        <Button size="sm" variant="outline" className="w-full border-amber-500/30 text-amber-400 text-xs hover:border-amber-500">
-                          Shop
-                        </Button>
-                      </a>
+                      ) : (
+                        <span className="status-pill status-pill-live shrink-0">Registered</span>
+                      )}
                     </div>
                   </div>
-                )}
-              </CardContent>
-            </Card>
-            
-            {/* Economic Calendar */}
-            <MarketCalendar />
-            
-            {/* Scripture Wisdom */}
-            {showFaithContent && (
-              <div className="mb-6">
-                <div className="flex justify-between items-center mb-2">
-                  <h3 className="text-sm font-medium text-gray-300">Daily Scripture Wisdom</h3>
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
-                    onClick={() => setShowFaithContent(false)}
-                    className="h-8 text-xs text-gray-400 rounded-full px-3 border border-gray-800 hover:border-blue-500/30 hover:bg-blue-500/10 hover:text-white"
-                  >
-                    <span>Hide</span>
-                  </Button>
-                </div>
-                <DailyWisdom />
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-6 text-gray-500">
+                <CalendarCheck className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                <p className="text-sm">No upcoming events</p>
               </div>
             )}
-            
-            {/* MT5 Connected Pairs */}
-            <div className="mb-6">
-              <ConnectedPairs />
-            </div>
-            
-            {/* Market News Feed */}
-            <div className="mb-6">
-              <NewsFeed showSentiment={true} maxItems={5} compact={false} />
-            </div>
-            
-            {/* Trading Coach */}
-            <Card className="bg-gray-900 border-gray-800 shadow-xl overflow-hidden mb-6">
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle className="text-xl text-white flex items-center">
-                      <Lightbulb className="h-5 w-5 mr-2 text-amber-500" />
-                      Trading Coach
-                    </CardTitle>
-                    <CardDescription>Get personalized trading advice</CardDescription>
+          </div>
+
+          {/* Host Status */}
+          <div className="glass-card p-4">
+            {hostStats && (hostStats.totalEventsHosted > 0 || hostStats.upcomingEvents > 0) ? (
+              <>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="icon-tile-sm bg-amber-500/15">
+                      <Trophy className="h-4 w-4 text-amber-400" />
+                    </div>
+                    <div>
+                      <p className="text-white text-sm font-semibold">Community Host</p>
+                      <span className="status-pill status-pill-live text-[10px]">{hostStats.hostTier}</span>
+                    </div>
+                  </div>
+                  <Link href="/host-dashboard">
+                    <Button size="sm" className="bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30 rounded-xl text-xs">Dashboard</Button>
+                  </Link>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-white/[0.03] rounded-2xl p-3 text-center">
+                    <p className="text-xl font-bold text-amber-400">{hostStats.totalEventsHosted}</p>
+                    <p className="stat-label text-[10px] mt-1">Events Hosted</p>
+                  </div>
+                  <div className="bg-white/[0.03] rounded-2xl p-3 text-center">
+                    <p className="text-xl font-bold text-emerald-400">{hostStats.tokensEarned}</p>
+                    <p className="stat-label text-[10px] mt-1">VEDD Earned</p>
                   </div>
                 </div>
-              </CardHeader>
-              <CardContent className="pb-4">
-                <div className="h-[500px]">
-                  <TradingCoach personality="friendly" />
+              </>
+            ) : (
+              <>
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="icon-tile-sm bg-purple-500/15">
+                    <Video className="h-4 w-4 text-purple-400" />
+                  </div>
+                  <p className="text-white text-sm font-semibold">Event Recordings</p>
                 </div>
-              </CardContent>
-            </Card>
-
-            {/* Show Scripture Wisdom button when hidden */}
-            {!showFaithContent && (
-              <Card className="bg-gray-900 border-gray-800 shadow-xl mb-6">
-                <CardContent className="py-4">
-                  <Button 
-                    variant="outline" 
-                    onClick={() => setShowFaithContent(true)}
-                    className="w-full flex items-center justify-center bg-gray-800 border-gray-700 text-white hover:bg-blue-600 hover:border-blue-600 transition-colors"
-                  >
-                    <BiBook className="h-4 w-4 mr-2" /> 
-                    Show Scripture Wisdom
-                  </Button>
-                </CardContent>
-              </Card>
+                {registeredEventsData?.events?.some(reg => reg.event.status === 'completed') ? (
+                  <div className="space-y-2">
+                    {registeredEventsData.events.filter(reg => reg.event.status === 'completed').slice(0, 3).map((reg) => (
+                      <div key={`rec-${reg.event.id}`} className="flex items-center justify-between p-3 rounded-2xl bg-white/[0.02] border border-white/05">
+                        <span className="text-white text-sm truncate flex-1 mr-2">{reg.event.title}</span>
+                        <Button size="sm" variant="outline" className="border-purple-500/40 text-purple-300 hover:bg-purple-500/20 rounded-xl text-xs shrink-0"
+                          onClick={async () => {
+                            try {
+                              const res = await fetch(`/api/ambassador/events/${reg.event.id}/recording`, { credentials: 'include' });
+                              const data = await res.json();
+                              if (data.recordingUrl) window.open(data.recordingUrl, '_blank');
+                              else alert('Recording not available yet.');
+                            } catch { alert('Recording not available yet.'); }
+                          }}>
+                          <Video className="h-3 w-3 mr-1" /> Watch
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-6 text-gray-500">
+                    <Video className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                    <p className="text-sm">No recordings yet</p>
+                  </div>
+                )}
+              </>
             )}
-            
-            {/* Quick Links */}
-            <Card className="bg-gray-900 border-gray-800 shadow-xl animate-in fade-in-0 slide-in-from-bottom-4 duration-700">
-              <CardHeader>
-                <CardTitle className="text-xl text-white">Quick Actions</CardTitle>
-                <CardDescription>Common tasks for trading analysis</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 gap-3">
-                  <Link href="/historical">
-                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-rose-600 hover:border-rose-600 transition-all duration-500 ease-out hover:scale-105 animate-in fade-in-0 slide-in-from-bottom-2 duration-500" style={{ animationDelay: "0ms" }}>
-                      History
-                    </Button>
-                  </Link>
-                  <Link href="/profile">
-                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-amber-600 hover:border-amber-600 transition-all duration-500 ease-out hover:scale-105 animate-in fade-in-0 slide-in-from-bottom-2 duration-500" style={{ animationDelay: "50ms" }}>
-                      Profile
-                    </Button>
-                  </Link>
-                  <Link href="/volatility-meter">
-                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-amber-600 hover:border-amber-600 transition-all duration-500 ease-out hover:scale-105 animate-in fade-in-0 slide-in-from-bottom-2 duration-500" style={{ animationDelay: "100ms" }}>
-                      Volatility Meter
-                    </Button>
-                  </Link>
-                  <Link href="/market-trend-game">
-                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-purple-600 hover:border-purple-600 transition-all duration-500 ease-out hover:scale-105 animate-in fade-in-0 slide-in-from-bottom-2 duration-500" style={{ animationDelay: "150ms" }}>
-                      <GamepadIcon className="h-4 w-4 mr-2 text-purple-400" />
-                      Prediction Game
-                    </Button>
-                  </Link>
-                  <Link href="/market-sentiment">
-                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-purple-600 hover:border-purple-600 transition-all duration-500 ease-out hover:scale-105 animate-in fade-in-0 slide-in-from-bottom-2 duration-500" style={{ animationDelay: "200ms" }}>
-                      <BarChart2 className="h-4 w-4 mr-2 text-purple-400" />
-                      Sentiment Cloud
-                    </Button>
-                  </Link>
-                  <Link href="/host-dashboard">
-                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-green-600 hover:border-green-600 transition-all duration-500 ease-out hover:scale-105 animate-in fade-in-0 slide-in-from-bottom-2 duration-500" style={{ animationDelay: "250ms" }}>
-                      <Users className="h-4 w-4 mr-2 text-green-400" />
-                      Host Dashboard
-                    </Button>
-                  </Link>
-                  <Link href="/my-wallet">
-                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-amber-600 hover:border-amber-600 transition-all duration-500 ease-out hover:scale-105 animate-in fade-in-0 slide-in-from-bottom-2 duration-500" style={{ animationDelay: "275ms" }}>
-                      <Coins className="h-4 w-4 mr-2 text-amber-400" />
-                      My Wallet
-                    </Button>
-                  </Link>
-                  <Link href="/solana-scanner">
-                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-purple-600 hover:border-purple-600 transition-all duration-500 ease-out hover:scale-105 animate-in fade-in-0 slide-in-from-bottom-2 duration-500" style={{ animationDelay: "290ms" }}>
-                      <SiSolana className="h-4 w-4 mr-2 text-purple-400" />
-                      Sol Scanner
-                    </Button>
-                  </Link>
-                  <Link href="/training-calendar">
-                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-orange-600 hover:border-orange-600 transition-all duration-500 ease-out hover:scale-105 animate-in fade-in-0 slide-in-from-bottom-2 duration-500" style={{ animationDelay: "300ms" }}>
-                      <Calendar className="h-4 w-4 mr-2 text-orange-400" />
-                      Training Calendar
-                    </Button>
-                  </Link>
-                  <Link href="/subscription" className="col-span-2">
-                    <Button variant="outline" className="w-full bg-gray-800 border-gray-700 text-white hover:bg-rose-600 hover:border-rose-600 transition-all duration-500 ease-out hover:scale-105 animate-in fade-in-0 slide-in-from-bottom-2 duration-500" style={{ animationDelay: "300ms" }}>
-                      Upgrade Account
-                    </Button>
-                  </Link>
-                </div>
-              </CardContent>
-            </Card>
           </div>
         </div>
+
+        {/* ── Rewards + Clothing ────────────────────────────────────────── */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
+          <div className="glass-card p-4">
+            <VeddRewardsPanel />
+          </div>
+          <div className="glass-card p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="icon-tile-sm bg-amber-500/15">
+                <Shirt className="h-4 w-4 text-amber-400" />
+              </div>
+              <p className="text-white text-sm font-semibold">VEDD Clothing Rewards</p>
+            </div>
+            {wearStats && wearStats.totalClaims > 0 ? (
+              <div className="space-y-3">
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { label: 'Items', value: wearStats.totalClaims, color: 'text-amber-400' },
+                    { label: 'VEDD Earned', value: `${wearStats.totalVeddEarned}`, color: 'text-yellow-400' },
+                    { label: 'Pending', value: wearStats.pendingClaims, color: 'text-blue-400' },
+                  ].map(s => (
+                    <div key={s.label} className="text-center p-2 rounded-2xl bg-white/[0.03] border border-white/05">
+                      <p className={`text-lg font-bold ${s.color}`}>{s.value}</p>
+                      <p className="stat-label text-[10px] mt-0.5">{s.label}</p>
+                    </div>
+                  ))}
+                </div>
+                <Link href="/vedd-clothing">
+                  <Button size="sm" className="w-full bg-amber-500 hover:bg-amber-400 text-black font-semibold rounded-xl">
+                    <QrCode className="w-3 h-3 mr-2" /> Claim Another Item
+                  </Button>
+                </Link>
+              </div>
+            ) : (
+              <div className="text-center py-3 space-y-3">
+                <div className="icon-tile mx-auto bg-amber-500/10 border border-amber-500/15">
+                  <Shirt className="w-6 h-6 text-amber-400/60" />
+                </div>
+                <div>
+                  <p className="text-sm text-gray-300 font-medium">Earn 50 VEDD per item</p>
+                  <p className="text-xs text-gray-500 mt-1">Buy VEDD clothing and scan the QR code</p>
+                </div>
+                <div className="flex gap-2">
+                  <Link href="/vedd-clothing" className="flex-1">
+                    <Button size="sm" className="w-full bg-amber-500 hover:bg-amber-400 text-black font-semibold text-xs rounded-xl">
+                      <QrCode className="w-3 h-3 mr-1" /> Scan Tag
+                    </Button>
+                  </Link>
+                  <a href="https://replit.com/@goddren/VeddVerse?s=app" target="_blank" rel="noopener noreferrer" className="flex-1">
+                    <Button size="sm" variant="outline" className="w-full border-amber-500/30 text-amber-400 text-xs hover:border-amber-500 rounded-xl">Shop</Button>
+                  </a>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── Market + News + Wisdom ────────────────────────────────────── */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
+          <div className="glass-card p-4">
+            <MarketCalendar />
+          </div>
+          <div className="glass-card p-4">
+            <NewsFeed showSentiment={true} maxItems={5} compact={false} />
+          </div>
+        </div>
+
+        {/* ── Daily Wisdom + Trading Coach ─────────────────────────────── */}
+        {showFaithContent && (
+          <div className="glass-card p-4 mb-6">
+            <div className="flex justify-between items-center mb-3">
+              <p className="stat-label">Daily Scripture Wisdom</p>
+              <Button variant="ghost" size="sm" onClick={() => setShowFaithContent(false)}
+                className="h-7 text-xs text-gray-400 rounded-xl px-3 border border-white/05 hover:border-blue-500/30 hover:bg-blue-500/10 hover:text-white">Hide</Button>
+            </div>
+            <DailyWisdom />
+          </div>
+        )}
+        {!showFaithContent && (
+          <div className="glass-card p-4 mb-6">
+            <Button variant="outline" onClick={() => setShowFaithContent(true)}
+              className="w-full flex items-center justify-center bg-white/[0.02] border-white/08 text-white hover:bg-blue-600/20 hover:border-blue-500/40 transition-colors rounded-xl">
+              <BiBook className="h-4 w-4 mr-2" /> Show Scripture Wisdom
+            </Button>
+          </div>
+        )}
+
+        <div className="glass-card p-4 mb-6">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="icon-tile-sm bg-amber-500/15">
+              <Lightbulb className="h-4 w-4 text-amber-400" />
+            </div>
+            <p className="text-white text-sm font-semibold">Trading Coach</p>
+          </div>
+          <div className="h-[500px]">
+            <TradingCoach personality="friendly" />
+          </div>
+        </div>
+
+        {/* ── Quick Actions ─────────────────────────────────────────────── */}
+        <div className="glass-card p-4 mb-6">
+          <p className="stat-label mb-3">Quick Actions</p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+            {[
+              { label: 'MT5 Copier', href: '/webhooks', color: 'text-blue-400', bg: 'bg-blue-500/10', border: 'border-blue-500/20' },
+              { label: 'New Analysis', href: '/analysis', color: 'text-rose-400', bg: 'bg-rose-500/10', border: 'border-rose-500/20' },
+              { label: 'Volatility', href: '/volatility-meter', color: 'text-amber-400', bg: 'bg-amber-500/10', border: 'border-amber-500/20' },
+              { label: 'Pred. Game', href: '/market-trend-game', color: 'text-purple-400', bg: 'bg-purple-500/10', border: 'border-purple-500/20' },
+              { label: 'Upgrade', href: '/subscription', color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/20' },
+            ].map(item => (
+              <Link key={item.href} href={item.href}>
+                <Button variant="outline" className={`w-full rounded-xl text-xs ${item.color} ${item.bg} ${item.border} hover:opacity-80 transition-all`}>
+                  {item.label}
+                </Button>
+              </Link>
+            ))}
+          </div>
+        </div>
+
       </div>
     </div>
   );
