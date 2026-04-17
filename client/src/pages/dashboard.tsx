@@ -250,103 +250,144 @@ const Dashboard: React.FC = () => {
   const dateStr = now.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
 
   return (
-    <div className="min-h-screen bg-[#080b12] pb-safe">
+    <div className="app-page">
 
-      {/* ── Hero Greeting Bar ────────────────────────────────────────────── */}
-      <div className="page-header-grad">
-        <div className="container mx-auto px-4 md:px-6">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h1 className="text-xl font-bold text-white">
-                {greeting}, {displayName} 👋
-              </h1>
-              <p className="stat-label mt-1">{dateStr}</p>
-            </div>
-            <div className="flex flex-col items-end gap-2 shrink-0">
-              <div className="flex items-center gap-2">
-                <span className="live-dot" />
-                <span className="text-xs font-semibold text-emerald-400">VEDD AI</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <AISourceBadge />
-                <span className={`status-pill ${ssEngineRunning ? 'status-pill-live' : 'status-pill-off'}`}>
-                  {ssEngineRunning ? 'Engine Live' : 'Engine Idle'}
-                </span>
-              </div>
+      {/* ── Greeting Header ──────────────────────────────────────────────── */}
+      <div className="px-4 md:px-6 pt-5 pb-3 container mx-auto">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-black text-white">
+              {greeting}, {displayName}
+            </h1>
+            <p className="stat-lbl mt-0.5">{dateStr}</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <AISourceBadge />
+            <div className="flex items-center gap-1.5">
+              <span className={ssEngineRunning ? 'live-pulse' : 'live-pulse-red'} />
+              <span className={`text-xs font-semibold ${ssEngineRunning ? 'text-emerald-400' : 'text-gray-500'}`}>
+                {ssEngineRunning ? 'LIVE' : 'IDLE'}
+              </span>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="container mx-auto px-4 md:px-6 pt-4">
+      <div className="container mx-auto px-4 md:px-6">
         <AIKeyNudgeBanner />
 
+        {/* ── Hero Status Card ─────────────────────────────────────────── */}
+        <div className="hero-card mb-5">
+          <div className="flex items-start justify-between gap-4 mb-4">
+            <div className="flex items-center gap-3">
+              <div className="icon-box-lg icon-box-red">
+                <Bot className="h-6 w-6" />
+              </div>
+              <div>
+                <p className="text-white font-black text-base leading-tight">VEDD AI ENGINE</p>
+                <p className="stat-lbl">Autonomous trading system</p>
+              </div>
+            </div>
+            <span className={`status-pill ${ssEngineRunning ? 'status-online' : 'status-offline'}`}>
+              {ssEngineRunning ? (
+                <>
+                  <span className="live-pulse" />
+                  ACTIVE
+                </>
+              ) : 'OFFLINE'}
+            </span>
+          </div>
+
+          <Link href="/weekly-strategy">
+            <div className="rounded-2xl p-3 mb-4 cursor-pointer hover:opacity-90 transition-opacity" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-white text-xs font-semibold">Weekly Strategy Target</p>
+                <ChevronRight className="h-3.5 w-3.5 text-gray-600" />
+              </div>
+              <p className="text-gray-400 text-xs">Configure your weekly plan to see targets and progress</p>
+            </div>
+          </Link>
+
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              { label: 'Analyses', value: isLoading ? '--' : String(totalAnalyses), color: 'text-white' },
+              { label: 'Win Rate', value: isLoading ? '--' : `${accuracyRate}%`, color: 'text-emerald-400' },
+              { label: 'Grade', value: userProfile?.tradeGrade ? String(userProfile.tradeGrade) : '--', color: 'text-amber-400' },
+            ].map(s => (
+              <div key={s.label} className="text-center">
+                <p className={`stat-num-sm ${s.color}`}>{s.value}</p>
+                <p className="stat-lbl mt-1">{s.label}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
         {/* ── Quick Stats Row ───────────────────────────────────────────── */}
-        <div className="scroll-row mb-6">
+        <div className="h-scroll mb-5">
           {/* Win Rate */}
-          <div className="glass-card glow-red p-4 min-w-[140px]">
-            <p className="stat-label mb-2">Win Rate</p>
-            <p className="stat-value grad-text-red" data-testid="text-accuracy-rate">
+          <div className="smart-card p-4 min-w-[130px] text-center">
+            <p className="stat-lbl mb-2">Win Rate</p>
+            <p className="stat-num text-grad-red" data-testid="text-accuracy-rate">
               {isLoading ? '--' : `${accuracyRate}%`}
             </p>
-            <div className="w-full bg-white/5 rounded-full h-1 mt-3">
-              <div className="bg-gradient-to-r from-rose-500 to-red-400 h-1 rounded-full transition-all duration-700" style={{ width: `${accuracyRate}%` }} />
+            <div className="prog-track mt-3">
+              <div className="prog-fill bg-gradient-to-r from-rose-500 to-red-400" style={{ width: `${accuracyRate}%` }} />
             </div>
           </div>
 
           {/* Trade Grade */}
-          <div className="glass-card glow-amber p-4 min-w-[140px]">
-            <p className="stat-label mb-2">Trade Grade</p>
-            <p className="stat-value grad-text-gold">
+          <div className="smart-card p-4 min-w-[130px] text-center">
+            <p className="stat-lbl mb-2">Trade Grade</p>
+            <p className="stat-num text-grad-gold">
               {userProfile?.tradeGrade ? `${userProfile.tradeGrade}` : '--'}
             </p>
           </div>
 
           {/* Analyses Run */}
-          <div className="glass-card glow-cyan p-4 min-w-[140px]">
-            <p className="stat-label mb-2">Analyses Run</p>
-            <p className="stat-value grad-text-cyan">
+          <div className="smart-card p-4 min-w-[130px] text-center">
+            <p className="stat-lbl mb-2">Analyses</p>
+            <p className="stat-num text-grad-cyan">
               {isLoading ? '--' : totalAnalyses}
             </p>
           </div>
 
           {/* Achievements */}
-          <div className="glass-card glow-purple p-4 min-w-[140px]">
-            <p className="stat-label mb-2">Achievements</p>
-            <p className="stat-value" style={{ background: 'linear-gradient(135deg,#c084fc,#a855f7)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
+          <div className="smart-card p-4 min-w-[130px] text-center">
+            <p className="stat-lbl mb-2">Achievements</p>
+            <p className="stat-num" style={{ background: 'linear-gradient(135deg,#c084fc,#a855f7)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
               {Array.isArray(userAchievements) ? userAchievements.filter((ua: any) => ua.isCompleted).length : 0}
             </p>
           </div>
 
           {/* Level badge */}
           {totalAchievementPoints > 0 && (
-            <div className="glass-card glow-green p-4 min-w-[160px]">
-              <p className="stat-label mb-2">Trader Level</p>
-              <p className="stat-value text-emerald-400">Lv.{getUserLevel(totalAchievementPoints).level}</p>
+            <div className="smart-card p-4 min-w-[150px] text-center">
+              <p className="stat-lbl mb-2">Trader Level</p>
+              <p className="stat-num text-emerald-400">Lv.{getUserLevel(totalAchievementPoints).level}</p>
               <p className="text-[10px] text-gray-500 mt-1">{getUserLevel(totalAchievementPoints).title}</p>
-              <div className="w-full bg-white/5 rounded-full h-1 mt-2">
-                <div className="bg-gradient-to-r from-emerald-500 to-teal-400 h-1 rounded-full" style={{ width: `${getUserLevel(totalAchievementPoints).progress}%` }} />
+              <div className="prog-track mt-2">
+                <div className="prog-fill bg-gradient-to-r from-emerald-500 to-teal-400" style={{ width: `${getUserLevel(totalAchievementPoints).progress}%` }} />
               </div>
             </div>
           )}
         </div>
 
         {/* ── AI Command Center ─────────────────────────────────────────── */}
-        <div className="glass-card mb-6 overflow-hidden">
-          <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-white/5">
+        <div className="smart-card mb-5 overflow-hidden">
+          <div className="flex items-center justify-between px-5 pt-4 pb-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
             <div className="flex items-center gap-3">
-              <div className="icon-tile-sm bg-violet-500/20">
-                <Cpu className="h-4 w-4 text-violet-400" />
+              <div className="icon-box-sm icon-box-purple">
+                <Cpu className="h-3.5 w-3.5" />
               </div>
               <div>
                 <p className="text-white font-semibold text-sm">AI Command Center</p>
-                <p className="stat-label text-[10px]">Live autonomous engines</p>
+                <p className="stat-lbl">Live autonomous engines</p>
               </div>
             </div>
             <Link href="/weekly-strategy">
-              <Button variant="outline" size="sm" className="border-violet-500/30 text-violet-400 hover:bg-violet-500/10 text-xs gap-1 rounded-xl">
+              <span className="text-xs font-medium rounded-xl px-3 py-1.5 bg-violet-500/10 text-violet-400 hover:bg-violet-500/15 transition-all cursor-pointer inline-flex items-center gap-1">
                 <ExternalLink className="h-3 w-3" /> Settings
-              </Button>
+              </span>
             </Link>
           </div>
           <div className="p-4">
@@ -422,180 +463,170 @@ const Dashboard: React.FC = () => {
         </div>
 
         {/* ── Feature Tiles Grid ────────────────────────────────────────── */}
-        <div className="mb-6">
-          <p className="stat-label mb-3">Trading Core</p>
-          <div className="tile-grid mb-4">
-            <Link href="/analysis" className="feature-tile">
-              <div className="icon-tile bg-red-500/15">
-                <BarChart2 className="h-6 w-6 text-red-400" />
+        <div className="mb-5">
+          <p className="section-title mb-3">Trading Tools</p>
+          <div className="grid grid-cols-2 gap-3 mb-5">
+            <Link href="/analysis" className="device-tile device-tile-red">
+              <div className="flex items-center justify-between">
+                <div className="icon-box icon-box-red">
+                  <BarChart2 className="h-5 w-5" />
+                </div>
+                <span className="status-pill status-offline" style={{ fontSize: '10px', padding: '2px 7px' }}>Active</span>
               </div>
               <div>
-                <p className="text-white text-[13px] font-medium">Analysis</p>
-                <p className="text-gray-500 text-[11px] mt-0.5">AI chart analysis</p>
+                <p className="text-white font-semibold text-sm">Analysis</p>
+                <p className="text-gray-500 text-xs mt-0.5">AI chart analysis</p>
               </div>
             </Link>
-            <Link href="/weekly-strategy" className="feature-tile">
-              <div className="icon-tile bg-red-500/15">
-                <TrendingUp className="h-6 w-6 text-red-400" />
+            <Link href="/weekly-strategy" className="device-tile device-tile-red">
+              <div className="flex items-center justify-between">
+                <div className="icon-box icon-box-red">
+                  <TrendingUp className="h-5 w-5" />
+                </div>
+                <span className={`status-pill ${ssEngineRunning ? 'status-online' : 'status-offline'}`} style={{ fontSize: '10px', padding: '2px 7px' }}>{ssEngineRunning ? 'Live' : 'Idle'}</span>
               </div>
               <div>
-                <p className="text-white text-[13px] font-medium">Weekly Strategy</p>
-                <p className="text-gray-500 text-[11px] mt-0.5">SS AI engine</p>
+                <p className="text-white font-semibold text-sm">Weekly Strategy</p>
+                <p className="text-gray-500 text-xs mt-0.5">SS AI engine</p>
               </div>
             </Link>
-            <Link href="/multi-timeframe" className="feature-tile">
-              <div className="icon-tile bg-red-500/15">
-                <Clock className="h-6 w-6 text-red-400" />
+            <Link href="/multi-timeframe" className="device-tile device-tile-amber">
+              <div className="flex items-center justify-between">
+                <div className="icon-box icon-box-amber">
+                  <Clock className="h-5 w-5" />
+                </div>
+                <span className="status-pill status-offline" style={{ fontSize: '10px', padding: '2px 7px' }}>—</span>
               </div>
               <div>
-                <p className="text-white text-[13px] font-medium">Multi-TF EA</p>
-                <p className="text-gray-500 text-[11px] mt-0.5">Multi-timeframe EAs</p>
+                <p className="text-white font-semibold text-sm">Multi-TF EA</p>
+                <p className="text-gray-500 text-xs mt-0.5">Multi-timeframe EAs</p>
               </div>
             </Link>
-            <Link href="/ea-marketplace" className="feature-tile">
-              <div className="icon-tile bg-red-500/15">
-                <Zap className="h-6 w-6 text-red-400" />
+            <Link href="/ea-marketplace" className="device-tile device-tile-amber">
+              <div className="flex items-center justify-between">
+                <div className="icon-box icon-box-amber">
+                  <Zap className="h-5 w-5" />
+                </div>
+                <span className="status-pill status-offline" style={{ fontSize: '10px', padding: '2px 7px' }}>—</span>
               </div>
               <div>
-                <p className="text-white text-[13px] font-medium">Marketplace</p>
-                <p className="text-gray-500 text-[11px] mt-0.5">EA marketplace</p>
-              </div>
-            </Link>
-          </div>
-
-          <p className="stat-label mb-3">AI &amp; Data</p>
-          <div className="tile-grid mb-4">
-            <Link href="/solana-scanner" className="feature-tile">
-              <div className="icon-tile bg-cyan-500/15">
-                <SiSolana className="h-6 w-6 text-cyan-400" />
-              </div>
-              <div>
-                <p className="text-white text-[13px] font-medium">SOL Scanner</p>
-                <p className="text-gray-500 text-[11px] mt-0.5">Solana signals</p>
-              </div>
-            </Link>
-            <Link href="/mt5-chart-data" className="feature-tile">
-              <div className="icon-tile bg-cyan-500/15">
-                <Activity className="h-6 w-6 text-cyan-400" />
-              </div>
-              <div>
-                <p className="text-white text-[13px] font-medium">MT5 Data</p>
-                <p className="text-gray-500 text-[11px] mt-0.5">Live chart data</p>
-              </div>
-            </Link>
-            <Link href="/what-if" className="feature-tile">
-              <div className="icon-tile bg-cyan-500/15">
-                <Lightbulb className="h-6 w-6 text-cyan-400" />
-              </div>
-              <div>
-                <p className="text-white text-[13px] font-medium">What If</p>
-                <p className="text-gray-500 text-[11px] mt-0.5">Scenario analysis</p>
-              </div>
-            </Link>
-            <Link href="/historical" className="feature-tile">
-              <div className="icon-tile bg-cyan-500/15">
-                <Info className="h-6 w-6 text-cyan-400" />
-              </div>
-              <div>
-                <p className="text-white text-[13px] font-medium">Historical</p>
-                <p className="text-gray-500 text-[11px] mt-0.5">Past analyses</p>
+                <p className="text-white font-semibold text-sm">Marketplace</p>
+                <p className="text-gray-500 text-xs mt-0.5">EA marketplace</p>
               </div>
             </Link>
           </div>
 
-          <p className="stat-label mb-3">Community &amp; Growth</p>
-          <div className="tile-grid mb-4">
-            <Link href="/community" className="feature-tile">
-              <div className="icon-tile bg-purple-500/15">
-                <Users className="h-6 w-6 text-purple-400" />
+          <p className="section-title mb-3">AI &amp; Data</p>
+          <div className="grid grid-cols-2 gap-3 mb-5">
+            <Link href="/solana-scanner" className="device-tile device-tile-cyan">
+              <div className="flex items-center justify-between">
+                <div className="icon-box icon-box-cyan">
+                  <SiSolana className="h-5 w-5" />
+                </div>
+                <span className={`status-pill ${solEngineRunning ? 'status-online' : 'status-offline'}`} style={{ fontSize: '10px', padding: '2px 7px' }}>{solEngineRunning ? 'Live' : 'Idle'}</span>
               </div>
               <div>
-                <p className="text-white text-[13px] font-medium">Community</p>
-                <p className="text-gray-500 text-[11px] mt-0.5">Traders hub</p>
+                <p className="text-white font-semibold text-sm">SOL Scanner</p>
+                <p className="text-gray-500 text-xs mt-0.5">Solana signals</p>
               </div>
             </Link>
-            <Link href="/ambassador/recruitment" className="feature-tile">
-              <div className="icon-tile bg-purple-500/15">
-                <Sparkles className="h-6 w-6 text-purple-400" />
+            <Link href="/mt5-chart-data" className="device-tile device-tile-cyan">
+              <div className="flex items-center justify-between">
+                <div className="icon-box icon-box-cyan">
+                  <Activity className="h-5 w-5" />
+                </div>
+                <span className="status-pill status-offline" style={{ fontSize: '10px', padding: '2px 7px' }}>—</span>
               </div>
               <div>
-                <p className="text-white text-[13px] font-medium">Ambassador</p>
-                <p className="text-gray-500 text-[11px] mt-0.5">Recruitment hub</p>
+                <p className="text-white font-semibold text-sm">MT5 Data</p>
+                <p className="text-gray-500 text-xs mt-0.5">Live chart data</p>
               </div>
             </Link>
-            <Link href="/referral" className="feature-tile">
-              <div className="icon-tile bg-amber-500/15">
-                <Smile className="h-6 w-6 text-amber-400" />
+            <Link href="/what-if" className="device-tile device-tile-purple">
+              <div className="flex items-center justify-between">
+                <div className="icon-box icon-box-purple">
+                  <Lightbulb className="h-5 w-5" />
+                </div>
+                <span className="status-pill status-offline" style={{ fontSize: '10px', padding: '2px 7px' }}>—</span>
               </div>
               <div>
-                <p className="text-white text-[13px] font-medium">Referral Hub</p>
-                <p className="text-gray-500 text-[11px] mt-0.5">Earn referrals</p>
+                <p className="text-white font-semibold text-sm">What If</p>
+                <p className="text-gray-500 text-xs mt-0.5">Scenario analysis</p>
               </div>
             </Link>
-            <Link href="/ambassador/recruitment?tab=leadpages" className="feature-tile">
-              <div className="icon-tile bg-amber-500/15">
-                <Power className="h-6 w-6 text-amber-400" />
+            <Link href="/historical" className="device-tile device-tile-purple">
+              <div className="flex items-center justify-between">
+                <div className="icon-box icon-box-purple">
+                  <Info className="h-5 w-5" />
+                </div>
+                <span className="status-pill status-offline" style={{ fontSize: '10px', padding: '2px 7px' }}>—</span>
               </div>
               <div>
-                <p className="text-white text-[13px] font-medium">My Lead Page</p>
-                <p className="text-gray-500 text-[11px] mt-0.5">Custom lead page</p>
+                <p className="text-white font-semibold text-sm">Historical</p>
+                <p className="text-gray-500 text-xs mt-0.5">Past analyses</p>
               </div>
             </Link>
           </div>
 
-          <p className="stat-label mb-3">Finance</p>
-          <div className="tile-grid">
-            <Link href="/token-investments" className="feature-tile">
-              <div className="icon-tile bg-amber-500/15">
-                <Coins className="h-6 w-6 text-amber-400" />
-              </div>
-              <div>
-                <p className="text-white text-[13px] font-medium">Token Invest</p>
-                <p className="text-gray-500 text-[11px] mt-0.5">Token investments</p>
-              </div>
-            </Link>
-            <Link href="/vedd-wallet" className="feature-tile">
-              <div className="icon-tile bg-green-500/15">
-                <CalendarCheck className="h-6 w-6 text-green-400" />
-              </div>
-              <div>
-                <p className="text-white text-[13px] font-medium">Wallet</p>
-                <p className="text-gray-500 text-[11px] mt-0.5">VEDD wallet</p>
-              </div>
-            </Link>
-            <Link href="/achievements" className="feature-tile">
-              <div className="icon-tile bg-green-500/15">
-                <Trophy className="h-6 w-6 text-green-400" />
-              </div>
-              <div>
-                <p className="text-white text-[13px] font-medium">Achievements</p>
-                <p className="text-gray-500 text-[11px] mt-0.5">Your rewards</p>
-              </div>
-            </Link>
-            <Link href="/blog" className="feature-tile">
-              <div className="icon-tile bg-green-500/15">
-                <Newspaper className="h-6 w-6 text-green-400" />
-              </div>
-              <div>
-                <p className="text-white text-[13px] font-medium">Blog</p>
-                <p className="text-gray-500 text-[11px] mt-0.5">Trading insights</p>
-              </div>
-            </Link>
+          <p className="section-title mb-3">Community &amp; Growth</p>
+          <div className="smart-card mb-5">
+            {[
+              { href: '/community', icon: Users, color: 'icon-box-purple', name: 'Community', desc: 'Traders hub' },
+              { href: '/ambassador/recruitment', icon: Sparkles, color: 'icon-box-purple', name: 'Ambassador', desc: 'Recruitment hub' },
+              { href: '/referral', icon: Smile, color: 'icon-box-amber', name: 'Referral Hub', desc: 'Earn referrals' },
+              { href: '/ambassador/recruitment?tab=leadpages', icon: Power, color: 'icon-box-amber', name: 'My Lead Page', desc: 'Custom lead page' },
+            ].map((item) => (
+              <Link key={item.href} href={item.href}>
+                <div className="list-row">
+                  <span className={`icon-box-sm ${item.color}`}>
+                    <item.icon className="h-3.5 w-3.5" />
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-white text-sm font-semibold">{item.name}</p>
+                    <p className="text-gray-500 text-xs">{item.desc}</p>
+                  </div>
+                  <ChevronRight className="h-4 w-4 text-gray-600 shrink-0" />
+                </div>
+              </Link>
+            ))}
+          </div>
+
+          <p className="section-title mb-3">Finance</p>
+          <div className="smart-card mb-5">
+            {[
+              { href: '/token-investments', icon: Coins, color: 'icon-box-amber', name: 'Token Invest', desc: 'Token investments' },
+              { href: '/vedd-wallet', icon: CalendarCheck, color: 'icon-box-green', name: 'Wallet', desc: 'VEDD wallet' },
+              { href: '/achievements', icon: Trophy, color: 'icon-box-green', name: 'Achievements', desc: 'Your rewards' },
+              { href: '/grants', icon: Newspaper, color: 'icon-box-blue', name: 'Grants & Funding', desc: 'Funding opportunities' },
+            ].map((item) => (
+              <Link key={item.href} href={item.href}>
+                <div className="list-row">
+                  <span className={`icon-box-sm ${item.color}`}>
+                    <item.icon className="h-3.5 w-3.5" />
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-white text-sm font-semibold">{item.name}</p>
+                    <p className="text-gray-500 text-xs">{item.desc}</p>
+                  </div>
+                  <ChevronRight className="h-4 w-4 text-gray-600 shrink-0" />
+                </div>
+              </Link>
+            ))}
           </div>
         </div>
 
         {/* ── MT5 Pairs + Recent Analyses ──────────────────────────────── */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
           {/* Connected Pairs */}
-          <div className="glass-card p-4">
-            <p className="stat-label mb-3">Connected MT5 Pairs</p>
+          <div className="smart-card p-4">
+            <p className="stat-lbl mb-3">Connected MT5 Pairs</p>
             <ConnectedPairs />
           </div>
 
           {/* Recent Analyses */}
-          <div className="glass-card p-4">
+          <div className="smart-card p-4">
             <div className="flex items-center justify-between mb-3">
-              <p className="stat-label">Recent Analyses</p>
+              <p className="stat-lbl">Recent Analyses</p>
               <Link href="/historical">
                 <Button variant="ghost" size="sm" className="text-gray-400 hover:text-white text-xs rounded-xl h-7 px-3 border border-white/05 hover:border-rose-500/30 hover:bg-rose-500/10">
                   View All <ChevronRight className="h-3 w-3 ml-1" />
@@ -645,7 +676,7 @@ const Dashboard: React.FC = () => {
         {/* ── Events section ────────────────────────────────────────────── */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
           {/* Upcoming Events */}
-          <div className="glass-card p-4">
+          <div className="smart-card p-4">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <div className="icon-tile-sm bg-amber-500/15">
@@ -704,7 +735,7 @@ const Dashboard: React.FC = () => {
           </div>
 
           {/* Host Status */}
-          <div className="glass-card p-4">
+          <div className="smart-card p-4">
             {hostStats && (hostStats.totalEventsHosted > 0 || hostStats.upcomingEvents > 0) ? (
               <>
                 <div className="flex items-center justify-between mb-3">
@@ -724,11 +755,11 @@ const Dashboard: React.FC = () => {
                 <div className="grid grid-cols-2 gap-3">
                   <div className="bg-white/[0.03] rounded-2xl p-3 text-center">
                     <p className="text-xl font-bold text-amber-400">{hostStats.totalEventsHosted}</p>
-                    <p className="stat-label text-[10px] mt-1">Events Hosted</p>
+                    <p className="stat-lbl text-[10px] mt-1">Events Hosted</p>
                   </div>
                   <div className="bg-white/[0.03] rounded-2xl p-3 text-center">
                     <p className="text-xl font-bold text-emerald-400">{hostStats.tokensEarned}</p>
-                    <p className="stat-label text-[10px] mt-1">VEDD Earned</p>
+                    <p className="stat-lbl text-[10px] mt-1">VEDD Earned</p>
                   </div>
                 </div>
               </>
@@ -772,10 +803,10 @@ const Dashboard: React.FC = () => {
 
         {/* ── Rewards + Clothing ────────────────────────────────────────── */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
-          <div className="glass-card p-4">
+          <div className="smart-card p-4">
             <VeddRewardsPanel />
           </div>
-          <div className="glass-card p-4">
+          <div className="smart-card p-4">
             <div className="flex items-center gap-2 mb-3">
               <div className="icon-tile-sm bg-amber-500/15">
                 <Shirt className="h-4 w-4 text-amber-400" />
@@ -792,7 +823,7 @@ const Dashboard: React.FC = () => {
                   ].map(s => (
                     <div key={s.label} className="text-center p-2 rounded-2xl bg-white/[0.03] border border-white/05">
                       <p className={`text-lg font-bold ${s.color}`}>{s.value}</p>
-                      <p className="stat-label text-[10px] mt-0.5">{s.label}</p>
+                      <p className="stat-lbl text-[10px] mt-0.5">{s.label}</p>
                     </div>
                   ))}
                 </div>
@@ -828,19 +859,19 @@ const Dashboard: React.FC = () => {
 
         {/* ── Market + News + Wisdom ────────────────────────────────────── */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
-          <div className="glass-card p-4">
+          <div className="smart-card p-4">
             <MarketCalendar />
           </div>
-          <div className="glass-card p-4">
+          <div className="smart-card p-4">
             <NewsFeed showSentiment={true} maxItems={5} compact={false} />
           </div>
         </div>
 
         {/* ── Daily Wisdom + Trading Coach ─────────────────────────────── */}
         {showFaithContent && (
-          <div className="glass-card p-4 mb-6">
+          <div className="smart-card p-4 mb-6">
             <div className="flex justify-between items-center mb-3">
-              <p className="stat-label">Daily Scripture Wisdom</p>
+              <p className="stat-lbl">Daily Scripture Wisdom</p>
               <Button variant="ghost" size="sm" onClick={() => setShowFaithContent(false)}
                 className="h-7 text-xs text-gray-400 rounded-xl px-3 border border-white/05 hover:border-blue-500/30 hover:bg-blue-500/10 hover:text-white">Hide</Button>
             </div>
@@ -848,7 +879,7 @@ const Dashboard: React.FC = () => {
           </div>
         )}
         {!showFaithContent && (
-          <div className="glass-card p-4 mb-6">
+          <div className="smart-card p-4 mb-6">
             <Button variant="outline" onClick={() => setShowFaithContent(true)}
               className="w-full flex items-center justify-center bg-white/[0.02] border-white/08 text-white hover:bg-blue-600/20 hover:border-blue-500/40 transition-colors rounded-xl">
               <BiBook className="h-4 w-4 mr-2" /> Show Scripture Wisdom
@@ -856,7 +887,7 @@ const Dashboard: React.FC = () => {
           </div>
         )}
 
-        <div className="glass-card p-4 mb-6">
+        <div className="smart-card p-4 mb-6">
           <div className="flex items-center gap-2 mb-3">
             <div className="icon-tile-sm bg-amber-500/15">
               <Lightbulb className="h-4 w-4 text-amber-400" />
@@ -869,8 +900,8 @@ const Dashboard: React.FC = () => {
         </div>
 
         {/* ── Quick Actions ─────────────────────────────────────────────── */}
-        <div className="glass-card p-4 mb-6">
-          <p className="stat-label mb-3">Quick Actions</p>
+        <div className="smart-card p-4 mb-6">
+          <p className="stat-lbl mb-3">Quick Actions</p>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
             {[
               { label: 'MT5 Copier', href: '/webhooks', color: 'text-blue-400', bg: 'bg-blue-500/10', border: 'border-blue-500/20' },

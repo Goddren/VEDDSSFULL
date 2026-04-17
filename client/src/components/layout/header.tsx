@@ -185,21 +185,21 @@ const Header: React.FC = () => {
 
   return (
     <>
-      <header className="w-full frosted-bar py-3 px-4 md:px-8 sticky top-0 z-50">
+      <header className="w-full frosted-nav border-b py-3 px-4 md:px-8 sticky top-0 z-50">
         <div className="container mx-auto flex justify-between items-center">
           <div className="flex items-center">
-            <Link href="/" className="flex items-center">
-              <VeddLogo height={40} />
-              <span className="ml-2 text-xl font-bold tracking-tight grad-text-red">VEDD</span>
+            <Link href="/dashboard" className="flex items-center gap-2">
+              <VeddLogo height={36} />
+              <span className="text-grad-red font-black text-xl tracking-tight">VEDD</span>
             </Link>
           </div>
 
-          <div className="hidden md:flex items-center space-x-1 lg:space-x-2 glass-card px-3 py-1.5">
+          <div className="hidden md:flex items-center space-x-1 lg:space-x-2 smart-card px-3 py-1.5">
             {primaryNavItems.map(item => (
               <Link
                 key={item.path}
                 href={item.path}
-                className={`text-sm transition-all flex items-center px-3 py-1.5 rounded-xl ${item.active ? 'bg-primary/15 text-primary font-medium border border-primary/20' : 'text-muted-foreground hover:text-foreground hover:bg-white/5'}`}
+                className={`rounded-2xl px-3 py-1.5 text-sm font-medium transition-all ${item.active ? 'bg-red-500/10 text-red-400' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
               >
                 {item.name}
               </Link>
@@ -207,7 +207,7 @@ const Header: React.FC = () => {
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground rounded-xl hover:bg-white/5">
+                <Button variant="ghost" size="sm" className="text-gray-400 hover:text-white rounded-2xl hover:bg-white/5">
                   <MoreHorizontal className="h-4 w-4 mr-1" />
                   More
                   <ChevronDown className="h-3 w-3 ml-1" />
@@ -217,7 +217,7 @@ const Header: React.FC = () => {
                 {moreNavItems.map(item => (
                   <DropdownMenuItem key={item.path} asChild className="cursor-pointer">
                     <Link href={item.path}>
-                      <div className={`flex items-center w-full ${item.active ? 'text-primary font-medium' : ''}`}>
+                      <div className={`flex items-center w-full ${item.active ? 'text-red-400 font-medium' : ''}`}>
                         {item.icon}
                         <span>{item.name}</span>
                       </div>
@@ -228,61 +228,45 @@ const Header: React.FC = () => {
             </DropdownMenu>
           </div>
 
-          <div className="flex items-center space-x-2 md:space-x-4">
+          <div className="flex items-center space-x-2 md:space-x-3">
             <div className="hidden md:flex items-center gap-2">
               <Link href="/user-guide">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="border-blue-500/30 text-blue-400 hover:bg-blue-500/10 rounded-xl"
+                <span
+                  className="text-xs font-medium rounded-xl px-3 py-1.5 bg-blue-500/10 text-blue-400 hover:bg-blue-500/15 transition-all cursor-pointer inline-flex items-center gap-1"
                   data-testid="button-user-guide"
                 >
-                  <BookOpen className="h-4 w-4 mr-1" />
+                  <BookOpen className="h-3.5 w-3.5" />
                   Guide
-                </Button>
+                </span>
               </Link>
               <Link href="/ambassador-training">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="border-amber-500/30 text-amber-400 hover:bg-amber-500/10 rounded-xl"
+                <span
+                  className="text-xs font-medium rounded-xl px-3 py-1.5 bg-amber-500/10 text-amber-400 hover:bg-amber-500/15 transition-all cursor-pointer inline-flex items-center gap-1"
                   data-testid="button-ambassador"
                 >
-                  <GraduationCap className="h-4 w-4 mr-1" />
+                  <GraduationCap className="h-3.5 w-3.5" />
                   Ambassador
-                </Button>
+                </span>
               </Link>
               {(user?.isAmbassador || user?.isAdmin) && (
-                <div className="flex items-center gap-1 glass-card px-2 py-1">
+                <div className="flex items-center gap-1">
                   <Link href="/token-investments">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-amber-400 hover:bg-amber-500/10 rounded-xl h-7 text-xs"
-                    >
-                      <Coins className="h-3.5 w-3.5 mr-1" />
+                    <span className="text-xs font-medium rounded-xl px-3 py-1.5 bg-amber-500/10 text-amber-400 hover:bg-amber-500/15 transition-all cursor-pointer inline-flex items-center gap-1">
+                      <Coins className="h-3.5 w-3.5" />
                       Invest
-                    </Button>
+                    </span>
                   </Link>
                   <Link href="/referral">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-amber-400 hover:bg-amber-500/10 rounded-xl h-7 text-xs"
-                    >
-                      <Users className="h-3.5 w-3.5 mr-1" />
+                    <span className="text-xs font-medium rounded-xl px-3 py-1.5 bg-amber-500/10 text-amber-400 hover:bg-amber-500/15 transition-all cursor-pointer inline-flex items-center gap-1">
+                      <Users className="h-3.5 w-3.5" />
                       Referral
-                    </Button>
+                    </span>
                   </Link>
                   <Link href="/grants">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-green-400 hover:bg-green-500/10 rounded-xl h-7 text-xs"
-                    >
-                      <DollarSign className="h-3.5 w-3.5 mr-1" />
+                    <span className="text-xs font-medium rounded-xl px-3 py-1.5 bg-green-500/10 text-green-400 hover:bg-green-500/15 transition-all cursor-pointer inline-flex items-center gap-1">
+                      <DollarSign className="h-3.5 w-3.5" />
                       Grants
-                    </Button>
+                    </span>
                   </Link>
                 </div>
               )}
@@ -316,7 +300,7 @@ const Header: React.FC = () => {
                   <div className="relative cursor-pointer">
                     <Avatar className="h-8 w-8">
                       <AvatarImage src={user?.profileImage || ''} alt={user?.username || 'User'} />
-                      <AvatarFallback className="bg-primary/10 text-primary">{getUserInitials()}</AvatarFallback>
+                      <AvatarFallback className="icon-box-sm icon-box-red text-xs font-bold">{getUserInitials()}</AvatarFallback>
                     </Avatar>
                   </div>
                 </DropdownMenuTrigger>
