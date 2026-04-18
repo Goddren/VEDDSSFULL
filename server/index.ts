@@ -3,7 +3,7 @@ import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import path from "path";
 import { setupAuth } from "./auth";
-import { seedAchievements, seedSubscriptionPlans, seedAdminUser, seedInvestmentPools } from "./seed";
+import { seedAchievements, seedSubscriptionPlans, seedAdminUser, seedInvestmentPools, seedVeddRewardConfig } from "./seed";
 import { seedBlogPosts } from "./blog-seed";
 import { initializeMarketDataService } from "./market-data";
 import { execSync } from "child_process";
@@ -458,6 +458,7 @@ async function withRetry<T>(
     await withRetry(() => seedAdminUser(), 'seedAdminUser');
     await withRetry(() => seedInvestmentPools(), 'seedInvestmentPools');
     await withRetry(() => seedBlogPosts(), 'seedBlogPosts');
+    await withRetry(() => seedVeddRewardConfig(), 'seedVeddRewardConfig');
 
     // Initialize market data service for Live AI Refresh
     initializeMarketDataService();

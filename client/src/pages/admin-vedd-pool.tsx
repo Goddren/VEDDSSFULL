@@ -198,7 +198,7 @@ export default function AdminVeddPool() {
                       Add Secrets to Replit
                     </div>
                     <p className="text-sm text-zinc-400">
-                      Go to <span className="text-amber-300">Secrets</span> tab in Replit and add:
+                      In <span className="text-amber-300">Render → Environment</span> add:
                     </p>
                     <ul className="text-xs text-zinc-500 space-y-1 mt-2">
                       <li><code className="bg-zinc-700 px-1 rounded">VEDD_TOKEN_MINT</code> - Your VEDD token mint address</li>

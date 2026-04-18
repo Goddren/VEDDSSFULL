@@ -785,6 +785,7 @@ const Dashboard: React.FC = () => {
               { href: '/vedd-wallet', icon: CalendarCheck, color: 'icon-box-green', name: 'Wallet', desc: 'VEDD wallet' },
               { href: '/achievements', icon: Trophy, color: 'icon-box-green', name: 'Achievements', desc: 'Your rewards' },
               { href: '/grants', icon: Newspaper, color: 'icon-box-blue', name: 'Grants & Funding', desc: 'Funding opportunities' },
+              ...((user as any)?.isAdmin ? [{ href: '/admin/vedd-pool', icon: Coins, color: 'icon-box-purple', name: 'Token Distribution', desc: 'Admin: verify & send VEDD' }] : []),
             ].map((item) => (
               <Link key={item.href} href={item.href}>
                 <div className="list-row">
