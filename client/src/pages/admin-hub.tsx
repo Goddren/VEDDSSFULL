@@ -1,11 +1,12 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
 import { useAuth } from '@/hooks/use-auth';
+import { apiRequest } from '@/lib/queryClient';
 import {
   Coins, Users, FileText, Wallet, Shield, Settings, ChevronRight,
   CheckCircle, Clock, AlertTriangle, TrendingUp, RefreshCw,
   Key, BookOpen, Zap, BarChart3, Gift, Lock, ExternalLink,
-  Copy, CheckSquare, Rocket, Star
+  Copy, CheckSquare, Rocket, Star, UserCog, Search
 } from 'lucide-react';
 import { SiSolana } from 'react-icons/si';
 import { useState } from 'react';
@@ -25,6 +26,17 @@ interface PendingReward {
   createdAt: string;
 }
 
+interface AdminUser {
+  id: number;
+  username: string;
+  email: string;
+  isAdmin: boolean;
+  isAmbassador: boolean;
+  walletAddress: string | null;
+  subscriptionTier: string | null;
+  createdAt: string | null;
+}
+
 function CopyBtn({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   return (
@@ -40,6 +52,8 @@ function CopyBtn({ text }: { text: string }) {
 export default function AdminHub() {
   const { user } = useAuth();
   const [setupStep, setSetupStep] = useState(0);
+  const [userSearch, setUserSearch] = useState('');
+  const queryClient = useQueryClient();
 
   const { data: overview } = useQuery<PoolOverview>({
     queryKey: ['/api/vedd/admin/overview'],
@@ -51,6 +65,21 @@ export default function AdminHub() {
     queryKey: ['/api/vedd/admin/pending-rewards'],
     enabled: !!user?.isAdmin,
     refetchInterval: 15000,
+  });
+
+  const { data: allUsers = [] } = useQuery<AdminUser[]>({
+    queryKey: ['/api/admin/users'],
+    enabled: !!user?.isAdmin,
+    refetchInterval: 60000,
+  });
+
+  const updateUserMutation = useMutation({
+    mutationFn: async ({ userId, updates }: { userId: number; updates: { isAmbassador?: boolean; isAdmin?: boolean } }) => {
+      await apiRequest('PATCH', `/api/admin/users/${userId}`, updates);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/users'] });
+    },
   });
 
   if (!user?.isAdmin) {
@@ -555,6 +584,71 @@ export default function AdminHub() {
               </div>
             ))}
           </div>
+        </div>
+
+        {/* Ambassador / User Management */}
+        <div className="mb-5">
+          <div className="flex items-center justify-between mb-3">
+            <p className="section-title">User & Ambassador Management</p>
+            <span className="text-xs text-gray-500">{allUsers.length} users</span>
+          </div>
+
+          {/* Search */}
+          <div className="relative mb-3">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-500" />
+            <input
+              type="text"
+              placeholder="Search by username or email…"
+              value={userSearch}
+              onChange={e => setUserSearch(e.target.value)}
+              className="w-full bg-white/[0.03] border border-white/10 rounded-xl pl-9 pr-4 py-2 text-sm text-white placeholder:text-gray-600 focus:outline-none focus:border-amber-500/40"
+            />
+          </div>
+
+          <div className="smart-card divide-y divide-white/05">
+            {allUsers
+              .filter(u => {
+                if (!userSearch) return true;
+                const q = userSearch.toLowerCase();
+                return u.username?.toLowerCase().includes(q) || u.email?.toLowerCase().includes(q);
+              })
+              .slice(0, 50)
+              .map(u => (
+                <div key={u.id} className="flex items-center gap-3 px-4 py-3">
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500/20 to-amber-500/20 flex items-center justify-center shrink-0">
+                    <UserCog className="h-3.5 w-3.5 text-gray-400" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-white text-sm font-semibold truncate">{u.username}</p>
+                      {u.isAdmin && <span className="text-[10px] bg-red-500/20 text-red-400 border border-red-500/20 px-1.5 py-0.5 rounded-full">Admin</span>}
+                      {u.isAmbassador && <span className="text-[10px] bg-purple-500/20 text-purple-400 border border-purple-500/20 px-1.5 py-0.5 rounded-full">Ambassador</span>}
+                      {u.subscriptionTier && u.subscriptionTier !== 'free' && <span className="text-[10px] bg-blue-500/20 text-blue-400 border border-blue-500/20 px-1.5 py-0.5 rounded-full capitalize">{u.subscriptionTier}</span>}
+                    </div>
+                    <p className="text-gray-500 text-xs truncate">{u.email}{u.walletAddress ? ` · ${u.walletAddress.slice(0, 6)}…${u.walletAddress.slice(-4)}` : ''}</p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {/* Toggle Ambassador */}
+                    <button
+                      onClick={() => updateUserMutation.mutate({ userId: u.id, updates: { isAmbassador: !u.isAmbassador } })}
+                      disabled={updateUserMutation.isPending || u.id === user?.id}
+                      className={`text-[10px] font-semibold px-2.5 py-1 rounded-lg border transition-all ${
+                        u.isAmbassador
+                          ? 'bg-purple-500/20 text-purple-300 border-purple-500/30 hover:bg-red-500/20 hover:text-red-300 hover:border-red-500/30'
+                          : 'bg-white/[0.03] text-gray-500 border-white/10 hover:bg-purple-500/20 hover:text-purple-300 hover:border-purple-500/30'
+                      }`}
+                      title={u.isAmbassador ? 'Remove ambassador' : 'Make ambassador'}
+                    >
+                      {u.isAmbassador ? 'Amb ✓' : '+ Amb'}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            {allUsers.length === 0 && (
+              <div className="px-4 py-6 text-center text-gray-500 text-sm">No users loaded</div>
+            )}
+          </div>
+          <p className="text-[10px] text-gray-600 mt-2 text-center">Click "+ Amb" to grant ambassador access · ambassadors can access all ambassador routes and earn VEDD rewards</p>
         </div>
 
       </div>

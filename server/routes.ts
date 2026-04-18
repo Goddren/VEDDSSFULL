@@ -16161,6 +16161,48 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     res.json(positions);
   });
 
+  // ─── ADMIN USER MANAGEMENT ─────────────────────────────────────────────────
+
+  // GET /api/admin/users — list all users (admin only)
+  app.get("/api/admin/users", async (req: Request, res: Response) => {
+    if (!req.user?.isAdmin) return res.status(403).json({ message: "Admin only" });
+    try {
+      const allUsers = await storage.getAllUsers();
+      // Return safe subset of fields only
+      const safeUsers = allUsers.slice(0, 200).map((u: User) => ({
+        id: u.id,
+        username: u.username,
+        email: u.email,
+        isAdmin: u.isAdmin,
+        isAmbassador: u.isAmbassador,
+        walletAddress: (u as any).walletAddress ?? null,
+        subscriptionTier: (u as any).subscriptionTier ?? null,
+        createdAt: (u as any).createdAt ?? null,
+      }));
+      res.json(safeUsers);
+    } catch (err: any) {
+      res.status(500).json({ message: "Failed to fetch users" });
+    }
+  });
+
+  // PATCH /api/admin/users/:id — update user role flags (admin only)
+  app.patch("/api/admin/users/:id", async (req: Request, res: Response) => {
+    if (!req.user?.isAdmin) return res.status(403).json({ message: "Admin only" });
+    const userId = parseInt(req.params.id);
+    if (isNaN(userId)) return res.status(400).json({ message: "Invalid user ID" });
+    const { isAmbassador, isAdmin: makeAdmin } = req.body;
+    try {
+      const updates: Partial<User> = {};
+      if (typeof isAmbassador === 'boolean') (updates as any).isAmbassador = isAmbassador;
+      if (typeof makeAdmin === 'boolean') (updates as any).isAdmin = makeAdmin;
+      if (Object.keys(updates).length === 0) return res.status(400).json({ message: "No valid fields to update" });
+      await storage.updateUser(userId, updates);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: "Failed to update user" });
+    }
+  });
+
   // ─── REFERRAL HUB ──────────────────────────────────────────────────────────
 
   // Auto-generate referral code for a user if they don't have one
