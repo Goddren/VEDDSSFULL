@@ -68,6 +68,9 @@ import {
   type SocialLeadScan, type InsertSocialLeadScan,
   blogPosts,
   type BlogPost, type InsertBlogPost,
+  ambassadorJourney, ambassadorDailyActions,
+  type AmbassadorJourney, type InsertAmbassadorJourney,
+  type AmbassadorDailyAction,
 } from "@shared/schema";
 import { db, pool } from "./db";
 import { eq, and, sql, desc, isNull, gte, lte } from "drizzle-orm";
@@ -487,6 +490,15 @@ export interface IStorage {
   updateBlogPost(id: number, data: Partial<InsertBlogPost>): Promise<BlogPost>;
   deleteBlogPost(id: number): Promise<void>;
   incrementBlogPostViews(id: number): Promise<void>;
+
+  // Ambassador Free Path Journey
+  getAmbassadorJourney(userId: number): Promise<AmbassadorJourney | undefined>;
+  getOrCreateAmbassadorJourney(userId: number): Promise<AmbassadorJourney>;
+  updateAmbassadorJourney(userId: number, data: Partial<InsertAmbassadorJourney>): Promise<AmbassadorJourney>;
+  completeAmbassadorDay(userId: number, day: number): Promise<AmbassadorJourney>;
+  getDailyActions(userId: number, day: number): Promise<AmbassadorDailyAction[]>;
+  completeDailyAction(userId: number, actionId: number): Promise<AmbassadorDailyAction>;
+  awardJourneyTokens(userId: number, tokens: number, reason: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -3140,6 +3152,106 @@ export class DatabaseStorage implements IStorage {
 
   async incrementBlogPostViews(id: number): Promise<void> {
     await db.execute(sql`UPDATE blog_posts SET view_count = COALESCE(view_count, 0) + 1 WHERE id = ${id}`);
+  }
+
+  // ─── AMBASSADOR FREE PATH JOURNEY ─────────────────────────────
+
+  async getAmbassadorJourney(userId: number): Promise<AmbassadorJourney | undefined> {
+    const [journey] = await db.select().from(ambassadorJourney).where(eq(ambassadorJourney.userId, userId));
+    return journey;
+  }
+
+  async getOrCreateAmbassadorJourney(userId: number): Promise<AmbassadorJourney> {
+    const existing = await this.getAmbassadorJourney(userId);
+    if (existing) return existing;
+    const [created] = await db.insert(ambassadorJourney).values({
+      userId,
+      currentDay: 1,
+      tokensEarned: 0,
+      referralsCount: 0,
+      subscribedReferrals: 0,
+      postsCompleted: 0,
+      dmsCompleted: 0,
+      commentsCompleted: 0,
+      streakDays: 0,
+      longestStreak: 0,
+      subscriptionEarned: false,
+      monthsEarned: 0,
+      completedDays: [],
+      savedContent: [],
+    } as any).returning();
+    return created;
+  }
+
+  async updateAmbassadorJourney(userId: number, data: Partial<InsertAmbassadorJourney>): Promise<AmbassadorJourney> {
+    const [updated] = await db.update(ambassadorJourney)
+      .set({ ...data, updatedAt: new Date(), lastActiveAt: new Date() } as any)
+      .where(eq(ambassadorJourney.userId, userId))
+      .returning();
+    return updated;
+  }
+
+  async completeAmbassadorDay(userId: number, day: number): Promise<AmbassadorJourney> {
+    const journey = await this.getOrCreateAmbassadorJourney(userId);
+    const completedDays = (journey.completedDays as number[]) || [];
+    if (completedDays.includes(day)) return journey;
+
+    const newCompletedDays = [...completedDays, day];
+    const newCurrentDay = Math.min(44, day + 1);
+
+    // Streak calculation
+    const yesterday = day - 1;
+    const hasYesterday = completedDays.includes(yesterday) || day === 1;
+    const newStreak = hasYesterday ? journey.streakDays + 1 : 1;
+    const newLongestStreak = Math.max(journey.longestStreak, newStreak);
+
+    // Token awards
+    let tokensToAward = 10; // base per day
+    if (newStreak === 7 || newStreak === 14 || newStreak === 21 || newStreak === 28 || newStreak === 35 || newStreak === 42) {
+      tokensToAward += 100; // 7-day streak bonus
+    }
+    const allDone = newCompletedDays.length >= 44;
+    if (allDone) tokensToAward += 500; // completion bonus
+
+    const subscriptionEarned = allDone || journey.subscriptionEarned;
+    const monthsEarned = allDone ? journey.monthsEarned + 1 : journey.monthsEarned;
+
+    const [updated] = await db.update(ambassadorJourney)
+      .set({
+        completedDays: newCompletedDays as any,
+        currentDay: newCurrentDay,
+        streakDays: newStreak,
+        longestStreak: newLongestStreak,
+        tokensEarned: journey.tokensEarned + tokensToAward,
+        postsCompleted: journey.postsCompleted + 1,
+        subscriptionEarned,
+        monthsEarned,
+        lastActiveAt: new Date(),
+        updatedAt: new Date(),
+      } as any)
+      .where(eq(ambassadorJourney.userId, userId))
+      .returning();
+    return updated;
+  }
+
+  async getDailyActions(userId: number, day: number): Promise<AmbassadorDailyAction[]> {
+    return await db.select().from(ambassadorDailyActions)
+      .where(and(eq(ambassadorDailyActions.userId, userId), eq(ambassadorDailyActions.day, day)));
+  }
+
+  async completeDailyAction(userId: number, actionId: number): Promise<AmbassadorDailyAction> {
+    const [updated] = await db.update(ambassadorDailyActions)
+      .set({ completed: true, completedAt: new Date(), tokensAwarded: 5 })
+      .where(and(eq(ambassadorDailyActions.id, actionId), eq(ambassadorDailyActions.userId, userId)))
+      .returning();
+    if (!updated) throw new Error('Action not found');
+    return updated;
+  }
+
+  async awardJourneyTokens(userId: number, tokens: number, _reason: string): Promise<void> {
+    await db.update(ambassadorJourney)
+      .set({ tokensEarned: sql`tokens_earned + ${tokens}`, updatedAt: new Date() } as any)
+      .where(eq(ambassadorJourney.userId, userId));
   }
 }
 

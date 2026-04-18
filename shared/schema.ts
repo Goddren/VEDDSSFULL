@@ -2091,3 +2091,48 @@ export const insertBlogPostSchema = createInsertSchema(blogPosts).omit({ id: tru
 export type BlogPost = typeof blogPosts.$inferSelect;
 export type InsertBlogPost = z.infer<typeof insertBlogPostSchema>;
 export type InsertTokenInvestment = z.infer<typeof insertTokenInvestmentSchema>;
+
+// ─── AMBASSADOR FREE PATH JOURNEY ─────────────────────────────
+
+export const ambassadorJourney = pgTable("ambassador_journey", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull().unique(),
+  currentDay: integer("current_day").default(1).notNull(),
+  startedAt: timestamp("started_at").defaultNow().notNull(),
+  lastActiveAt: timestamp("last_active_at").defaultNow().notNull(),
+  tokensEarned: integer("tokens_earned").default(0).notNull(),
+  referralsCount: integer("referrals_count").default(0).notNull(),
+  subscribedReferrals: integer("subscribed_referrals").default(0).notNull(),
+  postsCompleted: integer("posts_completed").default(0).notNull(),
+  dmsCompleted: integer("dms_completed").default(0).notNull(),
+  commentsCompleted: integer("comments_completed").default(0).notNull(),
+  streakDays: integer("streak_days").default(0).notNull(),
+  longestStreak: integer("longest_streak").default(0).notNull(),
+  subscriptionEarned: boolean("subscription_earned").default(false).notNull(),
+  monthsEarned: integer("months_earned").default(0).notNull(),
+  completedDays: jsonb("completed_days").default([]).notNull(),
+  savedContent: jsonb("saved_content").default([]).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const ambassadorDailyActions = pgTable("ambassador_daily_actions", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  day: integer("day").notNull(),
+  actionType: text("action_type").notNull(),
+  platform: text("platform").notNull(),
+  completed: boolean("completed").default(false).notNull(),
+  completedAt: timestamp("completed_at"),
+  notes: text("notes"),
+  tokensAwarded: integer("tokens_awarded").default(0).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertAmbassadorJourneySchema = createInsertSchema(ambassadorJourney).omit({ id: true, createdAt: true, updatedAt: true });
+export type AmbassadorJourney = typeof ambassadorJourney.$inferSelect;
+export type InsertAmbassadorJourney = z.infer<typeof insertAmbassadorJourneySchema>;
+
+export const insertAmbassadorDailyActionSchema = createInsertSchema(ambassadorDailyActions).omit({ id: true, createdAt: true });
+export type AmbassadorDailyAction = typeof ambassadorDailyActions.$inferSelect;
+export type InsertAmbassadorDailyAction = z.infer<typeof insertAmbassadorDailyActionSchema>;

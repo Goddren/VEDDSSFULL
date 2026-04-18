@@ -77,6 +77,7 @@ import GrantsFundingPage from "@/pages/grants-funding";
 import ReferralHubPage from "@/pages/referral-hub";
 import AmbassadorRecruitmentPage from "@/pages/ambassador-recruitment";
 import AmbassadorLandingPage from "@/pages/ambassador-landing-page";
+import AmbassadorFreePathPage from "@/pages/ambassador-free-path";
 import TokenInvestmentsPage from "@/pages/token-investments";
 import StreakBanner from "@/components/StreakBanner";
 import { OnboardingTutorial } from "@/components/onboarding-tutorial";
@@ -155,6 +156,7 @@ function AppLayout() {
             <ProtectedRoute path="/ambassador/content-flow/day/:dayNumber" component={ContentFlowDay} />
             <ProtectedRoute path="/ambassador/challenge/:id" component={ChallengeSession} />
             <ProtectedRoute path="/ambassador/sales-script" component={AmbassadorSalesScriptPage} />
+            <ProtectedRoute path="/ambassador/free-path" component={AmbassadorFreePathPage} />
             
             {/* Public event page (no auth required) */}
             <Route path="/event/:slug" component={PublicEventPage} />

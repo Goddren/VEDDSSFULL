@@ -414,6 +414,45 @@ async function withRetry<T>(
       console.error('[startup] blog_posts table migration (non-fatal):', (err as Error).message);
     }
 
+    try {
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS ambassador_journey (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) NOT NULL UNIQUE,
+        current_day INTEGER DEFAULT 1 NOT NULL,
+        started_at TIMESTAMP DEFAULT NOW() NOT NULL,
+        last_active_at TIMESTAMP DEFAULT NOW() NOT NULL,
+        tokens_earned INTEGER DEFAULT 0 NOT NULL,
+        referrals_count INTEGER DEFAULT 0 NOT NULL,
+        subscribed_referrals INTEGER DEFAULT 0 NOT NULL,
+        posts_completed INTEGER DEFAULT 0 NOT NULL,
+        dms_completed INTEGER DEFAULT 0 NOT NULL,
+        comments_completed INTEGER DEFAULT 0 NOT NULL,
+        streak_days INTEGER DEFAULT 0 NOT NULL,
+        longest_streak INTEGER DEFAULT 0 NOT NULL,
+        subscription_earned BOOLEAN DEFAULT false NOT NULL,
+        months_earned INTEGER DEFAULT 0 NOT NULL,
+        completed_days JSONB DEFAULT '[]' NOT NULL,
+        saved_content JSONB DEFAULT '[]' NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+        updated_at TIMESTAMP DEFAULT NOW() NOT NULL
+      )`);
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS ambassador_daily_actions (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) NOT NULL,
+        day INTEGER NOT NULL,
+        action_type TEXT NOT NULL,
+        platform TEXT NOT NULL,
+        completed BOOLEAN DEFAULT false NOT NULL,
+        completed_at TIMESTAMP,
+        notes TEXT,
+        tokens_awarded INTEGER DEFAULT 0 NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL
+      )`);
+      console.log('[startup] Ambassador journey tables created/verified.');
+    } catch (err) {
+      console.error('[startup] Ambassador journey tables migration (non-fatal):', (err as Error).message);
+    }
+
     await withRetry(() => seedSubscriptionPlans(), 'seedSubscriptionPlans');
     await withRetry(() => seedAchievements(), 'seedAchievements');
     await withRetry(() => seedAdminUser(), 'seedAdminUser');

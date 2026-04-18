@@ -29,6 +29,7 @@ import {
   Scan,
   Brain,
   Radio,
+  Rocket,
 } from 'lucide-react';
 import { useState } from 'react';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
@@ -57,6 +58,7 @@ const aiToolItems = [
 
 const communityItems = [
   { name: 'Community', path: '/community', icon: Users, color: 'icon-box-purple' },
+  { name: 'Free Path to Pro', path: '/ambassador/free-path', icon: Rocket, color: 'icon-box-green' },
   { name: 'Ambassador Training', path: '/ambassador-training', icon: GraduationCap, color: 'icon-box-amber' },
   { name: 'Recruit Ambassadors', path: '/ambassador/recruitment', icon: Users, color: 'icon-box-red' },
   { name: 'My Lead Page', path: '/ambassador/recruitment?tab=leadpages', icon: Globe, color: 'icon-box-blue' },

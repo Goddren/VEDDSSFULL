@@ -63,6 +63,459 @@ import { veddTokenService } from "./services/vedd-token-service";
 import { streamingService } from "./streaming";
 import { scanAndAnalyzeTokens, searchSolanaToken, analyzeToken, fetchTrendingSolanaTokens, fetchMultiDexTokens, type DexSource } from "./solana-scanner";
 
+// ─── AMBASSADOR FREE PATH — 44-day plan (static content) ───────
+
+interface CommentExample { context: string; comment: string; }
+interface DayPlan {
+  day: number; week: number; theme: string; platform: string; contentType: string;
+  mainPost: { caption: string; hashtags: string[]; visualIdea: string; ctaText: string; };
+  storyIdea: string;
+  commentExamples: CommentExample[];
+  dmScript: string; dailyGoal: string; tokensAvailable: number;
+  weeklyContext: string; veddTool: string; proTip: string;
+}
+
+const PLATFORMS = ['Instagram','TikTok','Facebook','Twitter','LinkedIn','Instagram Reel','Instagram'];
+const CONTENT_TYPES = ['post','reel','post','post','post','reel','story'];
+
+function getPlatform(day: number): string { return PLATFORMS[(day - 1) % 7]; }
+function getContentType(day: number): string { return CONTENT_TYPES[(day - 1) % 7]; }
+
+const WEEK_DATA: { week: number; days: [number,number]; theme: string; veddTool: string; weeklyContext: string }[] = [
+  { week:1, days:[1,6],   theme:"Foundation & Identity",      veddTool:"AI Analysis Engine",               weeklyContext:"Build your brand — introduce yourself, your story, and why VEDD changed how you trade." },
+  { week:2, days:[7,13],  theme:"Trading Education",          veddTool:"Brain Mode + Multi-TF EA",         weeklyContext:"Educate your audience on charts, signals, and how AI removes guesswork from trading." },
+  { week:3, days:[14,20], theme:"Social Proof & Results",     veddTool:"Weekly Strategy + Live Monitor",   weeklyContext:"Show real results. Share AI signals, your weekly plan, and documented wins." },
+  { week:4, days:[21,27], theme:"Community & Events",         veddTool:"Live Engine + TradeLocker",        weeklyContext:"Build community — host events, run challenges, and invite people to live sessions." },
+  { week:5, days:[28,34], theme:"Advanced Features",          veddTool:"Futures Connect + SOL Scanner",    weeklyContext:"Introduce VEDD's advanced side: futures, Solana scanner, and VEDD tokenomics." },
+  { week:6, days:[35,40], theme:"Recruitment & Duplication",  veddTool:"Ambassador Program + Referral Hub",weeklyContext:"Teach others what you've learned. Share the ambassador opportunity and referral system." },
+  { week:7, days:[41,44], theme:"Mastery & Legacy",           veddTool:"VEDD Wallet + Social Hub",         weeklyContext:"Show full journey transformation. Inspire others to start. Create your legacy post." },
+];
+
+function getWeekData(day: number) {
+  return WEEK_DATA.find(w => day >= w.days[0] && day <= w.days[1]) ?? WEEK_DATA[0];
+}
+
+const DAY_PLANS: Record<number, Omit<DayPlan,'day'|'week'|'platform'|'contentType'|'weeklyContext'|'veddTool'>> = {
+  1: {
+    theme:"Introduce Yourself & Your Trading Story",
+    mainPost:{ caption:"I used to stare at charts for hours, second-guessing every trade. Sound familiar? 📉 Six months ago I found VEDD — an AI trading platform that literally reads the chart for me and tells me exactly where to enter, exit, and set my stop loss. I went from frustrated beginner to consistent trader. This account is my journey — the wins, the lessons, and everything I learn along the way. Follow if you're serious about trading smarter, not harder. 👇", hashtags:["#trading","#forextrader","#AItrading","#VEDD","#tradingjourney","#financialfreedom","#tradingstrategy","#learntotrrade"], visualIdea:"Your face + a chart on screen or phone, natural lighting, confident pose", ctaText:"Drop a 🙋 below if you've ever felt lost looking at a chart" },
+    storyIdea:"Poll: 'Are you a beginner or experienced trader?' — great for engagement",
+    commentExamples:[{context:"Someone posting about wanting to learn trading",comment:"The learning curve is real but so worth it! What style are you learning — scalping, swing trading? I found a tool that helped me cut through the noise big time 🙌"},{context:"Someone frustrated about a losing trade",comment:"Been there 100%. The hardest lesson I learned is that it's about system over feelings. What's your current strategy?"},{context:"Someone posting a trading setup screenshot",comment:"Love this setup! Do you use any AI confirmation tools or pure manual analysis? Curious what your process is"}],
+    dmScript:"Hey [Name]! Saw your post about trading — totally relatable. I've been on a journey to find something that actually works consistently. What's your biggest challenge with trading right now?",
+    dailyGoal:"Get your first post live and collect 10+ engagement actions (likes/comments/follows)",
+    tokensAvailable:10, proTip:"Use natural light and a real trading chart in the background — authenticity beats perfection every time",
+  },
+  2: {
+    theme:"What Is AI Trading & Why It Matters",
+    mainPost:{ caption:"Most traders lose because they let emotions decide 😤 Fear, greed, FOMO — they destroy accounts. What if an AI analyzed the chart for you, removed the emotion, and gave you a clear entry/exit/stop loss in seconds? That's exactly what I use now with VEDD's AI Analysis Engine. It reads candlestick patterns, support & resistance zones, and trend strength — then outputs a clean signal. No guessing. No hoping. Just data. If you're still trading on gut feeling, we need to talk 👇", hashtags:["#AItrading","#tradingpsychology","#forexsignals","#VEDD","#algorithmictrading","#tradingstrategy","#smartmoney","#daytrader"], visualIdea:"Screen recording of VEDD analysis page with pattern detected overlay", ctaText:"Comment 'AI' if you want to see how this works live" },
+    storyIdea:"'Did you know AI can read charts?' — share a quick screenshot of a pattern being detected",
+    commentExamples:[{context:"Someone posting about trading psychology / emotions",comment:"This is so underrated. I traded emotionally for way too long. The switch to a systematic approach completely changed my results. Are you using any tools to help with this?"},{context:"Someone asking what platform to use for trading",comment:"Depends on your style! What pairs/assets are you trading? I use a platform with built-in AI signals that's changed my whole approach"},{context:"Someone posting about market being hard to read",comment:"The market IS unpredictable but there are patterns — you just need the right tools to spot them consistently 📊"}],
+    dmScript:"Hey [Name]! I saw you asking about trading platforms — I've tried a bunch. What specifically are you looking for? I found something that handles the analysis side for me automatically.",
+    dailyGoal:"Reach 5 new followers from TikTok and get at least 3 comments asking about AI trading",
+    tokensAvailable:10, proTip:"TikTok rewards quick hooks. Start your video mid-sentence: 'Most traders lose because...' — no intro needed",
+  },
+  3: {
+    theme:"Your Personal Why — The Real Reason You Trade",
+    mainPost:{ caption:"People always ask why I got into trading. Honestly? I was tired of trading my time for money. 9-5 wasn't building wealth — it was just survival. I wanted something that could work while I sleep, grow while I live life, and eventually replace a paycheck. Trading with VEDD's AI signals gave me a path to that. It's not overnight riches — it's a skill + a tool that stacks up over time. What's YOUR why for wanting financial freedom? Share it below 👇", hashtags:["#financialfreedom","#passiveincome","#trading","#VEDD","#wealthbuilding","#investinyourself","#sidehustle","#moneygoals"], visualIdea:"Lifestyle shot — coffee, laptop, peaceful morning vibe. Real and relaxed.", ctaText:"What's one financial goal you want to hit in the next 12 months?" },
+    storyIdea:"Share your 'why' in a 15-second story — keep it raw and honest",
+    commentExamples:[{context:"Someone posting about financial stress",comment:"This is why I started looking for alternatives too. The traditional path just doesn't build real wealth fast enough. Have you looked into any investment/trading side?"},{context:"Someone posting about side hustle ideas",comment:"Trading is underrated as a side skill — especially when you have tools doing the heavy analysis. What are you currently exploring?"},{context:"Someone posting lifestyle/freedom content",comment:"This is the goal 🙌 Building something that gives you options. Are you working on anything that creates income outside your 9-5?"}],
+    dmScript:"Hey [Name]! Love the energy on your page — what's driving you right now? I'm always connecting with people who are serious about building something real financially.",
+    dailyGoal:"Inspire 3 people to comment their financial 'why' — building conversation = building trust",
+    tokensAvailable:10, proTip:"Facebook loves text-heavy story posts. Write your full 'why' story in the caption — longer = more reach on FB",
+  },
+  4: {
+    theme:"Reading Charts 101 — Candlesticks Explained",
+    mainPost:{ caption:"If you can't read candlesticks, you can't read the market 📊 Here's a 60-second breakdown: 🟢 Green candle = price went UP. 🔴 Red candle = price went DOWN. The BODY shows open/close. The WICK shows how far price tested. A long wick = rejection. A full body = strong momentum. The best part? VEDD's AI reads thousands of these patterns simultaneously and tells you what they mean in real-time. You don't have to memorize every pattern — the AI does it for you. Save this post and start looking at charts differently 👆", hashtags:["#candlestickpatterns","#forexeducation","#tradingbasics","#VEDD","#technicalanalysis","#priceaction","#learntrading","#chartanalysis"], visualIdea:"Clean infographic showing bullish/bearish candle anatomy with labels", ctaText:"Save this! You'll want it next time you're looking at a chart" },
+    storyIdea:"Quiz story: 'What does a long upper wick mean? A) Bullish B) Rejection' — teach + engage",
+    commentExamples:[{context:"Someone posting a candlestick chart screenshot",comment:"Nice setup! Are you using any pattern recognition tool or reading this manually? The wick on that candle is telling a story 👀"},{context:"Someone asking how to read charts",comment:"Candlesticks are the first thing to master. The body tells you who won the battle, the wicks tell you who tried and failed. What timeframe are you analyzing?"},{context:"Someone posting trading education content",comment:"This is exactly what more traders need to see. Understanding WHY price moves > just following signals blindly. Great breakdown"}],
+    dmScript:"Hey [Name]! Are you more visual when it comes to learning trading, or do you prefer step-by-step systems? I have something that might match your style — curious what you're working with.",
+    dailyGoal:"Get 10+ saves on your educational post — saves = high-value content signal",
+    tokensAvailable:10, proTip:"Twitter threads do GREAT for education. Turn this post into a 5-tweet thread with one concept per tweet",
+  },
+  5: {
+    theme:"Support & Resistance — Where Trades Live and Die",
+    mainPost:{ caption:"Every trader talks about support and resistance. But most don't actually USE it. 📈 Support = a price floor where buyers keep stepping in. Resistance = a price ceiling where sellers keep pushing back. The magic happens at these levels. Break above resistance? New trend up. Bounce off support? Entry signal. VEDD's AI automatically identifies these zones on any chart and flags when price is approaching them. It's like having a spotter who watches the levels 24/7 so you don't have to. Want to see how it looks in action? Drop 'LEVELS' below 👇", hashtags:["#supportandresistance","#technicalanalysis","#forextrading","#VEDD","#priceaction","#tradingsetup","#charting","#tradereducation"], visualIdea:"Chart screenshot with clear S/R zones drawn, VEDD identifying them highlighted", ctaText:"Drop 'LEVELS' if you want to see a live example" },
+    storyIdea:"'Support or Resistance?' swipe poll using a chart screenshot — education + interaction",
+    commentExamples:[{context:"Someone posting about a trade setup near a level",comment:"That level is key! Is that a weekly resistance or daily? I always cross-reference multi-TF before entering near S/R zones 📊"},{context:"Someone asking about trading strategy",comment:"S/R is THE foundation. Everything else is built on top of these zones. Are you manually drawing them or using any tools to auto-detect?"},{context:"Someone posting about a missed trade",comment:"Missed trades are tough! Was there a level you were waiting on that didn't quite get there? I've found that having automated level alerts helps a lot"}],
+    dmScript:"Hey [Name]! Quick question — when you look at a chart, do you draw your own support/resistance or do you use any tools? I ask because I found something that auto-maps these and it's been a game changer.",
+    dailyGoal:"Build credibility as an educator — aim for 15+ comments and 3 DMs from interested traders",
+    tokensAvailable:10, proTip:"LinkedIn loves professional educational content. Frame this as 'What I learned after X months of trading' for business audience appeal",
+  },
+  6: {
+    theme:"Week 1 Recap — Your Journey in 60 Seconds",
+    mainPost:{ caption:"One week in 🔥 Here's what I've covered this week: ✅ Why I started trading ✅ How AI removes emotional decisions ✅ Candlestick basics ✅ Support & resistance zones ✅ How VEDD reads charts in real-time The biggest unlock? Realizing I don't have to know everything — I just need the right tools to handle the complexity. VEDD's AI Analysis Engine does what would take me hours to analyze manually. Next week: I'm going deep on trading strategies and showing you real signal examples. Follow so you don't miss it 👆", hashtags:["#tradingjourney","#weekrecap","#VEDD","#AItrading","#forextrader","#week1","#tradingprogress","#financialfreedom","#learntrading"], visualIdea:"Reel showing quick cuts of your week — chart screenshots, your face, VEDD interface", ctaText:"Which topic from this week was most helpful? Comment below" },
+    storyIdea:"Behind-the-scenes story: show your trading setup / workspace to build connection",
+    commentExamples:[{context:"Someone posting about their trading week",comment:"How'd your week go? I've been tracking my analysis accuracy this week and it's been eye-opening. What's your main focus right now?"},{context:"Someone posting a 'learning to trade' update",comment:"The journey is everything! What's the one thing that clicked for you this week? For me it was finally understanding why price respects certain levels"},{context:"Someone talking about weekend goals",comment:"Weekend trading planning is underrated! I use Sunday to look at my pairs and map out the week. Do you have a weekly prep routine?"}],
+    dmScript:"Hey [Name]! It's the end of week 1 for me on this trading content journey — what's been your biggest trading lesson this week? Always love connecting with people who are actively learning.",
+    dailyGoal:"Recap content gets high shares — aim for 10+ shares/reposts from this reel",
+    tokensAvailable:10, proTip:"Reels with a 'results reveal' hook get massive reach. Start with 'One week of trading content — here's what happened'",
+  },
+  7: {
+    theme:"Brain Mode — Double Confirmation Trading",
+    mainPost:{ caption:"One signal is good. TWO aligned signals is a trade 🧠 That's the concept behind VEDD's Brain Mode — it requires TWO separate AI confirmations before flagging a trade. Most platforms throw signals all day. Brain Mode only activates when the AI sees alignment across MULTIPLE indicators. The result? Fewer signals. Higher quality setups. Less noise, more precision. If you've ever taken a trade and immediately regretted it because you didn't wait for confirmation — Brain Mode is designed exactly for that moment. Drop 'BRAIN' if you want to see this in action 👇", hashtags:["#tradingconfirmation","#AItrading","#VEDD","#brainmode","#tradingstrategy","#smarttrading","#forexsignals","#precisiontrading"], visualIdea:"Split screen: normal signal vs Brain Mode double confirmation visual", ctaText:"Drop 'BRAIN' to see a live Brain Mode trade setup" },
+    storyIdea:"'How many confirmations do you need before entering a trade?' poll — 1 / 2 / 3+",
+    commentExamples:[{context:"Someone posting about a bad trade they took impulsively",comment:"The impulse trade is the enemy 😅 I started requiring double confirmation before every entry and my quality went way up. What's your current entry rule?"},{context:"Someone posting about overtrading",comment:"The cure for overtrading is having strict criteria that filters most setups OUT. Do you have a checklist before you enter? Game changer"},{context:"Someone asking about indicators",comment:"Indicators are helpful but it's the COMBINATION that matters. I look for 2+ signals pointing the same direction before touching the market. What combo do you use?"}],
+    dmScript:"Hey [Name]! You seem pretty serious about trading — do you have a confirmation system before entering trades? I found one that literally requires two AI signals to align before flagging a setup. Curious if that's something you'd find useful.",
+    dailyGoal:"Drive 10 'BRAIN' keyword comments to qualify leads who want to see more",
+    tokensAvailable:10, proTip:"TikTok loves 'explain it simply' content. Use the analogy: 'Brain Mode is like checking both mirrors before changing lanes'",
+  },
+  8: {
+    theme:"Breakout Master Mode — Catching Big Moves",
+    mainPost:{ caption:"The trades that change accounts aren't the small scalps. They're the BREAKOUTS 📈 When price builds up energy at a key level, then explodes through — that's a breakout. And catching it at the right moment is everything. VEDD's Breakout Master Mode watches these compression zones 24/7 and fires an alert the moment price commits to a direction. No more watching charts all day. No more missed moves because you stepped away. The system watches. You execute. I've been using this specifically on GBP/USD and EUR/USD — the breakouts have been wild. What pairs do YOU watch for breakouts? 👇", hashtags:["#breakouttrading","#forexbreakout","#VEDD","#breakoutmastermode","#forextrader","#priceaction","#volatilitytrading","#tradingsignals"], visualIdea:"Chart screenshot showing a breakout with VEDD alert triggered overlay", ctaText:"Which pair do you watch most for breakouts?" },
+    storyIdea:"'Have you ever missed a breakout while you slept?' — relatable story with a solution tease",
+    commentExamples:[{context:"Someone posting about missing a big move in the market",comment:"Missed moves hurt more than losses sometimes 😩 I had the same problem until I set up automated alerts for my key levels. Are you using any notification system?"},{context:"Someone posting about volatility",comment:"Volatility is WHERE the money is — but only if you catch the move at the right time. Breakout setups are my favourite for exactly this reason"},{context:"Someone posting a big winning trade screenshot",comment:"Love seeing winners! Was that a breakout setup or reversal? The way that candle closed strong tells a story 🔥"}],
+    dmScript:"Hey [Name]! I saw you post about [big market move/pair]. Do you trade breakouts or do you prefer reversal setups? I'm in a deep learning phase on breakout strategy right now.",
+    dailyGoal:"Generate 5+ conversations about specific trading pairs — qualify buyers through discussion",
+    tokensAvailable:10, proTip:"Facebook groups are GOLD for this topic. Share this post in 2-3 trading groups to maximize reach",
+  },
+  9: {
+    theme:"Multi-Timeframe Analysis — The Full Picture",
+    mainPost:{ caption:"If you're only looking at ONE timeframe, you're flying blind 🔭 Here's what multi-timeframe analysis means: 📊 H4 = the big trend direction 📊 H1 = where to look for setups 📊 M15 = where to enter precisely Align all three and you have a high-probability trade. Fight any of them and you're gambling. VEDD's Multi-Timeframe EA does this automatically — it checks the higher timeframe trend BEFORE validating a lower timeframe entry. It's like having three analysts instead of one, all agreeing before executing. This one feature alone improved my win rate. Want to see the setup? 👇", hashtags:["#multitimeframe","#technicalanalysis","#VEDD","#forexeducation","#tradingstrategy","#tradingMTF","#priceaction","#chartanalysis"], visualIdea:"Three stacked chart screenshots (H4/H1/M15) with annotations showing alignment", ctaText:"Comment your favourite timeframe combination below" },
+    storyIdea:"'Top down analysis in 30 seconds' — story showing H4 → H1 → M15 drill-down",
+    commentExamples:[{context:"Someone posting about a trade that went wrong",comment:"Was it potentially a timeframe conflict? I've taken trades that looked perfect on M15 but the H4 was screaming the opposite direction. Always check the bigger picture first"},{context:"Someone posting about their trading process",comment:"Do you do top-down analysis? Starting from the higher timeframe completely changed how I evaluate setups — it filters so much noise"},{context:"Someone asking about best indicators",comment:"Honest answer: the best 'indicator' is the higher timeframe trend. Are you in the direction of the daily/H4? That alone filters most bad trades"}],
+    dmScript:"Hey [Name]! Quick trading question — do you check multiple timeframes before entering a trade, or do you focus on one main chart? I recently started using automated multi-TF analysis and it's been a shift.",
+    dailyGoal:"Position yourself as someone who trades with structure — collect 8+ serious trading comments",
+    tokensAvailable:10, proTip:"Twitter threads with charts get great engagement from serious traders. Post each timeframe as a separate tweet in a thread",
+  },
+  10: {
+    theme:"What Makes a High-Probability Trade?",
+    mainPost:{ caption:"Not all trades are created equal 🎯 High-probability setups have 3+ things aligned: 1️⃣ Trend direction confirmed (higher TF) 2️⃣ Price at a key level (S/R or VWAP) 3️⃣ Momentum confirmation (candle close, volume) 4️⃣ AI signal firing (VEDD Brain Mode) When these stack up — the trade is worth taking. When only 1-2 are there — I wait. Most traders lose by taking B and C grade setups. I only trade A+. VEDD's AI automatically scores setups and only flags the ones that meet multiple criteria. That's the edge. What's your 'minimum criteria' before entering? 👇", hashtags:["#tradingsetup","#highprobability","#VEDD","#tradingstrategy","#AItrading","#riskmanagement","#tradingdiscipline","#priceaction"], visualIdea:"Checklist graphic: 4 criteria with green checkmarks on a clean background", ctaText:"Tell me: what's the ONE thing you always check before entering?" },
+    storyIdea:"Behind-the-trade story: walk through YOUR checklist before entering — use screen recording",
+    commentExamples:[{context:"Someone posting about a trade with multiple confluences",comment:"Confluence is everything! The more layers of confirmation, the less the market can surprise you. Nice setup 🔥 Did VEDD or manual analysis on this one?"},{context:"Someone asking how to improve win rate",comment:"Win rate is mostly a setup quality problem. Are you taking A+ setups only or getting into B grades too? I track this now and it changed my results significantly"},{context:"Someone talking about trading rules",comment:"Rules are what separate trading from gambling. What's your absolute non-negotiable rule before entering? Mine is always checking the higher TF first"}],
+    dmScript:"Hey [Name]! If I showed you a setup scoring system that automatically rates trade quality before you enter — would that be useful for how you trade currently?",
+    dailyGoal:"Build authority as a strategic trader — generate 10 substantive trading conversations",
+    tokensAvailable:10, proTip:"Instagram carousel posts (5-7 slides) work PERFECTLY for this type of content — each criteria gets one slide",
+  },
+  11: {
+    theme:"Stop Loss Mastery — Protect Your Capital",
+    mainPost:{ caption:"The trade that blows your account isn't the loss. It's the loss WITHOUT a stop loss 💥 I learned this the hard way. No stop = hope trading = account death. Here's how I set stops now using VEDD's AI: ✅ Stop goes BELOW the last significant swing low (for buys) ✅ VEDD calculates the exact level based on volatility ✅ If price reaches my stop, the trade idea was WRONG Period. No moving stops. No hoping. The AI tells me where my idea is invalidated — and that's my stop. Protecting capital isn't losing. It's staying in the game long enough to win. What's your stop loss approach? 👇", hashtags:["#stoploss","#riskmanagement","#forextrading","#VEDD","#tradingdiscipline","#capitalprotection","#tradingstrategy","#smarttrading"], visualIdea:"Chart showing stop loss placement below swing low with VEDD's AI recommendation highlighted", ctaText:"Do you always use a stop loss? Yes / Sometimes / Not always — vote below" },
+    storyIdea:"'The day I blew my account' honest story — vulnerability + lesson = high engagement",
+    commentExamples:[{context:"Someone posting about a big loss",comment:"That pain is real. I went through something similar. Did you have a stop in place or was this a case of holding and hoping? The stop loss discipline took me a long time to build"},{context:"Someone asking about risk management",comment:"Stops are non-negotiable for me now. The way I think about it: I'm not losing money, I'm paying for information — this setup didn't work, move on. Does that mindset help you?"},{context:"Someone posting about account management",comment:"Position sizing + stop placement is everything. I calculate my risk FIRST, then find the entry — never the other way around. How do you size your positions?"}],
+    dmScript:"Hey [Name]! Real talk — have you ever held a losing trade past where you knew you should've exited? I did for months until I set up automated stops. Changed everything. What's your risk approach?",
+    dailyGoal:"Generate emotional connection through vulnerability — aim for 15+ comments on your loss story",
+    tokensAvailable:10, proTip:"The most shared trading content is honest failure stories. 'The day I lost X because I didn't use a stop' performs extremely well on all platforms",
+  },
+  12: {
+    theme:"Take Profit Strategy — Locking in Wins",
+    mainPost:{ caption:"You're not profitable until you CLOSE the trade 💰 Taking profit is harder than it sounds. Close too early = left money on the table. Stay too long = give it all back. My approach with VEDD: 1st target = next key resistance/support level 2nd target = measured move projection The AI flags both levels in advance so I know BEFORE entering where I'm taking profit. No emotional decisions in the moment. No changing the plan because price is 'going further'. The plan is the plan. Partial close at T1, trail stop at T2. Clean and consistent. What's your take profit approach? 👇", hashtags:["#takeprofit","#tradingstrategy","#VEDD","#forextrading","#riskmanagement","#tradingplan","#AItrading","#tradingtips"], visualIdea:"Chart showing two take profit levels marked with VEDD's AI projections", ctaText:"Are you a 'one target' or 'scale out' trader? Tell me below" },
+    storyIdea:"'Closed too early' story — the psychological challenge of holding winners",
+    commentExamples:[{context:"Someone posting about exiting a trade",comment:"The exit is 80% of the battle! I used to exit way too early out of fear. Now I set levels BEFORE entering and don't touch them. How do you manage your exits?"},{context:"Someone posting a winning trade",comment:"CONGRATS! 🔥 Did you have targets mapped out before entry or did you exit by feel? I'm always curious about other traders' exit systems"},{context:"Someone asking how to be more consistent",comment:"Exit consistency is underrated. Most traders work on entries endlessly but exits are where the money is actually made or lost. Do you have a rule-based exit system?"}],
+    dmScript:"Hey [Name]! Question: do you find it harder to know when to ENTER a trade or when to EXIT? Most people say exit is harder. I have a system for both if you ever want to compare notes.",
+    dailyGoal:"Generate 8+ meaningful trading strategy conversations",
+    tokensAvailable:10, proTip:"LinkedIn loves 'framework' posts. Turn your take profit strategy into a numbered framework post — professional traders engage heavily",
+  },
+  13: {
+    theme:"Week 2 Recap — Strategy Deep Dive Complete",
+    mainPost:{ caption:"Week 2 complete 🎯 Here's what we covered: ✅ Brain Mode double confirmation ✅ Breakout Master Mode setups ✅ Multi-timeframe analysis ✅ High probability trade criteria ✅ Stop loss mastery ✅ Take profit frameworks Every single one of these is built INTO VEDD's platform. You're not learning theory — you're learning how to USE the tools that handle this automatically. Week 3 is where things get real: I'm showing ACTUAL signal examples, live results, and my weekly strategy plan. The proof is in the data 📊", hashtags:["#tradingweekrecap","#VEDD","#AItrading","#tradingstrategy","#week2","#tradingprogress","#forexeducation","#tradingjourney"], visualIdea:"Recap reel showing quick snippets from all 6 topics this week", ctaText:"Which strategy topic was most useful this week? Comment below" },
+    storyIdea:"'What I'm watching next week' — share your trading pairs and setup types for Week 3",
+    commentExamples:[{context:"Someone posting about their trading week performance",comment:"How'd your week close? I had a mix of wins and breakevens — but the system kept me disciplined. What was your standout trade this week?"},{context:"Someone posting about trading education",comment:"The problem with most trading education is it's theory without tools. I've been working on combining both this week. What's your learning approach?"},{context:"Someone posting about weekend prep",comment:"Sunday is my map-the-week day 🗺️ Do you plan your pairs and levels before the week starts or go with market flow?"}],
+    dmScript:"Hey [Name]! Just wrapped up a week of deep-diving trading strategy content. If you could learn ONE trading skill right now that would immediately improve your results — what would it be?",
+    dailyGoal:"Build anticipation for Week 3 social proof content — get 12+ followers excited for what's next",
+    tokensAvailable:10, proTip:"TikTok duet/stitch with another trader's post this week — the collab reach is significantly higher than standalone posts",
+  },
+  14: {
+    theme:"Showing Real AI Signals — What Does VEDD See?",
+    mainPost:{ caption:"Let me show you what VEDD actually SEES 👁️ When I upload a chart to VEDD's AI Analysis Engine, here's what it reads: 📌 Pattern identified: Bullish Engulfing at S/R level 📌 Trend: Uptrend confirmed on H4 📌 Entry zone: 1.2645–1.2650 📌 Stop loss: 1.2610 (below swing low) 📌 Take profit 1: 1.2700 📌 Take profit 2: 1.2750 📌 Confidence: 78% That's a complete trade plan — generated in seconds. No manual analysis needed. I just verify it looks right with my eyes and execute. This is what AI-assisted trading actually looks like in practice 🤯", hashtags:["#AItrading","#tradingsignals","#VEDD","#forexsignals","#AIanalysis","#tradingsetup","#priceaction","#smarttrading"], visualIdea:"Screen recording of VEDD Analysis page with actual signal output displayed", ctaText:"Would you trust an AI to plan your trade like this? YES or NO below" },
+    storyIdea:"'Real-time signal' story — show VEDD generating a signal as it happens today",
+    commentExamples:[{context:"Someone posting skeptically about trading signals",comment:"I was skeptical too until I started tracking accuracy over 3 months. The AI is consistent in ways human analysis isn't — no bad moods, no FOMO. What's your experience with signal services?"},{context:"Someone asking if AI trading actually works",comment:"The results come down to HOW you use it. AI for analysis + human judgment for execution = much better than either alone. Are you testing any AI tools currently?"},{context:"Someone posting about manual analysis",comment:"Manual analysis is a great skill to have! I combine it with AI confirmation now — the AI spots things I miss and vice versa. Best of both worlds 📊"}],
+    dmScript:"Hey [Name]! I've been sharing real AI trading signals this week. Would it be useful to see an actual VEDD signal on a pair you're watching? I can show you how the output looks.",
+    dailyGoal:"Convert curiosity into DM conversations — aim for 5 DMs asking to see signals",
+    tokensAvailable:10, proTip:"Screenshots and screen recordings of actual software always outperform stock images. Show the REAL interface",
+  },
+  15: {
+    theme:"My Weekly Strategy Plan — Live Walkthrough",
+    mainPost:{ caption:"Every Sunday I do this 📋 Before the week starts, I open VEDD's Weekly Strategy page and map out: 1. Which pairs to focus on this week 2. Key levels on each (S/R, daily highs/lows) 3. What setups I'm looking for (breakout vs reversal) 4. Win/loss targets for the week VEDD automatically calculates pair performance stats and shows me which pairs have been moving best recently. Then I just WAIT for my setups. No chasing. No overtrading. The plan is the plan. Here's this week's strategy screenshot 👇 [Strategy image]", hashtags:["#weeklytrading","#tradingplan","#VEDD","#weeklystrategy","#forexweekly","#tradingjourney","#strategictrading","#plantheweek"], visualIdea:"Screenshot of VEDD Weekly Strategy page with your actual pairs and targets filled in", ctaText:"What pairs are you watching this week? Comment your focus pairs" },
+    storyIdea:"'Sunday Trading Prep' series story — make this a weekly ritual your followers expect",
+    commentExamples:[{context:"Someone posting about their trading week ahead",comment:"What pairs are you focusing on? I'm watching [pairs] this week — the weekly levels are really clean. Do you plan the week in advance or trade what shows up?"},{context:"Someone posting market analysis for the week",comment:"Great macro view! Do you match your pairs selection to fundamental events this week or purely technical? I use a mix — technicals for timing, fundamentals for direction"},{context:"Someone posting about trading consistency",comment:"Consistency comes from having the same process every week. Sunday prep is the habit that makes everything else click. How long have you had a weekly routine?"}],
+    dmScript:"Hey [Name]! Do you have a weekly trading prep routine? I started doing a Sunday strategy session and it completely changed how organised I am throughout the week. Worth sharing if not.",
+    dailyGoal:"Build 'Sunday Strategy' as a recurring series — get 5+ followers to share their weekly plans",
+    tokensAvailable:10, proTip:"Make this a recurring series — 'Sunday Strategy #1', '#2', '#3'. Serial content gets much higher follow-back rates",
+  },
+  16: {
+    theme:"Documenting a Live Trade — Entry to Exit",
+    mainPost:{ caption:"I documented this trade from entry to exit 📸 Setup: EUR/USD breakout above H4 resistance The VEDD signal fired at 8:42am ↗️ Entry: 1.0856 Stop: 1.0820 (below swing low) TP1: 1.0900 TP2: 1.0940 I closed half at TP1 (+44 pips) Trailed stop to breakeven. TP2 hit 3 hours later (+84 pips total) Total: +64 average pips from a setup the AI spotted before I even opened my charts. This isn't luck. This is systematic. Want to see the full breakdown? Reply 'TRADE' below 👇 [Important: Results aren't typical. Trading involves risk. Past performance ≠ future results]", hashtags:["#livetrading","#tradedocumentation","#VEDD","#forexresults","#tradingresults","#AItrading","#forexsignals","#eurusd"], visualIdea:"Chart screenshot with actual entry/exit marked, VEDD signal timestamp visible", ctaText:"Reply 'TRADE' for the full breakdown" },
+    storyIdea:"'Trade in progress' live update story — update followers at entry, TP1, and TP2",
+    commentExamples:[{context:"Someone posting their own trade results",comment:"Love seeing documented trades! Did you use a fixed TP or trail? I've been experimenting with partial close at first target + trail — what's your preference?"},{context:"Someone posting about learning from trades",comment:"Documenting trades is one of the best habits in trading. The journal doesn't lie. How long have you been keeping a trade record?"},{context:"Someone asking how to find good setups",comment:"The setup finds you when you have the right tools watching 24/7. I used to miss setups while sleeping — now VEDD flags them and I review in the morning. Game changer"}],
+    dmScript:"Hey [Name]! I posted a full documented trade today — entry, exit, reasoning. Would you find it useful to see exactly how the AI signal translated into a real trade setup?",
+    dailyGoal:"Generate 15+ 'TRADE' keyword comments — these are warm leads to follow up with",
+    tokensAvailable:10, proTip:"Always include the disclaimer when posting results. It protects you and builds trust with serious traders who know real educators do this",
+  },
+  17: {
+    theme:"The VEDD Confidence Score — What It Means",
+    mainPost:{ caption:"Every VEDD signal comes with a CONFIDENCE SCORE 🎯 It looks like this: Confidence: 74% What does that mean? The AI analysed: ✅ Trend direction alignment ✅ Pattern quality ✅ Volume confirmation ✅ S/R proximity ✅ Multi-timeframe confluence A 74% confidence means 4 out of 5 factors aligned strongly. Below 60% I don't trade it. Above 75% I size up slightly. This removes SO much guesswork. Instead of feeling 'this looks good' — I know exactly how good. Do you currently have a way to objectively rate trade quality? 👇", hashtags:["#tradingconfidence","#AItrading","#VEDD","#tradingsystem","#objectivetrading","#tradingalgorithm","#forexeducation","#tradingstrategy"], visualIdea:"Screenshot of VEDD analysis output with confidence score prominently displayed", ctaText:"What score would you require before entering a trade? Tell me below" },
+    storyIdea:"'Would YOU take this trade?' poll — show a 68% signal. Yes / No vote",
+    commentExamples:[{context:"Someone posting about uncertainty in trading",comment:"That uncertainty usually means the setup isn't fully formed. I started requiring a minimum confidence threshold before entering and it helped massively. Do you have entry criteria that filter this?"},{context:"Someone asking what makes a good signal",comment:"Objectivity is key! The more you can quantify 'this setup is good', the less emotion gets involved. A scoring system — even a simple one — changes everything"},{context:"Someone posting about signal services",comment:"The issue with most signal services is you don't know WHY they're taking the trade. I prefer understanding the confidence factors behind each signal. Do you get context with yours?"}],
+    dmScript:"Hey [Name]! If you had a way to objectively score every trade setup before entering — like a quality rating from 1-100 — how would that change how you trade? Genuinely curious.",
+    dailyGoal:"Educate on objective analysis — position VEDD as trustworthy through transparency about how it works",
+    tokensAvailable:10, proTip:"Showing the 'how it works' behind the platform builds more trust than testimonials. Educators who explain the why earn deeper followings",
+  },
+  18: {
+    theme:"Risk-to-Reward Ratio — The Math Behind Profitable Trading",
+    mainPost:{ caption:"You can lose MORE trades than you win and STILL be profitable 🤯 Here's the math: Win rate: 40% Risk:Reward: 1:3 100 trades → 40 wins × $30 = $1,200 → 60 losses × $10 = -$600 NET: +$600 profit with a 40% win rate. This is why risk-to-reward ratio matters MORE than win rate. VEDD automatically calculates R:R on every signal before I enter. I won't take any trade below 1:2 R:R. That single rule makes the math work in my favour over time. What's your minimum R:R? 👇", hashtags:["#riskreward","#tradingmath","#riskmanagement","#VEDD","#forextrading","#tradingstrategy","#profitabletrading","#tradingbasics"], visualIdea:"Simple math breakdown graphic showing the calculation with clear numbers", ctaText:"What's your minimum R:R ratio? Comment 1:1 / 1:2 / 1:3 below" },
+    storyIdea:"'The trading math most people don't know' — share the R:R calculation step by step",
+    commentExamples:[{context:"Someone posting about having a low win rate",comment:"Win rate isn't the whole picture! If your R:R is good, a 40% win rate can still be very profitable. Have you calculated your expectancy over your last 50 trades?"},{context:"Someone talking about position sizing",comment:"Position sizing + R:R is the actual edge. The setup is almost secondary. Do you size positions based on a fixed % risk or fixed lot size?"},{context:"Someone posting about trading results",comment:"Love seeing P&L breakdowns! What's your average R:R on winners vs losers? That ratio tells you a lot about your system quality"}],
+    dmScript:"Hey [Name]! Have you ever calculated your trading expectancy? It's R:R × win rate. Most traders don't know this number about themselves. Want me to share the formula?",
+    dailyGoal:"Educate 10+ people on trading math — these posts get saved and shared heavily",
+    tokensAvailable:10, proTip:"Instagram carousels with the math laid out slide-by-slide get huge save rates. Saves = algorithm push = more reach",
+  },
+  19: {
+    theme:"VEDD Weekly Strategy Page — Full Walkthrough",
+    mainPost:{ caption:"I finally did a full walkthrough of the VEDD Weekly Strategy page 🗺️ Here's what it shows you: 📊 Best performing pairs THIS week (by movement %) 📊 Your current open positions overview 📊 Weekly win/loss progress tracker 📊 Pair-by-pair stats for the month This lets me see at a glance: which pairs are trending, how my week is going vs target, and which pairs to avoid (low activity). It's the difference between flying blind and flying with instruments. And it lives inside the app — no extra tools needed. Link in bio if you want to try it 🔗", hashtags:["#weeklytrading","#VEDD","#tradingdashboard","#weeklystrategy","#forexdata","#tradinganalytics","#AItrading","#tradingplatform"], visualIdea:"Screen recording walking through the Weekly Strategy page in VEDD", ctaText:"Drop 'STRATEGY' to get the direct link to try this feature" },
+    storyIdea:"'Here's what my week looks like in VEDD' — screen share the actual interface",
+    commentExamples:[{context:"Someone posting about pair selection",comment:"Pair selection is so underrated. Trading the WRONG pair at the right time is still a loss. Do you filter pairs by recent performance or stick to the same ones weekly?"},{context:"Someone posting about trading consistency",comment:"Consistency comes from having the same framework every week. A structured review process changed everything for me. Do you do end-of-week analysis?"},{context:"Someone talking about trading data",comment:"Data-driven trading beats opinion trading every time. The more you track, the more patterns you see in your own performance. What metrics do you follow?"}],
+    dmScript:"Hey [Name]! Do you track your trading performance week over week? I just started using a platform feature that shows my pair stats and it's showing me things I never noticed. Worth sharing.",
+    dailyGoal:"Drive demo interest — aim for 10 'STRATEGY' keyword responses to follow up on",
+    tokensAvailable:10, proTip:"Walkthrough videos of actual software features get high retention — show exactly where to click, what to look at, why it matters",
+  },
+  20: {
+    theme:"Week 3 Results Post — Transparency Wins Trust",
+    mainPost:{ caption:"Week 3 transparency post 📊 This week's trading summary: Trades taken: 8 Trades from VEDD signals: 8 Winners: 5 Losers: 3 Best trade: +71 pips on GBP/USD Worst trade: -22 pips on USD/JPY Net result: Positive week. Streak: 3 green weeks in a row. The system is consistent even when individual trades aren't. That's the point. [Disclaimer: Results vary. Trading involves risk.] Next week: I'm going deeper into community building and live events. Follow for real documented trading 👆", hashtags:["#tradingresults","#tradingjourney","#VEDD","#weeklyresults","#AItrading","#transparency","#forexjourney","#tradingaccountability"], visualIdea:"Clean stats graphic or spreadsheet screenshot with trading performance data", ctaText:"What was YOUR best trade this week? Share it below!" },
+    storyIdea:"'Week 3 wins and losses' honest rundown story — 3 wins, 3 losses, 3 lessons",
+    commentExamples:[{context:"Someone posting their trading results",comment:"Love the transparency! Most people only post wins. What was the lesson from your worst trade this week? That's usually where the real growth is"},{context:"Someone talking about trading consistency",comment:"3 green weeks in a row is meaningful data 📊 Are you tracking drawdowns and not just P&L? The drawdown metric tells you a lot about system stability"},{context:"Someone asking how to improve trading",comment:"Track everything and review it weekly. The data shows you what you can't see in the moment. Do you keep a trading journal?"}],
+    dmScript:"Hey [Name]! I posted my Week 3 results today — raw numbers, wins and losses. If I shared my system that got me 3 green weeks straight, would you want to see how it works?",
+    dailyGoal:"Build credibility through documented accountability — transparency converts better than hype",
+    tokensAvailable:10, proTip:"Accounts that post HONEST results (including losses) build 10x more trust than accounts that only show wins. Be the exception",
+  },
+  21: {
+    theme:"Hosting a Trading Community Event",
+    mainPost:{ caption:"I'm hosting a FREE live trading session this week 🎙️ What we'll cover: ✅ How I use VEDD's AI to find setups ✅ Live market analysis on 3 pairs ✅ How to set up your first AI signal alert ✅ Q&A — bring your trading questions It's completely free. No upsell. Just trading. The VEDD platform has a built-in Live Monitor so we can watch signals firing in real-time during the session. If you're serious about improving your trading, this is the place to be. Comment 'IN' to get the link 👇", hashtags:["#freetradingtraining","#livetrading","#VEDD","#tradingwebinar","#forexlive","#tradingcommunity","#livesession","#AItrading"], visualIdea:"Event graphic with date/time, 'FREE' badge, and trading chart background", ctaText:"Comment 'IN' to get the event link" },
+    storyIdea:"'5 spots left' countdown story — create scarcity and urgency for your event",
+    commentExamples:[{context:"Someone posting about wanting to learn trading live",comment:"Live sessions are where you learn the most — seeing decisions made in real-time is 10x more valuable than watching recorded content. Are you in any trading communities?"},{context:"Someone asking about trading signals",comment:"Signals are helpful but understanding WHY the signal fires is what makes you a better trader long-term. That's what I'm breaking down in a live session this week"},{context:"Someone posting about trading education costs",comment:"Most good trading education costs hundreds. I do a free live session weekly — no catch, just trading. Would you want the link?"}],
+    dmScript:"Hey [Name]! I'm hosting a free live trading session this week walking through real AI signal setups on VEDD. No cost, no pitch — just pure trading education. Would you want the details?",
+    dailyGoal:"Collect 20+ 'IN' keyword responses — these are hot leads for follow-up and referrals",
+    tokensAvailable:10, proTip:"Host the event in a Facebook Group — groups get better organic notification reach than pages, and you build a contained community",
+  },
+  22: {
+    theme:"MT5 EA — Automating Your Trades",
+    mainPost:{ caption:"What if your trading ran while you slept? 🤖 VEDD generates custom MT5 Expert Advisors (EAs) — automated trading bots that execute your strategy on MetaTrader 5. Here's how it works: 1. Configure your strategy in VEDD (pairs, S/R logic, Brain Mode) 2. Generate your custom EA with one click 3. Upload to MT5 and connect to your broker 4. The EA watches, enters, manages, and exits trades 24/5 I still check it daily and can override any trade — but the execution is automated. No more sitting at charts waiting for entries. Want to see the EA generator? 👇", hashtags:["#MT5EA","#tradingbot","#forexautomation","#VEDD","#expertadvisor","#automatedtrading","#metatrader5","#algorithmictrading"], visualIdea:"Split screen: VEDD EA generator → MT5 running the EA with live trades", ctaText:"Are you using automated trading yet? YES / NO / CURIOUS below" },
+    storyIdea:"'My EA made a trade while I was at the gym' real story — show the MT5 trade log",
+    commentExamples:[{context:"Someone asking about automated trading",comment:"Automation is where serious traders eventually go. The key is automating a PROVEN manual strategy — not automating random rules. Are you manual trading currently?"},{context:"Someone posting about missing trades at night",comment:"The overnight market is where a lot of the big moves happen — especially Asian session. Automation solves this completely. What broker/platform are you using?"},{context:"Someone skeptical about trading bots",comment:"Most bots are overfit garbage — fair concern. The difference is using automation for rules you already trade manually vs relying on a black box. Does that distinction make sense?"}],
+    dmScript:"Hey [Name]! Have you ever considered automating your trading? Not a 'set it and forget it' bot — but automating the mechanical execution of trades you'd already take manually. Curious your thoughts.",
+    dailyGoal:"Qualify 5 leads who are interested in automation — these convert at higher rates",
+    tokensAvailable:10, proTip:"Screen recording of MT5 EA running live trades is extremely compelling content. Even a 60-second clip showing the trade log gets massive engagement",
+  },
+  23: {
+    theme:"TradeLocker Integration — Trade Anywhere",
+    mainPost:{ caption:"VEDD doesn't just analyse — it EXECUTES 🚀 Through TradeLocker integration, VEDD can send signals directly to your trading account. Here's the flow: 📡 VEDD AI detects a high-confidence setup 📡 Signal pushed to TradeLocker 📡 TradeLocker executes the trade on your connected broker 📡 You get a notification and can manage from anywhere This is as close to 'AI managing trades' as it gets — while you stay fully in control. You can approve each trade or run it fully automated. The platform. The signal. The execution. All connected. This is the future of retail trading 🔮", hashtags:["#tradelocker","#VEDD","#tradingautomation","#forexsignals","#AItrading","#tradingplatform","#automatedtrading","#futureoftrading"], visualIdea:"Flow diagram: VEDD → Signal → TradeLocker → Broker execution → Your account", ctaText:"Does your current setup allow for automated trade execution? Comment below" },
+    storyIdea:"'I got a trade notification on my phone while cooking dinner' — real lifestyle integration story",
+    commentExamples:[{context:"Someone asking about prop firm trading",comment:"TradeLocker actually works with prop firm accounts too depending on the firm's rules. Are you trading prop or personal? Makes a difference for automation setup"},{context:"Someone posting about trading tools they use",comment:"The connection between analysis and execution is the gap most retail traders have. How are you currently going from signal to trade — manual entry or any automation?"},{context:"Someone asking how to execute signals faster",comment:"Signal-to-execution latency is real. The manual process of seeing a signal, opening the platform, entering the trade costs pips. Integrated execution solves this 📡"}],
+    dmScript:"Hey [Name]! Are you trading on MetaTrader or TradeLocker? I ask because there's a way to have AI signals push directly to your account without manual entry. Might be relevant to what you're doing.",
+    dailyGoal:"Educate on integrated trading workflow — generate 8 conversations about their current setup",
+    tokensAvailable:10, proTip:"LinkedIn audiences love 'future of trading' content. This platform integration post performs excellently with professionals thinking about efficiency",
+  },
+  24: {
+    theme:"Live Event Recap — What the Community Learned",
+    mainPost:{ caption:"Recap from this week's live trading session 🎙️ [X] traders joined. Here's what we covered: 📊 Live EUR/USD analysis with VEDD — it flagged a breakout 20 minutes into the session 📊 Brain Mode double confirmation demo — the crowd loved the visual 📊 Q&A highlights: 'Does it work on crypto?' YES 🙌 'Is there a free trial?' YES 🙌 'How do I set it up?' Covered step-by-step The energy was amazing. The next session is [DATE]. Comment 'NEXT' to get the link. Miss a session? DM me — I have a replay for this week's community members.", hashtags:["#livetrading","#tradingcommunity","#VEDD","#tradingrecap","#AItrading","#forexcommunity","#livetradingsession","#tradingwebinar"], visualIdea:"Screenshot from the live session showing VEDD interface and chat activity", ctaText:"Comment 'NEXT' to join the next session" },
+    storyIdea:"Top 3 moments from the live session story — 'Here's what people couldn't believe'",
+    commentExamples:[{context:"Someone who missed the event",comment:"Sorry you missed it! DM me — I have the replay. The section on Brain Mode was probably the most popular part 💡"},{context:"Someone posting about trading communities",comment:"The value of trading live with others is massive — you learn things you'd never pick up from recorded content. Are you part of any active trading communities?"},{context:"Someone interested in live trading education",comment:"Live sessions are where the real learning happens. No scripts, no perfect trades — just real-time analysis and decision making. You should join the next one!"}],
+    dmScript:"Hey [Name]! I hosted a live trading session this week and had an overwhelming response. I'm doing a follow-up next week — would you want me to save you a spot? Completely free.",
+    dailyGoal:"Convert event energy into referrals — ask every attendee to bring one friend next session",
+    tokensAvailable:10, proTip:"Post a 'community highlight reel' — short clips of the best moments from your live session. Behind-the-scenes content performs 3x better than polished content",
+  },
+  25: {
+    theme:"The VEDD Community — Why It Matters",
+    mainPost:{ caption:"Trading alone is hard. Trading with a community is different 🤝 Inside VEDD, there's a community of traders sharing: 📊 Live signal alerts 📊 Trade setups and breakdowns 📊 Platform tips and tricks 📊 Accountability check-ins The thing about trading is it can be isolating — decisions feel heavy when you're making them alone. Having a community of people using the same tools, same system, all growing together... changes the game. You stop feeling like you're guessing alone. You're part of a collective intelligence. Come see what that looks like 👇", hashtags:["#tradingcommunity","#VEDD","#forexcommunity","#tradersofinstagram","#communitytrading","#tradinggroup","#AItrading","#accountability"], visualIdea:"Collage of community activity — comments, shared setups, wins posted in the group", ctaText:"Are you part of a trading community? What's missing from it?" },
+    storyIdea:"'What I got from the VEDD community this week that I couldn't have found alone' — personal story",
+    commentExamples:[{context:"Someone posting about trading alone being hard",comment:"The isolation is real. Trading is one of the few skills where you're completely alone with your decisions and your P&L. Community changes this. Have you found your trading tribe yet?"},{context:"Someone in a trading Discord/group",comment:"What's the quality like in your group? I find most trading communities are just signal sharing — the rare ones actually teach and hold people accountable. What makes yours different?"},{context:"Someone posting about accountability in trading",comment:"Accountability is massive. Even just posting your trades publicly keeps you more disciplined. Are you in any group where you document your trades for others to see?"}],
+    dmScript:"Hey [Name]! Are you trading as part of a community or mostly solo? I found that being surrounded by people using the same system completely changed my consistency. Curious what your situation is.",
+    dailyGoal:"Build community positioning — get 10+ comments about what people are missing in their current community",
+    tokensAvailable:10, proTip:"Community-focused posts get high share rates because people want to invite their friends. Frame the post as 'share this with your trading friend'",
+  },
+  26: {
+    theme:"Accountability Check — Where Are You in Your Journey?",
+    mainPost:{ caption:"Month 1 accountability post 📋 I promised myself 3 things when I started this journey: 1. Post content every day — ✅ Done 2. Document every trade — ✅ Done 3. Share what actually works — ✅ Done What's improved: My analysis speed. My discipline. My results. What I'm still working on: Holding positions longer. Not checking charts every 5 minutes. The VEDD platform has helped most with the analysis side. But the discipline? That's still on me. Where are you in YOUR trading journey right now? I want to know 👇", hashtags:["#tradingaccountability","#tradingjourney","#VEDD","#monthlycheckup","#tradingprogress","#forexjourney","#growthmindset","#tradingdiscipline"], visualIdea:"'Month 1' milestone graphic with before/after stats or personal journey summary", ctaText:"Where are YOU in your trading journey? Beginner / Intermediate / Experienced" },
+    storyIdea:"'Answer your questions about my trading journey' — Q&A story with real responses",
+    commentExamples:[{context:"Someone sharing their trading journey update",comment:"Love this update! The discipline piece is the long game — it takes longer than the technical skills. What's been your biggest mindset shift in trading so far?"},{context:"Someone asking about starting trading",comment:"The best time to start is now. Don't wait until you 'know enough' — you learn by doing. What's holding you back from starting? I can probably help with that specific thing"},{context:"Someone posting about trading goals",comment:"Setting specific goals with tracking is everything. Do you review your goals weekly or monthly? The review habit separates people who hit goals from people who just have goals"}],
+    dmScript:"Hey [Name]! Just posted my month 1 accountability update. I'm curious — if you were to write an honest accountability post about YOUR trading right now, what would you say is going well and what's still a challenge?",
+    dailyGoal:"Build authentic relationship with audience — personal posts generate the highest DM conversation rates",
+    tokensAvailable:10, proTip:"Vulnerability posts that show you're still learning generate massive comment sections. People connect with the journey, not perfection",
+  },
+  27: {
+    theme:"Week 4 Recap — Community Is Everything",
+    mainPost:{ caption:"Week 4 down ✅ This week was all about community and live trading: 🎙️ Hosted my first live trading session — [X] people joined 🤝 Introduced the VEDD community — why it's different ⚙️ MT5 EA demo — automated trading live 📡 TradeLocker integration walkthrough 📋 Accountability check — being real about progress What I'm realising: the people who grow fastest aren't just using the right tools. They're surrounded by the right people. Next week: advanced features — futures, Solana scanner, and VEDD tokenomics 🔥 Follow so you don't miss it", hashtags:["#week4","#tradingcommunity","#VEDD","#weekrecap","#AItrading","#tradingjourney","#forexcommunity","#livetrading"], visualIdea:"Week 4 highlights reel — snippets from the live session, community posts, and your content", ctaText:"What part of this week's content did you find most valuable?" },
+    storyIdea:"'Week 4 highlights in 30 seconds' reel story — keep it punchy and visual",
+    commentExamples:[{context:"Someone who followed all your Week 4 content",comment:"Thanks for following along! What was the most useful thing from this week? I'm planning Week 5 around advanced features and would love to know what to focus on"},{context:"Someone who just found your account",comment:"Welcome! You've got some catching up to do 😄 Best posts to start: the Brain Mode explanation and the live trade documentation. Both will give you a quick overview of what VEDD does"},{context:"Someone asking what VEDD is",comment:"VEDD is an AI trading platform — it reads charts, identifies patterns, generates signals, and even runs automated trades. The best way to see it is the free trial. Want the link?"}],
+    dmScript:"Hey [Name]! Week 4 wrapped up. If you could follow one trader's content for 30 more days and it would change your trading — would you? That's basically what this series is. Week 5 is the advanced stuff.",
+    dailyGoal:"Build momentum into Week 5 — create anticipation for the advanced features content",
+    tokensAvailable:10, proTip:"Week recap posts are perfect for repurposing — compile into a LinkedIn article, a Facebook group post, and an email. One piece = 4 distribution points",
+  },
+  28: {
+    theme:"VEDD Futures Connect — Trade Beyond Forex",
+    mainPost:{ caption:"Most people don't know VEDD works on FUTURES too 📈 Through Futures Connect, you can apply VEDD's AI analysis to: 📊 Index futures (S&P 500, NASDAQ, DOW) 📊 Commodity futures (Gold, Oil, Natural Gas) 📊 Crypto futures (BTC, ETH perpetuals) Same AI analysis engine. Same signal quality. Different markets. For traders who want diversification beyond forex — this is the expansion. The AI reads futures charts the same way it reads forex: patterns, S/R, trend, confidence score. One platform. Multiple asset classes. Link in bio to explore Futures Connect 🔗", hashtags:["#futurestrading","#indexfutures","#VEDD","#futuresconnect","#S&P500trading","#cryptofutures","#commodityfutures","#AItrading"], visualIdea:"Collage showing VEDD interface on different asset classes — forex/index/crypto charts", ctaText:"Which asset class are you most interested in trading? Forex / Crypto / Indices / Commodities" },
+    storyIdea:"'Did you know VEDD works on crypto and indices too?' education story with asset class examples",
+    commentExamples:[{context:"Someone posting about index trading",comment:"Indices are fascinating — the macro picture is so different from forex. Do you trade them on futures or CFDs? The volatility profile is very different. What's your approach?"},{context:"Someone posting about crypto trading",comment:"Crypto + AI signals is a powerful combination given how technical the crypto market is. Are you using any analysis tools for your crypto setups or mostly gut/news-based?"},{context:"Someone who only trades forex asking about diversification",comment:"Diversification into indices is worth exploring — especially during slow forex sessions. The US session indices volume is massive. Have you looked at S&P or NASDAQ at all?"}],
+    dmScript:"Hey [Name]! Are you purely a forex trader or do you look at other markets? I've been exploring VEDD's futures integration this week and it's a completely different world. Curious what you trade.",
+    dailyGoal:"Expand your audience to crypto/futures traders by positioning VEDD as multi-asset",
+    tokensAvailable:10, proTip:"Crypto traders are a massive audience on TikTok. This post works perfectly repurposed as a 'VEDD works on crypto too' TikTok with a quick platform demo",
+  },
+  29: {
+    theme:"Solana Scanner — Finding Tokens Before They Move",
+    mainPost:{ caption:"I found a 4x token before it moved. Here's how 🔭 VEDD's Solana Scanner monitors hundreds of Solana tokens and flags ones showing early momentum signals: 📈 Volume spike above average 📈 Price consolidating at key level 📈 Whale wallet activity increasing 📈 Social sentiment rising The AI flags these BEFORE the big move — while everyone else is still sleeping. I'm not calling this guaranteed. Crypto is high risk. But having an AI scanning for early-stage momentum is a completely different edge than chasing pumps. Interested in seeing the scanner? Drop 'SOL' below 👇 [High risk investment warning — crypto can lose value rapidly]", hashtags:["#solana","#solscanner","#VEDD","#cryptoscanner","#solanatrading","#cryptomoonshots","#solanaNFT","#defitrading"], visualIdea:"VEDD Solana Scanner interface showing tokens flagged with momentum indicators", ctaText:"Drop 'SOL' to see the scanner in action" },
+    storyIdea:"'I found this SOL token before the pump' story with the VEDD scanner screenshot as proof",
+    commentExamples:[{context:"Someone posting about Solana tokens",comment:"The SOL ecosystem moves FAST. Are you scanning manually or using any tools to find early movers? The ones that pump from news vs the ones showing organic accumulation are very different"},{context:"Someone in crypto community asking about alpha",comment:"Alpha hunting in Solana is about spotting accumulation before the crowd. Volume + wallet activity are the two leading indicators I watch. What do you look at for entry timing?"},{context:"Someone posting about missed crypto moves",comment:"Missing a move because you didn't see it coming is the story of most retail crypto traders. The difference is having eyes on the right data at the right time 👀"}],
+    dmScript:"Hey [Name]! Are you in the Solana ecosystem? I've been using an AI scanner that flags tokens showing early momentum before the moves. Not financial advice — but curious if that's something you'd find interesting.",
+    dailyGoal:"Reach crypto-focused audience — generate 15+ 'SOL' keyword responses from new potential audience",
+    tokensAvailable:10, proTip:"The SOL Scanner landing page in VEDD is shareable for non-subscribers too. This is your best low-friction share link — no subscription needed to see it",
+  },
+  30: {
+    theme:"VEDD Tokenomics — The Platform Token Explained",
+    mainPost:{ caption:"VEDD isn't just a trading platform — it's an ecosystem with its own token 🪙 Here's what VEDD token holders get: 🔐 Token-gated premium features 💰 Staking rewards and yield 🎁 Ambassador NFT access 📊 Governance votes on platform direction 📅 3 months FREE subscription just for holding The more VEDD tokens you hold, the more the platform gives back. It's a platform that rewards its most engaged users. This is what 'skin in the game' looks like for a trading AI company. If you're using VEDD anyway — holding the token is a no-brainer. [Not financial advice — VEDD token involves risk]", hashtags:["#VEDDtoken","#tradingtoken","#web3trading","#VEDD","#tokenomics","#defitrading","#cryptorewards","#web3","#tokenholders"], visualIdea:"VEDD tokenomics infographic showing the 4 benefits with icons", ctaText:"Would you hold a platform token that gives you free subscription time? Comment YES / NO" },
+    storyIdea:"'Platform tokens that actually have utility' — explain VEDD token benefits in a story poll",
+    commentExamples:[{context:"Someone posting about crypto/DeFi projects",comment:"The difference between tokens with utility and tokens without is massive. Platform tokens where holding = premium access create real demand. What projects are you invested in that have this?"},{context:"Someone talking about subscription costs",comment:"This is the thing about VEDD — if you hold enough tokens, the subscription pays for itself through staking rewards. The economics are interesting. Have you looked at platform token models before?"},{context:"Someone asking about passive income from crypto",comment:"Staking platform tokens you already use is one of the lower-risk ways to generate crypto yield. You're already in the ecosystem — might as well earn from it 🪙"}],
+    dmScript:"Hey [Name]! Are you familiar with the concept of platform tokens — where holding the token gives you actual utility (like free subscription) rather than just speculation? VEDD does this. Curious your take on it.",
+    dailyGoal:"Educate on token utility — generate conversations that bridge trading platform users to token holders",
+    tokensAvailable:10, proTip:"'Platform token with real utility' is a contrarian narrative in crypto that performs very well — most people are cynical about tokens so this reframing gets engagement",
+  },
+  31: {
+    theme:"Ambassador NFT — What Token Gating Unlocks",
+    mainPost:{ caption:"The Ambassador NFT isn't just a badge 🏆 It's a key to exclusive access inside VEDD. Here's what it unlocks: 🔑 CEO Dashboard with full referral analytics 🔑 Ambassador-only training modules 🔑 Priority access to new features 🔑 Token-gated community channels 🔑 Enhanced commission rates on referrals 🔑 VEDD Clothing + merchandise access This is the Web3 side of VEDD — using blockchain to create real verifiable membership tiers. Ambassadors who are serious about the opportunity invest in the NFT because the ROI from enhanced commissions alone pays it back. DM me to learn more about how to get one 👇", hashtags:["#NFT","#ambassadorNFT","#VEDD","#web3trading","#nftutility","#NFTbadge","#ambassadorprogram","#cryptorewards"], visualIdea:"Ambassador NFT image with the 'unlocked' features list overlaid", ctaText:"DM me 'NFT' to learn about getting the Ambassador NFT" },
+    storyIdea:"'What I unlocked after getting the VEDD Ambassador NFT' — feature reveal story",
+    commentExamples:[{context:"Someone in NFT communities asking about utility",comment:"The only NFTs worth holding are ones with real ongoing utility — not just 'membership' that doesn't do anything. VEDD's actually unlocks platform tiers and earnings. That's the bar for me now"},{context:"Someone asking about ambassador programs",comment:"Ambassador programs vary wildly in what they give you. The best ones give you actual tools, training, and data. What does your current ambassador program provide beyond a referral link?"},{context:"Someone posting about Web3 business models",comment:"Token-gated access is an underrated business model — it creates real demand for the token AND real community investment. VEDD does this for trading which is a niche I haven't seen do it before"}],
+    dmScript:"Hey [Name]! Are you familiar with how NFT-based access works for platforms? VEDD uses ambassador NFTs to unlock enhanced earnings and exclusive features. Might be relevant to what you're building — worth a quick chat?",
+    dailyGoal:"Identify 5 NFT-aware leads who could become high-value ambassador candidates",
+    tokensAvailable:10, proTip:"NFT content performs best on Twitter (X) and Discord. Consider cross-posting this to any crypto communities you're in",
+  },
+  32: {
+    theme:"Advanced Risk Management — The Professional Approach",
+    mainPost:{ caption:"Professional traders think about risk completely differently 🎓 Retail trader mindset: 'How much can I make on this trade?' Professional mindset: 'How much can I LOSE on this trade?' The flip changes everything. Here's the professional framework I use with VEDD: 1. Max 1-2% account risk per trade 2. No more than 5% total open risk 3. If down 5% for the week — STOP trading 4. VEDD calculates exact lot size for my risk % automatically The goal isn't to maximize profits on any single trade. It's to stay in the game long enough for the edge to compound. How do you currently manage risk? 👇", hashtags:["#riskmanagement","#professionaltrading","#VEDD","#tradingmindset","#positionsizing","#riskcontrol","#tradingpsychology","#capitalpreservation"], visualIdea:"Side-by-side mindset comparison graphic: 'Retail' vs 'Professional' risk thinking", ctaText:"What % of your account do you risk per trade? Comment below" },
+    storyIdea:"'The 1% rule that saved my trading account' — personal story about adopting proper position sizing",
+    commentExamples:[{context:"Someone posting about a big loss",comment:"The most painful trades are the ones where we violated our own risk rules. Was this a case of oversizing? The 1-2% rule feels restrictive until it's the thing that keeps you in the game"},{context:"Someone asking about position sizing",comment:"Position sizing is the MOST important variable — more than entry timing. Do you calculate your lot size based on % risk or do you use a fixed size? The difference in outcomes is massive"},{context:"Someone talking about trading consistency",comment:"Consistency in risk = consistency in results. The variance in most traders' performance comes from inconsistent position sizing more than bad analysis. Do you size the same every trade?"}],
+    dmScript:"Hey [Name]! If I showed you exactly how to calculate position size based on your stop loss and account balance — so you always risk exactly 1% no matter what — would that be useful? VEDD does this automatically.",
+    dailyGoal:"Position yourself as a risk-focused, professional trader — this builds long-term credibility",
+    tokensAvailable:10, proTip:"This type of 'professional mindset' content gets heavy shares from experienced traders who want to teach their network. Experienced traders sharing = high quality new followers",
+  },
+  33: {
+    theme:"VEDD Wallet — Your Earnings Dashboard",
+    mainPost:{ caption:"Every time I complete a task in VEDD — I earn 🏆 VEDD Wallet tracks: 💰 VEDD tokens earned from ambassador activities 💰 Referral credits from sign-ups and subscriptions 💰 Staking yield from token holdings 💰 Withdrawal requests to external wallet All of it in one dashboard. The platform rewards you for being an active, successful ambassador — not just a passive referral link. Complete your daily actions → earn tokens → convert to rewards → cash out to your wallet. It's a full earnings loop built into the platform. This is what 'earn your subscription' actually looks like 🔗", hashtags:["#VEDDwallet","#ambassadorearnings","#VEDD","#web3rewards","#earnwithtokens","#referralrewards","#cryptoearnings","#passiveincome"], visualIdea:"VEDD Wallet dashboard screenshot showing token balance, earnings breakdown, and withdrawal option", ctaText:"Would you use a platform that pays you for promoting it? Tell me below" },
+    storyIdea:"'Here's how much I've earned in VEDD tokens this month' — transparency post with wallet screenshot",
+    commentExamples:[{context:"Someone posting about side income opportunities",comment:"Platform ambassador programs that pay you in equity-style tokens are genuinely underrated. Most just pay cash commissions — this one gives you actual platform ownership upside. Have you seen anything like this?"},{context:"Someone asking about referral programs",comment:"Most referral programs are a one-time payment for bringing someone in. VEDD pays when they sign up AND when they subscribe + recurring. Plus tokens on top. The economics are layered differently"},{context:"Someone posting about trading income",comment:"Trading income + ambassador income + token staking = three separate income streams from one platform. That's the VEDD model. Are you currently earning from any platform you use?"}],
+    dmScript:"Hey [Name]! Are you aware that VEDD actually PAYS you in tokens for completing ambassador activities? I just hit [X] tokens this month — which converts to [value]. Curious if this kind of model interests you.",
+    dailyGoal:"Highlight the earnings opportunity — this post directly supports referral conversion",
+    tokensAvailable:10, proTip:"'Show your earnings' posts are the most viral category in the ambassador niche. Be transparent about what you've actually earned — it builds trust and converts skeptics",
+  },
+  34: {
+    theme:"Week 5 Recap — Advanced Features Unlocked",
+    mainPost:{ caption:"Week 5 was ADVANCED 🔥 Here's what we explored: 🔭 Futures Connect — trading beyond forex 🪙 Solana Scanner — finding tokens before they move 💎 VEDD Tokenomics — what token holders get 🏆 Ambassador NFT — Web3 access unlocked 🎯 Advanced risk management frameworks 💰 VEDD Wallet — the full earnings dashboard If you're still thinking VEDD is just a forex signal app — you've seen maybe 20% of what this platform does. Week 6 is where we go into building your own ambassador team and income system. This is where it gets serious 👆", hashtags:["#week5","#VEDDadvanced","#AItrading","#week5recap","#tradingplatform","#web3trading","#forextrading","#ambassadorprogram"], visualIdea:"Week 5 recap reel showing all 6 topics as quick visual flashcards", ctaText:"Which advanced feature was most surprising to you? Comment below" },
+    storyIdea:"'5 weeks in — here's what I know now that I didn't know then' — transformation story",
+    commentExamples:[{context:"Someone who discovered your content this week",comment:"Welcome! Week 5 was advanced — check out Week 1 for the foundation first. The whole journey builds on itself 📊"},{context:"Someone posting about VEDD curiosity",comment:"The free trial is the fastest way to see it. VEDD has more features than most people realise. The multi-asset coverage is what surprised most people this week — was that new info for you too?"},{context:"Someone asking what Week 6 will cover",comment:"Week 6 is the business side — building a referral team, the ambassador earnings system, and how to teach others what you've learned. If passive income interests you, follow for that one 🔔"}],
+    dmScript:"Hey [Name]! 5 weeks into this journey and the platform keeps surprising me with depth. If you've been on the fence about trying VEDD — Week 6 will show you the income side of being an active user. What questions do you have?",
+    dailyGoal:"Build anticipation for Week 6 recruitment content — prime audience for ambassador pitch",
+    tokensAvailable:10, proTip:"Recap posts are perfect for repurposing — email your list, post in groups, and DM to warm leads who've engaged in previous weeks",
+  },
+  35: {
+    theme:"Teaching Others to Trade — Becoming a Mentor",
+    mainPost:{ caption:"The fastest way to master something is to TEACH it 🎓 I've spent 5 weeks learning this platform, documenting trades, and sharing lessons. Now I'm at the point where I help others learn too. Here's what I found teaching changes: ✅ You discover gaps in your own knowledge ✅ You build trust and authority in the community ✅ You create a network that helps each other ✅ You build an income stream through the ambassador program When you teach someone how to use VEDD — and they succeed — you earn from their subscription. Your value creation = your income. This is how the ambassador model works. Curious? DM me 'MENTOR' 👇", hashtags:["#tradingmentor","#teachtrading","#VEDD","#ambassadorprogram","#tradingcoach","#mentorship","#passiveincome","#tradingcommunity"], visualIdea:"You pointing to a VEDD screen with text overlay 'Teaching others = building income'", ctaText:"DM 'MENTOR' if you want to learn how to get paid to teach trading" },
+    storyIdea:"'Here's what I got paid this week for helping someone start trading' — ambassador earnings story",
+    commentExamples:[{context:"Someone posting about wanting to help others financially",comment:"Teaching what you know is one of the most powerful leverages available. And VEDD actually pays you when the people you teach subscribe. Have you thought about the ambassador side of trading?"},{context:"Someone who's been a trader for years asking how to monetize",comment:"Your experience is valuable! Most experienced traders never monetize their knowledge. The ambassador model is basically getting paid to do what you're already doing — sharing what works. Worth exploring?"},{context:"Someone asking how to make money from trading knowledge",comment:"There are two ways: selling your own course (hard to build) or leveraging a platform's ambassador program (much easier). VEDD's model pays you recursively as long as your referrals stay subscribed 🔄"}],
+    dmScript:"Hey [Name]! I wanted to share something — I just got paid [amount/tokens] from VEDD for referring someone who subscribed last month. It's a recurring income as long as they stay subscribed. Is that something you'd want to know more about?",
+    dailyGoal:"Generate 10 'MENTOR' responses — these are your warmest ambassador recruitment leads",
+    tokensAvailable:10, proTip:"The transition from 'student sharing journey' to 'mentor teaching others' is a natural narrative arc that audiences LOVE. They've been watching you grow — now they see you paying it forward",
+  },
+  36: {
+    theme:"The VEDD Ambassador Income Breakdown",
+    mainPost:{ caption:"Let's talk real numbers on the VEDD ambassador income 💵 Here's how it works: 📌 Someone signs up through your link = credit 📌 They subscribe = commission 📌 They stay subscribed = recurring income 📌 They become an ambassador = override commission The math compounds. Start with 5 subscribers. Each month they renew. Month 1: 5 commissions Month 6: 30 commission payments from the same 5 people This is why consistency matters more than one big push. The people who build sustainable ambassador income are the ones who keep showing up. 44 days of content = a foundation that pays you monthly. Still with me? 🙌", hashtags:["#ambassadorincome","#VEDD","#affiliatemarketing","#recurringincome","#passiveincome","#ambassadorprogram","#onlineincome","#residualincome"], visualIdea:"Compound income illustration: 5 subscribers × 6 months = 30 commission events visualized", ctaText:"How many referrals do you think it takes to cover your own subscription?" },
+    storyIdea:"'Month 1 ambassador income breakdown' — real transparent numbers story",
+    commentExamples:[{context:"Someone posting about side income",comment:"Recurring affiliate income is the gold standard — you do the work once (get the referral) and get paid every month they renew. How are you currently monetizing online?"},{context:"Someone asking about affiliate programs",comment:"Most affiliate programs pay once. Recurring ones build over time. The key question is: does the product retain? If people stay subscribed long-term, the income compounds. VEDD retention is strong"},{context:"Someone skeptical about ambassador programs",comment:"Skepticism is healthy — most programs are pyramid-adjacent garbage. The question is: is there a real product that people genuinely use and pay for? VEDD is a working trading platform. That changes the math"}],
+    dmScript:"Hey [Name]! I did a breakdown of my ambassador income today — month 1 results. If you could build recurring monthly income by helping people access a tool they actually need anyway, would you explore it? Sending the breakdown now.",
+    dailyGoal:"Convert 5 leads from interested → actively pursuing ambassador opportunity",
+    tokensAvailable:10, proTip:"Income breakdown posts are your highest-converting content. Be specific (even if numbers are small) — specificity builds trust more than big vague claims",
+  },
+  37: {
+    theme:"How to Recruit Your First 5 Ambassadors",
+    mainPost:{ caption:"You don't need to find 100 people. You need to find 5 RIGHT people 🎯 The VEDD ambassador model duplicates. When YOU recruit ambassadors, you build a team. Your team's activity creates overrides for you. So the leverage isn't in personal referrals — it's in team building. Finding your first 5: 1. Look for traders who already post content 2. Look for network marketers with trading interest 3. Look for people asking 'how do I make money from trading?' 4. Look for anyone frustrated with their current job/income The VEDD ambassador opportunity solves a real problem for all four groups. DM me 'BUILD' if you want to build your first ambassador team 👇", hashtags:["#ambassadorrecruitment","#VEDD","#buildateam","#networkmarketing","#teambuilding","#ambassadoropportunity","#mlmtrading","#residualincome"], visualIdea:"Network diagram showing you at center with 5 ambassadors below, each with their own referrals", ctaText:"DM 'BUILD' if building an ambassador team interests you" },
+    storyIdea:"'The 4 types of people who become great VEDD ambassadors' — profile story",
+    commentExamples:[{context:"Someone in network marketing or MLM looking for something better",comment:"Network marketing that's built around a technology platform people actually use daily is a different category than product-based MLM. The retention rate changes everything. Are you currently in any ambassador/NWM program?"},{context:"Someone posting about building a business",comment:"The leverage in any business comes from building a team. Solo income has a ceiling — team income compounds. Are you building anything with leverage currently?"},{context:"Someone asking about online business models",comment:"The model I'm building is: share a working product → people subscribe → I earn while they use it. No inventory, no customer service, no product development. Just sharing something that works. Interested?"}],
+    dmScript:"Hey [Name]! I'm putting together a group of 5 serious people to build a VEDD ambassador team with. Specifically looking for people who want recurring income and aren't afraid to post content. Is that you?",
+    dailyGoal:"Recruit 2 actual new ambassador sign-ups this week — now measuring real team building",
+    tokensAvailable:10, proTip:"Recruitment posts should always feel SELECTIVE not desperate. 'I'm looking for 5 right people' is infinitely more compelling than 'join my team'",
+  },
+  38: {
+    theme:"Training Your New Ambassadors — Duplication System",
+    mainPost:{ caption:"The fastest way to grow an ambassador team isn't to work harder. It's to duplicate yourself 🔁 Here's the system I use to onboard new ambassadors: Day 1: Introduction call — understand their goals Day 2-3: Platform walkthrough — show them VEDD's features Day 4-7: Content plan — give them a 44-day content roadmap Week 2: First live session together — show them what to say Week 3: Watch them post independently — feedback only Week 4: They're running their own referral funnel The goal isn't to hold their hand forever. It's to get them to self-sustaining in 30 days. Duplicate the system, not the person.", hashtags:["#ambassadortraining","#VEDD","#duplication","#teambuilding","#ambassadorsystem","#onboarding","#growthmindset","#teamincome"], visualIdea:"4-week onboarding timeline graphic showing progression from new → independent ambassador", ctaText:"Have you ever trained/mentored anyone? What did you learn from the experience?" },
+    storyIdea:"'How I onboard a new VEDD ambassador in 7 days' — process reveal story",
+    commentExamples:[{context:"Someone who recently joined a team",comment:"The first 30 days with good guidance are everything. I've seen people quit in week 1 because they didn't have a clear process. What's your experience been getting started with your current opportunity?"},{context:"Someone posting about leadership/management",comment:"Duplication is the core leadership skill. Your value as a leader is multiplied by how well your team performs independently. Do you have a documented onboarding process for your team?"},{context:"Someone asking how to scale their business",comment:"Scaling = building systems that work without you. The ambassador training system I use gets people self-sufficient in 30 days. Then each of THEM can train their own team. That's real scale"}],
+    dmScript:"Hey [Name]! I just onboarded my first new ambassador this week. The process I built gets them posting and referring within 7 days. If you wanted to build a team like this, I could walk you through exactly how I do it.",
+    dailyGoal:"Show leadership by sharing your duplication system — this attracts high-quality team builders",
+    tokensAvailable:10, proTip:"'Systems content' is the highest-quality ambassador recruitment content. People don't just want to join an opportunity — they want to see that you have a PROCESS",
+  },
+  39: {
+    theme:"Building Your Referral Funnel — Step by Step",
+    mainPost:{ caption:"Your referral funnel doesn't have to be complicated 🔧 Here's the VEDD ambassador funnel I built: Step 1: Post daily trading/VEDD content (you're doing it!) Step 2: Warm leads DM you asking about the platform Step 3: Send them your VEDD landing page quiz Step 4: Follow up within 24 hours Step 5: Walk them through a free trial Step 6: They subscribe = you earn That's it. The content is the top of the funnel. The platform does the rest. The landing page quiz pre-qualifies them — you only spend time with people who are actually interested. Built entirely inside VEDD's Ambassador tools. DM me 'FUNNEL' for a walkthrough 👇", hashtags:["#referralfunnel","#VEDD","#ambassadorfunnel","#salesfunnel","#ambassadormarketing","#leadgeneration","#affiliatefunnel","#onlinemarketing"], visualIdea:"Simple 6-step funnel diagram showing the flow from content to conversion", ctaText:"DM 'FUNNEL' to see my full referral funnel walkthrough" },
+    storyIdea:"'My referral funnel converted 3 people this week — here's the exact steps' breakdown story",
+    commentExamples:[{context:"Someone asking how to get referrals",comment:"Most people skip the middle — they post and then immediately pitch. The key is the DM conversation before the link share. Are you having conversations before sending the referral link?"},{context:"Someone posting about affiliate marketing",comment:"The difference between affiliate marketing that fails and affiliate marketing that works is usually the quality of the middle of funnel. Do you have a process between 'interested' and 'subscribed'?"},{context:"Someone asking about lead generation tools",comment:"The best lead gen tool is content that attracts. The rest — landing page, follow-up, demo — is the system. What are you using currently for your landing page or pre-qualification?"}],
+    dmScript:"Hey [Name]! I built a referral funnel inside VEDD that's converting leads from my content into subscribers. The whole thing is built using tools already in the platform. Would a 10-minute walkthrough be useful?",
+    dailyGoal:"Demonstrate systematized business approach — this post converts aspiring entrepreneurs most effectively",
+    tokensAvailable:10, proTip:"Funnel breakdown content is extremely shareable among the online business/marketing audience — even beyond the trading niche. Consider posting this to entrepreneurship groups",
+  },
+  40: {
+    theme:"Week 6 Recap — Building Your Ambassador Business",
+    mainPost:{ caption:"Week 6 complete 💼 The recruitment and duplication week: 🎓 Became a mentor — teaching others to use VEDD 💵 Ambassador income breakdown — the real numbers 🎯 How to find your first 5 ambassadors 🔁 The 30-day duplication system 🔧 Building your referral funnel The shift from 'user' to 'builder' is Week 6. You stop just trading — you start building a system that earns while you live. The people who treat this like a real business are the ones whose income compounds month over month. Week 7 is the final stretch: testimonials, full demonstration, and the graduation post. The finish line is close. 44 days of content = a real business foundation 🏆", hashtags:["#week6","#ambassadorbusiness","#VEDD","#weekrecap","#tradingbusiness","#ambassadorlife","#buildyourbusiness","#week6recap"], visualIdea:"Week 6 business builder theme reel — professional, focused, results-oriented", ctaText:"Have you started thinking about the ambassador side of VEDD? What's your biggest question?" },
+    storyIdea:"'6 weeks in — here's what's changed in my income' — transparent income update story",
+    commentExamples:[{context:"Someone who's been following all 6 weeks",comment:"You've been on this journey the whole time! Week 7 is the finale — testimonials and the full story of what 44 days of consistency builds. Don't miss it 🔔"},{context:"Someone just discovering the content",comment:"Start at Week 1! This is a 44-day journey of both trading education AND building an ambassador business. Week 7 is the graduation week — perfect time to catch up"},{context:"Someone asking about ambassador income",comment:"The income builds slowly at first then compounds. I'll be posting the 6-week income breakdown in Week 7. Follow so you don't miss the real numbers"}],
+    dmScript:"Hey [Name]! 6 weeks into building this. The trading side and the business side are both moving. If you want a behind-the-scenes look at what 6 weeks of consistent ambassador content actually builds — I'm sharing it all in Week 7.",
+    dailyGoal:"Build maximum anticipation for the final week — this is your graduation momentum post",
+    tokensAvailable:10, proTip:"Week 6 recap should feel like a business update, not just a trading update. Use professional language: 'business foundation', 'income system', 'duplication model' — this attracts serious builders",
+  },
+  41: {
+    theme:"The Transformation — Before & After VEDD",
+    mainPost:{ caption:"41 days ago I was a frustrated trader guessing at charts 📉 Today: ✅ I have a systematic trading approach ✅ I've documented 30+ trades with AI analysis ✅ I've built an ambassador community ✅ I've earned recurring income from referrals ✅ I understand the platform deeply enough to teach it ✅ I have a content presence in the trading space that didn't exist 6 weeks ago The platform did 50% of the work — VEDD handled the analysis, signals, and tools. I did the other 50% — showing up, posting, teaching, connecting. This is what 44 days looks like. And I'm not done yet.", hashtags:["#tradingjourney","#VEDD","#before&after","#41days","#transformation","#tradingprogress","#ambassadorjourney","#consistencywins"], visualIdea:"Before/after split: Day 1 (confused at charts) vs Day 41 (confident with VEDD system)", ctaText:"What's ONE thing you'd want to have figured out about trading 41 days from now?" },
+    storyIdea:"'Day 1 vs Day 41' story showing your progression — photos, stats, screenshots",
+    commentExamples:[{context:"Someone posting about wanting to improve their trading",comment:"The 41-day mark is real for me. The compound effect of consistent practice + the right tools is not linear — it jumps at some point. What's your current timeline for where you want to be?"},{context:"Someone posting about starting a new journey",comment:"The first step is the hardest. After that it's just showing up. What's the one thing you'd commit to doing daily if you were starting right now?"},{context:"Someone asking if VEDD is worth it",comment:"The honest answer is it depends on whether you commit to using it. The tool is exceptional — but it still requires your consistent input. The 44-day journey approach is specifically designed for this"}],
+    dmScript:"Hey [Name]! I posted my 41-day transformation today. If you started the VEDD journey now and committed 44 days — where would you want to be at the end? I'm asking because I want to help map it out with you.",
+    dailyGoal:"Inspire 10+ people to share their 'where they want to be in 44 days' — this creates buyer intent",
+    tokensAvailable:10, proTip:"Transformation posts are the highest-converting content type in ambassador marketing. The specific number (41 days) makes it feel real and achievable, not hyped",
+  },
+  42: {
+    theme:"Full Platform Demonstration — Everything VEDD Does",
+    mainPost:{ caption:"I'm doing a full platform demo — everything VEDD does in one post 🚀 In 44 days I've used: 🔍 AI Analysis Engine — chart pattern detection ⚙️ Brain Mode — double confirmation signals 📊 Multi-TF EA — automated multi-timeframe analysis 📈 Breakout Master Mode — volatility alerts 🗓️ Weekly Strategy — pair performance dashboard 📡 TradeLocker integration — signal to execution 🔭 Solana Scanner — crypto token momentum 🪙 VEDD Token + Wallet — earnings & staking 🏆 Ambassador NFT — enhanced access 👥 Ambassador Program — team building + income Everything on this list is live inside the app right now. Free trial available. Link in bio.", hashtags:["#VEDDdemo","#AItrading","#tradingplatform","#VEDD","#allinone","#tradingapp","#platformdemo","#fullreview"], visualIdea:"Montage video showing each feature in a 5-10 second clip sequence", ctaText:"Which feature do you want a deep dive on? Comment the name" },
+    storyIdea:"'24-hour platform challenge — I used every VEDD feature in one day' story series",
+    commentExamples:[{context:"Someone asking 'what is VEDD?'",comment:"Perfect timing for this question! VEDD is an AI trading platform that handles chart analysis, signals, automation, AND has a built-in ambassador earnings system. This post covers everything — check it out!"},{context:"Someone posting about comparing trading platforms",comment:"The feature set comparison is worth doing. Most platforms do 1-2 things well. VEDD does analysis, automation, execution, AND a business model. That breadth is unusual. What's most important to you in a platform?"},{context:"Someone who's been following the 44-day journey",comment:"You've seen the whole journey — does the platform match what I've been building toward? The free trial is the real test. Which feature are you most curious about from the demo list?"}],
+    dmScript:"Hey [Name]! I posted a full VEDD platform demo today covering all 9 major features. If you had 15 minutes, which 2-3 features would you want me to walk through live with you? I can do a 1-on-1 mini demo.",
+    dailyGoal:"Generate maximum demo requests — this is your highest-conversion post of the journey",
+    tokensAvailable:10, proTip:"Full demo posts work best as video. Even a 90-second screen recording covering all features will outperform a graphic-only post 10:1 on reach",
+  },
+  43: {
+    theme:"Testimonials & Social Proof — The Power of Community",
+    mainPost:{ caption:"43 days in and the messages are coming in 💬 Things people have said after trying VEDD: 'I finally feel like I understand what I'm looking at on a chart' 'The confidence score changed how I evaluate setups' 'I didn't realise a platform could do all this' 'Got my first referral commission — this actually works' These aren't overnight transformations. They're 30-44 days of consistent use, learning, and action. The platform works. The system works. The only variable is whether YOU show up. Tomorrow is Day 44 — the graduation post. 44 days of showing up changes something in you. See you there 🏁", hashtags:["#VEDDtestimonials","#socialproof","#VEDD","#tradingresults","#communityvoices","#day43","#almostthere","#tradingplatform"], visualIdea:"Screenshot compilation of real DMs/comments from followers about VEDD or your content", ctaText:"Drop a 🙌 if you've been following this 44-day journey" },
+    storyIdea:"'Here's what people said after trying VEDD' — social proof story with real quotes",
+    commentExamples:[{context:"Someone posting about being on the fence about VEDD",comment:"The best way to stop being on the fence is a 15-minute live walkthrough. After you see the analysis engine work on a real chart you've been watching, the fence disappears. Want me to book one?"},{context:"Someone who started using VEDD from your content",comment:"You MADE it! Seeing you go from skeptical to using it daily is what this whole 44-day thing is about. What's your favourite feature so far?"},{context:"Someone asking if it's worth the subscription",comment:"The question I'd ask is: if VEDD improved your trading by even 10% — is that worth $50/month? For most traders who are losing money on bad entries, the platform pays for itself quickly"}],
+    dmScript:"Hey [Name]! Day 43 — almost at the end of this 44-day journey. I collected testimonials from the community today and the results people are seeing are real. Want me to share a few stories from people who started where you are now?",
+    dailyGoal:"Collect 5 real testimonials from your audience to share — social proof is your strongest close",
+    tokensAvailable:10, proTip:"User-generated testimonials convert 5x better than your own claims. DM your engaged followers and ask: 'What's one thing that changed for you since following my content?' Compile and post",
+  },
+  44: {
+    theme:"Day 44 — Graduation & Your Invitation to Start",
+    mainPost:{ caption:"44 days ago I made a commitment 🎓 To show up. To share. To build. To learn. To teach. Today is Day 44. Here's what this journey built: 📊 A trading system I trust 🤝 A community of traders who grew with me 💰 An ambassador income that runs monthly 🏆 A platform I know deeply enough to teach ✅ 44 pieces of content that built real authority The next cohort of ambassadors starts NOW. If you've been watching and wondering 'could I do this?' — the answer is YES. And I'll walk you through every single day. Drop 'START' below and I'll send you everything you need to begin your own 44-day journey 🚀", hashtags:["#day44","#graduation","#VEDD","#44days","#ambassadorlife","#starttoday","#tradingjourney","#newcohort","#joinVEDD"], visualIdea:"Graduation-themed image: '44/44' achievement graphic, confetti, professional but warm", ctaText:"Drop 'START' to begin YOUR 44-day journey — I'll guide you personally" },
+    storyIdea:"'I just completed the 44-day ambassador journey — here's the final score' results reveal story",
+    commentExamples:[{context:"Someone posting 'I want to start'",comment:"Let's GO! DM me 'START' and I'll send you Day 1 — your intro post, your first comment script, and everything you need to begin. I'll check in on Day 3 to see how it went 🔥"},{context:"Someone who followed the whole journey",comment:"You watched all 44 days! You know more about this platform than 95% of people now. The only question is: are you ready to START your own 44-day journey? I'll be your guide"},{context:"Someone asking if it's too late to join",comment:"Never too late. The 44-day journey is evergreen — Day 1 starts whenever you decide. The only requirement is showing up. DM me and let's get you started today"}],
+    dmScript:"Hey [Name]! Day 44. The finish line is also a starting line. I'm inviting [X] people to start their own 44-day VEDD ambassador journey with me as their guide. I know exactly what works — I just spent 44 days figuring it out. Are you in?",
+    dailyGoal:"Graduate the journey AND convert 3+ new ambassador starts — this is the 500 token bonus day",
+    tokensAvailable:510, // 10 base + 500 bonus for completing all 44
+    proTip:"Day 44 should feel like a beginning, not just an ending. Every 'graduate' you invite to start their own journey is your team growing. This post is the foundation of your duplication system",
+  },
+};
+
+function getAmbassadorDayPlan(day: number): DayPlan {
+  const wd = getWeekData(day);
+  const dp = DAY_PLANS[day] ?? DAY_PLANS[1];
+  return {
+    day,
+    week: wd.week,
+    theme: dp.theme,
+    platform: getPlatform(day),
+    contentType: getContentType(day),
+    mainPost: dp.mainPost,
+    storyIdea: dp.storyIdea,
+    commentExamples: dp.commentExamples,
+    dmScript: dp.dmScript,
+    dailyGoal: dp.dailyGoal,
+    tokensAvailable: dp.tokensAvailable,
+    weeklyContext: wd.weeklyContext,
+    veddTool: wd.veddTool,
+    proTip: dp.proTip,
+  };
+}
+
 // Configure multer for file uploads (images)
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -16146,6 +16599,78 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const id = parseInt(req.params.id, 10);
       await storage.deleteBlogPost(id);
       res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ─── AMBASSADOR FREE PATH ────────────────────────────────────────
+
+  // GET /api/ambassador/journey — get or create journey state
+  app.get("/api/ambassador/journey", async (req, res) => {
+    if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const userId = (req.user as { id: number }).id;
+      const journey = await storage.getOrCreateAmbassadorJourney(userId);
+      res.json(journey);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/ambassador/journey/start — initialize journey
+  app.post("/api/ambassador/journey/start", async (req, res) => {
+    if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const userId = (req.user as { id: number }).id;
+      const journey = await storage.getOrCreateAmbassadorJourney(userId);
+      res.json(journey);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/ambassador/journey/complete-day — mark a day complete + award tokens
+  app.post("/api/ambassador/journey/complete-day", async (req, res) => {
+    if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const userId = (req.user as { id: number }).id;
+      const { day } = req.body as { day: number };
+      if (!day || day < 1 || day > 44) return res.status(400).json({ error: "Invalid day" });
+      const journey = await storage.completeAmbassadorDay(userId, day);
+      res.json(journey);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/ambassador/journey/save-content — save a swiped content card
+  app.post("/api/ambassador/journey/save-content", async (req, res) => {
+    if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const userId = (req.user as { id: number }).id;
+      const { contentId } = req.body as { contentId: string };
+      if (!contentId) return res.status(400).json({ error: "Missing contentId" });
+      const journey = await storage.getOrCreateAmbassadorJourney(userId);
+      const saved = (journey.savedContent as string[]) || [];
+      if (!saved.includes(contentId)) {
+        await storage.updateAmbassadorJourney(userId, { savedContent: [...saved, contentId] as any });
+      }
+      const updated = await storage.getAmbassadorJourney(userId);
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/ambassador/journey/day/:day — get full day plan
+  app.get("/api/ambassador/journey/day/:day", async (req, res) => {
+    if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const day = parseInt(req.params.day, 10);
+      if (!day || day < 1 || day > 44) return res.status(400).json({ error: "Invalid day" });
+      const plan = getAmbassadorDayPlan(day);
+      res.json(plan);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

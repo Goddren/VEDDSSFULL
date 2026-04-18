@@ -385,6 +385,14 @@ const Header: React.FC = () => {
                       </div>
                     </Link>
                   </DropdownMenuItem>
+                  <DropdownMenuItem className="cursor-pointer" asChild>
+                    <Link href="/ambassador/free-path">
+                      <div className="flex items-center w-full text-emerald-400">
+                        <Rocket className="mr-2 h-4 w-4" />
+                        <span>Free Path to Pro</span>
+                      </div>
+                    </Link>
+                  </DropdownMenuItem>
                   {(user?.isAmbassador || user?.isAdmin) && (
                     <>
                       <DropdownMenuItem className="cursor-pointer" asChild>
