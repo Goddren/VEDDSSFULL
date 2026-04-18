@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -60,52 +61,47 @@ const tokenAllocation = [
 ];
 
 const rewardActions = [
-  { 
-    category: 'Trading Rewards',
-    icon: TrendingUp,
-    color: 'text-green-400',
-    bgColor: 'bg-green-500/20',
-    actions: [
-      { name: 'Chart Analysis', reward: '10 VEDD', description: 'Complete AI chart analysis' },
-      { name: 'EA Strategy Creation', reward: '25 VEDD', description: 'Create multi-timeframe EA' },
-      { name: 'Profitable Trade', reward: '5% of profit', description: 'Close trade in profit' },
-      { name: 'Daily Login Streak', reward: '2-10 VEDD', description: 'Consecutive daily logins' }
-    ]
-  },
-  { 
+  {
     category: 'Ambassador Rewards',
     icon: Trophy,
     color: 'text-yellow-400',
     bgColor: 'bg-yellow-500/20',
     actions: [
-      { name: 'Training Completion', reward: '100 VEDD', description: 'Complete ambassador training' },
-      { name: 'Content Creation', reward: '15 VEDD', description: 'Daily content journey posts' },
-      { name: 'Host Live Session', reward: '50 VEDD', description: 'Host community event' },
-      { name: 'Challenge Completion', reward: '20-50 VEDD', description: 'Complete weekly challenges' }
+      { name: 'Daily Social Post (verified)', reward: '10 VEDD', description: 'Post VEDD content — admin verified, 1/day' },
+      { name: 'Host Community Event', reward: '100 VEDD', description: 'Host a live session — admin verified, 1/day' },
+      { name: 'Challenge Completion', reward: '25 VEDD', description: 'Complete ambassador training challenges' },
+      { name: '44-Day Journey Day', reward: '10 VEDD', description: 'Complete each day of the free-path journey' },
+      { name: '44-Day Completion Bonus', reward: '500 VEDD', description: 'Full journey completion — admin verified' }
     ]
   },
-  { 
+  {
     category: 'Referral Rewards',
     icon: Users,
     color: 'text-blue-400',
     bgColor: 'bg-blue-500/20',
     actions: [
-      { name: 'New User Signup', reward: '10 VEDD', description: 'When referral creates account' },
-      { name: 'First Trade', reward: '25 VEDD', description: 'When referral makes first trade' },
-      { name: 'Profit Share', reward: '5% of profits', description: 'Ongoing share of referral trading profits' },
-      { name: 'Ambassador Referral', reward: '50 VEDD', description: 'Referral becomes ambassador' }
+      { name: 'Referral Signup', reward: '50 VEDD', description: 'Referred user creates account, up to 5/day' },
+      { name: 'Referral Subscribes', reward: '200 VEDD', description: 'Referred user pays for a plan, up to 5/day' },
+      { name: 'Trade Profit Share', reward: '5% of profits', description: 'Ongoing share of referral trading profits' }
     ]
   },
-  { 
+  {
     category: 'Community Rewards',
     icon: MessageSquare,
     color: 'text-purple-400',
     bgColor: 'bg-purple-500/20',
     actions: [
-      { name: 'Share Trade Card', reward: '5 VEDD', description: 'Share on social media' },
-      { name: 'Helpful Comment', reward: '2 VEDD', description: 'Valuable community contribution' },
-      { name: 'Bug Report', reward: '25-100 VEDD', description: 'Valid bug reports' },
-      { name: 'Feature Suggestion', reward: '10 VEDD', description: 'Adopted feature ideas' }
+      { name: 'Event Attendance', reward: '15 VEDD', description: 'Attend a community event, up to 2/day' },
+      { name: 'Daily Comment / Engage', reward: '5 VEDD', description: 'Community engagement, up to 3/day' }
+    ]
+  },
+  {
+    category: 'Wear-to-Earn',
+    icon: Shirt,
+    color: 'text-amber-400',
+    bgColor: 'bg-amber-500/20',
+    actions: [
+      { name: 'VEDD Clothing QR Scan', reward: '50 VEDD', description: 'Scan tag on purchased clothing — admin verified, 1/day' }
     ]
   }
 ];
@@ -135,101 +131,105 @@ interface RoadmapMonth {
   gradient: string;
 }
 
+// Current live price: $0.000002448 | Market cap: ~$2,448 | Supply: 1B | DEX: pump.fun bonding curve
+const CURRENT_PRICE = '$0.0000024';
+const CURRENT_MCAP = '$2,448';
+
 const priceRoadmap: RoadmapMonth[] = [
   {
-    month: 1, label: 'Month 1', quarter: 'Q1', theme: 'Foundation & Launch',
-    priceTarget: '$0.001', priceRange: '$0.0008 - $0.0015', marketCap: '$250K',
-    milestones: ['Token launch on Raydium/Jupiter', 'Initial liquidity pool deployment', 'AI Trading Vault beta live', 'Ambassador program opens enrollment'],
-    drivers: ['Initial DEX listing excitement', 'Early adopter accumulation', 'First liquidity provision'],
-    communityTarget: '500', ambassadorTarget: '10',
+    month: 1, label: 'Month 1 (NOW)', quarter: 'Q1', theme: 'Bonding Curve — Early Accumulation',
+    priceTarget: '$0.000010', priceRange: '$0.0000024 - $0.000015', marketCap: '$10K',
+    milestones: ['Token live on pump.fun bonding curve', 'Ambassador reward system activated', 'Treasury wallet funded & sending tokens', 'First 10 ambassadors verified & earning'],
+    drivers: ['Early buyer accumulation at micro-cap', 'Ambassador content creating first awareness', 'Wear-to-earn and referral rewards driving sign-ups'],
+    communityTarget: '100', ambassadorTarget: '10',
     color: 'text-blue-400', gradient: 'from-blue-600/20 to-blue-900/20 border-blue-500/30'
   },
   {
-    month: 2, label: 'Month 2', quarter: 'Q1', theme: 'Ambassador Acceleration',
-    priceTarget: '$0.0018', priceRange: '$0.0012 - $0.0025', marketCap: '$450K',
-    milestones: ['44-Day Content Journey launches', 'First ambassador cohort certified', 'SOL Scanner auto-trading live', 'Referral rewards system activated'],
-    drivers: ['Ambassador content driving awareness', 'Referral network effects begin', 'Trading utility creates buy pressure'],
-    communityTarget: '1,500', ambassadorTarget: '50',
+    month: 2, label: 'Month 2', quarter: 'Q1', theme: 'Community Ignition',
+    priceTarget: '$0.000050', priceRange: '$0.000025 - $0.000080', marketCap: '$50K',
+    milestones: ['44-Day Ambassador Journey fully active', 'First ambassador cohort completing days 1-30', 'Referral reward chain generating organic sign-ups', 'SOL Scanner auto-trading attracting traders'],
+    drivers: ['Ambassador army posting daily content', 'Referral compounding: each member brings more', '20x from launch = still sub-$100K mcap'],
+    communityTarget: '500', ambassadorTarget: '50',
     color: 'text-blue-400', gradient: 'from-blue-600/20 to-blue-900/20 border-blue-500/30'
   },
   {
-    month: 3, label: 'Month 3', quarter: 'Q1', theme: 'Product-Market Fit',
-    priceTarget: '$0.003', priceRange: '$0.002 - $0.005', marketCap: '$750K',
-    milestones: ['Multi-DEX integration (Raydium, Orca, Meteora)', 'Token-gated membership tiers live', 'EA Marketplace opens', 'First VEDD governance vote'],
-    drivers: ['Utility token demand from memberships', 'EA creators earning passive income', 'Growing trading volume on platform'],
-    communityTarget: '3,000', ambassadorTarget: '150',
+    month: 3, label: 'Month 3', quarter: 'Q1', theme: 'Bonding Curve Graduation',
+    priceTarget: '$0.000085', priceRange: '$0.000060 - $0.000120', marketCap: '$85K',
+    milestones: ['Token graduates pump.fun bonding curve (~$69K raised)', 'Raydium liquidity pool opens', 'First 44-day journey completions (500 VEDD bonuses)', 'VEDD staking program activates'],
+    drivers: ['Graduation = massive price catalyst (Raydium listing)', 'Staking locks supply off market', 'Growing platform usage driving real utility demand'],
+    communityTarget: '1,500', ambassadorTarget: '150',
     color: 'text-blue-400', gradient: 'from-blue-600/20 to-blue-900/20 border-blue-500/30'
   },
   {
-    month: 4, label: 'Month 4', quarter: 'Q2', theme: 'Community Expansion',
-    priceTarget: '$0.005', priceRange: '$0.003 - $0.008', marketCap: '$1.25M',
-    milestones: ['Ambassador training V2 with video certification', 'Regional community leads appointed', 'Staking program launches', 'Partnership with first trading education platform'],
-    drivers: ['Staking reduces circulating supply', 'Ambassador army creating daily content', 'First major partnership announcement'],
-    communityTarget: '6,000', ambassadorTarget: '350',
+    month: 4, label: 'Month 4', quarter: 'Q2', theme: 'Raydium Discovery Phase',
+    priceTarget: '$0.00020', priceRange: '$0.00012 - $0.00030', marketCap: '$200K',
+    milestones: ['Listed on Jupiter aggregator', 'Ambassador training V2 with video certification', 'Regional ambassador leads appointed', 'Token-gated membership tiers live'],
+    drivers: ['Jupiter listing exposes to millions of Solana traders', 'Staking reduces circulating supply', 'Membership utility creates recurring buy pressure'],
+    communityTarget: '4,000', ambassadorTarget: '350',
     color: 'text-green-400', gradient: 'from-green-600/20 to-green-900/20 border-green-500/30'
   },
   {
-    month: 5, label: 'Month 5', quarter: 'Q2', theme: 'Global Ambassador Network',
-    priceTarget: '$0.008', priceRange: '$0.005 - $0.012', marketCap: '$2M',
-    milestones: ['Ambassadors active in 20+ countries', 'VEDD NFT membership collection launches', 'MT5 trade copier adoption milestone', 'Community trading competitions begin'],
-    drivers: ['NFT collection creates scarcity narrative', 'Global word-of-mouth marketing', 'Trading competitions drive engagement'],
-    communityTarget: '12,000', ambassadorTarget: '600',
+    month: 5, label: 'Month 5', quarter: 'Q2', theme: 'Viral Ambassador Growth',
+    priceTarget: '$0.00050', priceRange: '$0.00030 - $0.00080', marketCap: '$500K',
+    milestones: ['Ambassadors active in 10+ countries', 'VEDD NFT membership collection launches', 'MT5 trade copier reaches 500 active users', 'Community trading competitions begin'],
+    drivers: ['Viral ambassador content reaching new audiences daily', 'NFT scarcity narrative', 'Trading competitions increase daily active users'],
+    communityTarget: '10,000', ambassadorTarget: '600',
     color: 'text-green-400', gradient: 'from-green-600/20 to-green-900/20 border-green-500/30'
   },
   {
-    month: 6, label: 'Month 6', quarter: 'Q2', theme: 'Ecosystem Maturity',
-    priceTarget: '$0.015', priceRange: '$0.01 - $0.025', marketCap: '$3.75M',
-    milestones: ['Token listed on second DEX aggregator', 'Advanced AI models integrated', 'Webhook signal system adoption spike', 'First $1M total platform trading volume'],
-    drivers: ['Real trading volume validates utility', 'Additional exchange exposure', 'Word-of-mouth reaches critical mass'],
+    month: 6, label: 'Month 6', quarter: 'Q2', theme: 'First Million Dollar Cap',
+    priceTarget: '$0.0010', priceRange: '$0.00060 - $0.0015', marketCap: '$1M',
+    milestones: ['First $1M market cap milestone', 'EA Marketplace with creator royalties live', 'Webhook signal system adoption spike', 'First $500K platform trading volume'],
+    drivers: ['Psychological $1M milestone attracts media attention', 'EA creators earning passive VEDD income', 'Platform trading volume validates real utility'],
     communityTarget: '20,000', ambassadorTarget: '1,000',
     color: 'text-green-400', gradient: 'from-green-600/20 to-green-900/20 border-green-500/30'
   },
   {
-    month: 7, label: 'Month 7', quarter: 'Q3', theme: 'Institutional Interest',
-    priceTarget: '$0.025', priceRange: '$0.015 - $0.04', marketCap: '$6.25M',
-    milestones: ['CEX listing application submitted', 'API for third-party integrations', 'Copy trading across platforms', 'Ambassador-led regional events'],
-    drivers: ['CEX listing anticipation', 'B2B utility expansion', 'Growing daily active traders'],
-    communityTarget: '35,000', ambassadorTarget: '1,500',
+    month: 7, label: 'Month 7', quarter: 'Q3', theme: 'CEX Preparation',
+    priceTarget: '$0.0025', priceRange: '$0.0015 - $0.0040', marketCap: '$2.5M',
+    milestones: ['CEX listing applications submitted', 'API for third-party integrations launched', 'Ambassador-led regional in-person events', 'VEDD Debit Card partnership announced'],
+    drivers: ['CEX listing anticipation builds momentum', 'Real-world utility (debit card) narrative', 'Growing institutional-level interest at $2M+ mcap'],
+    communityTarget: '40,000', ambassadorTarget: '1,500',
     color: 'text-yellow-400', gradient: 'from-yellow-600/20 to-yellow-900/20 border-yellow-500/30'
   },
   {
     month: 8, label: 'Month 8', quarter: 'Q3', theme: 'Revenue Sharing Launch',
-    priceTarget: '$0.04', priceRange: '$0.025 - $0.06', marketCap: '$10M',
-    milestones: ['Platform revenue sharing for stakers', 'Premium signal subscription tier', 'Mobile app beta launch', 'Ambassador summit (virtual)'],
-    drivers: ['Revenue-backed token value', 'Mobile expands addressable market', 'Staking APY attracts holders'],
-    communityTarget: '50,000', ambassadorTarget: '2,500',
+    priceTarget: '$0.0050', priceRange: '$0.003 - $0.008', marketCap: '$5M',
+    milestones: ['Platform revenue sharing for VEDD stakers', 'Mobile app beta launch', 'Ambassador summit (virtual)', 'VEDD burn mechanism introduced'],
+    drivers: ['Revenue-backed token value (staking APY from platform fees)', 'Mobile expands addressable market', 'Token burn creates first deflationary pressure'],
+    communityTarget: '65,000', ambassadorTarget: '2,500',
     color: 'text-yellow-400', gradient: 'from-yellow-600/20 to-yellow-900/20 border-yellow-500/30'
   },
   {
-    month: 9, label: 'Month 9', quarter: 'Q3', theme: 'Market Penetration',
-    priceTarget: '$0.065', priceRange: '$0.04 - $0.10', marketCap: '$16.25M',
-    milestones: ['First CEX listing goes live', 'AI accuracy exceeds 75% signal rate', 'Cross-chain expansion announced', 'VEDD burn mechanism introduced'],
-    drivers: ['CEX listing brings massive new audience', 'Proven track record attracts traders', 'Token burn creates deflationary pressure'],
-    communityTarget: '80,000', ambassadorTarget: '4,000',
+    month: 9, label: 'Month 9', quarter: 'Q3', theme: 'First CEX Listing',
+    priceTarget: '$0.010', priceRange: '$0.007 - $0.015', marketCap: '$10M',
+    milestones: ['First CEX listing goes live', 'AI signal accuracy exceeds 75% rate', 'Cross-chain expansion announced', 'DAO governance fully operational'],
+    drivers: ['CEX listing brings massive new audience overnight', 'Proven AI track record attracts serious traders', 'Token burn + staking = shrinking supply vs growing demand'],
+    communityTarget: '100,000', ambassadorTarget: '4,000',
     color: 'text-yellow-400', gradient: 'from-yellow-600/20 to-yellow-900/20 border-yellow-500/30'
   },
   {
-    month: 10, label: 'Month 10', quarter: 'Q4', theme: 'Scaling & Partnerships',
-    priceTarget: '$0.10', priceRange: '$0.06 - $0.15', marketCap: '$25M',
-    milestones: ['Strategic partnership with major broker', 'VEDD integrated into partner platforms', 'Ambassador certification recognized industry-wide', 'DAO governance fully operational'],
-    drivers: ['Broker partnership validates project', 'Cross-platform utility increases demand', 'DAO governance attracts governance token investors'],
-    communityTarget: '120,000', ambassadorTarget: '6,000',
+    month: 10, label: 'Month 10', quarter: 'Q4', theme: 'Broker Partnerships',
+    priceTarget: '$0.025', priceRange: '$0.015 - $0.035', marketCap: '$25M',
+    milestones: ['Strategic partnership with major Forex broker', 'VEDD integrated into broker platforms', 'Ambassador certification industry-recognized', 'Second CEX listing'],
+    drivers: ['Broker partnership = millions of existing traders exposed to VEDD', 'Cross-platform utility increases daily demand', 'Two CEX listings = massive liquidity and visibility'],
+    communityTarget: '175,000', ambassadorTarget: '6,000',
     color: 'text-purple-400', gradient: 'from-purple-600/20 to-purple-900/20 border-purple-500/30'
   },
   {
-    month: 11, label: 'Month 11', quarter: 'Q4', theme: 'Mass Adoption Push',
-    priceTarget: '$0.15', priceRange: '$0.10 - $0.25', marketCap: '$37.5M',
-    milestones: ['Second CEX listing', 'Multi-language platform support', 'Ambassador program in 50+ countries', 'VEDD Debit Card partnership announced'],
-    drivers: ['Additional CEX exposure', 'Global accessibility drives adoption', 'Real-world utility narrative'],
-    communityTarget: '175,000', ambassadorTarget: '8,500',
+    month: 11, label: 'Month 11', quarter: 'Q4', theme: 'Global Ambassador Network',
+    priceTarget: '$0.050', priceRange: '$0.030 - $0.075', marketCap: '$50M',
+    milestones: ['Ambassador program in 50+ countries', 'Multi-language platform (10 languages)', 'VEDD mobile app full launch', 'Institutional trading desk beta'],
+    drivers: ['Global ambassador army creating content in every language', 'Mobile accessibility multiplies addressable market', 'Institutional interest at $50M mcap'],
+    communityTarget: '300,000', ambassadorTarget: '8,500',
     color: 'text-purple-400', gradient: 'from-purple-600/20 to-purple-900/20 border-purple-500/30'
   },
   {
-    month: 12, label: 'Month 12', quarter: 'Q4', theme: 'Year One Complete',
-    priceTarget: '$0.25', priceRange: '$0.15 - $0.40', marketCap: '$62.5M',
-    milestones: ['Year-end ambassador gala event', 'Advanced AI V2 with proprietary models', 'Institutional trading desk beta', '500K+ community members target'],
-    drivers: ['Full ecosystem delivering real value', 'Institutional demand begins', 'Community flywheel at full speed', 'Strong brand recognition in crypto trading'],
-    communityTarget: '250,000', ambassadorTarget: '12,000',
+    month: 12, label: 'Month 12', quarter: 'Q4', theme: 'Year One Complete — $100M Target',
+    priceTarget: '$0.10', priceRange: '$0.06 - $0.15', marketCap: '$100M',
+    milestones: ['Year-end ambassador gala event', 'VEDD AI V2 with proprietary trading models', 'Community flywheel self-sustaining', '500K+ community members'],
+    drivers: ['Full ecosystem delivering real value at scale', 'Brand recognition across global crypto-trading community', 'Supply squeeze: staking + burns vs growing utility demand'],
+    communityTarget: '500,000', ambassadorTarget: '12,000',
     color: 'text-purple-400', gradient: 'from-purple-600/20 to-purple-900/20 border-purple-500/30'
   },
 ];
@@ -237,45 +237,45 @@ const priceRoadmap: RoadmapMonth[] = [
 const quarterSummary = [
   {
     quarter: 'Q1',
-    title: 'Foundation & Launch',
+    title: 'Bonding → Raydium',
     subtitle: 'Months 1-3',
-    priceStart: '$0.001',
-    priceEnd: '$0.003',
-    growth: '200%',
-    focus: 'Token launch, ambassador program kickoff, core platform features, initial community building',
+    priceStart: '$0.0000024',
+    priceEnd: '$0.000085',
+    growth: '3,440%',
+    focus: 'Pump.fun bonding curve graduation, Raydium listing, first ambassador cohort, Treasury live',
     color: 'from-blue-600 to-blue-400',
     bgColor: 'bg-blue-500/10 border-blue-500/30',
   },
   {
     quarter: 'Q2',
-    title: 'Community Expansion',
+    title: 'Community Growth',
     subtitle: 'Months 4-6',
-    priceStart: '$0.005',
-    priceEnd: '$0.015',
-    growth: '200%',
-    focus: 'Global ambassador network, staking launch, NFT memberships, ecosystem maturity',
+    priceStart: '$0.00020',
+    priceEnd: '$0.0010',
+    growth: '400%',
+    focus: 'Jupiter listing, ambassador expansion, NFT memberships, $1M market cap milestone',
     color: 'from-green-600 to-green-400',
     bgColor: 'bg-green-500/10 border-green-500/30',
   },
   {
     quarter: 'Q3',
-    title: 'Revenue & CEX',
+    title: 'CEX & Revenue',
     subtitle: 'Months 7-9',
-    priceStart: '$0.025',
-    priceEnd: '$0.065',
-    growth: '160%',
-    focus: 'CEX listing, revenue sharing, mobile app, token burn mechanism',
+    priceStart: '$0.0025',
+    priceEnd: '$0.010',
+    growth: '300%',
+    focus: 'First CEX listing, revenue sharing for stakers, mobile app, token burn mechanism',
     color: 'from-yellow-600 to-yellow-400',
     bgColor: 'bg-yellow-500/10 border-yellow-500/30',
   },
   {
     quarter: 'Q4',
-    title: 'Mass Adoption',
+    title: '$100M Target',
     subtitle: 'Months 10-12',
-    priceStart: '$0.10',
-    priceEnd: '$0.25',
-    growth: '150%',
-    focus: 'Strategic partnerships, multi-CEX presence, global scaling, institutional interest',
+    priceStart: '$0.025',
+    priceEnd: '$0.10',
+    growth: '300%',
+    focus: 'Broker partnerships, 50+ countries, 500K community, institutional interest',
     color: 'from-purple-600 to-purple-400',
     bgColor: 'bg-purple-500/10 border-purple-500/30',
   },
@@ -291,8 +291,9 @@ export default function VeddTokenomics() {
   });
   
   const totalSupply = 1000000000;
-  const circulatingSupply = 250000000;
-  const rewardsDistributed = 12500000;
+  const MINT_ADDRESS = 'Ch7WbPBy5XjL1UULwWYwh75DsVdXhFUVXtiNvNGopump';
+  const [mintCopied, setMintCopied] = useState(false);
+  const copyMint = () => { navigator.clipboard.writeText(MINT_ADDRESS); setMintCopied(true); setTimeout(() => setMintCopied(false), 2000); };
   
   return (
     <div className="min-h-screen bg-gradient-to-b from-background via-purple-900/5 to-background">
@@ -333,6 +334,37 @@ export default function VeddTokenomics() {
           </p>
         </div>
         
+        {/* Live price strip */}
+        <div className="rounded-2xl p-4 mb-6 flex flex-wrap items-center gap-4 justify-between"
+          style={{ background: 'linear-gradient(135deg,rgba(139,92,246,0.1),rgba(236,72,153,0.06))', border: '1px solid rgba(139,92,246,0.25)' }}>
+          <div className="flex items-center gap-3">
+            <SiSolana className="h-5 w-5 text-purple-400 shrink-0" />
+            <div>
+              <p className="text-white font-black text-lg leading-none">$0.0000024 <span className="text-xs font-normal text-gray-500">current price</span></p>
+              <p className="text-gray-500 text-xs mt-0.5">Market Cap: $2,448 · pump.fun bonding curve · 1B supply</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="bg-black/30 rounded-xl px-3 py-1.5">
+              <p className="text-[10px] text-gray-500 mb-0.5">Mint Address</p>
+              <div className="flex items-center gap-1.5">
+                <code className="text-amber-300 text-[10px]">{MINT_ADDRESS.slice(0,12)}...{MINT_ADDRESS.slice(-8)}</code>
+                <button onClick={copyMint} className="text-gray-500 hover:text-amber-400 transition-colors">
+                  {mintCopied ? <CheckCircle className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                </button>
+              </div>
+            </div>
+            <a href={`https://dexscreener.com/solana/${MINT_ADDRESS}`} target="_blank" rel="noopener noreferrer"
+              className="flex items-center gap-1 text-xs text-purple-400 bg-purple-500/10 border border-purple-500/20 rounded-xl px-3 py-1.5 hover:bg-purple-500/15 transition-all">
+              DexScreener <ExternalLink className="h-3 w-3" />
+            </a>
+            <a href={`https://pump.fun/coin/${MINT_ADDRESS}`} target="_blank" rel="noopener noreferrer"
+              className="flex items-center gap-1 text-xs text-pink-400 bg-pink-500/10 border border-pink-500/20 rounded-xl px-3 py-1.5 hover:bg-pink-500/15 transition-all">
+              pump.fun <ExternalLink className="h-3 w-3" />
+            </a>
+          </div>
+        </div>
+
         {/* Token Stats */}
         <div className="grid md:grid-cols-4 gap-4 mb-12">
           <Card className="bg-gradient-to-br from-purple-600/20 to-purple-900/20 border-purple-500/30">
@@ -345,22 +377,22 @@ export default function VeddTokenomics() {
           <Card className="bg-gradient-to-br from-green-600/20 to-green-900/20 border-green-500/30">
             <CardContent className="pt-6 text-center">
               <TrendingUp className="h-8 w-8 mx-auto mb-2 text-green-400" />
-              <p className="text-3xl font-bold">250M</p>
-              <p className="text-sm text-muted-foreground">Circulating</p>
+              <p className="text-3xl font-bold">$2,448</p>
+              <p className="text-sm text-muted-foreground">Market Cap (Live)</p>
             </CardContent>
           </Card>
           <Card className="bg-gradient-to-br from-yellow-600/20 to-yellow-900/20 border-yellow-500/30">
             <CardContent className="pt-6 text-center">
               <Gift className="h-8 w-8 mx-auto mb-2 text-yellow-400" />
-              <p className="text-3xl font-bold">12.5M</p>
-              <p className="text-sm text-muted-foreground">Rewards Distributed</p>
+              <p className="text-3xl font-bold">50M</p>
+              <p className="text-sm text-muted-foreground">Rewards Pool (5%)</p>
             </CardContent>
           </Card>
           <Card className="bg-gradient-to-br from-blue-600/20 to-blue-900/20 border-blue-500/30">
             <CardContent className="pt-6 text-center">
-              <Users className="h-8 w-8 mx-auto mb-2 text-blue-400" />
-              <p className="text-3xl font-bold">5,000+</p>
-              <p className="text-sm text-muted-foreground">Token Holders</p>
+              <Target className="h-8 w-8 mx-auto mb-2 text-blue-400" />
+              <p className="text-3xl font-bold">$100M</p>
+              <p className="text-sm text-muted-foreground">12-Month Target</p>
             </CardContent>
           </Card>
         </div>
