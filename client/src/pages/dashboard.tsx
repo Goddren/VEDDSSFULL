@@ -150,6 +150,19 @@ const Dashboard: React.FC = () => {
     refetchInterval: 60000,
   });
 
+  // Daily & weekly P&L summary (works even without a strategy / SS AI)
+  const { data: dailySummary } = useQuery<{
+    todayClosedProfit: number; todayTotalProfit: number; todayTrades: number; todayWinRate: number;
+    weekClosedProfit: number; weekTrades: number; weekWinRate: number;
+    unrealizedPnL: number; openPositions: number;
+    weeklyTarget: number; dailyTarget: number; weekProgressPct: number; dayProgressPct: number;
+    hasStrategy: boolean;
+  }>({
+    queryKey: ['/api/mt5/daily-summary'],
+    enabled: !!user,
+    refetchInterval: 60000,
+  });
+
   // Derive AI tool states
   const ssEngineRunning = ssEngineStatus?.status === 'running';
   const solEngineRunning = solEngineStatus?.running ?? false;
@@ -298,13 +311,68 @@ const Dashboard: React.FC = () => {
             </span>
           </div>
 
+          {/* Today + Weekly P&L — always shows from MT5 data, no strategy required */}
+          <Link href="/weekly-strategy">
+            <div className="rounded-2xl p-3 mb-3 cursor-pointer hover:opacity-90 transition-opacity" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-white text-xs font-semibold">Today's Profit</p>
+                <span className="flex items-center gap-1">
+                  {dailySummary?.hasStrategy && dailySummary.dailyTarget > 0 && (
+                    <span className="text-[10px] text-gray-500">target ${dailySummary.dailyTarget.toFixed(0)}</span>
+                  )}
+                  <ChevronRight className="h-3.5 w-3.5 text-gray-600" />
+                </span>
+              </div>
+              <div className="flex items-end gap-2 mb-2">
+                <span className={`text-2xl font-black leading-none ${(dailySummary?.todayClosedProfit ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {dailySummary ? `${(dailySummary.todayClosedProfit ?? 0) >= 0 ? '+' : ''}$${Math.abs(dailySummary.todayClosedProfit ?? 0).toFixed(2)}` : '--'}
+                </span>
+                {(dailySummary?.unrealizedPnL ?? 0) !== 0 && (
+                  <span className="text-xs text-yellow-400/70 mb-0.5">
+                    {(dailySummary!.unrealizedPnL) >= 0 ? '+' : ''}${dailySummary!.unrealizedPnL.toFixed(2)} open
+                  </span>
+                )}
+              </div>
+              {dailySummary?.dailyTarget && dailySummary.dailyTarget > 0 && (
+                <div className="prog-track mb-1.5">
+                  <div className="prog-fill" style={{
+                    width: `${dailySummary.dayProgressPct}%`,
+                    background: dailySummary.dayProgressPct >= 100 ? 'linear-gradient(90deg,#10b981,#34d399)' :
+                                dailySummary.dayProgressPct >= 60  ? 'linear-gradient(90deg,#06b6d4,#22d3ee)' :
+                                                                      'linear-gradient(90deg,#ef4444,#f87171)',
+                  }} />
+                </div>
+              )}
+              <div className="flex gap-3 text-[11px] text-gray-500">
+                <span>{dailySummary?.todayTrades ?? 0} trades</span>
+                <span>{dailySummary?.todayWinRate ?? 0}% wins</span>
+                {dailySummary?.openPositions ? <span className="text-yellow-400/70">{dailySummary.openPositions} open</span> : null}
+              </div>
+            </div>
+          </Link>
+
+          {/* Weekly Goal bar */}
           <Link href="/weekly-strategy">
             <div className="rounded-2xl p-3 mb-4 cursor-pointer hover:opacity-90 transition-opacity" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}>
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-white text-xs font-semibold">Weekly Strategy Target</p>
-                <ChevronRight className="h-3.5 w-3.5 text-gray-600" />
+              <div className="flex items-center justify-between mb-1.5">
+                <p className="text-white text-xs font-semibold">Weekly Goal</p>
+                <span className="text-[10px] text-gray-500">
+                  {dailySummary?.weeklyTarget ? `$${(dailySummary.weekClosedProfit ?? 0).toFixed(2)} / $${dailySummary.weeklyTarget}` : 'No target set'}
+                </span>
               </div>
-              <p className="text-gray-400 text-xs">Configure your weekly plan to see targets and progress</p>
+              <div className="prog-track mb-1.5">
+                <div className="prog-fill" style={{
+                  width: `${dailySummary?.weekProgressPct ?? 0}%`,
+                  background: (dailySummary?.weekProgressPct ?? 0) >= 100 ? 'linear-gradient(90deg,#10b981,#34d399)' :
+                              (dailySummary?.weekProgressPct ?? 0) >= 60  ? 'linear-gradient(90deg,#f59e0b,#fbbf24)' :
+                                                                             'linear-gradient(90deg,#ef4444,#f87171)',
+                }} />
+              </div>
+              <div className="flex gap-3 text-[11px] text-gray-500">
+                <span>{dailySummary?.weekTrades ?? 0} trades this week</span>
+                <span>{dailySummary?.weekWinRate ?? 0}% win rate</span>
+                {!dailySummary?.hasStrategy && <span className="text-amber-400/70">Set up weekly plan →</span>}
+              </div>
             </div>
           </Link>
 

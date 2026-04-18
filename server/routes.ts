@@ -7579,6 +7579,96 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
     });
   });
 
+  // ── Daily / Weekly P&L summary (works without a strategy) ──────────────
+  app.get("/api/mt5/daily-summary", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    // Week start = last Monday (or today if Monday)
+    const dayOfWeek = now.getDay(); // 0=Sun,1=Mon,...
+    const daysToMon = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+    const weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysToMon);
+
+    // DB trades (all — not filtered by strategy pairs)
+    const allDbTrades = await storage.getAiTradeResults(userId, 1000);
+
+    // Cache trades (MT5 closed trades)
+    const cachedTrades: any[] = (global as any).mt5ClosedTrades?.[userId]?.trades || [];
+
+    // Today closed (DB)
+    const todayDb = allDbTrades.filter((t: any) => {
+      const d = new Date(t.closedAt || t.createdAt);
+      return d >= todayStart && t.result && t.result !== 'PENDING';
+    });
+    // Today closed (cache, deduplicated)
+    const todayDbTickets = new Set(todayDb.map((t: any) => t.mt5Ticket).filter(Boolean));
+    const todayCache = cachedTrades.filter((t: any) => {
+      const d = new Date(t.closeTime || t.timestamp || 0);
+      const ticket = t.ticket?.toString();
+      return d >= todayStart && (!ticket || !todayDbTickets.has(ticket));
+    });
+
+    // Week closed (DB)
+    const weekDb = allDbTrades.filter((t: any) => {
+      const d = new Date(t.closedAt || t.createdAt);
+      return d >= weekStart && t.result && t.result !== 'PENDING';
+    });
+    // Week closed (cache, deduplicated)
+    const weekDbTickets = new Set(weekDb.map((t: any) => t.mt5Ticket).filter(Boolean));
+    const weekCache = cachedTrades.filter((t: any) => {
+      const d = new Date(t.closeTime || t.timestamp || 0);
+      const ticket = t.ticket?.toString();
+      return d >= weekStart && (!ticket || !weekDbTickets.has(ticket));
+    });
+
+    // Open positions unrealized P&L
+    const openPositions: any[] = (global as any).mt5OpenPositions?.[userId]?.positions || [];
+    const unrealizedPnL = openPositions.reduce((s: number, p: any) => s + (p.profit || 0), 0);
+
+    const todayClosedProfit =
+      todayDb.reduce((s: number, t: any) => s + (t.profitLoss || 0), 0) +
+      todayCache.reduce((s: number, t: any) => s + (t.profit || 0), 0);
+
+    const weekClosedProfit =
+      weekDb.reduce((s: number, t: any) => s + (t.profitLoss || 0), 0) +
+      weekCache.reduce((s: number, t: any) => s + (t.profit || 0), 0);
+
+    const todayTrades = todayDb.length + todayCache.length;
+    const todayWins = todayDb.filter((t: any) => t.result === 'WIN').length +
+                      todayCache.filter((t: any) => (t.profit || 0) > 0).length;
+
+    const weekTrades = weekDb.length + weekCache.length;
+    const weekWins = weekDb.filter((t: any) => t.result === 'WIN').length +
+                     weekCache.filter((t: any) => (t.profit || 0) > 0).length;
+
+    // Pull weekly profit target from active strategy (if any)
+    const dbStrat = await storage.getActiveWeeklyStrategy(userId);
+    const weeklyTarget = dbStrat?.profitTarget || 0;
+    const dailyTarget = weeklyTarget > 0 ? Math.round((weeklyTarget / 5) * 100) / 100 : 0;
+    const weekProgressPct = weeklyTarget > 0 ? Math.min(100, Math.round((weekClosedProfit / weeklyTarget) * 100)) : 0;
+    const dayProgressPct  = dailyTarget > 0  ? Math.min(100, Math.round((todayClosedProfit / dailyTarget) * 100)) : 0;
+
+    res.json({
+      todayClosedProfit:  Math.round(todayClosedProfit * 100) / 100,
+      todayTotalProfit:   Math.round((todayClosedProfit + unrealizedPnL) * 100) / 100,
+      todayTrades,
+      todayWinRate:       todayTrades > 0 ? Math.round((todayWins / todayTrades) * 100) : 0,
+      weekClosedProfit:   Math.round(weekClosedProfit * 100) / 100,
+      weekTotalProfit:    Math.round((weekClosedProfit + unrealizedPnL) * 100) / 100,
+      weekTrades,
+      weekWinRate:        weekTrades > 0 ? Math.round((weekWins / weekTrades) * 100) : 0,
+      unrealizedPnL:      Math.round(unrealizedPnL * 100) / 100,
+      openPositions:      openPositions.length,
+      weeklyTarget,
+      dailyTarget,
+      weekProgressPct,
+      dayProgressPct,
+      hasStrategy:        !!dbStrat,
+    });
+  });
+
   // Get MT5 account balance and breakdown data (supports multiple brokers)
   app.get("/api/mt5/account-data", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) {
@@ -15972,7 +16062,8 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     if (!(req.user as any)?.isAdmin) return res.status(403).json({ error: "Admin only" });
     try {
       const { topic, save } = req.body as { topic?: string; save?: boolean };
-      const generated = await generateVeddBlogPost(topic);
+      const userId = (req.user as any).id;
+      const generated = await generateVeddBlogPost(topic, userId);
       if (save) {
         const saved = await storage.createBlogPost({
           ...generated,

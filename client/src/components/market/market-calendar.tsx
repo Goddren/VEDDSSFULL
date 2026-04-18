@@ -86,81 +86,77 @@ export const MarketCalendar: React.FC = () => {
           <div className="space-y-4">
             {events.slice(0, 4).map((event) => (
               <div key={event.id} className="p-3 bg-gray-950 rounded-lg border border-gray-800 hover:border-blue-500/50 transition-colors" data-testid={`calendar-event-${event.id}`}>
-                <div className="flex justify-between items-start mb-2">
-                  <div>
-                    <h3 className="font-medium text-white flex items-center gap-2">
-                      {event.title}
-                      {event.impact === 'high' && (
-                        <Badge variant="outline" className="bg-rose-500/10 text-rose-400 border-rose-500/20">
-                          High Impact
-                        </Badge>
-                      )}
-                      {event.impact === 'medium' && (
-                        <Badge variant="outline" className="bg-amber-500/10 text-amber-400 border-amber-500/20">
-                          Medium Impact
-                        </Badge>
-                      )}
-                    </h3>
-                    <div className="text-sm text-gray-400 flex items-center mt-1">
-                      <Calendar className="h-3 w-3 mr-1 inline" />
-                      {formatDate(event.date)}
-                      <span className="mx-2">•</span>
-                      <Clock className="h-3 w-3 mr-1 inline" />
-                      {event.time}
-                      {event.currency && (
-                        <>
-                          <span className="mx-2">•</span>
-                          <span className="text-blue-400">{event.currency}</span>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex space-x-1">
+
+                {/* Top row: impact badges + direction icons */}
+                <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                  {event.impact === 'high' && (
+                    <Badge variant="outline" className="bg-rose-500/10 text-rose-400 border-rose-500/20 text-[10px] px-1.5 py-0">
+                      🔴 High Impact
+                    </Badge>
+                  )}
+                  {event.impact === 'medium' && (
+                    <Badge variant="outline" className="bg-amber-500/10 text-amber-400 border-amber-500/20 text-[10px] px-1.5 py-0">
+                      🟡 Medium
+                    </Badge>
+                  )}
+                  {event.currency && (
+                    <span className="text-[10px] font-semibold text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded">{event.currency}</span>
+                  )}
+                  <div className="ml-auto flex gap-1">
                     {hasPotentialImpact(event.title, 'bullish') && (
-                      <div className="h-6 w-6 rounded-full bg-emerald-600/10 flex items-center justify-center" title="Potential bullish impact">
+                      <div className="h-5 w-5 rounded-full bg-emerald-600/10 flex items-center justify-center" title="Potential bullish impact">
                         <TrendingUp className="h-3 w-3 text-emerald-500" />
                       </div>
                     )}
                     {hasPotentialImpact(event.title, 'bearish') && (
-                      <div className="h-6 w-6 rounded-full bg-rose-600/10 flex items-center justify-center" title="Potential bearish impact">
+                      <div className="h-5 w-5 rounded-full bg-rose-600/10 flex items-center justify-center" title="Potential bearish impact">
                         <TrendingDown className="h-3 w-3 text-rose-500" />
                       </div>
                     )}
                     {event.impact === 'high' && (
-                      <div className="h-6 w-6 rounded-full bg-amber-600/10 flex items-center justify-center" title="High volatility expected">
+                      <div className="h-5 w-5 rounded-full bg-amber-600/10 flex items-center justify-center" title="High volatility expected">
                         <AlertTriangle className="h-3 w-3 text-amber-500" />
                       </div>
                     )}
                   </div>
                 </div>
-                
-                <div className="grid grid-cols-2 gap-2 mt-3">
+
+                {/* Title */}
+                <h3 className="font-semibold text-white text-sm leading-snug mb-1.5">{event.title}</h3>
+
+                {/* Date / time row — wraps on mobile */}
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-400 mb-2">
+                  <span className="flex items-center gap-1">
+                    <Calendar className="h-3 w-3 shrink-0" />{formatDate(event.date)}
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <Clock className="h-3 w-3 shrink-0" />{event.time}
+                  </span>
+                </div>
+
+                {/* Forecast / Previous — stacked on mobile */}
+                <div className="flex flex-wrap gap-x-4 gap-y-1 mb-2">
                   <div className="text-xs">
-                    <span className="text-gray-500">Forecast:</span>
-                    <span className="text-white ml-1">{event.forecast || 'N/A'}</span>
+                    <span className="text-gray-500">Forecast: </span>
+                    <span className="text-white">{event.forecast || 'N/A'}</span>
                   </div>
                   <div className="text-xs">
-                    <span className="text-gray-500">Previous:</span>
-                    <span className="text-white ml-1">{event.previous || 'N/A'}</span>
+                    <span className="text-gray-500">Previous: </span>
+                    <span className="text-white">{event.previous || 'N/A'}</span>
                   </div>
                 </div>
-                
-                <div className="mt-3">
-                  <div className="text-xs flex flex-wrap gap-1">
-                    <span className="text-gray-500">Affected pairs:</span>
-                    {event.affectedPairs.slice(0, 3).map((pair, index) => (
-                      <Badge key={index} variant="outline" className="bg-gray-800 text-xs border-gray-700">
-                        {pair}
-                      </Badge>
-                    ))}
-                  </div>
+
+                {/* Affected pairs */}
+                <div className="flex flex-wrap gap-1">
+                  {event.affectedPairs.slice(0, 4).map((pair, index) => (
+                    <Badge key={index} variant="outline" className="bg-gray-800 text-[10px] border-gray-700 px-1.5 py-0">
+                      {pair}
+                    </Badge>
+                  ))}
                 </div>
-                
+
                 {event.description && (
-                  <Button variant="ghost" size="sm" className="w-full mt-3 text-xs text-gray-400 hover:text-white justify-start p-0">
-                    <Info className="h-3 w-3 mr-1" />
-                    {event.description}
-                  </Button>
+                  <p className="text-[11px] text-gray-500 mt-2 leading-snug line-clamp-2">{event.description}</p>
                 )}
               </div>
             ))}

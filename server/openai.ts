@@ -3125,7 +3125,7 @@ function estimateReadTime(html: string): string {
   return `${minutes} min read`;
 }
 
-export async function generateVeddBlogPost(topic?: string): Promise<{
+export async function generateVeddBlogPost(topic?: string, userId?: number): Promise<{
   title: string;
   slug: string;
   excerpt: string;
@@ -3135,7 +3135,21 @@ export async function generateVeddBlogPost(topic?: string): Promise<{
   readTime: string;
   currentEventsContext: string;
 }> {
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  // Use the caller's stored API key if available, fall back to env
+  let apiKey = process.env.OPENAI_API_KEY;
+  if (userId) {
+    try {
+      const client = await getUniversalAIClientForUser(userId);
+      if (client) {
+        // getUniversalAIClientForUser returns the client — grab the key it resolved
+        const keys = await (await import('./storage')).storage.getUserApiKeys(userId);
+        const openaiKey = keys.find(k => k.provider === 'openai');
+        if (openaiKey?.apiKey) apiKey = openaiKey.apiKey;
+      }
+    } catch { /* fall through to env key */ }
+  }
+  if (!apiKey) throw new Error("No OpenAI API key configured. Please add your OpenAI key in AI Settings.");
+  const openai = new OpenAI({ apiKey });
 
   const today = new Date().toISOString().split('T')[0];
 
