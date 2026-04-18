@@ -281,17 +281,72 @@ const quarterSummary = [
   },
 ];
 
+interface DexScreenerPair {
+  priceUsd: string;
+  fdv: number;
+  marketCap: number;
+  volume: { h24: number };
+  priceChange: { h24: number; h6: number; h1: number };
+  liquidity?: { usd: number };
+  txns?: { h24: { buys: number; sells: number } };
+}
+
+interface DexScreenerResponse {
+  pairs: DexScreenerPair[] | null;
+}
+
+function formatPrice(p: number): string {
+  if (p === 0) return '$0';
+  if (p < 0.000001) return `$${p.toFixed(10).replace(/0+$/, '')}`;
+  if (p < 0.0001) return `$${p.toFixed(8).replace(/0+$/, '')}`;
+  if (p < 0.01) return `$${p.toFixed(6)}`;
+  return `$${p.toFixed(4)}`;
+}
+
+function formatMcap(n: number): string {
+  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
+  if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}K`;
+  return `$${n.toFixed(0)}`;
+}
+
 export default function VeddTokenomics() {
   const { data: rewardConfigs = [] } = useQuery<RewardConfig[]>({
     queryKey: ['/api/vedd/config']
   });
-  
+
   const { data: rewardSummary } = useQuery<RewardSummary>({
     queryKey: ['/api/vedd/rewards/summary']
   });
-  
-  const totalSupply = 1000000000;
+
   const MINT_ADDRESS = 'Ch7WbPBy5XjL1UULwWYwh75DsVdXhFUVXtiNvNGopump';
+
+  // Live price from DexScreener — refetches every 60 seconds
+  const { data: dexData, isLoading: priceLoading } = useQuery<DexScreenerResponse>({
+    queryKey: ['dexscreener-vedd-price'],
+    queryFn: async () => {
+      const res = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${MINT_ADDRESS}`);
+      if (!res.ok) throw new Error('DexScreener fetch failed');
+      return res.json();
+    },
+    refetchInterval: 60_000,   // refresh every 60 s
+    staleTime: 30_000,
+    retry: 2,
+  });
+
+  const pair = dexData?.pairs?.[0] ?? null;
+  const livePrice  = pair ? parseFloat(pair.priceUsd) : null;
+  const liveMcap   = pair?.marketCap ?? pair?.fdv ?? null;
+  const priceChange24h = pair?.priceChange?.h24 ?? null;
+  const volume24h  = pair?.volume?.h24 ?? null;
+  const buys24h    = pair?.txns?.h24?.buys ?? null;
+  const sells24h   = pair?.txns?.h24?.sells ?? null;
+  const liquidity  = pair?.liquidity?.usd ?? null;
+
+  const displayPrice = livePrice ? formatPrice(livePrice) : '$0.0000024';
+  const displayMcap  = liveMcap  ? formatMcap(liveMcap)   : '$2,448';
+  const priceUp = (priceChange24h ?? 0) >= 0;
+
+  const totalSupply = 1000000000;
   const [mintCopied, setMintCopied] = useState(false);
   const copyMint = () => { navigator.clipboard.writeText(MINT_ADDRESS); setMintCopied(true); setTimeout(() => setMintCopied(false), 2000); };
   
@@ -335,34 +390,68 @@ export default function VeddTokenomics() {
         </div>
         
         {/* Live price strip */}
-        <div className="rounded-2xl p-4 mb-6 flex flex-wrap items-center gap-4 justify-between"
+        <div className="rounded-2xl p-4 mb-6"
           style={{ background: 'linear-gradient(135deg,rgba(139,92,246,0.1),rgba(236,72,153,0.06))', border: '1px solid rgba(139,92,246,0.25)' }}>
-          <div className="flex items-center gap-3">
-            <SiSolana className="h-5 w-5 text-purple-400 shrink-0" />
-            <div>
-              <p className="text-white font-black text-lg leading-none">$0.0000024 <span className="text-xs font-normal text-gray-500">current price</span></p>
-              <p className="text-gray-500 text-xs mt-0.5">Market Cap: $2,448 · pump.fun bonding curve · 1B supply</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <div className="bg-black/30 rounded-xl px-3 py-1.5">
-              <p className="text-[10px] text-gray-500 mb-0.5">Mint Address</p>
-              <div className="flex items-center gap-1.5">
-                <code className="text-amber-300 text-[10px]">{MINT_ADDRESS.slice(0,12)}...{MINT_ADDRESS.slice(-8)}</code>
-                <button onClick={copyMint} className="text-gray-500 hover:text-amber-400 transition-colors">
-                  {mintCopied ? <CheckCircle className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
-                </button>
+          {/* Top row — price + change + links */}
+          <div className="flex flex-wrap items-center gap-4 justify-between mb-3">
+            <div className="flex items-center gap-3">
+              <SiSolana className="h-5 w-5 text-purple-400 shrink-0" />
+              <div>
+                <div className="flex items-center gap-2">
+                  <p className="text-white font-black text-lg leading-none">
+                    {priceLoading ? <span className="text-gray-500 text-sm animate-pulse">Loading…</span> : displayPrice}
+                  </p>
+                  {priceChange24h !== null && (
+                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${priceUp ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
+                      {priceUp ? '▲' : '▼'} {Math.abs(priceChange24h).toFixed(2)}% 24h
+                    </span>
+                  )}
+                  <span className="text-[10px] text-gray-600 bg-white/[0.03] border border-white/05 px-2 py-0.5 rounded-full">
+                    {priceLoading ? '…' : 'LIVE'}
+                  </span>
+                </div>
+                <p className="text-gray-500 text-xs mt-0.5">
+                  Market Cap: {displayMcap} · pump.fun bonding curve · 1B supply
+                </p>
               </div>
             </div>
-            <a href={`https://dexscreener.com/solana/${MINT_ADDRESS}`} target="_blank" rel="noopener noreferrer"
-              className="flex items-center gap-1 text-xs text-purple-400 bg-purple-500/10 border border-purple-500/20 rounded-xl px-3 py-1.5 hover:bg-purple-500/15 transition-all">
-              DexScreener <ExternalLink className="h-3 w-3" />
-            </a>
-            <a href={`https://pump.fun/coin/${MINT_ADDRESS}`} target="_blank" rel="noopener noreferrer"
-              className="flex items-center gap-1 text-xs text-pink-400 bg-pink-500/10 border border-pink-500/20 rounded-xl px-3 py-1.5 hover:bg-pink-500/15 transition-all">
-              pump.fun <ExternalLink className="h-3 w-3" />
-            </a>
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="bg-black/30 rounded-xl px-3 py-1.5">
+                <p className="text-[10px] text-gray-500 mb-0.5">Mint Address</p>
+                <div className="flex items-center gap-1.5">
+                  <code className="text-amber-300 text-[10px]">{MINT_ADDRESS.slice(0,12)}...{MINT_ADDRESS.slice(-8)}</code>
+                  <button onClick={copyMint} className="text-gray-500 hover:text-amber-400 transition-colors">
+                    {mintCopied ? <CheckCircle className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                  </button>
+                </div>
+              </div>
+              <a href={`https://dexscreener.com/solana/${MINT_ADDRESS}`} target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-1 text-xs text-purple-400 bg-purple-500/10 border border-purple-500/20 rounded-xl px-3 py-1.5 hover:bg-purple-500/15 transition-all">
+                DexScreener <ExternalLink className="h-3 w-3" />
+              </a>
+              <a href={`https://pump.fun/coin/${MINT_ADDRESS}`} target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-1 text-xs text-pink-400 bg-pink-500/10 border border-pink-500/20 rounded-xl px-3 py-1.5 hover:bg-pink-500/15 transition-all">
+                pump.fun <ExternalLink className="h-3 w-3" />
+              </a>
+            </div>
           </div>
+
+          {/* Secondary stats row — only shown when data loaded */}
+          {pair && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-3 border-t border-white/05">
+              {[
+                { label: '24h Volume', value: volume24h ? formatMcap(volume24h) : '—' },
+                { label: 'Liquidity', value: liquidity ? formatMcap(liquidity) : '—' },
+                { label: '24h Buys', value: buys24h !== null ? buys24h.toString() : '—', color: 'text-emerald-400' },
+                { label: '24h Sells', value: sells24h !== null ? sells24h.toString() : '—', color: 'text-red-400' },
+              ].map(s => (
+                <div key={s.label} className="text-center">
+                  <p className={`text-sm font-bold ${s.color ?? 'text-white'}`}>{s.value}</p>
+                  <p className="text-[10px] text-gray-600 mt-0.5">{s.label}</p>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Token Stats */}
@@ -377,8 +466,13 @@ export default function VeddTokenomics() {
           <Card className="bg-gradient-to-br from-green-600/20 to-green-900/20 border-green-500/30">
             <CardContent className="pt-6 text-center">
               <TrendingUp className="h-8 w-8 mx-auto mb-2 text-green-400" />
-              <p className="text-3xl font-bold">$2,448</p>
+              <p className="text-3xl font-bold">{priceLoading ? <span className="text-base animate-pulse text-gray-500">…</span> : displayMcap}</p>
               <p className="text-sm text-muted-foreground">Market Cap (Live)</p>
+              {priceChange24h !== null && (
+                <p className={`text-xs mt-1 font-semibold ${priceUp ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {priceUp ? '▲' : '▼'} {Math.abs(priceChange24h).toFixed(2)}% today
+                </p>
+              )}
             </CardContent>
           </Card>
           <Card className="bg-gradient-to-br from-yellow-600/20 to-yellow-900/20 border-yellow-500/30">
