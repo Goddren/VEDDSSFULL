@@ -130,74 +130,6 @@ const PLATFORM_COLORS: Record<string, string> = {
   tiktok: "text-purple-400",
   all: "text-amber-400",
 };
-
-// Updated 44-day plan highlights tied to VEDD features
-const WEEK_HIGHLIGHTS = [
-  {
-    week: 1,
-    theme: "Foundation — Chart Analysis & VEDD AI Basics",
-    feature: "AI Analysis Engine",
-    days: "Days 1–7",
-    content: "Introduce candlestick patterns, S/R zones, and trend identification. Tie each day to VEDD's live AI analysis — show how the platform reads charts in real-time. Post screenshots of VEDD identifying patterns.",
-    cta: "Share a VEDD analysis screenshot with your personal breakdown. Tag 3 traders who need this.",
-    tip: "Use VEDD's Analysis page. Screenshot the AI's pattern ID and add your commentary overlay.",
-  },
-  {
-    week: 2,
-    theme: "Strategy — Brain Mode, Breakout & Multi-TF",
-    feature: "Brain Mode + Breakout Mode + Multi-Timeframe EA",
-    days: "Days 8–14",
-    content: "Teach trading strategies using VEDD's Brain Mode (double confirmation), Breakout Master Mode, and Multi-Timeframe EA. Show how the AI layers confirmations before calling a trade.",
-    cta: "Go Live showing Brain Mode calling a trade setup. React to it in real-time.",
-    tip: "Enable Brain Mode in Settings. Run Multi-TF EA on your broker for live trade stats to show.",
-  },
-  {
-    week: 3,
-    theme: "Mindset — Live Trading, Risk & Weekly Strategy",
-    feature: "Weekly Strategy + Live Monitor",
-    days: "Days 15–21",
-    content: "Focus on discipline and planning. Tie to VEDD's Weekly Strategy planner — show how to build a structured trading week. Use Live Monitor for real-time accountability posts.",
-    cta: "Post your VEDD Weekly Strategy plan every Sunday. Show your planned pairs and targets.",
-    tip: "Weekly Strategy page auto-calculates pair stats. Screenshot the W/L % and progress bars.",
-  },
-  {
-    week: 4,
-    theme: "Execution — MT5 EA, TradeLocker & Live Signals",
-    feature: "MT5 EA Generator + TradeLocker + Live Engine",
-    days: "Days 22–28",
-    content: "Show the full execution stack: MT5 EA running automated signals, TradeLocker integration, and VEDD's Live Engine. Post real trade results with the platform doing the analysis.",
-    cta: "Record your EA running on MT5 with VEDD signals. Show entry, exit, and P&L.",
-    tip: "Connect TradeLocker or MT5 and let VEDD log trades automatically. Share the live stats.",
-  },
-  {
-    week: 5,
-    theme: "Advanced — Futures, Solana Scanner & Tokenomics",
-    feature: "Futures Connect + Solana Scanner + VEDD Token",
-    days: "Days 29–35",
-    content: "Introduce advanced asset classes. Show VEDD's Futures Connect page, Solana token scanner, and VEDD tokenomics. Position VEDD as a multi-asset AI platform, not just forex.",
-    cta: "Create a 'Did you know VEDD does THIS?' post series covering futures and crypto integration.",
-    tip: "Use the SOL Scanner landing page as a standalone share — it works for non-subscribers too.",
-  },
-  {
-    week: 6,
-    theme: "Community & Income — Grants, Referrals & Ambassador",
-    feature: "Grants Portal + Referral Hub + Ambassador Program",
-    days: "Days 36–42",
-    content: "Shift to income and impact. Show the Grants & Funding portal for business grants. Teach the referral system and how credits add up. Walk through ambassador income streams.",
-    cta: "Post your referral stats screenshot: 'X people signed up through my link this week.' Social proof.",
-    tip: "Grants + Referral Hub + Ambassador training all live in the app. Show the CEO Dashboard for impact.",
-  },
-  {
-    week: 7,
-    theme: "Graduation & Scale — Social, Wallet & NFT",
-    feature: "Social Hub + VEDD Wallet + NFT/Token Gating",
-    days: "Days 43–44",
-    content: "Final stretch: showcase VEDD as a full financial ecosystem. Social Hub for publishing, VEDD Wallet for token earnings, and how ambassador NFT unlocks token-gated features.",
-    cta: "Graduation post: share your journey and invite the next cohort. Create urgency with limited spots.",
-    tip: "VEDD Wallet shows your token balance. Combine with Achievements page for a powerful proof post.",
-  },
-];
-
 // Recruitment training modules
 const TRAINING_MODULES = [
   {
@@ -325,7 +257,9 @@ export default function AmbassadorRecruitmentPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [location] = useLocation();
-  const urlTab = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "").get("tab") || "training";
+  const rawTab = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "").get("tab") || "training";
+  // '44day' tab removed — redirect to training if someone hits old link
+  const urlTab = rawTab === "44day" ? "training" : rawTab;
 
   const [newKeyword, setNewKeyword] = useState("");
   const [newTemplate, setNewTemplate] = useState("");
@@ -590,7 +524,6 @@ export default function AmbassadorRecruitmentPage() {
       <Tabs defaultValue={urlTab}>
         <TabsList className="flex flex-wrap gap-1 h-auto mb-6">
           <TabsTrigger value="training" className="text-xs">Training Modules</TabsTrigger>
-          <TabsTrigger value="44day" className="text-xs">44-Day Plan</TabsTrigger>
           <TabsTrigger value="dm" className="text-xs">DM Automation</TabsTrigger>
           <TabsTrigger value="scripts" className="text-xs">Scripts</TabsTrigger>
           <TabsTrigger value="leadpages" className="text-xs">Lead Pages</TabsTrigger>
@@ -626,70 +559,6 @@ export default function AmbassadorRecruitmentPage() {
                 </CardContent>
               </Card>
             ))}
-          </div>
-        </TabsContent>
-
-        {/* ── UPDATED 44-DAY PLAN ── */}
-        <TabsContent value="44day">
-          <div className="mb-4 p-4 bg-amber-500/10 border border-amber-500/20 rounded-lg">
-            <div className="flex items-start gap-3">
-              <Star className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
-              <div>
-                <p className="text-sm font-semibold">Updated — Now tied to every VEDD feature</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Each week links your content to specific VEDD tools your audience can immediately try.
-                  The full day-by-day curriculum is in the{" "}
-                  <a href="/ambassador/content-flow" className="text-amber-400 hover:underline">Content Flow</a> section.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            {WEEK_HIGHLIGHTS.map((week) => (
-              <Card key={week.week} className="border-border/50">
-                <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="flex items-center gap-2 mb-1">
-                        <Badge className="text-xs bg-blue-600 text-white">Week {week.week}</Badge>
-                        <span className="text-xs text-muted-foreground">{week.days}</span>
-                      </div>
-                      <CardTitle className="text-sm">{week.theme}</CardTitle>
-                    </div>
-                    <div className="bg-gradient-to-br from-blue-500/20 to-purple-500/20 rounded-lg p-2">
-                      <Zap className="w-4 h-4 text-blue-400" />
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div>
-                    <p className="text-xs font-semibold text-blue-400 mb-1">VEDD Feature Focus</p>
-                    <Badge variant="outline" className="text-xs">{week.feature}</Badge>
-                  </div>
-                  <div>
-                    <p className="text-xs font-semibold text-muted-foreground mb-1">Content Strategy</p>
-                    <p className="text-xs text-muted-foreground">{week.content}</p>
-                  </div>
-                  <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3">
-                    <p className="text-xs font-semibold text-green-400 mb-1">Daily CTA</p>
-                    <p className="text-xs text-muted-foreground">{week.cta}</p>
-                  </div>
-                  <div className="bg-purple-500/10 border border-purple-500/20 rounded-lg p-3">
-                    <p className="text-xs font-semibold text-purple-400 mb-1">Pro Tip</p>
-                    <p className="text-xs text-muted-foreground">{week.tip}</p>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-
-          <div className="mt-4 text-center">
-            <Button variant="outline" onClick={() => window.location.href = '/ambassador/content-flow'} className="gap-2">
-              <Calendar className="w-4 h-4" />
-              Open Full 44-Day Calendar
-              <ChevronRight className="w-4 h-4" />
-            </Button>
           </div>
         </TabsContent>
 

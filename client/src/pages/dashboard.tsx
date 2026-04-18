@@ -6,15 +6,16 @@ import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/use-auth';
 import { BiBook } from 'react-icons/bi';
 import { SiSolana } from 'react-icons/si';
-import { 
-  BarChart2, 
-  TrendingUp, 
-  TrendingDown, 
-  Calendar, 
-  Clock, 
+import {
+  BarChart2,
+  TrendingUp,
+  TrendingDown,
+  Calendar,
+  Clock,
   Activity,
   Plus,
   ChevronRight,
+  ChevronDown,
   Info,
   Sparkles,
   Trophy,
@@ -35,7 +36,12 @@ import {
   Newspaper,
   Radio,
   ExternalLink,
-  Power
+  Power,
+  EyeOff,
+  Eye,
+  Rocket,
+  CheckSquare,
+  Copy,
 } from 'lucide-react';
 import { MarketCalendar } from '@/components/market/market-calendar';
 import { getUserLevel } from '@/lib/achievement-system';
@@ -62,10 +68,70 @@ interface Analysis {
   notes?: string;
 }
 
+// Section visibility helpers
+function useSectionToggle(key: string, defaultOpen = true) {
+  const [open, setOpen] = useState<boolean>(() => {
+    const saved = localStorage.getItem(`dash_section_${key}`);
+    return saved !== null ? saved === 'true' : defaultOpen;
+  });
+  const toggle = () => {
+    setOpen(prev => {
+      localStorage.setItem(`dash_section_${key}`, String(!prev));
+      return !prev;
+    });
+  };
+  return [open, toggle] as const;
+}
+
+function SectionHeader({
+  title,
+  open,
+  onToggle,
+  icon: Icon,
+  iconClass = 'icon-box-red',
+}: {
+  title: string;
+  open: boolean;
+  onToggle: () => void;
+  icon?: React.ComponentType<{ className?: string }>;
+  iconClass?: string;
+}) {
+  return (
+    <button
+      onClick={onToggle}
+      className="flex items-center justify-between w-full mb-3 group"
+    >
+      <div className="flex items-center gap-2">
+        {Icon && (
+          <span className={`icon-box-sm ${iconClass}`}>
+            <Icon className="h-3.5 w-3.5" />
+          </span>
+        )}
+        <p className="section-title">{title}</p>
+      </div>
+      <ChevronDown
+        className={`h-4 w-4 text-gray-600 transition-transform group-hover:text-gray-400 ${open ? '' : '-rotate-90'}`}
+      />
+    </button>
+  );
+}
+
 const Dashboard: React.FC = () => {
   const { user } = useAuth();
   const [showFaithContent, setShowFaithContent] = useState<boolean>(true);
-  
+
+  // Section toggles — persisted in localStorage
+  const [showStats, toggleStats] = useSectionToggle('stats');
+  const [showAICenter, toggleAICenter] = useSectionToggle('ai_center');
+  const [showTradingTools, toggleTradingTools] = useSectionToggle('trading_tools');
+  const [showAIData, toggleAIData] = useSectionToggle('ai_data');
+  const [showCommunity, toggleCommunity] = useSectionToggle('community');
+  const [showFinance, toggleFinance] = useSectionToggle('finance');
+  const [showEvents, toggleEvents] = useSectionToggle('events');
+  const [showRewards, toggleRewards] = useSectionToggle('rewards');
+  const [showMarket, toggleMarket] = useSectionToggle('market');
+  const [showCoach, toggleCoach] = useSectionToggle('coach');
+
   // Initialize faith content preference from localStorage
   useEffect(() => {
     const savedPreference = localStorage.getItem('faithBasedContent');
@@ -73,7 +139,7 @@ const Dashboard: React.FC = () => {
       setShowFaithContent(savedPreference === 'true');
     }
   }, []);
-  
+
   // Save faith content preference to localStorage when it changes
   useEffect(() => {
     localStorage.setItem('faithBasedContent', String(showFaithContent));
@@ -148,6 +214,16 @@ const Dashboard: React.FC = () => {
     queryKey: ['/api/mt5/breakout-status'],
     enabled: !!user,
     refetchInterval: 60000,
+  });
+
+  // Ambassador journey — current day + today's actions (ambassadors only)
+  const { data: ambassadorJourney } = useQuery<{
+    currentDay: number; streak: number; tokensEarned: number; isComplete: boolean;
+    todayActions?: { postIdea: string; commentTarget: string; dmScript: string; focus: string };
+    nextMilestone?: { day: number; reward: string };
+  }>({
+    queryKey: ['/api/ambassador/journey'],
+    enabled: !!(user?.isAmbassador || (user as any)?.role === 'admin'),
   });
 
   // Daily & weekly P&L summary (works even without a strategy / SS AI)
@@ -390,8 +466,50 @@ const Dashboard: React.FC = () => {
           </div>
         </div>
 
+        {/* ── Ambassador Daily Action Reminder ─────────────────────────── */}
+        {ambassadorJourney && !ambassadorJourney.isComplete && (
+          <div className="mb-5 rounded-2xl overflow-hidden" style={{ background: 'linear-gradient(135deg, rgba(16,185,129,0.08) 0%, rgba(5,150,105,0.05) 100%)', border: '1px solid rgba(16,185,129,0.2)' }}>
+            <div className="flex items-center justify-between px-4 pt-4 pb-3" style={{ borderBottom: '1px solid rgba(16,185,129,0.1)' }}>
+              <div className="flex items-center gap-2.5">
+                <div className="icon-box-sm" style={{ background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.3)' }}>
+                  <Rocket className="h-3.5 w-3.5 text-emerald-400" />
+                </div>
+                <div>
+                  <p className="text-white font-semibold text-sm">Day {ambassadorJourney.currentDay} — Today's Mission</p>
+                  <p className="text-emerald-400/70 text-[11px]">{ambassadorJourney.streak > 0 ? `🔥 ${ambassadorJourney.streak}-day streak` : 'Free Path to Pro'} · {ambassadorJourney.tokensEarned} VEDD earned</p>
+                </div>
+              </div>
+              <Link href="/ambassador/free-path">
+                <button className="text-xs font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-xl px-3 py-1.5 hover:bg-emerald-500/20 transition-all flex items-center gap-1">
+                  <CheckSquare className="h-3 w-3" /> Go
+                </button>
+              </Link>
+            </div>
+            {ambassadorJourney.todayActions ? (
+              <div className="px-4 py-3 space-y-2">
+                <div className="flex items-start gap-2.5">
+                  <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 rounded-lg px-2 py-1 shrink-0 mt-0.5">POST</span>
+                  <p className="text-gray-300 text-xs leading-relaxed">{ambassadorJourney.todayActions.postIdea}</p>
+                </div>
+                <div className="flex items-start gap-2.5">
+                  <span className="text-[10px] font-bold text-blue-400 bg-blue-500/10 rounded-lg px-2 py-1 shrink-0 mt-0.5">DM</span>
+                  <p className="text-gray-300 text-xs leading-relaxed">{ambassadorJourney.todayActions.dmScript}</p>
+                </div>
+                {ambassadorJourney.nextMilestone && (
+                  <p className="text-[11px] text-gray-500 pt-1">Next milestone: Day {ambassadorJourney.nextMilestone.day} → {ambassadorJourney.nextMilestone.reward}</p>
+                )}
+              </div>
+            ) : (
+              <div className="px-4 py-3">
+                <p className="text-gray-400 text-xs">Keep growing your audience and sharing your story today.</p>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* ── Quick Stats Row ───────────────────────────────────────────── */}
-        <div className="h-scroll mb-5">
+        <SectionHeader title="Quick Stats" open={showStats} onToggle={toggleStats} icon={BarChart2} iconClass="icon-box-red" />
+        {showStats && <div className="h-scroll mb-5">
           {/* Win Rate */}
           <div className="smart-card p-4 min-w-[130px] text-center">
             <p className="stat-lbl mb-2">Win Rate</p>
@@ -438,10 +556,11 @@ const Dashboard: React.FC = () => {
               </div>
             </div>
           )}
-        </div>
+        </div>}
 
         {/* ── AI Command Center ─────────────────────────────────────────── */}
-        <div className="smart-card mb-5 overflow-hidden">
+        <SectionHeader title="AI Command Center" open={showAICenter} onToggle={toggleAICenter} icon={Cpu} iconClass="icon-box-purple" />
+        {showAICenter && <div className="smart-card mb-5 overflow-hidden">
           <div className="flex items-center justify-between px-5 pt-4 pb-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
             <div className="flex items-center gap-3">
               <div className="icon-box-sm icon-box-purple">
@@ -528,12 +647,12 @@ const Dashboard: React.FC = () => {
               </Link>
             </div>
           </div>
-        </div>
+        </div>}
 
         {/* ── Feature Tiles Grid ────────────────────────────────────────── */}
         <div className="mb-5">
-          <p className="section-title mb-3">Trading Tools</p>
-          <div className="grid grid-cols-2 gap-3 mb-5">
+          <SectionHeader title="Trading Tools" open={showTradingTools} onToggle={toggleTradingTools} icon={TrendingUp} iconClass="icon-box-red" />
+          {showTradingTools && <div className="grid grid-cols-2 gap-3 mb-5">
             <Link href="/analysis" className="device-tile device-tile-red">
               <div className="flex items-center justify-between">
                 <div className="icon-box icon-box-red">
@@ -582,10 +701,10 @@ const Dashboard: React.FC = () => {
                 <p className="text-gray-500 text-xs mt-0.5">EA marketplace</p>
               </div>
             </Link>
-          </div>
+          </div>}
 
-          <p className="section-title mb-3">AI &amp; Data</p>
-          <div className="grid grid-cols-2 gap-3 mb-5">
+          <SectionHeader title="AI & Data" open={showAIData} onToggle={toggleAIData} icon={Brain} iconClass="icon-box-cyan" />
+          {showAIData && <div className="grid grid-cols-2 gap-3 mb-5">
             <Link href="/solana-scanner" className="device-tile device-tile-cyan">
               <div className="flex items-center justify-between">
                 <div className="icon-box icon-box-cyan">
@@ -634,10 +753,10 @@ const Dashboard: React.FC = () => {
                 <p className="text-gray-500 text-xs mt-0.5">Past analyses</p>
               </div>
             </Link>
-          </div>
+          </div>}
 
-          <p className="section-title mb-3">Community &amp; Growth</p>
-          <div className="smart-card mb-5">
+          <SectionHeader title="Community & Growth" open={showCommunity} onToggle={toggleCommunity} icon={Users} iconClass="icon-box-purple" />
+          {showCommunity && <div className="smart-card mb-5">
             {[
               { href: '/community', icon: Users, color: 'icon-box-purple', name: 'Community', desc: 'Traders hub' },
               { href: '/ambassador/recruitment', icon: Sparkles, color: 'icon-box-purple', name: 'Ambassador', desc: 'Recruitment hub' },
@@ -657,10 +776,10 @@ const Dashboard: React.FC = () => {
                 </div>
               </Link>
             ))}
-          </div>
+          </div>}
 
-          <p className="section-title mb-3">Finance</p>
-          <div className="smart-card mb-5">
+          <SectionHeader title="Finance" open={showFinance} onToggle={toggleFinance} icon={Coins} iconClass="icon-box-amber" />
+          {showFinance && <div className="smart-card mb-5">
             {[
               { href: '/token-investments', icon: Coins, color: 'icon-box-amber', name: 'Token Invest', desc: 'Token investments' },
               { href: '/vedd-wallet', icon: CalendarCheck, color: 'icon-box-green', name: 'Wallet', desc: 'VEDD wallet' },
@@ -680,7 +799,7 @@ const Dashboard: React.FC = () => {
                 </div>
               </Link>
             ))}
-          </div>
+          </div>}
         </div>
 
         {/* ── MT5 Pairs + Recent Analyses ──────────────────────────────── */}
@@ -742,7 +861,8 @@ const Dashboard: React.FC = () => {
         </div>
 
         {/* ── Events section ────────────────────────────────────────────── */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
+        <SectionHeader title="Events" open={showEvents} onToggle={toggleEvents} icon={CalendarCheck} iconClass="icon-box-amber" />
+        {showEvents && <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
           {/* Upcoming Events */}
           <div className="smart-card p-4">
             <div className="flex items-center justify-between mb-3">
@@ -867,10 +987,11 @@ const Dashboard: React.FC = () => {
               </>
             )}
           </div>
-        </div>
+        </div>}
 
         {/* ── Rewards + Clothing ────────────────────────────────────────── */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
+        <SectionHeader title="Rewards & Clothing" open={showRewards} onToggle={toggleRewards} icon={Trophy} iconClass="icon-box-amber" />
+        {showRewards && <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
           <div className="smart-card p-4">
             <VeddRewardsPanel />
           </div>
@@ -923,17 +1044,18 @@ const Dashboard: React.FC = () => {
               </div>
             )}
           </div>
-        </div>
+        </div>}
 
-        {/* ── Market + News + Wisdom ────────────────────────────────────── */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
+        {/* ── Market + News ─────────────────────────────────────────────── */}
+        <SectionHeader title="Market & News" open={showMarket} onToggle={toggleMarket} icon={Newspaper} iconClass="icon-box-blue" />
+        {showMarket && <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
           <div className="smart-card p-4">
             <MarketCalendar />
           </div>
           <div className="smart-card p-4">
             <NewsFeed showSentiment={true} maxItems={5} compact={false} />
           </div>
-        </div>
+        </div>}
 
         {/* ── Daily Wisdom + Trading Coach ─────────────────────────────── */}
         {showFaithContent && (
@@ -955,17 +1077,12 @@ const Dashboard: React.FC = () => {
           </div>
         )}
 
-        <div className="smart-card p-4 mb-6">
-          <div className="flex items-center gap-2 mb-3">
-            <div className="icon-tile-sm bg-amber-500/15">
-              <Lightbulb className="h-4 w-4 text-amber-400" />
-            </div>
-            <p className="text-white text-sm font-semibold">Trading Coach</p>
-          </div>
+        <SectionHeader title="Trading Coach" open={showCoach} onToggle={toggleCoach} icon={Lightbulb} iconClass="icon-box-amber" />
+        {showCoach && <div className="smart-card p-4 mb-6">
           <div className="h-[500px]">
             <TradingCoach personality="friendly" />
           </div>
-        </div>
+        </div>}
 
         {/* ── Quick Actions ─────────────────────────────────────────────── */}
         <div className="smart-card p-4 mb-6">
