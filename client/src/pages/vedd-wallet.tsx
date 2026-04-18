@@ -18,6 +18,7 @@ import { WalletLoginButton } from '@/components/wallet/wallet-login-button';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
 import { Link } from 'wouter';
+import { TokenomicsBanner } from '@/components/vedd-rewards/tokenomics-banner';
 
 interface User {
   id: number;
@@ -166,6 +167,15 @@ export default function VeddWalletPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900/20 to-gray-900 p-6">
       <div className="max-w-6xl mx-auto space-y-6">
+        <TokenomicsBanner
+          variant="compact"
+          highlight="Your wallet receives VEDD from all platform activities"
+          rewards={[
+            { label: 'Daily post', amount: '10 VEDD' },
+            { label: 'Referral signup', amount: '50 VEDD' },
+            { label: 'Journey completion', amount: '500 VEDD', color: 'text-emerald-400' },
+          ]}
+        />
         <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}

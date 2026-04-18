@@ -17,6 +17,7 @@ import {
   DollarSign, Award, FileText, Users, TrendingUp, AlertTriangle,
   ChevronLeft, Trash2, Send, RotateCcw, Trophy
 } from "lucide-react";
+import { TokenomicsBanner } from '@/components/vedd-rewards/tokenomics-banner';
 import { Redirect } from "wouter";
 
 interface Grant {
@@ -162,6 +163,14 @@ export default function GrantsFundingPage() {
   return (
     <div className="min-h-screen bg-gray-950 text-white">
       <div className="container mx-auto px-4 py-6 max-w-7xl">
+        <TokenomicsBanner
+          variant="compact"
+          rewards={[
+            { label: 'Grant awarded milestone', amount: '100 VEDD', color: 'text-emerald-400' },
+            { label: 'Proposal submitted', amount: '10 VEDD' },
+            { label: 'Total supply', amount: '1B VEDD on Solana' },
+          ]}
+        />
         {/* Header */}
         <div className="flex items-start justify-between mb-6">
           <div>

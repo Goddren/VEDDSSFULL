@@ -8,6 +8,7 @@ import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Progress } from '@/components/ui/progress';
 import { Award, Calendar, ChartBar, CheckCircle, ChevronLeft, Clock, Compass, Crown, Lock, Target, Zap } from 'lucide-react';
+import { TokenomicsBanner } from '@/components/vedd-rewards/tokenomics-banner';
 import { cn } from '@/lib/utils';
 import { Achievement } from '@shared/schema';
 import { AchievementGallery } from '@/components/achievements/achievement-gallery';
@@ -149,6 +150,14 @@ export default function AchievementsPage() {
 
   return (
     <div className="container py-8">
+      <TokenomicsBanner
+        variant="compact"
+        rewards={[
+          { label: 'Challenge completion', amount: '25 VEDD' },
+          { label: 'Event attendance', amount: '15 VEDD' },
+          { label: 'Journey day', amount: '10 VEDD' },
+        ]}
+      />
       {/* Back button */}
       <div className="mb-6">
         <Link href="/dashboard">

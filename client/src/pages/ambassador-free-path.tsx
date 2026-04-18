@@ -18,6 +18,7 @@ import {
   Instagram, Twitter, Linkedin, Globe, Video,
   CheckCircle2, Circle, Award, BarChart3, Calendar,
 } from "lucide-react";
+import { TokenomicsBanner } from '@/components/vedd-rewards/tokenomics-banner';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -361,6 +362,15 @@ export default function AmbassadorFreePathPage() {
           <p className="text-sm text-gray-400">Earn your subscription through 44 days of ambassador activity</p>
         </div>
       </div>
+
+      <TokenomicsBanner
+        highlight="Complete the 44-day journey to earn your free Pro subscription via VEDD tokens"
+        rewards={[
+          { label: 'Per day completed', amount: '10 VEDD' },
+          { label: 'Event hosting', amount: '100 VEDD', color: 'text-blue-400' },
+          { label: 'Journey completion', amount: '500 VEDD bonus', color: 'text-emerald-400' },
+        ]}
+      />
 
       {/* Tab navigation */}
       <div className="flex gap-1 overflow-x-auto pb-1 mb-6 scrollbar-none">

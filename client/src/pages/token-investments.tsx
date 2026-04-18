@@ -17,6 +17,7 @@ import {
   ChevronRight, AlertTriangle, CheckCircle2, BarChart3, Zap,
   Shield, Star, Trophy, Info,
 } from "lucide-react";
+import { TokenomicsBanner } from '@/components/vedd-rewards/tokenomics-banner';
 
 interface InvestmentPool {
   id: number;
@@ -206,6 +207,14 @@ export default function TokenInvestmentsPage() {
 
   return (
     <div className="container max-w-5xl mx-auto px-4 py-6 pb-24">
+      <TokenomicsBanner
+        highlight="VEDD is a Solana pump.fun token — 1 billion supply. Invest in pools backed by VEDD tokens."
+        rewards={[
+          { label: 'Staking APY', amount: '12–25%', color: 'text-emerald-400' },
+          { label: 'Total supply', amount: '1B VEDD' },
+          { label: 'Rewards pool', amount: '50M VEDD', color: 'text-purple-400' },
+        ]}
+      />
       {/* Header */}
       <div className="mb-6">
         <div className="flex items-center justify-between">

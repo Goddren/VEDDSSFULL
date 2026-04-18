@@ -13,6 +13,7 @@ import {
   Star, RefreshCw, ExternalLink, Share2, ChevronRight, Trophy,
   UserCheck, CreditCard, Clock
 } from "lucide-react";
+import { TokenomicsBanner } from '@/components/vedd-rewards/tokenomics-banner';
 
 export default function ReferralHubPage() {
   const { user } = useAuth();
@@ -102,6 +103,14 @@ export default function ReferralHubPage() {
 
   return (
     <div className="container max-w-4xl mx-auto px-4 py-6 pb-24">
+      <TokenomicsBanner
+        highlight="Earn VEDD every time someone signs up or subscribes through your referral link"
+        rewards={[
+          { label: 'Referral signup', amount: '50 VEDD' },
+          { label: 'Referral subscribes', amount: '200 VEDD', color: 'text-emerald-400' },
+          { label: 'Profit share (ongoing)', amount: '5% of profits', color: 'text-purple-400' },
+        ]}
+      />
       {/* Header */}
       <div className="mb-6">
         <div className="flex items-center gap-2 mb-1">

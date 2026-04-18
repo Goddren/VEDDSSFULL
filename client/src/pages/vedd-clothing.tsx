@@ -23,6 +23,7 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
+import { TokenomicsBanner } from '@/components/vedd-rewards/tokenomics-banner';
 
 interface ClaimItem {
   id: number;
@@ -162,6 +163,14 @@ export default function VeddClothingPage() {
       </div>
 
       <div className="max-w-4xl mx-auto px-4 py-10 space-y-10">
+        <TokenomicsBanner
+          highlight="Earn 50 VEDD tokens every time you scan a VEDD clothing QR code tag"
+          rewards={[
+            { label: 'Per item scanned', amount: '50 VEDD' },
+            { label: 'Monthly max', amount: '500 VEDD' },
+            { label: 'Verification', amount: 'Admin approved', color: 'text-blue-400' },
+          ]}
+        />
 
         {/* Stats strip */}
         {totalClaims > 0 && (
