@@ -46,6 +46,18 @@ type WeeklyStrategy = {
   progressPercentage?: number;
 };
 
+function useSectionToggle(pageKey: string, key: string, defaultOpen = true) {
+  const [open, setOpen] = useState<boolean>(() => {
+    const saved = localStorage.getItem(`${pageKey}_section_${key}`);
+    return saved !== null ? saved === 'true' : defaultOpen;
+  });
+  const toggle = () => setOpen(prev => {
+    localStorage.setItem(`${pageKey}_section_${key}`, String(!prev));
+    return !prev;
+  });
+  return [open, toggle] as const;
+}
+
 export default function WeeklyStrategyPage() {
   const { toast } = useToast();
   const [profitTarget, setProfitTarget] = useState("400");
@@ -67,6 +79,14 @@ export default function WeeklyStrategyPage() {
   const [showConfig, setShowConfig] = useState(false);
   const [showBrain, setShowBrain] = useState(false);
   const [showWeeklyPlan, setShowWeeklyPlan] = useState(false);
+
+  const [showStrategyPerf, toggleStrategyPerf] = useSectionToggle("weekly", "strategy_perf", true);
+  const [showDailyBattle, toggleDailyBattle] = useSectionToggle("weekly", "daily_battle", true);
+  const [showAiRisk, toggleAiRisk] = useSectionToggle("weekly", "ai_risk", true);
+  const [showAiPairs, toggleAiPairs] = useSectionToggle("weekly", "ai_pairs", true);
+  const [showCompound, toggleCompound] = useSectionToggle("weekly", "compound", true);
+  const [showEaSetup, toggleEaSetup] = useSectionToggle("weekly", "ea_setup", false);
+  const [showBrainSection, toggleBrainSection] = useSectionToggle("weekly", "brain", true);
   const [liveEngineTab, setLiveEngineTab] = useState<'activity' | 'market' | 'pairs' | 'combos'>('activity');
   const [activeTab, setActiveTab] = useState<'plan'|'config'|'brain'|'engine'|'monitor'>('plan');
 
@@ -1870,11 +1890,16 @@ export default function WeeklyStrategyPage() {
                 {Object.keys(tracker?.strategyBreakdown || {}).length > 0 && (
                   <Card className="bg-gray-900/60 border-gray-700/60">
                     <CardHeader className="pb-2">
-                      <CardTitle className="text-base flex items-center gap-2 text-white">
-                        <BarChart3 className="w-4 h-4 text-purple-400" /> Strategy Performance
-                      </CardTitle>
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-base flex items-center gap-2 text-white">
+                          <BarChart3 className="w-4 h-4 text-purple-400" /> Strategy Performance
+                        </CardTitle>
+                        <button onClick={toggleStrategyPerf} className="text-gray-500 hover:text-white transition-colors">
+                          <ChevronDown className={`h-4 w-4 transition-transform ${showStrategyPerf ? '' : '-rotate-90'}`} />
+                        </button>
+                      </div>
                     </CardHeader>
-                    <CardContent className="space-y-1.5">
+                    {showStrategyPerf && <CardContent className="space-y-1.5">
                       {Object.entries(tracker.strategyBreakdown)
                         .sort(([, a]: [string, any], [, b]: [string, any]) => b.pnl - a.pnl)
                         .map(([strat, data]: [string, any]) => (
@@ -1888,7 +1913,7 @@ export default function WeeklyStrategyPage() {
                             </span>
                           </div>
                         ))}
-                    </CardContent>
+                    </CardContent>}
                   </Card>
                 )}
               </div>
@@ -1901,13 +1926,18 @@ export default function WeeklyStrategyPage() {
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
                 <Card className="bg-gradient-to-br from-gray-900/80 via-gray-900/60 to-gray-950/80 border-orange-500/30">
                   <CardHeader className="pb-3">
-                    <CardTitle className="text-base flex items-center gap-2 text-white">
-                      <Swords className="w-4 h-4 text-orange-400" /> Daily Battle Plan
-                      <Badge className="bg-orange-500/20 text-orange-400 border-orange-500/30 text-[10px]">AI Generated</Badge>
-                      <span className="text-xs text-gray-500 font-normal ml-2">{battlePlan.session} Session</span>
-                    </CardTitle>
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-base flex items-center gap-2 text-white">
+                        <Swords className="w-4 h-4 text-orange-400" /> Daily Battle Plan
+                        <Badge className="bg-orange-500/20 text-orange-400 border-orange-500/30 text-[10px]">AI Generated</Badge>
+                        <span className="text-xs text-gray-500 font-normal ml-2">{battlePlan.session} Session</span>
+                      </CardTitle>
+                      <button onClick={toggleDailyBattle} className="text-gray-500 hover:text-white transition-colors">
+                        <ChevronDown className={`h-4 w-4 transition-transform ${showDailyBattle ? '' : '-rotate-90'}`} />
+                      </button>
+                    </div>
                   </CardHeader>
-                  <CardContent>
+                  {showDailyBattle && <CardContent>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
 
                       {/* Risk instruction */}
@@ -1985,7 +2015,7 @@ export default function WeeklyStrategyPage() {
                         </div>
                       </div>
                     )}
-                  </CardContent>
+                  </CardContent>}
                 </Card>
               </motion.div>
             )}
@@ -2361,11 +2391,16 @@ export default function WeeklyStrategyPage() {
                   {plan.riskManagement && (
                     <Card className="bg-gray-800/50 border-gray-700">
                       <CardHeader className="pb-2">
-                        <CardTitle className="text-white text-base flex items-center gap-2">
-                          <Shield className="w-4 h-4 text-red-400" /> AI Risk Controls
-                        </CardTitle>
+                        <div className="flex items-center justify-between">
+                          <CardTitle className="text-white text-base flex items-center gap-2">
+                            <Shield className="w-4 h-4 text-red-400" /> AI Risk Controls
+                          </CardTitle>
+                          <button onClick={toggleAiRisk} className="text-gray-500 hover:text-white transition-colors">
+                            <ChevronDown className={`h-4 w-4 transition-transform ${showAiRisk ? '' : '-rotate-90'}`} />
+                          </button>
+                        </div>
                       </CardHeader>
-                      <CardContent>
+                      {showAiRisk && <CardContent>
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                           {[
                             { label: 'Max Daily Loss', value: `$${plan.riskManagement.maxDailyLoss}`, color: 'text-red-400' },
@@ -2379,7 +2414,7 @@ export default function WeeklyStrategyPage() {
                             </div>
                           ))}
                         </div>
-                      </CardContent>
+                      </CardContent>}
                     </Card>
                   )}
 
@@ -2387,11 +2422,16 @@ export default function WeeklyStrategyPage() {
                   {plan.pairRankings && (
                     <Card className="bg-gray-800/50 border-gray-700">
                       <CardHeader className="pb-2">
-                        <CardTitle className="text-white text-base flex items-center gap-2">
-                          <Star className="w-4 h-4 text-amber-400" /> AI Pair Rankings
-                        </CardTitle>
+                        <div className="flex items-center justify-between">
+                          <CardTitle className="text-white text-base flex items-center gap-2">
+                            <Star className="w-4 h-4 text-amber-400" /> AI Pair Rankings
+                          </CardTitle>
+                          <button onClick={toggleAiPairs} className="text-gray-500 hover:text-white transition-colors">
+                            <ChevronDown className={`h-4 w-4 transition-transform ${showAiPairs ? '' : '-rotate-90'}`} />
+                          </button>
+                        </div>
                       </CardHeader>
-                      <CardContent>
+                      {showAiPairs && <CardContent>
                         <div className="space-y-2">
                           {plan.pairRankings.map((pr: any, i: number) => (
                             <div key={i} className="flex items-center justify-between bg-gray-900/50 rounded-lg p-3">
@@ -2416,7 +2456,7 @@ export default function WeeklyStrategyPage() {
                             </div>
                           ))}
                         </div>
-                      </CardContent>
+                      </CardContent>}
                     </Card>
                   )}
 
@@ -2424,11 +2464,16 @@ export default function WeeklyStrategyPage() {
                   {plan.compoundGrowth && (
                     <Card className="bg-gray-800/50 border-gray-700">
                       <CardHeader className="pb-2">
-                        <CardTitle className="text-white text-base flex items-center gap-2">
-                          <TrendingUp className="w-4 h-4 text-emerald-400" /> Compound Growth Projection
-                        </CardTitle>
+                        <div className="flex items-center justify-between">
+                          <CardTitle className="text-white text-base flex items-center gap-2">
+                            <TrendingUp className="w-4 h-4 text-emerald-400" /> Compound Growth Projection
+                          </CardTitle>
+                          <button onClick={toggleCompound} className="text-gray-500 hover:text-white transition-colors">
+                            <ChevronDown className={`h-4 w-4 transition-transform ${showCompound ? '' : '-rotate-90'}`} />
+                          </button>
+                        </div>
                       </CardHeader>
-                      <CardContent>
+                      {showCompound && <CardContent>
                         <div className="grid grid-cols-5 gap-2">
                           {dayNames.map(day => {
                             const cg = plan.compoundGrowth[day.toLowerCase()];
@@ -2449,7 +2494,7 @@ export default function WeeklyStrategyPage() {
                             <div><p className="text-emerald-400 text-xs">Best Case</p><p className="text-white font-bold">${plan.weeklyProjection.bestCase}</p></div>
                           </div>
                         )}
-                      </CardContent>
+                      </CardContent>}
                     </Card>
                   )}
                 </motion.div>
@@ -2901,8 +2946,8 @@ export default function WeeklyStrategyPage() {
                 <Button size="sm" onClick={() => learnMutation.mutate()} disabled={learnMutation.isPending} className="bg-purple-600 hover:bg-purple-500 text-white h-7 text-xs">
                   {learnMutation.isPending ? <><RefreshCw className="w-3 h-3 mr-1 animate-spin" /> Learning...</> : <><Brain className="w-3 h-3 mr-1" /> {brainStatus?.learned ? 'Re-Learn' : 'Train Brain'}</>}
                 </Button>
-                <button onClick={() => setShowBrain(!showBrain)} className="text-gray-500 hover:text-gray-300">
-                  {showBrain ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                <button onClick={toggleBrainSection} className="text-gray-500 hover:text-white transition-colors">
+                  <ChevronDown className={`h-4 w-4 transition-transform ${showBrainSection ? '' : '-rotate-90'}`} />
                 </button>
               </div>
             </div>
@@ -2923,7 +2968,7 @@ export default function WeeklyStrategyPage() {
             )}
           </CardHeader>
           <AnimatePresence>
-            {showBrain && brainStatus?.learned && (
+            {showBrainSection && brainStatus?.learned && (
               <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
                 <CardContent className="pt-0 space-y-4">
                   {brainStatus.learningInsights?.length > 0 && (
@@ -3004,15 +3049,20 @@ export default function WeeklyStrategyPage() {
         ═══════════════════════════════════════════════════════ */}
         <Card className="bg-gradient-to-br from-gray-800/80 to-gray-900/80 border-cyan-500/30">
           <CardHeader className="pb-3">
-            <CardTitle className="text-base text-white flex items-center gap-2">
-              <Settings className="w-4 h-4 text-cyan-400" /> MT5 EA Setup Guide
-              <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-[10px]">Required for Auto-Trading</Badge>
-            </CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base text-white flex items-center gap-2">
+                <Settings className="w-4 h-4 text-cyan-400" /> MT5 EA Setup Guide
+                <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-[10px]">Required for Auto-Trading</Badge>
+              </CardTitle>
+              <button onClick={toggleEaSetup} className="text-gray-500 hover:text-white transition-colors">
+                <ChevronDown className={`h-4 w-4 transition-transform ${showEaSetup ? '' : '-rotate-90'}`} />
+              </button>
+            </div>
             <CardDescription className="text-gray-400 text-xs">
               Two EAs work together to power the VEDD AI Live Engine. Both must be running at the same time.
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-5">
+          {showEaSetup && <CardContent className="space-y-5">
 
             {/* How they work together */}
             <div className="p-3 rounded-xl bg-cyan-500/5 border border-cyan-500/20 text-xs text-gray-300 leading-relaxed">
@@ -3115,7 +3165,7 @@ export default function WeeklyStrategyPage() {
               </div>
             </div>
 
-          </CardContent>
+          </CardContent>}
         </Card>
 
         {/* ═══════════════════════════════════════════════════════

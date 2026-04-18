@@ -15,15 +15,15 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { 
-  Webhook, 
-  Plus, 
-  Trash2, 
-  Settings, 
-  Send, 
-  CheckCircle, 
-  XCircle, 
-  Clock, 
+import {
+  Webhook,
+  Plus,
+  Trash2,
+  Settings,
+  Send,
+  CheckCircle,
+  XCircle,
+  Clock,
   ArrowLeft,
   Activity,
   AlertCircle,
@@ -39,6 +39,7 @@ import {
   HelpCircle,
   BookOpen,
   List,
+  ChevronDown,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -231,12 +232,30 @@ const TRIGGER_OPTIONS = [
   { value: 'manual', label: 'Manual Trigger' },
 ];
 
+function useSectionToggle(pageKey: string, key: string, defaultOpen = true) {
+  const [open, setOpen] = useState<boolean>(() => {
+    const saved = localStorage.getItem(`${pageKey}_section_${key}`);
+    return saved !== null ? saved === 'true' : defaultOpen;
+  });
+  const toggle = () => setOpen(prev => {
+    localStorage.setItem(`${pageKey}_section_${key}`, String(!prev));
+    return !prev;
+  });
+  return [open, toggle] as const;
+}
+
 export default function WebhooksPage() {
   const { toast } = useToast();
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [selectedWebhook, setSelectedWebhook] = useState<WebhookConfig | null>(null);
   const [showSecret, setShowSecret] = useState<Record<number, boolean>>({});
-  
+
+  const [showHowItWorks, toggleHowItWorks] = useSectionToggle("webhooks", "how_it_works", true);
+  const [showMt5Copier, toggleMt5Copier] = useSectionToggle("webhooks", "mt5_copier", true);
+  const [showMt5ChartEa, toggleMt5ChartEa] = useSectionToggle("webhooks", "mt5_chart_ea", true);
+  const [showTradelocker, toggleTradelocker] = useSectionToggle("webhooks", "tradelocker", true);
+  const [showEaAiRefresh, toggleEaAiRefresh] = useSectionToggle("webhooks", "ea_ai_refresh", true);
+
   const [newWebhook, setNewWebhook] = useState({
     name: '',
     url: '',
@@ -860,9 +879,14 @@ export default function WebhooksPage() {
 
         <Card className="mt-8 bg-gray-800/30 border-gray-700">
           <CardHeader>
-            <CardTitle className="text-white text-lg">How It Works</CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-white text-lg">How It Works</CardTitle>
+              <button onClick={toggleHowItWorks} className="text-gray-500 hover:text-white transition-colors">
+                <ChevronDown className={`h-4 w-4 transition-transform ${showHowItWorks ? '' : '-rotate-90'}`} />
+              </button>
+            </div>
           </CardHeader>
-          <CardContent>
+          {showHowItWorks && <CardContent>
             <div className="grid md:grid-cols-3 gap-6">
               <div className="text-center">
                 <div className="w-12 h-12 rounded-full bg-primary/20 flex items-center justify-center mx-auto mb-3">
@@ -886,7 +910,7 @@ export default function WebhooksPage() {
                 <p className="text-sm text-gray-400">Signals are automatically sent to your configured endpoints</p>
               </div>
             </div>
-          </CardContent>
+          </CardContent>}
         </Card>
 
         {/* Platform Setup Guides */}
@@ -1028,19 +1052,24 @@ export default function WebhooksPage() {
                   Copy trades from MetaTrader 5 directly to TradeLocker and other platforms
                 </CardDescription>
               </div>
-              <a 
-                href="/ea-templates/VEDD_Trade_Copier.mq5" 
-                download
-                className="inline-flex"
-              >
-                <Button className="bg-gradient-to-r from-green-600 to-emerald-600" data-testid="button-download-ea">
-                  <Download className="w-4 h-4 mr-2" />
-                  Download EA
-                </Button>
-              </a>
+              <div className="flex items-center gap-2">
+                <a
+                  href="/ea-templates/VEDD_Trade_Copier.mq5"
+                  download
+                  className="inline-flex"
+                >
+                  <Button className="bg-gradient-to-r from-green-600 to-emerald-600" data-testid="button-download-ea">
+                    <Download className="w-4 h-4 mr-2" />
+                    Download EA
+                  </Button>
+                </a>
+                <button onClick={toggleMt5Copier} className="text-gray-500 hover:text-white transition-colors">
+                  <ChevronDown className={`h-4 w-4 transition-transform ${showMt5Copier ? '' : '-rotate-90'}`} />
+                </button>
+              </div>
             </div>
           </CardHeader>
-          <CardContent className="space-y-6">
+          {showMt5Copier && <CardContent className="space-y-6">
             {/* MT5 Connection Status */}
             <motion.div 
               initial={{ opacity: 0, scale: 0.95 }}
@@ -1279,7 +1308,7 @@ export default function WebhooksPage() {
                 </ScrollArea>
               </div>
             )}
-          </CardContent>
+          </CardContent>}
         </Card>
 
         {/* MT5 Chart Data EA Section */}
@@ -1296,19 +1325,24 @@ export default function WebhooksPage() {
                   Send live chart data from MT5 to AI Trading Vault for real-time AI refresh analysis
                 </CardDescription>
               </div>
-              <a 
-                href="/downloads/VEDD_ChartData_EA.mq5" 
-                download
-                className="inline-flex"
-              >
-                <Button className="bg-gradient-to-r from-green-600 to-teal-600">
-                  <Download className="w-4 h-4 mr-2" />
-                  Download Chart Data EA
-                </Button>
-              </a>
+              <div className="flex items-center gap-2">
+                <a
+                  href="/downloads/VEDD_ChartData_EA.mq5"
+                  download
+                  className="inline-flex"
+                >
+                  <Button className="bg-gradient-to-r from-green-600 to-teal-600">
+                    <Download className="w-4 h-4 mr-2" />
+                    Download Chart Data EA
+                  </Button>
+                </a>
+                <button onClick={toggleMt5ChartEa} className="text-gray-500 hover:text-white transition-colors">
+                  <ChevronDown className={`h-4 w-4 transition-transform ${showMt5ChartEa ? '' : '-rotate-90'}`} />
+                </button>
+              </div>
             </div>
           </CardHeader>
-          <CardContent className="space-y-6">
+          {showMt5ChartEa && <CardContent className="space-y-6">
             <div className="p-3 bg-green-900/30 border border-green-600/50 rounded-lg">
               <p className="text-green-300 text-sm flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
@@ -1449,21 +1483,28 @@ export default function WebhooksPage() {
                 </div>
               </div>
             </div>
-          </CardContent>
+          </CardContent>}
         </Card>
 
         {/* TradeLocker Direct Connection Section */}
         <Card className="mt-8 bg-gradient-to-br from-cyan-900/30 to-blue-900/30 border-cyan-700/50">
           <CardHeader>
-            <CardTitle className="text-white text-xl flex items-center gap-3">
-              <Zap className="w-6 h-6 text-cyan-400" />
-              TradeLocker Direct Execution
-            </CardTitle>
-            <CardDescription className="mt-1">
-              Execute MT5 trades directly on TradeLocker - no webhook setup needed
-            </CardDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-white text-xl flex items-center gap-3">
+                  <Zap className="w-6 h-6 text-cyan-400" />
+                  TradeLocker Direct Execution
+                </CardTitle>
+                <CardDescription className="mt-1">
+                  Execute MT5 trades directly on TradeLocker - no webhook setup needed
+                </CardDescription>
+              </div>
+              <button onClick={toggleTradelocker} className="text-gray-500 hover:text-white transition-colors">
+                <ChevronDown className={`h-4 w-4 transition-transform ${showTradelocker ? '' : '-rotate-90'}`} />
+              </button>
+            </div>
           </CardHeader>
-          <CardContent className="space-y-6">
+          {showTradelocker && <CardContent className="space-y-6">
             {tlLoading ? (
               <div className="flex items-center justify-center py-8">
                 <RefreshCw className="w-6 h-6 animate-spin text-gray-400" />
@@ -1764,21 +1805,28 @@ export default function WebhooksPage() {
                 <li>When you open a trade in MT5, it's copied to TradeLocker instantly</li>
               </ol>
             </div>
-          </CardContent>
+          </CardContent>}
         </Card>
 
         {/* EA AI Live Refresh Section */}
         <Card className="mt-8 bg-gradient-to-br from-green-900/30 to-teal-900/30 border-green-700/50">
           <CardHeader>
-            <CardTitle className="text-white text-xl flex items-center gap-3">
-              <RefreshCw className="w-6 h-6 text-green-400" />
-              EA AI Live Refresh
-            </CardTitle>
-            <CardDescription className="mt-1">
-              Allow your EAs to request fresh AI analysis using real-time market data
-            </CardDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-white text-xl flex items-center gap-3">
+                  <RefreshCw className="w-6 h-6 text-green-400" />
+                  EA AI Live Refresh
+                </CardTitle>
+                <CardDescription className="mt-1">
+                  Allow your EAs to request fresh AI analysis using real-time market data
+                </CardDescription>
+              </div>
+              <button onClick={toggleEaAiRefresh} className="text-gray-500 hover:text-white transition-colors">
+                <ChevronDown className={`h-4 w-4 transition-transform ${showEaAiRefresh ? '' : '-rotate-90'}`} />
+              </button>
+            </div>
           </CardHeader>
-          <CardContent className="space-y-6">
+          {showEaAiRefresh && <CardContent className="space-y-6">
             {/* Endpoint URL */}
             <div className="space-y-2">
               <h4 className="text-white font-semibold flex items-center gap-2">
@@ -1879,7 +1927,7 @@ Content-Type: application/json
                 <li>Call the endpoint with current OHLC data when you need fresh analysis</li>
               </ol>
             </div>
-          </CardContent>
+          </CardContent>}
         </Card>
       </div>
     </div>

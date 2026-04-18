@@ -40,7 +40,8 @@ import {
   Power,
   ChevronRight,
   Newspaper,
-  Radio
+  Radio,
+  ChevronDown,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { ConnectedPairs } from "@/components/mt5/connected-pairs";
@@ -138,11 +139,24 @@ type EALearningData = {
   closedTradesCount?: number;
 };
 
+function useSectionToggle(pageKey: string, key: string, defaultOpen = true) {
+  const [open, setOpen] = useState<boolean>(() => {
+    const saved = localStorage.getItem(`${pageKey}_section_${key}`);
+    return saved !== null ? saved === 'true' : defaultOpen;
+  });
+  const toggle = () => setOpen(prev => {
+    localStorage.setItem(`${pageKey}_section_${key}`, String(!prev));
+    return !prev;
+  });
+  return [open, toggle] as const;
+}
+
 function TradeHistoryLearning() {
   const { toast } = useToast();
   const [symbol, setSymbol] = useState('');
   const [searchedSymbol, setSearchedSymbol] = useState('');
-  
+  const [showTradeHistory, toggleTradeHistory] = useSectionToggle("mt5data", "trade_history", true);
+
   // Fetch EA-synced learning recommendations from MT5
   const { data: eaLearning } = useQuery<EALearningData>({
     queryKey: ['/api/mt5/learning-recommendations'],
@@ -219,26 +233,31 @@ function TradeHistoryLearning() {
             <Brain className="w-5 h-5" />
             Trade History Learning
           </CardTitle>
-          <Button
-            variant="outline"
-            size="sm"
-            className="border-gray-600 text-gray-400 hover:text-white hover:border-gray-500"
-            onClick={() => clearLearningMutation.mutate()}
-            disabled={clearLearningMutation.isPending}
-          >
-            {clearLearningMutation.isPending ? (
-              <RefreshCw className="w-4 h-4 animate-spin mr-1" />
-            ) : (
-              <Trash2 className="w-4 h-4 mr-1" />
-            )}
-            Clear Data
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-gray-600 text-gray-400 hover:text-white hover:border-gray-500"
+              onClick={() => clearLearningMutation.mutate()}
+              disabled={clearLearningMutation.isPending}
+            >
+              {clearLearningMutation.isPending ? (
+                <RefreshCw className="w-4 h-4 animate-spin mr-1" />
+              ) : (
+                <Trash2 className="w-4 h-4 mr-1" />
+              )}
+              Clear Data
+            </Button>
+            <button onClick={toggleTradeHistory} className="text-gray-500 hover:text-white transition-colors">
+              <ChevronDown className={`h-4 w-4 transition-transform ${showTradeHistory ? '' : '-rotate-90'}`} />
+            </button>
+          </div>
         </div>
         <CardDescription>
           Analyze your past trades by pair to identify patterns and generate AI strategy improvements
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
+      {showTradeHistory && <CardContent className="space-y-4">
         <div className="flex gap-2">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
@@ -681,7 +700,7 @@ Win Rate: ${rec.winRate}% from ${rec.totalTrades} trades`;
             </div>
           </motion.div>
         )}
-      </CardContent>
+      </CardContent>}
     </Card>
   );
 }
@@ -690,6 +709,7 @@ function ReversalAlertPanel() {
   const { toast } = useToast();
   const [clearedAlerts, setClearedAlerts] = useState<Set<number>>(new Set());
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
+  const [showReversalDetect, toggleReversalDetect] = useSectionToggle("mt5data", "reversal_detect", true);
   
   const { data: reversalData, isLoading, refetch } = useQuery<ReversalData>({
     queryKey: ['/api/reversal-alerts'],
@@ -830,13 +850,16 @@ function ReversalAlertPanel() {
               <Button variant="ghost" size="sm" onClick={handleRefresh}>
                 <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
               </Button>
+              <button onClick={toggleReversalDetect} className="text-gray-500 hover:text-white transition-colors">
+                <ChevronDown className={`h-4 w-4 transition-transform ${showReversalDetect ? '' : '-rotate-90'}`} />
+              </button>
             </div>
           </div>
           <CardDescription>
             Monitors for AI signal flips (auto-clears after 15 min)
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        {showReversalDetect && <CardContent>
           {isLoading ? (
             <div className="flex items-center justify-center py-6">
               <RefreshCw className="w-6 h-6 animate-spin text-gray-400" />
@@ -938,7 +961,7 @@ function ReversalAlertPanel() {
               </p>
             </div>
           )}
-        </CardContent>
+        </CardContent>}
       </Card>
     </motion.div>
   );
@@ -1285,6 +1308,11 @@ export default function MT5ChartDataPage() {
   const [newTokenName, setNewTokenName] = useState("");
   const [newlyCreatedToken, setNewlyCreatedToken] = useState<Mt5ApiToken | null>(null);
   const [showToken, setShowToken] = useState<Record<number, boolean>>({});
+
+  const [showAiFeed, toggleAiFeed] = useSectionToggle("mt5data", "ai_feed", true);
+  const [showAccountBalance, toggleAccountBalance] = useSectionToggle("mt5data", "account_balance", true);
+  const [showSetupStep1, toggleSetupStep1] = useSectionToggle("mt5data", "setup_step1", false);
+  const [showMultiTf, toggleMultiTf] = useSectionToggle("mt5data", "multi_tf", false);
 
   const copyToClipboard = (text: string, label = "Copied!") => {
     navigator.clipboard.writeText(text);
@@ -2023,18 +2051,23 @@ export default function MT5ChartDataPage() {
         {aiConfirmationSetting?.enabled && aiConfirmationLogs.length > 0 && (
           <Card className="bg-gradient-to-br from-gray-800/80 to-gray-900/80 border-purple-500/30">
             <CardHeader className="pb-2">
-              <CardTitle className="text-white flex items-center gap-2 text-lg">
-                <Brain className="w-5 h-5 text-purple-400" />
-                AI Strategy Action Feed
-                <Badge variant="outline" className="text-purple-400 border-purple-500/40 text-[10px]">
-                  Last {aiConfirmationLogs.length}
-                </Badge>
-              </CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-white flex items-center gap-2 text-lg">
+                  <Brain className="w-5 h-5 text-purple-400" />
+                  AI Strategy Action Feed
+                  <Badge variant="outline" className="text-purple-400 border-purple-500/40 text-[10px]">
+                    Last {aiConfirmationLogs.length}
+                  </Badge>
+                </CardTitle>
+                <button onClick={toggleAiFeed} className="text-gray-500 hover:text-white transition-colors">
+                  <ChevronDown className={`h-4 w-4 transition-transform ${showAiFeed ? '' : '-rotate-90'}`} />
+                </button>
+              </div>
               <CardDescription>
                 Live feed of how the AI is thinking — news awareness, strategy alignment, and trade decisions in real-time.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3 max-h-[600px] overflow-y-auto">
+            {showAiFeed && <CardContent className="space-y-3 max-h-[600px] overflow-y-auto">
               {aiConfirmationLogs.map((log) => (
                 <motion.div
                   key={log.id}
@@ -2268,7 +2301,7 @@ export default function MT5ChartDataPage() {
                   </div>
                 </motion.div>
               ))}
-            </CardContent>
+            </CardContent>}
           </Card>
         )}
 
@@ -2292,7 +2325,7 @@ export default function MT5ChartDataPage() {
             ? accountData.accounts
             : [accountData];
           const connectedAccounts = allAccounts.filter(a => a.connected);
-          
+
           return (
             <motion.div
               initial={{ opacity: 0, y: 20 }}
@@ -2310,10 +2343,13 @@ export default function MT5ChartDataPage() {
                   <Button variant="ghost" size="sm" onClick={() => refetchAccountData()}>
                     <RefreshCw className="w-4 h-4" />
                   </Button>
+                  <button onClick={toggleAccountBalance} className="text-gray-500 hover:text-white transition-colors">
+                    <ChevronDown className={`h-4 w-4 transition-transform ${showAccountBalance ? '' : '-rotate-90'}`} />
+                  </button>
                 </div>
               )}
 
-              <div className={allAccounts.length > 1 ? "grid grid-cols-1 md:grid-cols-2 gap-4" : ""}>
+              {showAccountBalance && <div className={allAccounts.length > 1 ? "grid grid-cols-1 md:grid-cols-2 gap-4" : ""}>
               {allAccounts.map((acct, acctIdx) => (
                 <Card key={`${acct.accountNumber}_${acct.broker}_${acctIdx}`} className={`bg-gradient-to-br from-gray-800/80 to-gray-900/80 ${acct.connected ? 'border-amber-500/30' : 'border-gray-600/30 opacity-60'}`}>
                   <CardHeader className="pb-2">
@@ -2335,6 +2371,11 @@ export default function MT5ChartDataPage() {
                           <Button variant="ghost" size="sm" onClick={() => refetchAccountData()}>
                             <RefreshCw className="w-4 h-4" />
                           </Button>
+                        )}
+                        {allAccounts.length <= 1 && acctIdx === 0 && (
+                          <button onClick={toggleAccountBalance} className="text-gray-500 hover:text-white transition-colors">
+                            <ChevronDown className={`h-4 w-4 transition-transform ${showAccountBalance ? '' : '-rotate-90'}`} />
+                          </button>
                         )}
                       </div>
                     </div>
@@ -2445,7 +2486,7 @@ export default function MT5ChartDataPage() {
                   </CardContent>
                 </Card>
               ))}
-              </div>
+              </div>}
             </motion.div>
           );
         })()}
@@ -2472,13 +2513,18 @@ export default function MT5ChartDataPage() {
         <div className="grid lg:grid-cols-2 gap-6">
           <Card className="bg-gray-800/50 border-gray-700">
             <CardHeader>
-              <CardTitle className="text-white flex items-center gap-2">
-                <Key className="w-5 h-5 text-amber-400" />
-                Step 1: Create API Token
-              </CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-white flex items-center gap-2">
+                  <Key className="w-5 h-5 text-amber-400" />
+                  Step 1: Create API Token
+                </CardTitle>
+                <button onClick={toggleSetupStep1} className="text-gray-500 hover:text-white transition-colors">
+                  <ChevronDown className={`h-4 w-4 transition-transform ${showSetupStep1 ? '' : '-rotate-90'}`} />
+                </button>
+              </div>
               <CardDescription>Generate a unique token for your MT5 EA</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
+            {showSetupStep1 && <CardContent className="space-y-4">
               <div className="flex gap-2">
                 <Input
                   placeholder="Token name (e.g., My MT5 Account)"
@@ -2548,7 +2594,7 @@ export default function MT5ChartDataPage() {
                   ))}
                 </div>
               )}
-            </CardContent>
+            </CardContent>}
           </Card>
 
           <Card className="bg-gray-800/50 border-gray-700">
@@ -2637,13 +2683,18 @@ export default function MT5ChartDataPage() {
 
         <Card className="bg-gray-800/50 border-gray-700">
           <CardHeader>
-            <CardTitle className="text-white flex items-center gap-2">
-              <Layers className="w-5 h-5 text-purple-400" />
-              Multi-Timeframe Analysis
-            </CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-white flex items-center gap-2">
+                <Layers className="w-5 h-5 text-purple-400" />
+                Multi-Timeframe Analysis
+              </CardTitle>
+              <button onClick={toggleMultiTf} className="text-gray-500 hover:text-white transition-colors">
+                <ChevronDown className={`h-4 w-4 transition-transform ${showMultiTf ? '' : '-rotate-90'}`} />
+              </button>
+            </div>
             <CardDescription>The EA can analyze multiple timeframes for stronger signals</CardDescription>
           </CardHeader>
-          <CardContent>
+          {showMultiTf && <CardContent>
             <div className="grid md:grid-cols-3 gap-4">
               <div className="p-4 bg-gray-900/50 rounded-lg border border-purple-700/30">
                 <h4 className="text-purple-400 font-semibold mb-2">Scalping (Fast)</h4>
@@ -2667,7 +2718,7 @@ export default function MT5ChartDataPage() {
                 <span><strong>Pro Tip:</strong> When 60%+ of your selected timeframes align with the signal direction, AI confidence gets a +10% boost. The more timeframes agree, the stronger the signal!</span>
               </p>
             </div>
-          </CardContent>
+          </CardContent>}
         </Card>
 
         <Card className="bg-gray-800/50 border-gray-700">
