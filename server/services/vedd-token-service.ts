@@ -1,7 +1,7 @@
 import { Connection, PublicKey, Keypair, Transaction, sendAndConfirmTransaction } from '@solana/web3.js';
 import { getAssociatedTokenAddress, createTransferInstruction, TOKEN_PROGRAM_ID, getOrCreateAssociatedTokenAccount } from '@solana/spl-token';
 import { db } from '../db';
-import { veddPoolWallets, veddTransferJobs, users, veddRewardConfig, ambassadorActionRewards } from '@shared/schema';
+import { veddPoolWallets, veddTransferJobs, users, veddRewardConfig, ambassadorActionRewards, veddWalletBlacklist } from '@shared/schema';
 import { eq, and, sql, desc, isNull } from 'drizzle-orm';
 
 const VEDD_TOKEN_MINT = process.env.VEDD_TOKEN_MINT || '';
@@ -131,7 +131,7 @@ export class VeddTokenService {
     };
   }
 
-  async calculateReward(actionType: string, userId: number): Promise<{ baseReward: number; bonusReward: number; totalReward: number } | null> {
+  async calculateReward(actionType: string, userId: number): Promise<{ baseReward: number; bonusReward: number; totalReward: number; securityFlag?: string } | null> {
     const config = await this.getRewardConfig(actionType);
     if (!config) return null;
 
@@ -151,11 +151,23 @@ export class VeddTokenService {
       return null;
     }
 
+    // Velocity check: more than 3 of same action in last 10 minutes = flag
+    const tenMinsAgo = new Date(Date.now() - 10 * 60 * 1000);
+    const recentBurst = await db.select({ count: sql<number>`count(*)` })
+      .from(ambassadorActionRewards)
+      .where(and(
+        eq(ambassadorActionRewards.userId, userId),
+        eq(ambassadorActionRewards.actionType, actionType),
+        sql`${ambassadorActionRewards.createdAt} >= ${tenMinsAgo}`
+      ));
+    const burstCount = recentBurst[0]?.count || 0;
+    const securityFlag = burstCount >= 3 ? 'velocity' : undefined;
+
     const baseReward = config.baseAmount;
     const bonusReward = 0;
     const totalReward = baseReward + bonusReward;
 
-    return { baseReward, bonusReward, totalReward };
+    return { baseReward, bonusReward, totalReward, securityFlag };
   }
 
   async enqueueReward(
@@ -175,6 +187,21 @@ export class VeddTokenService {
     }
 
     const hasWallet = !!user.walletAddress;
+
+    // Check wallet blacklist
+    const userRecord = await db.select({ walletAddress: users.walletAddress })
+      .from(users).where(eq(users.id, userId)).limit(1);
+    const walletAddr = (userRecord[0] as any)?.walletAddress;
+    if (walletAddr) {
+      const [blacklisted] = await db.select({ id: veddWalletBlacklist.id })
+        .from(veddWalletBlacklist)
+        .where(and(eq(veddWalletBlacklist.walletAddress, walletAddr), eq(veddWalletBlacklist.isActive, true)))
+        .limit(1);
+      if (blacklisted) {
+        console.warn(`[VEDD Security] Blocked reward for blacklisted wallet: ${walletAddr} (userId: ${userId})`);
+        return null;
+      }
+    }
 
     const rewardCalc = await this.calculateReward(actionType, userId);
     if (!rewardCalc) {
@@ -203,7 +230,8 @@ export class VeddTokenService {
         totalReward: rewardCalc.totalReward,
         verificationStatus: 'pending',
         verifiedAt: null,
-        notes: hasWallet ? 'Pending admin verification' : 'Pending admin verification and wallet connection'
+        notes: hasWallet ? 'Pending admin verification' : 'Pending admin verification and wallet connection',
+        securityFlag: rewardCalc.securityFlag || null
       })
       .returning();
 
@@ -222,6 +250,15 @@ export class VeddTokenService {
 
     if (job.status === 'completed') {
       return { success: true, transactionSig: job.solanaTransactionSig || undefined };
+    }
+
+    const MAX_SINGLE_TRANSFER = 1000; // VEDD — safety cap per transfer
+    if (job.amount > MAX_SINGLE_TRANSFER) {
+      console.warn(`[VEDD Security] Transfer amount ${job.amount} exceeds MAX_SINGLE_TRANSFER (${MAX_SINGLE_TRANSFER}). Requires manual review.`);
+      await db.update(veddTransferJobs)
+        .set({ status: 'failed', errorMessage: `Amount ${job.amount} exceeds security limit of ${MAX_SINGLE_TRANSFER} VEDD per transfer. Admin must manually approve.` })
+        .where(eq(veddTransferJobs.id, jobId));
+      return { success: false, error: 'Transfer blocked by security limit' };
     }
 
     if (!VEDD_TOKEN_MINT || !POOL_WALLET_PRIVATE_KEY) {

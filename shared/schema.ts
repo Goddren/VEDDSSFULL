@@ -1316,6 +1316,21 @@ export const veddTransferJobs = pgTable("vedd_transfer_jobs", {
   processedAt: timestamp("processed_at"),
 });
 
+// Wallet Blacklist - Block known bad actors from receiving VEDD rewards
+export const veddWalletBlacklist = pgTable("vedd_wallet_blacklist", {
+  id: serial("id").primaryKey(),
+  walletAddress: text("wallet_address").notNull().unique(),
+  reason: text("reason").notNull(), // 'scam'|'whale_abuse'|'multi_account'|'suspicious'|'spam'
+  addedBy: integer("added_by").references(() => users.id),
+  notes: text("notes"),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertVeddWalletBlacklistSchema = createInsertSchema(veddWalletBlacklist).omit({ id: true, createdAt: true });
+export type VeddWalletBlacklist = typeof veddWalletBlacklist.$inferSelect;
+export type InsertVeddWalletBlacklist = z.infer<typeof insertVeddWalletBlacklistSchema>;
+
 // Ambassador Action Rewards - Track rewards for verified ambassador actions
 export const ambassadorActionRewards = pgTable("ambassador_action_rewards", {
   id: serial("id").primaryKey(),
@@ -1330,6 +1345,7 @@ export const ambassadorActionRewards = pgTable("ambassador_action_rewards", {
   verifiedAt: timestamp("verified_at"),
   transferJobId: integer("transfer_job_id").references(() => veddTransferJobs.id), // Link to transfer when processed
   notes: text("notes"), // Admin notes or rejection reason
+  securityFlag: text("security_flag"), // null = clean, 'velocity'|'duplicate'|'suspicious'
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

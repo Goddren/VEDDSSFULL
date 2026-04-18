@@ -1,8 +1,8 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { veddTokenService } from '../services/vedd-token-service';
 import { db } from '../db';
-import { users, veddPoolWallets, veddRewardConfig, ambassadorActionRewards, veddTransferJobs, referrals } from '@shared/schema';
-import { eq, desc } from 'drizzle-orm';
+import { users, veddPoolWallets, veddRewardConfig, ambassadorActionRewards, veddTransferJobs, referrals, veddWalletBlacklist } from '@shared/schema';
+import { eq, desc, sql } from 'drizzle-orm';
 
 const router = Router();
 
@@ -233,6 +233,62 @@ router.post('/admin/config/:actionType', requireAdmin, async (req: Request, res:
   } catch (error: any) {
     console.error('Error updating reward config:', error);
     res.status(500).json({ error: 'Failed to update reward configuration' });
+  }
+});
+
+// GET /api/vedd/admin/blacklist — list blacklisted wallets
+router.get('/admin/blacklist', requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const list = await db.select().from(veddWalletBlacklist)
+      .orderBy(desc(veddWalletBlacklist.createdAt)).limit(200);
+    res.json(list);
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to fetch blacklist' });
+  }
+});
+
+// POST /api/vedd/admin/blacklist — add wallet to blacklist
+router.post('/admin/blacklist', requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const adminId = (req.user as any).id;
+    const { walletAddress, reason, notes } = req.body;
+    if (!walletAddress || !reason) return res.status(400).json({ error: 'walletAddress and reason required' });
+    // Validate Solana base58 address format
+    if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(walletAddress)) {
+      return res.status(400).json({ error: 'Invalid Solana wallet address format' });
+    }
+    await db.insert(veddWalletBlacklist).values({ walletAddress, reason, notes, addedBy: adminId }).onConflictDoUpdate({
+      target: veddWalletBlacklist.walletAddress,
+      set: { reason, notes, isActive: true, addedBy: adminId }
+    });
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to add to blacklist' });
+  }
+});
+
+// DELETE /api/vedd/admin/blacklist/:address — remove wallet from blacklist
+router.delete('/admin/blacklist/:address', requireAdmin, async (req: Request, res: Response) => {
+  try {
+    await db.update(veddWalletBlacklist)
+      .set({ isActive: false })
+      .where(eq(veddWalletBlacklist.walletAddress, req.params.address));
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to remove from blacklist' });
+  }
+});
+
+// GET /api/vedd/admin/security-alerts — flagged/velocity rewards needing review
+router.get('/admin/security-alerts', requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const flagged = await db.select().from(ambassadorActionRewards)
+      .where(sql`${ambassadorActionRewards.securityFlag} IS NOT NULL`)
+      .orderBy(desc(ambassadorActionRewards.createdAt))
+      .limit(100);
+    res.json(flagged);
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to fetch security alerts' });
   }
 });
 
