@@ -1511,38 +1511,49 @@ function AutoTradingPanel() {
         {!connected ? (
           <div className="flex flex-col gap-2">
             <div className="flex gap-2 items-center flex-wrap">
-              <Badge variant="outline" className="text-yellow-400 border-yellow-500/30">
-                <AlertTriangle className="h-3 w-3 mr-1" />
-                Wallet Not Connected
-              </Badge>
-              <Button onClick={() => connect('phantom')} variant="outline" size="sm" disabled={connecting}>
-                <LinkIcon className="h-4 w-4 mr-1" />
-                {connecting ? 'Connecting...' : 'Connect Phantom'}
-              </Button>
-              <Button 
-                variant="ghost" 
-                size="sm" 
-                onClick={() => {
-                  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-                  if (isMobile) {
-                    const currentUrl = encodeURIComponent(window.location.href);
-                    window.location.href = `https://phantom.app/ul/browse/${currentUrl}`;
-                  } else {
-                    window.open('https://phantom.app/', '_blank');
-                  }
-                }}
-                className="text-xs text-muted-foreground"
-              >
-                <ExternalLink className="h-3 w-3 mr-1" />
-                {/iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ? 'Open in Phantom App' : 'Install Phantom'}
-              </Button>
+              {connecting ? (
+                <Badge variant="outline" className="text-cyan-400 border-cyan-500/30 animate-pulse">
+                  <RefreshCw className="h-3 w-3 mr-1 animate-spin" />
+                  Detecting wallet...
+                </Badge>
+              ) : (
+                <Badge variant="outline" className="text-yellow-400 border-yellow-500/30">
+                  <AlertTriangle className="h-3 w-3 mr-1" />
+                  Wallet Not Connected
+                </Badge>
+              )}
+              {!connecting && (
+                <>
+                  <Button onClick={() => connect('phantom')} variant="outline" size="sm">
+                    <LinkIcon className="h-4 w-4 mr-1" />
+                    Connect Phantom
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+                      if (isMobile) {
+                        const currentUrl = encodeURIComponent(window.location.href);
+                        window.location.href = `https://phantom.app/ul/browse/${currentUrl}`;
+                      } else {
+                        window.open('https://phantom.app/', '_blank');
+                      }
+                    }}
+                    className="text-xs text-muted-foreground"
+                  >
+                    <ExternalLink className="h-3 w-3 mr-1" />
+                    {/iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ? 'Open in Phantom App' : 'Install Phantom'}
+                  </Button>
+                </>
+              )}
             </div>
             {error && (
               <p className="text-xs text-red-400">{error}</p>
             )}
-            {/iPhone|iPad|iPod|Android/i.test(navigator.userAgent) && (
+            {!connecting && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) && (
               <p className="text-xs text-muted-foreground">
-                On mobile, open this page in the Phantom app browser to connect your wallet
+                On mobile, open this page in the Phantom app browser to connect your wallet automatically
               </p>
             )}
           </div>

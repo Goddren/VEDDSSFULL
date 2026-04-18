@@ -349,41 +349,16 @@ export function SolanaWalletProvider({ children }: { children: ReactNode }) {
     return null;
   }, [walletType]);
 
+  // ── Auto-connect: restore wallet session on page load ──────────
   useEffect(() => {
-    const provider = getPhantomProvider();
-    if (!provider) return;
+    let cancelled = false;
 
-    const handleConnect = () => {
-      if (provider.publicKey) {
-        refreshWalletData();
-        setConnected(true);
-      }
-    };
-
-    const handleDisconnect = () => {
-      setConnected(false);
-      setWalletData(null);
-    };
-
-    const handleAccountChange = () => {
-      if (provider.publicKey) {
-        refreshWalletData();
-      } else {
-        setConnected(false);
-        setWalletData(null);
-      }
-    };
-
-    provider.on('connect', handleConnect);
-    provider.on('disconnect', handleDisconnect);
-    provider.on('accountChanged', handleAccountChange);
-
-    // Passive restore: Phantom already injects publicKey for trusted sites on load.
-    // Never call provider.connect() automatically — even onlyIfTrusted causes Phantom
-    // to show its own "not authorized" error notification when the site isn't trusted yet.
-    if (provider.publicKey) {
-      const address = provider.publicKey.toString();
-      fetchTokenBalances(address).then(balances => {
+    const restoreWallet = async (provider: SolanaProvider, type: WalletType) => {
+      if (cancelled) return;
+      const address = provider.publicKey!.toString();
+      try {
+        const balances = await fetchTokenBalances(address);
+        if (cancelled) return;
         setWalletData({
           address,
           solBalance: balances.solBalance || 0,
@@ -394,17 +369,128 @@ export function SolanaWalletProvider({ children }: { children: ReactNode }) {
           hasVeddNft: balances.hasVeddNft || false,
           membershipNftMint: balances.membershipNftMint || null,
         });
-        setWalletType('phantom');
+        setWalletType(type);
         setConnected(true);
-      }).catch(() => {});
-    }
+      } catch {
+        // silently ignore on auto-restore
+      }
+    };
+
+    const tryAutoConnect = async () => {
+      // Try Phantom first, then pumpfun
+      const walletCandidates: { getter: () => SolanaProvider | null; type: WalletType }[] = [
+        { getter: getPhantomProvider, type: 'phantom' },
+        { getter: getPumpFunProvider, type: 'pumpfun' },
+      ];
+
+      for (const { getter, type } of walletCandidates) {
+        const provider = getter();
+        if (!provider) continue;
+
+        // Case 1: publicKey already available (trusted site, wallet unlocked)
+        if (provider.publicKey) {
+          await restoreWallet(provider, type);
+          return;
+        }
+
+        // Case 2: Provider present but publicKey not yet set — try onlyIfTrusted
+        // This silently connects if the user already approved this site, no popup shown.
+        try {
+          const resp = await provider.connect({ onlyIfTrusted: true });
+          if (resp?.publicKey && !cancelled) {
+            await restoreWallet(provider, type);
+            return;
+          }
+        } catch {
+          // Not trusted yet or wallet locked — that's fine, skip silently
+        }
+      }
+    };
+
+    // Attempt immediately, then retry a few times to handle slow injection
+    const delays = [0, 300, 800, 1500, 3000];
+    let attemptIdx = 0;
+    let timeoutId: ReturnType<typeof setTimeout>;
+
+    const attempt = async () => {
+      if (cancelled) return;
+      await tryAutoConnect();
+      // If still not connected, schedule next retry
+      if (!cancelled && attemptIdx < delays.length - 1) {
+        attemptIdx++;
+        timeoutId = setTimeout(attempt, delays[attemptIdx]);
+      }
+    };
+
+    attempt();
+
+    // ── Wallet event listeners ──────────────────────────────────
+    const setupListeners = () => {
+      const provider = getPhantomProvider();
+      if (!provider) return;
+
+      const handleConnect = () => {
+        if (provider.publicKey && !cancelled) {
+          const address = provider.publicKey.toString();
+          fetchTokenBalances(address).then(balances => {
+            if (cancelled) return;
+            setWalletData({
+              address,
+              solBalance: balances.solBalance || 0,
+              veddBalance: balances.veddBalance || 0,
+              isAmbassador: balances.isAmbassador || false,
+              ambassadorNftMint: balances.ambassadorNftMint || null,
+              membershipTier: balances.membershipTier || 'none',
+              hasVeddNft: balances.hasVeddNft || false,
+              membershipNftMint: balances.membershipNftMint || null,
+            });
+            setWalletType('phantom');
+            setConnected(true);
+          }).catch(() => {});
+        }
+      };
+
+      const handleDisconnect = () => {
+        if (!cancelled) {
+          setConnected(false);
+          setWalletData(null);
+          setWalletType(null);
+        }
+      };
+
+      const handleAccountChange = () => {
+        if (!cancelled) {
+          if (provider.publicKey) {
+            setWalletType('phantom');
+            refreshWalletData();
+          } else {
+            setConnected(false);
+            setWalletData(null);
+            setWalletType(null);
+          }
+        }
+      };
+
+      provider.on('connect', handleConnect);
+      provider.on('disconnect', handleDisconnect);
+      provider.on('accountChanged', handleAccountChange);
+
+      return () => {
+        provider.off('connect', handleConnect);
+        provider.off('disconnect', handleDisconnect);
+        provider.off('accountChanged', handleAccountChange);
+      };
+    };
+
+    const cleanup = setupListeners();
 
     return () => {
-      provider.off('connect', handleConnect);
-      provider.off('disconnect', handleDisconnect);
-      provider.off('accountChanged', handleAccountChange);
+      cancelled = true;
+      clearTimeout(timeoutId);
+      cleanup?.();
     };
-  }, [refreshWalletData, fetchTokenBalances]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <WalletContext.Provider
