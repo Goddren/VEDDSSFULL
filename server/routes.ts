@@ -16446,7 +16446,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const { platform, keywords } = req.body;
       if (!platform || !keywords) return res.status(400).json({ message: "platform and keywords are required" });
       const ambassadorName = req.user.fullName || req.user.username || 'Ambassador';
-      const kit = await generateSocialOutreachKit(platform, keywords, ambassadorName);
+      const kit = await generateSocialOutreachKit(platform, keywords, ambassadorName, req.user.id);
       const scan = await storage.createSocialLeadScan({
         userId: req.user.id,
         platform,

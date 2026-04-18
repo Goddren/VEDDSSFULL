@@ -2980,7 +2980,8 @@ Eligibility: ${Array.isArray(grant.eligibilityCriteria) ? grant.eligibilityCrite
 export async function generateSocialOutreachKit(
   platform: string,
   keywords: string,
-  ambassadorName: string
+  ambassadorName: string,
+  userId?: number
 ): Promise<{
   hashtags: string[];
   searchQueries: string[];
@@ -2991,7 +2992,20 @@ export async function generateSocialOutreachKit(
   bestTimeToPost: string;
   tips: string[];
 }> {
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  // Resolve API key: user's stored key → env fallback
+  let resolvedApiKey = process.env.OPENAI_API_KEY;
+  if (userId) {
+    try {
+      const { storage } = await import('./storage');
+      const keys = await storage.getUserApiKeys(userId);
+      const userKey = keys.find((k: any) => k.provider === 'openai' && k.isActive && k.isValid !== false);
+      if (userKey?.apiKey) resolvedApiKey = userKey.apiKey;
+    } catch { /* fall through to env key */ }
+  }
+  if (!resolvedApiKey) {
+    throw new Error('No OpenAI API key available. Please add your OpenAI key in Settings → API Keys.');
+  }
+  const openai = new OpenAI({ apiKey: resolvedApiKey });
 
   const encodedKeywords = encodeURIComponent(keywords);
   const firstHashtag = keywords.split(/[\s,]+/)[0]?.replace('#', '') || 'trading';

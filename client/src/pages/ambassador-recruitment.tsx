@@ -392,7 +392,7 @@ export default function AmbassadorRecruitmentPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/ambassador/social-scans"] });
       toast({ title: "Outreach kit generated!" });
     },
-    onError: () => toast({ title: "Failed to generate outreach kit", variant: "destructive" }),
+    onError: (err: any) => toast({ title: "Failed to generate outreach kit", description: err?.message || "Add your OpenAI API key in Settings → API Keys", variant: "destructive" }),
   });
 
   const addProspectMutation = useMutation({
