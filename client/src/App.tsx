@@ -54,6 +54,7 @@ import PublicEventPage from "@/pages/public-event";
 import StreakTrackerPage from "@/pages/streak-tracker";
 import WhatIfAnalysisPage from "@/pages/what-if-analysis";
 import AdminVeddPool from "@/pages/admin-vedd-pool";
+import AdminHub from "@/pages/admin-hub";
 import WebhooksPage from "@/pages/webhooks";
 import MT5ChartDataPage from "@/pages/mt5-chart-data";
 import NotificationSettings from "@/pages/notification-settings";
@@ -207,6 +208,7 @@ function AppLayout() {
             <Route path="/lp/:slug" component={AmbassadorLandingPage} />
 
             {/* Admin routes */}
+            <ProtectedRoute path="/admin" component={AdminHub} />
             <ProtectedRoute path="/admin/vedd-pool" component={AdminVeddPool} />
             <ProtectedRoute path="/vedd-wallet" component={VeddWalletPage} />
             <ProtectedRoute path="/host-dashboard" component={HostDashboardPage} />

@@ -38,7 +38,7 @@ import {
   BookOpen, GraduationCap, FileText, Lightbulb, ChevronDown, MoreHorizontal,
   BarChart3, Webhook, Wallet, Scan, Coins, KeyRound, Rocket, Brain, Shirt,
   Radio, Star, CheckCircle2, AlertTriangle, Loader2, ExternalLink, TrendingUp, Code2, Activity,
-  DollarSign, Globe, Search
+  DollarSign, Globe, Search, Shield
 } from 'lucide-react';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 
@@ -445,6 +445,27 @@ const Header: React.FC = () => {
                       </DropdownMenuItem>
                     </>
                   )}
+                  {user?.isAdmin && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem className="cursor-pointer" asChild>
+                        <Link href="/admin">
+                          <div className="flex items-center w-full text-red-400">
+                            <Shield className="mr-2 h-4 w-4" />
+                            <span>Admin Control Centre</span>
+                          </div>
+                        </Link>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem className="cursor-pointer" asChild>
+                        <Link href="/admin/vedd-pool">
+                          <div className="flex items-center w-full text-amber-400">
+                            <Coins className="mr-2 h-4 w-4" />
+                            <span>Token Distribution</span>
+                          </div>
+                        </Link>
+                      </DropdownMenuItem>
+                    </>
+                  )}
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={handleLogout} className="cursor-pointer">
                     <LogOut className="mr-2 h-4 w-4" />
@@ -578,6 +599,26 @@ const Header: React.FC = () => {
                       >
                         <DollarSign className="h-4 w-4 mr-2" />
                         Grants & Funding
+                      </Link>
+                    </>
+                  )}
+                  {user?.isAdmin && (
+                    <>
+                      <Link
+                        href="/admin"
+                        onClick={handleMobileNavClick}
+                        className="text-lg font-medium transition-colors flex items-center text-red-400 hover:text-red-300"
+                      >
+                        <Shield className="h-4 w-4 mr-2" />
+                        Admin Control Centre
+                      </Link>
+                      <Link
+                        href="/admin/vedd-pool"
+                        onClick={handleMobileNavClick}
+                        className="text-lg font-medium transition-colors flex items-center text-amber-400 hover:text-amber-300"
+                      >
+                        <Coins className="h-4 w-4 mr-2" />
+                        Token Distribution
                       </Link>
                     </>
                   )}
