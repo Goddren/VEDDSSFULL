@@ -571,8 +571,8 @@ async function withRetry<T>(
       // Upsert all reward configs — safe to run on every startup (ON CONFLICT DO NOTHING)
       await db.execute(sql`INSERT INTO vedd_reward_config (action_type, base_amount, streak_multiplier, max_daily_rewards, requires_verification, is_active, description)
         VALUES
-          ('devotional_solo',        75,  1.1, 1, false, true, 'Completed daily devotional solo (5+ minutes)'),
-          ('devotional_group',       150, 1.2, 1, false, true, 'Completed daily devotional in a group session (2× reward)'),
+          ('devotional_solo',        73,  1.1, 1, false, true, 'Completed daily devotional solo (5+ minutes)'),
+          ('devotional_group',       148, 1.2, 1, false, true, 'Completed daily devotional in a group session (2× reward)'),
           ('blog_share',             20,  1.0, 1, false, true, 'Shared a blog article with affiliate link'),
           ('strategy_review',        15,  1.0, 1, false, true, 'Reviewed weekly trading strategy'),
           ('analysis_view',          10,  1.0, 1, false, true, 'Viewed AI chart analysis'),
@@ -580,7 +580,8 @@ async function withRetry<T>(
           ('grant_apply',            25,  1.0, 1, false, true, 'Started or submitted a grant application'),
           ('training_module',        50,  1.0, 3, false, true, 'Completed an ambassador training module'),
           ('devotional_streak_bonus',200, 1.0, 1, false, true, '5-day devotional streak bonus (weekly)')
-        ON CONFLICT (action_type) DO NOTHING`);
+        ON CONFLICT (action_type) DO UPDATE SET base_amount = EXCLUDED.base_amount
+          WHERE vedd_reward_config.action_type IN ('devotional_solo','devotional_group')`);
       console.log('[startup] Devotional & daily-mission reward configs created/verified.');
     } catch (err) {
       console.error('[startup] Devotional tables migration (non-fatal):', (err as Error).message);

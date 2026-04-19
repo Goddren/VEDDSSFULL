@@ -97,8 +97,8 @@ router.get('/daily-missions', async (req: Request, res: Response) => {
     // Master task list — daily tasks use todayMap; weekly tasks use weekMap
     const tasks = [
       // ── Daily ──
-      { actionType: 'devotional_solo',   label: 'Daily Devotional (Solo)',          veddReward: 75,  maxCount: 1, category: 'daily',  icon: 'heart',    description: 'Complete today\'s devotional (5+ min)' },
-      { actionType: 'devotional_group',  label: 'Group Devotional w/ Ambassadors',  veddReward: 150, maxCount: 1, category: 'daily',  icon: 'users',    description: 'Join a group devotional session for 2× reward' },
+      { actionType: 'devotional_solo',   label: 'Daily Devotional (Solo)',          veddReward: 73,  maxCount: 1, category: 'daily',  icon: 'heart',    description: 'Complete today\'s devotional (5+ min)' },
+      { actionType: 'devotional_group',  label: 'Group Devotional w/ Ambassadors',  veddReward: 148, maxCount: 1, category: 'daily',  icon: 'users',    description: 'Join a group devotional session for 2× reward' },
       { actionType: 'strategy_review',   label: 'Review Weekly Strategy',           veddReward: 15,  maxCount: 1, category: 'daily',  icon: 'trending', description: 'Check your weekly trading strategy page' },
       { actionType: 'analysis_view',     label: 'View AI Chart Analysis',           veddReward: 10,  maxCount: 1, category: 'daily',  icon: 'chart',    description: 'Open an AI analysis on the analysis page' },
       { actionType: 'live_monitor_check',label: 'Check Live Trading Monitor',       veddReward: 5,   maxCount: 1, category: 'daily',  icon: 'radio',    description: 'Visit the live monitor to check signals' },
