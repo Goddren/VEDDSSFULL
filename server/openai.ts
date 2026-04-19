@@ -3280,3 +3280,81 @@ OUTPUT: Return a JSON object with these exact fields:
     currentEventsContext,
   };
 }
+
+// ─── Daily Devotional Generator ──────────────────────────────────────────────
+
+export async function generateDailyDevotional(date: string): Promise<{
+  title: string;
+  theme: string;
+  scripture: string;
+  scriptureText: string;
+  reflection: string;
+  prayerPoints: string[];
+  affirmation: string;
+  tradingTieIn: string;
+}> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  const client = new OpenAI({ apiKey });
+
+  const systemPrompt = `You are the VEDD Trading AI spiritual coach. VEDD is a faith-based, community-driven fintech and trading AI platform built around mindset, discipline, and excellence. Our ambassador network spans cities worldwide. Our values: faith, resilience, discipline, community, generosity, and excellence in trading.
+
+Generate a daily devotional for ambassadors and users that:
+1. Ties Christian/faith-based scripture to trading mindset and financial discipline
+2. Speaks to our inter-city ambassador community building vision
+3. Is motivational, grounded, and practical
+4. Connects spiritual growth with professional growth in trading/finance
+5. Encourages community and collaboration between ambassadors
+
+Return ONLY valid JSON, no markdown, no extra text.`;
+
+  const userPrompt = `Generate a daily devotional for ${date}. Return JSON with exactly these fields:
+{
+  "title": "Compelling devotional title (max 10 words)",
+  "theme": "One-word or short theme (e.g. 'Discipline', 'Community', 'Excellence', 'Patience', 'Vision')",
+  "scripture": "Book Chapter:Verse reference (e.g. 'Proverbs 16:3')",
+  "scriptureText": "The full scripture verse text",
+  "reflection": "A 3-4 paragraph devotional reflection (300-400 words) connecting the scripture to trading mindset, financial discipline, and the ambassador community mission. Write in second person ('you'). Mention VEDD's mission of building inter-city ambassador communities.",
+  "prayerPoints": ["Prayer point 1", "Prayer point 2", "Prayer point 3", "Prayer point 4"],
+  "affirmation": "A powerful one-sentence daily affirmation the ambassador/user can speak aloud. Start with 'I am' or 'Today I'.",
+  "tradingTieIn": "2-3 sentences specifically connecting today's scripture theme to trading discipline, risk management, patience in the markets, or the mindset needed to succeed as a VEDD trader/ambassador."
+}`;
+
+  try {
+    const response = await client.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      temperature: 0.8,
+      max_tokens: 1200,
+      response_format: { type: 'json_object' },
+    });
+
+    const raw = response.choices[0]?.message?.content || '{}';
+    const data = JSON.parse(raw);
+
+    return {
+      title: data.title || `Daily Devotional — ${date}`,
+      theme: data.theme || 'Excellence',
+      scripture: data.scripture || 'Philippians 4:13',
+      scriptureText: data.scriptureText || 'I can do all things through Christ who strengthens me.',
+      reflection: data.reflection || 'Today, embrace the discipline that separates great traders from average ones.',
+      prayerPoints: Array.isArray(data.prayerPoints) ? data.prayerPoints : ['Clarity in decisions', 'Strength in discipline', 'Unity in community', 'Wisdom in trading'],
+      affirmation: data.affirmation || 'I am disciplined, focused, and aligned with excellence today.',
+      tradingTieIn: data.tradingTieIn || 'Faith-based discipline applies directly to the markets — patience, trust in your system, and community accountability all drive long-term trading success.',
+    };
+  } catch (err) {
+    console.error('[devotional] AI generation failed:', err);
+    return {
+      title: `Daily Devotional — ${date}`,
+      theme: 'Discipline',
+      scripture: 'Proverbs 16:3',
+      scriptureText: 'Commit to the LORD whatever you do, and he will establish your plans.',
+      reflection: 'Every trade you place, every analysis you run, every ambassador you recruit — all of it flows from a foundation of discipline and purpose. When you commit your work to God, you trade not from fear or greed, but from a place of peace and clarity. The markets will fluctuate, but your foundation does not have to.',
+      prayerPoints: ['For clarity in decision-making', 'For patience in volatile markets', 'For unity among VEDD ambassadors', 'For financial breakthrough in our community'],
+      affirmation: 'I am disciplined, focused, and committed to excellence in every trade and every relationship.',
+      tradingTieIn: 'Committing your trading plan to a higher purpose removes emotional noise from your decisions. When you follow your system with faith and discipline, you trade with confidence regardless of market conditions.',
+    };
+  }
+}

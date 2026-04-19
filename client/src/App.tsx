@@ -36,6 +36,7 @@ import MarketSentimentPage from "@/pages/market-sentiment";
 import Community from "@/pages/community";
 import InteractiveTooltipShowcase from "@/pages/interactive-tooltip-showcase";
 import BlogPage from "@/pages/blog";
+import DevotionalPage from "@/pages/devotional";
 import StrategyWizard from "@/pages/strategy-wizard";
 import MobileAlerts from "@/pages/mobile-alerts";
 import MyEAsPage from "@/pages/my-eas";
@@ -158,6 +159,7 @@ function AppLayout() {
             <ProtectedRoute path="/ambassador/challenge/:id" component={ChallengeSession} />
             <ProtectedRoute path="/ambassador/sales-script" component={AmbassadorSalesScriptPage} />
             <ProtectedRoute path="/ambassador/free-path" component={AmbassadorFreePathPage} />
+            <Route path="/devotional" component={DevotionalPage} />
             
             {/* Public event page (no auth required) */}
             <Route path="/event/:slug" component={PublicEventPage} />

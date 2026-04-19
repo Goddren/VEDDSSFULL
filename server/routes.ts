@@ -2,7 +2,7 @@ import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { User, userApiKeys } from "@shared/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { db } from "./db";
 import { scrypt, randomBytes } from "crypto";
 import { promisify } from "util";
@@ -15,7 +15,7 @@ async function hashPasswordForWallet(password: string) {
   const buf = (await scryptAsync(password, salt, 64)) as Buffer;
   return `${buf.toString("hex")}.${salt}`;
 }
-import { analyzeChartImage, testOpenAIApiKey, generateTradingTip, generateMarketTrendPredictions, generatePresentationOutline, scanGrantsWithAI, generateGrantProposal, generateSocialOutreachKit, enrichLeadWithAI, generateVeddBlogPost } from "./openai";
+import { analyzeChartImage, testOpenAIApiKey, generateTradingTip, generateMarketTrendPredictions, generatePresentationOutline, scanGrantsWithAI, generateGrantProposal, generateSocialOutreachKit, enrichLeadWithAI, generateVeddBlogPost, generateDailyDevotional } from "./openai";
 import { setupTwilio, sendTradingSignal } from "./twilio";
 import { checkUserAchievements } from "./achievement-tracker";
 import { generateMT5EACode, generateTradingViewCode, generateTradeLockerCode } from './ea-generators';
@@ -16716,6 +16716,286 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       if (!day || day < 1 || day > 44) return res.status(400).json({ error: "Invalid day" });
       const plan = getAmbassadorDayPlan(day);
       res.json(plan);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ─── DEVOTIONALS ────────────────────────────────────────────────────────────
+
+  // GET today's devotional (auto-generate if missing)
+  app.get("/api/devotionals/today", async (req, res) => {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const existing = await db.execute(
+        sql`SELECT * FROM devotionals WHERE date = ${today} AND is_published = true LIMIT 1`
+      );
+      if ((existing.rows as any[]).length > 0) {
+        return res.json((existing.rows as any[])[0]);
+      }
+      // Auto-generate via AI
+      const generated = await generateDailyDevotional(today);
+      const inserted = await db.execute(
+        sql`INSERT INTO devotionals (date, title, theme, scripture, scripture_text, reflection, prayer_points, affirmation, trading_tie_in, minimum_minutes, ai_generated, is_published)
+            VALUES (${today}, ${generated.title}, ${generated.theme}, ${generated.scripture}, ${generated.scriptureText},
+                    ${generated.reflection}, ${JSON.stringify(generated.prayerPoints)}, ${generated.affirmation},
+                    ${generated.tradingTieIn}, 5, true, true)
+            RETURNING *`
+      );
+      res.json((inserted.rows as any[])[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET devotional history (last 30 days)
+  app.get("/api/devotionals", async (req, res) => {
+    try {
+      const rows = await db.execute(
+        sql`SELECT * FROM devotionals WHERE is_published = true ORDER BY date DESC LIMIT 30`
+      );
+      res.json(rows.rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Admin: manually trigger generation for a specific date
+  app.post("/api/devotionals/generate", async (req, res) => {
+    if (!(req as any).isAuthenticated() || !(req.user as any)?.isAdmin) {
+      return res.status(403).json({ error: 'Admin only' });
+    }
+    try {
+      const { date } = req.body;
+      const targetDate = date || new Date().toISOString().split('T')[0];
+      const generated = await generateDailyDevotional(targetDate);
+      const inserted = await db.execute(
+        sql`INSERT INTO devotionals (date, title, theme, scripture, scripture_text, reflection, prayer_points, affirmation, trading_tie_in, minimum_minutes, ai_generated, is_published)
+            VALUES (${targetDate}, ${generated.title}, ${generated.theme}, ${generated.scripture}, ${generated.scriptureText},
+                    ${generated.reflection}, ${JSON.stringify(generated.prayerPoints)}, ${generated.affirmation},
+                    ${generated.tradingTieIn}, 5, true, true)
+            ON CONFLICT (date) DO UPDATE SET
+              title = EXCLUDED.title, theme = EXCLUDED.theme, reflection = EXCLUDED.reflection,
+              prayer_points = EXCLUDED.prayer_points, affirmation = EXCLUDED.affirmation, trading_tie_in = EXCLUDED.trading_tie_in
+            RETURNING *`
+      );
+      res.json((inserted.rows as any[])[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST start a devotional session
+  app.post("/api/devotionals/sessions/start", async (req, res) => {
+    if (!(req as any).isAuthenticated()) return res.status(401).json({ error: 'Login required' });
+    try {
+      const userId = (req.user as any).id;
+      const { devotionalId, groupId } = req.body;
+      if (!devotionalId) return res.status(400).json({ error: 'devotionalId required' });
+
+      // Check if already has a session today
+      const existing = await db.execute(
+        sql`SELECT id FROM devotional_sessions WHERE user_id = ${userId} AND devotional_id = ${devotionalId} AND is_completed = false LIMIT 1`
+      );
+      if ((existing.rows as any[]).length > 0) {
+        return res.json({ sessionId: (existing.rows as any[])[0].id, resumed: true });
+      }
+
+      const isGroupSession = !!groupId;
+      const inserted = await db.execute(
+        sql`INSERT INTO devotional_sessions (user_id, devotional_id, group_id, is_group_session, started_at)
+            VALUES (${userId}, ${devotionalId}, ${groupId || null}, ${isGroupSession}, NOW())
+            RETURNING *`
+      );
+      const session = (inserted.rows as any[])[0];
+
+      // Increment group participant count
+      if (groupId) {
+        await db.execute(
+          sql`UPDATE devotional_groups SET participant_count = participant_count + 1 WHERE id = ${groupId}`
+        );
+      }
+      res.json({ sessionId: session.id, resumed: false });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST complete a devotional session + earn reward
+  app.post("/api/devotionals/sessions/:sessionId/complete", async (req, res) => {
+    if (!(req as any).isAuthenticated()) return res.status(401).json({ error: 'Login required' });
+    try {
+      const userId = (req.user as any).id;
+      const isAmbassador = !!(req.user as any)?.isAmbassador;
+      const isAdmin = !!(req.user as any)?.isAdmin;
+      const { sessionId } = req.params;
+      const { durationSeconds } = req.body;
+
+      const sessionRows = await db.execute(
+        sql`SELECT * FROM devotional_sessions WHERE id = ${parseInt(sessionId)} AND user_id = ${userId} LIMIT 1`
+      );
+      if (!(sessionRows.rows as any[]).length) return res.status(404).json({ error: 'Session not found' });
+      const session = (sessionRows.rows as any[])[0];
+      if (session.is_completed) return res.json({ alreadyCompleted: true, rewardAmount: session.reward_amount });
+
+      const minSeconds = 5 * 60; // 5 minutes minimum
+      if (durationSeconds < minSeconds) {
+        return res.status(400).json({ error: `Must spend at least 5 minutes in the devotional (${Math.round((minSeconds - durationSeconds) / 60)} min remaining)` });
+      }
+
+      // Determine reward
+      let rewardAmount = 0;
+      let rewardEarned = false;
+      const actionType = session.is_group_session ? 'devotional_group' : 'devotional_solo';
+
+      if (isAmbassador || isAdmin) {
+        try {
+          const { veddTokenService } = await import('./services/vedd-token-service');
+          const result = await veddTokenService.enqueueReward(userId, actionType, parseInt(sessionId));
+          if (result) {
+            rewardEarned = true;
+            rewardAmount = session.is_group_session ? 150 : 75;
+          }
+        } catch (rewardErr) {
+          console.warn('[devotional] Reward enqueue failed (non-fatal):', rewardErr);
+        }
+      }
+
+      await db.execute(
+        sql`UPDATE devotional_sessions SET is_completed = true, completed_at = NOW(), duration_seconds = ${durationSeconds},
+            reward_earned = ${rewardEarned}, reward_amount = ${rewardAmount}
+            WHERE id = ${parseInt(sessionId)}`
+      );
+
+      // Increment group completed count
+      if (session.group_id) {
+        await db.execute(
+          sql`UPDATE devotional_groups SET completed_count = completed_count + 1 WHERE id = ${session.group_id}`
+        );
+      }
+
+      res.json({ completed: true, rewardEarned, rewardAmount, actionType });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST create a group devotional session
+  app.post("/api/devotionals/groups", async (req, res) => {
+    if (!(req as any).isAuthenticated()) return res.status(401).json({ error: 'Login required' });
+    const userId = (req.user as any).id;
+    const isAmbassador = !!(req.user as any)?.isAmbassador;
+    const isAdmin = !!(req.user as any)?.isAdmin;
+    if (!isAmbassador && !isAdmin) return res.status(403).json({ error: 'Ambassadors only can create group sessions' });
+    try {
+      const { devotionalId, city } = req.body;
+      if (!devotionalId) return res.status(400).json({ error: 'devotionalId required' });
+
+      // Generate unique 6-char invite code
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      let inviteCode = '';
+      for (let i = 0; i < 6; i++) inviteCode += chars[Math.floor(Math.random() * chars.length)];
+
+      const inserted = await db.execute(
+        sql`INSERT INTO devotional_groups (devotional_id, created_by, invite_code, city, is_active, participant_count)
+            VALUES (${devotionalId}, ${userId}, ${inviteCode}, ${city || null}, true, 1)
+            RETURNING *`
+      );
+      res.json((inserted.rows as any[])[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET group by invite code
+  app.get("/api/devotionals/groups/:inviteCode", async (req, res) => {
+    try {
+      const rows = await db.execute(
+        sql`SELECT dg.*, d.title as devotional_title, d.theme, d.date, u.username as host_name
+            FROM devotional_groups dg
+            JOIN devotionals d ON dg.devotional_id = d.id
+            JOIN users u ON dg.created_by = u.id
+            WHERE dg.invite_code = ${req.params.inviteCode.toUpperCase()} AND dg.is_active = true
+            LIMIT 1`
+      );
+      if (!(rows.rows as any[]).length) return res.status(404).json({ error: 'Group not found or no longer active' });
+      res.json((rows.rows as any[])[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET user's devotional stats
+  app.get("/api/devotionals/my-stats", async (req, res) => {
+    if (!(req as any).isAuthenticated()) return res.status(401).json({ error: 'Login required' });
+    try {
+      const userId = (req.user as any).id;
+      const stats = await db.execute(
+        sql`SELECT
+              COUNT(*) FILTER (WHERE is_completed = true) as total_completed,
+              COUNT(*) FILTER (WHERE is_completed = true AND is_group_session = true) as group_completed,
+              COALESCE(SUM(reward_amount) FILTER (WHERE is_completed = true), 0) as total_vedd_earned,
+              MAX(completed_at) as last_completed_at
+            FROM devotional_sessions WHERE user_id = ${userId}`
+      );
+      const row = (stats.rows as any[])[0];
+
+      // Compute streak
+      const completedDates = await db.execute(
+        sql`SELECT DISTINCT DATE(completed_at)::text as d FROM devotional_sessions
+            WHERE user_id = ${userId} AND is_completed = true AND completed_at IS NOT NULL
+            ORDER BY d DESC LIMIT 60`
+      );
+      const dates = (completedDates.rows as any[]).map(r => r.d);
+      let streak = 0;
+      const today = new Date();
+      for (let i = 0; i < 60; i++) {
+        const d = new Date(today);
+        d.setDate(d.getDate() - i);
+        const ds = d.toISOString().split('T')[0];
+        if (dates.includes(ds)) streak++;
+        else break;
+      }
+
+      // Today's session
+      const todayStr = new Date().toISOString().split('T')[0];
+      const todaySession = await db.execute(
+        sql`SELECT ds.*, dg.invite_code as group_invite_code
+            FROM devotional_sessions ds
+            LEFT JOIN devotional_groups dg ON ds.group_id = dg.id
+            WHERE ds.user_id = ${userId} AND DATE(ds.created_at) = ${todayStr}::date
+            ORDER BY ds.created_at DESC LIMIT 1`
+      );
+
+      res.json({
+        totalCompleted: parseInt(row.total_completed) || 0,
+        groupCompleted: parseInt(row.group_completed) || 0,
+        totalVeddEarned: parseInt(row.total_vedd_earned) || 0,
+        streak,
+        lastCompletedAt: row.last_completed_at,
+        todaySession: (todaySession.rows as any[])[0] || null,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET community leaderboard (top 10 this month)
+  app.get("/api/devotionals/leaderboard", async (req, res) => {
+    try {
+      const rows = await db.execute(
+        sql`SELECT u.username, u.id as user_id,
+              COUNT(*) FILTER (WHERE ds.is_completed = true) as completions,
+              COALESCE(SUM(ds.reward_amount), 0) as vedd_earned,
+              COUNT(*) FILTER (WHERE ds.is_group_session = true AND ds.is_completed = true) as group_completions
+            FROM devotional_sessions ds
+            JOIN users u ON ds.user_id = u.id
+            WHERE ds.created_at >= DATE_TRUNC('month', NOW())
+            GROUP BY u.id, u.username
+            ORDER BY completions DESC, vedd_earned DESC
+            LIMIT 10`
+      );
+      res.json(rows.rows);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

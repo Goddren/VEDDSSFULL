@@ -30,6 +30,7 @@ import {
   Brain,
   Radio,
   Rocket,
+  Heart,
 } from 'lucide-react';
 import { useState } from 'react';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
@@ -65,6 +66,7 @@ const communityItems = [
   { name: 'Social Scanner', path: '/ambassador/recruitment?tab=social', icon: Search, color: 'icon-box-pink' },
   { name: 'Host Dashboard', path: '/host-dashboard', icon: Award, color: 'icon-box-amber' },
   { name: 'Blog', path: '/blog', icon: Newspaper, color: 'icon-box-green' },
+  { name: 'Daily Devotional', path: '/devotional', icon: Heart, color: 'icon-box-red' },
 ];
 
 const financeItems = [

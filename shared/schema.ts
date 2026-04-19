@@ -2152,3 +2152,61 @@ export type InsertAmbassadorJourney = z.infer<typeof insertAmbassadorJourneySche
 export const insertAmbassadorDailyActionSchema = createInsertSchema(ambassadorDailyActions).omit({ id: true, createdAt: true });
 export type AmbassadorDailyAction = typeof ambassadorDailyActions.$inferSelect;
 export type InsertAmbassadorDailyAction = z.infer<typeof insertAmbassadorDailyActionSchema>;
+
+// ─── DEVOTIONALS ──────────────────────────────────────────────────────────────
+
+export const devotionals = pgTable("devotionals", {
+  id: serial("id").primaryKey(),
+  date: text("date").notNull().unique(), // "2026-04-19" ISO date key
+  title: text("title").notNull(),
+  theme: text("theme").notNull(), // e.g. "Excellence", "Persistence"
+  scripture: text("scripture").notNull(), // "Proverbs 16:3"
+  scriptureText: text("scripture_text").notNull(),
+  reflection: text("reflection").notNull(), // main devotional body
+  prayerPoints: jsonb("prayer_points").default([]), // string[]
+  affirmation: text("affirmation").notNull(),
+  tradingTieIn: text("trading_tie_in"), // how mindset applies to trading
+  minimumMinutes: integer("minimum_minutes").default(5),
+  aiGenerated: boolean("ai_generated").default(true),
+  isPublished: boolean("is_published").default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const devotionalGroups = pgTable("devotional_groups", {
+  id: serial("id").primaryKey(),
+  devotionalId: integer("devotional_id").references(() => devotionals.id).notNull(),
+  createdBy: integer("created_by").references(() => users.id).notNull(),
+  inviteCode: text("invite_code").notNull().unique(), // 6-char alphanumeric
+  city: text("city"), // local city label
+  isActive: boolean("is_active").default(true),
+  participantCount: integer("participant_count").default(1),
+  completedCount: integer("completed_count").default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const devotionalSessions = pgTable("devotional_sessions", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  devotionalId: integer("devotional_id").references(() => devotionals.id).notNull(),
+  groupId: integer("group_id").references(() => devotionalGroups.id),
+  startedAt: timestamp("started_at").defaultNow().notNull(),
+  completedAt: timestamp("completed_at"),
+  durationSeconds: integer("duration_seconds"),
+  isCompleted: boolean("is_completed").default(false),
+  isGroupSession: boolean("is_group_session").default(false),
+  rewardEarned: boolean("reward_earned").default(false),
+  rewardAmount: integer("reward_amount").default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertDevotionalSchema = createInsertSchema(devotionals).omit({ id: true, createdAt: true });
+export type Devotional = typeof devotionals.$inferSelect;
+export type InsertDevotional = z.infer<typeof insertDevotionalSchema>;
+
+export const insertDevotionalGroupSchema = createInsertSchema(devotionalGroups).omit({ id: true, createdAt: true });
+export type DevotionalGroup = typeof devotionalGroups.$inferSelect;
+export type InsertDevotionalGroup = z.infer<typeof insertDevotionalGroupSchema>;
+
+export const insertDevotionalSessionSchema = createInsertSchema(devotionalSessions).omit({ id: true, createdAt: true });
+export type DevotionalSession = typeof devotionalSessions.$inferSelect;
+export type InsertDevotionalSession = z.infer<typeof insertDevotionalSessionSchema>;

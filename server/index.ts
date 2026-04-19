@@ -525,6 +525,60 @@ async function withRetry<T>(
       console.error('[startup] VEDD token tables migration (non-fatal):', (err as Error).message);
     }
 
+    // ─── Devotional tables ───────────────────────────────────────────────────
+    try {
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS devotionals (
+        id SERIAL PRIMARY KEY,
+        date TEXT NOT NULL UNIQUE,
+        title TEXT NOT NULL,
+        theme TEXT NOT NULL,
+        scripture TEXT NOT NULL,
+        scripture_text TEXT NOT NULL,
+        reflection TEXT NOT NULL,
+        prayer_points JSONB DEFAULT '[]',
+        affirmation TEXT NOT NULL,
+        trading_tie_in TEXT,
+        minimum_minutes INTEGER DEFAULT 5,
+        ai_generated BOOLEAN DEFAULT true,
+        is_published BOOLEAN DEFAULT true,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL
+      )`);
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS devotional_groups (
+        id SERIAL PRIMARY KEY,
+        devotional_id INTEGER REFERENCES devotionals(id),
+        created_by INTEGER REFERENCES users(id),
+        invite_code TEXT NOT NULL UNIQUE,
+        city TEXT,
+        is_active BOOLEAN DEFAULT true,
+        participant_count INTEGER DEFAULT 1,
+        completed_count INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL
+      )`);
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS devotional_sessions (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) NOT NULL,
+        devotional_id INTEGER REFERENCES devotionals(id) NOT NULL,
+        group_id INTEGER REFERENCES devotional_groups(id),
+        started_at TIMESTAMP DEFAULT NOW() NOT NULL,
+        completed_at TIMESTAMP,
+        duration_seconds INTEGER,
+        is_completed BOOLEAN DEFAULT false,
+        is_group_session BOOLEAN DEFAULT false,
+        reward_earned BOOLEAN DEFAULT false,
+        reward_amount INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL
+      )`);
+      // Upsert devotional reward configs (safe even when other configs already exist)
+      await db.execute(sql`INSERT INTO vedd_reward_config (action_type, base_amount, streak_multiplier, max_daily_rewards, requires_verification, is_active, description)
+        VALUES
+          ('devotional_solo',  75,  1.1, 1, false, true, 'Completed daily devotional solo (5+ minutes)'),
+          ('devotional_group', 150, 1.2, 1, false, true, 'Completed daily devotional in a group session (2x reward)')
+        ON CONFLICT (action_type) DO NOTHING`);
+      console.log('[startup] Devotional tables created/verified.');
+    } catch (err) {
+      console.error('[startup] Devotional tables migration (non-fatal):', (err as Error).message);
+    }
+
     await withRetry(() => seedSubscriptionPlans(), 'seedSubscriptionPlans');
     await withRetry(() => seedAchievements(), 'seedAchievements');
     await withRetry(() => seedAdminUser(), 'seedAdminUser');
