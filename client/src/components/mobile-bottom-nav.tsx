@@ -1,119 +1,108 @@
 import { Link, useLocation } from 'wouter';
 import {
-  Home,
-  TrendingUp,
-  Zap,
-  Users,
-  Grid3X3,
-  ChevronRight,
-  LogOut,
-  Settings,
-  History,
-  CreditCard,
-  Award,
-  Newspaper,
-  Clock,
-  Briefcase,
-  HelpCircle,
-  BookOpen,
-  GraduationCap,
-  Lightbulb,
-  Coins,
-  Webhook,
-  Wallet,
-  DollarSign,
-  Globe,
-  Search,
-  BarChart3,
-  LineChart,
-  Scan,
-  Brain,
-  Radio,
-  Rocket,
-  Heart,
+  Home, TrendingUp, Zap, Users, Grid3X3, ChevronLeft, LogOut,
+  Settings, History, CreditCard, Award, Newspaper, Clock,
+  Briefcase, HelpCircle, BookOpen, GraduationCap, Lightbulb,
+  Coins, Webhook, Wallet, DollarSign, Globe, Search, BarChart3,
+  LineChart, Scan, Brain, Radio, Rocket, Heart, X,
 } from 'lucide-react';
-import { useState } from 'react';
-import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { isMobileDevice } from '@/lib/pwa';
 
-/* ─── Category definitions for the More sheet ─────── */
+/* ─── Nav item definitions ────────────────────────── */
 const tradingItems = [
-  { name: 'Weekly Strategy', path: '/weekly-strategy', icon: TrendingUp, color: 'icon-box-red' },
-  { name: 'Multi-TF EA', path: '/multi-timeframe', icon: Clock, color: 'icon-box-amber' },
-  { name: 'My EAs', path: '/my-eas', icon: Briefcase, color: 'icon-box-amber' },
-  { name: 'Marketplace', path: '/ea-marketplace', icon: Zap, color: 'icon-box-red' },
-  { name: 'Historical', path: '/historical', icon: History, color: 'icon-box-purple' },
-  { name: 'What If Analysis', path: '/what-if', icon: Lightbulb, color: 'icon-box-cyan' },
-  { name: 'MT5 Chart Data', path: '/mt5-chart-data', icon: BarChart3, color: 'icon-box-cyan' },
+  { name: 'Weekly Strategy',  path: '/weekly-strategy',   icon: TrendingUp, color: '#ef4444' },
+  { name: 'Multi-TF EA',      path: '/multi-timeframe',   icon: Clock,      color: '#f59e0b' },
+  { name: 'My EAs',           path: '/my-eas',            icon: Briefcase,  color: '#f59e0b' },
+  { name: 'Marketplace',      path: '/ea-marketplace',    icon: Zap,        color: '#ef4444' },
+  { name: 'Historical',       path: '/historical',        icon: History,    color: '#8b5cf6' },
+  { name: 'What If',          path: '/what-if',           icon: Lightbulb,  color: '#06b6d4' },
+  { name: 'MT5 Charts',       path: '/mt5-chart-data',    icon: BarChart3,  color: '#06b6d4' },
 ];
 
 const aiToolItems = [
-  { name: 'SOL Scanner', path: '/solana-scanner', icon: Scan, color: 'icon-box-cyan' },
-  { name: 'VEDD Tokenomics', path: '/vedd-tokenomics', icon: Coins, color: 'icon-box-amber' },
-  { name: 'Analysis', path: '/analysis', icon: LineChart, color: 'icon-box-red' },
-  { name: 'AI Models', path: '/ai-trading-models', icon: Brain, color: 'icon-box-purple' },
-  { name: 'Webhooks', path: '/webhooks', icon: Webhook, color: 'icon-box-blue' },
-  { name: 'Live Monitor', path: '/live-monitor', icon: Radio, color: 'icon-box-green' },
+  { name: 'SOL Scanner', path: '/solana-scanner',     icon: Scan,     color: '#06b6d4' },
+  { name: 'Tokenomics',  path: '/vedd-tokenomics',    icon: Coins,    color: '#f59e0b' },
+  { name: 'Analysis',    path: '/analysis',           icon: LineChart, color: '#ef4444' },
+  { name: 'AI Models',   path: '/ai-trading-models',  icon: Brain,    color: '#8b5cf6' },
+  { name: 'Webhooks',    path: '/webhooks',           icon: Webhook,  color: '#3b82f6' },
+  { name: 'Live Monitor',path: '/live-monitor',       icon: Radio,    color: '#22c55e' },
 ];
 
 const communityItems = [
-  { name: 'Community', path: '/community', icon: Users, color: 'icon-box-purple' },
-  { name: 'Free Path to Pro', path: '/ambassador/free-path', icon: Rocket, color: 'icon-box-green' },
-  { name: 'Ambassador Training', path: '/ambassador-training', icon: GraduationCap, color: 'icon-box-amber' },
-  { name: 'Recruit Ambassadors', path: '/ambassador/recruitment', icon: Users, color: 'icon-box-red' },
-  { name: 'My Lead Page', path: '/ambassador/recruitment?tab=leadpages', icon: Globe, color: 'icon-box-blue' },
-  { name: 'Social Scanner', path: '/ambassador/recruitment?tab=social', icon: Search, color: 'icon-box-pink' },
-  { name: 'Host Dashboard', path: '/host-dashboard', icon: Award, color: 'icon-box-amber' },
-  { name: 'Blog', path: '/blog', icon: Newspaper, color: 'icon-box-green' },
-  { name: 'Daily Devotional', path: '/devotional', icon: Heart, color: 'icon-box-red' },
+  { name: 'Community',    path: '/community',                             icon: Users,       color: '#8b5cf6' },
+  { name: 'Free to Pro',  path: '/ambassador/free-path',                  icon: Rocket,      color: '#22c55e' },
+  { name: 'Training',     path: '/ambassador-training',                   icon: GraduationCap, color: '#f59e0b' },
+  { name: 'Recruit',      path: '/ambassador/recruitment',                icon: Users,       color: '#ef4444' },
+  { name: 'Lead Page',    path: '/ambassador/recruitment?tab=leadpages',  icon: Globe,       color: '#3b82f6' },
+  { name: 'Soc Scanner',  path: '/ambassador/recruitment?tab=social',     icon: Search,      color: '#ec4899' },
+  { name: 'Host Dash',    path: '/host-dashboard',                        icon: Award,       color: '#f59e0b' },
+  { name: 'Blog',         path: '/blog',                                  icon: Newspaper,   color: '#22c55e' },
+  { name: 'Devotional',   path: '/devotional',                            icon: Heart,       color: '#ef4444' },
 ];
 
 const financeItems = [
-  { name: 'Token Investments', path: '/token-investments', icon: Coins, color: 'icon-box-amber' },
-  { name: 'VEDD Wallet', path: '/vedd-wallet', icon: Wallet, color: 'icon-box-purple' },
-  { name: 'Referral Hub', path: '/referral', icon: DollarSign, color: 'icon-box-green' },
-  { name: 'Grants & Funding', path: '/grants', icon: DollarSign, color: 'icon-box-green' },
-  { name: 'Achievements', path: '/achievements', icon: Award, color: 'icon-box-amber' },
-  { name: 'Pricing', path: '/subscription', icon: CreditCard, color: 'icon-box-red' },
+  { name: 'Investments', path: '/token-investments', icon: Coins,      color: '#f59e0b' },
+  { name: 'VEDD Wallet', path: '/vedd-wallet',       icon: Wallet,     color: '#8b5cf6' },
+  { name: 'Referral Hub',path: '/referral',          icon: DollarSign, color: '#22c55e' },
+  { name: 'Grants',      path: '/grants',            icon: DollarSign, color: '#22c55e' },
+  { name: 'Achievements',path: '/achievements',      icon: Award,      color: '#f59e0b' },
+  { name: 'Pricing',     path: '/subscription',      icon: CreditCard, color: '#ef4444' },
 ];
 
-/* ─── Sheet category section ──────────────────────── */
-function SheetSection({
-  title,
-  items,
-  location,
+/* ─── Tile button ─────────────────────────────────── */
+function NavTile({
+  name,
+  path,
+  icon: Icon,
+  color,
+  isActive,
   onClose,
 }: {
-  title: string;
-  items: { name: string; path: string; icon: React.ComponentType<{ className?: string }>; color: string }[];
-  location: string;
+  name: string;
+  path: string;
+  icon: React.ComponentType<{ className?: string }>;
+  color: string;
+  isActive: boolean;
   onClose: () => void;
 }) {
   return (
-    <div className="mb-2">
-      <p className="section-title px-4 pt-4 pb-2">{title}</p>
-      <div className="smart-card mx-3 overflow-hidden">
-        {items.map((item, i) => {
-          const isActive = location === item.path || location.startsWith(item.path.split('?')[0]);
-          return (
-            <Link key={`${item.path}-${i}`} href={item.path}>
-              <button
-                onClick={onClose}
-                className={`list-row w-full text-left ${isActive ? 'bg-red-500/06' : ''}`}
-              >
-                <span className={`icon-box-sm ${item.color}`}>
-                  <item.icon className="h-3.5 w-3.5" />
-                </span>
-                <span className={`flex-1 text-sm font-medium ${isActive ? 'text-red-400' : 'text-white'}`}>
-                  {item.name}
-                </span>
-                <ChevronRight className="h-3.5 w-3.5 text-gray-600 shrink-0" />
-              </button>
-            </Link>
-          );
-        })}
-      </div>
+    <Link href={path}>
+      <button
+        onClick={onClose}
+        className="flex flex-col items-center gap-1.5 w-full p-2 rounded-2xl transition-all active:scale-90"
+        style={{
+          background: isActive ? `${color}22` : 'rgba(255,255,255,0.04)',
+          border: `1.5px solid ${isActive ? color + '66' : 'rgba(255,255,255,0.07)'}`,
+        }}
+      >
+        <span
+          className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0"
+          style={{
+            background: `${color}22`,
+            boxShadow: isActive ? `0 0 12px ${color}55` : 'none',
+          }}
+        >
+          <Icon className="h-5 w-5" style={{ color }} />
+        </span>
+        <span
+          className="text-[9px] font-semibold leading-tight text-center line-clamp-2"
+          style={{ color: isActive ? color : 'rgba(255,255,255,0.65)' }}
+        >
+          {name}
+        </span>
+      </button>
+    </Link>
+  );
+}
+
+/* ─── Section header ──────────────────────────────── */
+function SectionLabel({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-2 px-1 pt-3 pb-1">
+      <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500">{label}</span>
+      <div className="flex-1 h-px bg-gray-800" />
     </div>
   );
 }
@@ -121,107 +110,214 @@ function SheetSection({
 /* ─── Main component ──────────────────────────────── */
 export function MobileBottomNav() {
   const [location] = useLocation();
-  const [sheetOpen, setSheetOpen] = useState(false);
+  const [open, setOpen] = useState(false);
   const { user, logoutMutation } = useAuth();
+
+  /* Touch-swipe to open/close */
+  const touchStartX = useRef(0);
+  const touchStartY = useRef(0);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  /* Open with right-edge swipe (swipe LEFT from right side) */
+  useEffect(() => {
+    const onTouchStart = (e: TouchEvent) => {
+      touchStartX.current = e.touches[0].clientX;
+      touchStartY.current = e.touches[0].clientY;
+    };
+    const onTouchEnd = (e: TouchEvent) => {
+      const dx = e.changedTouches[0].clientX - touchStartX.current;
+      const dy = Math.abs(e.changedTouches[0].clientY - touchStartY.current);
+      const fromRightEdge = touchStartX.current > window.innerWidth - 32;
+      // Swipe left from right edge → open
+      if (!open && fromRightEdge && dx < -40 && dy < 60) {
+        setOpen(true);
+      }
+      // Swipe right while panel open → close
+      if (open && dx > 60 && dy < 80) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('touchstart', onTouchStart, { passive: true });
+    document.addEventListener('touchend', onTouchEnd, { passive: true });
+    return () => {
+      document.removeEventListener('touchstart', onTouchStart);
+      document.removeEventListener('touchend', onTouchEnd);
+    };
+  }, [open]);
+
+  /* Lock body scroll when open */
+  useEffect(() => {
+    document.body.style.overflow = open ? 'hidden' : '';
+    return () => { document.body.style.overflow = ''; };
+  }, [open]);
 
   if (!isMobileDevice()) return null;
 
   const authPages = ['/', '/login', '/register', '/forgot-password'];
   if (authPages.includes(location) || !user) return null;
 
+  const isActive = (path: string) =>
+    location === path || location.startsWith(path.split('?')[0]);
+
+  const close = () => setOpen(false);
+
   const tabs = [
-    { name: 'Home',    path: '/dashboard',             Icon: Home       },
-    { name: 'Trading', path: '/weekly-strategy',        Icon: TrendingUp },
-    { name: 'MT5',     path: '/mt5-chart-data',         Icon: BarChart3  },
-    { name: 'AI',      path: '/analysis',               Icon: Zap        },
-    { name: 'Grow',    path: '/ambassador/recruitment',  Icon: Users      },
+    { name: 'Home',    path: '/dashboard',            Icon: Home       },
+    { name: 'Trading', path: '/weekly-strategy',       Icon: TrendingUp },
+    { name: 'MT5',     path: '/mt5-chart-data',        Icon: BarChart3  },
+    { name: 'AI',      path: '/analysis',              Icon: Zap        },
+    { name: 'Grow',    path: '/ambassador/recruitment', Icon: Users      },
   ];
 
   return (
     <>
+      {/* ── Backdrop ── */}
+      {open && (
+        <div
+          onClick={close}
+          className="fixed inset-0 z-40 md:hidden"
+          style={{ background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(3px)' }}
+        />
+      )}
+
+      {/* ── Side Panel ── */}
+      <div
+        ref={panelRef}
+        className="fixed top-0 right-0 h-full z-50 md:hidden flex flex-col"
+        style={{
+          width: '78vw',
+          maxWidth: 320,
+          background: '#080B14',
+          borderLeft: '1px solid rgba(255,255,255,0.08)',
+          transform: open ? 'translateX(0)' : 'translateX(100%)',
+          transition: 'transform 0.28s cubic-bezier(0.32,0.72,0,1)',
+          willChange: 'transform',
+          boxShadow: open ? '-12px 0 48px rgba(0,0,0,0.7)' : 'none',
+        }}
+      >
+        {/* Panel header */}
+        <div
+          className="flex items-center justify-between px-4 pt-10 pb-3 flex-shrink-0"
+          style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}
+        >
+          <div>
+            <p className="text-white font-bold text-base tracking-tight">Quick Nav</p>
+            <p className="text-[10px] text-gray-500 mt-0.5">Flick right to close</p>
+          </div>
+          <button
+            onClick={close}
+            className="w-8 h-8 rounded-full flex items-center justify-center"
+            style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)' }}
+          >
+            <X className="w-4 h-4 text-gray-300" />
+          </button>
+        </div>
+
+        {/* Scrollable tile grid */}
+        <div
+          className="flex-1 overflow-y-auto px-3 pb-4"
+          style={{ paddingBottom: 110 }}
+        >
+          <SectionLabel label="Trading" />
+          <div className="grid grid-cols-3 gap-2">
+            {tradingItems.map(item => (
+              <NavTile key={item.path} {...item} isActive={isActive(item.path)} onClose={close} />
+            ))}
+          </div>
+
+          <SectionLabel label="AI Tools" />
+          <div className="grid grid-cols-3 gap-2">
+            {aiToolItems.map(item => (
+              <NavTile key={item.path} {...item} isActive={isActive(item.path)} onClose={close} />
+            ))}
+          </div>
+
+          <SectionLabel label="Community" />
+          <div className="grid grid-cols-3 gap-2">
+            {communityItems.map(item => (
+              <NavTile key={item.path} {...item} isActive={isActive(item.path)} onClose={close} />
+            ))}
+          </div>
+
+          <SectionLabel label="Finance" />
+          <div className="grid grid-cols-3 gap-2">
+            {financeItems.map(item => (
+              <NavTile key={item.path} {...item} isActive={isActive(item.path)} onClose={close} />
+            ))}
+          </div>
+
+          {/* Settings + Logout row */}
+          <div className="mt-3 space-y-2">
+            <Link href="/profile">
+              <button
+                onClick={close}
+                className="flex items-center gap-3 w-full px-4 py-3 rounded-2xl transition-all active:scale-95"
+                style={{ background: 'rgba(59,130,246,0.1)', border: '1.5px solid rgba(59,130,246,0.25)' }}
+              >
+                <span className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: 'rgba(59,130,246,0.2)' }}>
+                  <Settings className="w-4 h-4 text-blue-400" />
+                </span>
+                <span className="text-sm font-semibold text-white">Settings / Profile</span>
+              </button>
+            </Link>
+            <button
+              onClick={() => { logoutMutation.mutate(); close(); }}
+              className="flex items-center gap-3 w-full px-4 py-3 rounded-2xl transition-all active:scale-95"
+              style={{ background: 'rgba(239,68,68,0.08)', border: '1.5px solid rgba(239,68,68,0.25)' }}
+            >
+              <span className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: 'rgba(239,68,68,0.2)' }}>
+                <LogOut className="w-4 h-4 text-red-400" />
+              </span>
+              <span className="text-sm font-semibold text-red-400">Log Out</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Pull tab (always visible on right edge when panel closed) ── */}
+      {!open && (
+        <button
+          onClick={() => setOpen(true)}
+          className="fixed z-40 md:hidden flex flex-col items-center justify-center gap-0.5"
+          style={{
+            right: 0,
+            top: '50%',
+            transform: 'translateY(-50%)',
+            width: 22,
+            height: 64,
+            background: 'linear-gradient(180deg,#ef4444 0%,#8b5cf6 100%)',
+            borderRadius: '10px 0 0 10px',
+            boxShadow: '-4px 0 16px rgba(139,92,246,0.4)',
+          }}
+          aria-label="Open navigation"
+        >
+          <ChevronLeft className="w-3 h-3 text-white opacity-90" />
+          <div className="w-0.5 h-4 rounded-full bg-white/30" />
+        </button>
+      )}
+
       {/* ── Tab Bar ── */}
       <nav className="tab-bar md:hidden">
         {tabs.map(({ name, path, Icon }) => {
-          const isActive = location === path || (path === '/dashboard' && location === '/');
+          const active = location === path || (path === '/dashboard' && location === '/');
           return (
             <Link key={path} href={path}>
-              <button className={`tab-item ${isActive ? 'active' : ''}`}>
-                <span className="tab-icon-wrap">
-                  <Icon className="h-[18px] w-[18px]" />
-                </span>
+              <button className={`tab-item ${active ? 'active' : ''}`}>
+                <span className="tab-icon-wrap"><Icon className="h-[18px] w-[18px]" /></span>
                 <span className="tab-lbl">{name}</span>
               </button>
             </Link>
           );
         })}
 
-        {/* More tab */}
-        <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-          <SheetTrigger asChild>
-            <button className={`tab-item ${sheetOpen ? 'active' : ''}`}>
-              <span className="tab-icon-wrap">
-                <Grid3X3 className="h-[18px] w-[18px]" />
-              </span>
-              <span className="tab-lbl">More</span>
-            </button>
-          </SheetTrigger>
-
-          <SheetContent
-            side="bottom"
-            className="p-0 border-0"
-            style={{
-              background: '#080B14',
-              borderRadius: '28px 28px 0 0',
-              maxHeight: '85vh',
-              border: '1px solid rgba(255,255,255,0.07)',
-              borderBottom: 'none',
-            }}
-          >
-            {/* Handle */}
-            <div className="flex justify-center pt-3 pb-1">
-              <div className="w-10 h-1 rounded-full bg-white/20" />
-            </div>
-
-            {/* Title */}
-            <div className="flex items-center justify-between px-4 py-3">
-              <h2 className="section-heading">All Features</h2>
-            </div>
-
-            {/* Scrollable content */}
-            <div className="overflow-y-auto" style={{ maxHeight: 'calc(85vh - 80px)', paddingBottom: '100px' }}>
-              <SheetSection title="Trading" items={tradingItems} location={location} onClose={() => setSheetOpen(false)} />
-              <SheetSection title="AI Tools" items={aiToolItems} location={location} onClose={() => setSheetOpen(false)} />
-              <SheetSection title="Community" items={communityItems} location={location} onClose={() => setSheetOpen(false)} />
-              <SheetSection title="Finance" items={financeItems} location={location} onClose={() => setSheetOpen(false)} />
-
-              {/* Bottom actions */}
-              <div className="mx-3 mt-2 mb-4 space-y-2">
-                <Link href="/profile">
-                  <button onClick={() => setSheetOpen(false)} className="list-row w-full smart-card text-left rounded-2xl">
-                    <span className="icon-box-sm icon-box-blue">
-                      <Settings className="h-3.5 w-3.5" />
-                    </span>
-                    <span className="flex-1 text-sm font-medium text-white">Settings / Profile</span>
-                    <ChevronRight className="h-3.5 w-3.5 text-gray-600" />
-                  </button>
-                </Link>
-                <button
-                  onClick={() => {
-                    logoutMutation.mutate();
-                    setSheetOpen(false);
-                  }}
-                  className="list-row w-full smart-card rounded-2xl"
-                  style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.2)' }}
-                >
-                  <span className="icon-box-sm icon-box-red">
-                    <LogOut className="h-3.5 w-3.5" />
-                  </span>
-                  <span className="flex-1 text-sm font-medium text-red-400">Log Out</span>
-                </button>
-              </div>
-            </div>
-          </SheetContent>
-        </Sheet>
+        {/* More → opens side panel */}
+        <button
+          onClick={() => setOpen(true)}
+          className={`tab-item ${open ? 'active' : ''}`}
+        >
+          <span className="tab-icon-wrap"><Grid3X3 className="h-[18px] w-[18px]" /></span>
+          <span className="tab-lbl">More</span>
+        </button>
       </nav>
     </>
   );
