@@ -16724,12 +16724,13 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   // ─── DEVOTIONALS ────────────────────────────────────────────────────────────
 
   // Helper: insert a devotional row (handles JSONB cast correctly)
+  // NOTE: with drizzle-orm/postgres-js, db.execute() returns rows as the array itself (no .rows property)
   async function insertDevotional(d: {
     date: string; title: string; theme: string; scripture: string; scriptureText: string;
     reflection: string; prayerPoints: string[]; affirmation: string; tradingTieIn: string;
   }) {
     const prayerJson = JSON.stringify(d.prayerPoints);
-    return db.execute(
+    const result = await db.execute(
       sql`INSERT INTO devotionals (date, title, theme, scripture, scripture_text, reflection, prayer_points, affirmation, trading_tie_in, minimum_minutes, ai_generated, is_published)
           VALUES (
             ${d.date}, ${d.title}, ${d.theme}, ${d.scripture}, ${d.scriptureText},
@@ -16743,22 +16744,24 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
             trading_tie_in = EXCLUDED.trading_tie_in
           RETURNING *`
     );
+    return Array.isArray(result) ? result : (result as any).rows || [];
   }
 
   // GET today's devotional (auto-generate if missing)
   app.get("/api/devotionals/today", async (req, res) => {
     try {
       const today = new Date().toISOString().split('T')[0];
-      const existing = await db.execute(
+      const existingRaw = await db.execute(
         sql`SELECT * FROM devotionals WHERE date = ${today} AND is_published = true LIMIT 1`
       );
-      if ((existing.rows as any[]).length > 0) {
-        return res.json((existing.rows as any[])[0]);
+      const existing: any[] = Array.isArray(existingRaw) ? existingRaw : (existingRaw as any).rows || [];
+      if (existing.length > 0) {
+        return res.json(existing[0]);
       }
       // Auto-generate via AI
       const generated = await generateDailyDevotional(today);
       const inserted = await insertDevotional({ date: today, ...generated });
-      res.json((inserted.rows as any[])[0]);
+      res.json(inserted[0] || inserted);
     } catch (err: any) {
       console.error('[devotional] GET today failed:', err);
       res.status(500).json({ error: err.message });
@@ -16768,10 +16771,11 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   // GET devotional history (last 30 days)
   app.get("/api/devotionals", async (req, res) => {
     try {
-      const rows = await db.execute(
+      const raw = await db.execute(
         sql`SELECT * FROM devotionals WHERE is_published = true ORDER BY date DESC LIMIT 30`
       );
-      res.json(rows.rows);
+      const rows: any[] = Array.isArray(raw) ? raw : (raw as any).rows || [];
+      res.json(rows);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -16787,7 +16791,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const targetDate = date || new Date().toISOString().split('T')[0];
       const generated = await generateDailyDevotional(targetDate);
       const inserted = await insertDevotional({ date: targetDate, ...generated });
-      res.json((inserted.rows as any[])[0]);
+      res.json(inserted[0] || inserted);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -16802,20 +16806,22 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       if (!devotionalId) return res.status(400).json({ error: 'devotionalId required' });
 
       // Check if already has a session today
-      const existing = await db.execute(
+      const existingRaw = await db.execute(
         sql`SELECT id FROM devotional_sessions WHERE user_id = ${userId} AND devotional_id = ${devotionalId} AND is_completed = false LIMIT 1`
       );
-      if ((existing.rows as any[]).length > 0) {
-        return res.json({ sessionId: (existing.rows as any[])[0].id, resumed: true });
+      const existing: any[] = Array.isArray(existingRaw) ? existingRaw : (existingRaw as any).rows || [];
+      if (existing.length > 0) {
+        return res.json({ sessionId: existing[0].id, resumed: true });
       }
 
       const isGroupSession = !!groupId;
-      const inserted = await db.execute(
+      const insertedRaw = await db.execute(
         sql`INSERT INTO devotional_sessions (user_id, devotional_id, group_id, is_group_session, started_at)
             VALUES (${userId}, ${devotionalId}, ${groupId || null}, ${isGroupSession}, NOW())
             RETURNING *`
       );
-      const session = (inserted.rows as any[])[0];
+      const inserted: any[] = Array.isArray(insertedRaw) ? insertedRaw : (insertedRaw as any).rows || [];
+      const session = inserted[0];
 
       // Increment group participant count
       if (groupId) {
@@ -16839,11 +16845,12 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const { sessionId } = req.params;
       const { durationSeconds } = req.body;
 
-      const sessionRows = await db.execute(
+      const sessionRaw = await db.execute(
         sql`SELECT * FROM devotional_sessions WHERE id = ${parseInt(sessionId)} AND user_id = ${userId} LIMIT 1`
       );
-      if (!(sessionRows.rows as any[]).length) return res.status(404).json({ error: 'Session not found' });
-      const session = (sessionRows.rows as any[])[0];
+      const sessionRows: any[] = Array.isArray(sessionRaw) ? sessionRaw : (sessionRaw as any).rows || [];
+      if (!sessionRows.length) return res.status(404).json({ error: 'Session not found' });
+      const session = sessionRows[0];
       if (session.is_completed) return res.json({ alreadyCompleted: true, rewardAmount: session.reward_amount });
 
       const minSeconds = 5 * 60; // 5 minutes minimum
@@ -16904,12 +16911,13 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       let inviteCode = '';
       for (let i = 0; i < 6; i++) inviteCode += chars[Math.floor(Math.random() * chars.length)];
 
-      const inserted = await db.execute(
+      const insertedRaw = await db.execute(
         sql`INSERT INTO devotional_groups (devotional_id, created_by, invite_code, city, is_active, participant_count)
             VALUES (${devotionalId}, ${userId}, ${inviteCode}, ${city || null}, true, 1)
             RETURNING *`
       );
-      res.json((inserted.rows as any[])[0]);
+      const inserted: any[] = Array.isArray(insertedRaw) ? insertedRaw : (insertedRaw as any).rows || [];
+      res.json(inserted[0]);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -16918,7 +16926,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   // GET group by invite code
   app.get("/api/devotionals/groups/:inviteCode", async (req, res) => {
     try {
-      const rows = await db.execute(
+      const raw = await db.execute(
         sql`SELECT dg.*, d.title as devotional_title, d.theme, d.date, u.username as host_name
             FROM devotional_groups dg
             JOIN devotionals d ON dg.devotional_id = d.id
@@ -16926,8 +16934,9 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
             WHERE dg.invite_code = ${req.params.inviteCode.toUpperCase()} AND dg.is_active = true
             LIMIT 1`
       );
-      if (!(rows.rows as any[]).length) return res.status(404).json({ error: 'Group not found or no longer active' });
-      res.json((rows.rows as any[])[0]);
+      const rows: any[] = Array.isArray(raw) ? raw : (raw as any).rows || [];
+      if (!rows.length) return res.status(404).json({ error: 'Group not found or no longer active' });
+      res.json(rows[0]);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -16938,7 +16947,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     if (!(req as any).isAuthenticated()) return res.status(401).json({ error: 'Login required' });
     try {
       const userId = (req.user as any).id;
-      const stats = await db.execute(
+      const statsRaw = await db.execute(
         sql`SELECT
               COUNT(*) FILTER (WHERE is_completed = true) as total_completed,
               COUNT(*) FILTER (WHERE is_completed = true AND is_group_session = true) as group_completed,
@@ -16946,15 +16955,17 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
               MAX(completed_at) as last_completed_at
             FROM devotional_sessions WHERE user_id = ${userId}`
       );
-      const row = (stats.rows as any[])[0];
+      const statsRows: any[] = Array.isArray(statsRaw) ? statsRaw : (statsRaw as any).rows || [];
+      const row = statsRows[0] || {};
 
       // Compute streak
-      const completedDates = await db.execute(
+      const datesRaw = await db.execute(
         sql`SELECT DISTINCT DATE(completed_at)::text as d FROM devotional_sessions
             WHERE user_id = ${userId} AND is_completed = true AND completed_at IS NOT NULL
             ORDER BY d DESC LIMIT 60`
       );
-      const dates = (completedDates.rows as any[]).map(r => r.d);
+      const datesRows: any[] = Array.isArray(datesRaw) ? datesRaw : (datesRaw as any).rows || [];
+      const dates = datesRows.map((r: any) => r.d);
       let streak = 0;
       const today = new Date();
       for (let i = 0; i < 60; i++) {
@@ -16967,13 +16978,14 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
 
       // Today's session
       const todayStr = new Date().toISOString().split('T')[0];
-      const todaySession = await db.execute(
+      const todaySessionRaw = await db.execute(
         sql`SELECT ds.*, dg.invite_code as group_invite_code
             FROM devotional_sessions ds
             LEFT JOIN devotional_groups dg ON ds.group_id = dg.id
             WHERE ds.user_id = ${userId} AND DATE(ds.created_at) = ${todayStr}::date
             ORDER BY ds.created_at DESC LIMIT 1`
       );
+      const todaySessionRows: any[] = Array.isArray(todaySessionRaw) ? todaySessionRaw : (todaySessionRaw as any).rows || [];
 
       res.json({
         totalCompleted: parseInt(row.total_completed) || 0,
@@ -16981,7 +16993,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         totalVeddEarned: parseInt(row.total_vedd_earned) || 0,
         streak,
         lastCompletedAt: row.last_completed_at,
-        todaySession: (todaySession.rows as any[])[0] || null,
+        todaySession: todaySessionRows[0] || null,
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -16991,7 +17003,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   // GET community leaderboard (top 10 this month)
   app.get("/api/devotionals/leaderboard", async (req, res) => {
     try {
-      const rows = await db.execute(
+      const raw = await db.execute(
         sql`SELECT u.username, u.id as user_id,
               COUNT(*) FILTER (WHERE ds.is_completed = true) as completions,
               COALESCE(SUM(ds.reward_amount), 0) as vedd_earned,
@@ -17003,7 +17015,8 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
             ORDER BY completions DESC, vedd_earned DESC
             LIMIT 10`
       );
-      res.json(rows.rows);
+      const leaderboardRows: any[] = Array.isArray(raw) ? raw : (raw as any).rows || [];
+      res.json(leaderboardRows);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
