@@ -174,17 +174,27 @@ export default function AdminHub() {
       content: (
         <div className="space-y-3">
           <p className="text-gray-300 text-sm">Load the Treasury wallet with VEDD tokens from your main holdings. We recommend <strong className="text-white">10–20 million VEDD</strong> to start — this covers months of ambassador rewards at current earn rates.</p>
+
+          {/* Price context banner */}
+          <div className="flex items-center gap-2 p-2.5 rounded-xl bg-blue-500/08 border border-blue-500/20 mb-2">
+            <span className="text-blue-400 text-xs font-semibold">💡 Current price context:</span>
+            <span className="text-gray-400 text-xs">At pump.fun price (~$0.00000244/VEDD) — 1M VEDD ≈ <strong className="text-white">$2.44</strong> · These are very affordable treasury loads right now</span>
+          </div>
+
           <div className="rounded-xl p-3 bg-emerald-500/08 border border-emerald-500/20 space-y-2">
-            <p className="text-emerald-400 text-xs font-semibold">📊 How long will it last?</p>
+            <p className="text-emerald-400 text-xs font-semibold">📊 How long will it last? (avg ambassador earns ~900 VEDD/month)</p>
             <div className="grid grid-cols-2 gap-2 text-xs">
               {[
-                { supply: '5M VEDD', ambassadors: '~555 active ambassadors × 1 month' },
-                { supply: '10M VEDD', ambassadors: '~1,100 active ambassadors × 1 month' },
-                { supply: '20M VEDD', ambassadors: '~2,200 active ambassadors × 1 month' },
-                { supply: '50M VEDD', ambassadors: 'Full 5% supply pool' },
+                { supply: '5M VEDD',  usd: '~$12',  ambassadors: '~5,556 ambassadors × 1 month' },
+                { supply: '10M VEDD', usd: '~$24',  ambassadors: '~11,111 ambassadors × 1 month' },
+                { supply: '20M VEDD', usd: '~$49',  ambassadors: '~22,222 ambassadors × 1 month' },
+                { supply: '50M VEDD', usd: '~$122', ambassadors: 'Full 5% rewards pool' },
               ].map(r => (
                 <div key={r.supply} className="bg-white/[0.03] rounded-lg px-2 py-1.5">
-                  <p className="text-amber-400 font-bold">{r.supply}</p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-amber-400 font-bold">{r.supply}</p>
+                    <p className="text-emerald-400 text-[10px] font-semibold">{r.usd} today</p>
+                  </div>
                   <p className="text-gray-500 text-[10px] mt-0.5">{r.ambassadors}</p>
                 </div>
               ))}
@@ -555,8 +565,8 @@ export default function AdminHub() {
             {[
               { label: 'Total Supply', value: '1B VEDD', color: 'text-white' },
               { label: 'Rewards Pool (5%)', value: '50M VEDD', color: 'text-amber-400' },
-              { label: 'Max per Ambassador/mo', value: '~900 VEDD', color: 'text-blue-400' },
-              { label: 'Sell pressure/month', value: '<0.09% supply', color: 'text-emerald-400' },
+              { label: 'Avg Ambassador/mo', value: '~900 VEDD', color: 'text-blue-400' },
+              { label: 'Sell pressure/month', value: '<0.005%', color: 'text-emerald-400' },
             ].map(s => (
               <div key={s.label} className="bg-white/[0.03] rounded-xl p-3 text-center">
                 <p className={`text-sm font-black ${s.color}`}>{s.value}</p>
