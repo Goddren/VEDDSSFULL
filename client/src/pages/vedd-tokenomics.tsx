@@ -7,13 +7,13 @@ import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Link } from 'wouter';
 import VeddLogo from '@/components/ui/vedd-logo';
-import { 
-  Coins, 
-  Users, 
-  TrendingUp, 
-  Gift, 
-  Shield, 
-  Wallet, 
+import {
+  Coins,
+  Users,
+  TrendingUp,
+  Gift,
+  Shield,
+  Wallet,
   ArrowRight,
   CheckCircle,
   Brain,
@@ -34,7 +34,9 @@ import {
   PieChart,
   Shirt,
   ShoppingBag,
-  QrCode
+  QrCode,
+  Copy,
+  ExternalLink
 } from 'lucide-react';
 import { SiSolana } from 'react-icons/si';
 
