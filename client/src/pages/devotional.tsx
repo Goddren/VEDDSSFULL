@@ -675,7 +675,7 @@ export default function DevotionalPage() {
                 <p className="text-gray-400 text-sm">
                   {todayReward > 0
                     ? `You earned ${todayReward} VEDD for today's session.`
-                    : 'You completed today's devotional.'}
+                    : "You completed today's devotional."}
                 </p>
                 <p className="text-gray-500 text-xs mt-2">Come back tomorrow for a new devotional & reward.</p>
               </div>
