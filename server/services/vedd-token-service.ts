@@ -505,44 +505,57 @@ export class VeddTokenService {
     completedTransfersToday: number;
     totalDistributedToday: number;
   }> {
-    const pools = await db.select()
-      .from(veddPoolWallets)
-      .where(eq(veddPoolWallets.status, 'active'));
+    // Fetch pools — core data, must succeed
+    let poolInfos: PoolWalletInfo[] = [];
+    try {
+      const pools = await db.select()
+        .from(veddPoolWallets)
+        .where(eq(veddPoolWallets.status, 'active'));
 
-    const poolInfos: PoolWalletInfo[] = pools.map((p: typeof veddPoolWallets.$inferSelect) => ({
-      id: p.id,
-      label: p.label,
-      publicKey: p.publicKey,
-      walletType: p.walletType,
-      status: p.status,
-      tokenBalance: p.tokenBalance || 0,
-      lowBalanceThreshold: p.lowBalanceThreshold || 1000,
-      isLowBalance: (p.tokenBalance || 0) < (p.lowBalanceThreshold || 1000)
-    }));
+      poolInfos = pools.map((p: typeof veddPoolWallets.$inferSelect) => ({
+        id: p.id,
+        label: p.label,
+        publicKey: p.publicKey,
+        walletType: p.walletType,
+        status: p.status,
+        tokenBalance: p.tokenBalance || 0,
+        lowBalanceThreshold: p.lowBalanceThreshold || 1000,
+        isLowBalance: (p.tokenBalance || 0) < (p.lowBalanceThreshold || 1000)
+      }));
+    } catch (err) {
+      console.error('[VEDD] getPoolOverview - pools fetch failed:', err);
+    }
 
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
+    // Transfer stats — non-fatal, default to 0 if table missing
+    let pendingTransfers = 0;
+    let completedTransfersToday = 0;
+    let totalDistributedToday = 0;
+    try {
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
 
-    const [pendingResult] = await db.select({ count: sql<number>`count(*)` })
-      .from(veddTransferJobs)
-      .where(eq(veddTransferJobs.status, 'pending'));
+      const [pendingResult] = await db.select({ count: sql<number>`count(*)` })
+        .from(veddTransferJobs)
+        .where(eq(veddTransferJobs.status, 'pending'));
 
-    const [completedResult] = await db.select({ 
-      count: sql<number>`count(*)`,
-      total: sql<number>`COALESCE(SUM(${veddTransferJobs.amount}), 0)`
-    })
-      .from(veddTransferJobs)
-      .where(and(
-        eq(veddTransferJobs.status, 'completed'),
-        sql`${veddTransferJobs.processedAt} >= ${todayStart}`
-      ));
+      const [completedResult] = await db.select({
+        count: sql<number>`count(*)`,
+        total: sql<number>`COALESCE(SUM(${veddTransferJobs.amount}), 0)`
+      })
+        .from(veddTransferJobs)
+        .where(and(
+          eq(veddTransferJobs.status, 'completed'),
+          sql`${veddTransferJobs.processedAt} >= ${todayStart}`
+        ));
 
-    return {
-      pools: poolInfos,
-      pendingTransfers: pendingResult?.count || 0,
-      completedTransfersToday: completedResult?.count || 0,
-      totalDistributedToday: completedResult?.total || 0
-    };
+      pendingTransfers = pendingResult?.count || 0;
+      completedTransfersToday = completedResult?.count || 0;
+      totalDistributedToday = completedResult?.total || 0;
+    } catch (err) {
+      console.warn('[VEDD] getPoolOverview - transfer stats unavailable (table may not exist yet):', (err as any)?.message);
+    }
+
+    return { pools: poolInfos, pendingTransfers, completedTransfersToday, totalDistributedToday };
   }
 
   async initializePoolWallet(label: string, publicKey: string, walletType: string = 'rewards'): Promise<number> {
