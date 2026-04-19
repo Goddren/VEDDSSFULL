@@ -26,6 +26,10 @@ import {
   EyeOff,
   RefreshCw,
   Loader2,
+  Share2,
+  Copy,
+  Check,
+  X,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { apiRequest } from '@/lib/queryClient';
@@ -77,20 +81,154 @@ const TOPIC_CHIPS = [
 
 // ─── Blog Post Card ──────────────────────────────────────────────────────────
 
+// ─── Share Panel ─────────────────────────────────────────────────────────────
+
+function SharePanel({
+  post,
+  referralCode,
+  onClose,
+}: {
+  post: BlogPost;
+  referralCode?: string | null;
+  onClose: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const baseUrl = `${window.location.origin}/blog`;
+  const affiliateUrl = referralCode
+    ? `${baseUrl}?ref=${referralCode}`
+    : baseUrl;
+
+  const shareText = `📈 "${post.title}" — VEDD AI Trading Insights`;
+  const encodedUrl = encodeURIComponent(affiliateUrl);
+  const encodedText = encodeURIComponent(`${shareText}\n\n${affiliateUrl}`);
+
+  const platforms = [
+    {
+      name: 'WhatsApp',
+      color: 'bg-green-700 hover:bg-green-600',
+      emoji: '💬',
+      url: `https://wa.me/?text=${encodedText}`,
+    },
+    {
+      name: 'X / Twitter',
+      color: 'bg-gray-800 hover:bg-gray-700 border border-gray-600',
+      emoji: '𝕏',
+      url: `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodedUrl}`,
+    },
+    {
+      name: 'Facebook',
+      color: 'bg-blue-700 hover:bg-blue-600',
+      emoji: 'f',
+      url: `https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}`,
+    },
+    {
+      name: 'LinkedIn',
+      color: 'bg-blue-600 hover:bg-blue-500',
+      emoji: 'in',
+      url: `https://www.linkedin.com/sharing/share-offsite/?url=${encodedUrl}`,
+    },
+  ];
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(affiliateUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // fallback for older browsers
+      const ta = document.createElement('textarea');
+      ta.value = affiliateUrl;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  return (
+    <div className="mt-4 bg-gray-900/80 border border-gray-700 rounded-lg p-4 space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
+      <div className="flex items-center justify-between mb-1">
+        <p className="text-sm font-semibold text-white flex items-center gap-2">
+          <Share2 className="h-4 w-4 text-red-400" />
+          Share this article
+          {referralCode && (
+            <span className="text-xs font-normal text-emerald-400 bg-emerald-900/30 px-2 py-0.5 rounded-full">
+              + your ref link
+            </span>
+          )}
+        </p>
+        <button onClick={onClose} className="text-gray-500 hover:text-gray-300">
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* Affiliate link copy row */}
+      <div className="flex items-center gap-2">
+        <div className="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-xs text-gray-400 truncate font-mono">
+          {affiliateUrl}
+        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={handleCopy}
+          className={`shrink-0 border-gray-600 text-gray-300 hover:bg-gray-800 transition-colors ${
+            copied ? 'border-emerald-600 text-emerald-400' : ''
+          }`}
+        >
+          {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+          <span className="ml-1 hidden sm:inline">{copied ? 'Copied!' : 'Copy'}</span>
+        </Button>
+      </div>
+
+      {/* Social share buttons */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        {platforms.map((p) => (
+          <a
+            key={p.name}
+            href={p.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={`${p.color} text-white text-xs font-semibold rounded px-3 py-2 text-center transition-colors flex items-center justify-center gap-1.5`}
+          >
+            <span className="text-sm leading-none">{p.emoji}</span>
+            {p.name}
+          </a>
+        ))}
+      </div>
+
+      {referralCode && (
+        <p className="text-xs text-gray-500 italic">
+          🔗 Your affiliate code <span className="text-emerald-400 font-mono">{referralCode}</span> is embedded — you earn VEDD rewards when someone signs up through this link.
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ─── Blog Post Card ──────────────────────────────────────────────────────────
+
 function BlogPostCard({
   post,
   isAdmin,
+  isAmbassador,
+  referralCode,
   onDelete,
   onTogglePublish,
   onToggleFeature,
 }: {
   post: BlogPost;
   isAdmin: boolean;
+  isAmbassador: boolean;
+  referralCode?: string | null;
   onDelete: (id: number) => void;
   onTogglePublish: (id: number) => void;
   onToggleFeature: (id: number) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
 
   const formattedDate = post.publishedAt
     ? new Date(post.publishedAt).toLocaleDateString('en-US', {
@@ -177,6 +315,24 @@ function BlogPostCard({
           </Button>
 
           <div className="flex items-center gap-2">
+            {/* Share button — visible to ambassadors and admins */}
+            {(isAmbassador || isAdmin) && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className={`transition-colors ${
+                  shareOpen
+                    ? 'text-red-400 bg-red-900/20'
+                    : 'text-gray-400 hover:text-red-400 hover:bg-red-900/10'
+                }`}
+                onClick={() => setShareOpen(!shareOpen)}
+                title="Share with affiliate link"
+              >
+                <Share2 className="h-4 w-4" />
+                <span className="ml-1 text-xs hidden sm:inline">Share</span>
+              </Button>
+            )}
+
             {isAdmin && (
               <>
                 <Button
@@ -208,9 +364,18 @@ function BlogPostCard({
                 </Button>
               </>
             )}
-            {!isAdmin && <EarlyAccessForm />}
+            {!isAdmin && !isAmbassador && <EarlyAccessForm />}
           </div>
         </div>
+
+        {/* Share Panel */}
+        {shareOpen && (
+          <SharePanel
+            post={post}
+            referralCode={referralCode}
+            onClose={() => setShareOpen(false)}
+          />
+        )}
       </div>
     </div>
   );
@@ -478,6 +643,8 @@ function GenerateDialog({
 export default function BlogPage() {
   const { user } = useAuth();
   const isAdmin = !!(user as any)?.isAdmin;
+  const isAmbassador = !!(user as any)?.isAmbassador;
+  const referralCode: string | null = (user as any)?.referralCode ?? null;
   const queryClient = useQueryClient();
 
   const [generateDialogOpen, setGenerateDialogOpen] = useState(false);
@@ -568,6 +735,8 @@ export default function BlogPage() {
                 key={post.id}
                 post={post}
                 isAdmin={isAdmin}
+                isAmbassador={isAmbassador}
+                referralCode={referralCode}
                 onDelete={(id) => {
                   if (confirm('Delete this post?')) deleteMutation.mutate(id);
                 }}
