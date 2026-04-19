@@ -425,7 +425,7 @@ export default function AmbassadorFreePathPage() {
               <div className="prog-track">
                 <div className="prog-fill bg-emerald-500" style={{ width: `${subscriptionProgress}%` }} />
               </div>
-              <p className="text-xs text-gray-500 mt-1">{tokensEarned} / 2,000 tokens for 1 free month</p>
+              <p className="text-xs text-gray-500 mt-1">{tokensEarned} / 2,000 <span className="text-emerald-400 font-semibold">earned VEDD</span> for 1 free month (ambassador rate)</p>
             </div>
 
             {/* Stats row */}
@@ -852,8 +852,8 @@ export default function AmbassadorFreePathPage() {
                 <span className="text-white font-bold">{tokensEarned}</span>
               </div>
               {[
-                { threshold:500, label:"Free week" },
-                { threshold:2000, label:"Free month" },
+                { threshold:500, label:"Free week (earned rate)" },
+                { threshold:2000, label:"Free month (earned rate)" },
                 { threshold:5000, label:"3 free months" },
               ].map(m => (
                 <div key={m.threshold} className="mb-2">

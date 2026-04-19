@@ -418,6 +418,20 @@ export default function SubscriptionPage() {
                           Pay USD — {formatPrice(plan.price)}{plan.id === 4 ? '/yr' : '/mo'}
                         </Button>
                       </a>
+                      {/* VEDD Payment explanation */}
+                      <div className="mt-2 p-2.5 rounded-xl bg-amber-500/05 border border-amber-500/15 text-xs">
+                        <p className="text-amber-400 font-semibold mb-1">Two ways to pay with VEDD:</p>
+                        <div className="space-y-1">
+                          <div className="flex items-start gap-1.5">
+                            <span className="text-emerald-400 font-bold shrink-0">①</span>
+                            <p className="text-gray-400"><strong className="text-white">Earned VEDD (Ambassador)</strong> — 2,000 VEDD tokens earned through platform activities = 1 free month. Use "Redeem Earned VEDD" below.</p>
+                          </div>
+                          <div className="flex items-start gap-1.5">
+                            <span className="text-blue-400 font-bold shrink-0">②</span>
+                            <p className="text-gray-400"><strong className="text-white">Bought VEDD (Market)</strong> — Buy VEDD on pump.fun, pay at live market price (~20M VEDD = $50 today, fewer tokens as price grows).</p>
+                          </div>
+                        </div>
+                      </div>
                       <VeddPaymentButton
                         planId={plan.id}
                         planName={plan.name}

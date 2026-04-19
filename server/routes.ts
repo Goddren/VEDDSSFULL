@@ -3111,23 +3111,27 @@ Respond ONLY in valid JSON format with these exact keys:
       if (!req.isAuthenticated()) {
         return res.status(401).json({ message: 'Authentication required' });
       }
-
-      const { planName } = req.body;
-      if (!planName) {
-        return res.status(400).json({ message: 'Plan name is required' });
+      const { planName, priceUsd } = req.body;
+      if (!planName || !priceUsd) {
+        return res.status(400).json({ message: 'planName and priceUsd are required' });
       }
-
       const userId = (req.user as Express.User).id;
       const { createPaymentSession } = await import('./veddPayment');
-      const session = createPaymentSession(planName, userId);
-
+      const session = await createPaymentSession(planName, userId, parseFloat(priceUsd));
       res.json({ session });
     } catch (error) {
       console.error('Error creating VEDD payment session:', error);
-      res.status(500).json({ 
-        message: 'Error creating payment session',
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
+      res.status(500).json({ message: 'Error creating payment session', error: error instanceof Error ? error.message : 'Unknown error' });
+    }
+  });
+
+  app.get('/api/vedd/payment-price-info', async (_req: Request, res: Response) => {
+    try {
+      const { getPriceInfo } = await import('./veddPayment');
+      const info = await getPriceInfo();
+      res.json(info);
+    } catch (err) {
+      res.json({ veddPerUsd: 409836, priceUsd: 0.00000244, source: 'fallback' });
     }
   });
 
@@ -3223,9 +3227,8 @@ Respond ONLY in valid JSON format with these exact keys:
   // Get VEDD token prices for plans
   app.get('/api/vedd/prices', async (_req: Request, res: Response) => {
     try {
-      const { getVeddPrices, getReceiverWallet, getTokenMint } = await import('./veddPayment');
+      const { getReceiverWallet, getTokenMint } = await import('./veddPayment');
       res.json({
-        prices: getVeddPrices(),
         receiverWallet: getReceiverWallet(),
         tokenMint: getTokenMint(),
       });

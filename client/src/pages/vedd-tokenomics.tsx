@@ -114,7 +114,8 @@ const tokenUtility = [
   { icon: Shield, title: 'Governance', description: 'Vote on platform decisions, feature priorities, and reward rates' },
   { icon: Gift, title: 'Staking Rewards', description: 'Stake VEDD to earn additional yield and boost multipliers' },
   { icon: Trophy, title: 'Ambassador Perks', description: 'Enhanced earning rates and exclusive ambassador tools' },
-  { icon: Star, title: 'NFT Access', description: 'Exclusive NFT drops and ambassador badges' }
+  { icon: Star, title: 'NFT Access', description: 'Exclusive NFT drops and ambassador badges' },
+  { icon: Coins, title: 'Two Payment Systems', description: 'Earned VEDD (ambassador rewards): 2,000 = 1 month free. Bought VEDD (market): live price ~20M VEDD = $50 today, falling as price grows.' }
 ];
 
 interface RoadmapMonth {
@@ -816,6 +817,38 @@ export default function VeddTokenomics() {
                       Shop VEDD Clothing
                     </Button>
                   </a>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Two systems explainer card */}
+            <Card className="mt-4 border-amber-500/30 bg-gradient-to-br from-amber-950/30 to-gray-900">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base text-amber-400 flex items-center gap-2">
+                  <Coins className="h-4 w-4" /> Understanding Your VEDD Tokens
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="grid sm:grid-cols-2 gap-3">
+                  <div className="p-3 rounded-xl bg-emerald-500/08 border border-emerald-500/20">
+                    <p className="text-emerald-400 font-bold text-sm mb-1">① Earned VEDD — Ambassador Rate</p>
+                    <p className="text-gray-400 text-xs">Tokens earned through platform activities (posting, referrals, journey). Redeemed at a <strong className="text-white">fixed platform rate</strong>:</p>
+                    <div className="mt-2 space-y-1">
+                      <div className="flex justify-between text-xs"><span className="text-gray-500">500 VEDD</span><span className="text-emerald-400 font-bold">= 1 free week</span></div>
+                      <div className="flex justify-between text-xs"><span className="text-gray-500">2,000 VEDD</span><span className="text-emerald-400 font-bold">= 1 free month</span></div>
+                    </div>
+                    <p className="text-[10px] text-gray-600 mt-2">This rate never changes — it's your ambassador promise.</p>
+                  </div>
+                  <div className="p-3 rounded-xl bg-blue-500/08 border border-blue-500/20">
+                    <p className="text-blue-400 font-bold text-sm mb-1">② Bought VEDD — Market Rate</p>
+                    <p className="text-gray-400 text-xs">Buy VEDD on pump.fun and pay for membership at <strong className="text-white">live market price</strong>. Amount needed falls as VEDD grows:</p>
+                    <div className="mt-2 space-y-1">
+                      <div className="flex justify-between text-xs"><span className="text-gray-500">Today ($0.0000024)</span><span className="text-blue-400 font-bold">~20M VEDD/$50</span></div>
+                      <div className="flex justify-between text-xs"><span className="text-gray-500">Month 9 ($0.01)</span><span className="text-blue-400 font-bold">~5,000 VEDD/$50</span></div>
+                      <div className="flex justify-between text-xs"><span className="text-gray-500">Month 12 ($0.10)</span><span className="text-blue-400 font-bold">~500 VEDD/$50</span></div>
+                    </div>
+                    <p className="text-[10px] text-gray-600 mt-2">Market rate calculated live from DexScreener.</p>
+                  </div>
                 </div>
               </CardContent>
             </Card>

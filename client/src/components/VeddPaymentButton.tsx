@@ -36,6 +36,14 @@ export default function VeddPaymentButton({ planId, planName, priceUsd, disabled
     queryKey: ['/api/user'],
   });
 
+  const { data: priceInfo } = useQuery<{ veddPerUsd: number; priceUsd: number; source: string }>({
+    queryKey: ['/api/vedd/payment-price-info'],
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+  });
+
+  const veddCost = priceInfo ? Math.round((priceUsd * priceInfo.veddPerUsd) / 1000) * 1000 : null;
+
   const createSessionMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest('POST', '/api/vedd/create-session', { planId, planName, priceUsd });
@@ -121,9 +129,12 @@ export default function VeddPaymentButton({ planId, planName, priceUsd, disabled
         {createSessionMutation.isPending ? (
           <Loader2 className="w-4 h-4 mr-2 animate-spin" />
         ) : (
-          <Coins className="w-4 h-4 mr-2" />
+          <Coins className="h-4 w-4 mr-2" />
         )}
-        Pay with VEDD Token
+        Pay with VEDD
+        {veddCost && (
+          <span className="ml-2 text-[10px] opacity-70">~{(veddCost / 1_000_000).toFixed(1)}M VEDD</span>
+        )}
       </Button>
 
       {/* Login Required Dialog */}
@@ -179,6 +190,12 @@ export default function VeddPaymentButton({ planId, planName, priceUsd, disabled
                     {paymentSession.veddAmount.toLocaleString()} VEDD
                   </p>
                 </div>
+              </div>
+
+              <div className="rounded-xl p-3 bg-blue-500/08 border border-blue-500/15 text-xs space-y-1">
+                <p className="text-blue-300 font-semibold">Why so many tokens?</p>
+                <p className="text-gray-400">This is the <strong className="text-white">market price payment</strong> — you are buying VEDD on pump.fun and paying at the live exchange rate (${priceInfo?.priceUsd?.toFixed(8) ?? '0.00000244'}/VEDD).</p>
+                <p className="text-gray-400 mt-1">If you are an <strong className="text-white">ambassador who earned VEDD</strong> through daily activities, use the <strong className="text-amber-400">"Redeem Earned VEDD"</strong> option instead — that only requires 2,000 VEDD for 1 month.</p>
               </div>
 
               <div className="space-y-2">
