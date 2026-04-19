@@ -79,9 +79,18 @@ const TOPIC_CHIPS = [
   'Passive income strategies',
 ];
 
-// ─── Blog Post Card ──────────────────────────────────────────────────────────
-
 // ─── Share Panel ─────────────────────────────────────────────────────────────
+
+/** Strip HTML tags from AI-generated content to get plain text for share messages */
+function stripHtml(html: string): string {
+  return html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/** Truncate plain text to a max length, ending at a word boundary */
+function truncate(text: string, max: number): string {
+  if (text.length <= max) return text;
+  return text.slice(0, max).replace(/\s+\S*$/, '') + '…';
+}
 
 function SharePanel({
   post,
@@ -92,65 +101,86 @@ function SharePanel({
   referralCode?: string | null;
   onClose: () => void;
 }) {
-  const [copied, setCopied] = useState(false);
+  const [copiedMsg, setCopiedMsg] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
 
-  const baseUrl = `${window.location.origin}/blog`;
-  const affiliateUrl = referralCode
-    ? `${baseUrl}?ref=${referralCode}`
-    : baseUrl;
+  const articleUrl = `${window.location.origin}/blog`;
+  const readMoreUrl = referralCode
+    ? `${articleUrl}?ref=${referralCode}`
+    : articleUrl;
 
-  const shareText = `📈 "${post.title}" — VEDD AI Trading Insights`;
-  const encodedUrl = encodeURIComponent(affiliateUrl);
-  const encodedText = encodeURIComponent(`${shareText}\n\n${affiliateUrl}`);
+  // Build the plain-text excerpt from content or excerpt field
+  const plainContent = stripHtml(post.content || '');
+  const plainExcerpt = post.excerpt || truncate(plainContent, 220);
+  const snippet = truncate(plainExcerpt, 220);
+
+  // Full rich share message — what the reader will actually see
+  const fullMessage =
+    `📈 ${post.title}\n\n` +
+    `${snippet}\n\n` +
+    `Read the full article on VEDD AI Trading 👇\n${readMoreUrl}`;
+
+  // Twitter-friendly version (shorter)
+  const twitterSnippet = truncate(plainExcerpt, 120);
+  const twitterMessage =
+    `📈 ${post.title}\n\n${twitterSnippet}\n\n#VEDD #Trading #Forex`;
+
+  const encodedFull    = encodeURIComponent(fullMessage);
+  const encodedUrl     = encodeURIComponent(readMoreUrl);
+  const encodedTwitter = encodeURIComponent(twitterMessage);
 
   const platforms = [
     {
       name: 'WhatsApp',
       color: 'bg-green-700 hover:bg-green-600',
       emoji: '💬',
-      url: `https://wa.me/?text=${encodedText}`,
+      url: `https://wa.me/?text=${encodedFull}`,
     },
     {
       name: 'X / Twitter',
       color: 'bg-gray-800 hover:bg-gray-700 border border-gray-600',
       emoji: '𝕏',
-      url: `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodedUrl}`,
+      url: `https://twitter.com/intent/tweet?text=${encodedTwitter}&url=${encodedUrl}`,
     },
     {
       name: 'Facebook',
       color: 'bg-blue-700 hover:bg-blue-600',
       emoji: 'f',
-      url: `https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}`,
+      url: `https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}&quote=${encodeURIComponent(fullMessage)}`,
     },
     {
       name: 'LinkedIn',
       color: 'bg-blue-600 hover:bg-blue-500',
       emoji: 'in',
-      url: `https://www.linkedin.com/sharing/share-offsite/?url=${encodedUrl}`,
+      url: `https://www.linkedin.com/sharing/share-offsite/?url=${encodedUrl}&summary=${encodeURIComponent(fullMessage)}`,
     },
   ];
 
-  const handleCopy = async () => {
+  const copyToClipboard = async (text: string, which: 'msg' | 'link') => {
     try {
-      await navigator.clipboard.writeText(affiliateUrl);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      await navigator.clipboard.writeText(text);
     } catch {
-      // fallback for older browsers
       const ta = document.createElement('textarea');
-      ta.value = affiliateUrl;
+      ta.value = text;
       document.body.appendChild(ta);
       ta.select();
       document.execCommand('copy');
       document.body.removeChild(ta);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+    }
+    if (which === 'msg') {
+      setCopiedMsg(true);
+      setTimeout(() => setCopiedMsg(false), 2200);
+    } else {
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2200);
     }
   };
 
   return (
-    <div className="mt-4 bg-gray-900/80 border border-gray-700 rounded-lg p-4 space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
-      <div className="flex items-center justify-between mb-1">
+    <div className="mt-4 bg-gray-900/90 border border-gray-700 rounded-xl p-4 space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
+
+      {/* Header */}
+      <div className="flex items-center justify-between">
         <p className="text-sm font-semibold text-white flex items-center gap-2">
           <Share2 className="h-4 w-4 text-red-400" />
           Share this article
@@ -160,26 +190,49 @@ function SharePanel({
             </span>
           )}
         </p>
-        <button onClick={onClose} className="text-gray-500 hover:text-gray-300">
+        <button onClick={onClose} className="text-gray-500 hover:text-gray-300 transition-colors">
           <X className="h-4 w-4" />
         </button>
       </div>
 
-      {/* Affiliate link copy row */}
-      <div className="flex items-center gap-2">
-        <div className="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-xs text-gray-400 truncate font-mono">
-          {affiliateUrl}
+      {/* Preview card — shows exactly what followers will read */}
+      <div className="bg-gray-800/70 border border-gray-600/50 rounded-lg p-3 space-y-2">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-1">Preview — what your followers will see</p>
+        <p className="text-xs font-bold text-white leading-snug">📈 {post.title}</p>
+        <p className="text-xs text-gray-300 leading-relaxed">{snippet}</p>
+        <div className="pt-1 border-t border-gray-700/60">
+          <p className="text-xs text-gray-400">Read the full article on VEDD AI Trading 👇</p>
+          <p className="text-xs text-emerald-400 font-mono truncate mt-0.5">{readMoreUrl}</p>
         </div>
+      </div>
+
+      {/* Copy full message */}
+      <div className="flex gap-2">
         <Button
           size="sm"
-          variant="outline"
-          onClick={handleCopy}
-          className={`shrink-0 border-gray-600 text-gray-300 hover:bg-gray-800 transition-colors ${
-            copied ? 'border-emerald-600 text-emerald-400' : ''
+          onClick={() => copyToClipboard(fullMessage, 'msg')}
+          className={`flex-1 text-xs h-8 transition-all ${
+            copiedMsg
+              ? 'bg-emerald-700 text-white border-emerald-600'
+              : 'bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-600'
           }`}
+          variant="outline"
         >
-          {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-          <span className="ml-1 hidden sm:inline">{copied ? 'Copied!' : 'Copy'}</span>
+          {copiedMsg ? <Check className="h-3.5 w-3.5 mr-1" /> : <Copy className="h-3.5 w-3.5 mr-1" />}
+          {copiedMsg ? 'Message Copied!' : 'Copy Full Message'}
+        </Button>
+        <Button
+          size="sm"
+          onClick={() => copyToClipboard(readMoreUrl, 'link')}
+          className={`text-xs h-8 transition-all ${
+            copiedLink
+              ? 'bg-emerald-700 text-white border-emerald-600'
+              : 'bg-gray-800 hover:bg-gray-700 text-gray-400 border border-gray-700'
+          }`}
+          variant="outline"
+          title="Copy link only"
+        >
+          {copiedLink ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
         </Button>
       </div>
 
@@ -191,7 +244,7 @@ function SharePanel({
             href={p.url}
             target="_blank"
             rel="noopener noreferrer"
-            className={`${p.color} text-white text-xs font-semibold rounded px-3 py-2 text-center transition-colors flex items-center justify-center gap-1.5`}
+            className={`${p.color} text-white text-xs font-semibold rounded-lg px-3 py-2.5 text-center transition-colors flex items-center justify-center gap-1.5`}
           >
             <span className="text-sm leading-none">{p.emoji}</span>
             {p.name}
@@ -201,7 +254,7 @@ function SharePanel({
 
       {referralCode && (
         <p className="text-xs text-gray-500 italic">
-          🔗 Your affiliate code <span className="text-emerald-400 font-mono">{referralCode}</span> is embedded — you earn VEDD rewards when someone signs up through this link.
+          🔗 Code <span className="text-emerald-400 font-mono">{referralCode}</span> is embedded — earn VEDD rewards when someone joins through your link.
         </p>
       )}
     </div>
