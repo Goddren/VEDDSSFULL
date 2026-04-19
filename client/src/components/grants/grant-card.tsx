@@ -1,7 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Calendar, DollarSign, Globe, ExternalLink, Star } from "lucide-react";
+import { Calendar, DollarSign, Globe, ExternalLink, Star, X } from "lucide-react";
 
 interface Grant {
   id: number;
@@ -32,17 +32,34 @@ interface GrantCardProps {
   grant: Grant;
   hasApplied?: boolean;
   onApply: (grant: Grant) => void;
+  onDismiss?: (grantId: number) => void;
 }
 
-export function GrantCard({ grant, hasApplied, onApply }: GrantCardProps) {
+export function GrantCard({ grant, hasApplied, onApply, onDismiss }: GrantCardProps) {
   const typeConfig = grantTypeConfig[grant.grantType] || { label: grant.grantType, color: "bg-gray-600/30 text-gray-200 border-gray-500/50" };
   const score = grant.relevanceScore || 0;
   const deadlineDate = grant.deadline ? new Date(grant.deadline) : null;
   const isExpired = deadlineDate && deadlineDate < new Date();
 
   return (
-    <Card className={`bg-gray-900/60 border ${grant.isFeatured ? 'border-yellow-500/40' : 'border-gray-700/50'} p-4 hover:border-green-500/40 transition-all`}>
-      {grant.isFeatured && (
+    <Card className={`relative bg-gray-900/60 border ${grant.isFeatured ? 'border-yellow-500/40' : isExpired ? 'border-red-800/40' : 'border-gray-700/50'} p-4 hover:border-green-500/40 transition-all`}>
+      {/* Dismiss button for expired grants */}
+      {isExpired && onDismiss && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onDismiss(grant.id); }}
+          className="absolute top-2 right-2 z-10 w-6 h-6 rounded-full bg-red-900/60 border border-red-700/60 flex items-center justify-center hover:bg-red-700/80 transition-colors"
+          title="Dismiss expired grant"
+        >
+          <X className="w-3 h-3 text-red-300" />
+        </button>
+      )}
+      {/* Expired banner */}
+      {isExpired && (
+        <div className="flex items-center gap-1 mb-2">
+          <span className="text-red-400 text-[10px] font-medium uppercase tracking-wide">⚠ Deadline Passed — Dismiss or Archive</span>
+        </div>
+      )}
+      {grant.isFeatured && !isExpired && (
         <div className="flex items-center gap-1 mb-2">
           <Star className="w-3 h-3 text-yellow-400 fill-yellow-400" />
           <span className="text-yellow-400 text-[10px] font-medium uppercase tracking-wide">Featured Opportunity</span>

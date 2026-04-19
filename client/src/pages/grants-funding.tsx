@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/queryClient";
@@ -15,10 +15,22 @@ import { ProposalPreview } from "@/components/grants/proposal-preview";
 import { ApplicationStatusBadge, ApplicationStatusPipeline } from "@/components/grants/application-status-badge";
 import {
   DollarSign, Award, FileText, Users, TrendingUp, AlertTriangle,
-  ChevronLeft, Trash2, Send, RotateCcw, Trophy
+  ChevronLeft, Trash2, Send, RotateCcw, Trophy, Layers, LayoutGrid,
+  X, Heart, ChevronRight, SkipForward, Star, Globe, Calendar
 } from "lucide-react";
 import { TokenomicsBanner } from '@/components/vedd-rewards/tokenomics-banner';
 import { Redirect } from "wouter";
+
+/* ─── Tinder-style swipe card ──────────────────────────────────── */
+const SWIPE_THRESHOLD = 100;
+
+const grantTypeConfig: Record<string, { label: string; color: string }> = {
+  business_fintech: { label: "Fintech", color: "bg-purple-600/30 text-purple-200 border-purple-500/50" },
+  community_dev:    { label: "Community", color: "bg-green-600/30 text-green-200 border-green-500/50" },
+  ambassador_education: { label: "Education", color: "bg-blue-600/30 text-blue-200 border-blue-500/50" },
+  international:    { label: "International", color: "bg-orange-600/30 text-orange-200 border-orange-500/50" },
+  ai_focused:       { label: "AI/Tech", color: "bg-cyan-600/30 text-cyan-200 border-cyan-500/50" },
+};
 
 interface Grant {
   id: number;
@@ -36,6 +48,269 @@ interface Grant {
   isFeatured: boolean | null;
   aiScanNotes: string | null;
   eligibilityCriteria: string[] | null;
+}
+
+function SwipeGrantCard({
+  grant,
+  onSwipeLeft,
+  onSwipeRight,
+  isTop,
+  stackIndex,
+}: {
+  grant: Grant;
+  onSwipeLeft: () => void;
+  onSwipeRight: () => void;
+  isTop: boolean;
+  stackIndex: number;
+}) {
+  const cardRef = useRef<HTMLDivElement>(null);
+  const startX = useRef(0);
+  const currentX = useRef(0);
+  const isDragging = useRef(false);
+  const [offset, setOffset] = useState(0);
+  const [direction, setDirection] = useState<'left' | 'right' | null>(null);
+
+  const typeConfig = grantTypeConfig[grant.grantType] || { label: grant.grantType, color: "bg-gray-600/30 text-gray-200 border-gray-500/50" };
+  const score = grant.relevanceScore || 0;
+  const deadlineDate = grant.deadline ? new Date(grant.deadline) : null;
+  const isExpired = deadlineDate && deadlineDate < new Date();
+
+  const onPointerDown = useCallback((e: React.PointerEvent) => {
+    if (!isTop) return;
+    isDragging.current = true;
+    startX.current = e.clientX;
+    cardRef.current?.setPointerCapture(e.pointerId);
+  }, [isTop]);
+
+  const onPointerMove = useCallback((e: React.PointerEvent) => {
+    if (!isDragging.current || !isTop) return;
+    currentX.current = e.clientX - startX.current;
+    setOffset(currentX.current);
+    setDirection(currentX.current > 20 ? 'right' : currentX.current < -20 ? 'left' : null);
+  }, [isTop]);
+
+  const onPointerUp = useCallback(() => {
+    if (!isDragging.current) return;
+    isDragging.current = false;
+    if (currentX.current > SWIPE_THRESHOLD) {
+      onSwipeRight();
+    } else if (currentX.current < -SWIPE_THRESHOLD) {
+      onSwipeLeft();
+    } else {
+      setOffset(0);
+      setDirection(null);
+    }
+    currentX.current = 0;
+  }, [onSwipeLeft, onSwipeRight]);
+
+  const rotation = offset / 18;
+  const scale = isTop ? 1 : Math.max(0.92, 1 - stackIndex * 0.04);
+  const translateY = isTop ? 0 : stackIndex * 10;
+  const opacity = isTop ? 1 : Math.max(0.5, 1 - stackIndex * 0.2);
+
+  return (
+    <div
+      ref={cardRef}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
+      style={{
+        position: 'absolute',
+        width: '100%',
+        transform: isTop
+          ? `translateX(${offset}px) rotate(${rotation}deg)`
+          : `scale(${scale}) translateY(${translateY}px)`,
+        opacity,
+        transition: isDragging.current ? 'none' : 'transform 0.35s cubic-bezier(0.25,0.46,0.45,0.94), opacity 0.35s',
+        cursor: isTop ? 'grab' : 'default',
+        zIndex: 10 - stackIndex,
+        touchAction: 'none',
+        userSelect: 'none',
+      }}
+    >
+      <Card className={`bg-gray-900 border ${grant.isFeatured ? 'border-yellow-500/40' : isExpired ? 'border-red-700/40' : 'border-gray-700/50'} p-5 relative overflow-hidden shadow-xl`}>
+        {/* Swipe overlays */}
+        {isTop && direction === 'right' && (
+          <div className="absolute inset-0 bg-green-500/15 border-2 border-green-500/60 rounded-lg flex items-center justify-center pointer-events-none z-20" style={{ opacity: Math.min(1, Math.abs(offset) / SWIPE_THRESHOLD) }}>
+            <div className="bg-green-500 text-white font-bold text-2xl px-6 py-2 rounded-xl rotate-[-15deg] border-4 border-white shadow-lg">APPLY ✓</div>
+          </div>
+        )}
+        {isTop && direction === 'left' && (
+          <div className="absolute inset-0 bg-red-500/15 border-2 border-red-500/60 rounded-lg flex items-center justify-center pointer-events-none z-20" style={{ opacity: Math.min(1, Math.abs(offset) / SWIPE_THRESHOLD) }}>
+            <div className="bg-red-500 text-white font-bold text-2xl px-6 py-2 rounded-xl rotate-[15deg] border-4 border-white shadow-lg">SKIP ✗</div>
+          </div>
+        )}
+
+        {/* Header */}
+        <div className="flex items-start justify-between gap-2 mb-3">
+          <div className="flex-1 min-w-0">
+            {isExpired && <p className="text-[10px] text-red-400 font-semibold uppercase mb-1">⚠ Deadline Passed</p>}
+            {grant.isFeatured && !isExpired && <p className="text-[10px] text-yellow-400 font-semibold uppercase mb-1">⭐ Featured</p>}
+            <h3 className="text-base font-bold text-white leading-snug">{grant.title}</h3>
+            <p className="text-xs text-gray-400 mt-0.5">{grant.funder}</p>
+          </div>
+          <Badge className={`text-[10px] border shrink-0 ${typeConfig.color}`}>{typeConfig.label}</Badge>
+        </div>
+
+        <p className="text-xs text-gray-300 mb-4 leading-relaxed line-clamp-3">{grant.description}</p>
+
+        {/* Details grid */}
+        <div className="grid grid-cols-2 gap-2 mb-4">
+          {grant.fundingAmount && (
+            <div className="bg-green-900/20 border border-green-800/40 rounded-lg p-2 text-center">
+              <p className="text-[10px] text-gray-400 mb-0.5">Funding</p>
+              <p className="text-sm font-bold text-green-300">{grant.fundingAmount}</p>
+            </div>
+          )}
+          {deadlineDate && (
+            <div className={`rounded-lg p-2 text-center border ${isExpired ? 'bg-red-900/20 border-red-800/40' : 'bg-blue-900/20 border-blue-800/40'}`}>
+              <p className="text-[10px] text-gray-400 mb-0.5">Deadline</p>
+              <p className={`text-sm font-semibold ${isExpired ? 'text-red-300 line-through' : 'text-blue-300'}`}>
+                {deadlineDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' })}
+              </p>
+            </div>
+          )}
+          {score > 0 && (
+            <div className="bg-gray-800/50 border border-gray-700/40 rounded-lg p-2 text-center">
+              <p className="text-[10px] text-gray-400 mb-0.5">Match</p>
+              <p className={`text-sm font-bold ${score >= 85 ? 'text-green-400' : score >= 70 ? 'text-yellow-400' : 'text-gray-400'}`}>{score}%</p>
+            </div>
+          )}
+          {grant.geographicScope && (
+            <div className="bg-gray-800/50 border border-gray-700/40 rounded-lg p-2 text-center">
+              <p className="text-[10px] text-gray-400 mb-0.5">Region</p>
+              <p className="text-sm font-semibold text-gray-200 truncate">{grant.geographicScope}</p>
+            </div>
+          )}
+        </div>
+
+        {grant.aiScanNotes && (
+          <p className="text-[11px] text-gray-500 italic mb-4 line-clamp-2">💡 {grant.aiScanNotes}</p>
+        )}
+
+        {/* Swipe hint */}
+        {isTop && (
+          <div className="flex items-center justify-between text-[10px] text-gray-600">
+            <span className="flex items-center gap-1"><X className="w-3 h-3 text-red-500" /> Swipe left to skip</span>
+            <span className="flex items-center gap-1">Swipe right to apply <Heart className="w-3 h-3 text-green-500" /></span>
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+function GrantSwiper({
+  grants,
+  appliedGrantIds,
+  onApply,
+  onSkip,
+}: {
+  grants: Grant[];
+  appliedGrantIds: Set<number>;
+  onApply: (grant: Grant) => void;
+  onSkip: (grantId: number) => void;
+}) {
+  const [skipped, setSkipped] = useState<Set<number>>(new Set());
+  const [applyAnim, setApplyAnim] = useState<number | null>(null);
+  const [skipAnim, setSkipAnim] = useState<number | null>(null);
+  const [swipeCount, setSwipeCount] = useState(0);
+
+  const remaining = grants.filter(g => !skipped.has(g.id));
+  const stack = remaining.slice(0, 3);
+
+  const handleSwipeLeft = useCallback((grantId: number) => {
+    setSkipAnim(grantId);
+    setTimeout(() => {
+      setSkipped(prev => new Set([...prev, grantId]));
+      onSkip(grantId);
+      setSkipAnim(null);
+      setSwipeCount(c => c + 1);
+    }, 320);
+  }, [onSkip]);
+
+  const handleSwipeRight = useCallback((grant: Grant) => {
+    setApplyAnim(grant.id);
+    setTimeout(() => {
+      setSkipped(prev => new Set([...prev, grant.id]));
+      onApply(grant);
+      setApplyAnim(null);
+      setSwipeCount(c => c + 1);
+    }, 320);
+  }, [onApply]);
+
+  const handleReset = () => { setSkipped(new Set()); setSwipeCount(0); };
+
+  if (remaining.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-center">
+        <div className="text-5xl mb-4">🎉</div>
+        <h3 className="text-lg font-bold text-white mb-2">You've reviewed all grants!</h3>
+        <p className="text-sm text-gray-400 mb-6">You went through {swipeCount} grant{swipeCount !== 1 ? 's' : ''}.</p>
+        <Button onClick={handleReset} className="bg-green-600 hover:bg-green-500 text-white gap-2">
+          <RotateCcw className="w-4 h-4" /> Start Over
+        </Button>
+      </div>
+    );
+  }
+
+  const topGrant = stack[0];
+
+  return (
+    <div className="flex flex-col items-center">
+      {/* Progress */}
+      <div className="flex items-center gap-3 mb-6 text-xs text-gray-400">
+        <span>{remaining.length} remaining</span>
+        <div className="w-32 h-1.5 bg-gray-800 rounded-full overflow-hidden">
+          <div
+            className="h-full bg-green-500 rounded-full transition-all"
+            style={{ width: `${((grants.length - remaining.length) / grants.length) * 100}%` }}
+          />
+        </div>
+        <span>{grants.length - remaining.length} reviewed</span>
+      </div>
+
+      {/* Card stack */}
+      <div className="relative w-full max-w-md" style={{ height: 460 }}>
+        {stack.map((grant, i) => (
+          <SwipeGrantCard
+            key={grant.id}
+            grant={grant}
+            isTop={i === 0}
+            stackIndex={i}
+            onSwipeLeft={() => handleSwipeLeft(grant.id)}
+            onSwipeRight={() => handleSwipeRight(grant)}
+          />
+        ))}
+      </div>
+
+      {/* Action buttons */}
+      <div className="flex items-center gap-6 mt-6">
+        <button
+          onClick={() => topGrant && handleSwipeLeft(topGrant.id)}
+          className="w-14 h-14 rounded-full bg-red-900/40 border-2 border-red-600/60 flex items-center justify-center hover:bg-red-700/50 hover:scale-110 transition-all shadow-lg"
+        >
+          <X className="w-6 h-6 text-red-400" />
+        </button>
+        <button
+          onClick={() => { setSkipped(new Set([...skipped, topGrant?.id ?? -1])); setSwipeCount(c => c + 1); }}
+          className="w-10 h-10 rounded-full bg-gray-800 border border-gray-600 flex items-center justify-center hover:bg-gray-700 transition-all"
+          title="Skip"
+        >
+          <SkipForward className="w-4 h-4 text-gray-400" />
+        </button>
+        <button
+          onClick={() => topGrant && handleSwipeRight(topGrant)}
+          className="w-14 h-14 rounded-full bg-green-900/40 border-2 border-green-600/60 flex items-center justify-center hover:bg-green-700/50 hover:scale-110 transition-all shadow-lg"
+        >
+          <Heart className="w-6 h-6 text-green-400" />
+        </button>
+      </div>
+
+      <p className="text-[10px] text-gray-600 mt-4">Tap ✗ to skip · Tap ♡ to apply · Or swipe the card</p>
+    </div>
+  );
 }
 
 interface GrantApplication {
@@ -72,6 +347,31 @@ export default function GrantsFundingPage() {
   const [selectedApplication, setSelectedApplication] = useState<GrantApplication | null>(null);
 
   const hasAccess = !!(user && (user.isAmbassador || user.isAdmin));
+  const [swipeMode, setSwipeMode] = useState(false);
+
+  // Persist dismissed grant IDs in localStorage
+  const DISMISS_KEY = `vedd_dismissed_grants_${user?.id}`;
+  const [dismissedIds, setDismissedIds] = useState<Set<number>>(() => {
+    try {
+      const stored = localStorage.getItem(DISMISS_KEY);
+      return stored ? new Set(JSON.parse(stored)) : new Set();
+    } catch { return new Set(); }
+  });
+
+  const dismissGrant = useCallback((grantId: number) => {
+    setDismissedIds(prev => {
+      const next = new Set([...prev, grantId]);
+      localStorage.setItem(DISMISS_KEY, JSON.stringify([...next]));
+      return next;
+    });
+    toast({ title: "Grant dismissed", description: "It won't appear in your list. Refresh to restore all grants." });
+  }, [DISMISS_KEY, toast]);
+
+  const restoreDismissed = useCallback(() => {
+    setDismissedIds(new Set());
+    localStorage.removeItem(DISMISS_KEY);
+    toast({ title: "All dismissed grants restored" });
+  }, [DISMISS_KEY, toast]);
 
   const { data: grants = [], refetch: refetchGrants } = useQuery<Grant[]>({
     queryKey: ["/api/grants", typeFilter],
@@ -159,6 +459,7 @@ export default function GrantsFundingPage() {
   };
 
   const appliedGrantIds = new Set(applications.map(a => a.grantId));
+  const visibleGrants = grants.filter(g => !dismissedIds.has(g.id));
 
   return (
     <div className="min-h-screen bg-gray-950 text-white">
@@ -233,9 +534,10 @@ export default function GrantsFundingPage() {
 
           {/* GRANTS TAB */}
           <TabsContent value="grants">
-            <div className="flex items-center gap-3 mb-4">
+            {/* Toolbar */}
+            <div className="flex flex-wrap items-center gap-3 mb-4">
               <Select value={typeFilter} onValueChange={setTypeFilter}>
-                <SelectTrigger className="w-48 bg-gray-900 border-gray-700 text-white text-xs h-8">
+                <SelectTrigger className="w-44 bg-gray-900 border-gray-700 text-white text-xs h-8">
                   <SelectValue placeholder="Filter by type" />
                 </SelectTrigger>
                 <SelectContent className="bg-gray-900 border-gray-700">
@@ -247,23 +549,60 @@ export default function GrantsFundingPage() {
                   <SelectItem value="ai_focused">AI / Technology</SelectItem>
                 </SelectContent>
               </Select>
-              <span className="text-xs text-gray-500">{grants.length} grant{grants.length !== 1 ? 's' : ''} available</span>
+
+              {/* View mode toggle */}
+              <div className="flex items-center bg-gray-900 border border-gray-700 rounded-lg p-0.5 gap-0.5">
+                <button
+                  onClick={() => setSwipeMode(false)}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all ${!swipeMode ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white'}`}
+                >
+                  <LayoutGrid className="w-3.5 h-3.5" /> Grid
+                </button>
+                <button
+                  onClick={() => setSwipeMode(true)}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all ${swipeMode ? 'bg-green-600 text-white' : 'text-gray-400 hover:text-white'}`}
+                >
+                  <Layers className="w-3.5 h-3.5" /> Swipe
+                </button>
+              </div>
+
+              <span className="text-xs text-gray-500 ml-auto">
+                {visibleGrants.length} shown
+                {dismissedIds.size > 0 && (
+                  <button onClick={restoreDismissed} className="ml-2 text-blue-400 hover:text-blue-300 underline">
+                    restore {dismissedIds.size} dismissed
+                  </button>
+                )}
+              </span>
             </div>
 
-            {grants.length === 0 ? (
+            {visibleGrants.length === 0 && grants.length === 0 ? (
               <div className="text-center py-16 text-gray-500">
                 <DollarSign className="w-12 h-12 mx-auto mb-3 opacity-30" />
                 <p className="text-sm font-medium mb-1">No grants found</p>
                 <p className="text-xs mb-4">Click "Scan for Grants" to discover funding opportunities</p>
               </div>
+            ) : visibleGrants.length === 0 ? (
+              <div className="text-center py-12 text-gray-500">
+                <p className="text-sm font-medium mb-2">All grants dismissed</p>
+                <button onClick={restoreDismissed} className="text-xs text-blue-400 hover:text-blue-300 underline">Restore all</button>
+              </div>
+            ) : swipeMode ? (
+              <GrantSwiper
+                grants={visibleGrants}
+                appliedGrantIds={appliedGrantIds}
+                onApply={handleApplyToGrant}
+                onSkip={() => {}}
+              />
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {grants.map(grant => (
+                {visibleGrants.map(grant => (
                   <GrantCard
                     key={grant.id}
                     grant={grant}
                     hasApplied={appliedGrantIds.has(grant.id)}
                     onApply={handleApplyToGrant}
+                    onDismiss={dismissGrant}
                   />
                 ))}
               </div>
