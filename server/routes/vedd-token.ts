@@ -112,22 +112,33 @@ router.get('/admin/overview', requireAdmin, async (req: Request, res: Response) 
 router.post('/admin/pool/initialize', requireAdmin, async (req: Request, res: Response) => {
   try {
     const { label, publicKey, walletType = 'rewards' } = req.body;
-    
+
     if (!label || !publicKey) {
       return res.status(400).json({ error: 'Label and publicKey are required' });
     }
-    
-    const walletId = await veddTokenService.initializePoolWallet(label, publicKey, walletType);
+
+    // Validate Solana address format before hitting DB
+    if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(publicKey.trim())) {
+      return res.status(400).json({ error: 'Invalid Solana wallet address format. Make sure you copied the full address from Phantom.' });
+    }
+
+    const walletId = await veddTokenService.initializePoolWallet(label, publicKey.trim(), walletType);
     res.json({ success: true, walletId });
   } catch (error: any) {
     console.error('Error initializing pool wallet:', error);
-    res.status(500).json({ error: 'Failed to initialize pool wallet' });
+    // Return the actual error message so admin can diagnose
+    const msg = error?.message || 'Unknown error';
+    if (msg.includes('unique') || msg.includes('duplicate') || msg.includes('already exists')) {
+      return res.status(400).json({ error: 'This wallet address is already registered. Go to the pool list to sync it.' });
+    }
+    res.status(500).json({ error: `Failed to initialize pool wallet: ${msg}` });
   }
 });
 
 router.post('/admin/pool/:walletId/sync', requireAdmin, async (req: Request, res: Response) => {
   try {
     const walletId = parseInt(req.params.walletId);
+    if (isNaN(walletId)) return res.status(400).json({ error: 'Invalid wallet ID' });
     const balance = await veddTokenService.syncPoolBalance(walletId);
     res.json({ success: true, balance });
   } catch (error: any) {

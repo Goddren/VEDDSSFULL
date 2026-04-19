@@ -90,16 +90,23 @@ export default function AdminVeddPool() {
 
   const initPoolMutation = useMutation({
     mutationFn: async (data: { label: string; publicKey: string; walletType: string }) => {
-      const res = await apiRequest('POST', '/api/vedd/admin/pool/initialize', data);
-      return res.json();
+      const res = await fetch('/api/vedd/admin/pool/initialize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+        credentials: 'include',
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `Server error ${res.status}`);
+      return json;
     },
     onSuccess: () => {
-      toast({ title: "Success", description: "Pool wallet initialized" });
+      toast({ title: "✅ Pool wallet initialized!", description: "Now click Sync to load your VEDD balance." });
       setNewWallet({ label: '', publicKey: '', walletType: 'rewards' });
       queryClient.invalidateQueries({ queryKey: ['/api/vedd/admin/overview'] });
     },
     onError: (err: Error) => {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
+      toast({ title: "Failed to initialize", description: err.message, variant: "destructive" });
     }
   });
 
