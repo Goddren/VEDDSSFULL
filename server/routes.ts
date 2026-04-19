@@ -16723,6 +16723,28 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
 
   // ─── DEVOTIONALS ────────────────────────────────────────────────────────────
 
+  // Helper: insert a devotional row (handles JSONB cast correctly)
+  async function insertDevotional(d: {
+    date: string; title: string; theme: string; scripture: string; scriptureText: string;
+    reflection: string; prayerPoints: string[]; affirmation: string; tradingTieIn: string;
+  }) {
+    const prayerJson = JSON.stringify(d.prayerPoints);
+    return db.execute(
+      sql`INSERT INTO devotionals (date, title, theme, scripture, scripture_text, reflection, prayer_points, affirmation, trading_tie_in, minimum_minutes, ai_generated, is_published)
+          VALUES (
+            ${d.date}, ${d.title}, ${d.theme}, ${d.scripture}, ${d.scriptureText},
+            ${d.reflection}, ${sql.raw(`'${prayerJson.replace(/'/g, "''")}'::jsonb`)},
+            ${d.affirmation}, ${d.tradingTieIn}, 5, true, true
+          )
+          ON CONFLICT (date) DO UPDATE SET
+            title = EXCLUDED.title, theme = EXCLUDED.theme, reflection = EXCLUDED.reflection,
+            scripture = EXCLUDED.scripture, scripture_text = EXCLUDED.scripture_text,
+            prayer_points = EXCLUDED.prayer_points, affirmation = EXCLUDED.affirmation,
+            trading_tie_in = EXCLUDED.trading_tie_in
+          RETURNING *`
+    );
+  }
+
   // GET today's devotional (auto-generate if missing)
   app.get("/api/devotionals/today", async (req, res) => {
     try {
@@ -16735,15 +16757,10 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       }
       // Auto-generate via AI
       const generated = await generateDailyDevotional(today);
-      const inserted = await db.execute(
-        sql`INSERT INTO devotionals (date, title, theme, scripture, scripture_text, reflection, prayer_points, affirmation, trading_tie_in, minimum_minutes, ai_generated, is_published)
-            VALUES (${today}, ${generated.title}, ${generated.theme}, ${generated.scripture}, ${generated.scriptureText},
-                    ${generated.reflection}, ${JSON.stringify(generated.prayerPoints)}, ${generated.affirmation},
-                    ${generated.tradingTieIn}, 5, true, true)
-            RETURNING *`
-      );
+      const inserted = await insertDevotional({ date: today, ...generated });
       res.json((inserted.rows as any[])[0]);
     } catch (err: any) {
+      console.error('[devotional] GET today failed:', err);
       res.status(500).json({ error: err.message });
     }
   });
@@ -16769,16 +16786,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const { date } = req.body;
       const targetDate = date || new Date().toISOString().split('T')[0];
       const generated = await generateDailyDevotional(targetDate);
-      const inserted = await db.execute(
-        sql`INSERT INTO devotionals (date, title, theme, scripture, scripture_text, reflection, prayer_points, affirmation, trading_tie_in, minimum_minutes, ai_generated, is_published)
-            VALUES (${targetDate}, ${generated.title}, ${generated.theme}, ${generated.scripture}, ${generated.scriptureText},
-                    ${generated.reflection}, ${JSON.stringify(generated.prayerPoints)}, ${generated.affirmation},
-                    ${generated.tradingTieIn}, 5, true, true)
-            ON CONFLICT (date) DO UPDATE SET
-              title = EXCLUDED.title, theme = EXCLUDED.theme, reflection = EXCLUDED.reflection,
-              prayer_points = EXCLUDED.prayer_points, affirmation = EXCLUDED.affirmation, trading_tie_in = EXCLUDED.trading_tie_in
-            RETURNING *`
-      );
+      const inserted = await insertDevotional({ date: targetDate, ...generated });
       res.json((inserted.rows as any[])[0]);
     } catch (err: any) {
       res.status(500).json({ error: err.message });

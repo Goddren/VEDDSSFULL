@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -400,14 +400,18 @@ export default function DevotionalPage() {
   const [completionResult, setCompletionResult] = useState<{ amount: number; isGroup: boolean } | null>(null);
 
   // Fetch today's devotional
-  const { data: devotional, isLoading: devLoading, isError: devError, refetch: refetchDev } = useQuery<Devotional>({
+  const { data: devotional, isLoading: devLoading, isError: devError, error: devErrorObj, refetch: refetchDev } = useQuery<Devotional>({
     queryKey: ['/api/devotionals/today'],
     queryFn: async () => {
       const res = await fetch('/api/devotionals/today');
-      if (!res.ok) throw new Error('Failed to load devotional');
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Server error ${res.status}`);
+      }
       return res.json();
     },
     staleTime: 5 * 60 * 1000,
+    retry: 1,
   });
 
   // Fetch user stats
@@ -537,7 +541,12 @@ export default function DevotionalPage() {
 
         {devError && (
           <div className="text-center py-12">
-            <p className="text-gray-400 mb-4">Could not load today's devotional.</p>
+            <p className="text-gray-400 mb-2">Could not load today's devotional.</p>
+            {devErrorObj && (
+              <p className="text-red-400 text-xs mb-4 font-mono bg-red-900/10 border border-red-900/30 rounded px-3 py-2 inline-block max-w-lg break-all">
+                {(devErrorObj as Error).message}
+              </p>
+            )}
             <Button onClick={() => refetchDev()} variant="outline" className="border-gray-700 text-gray-300">
               <RefreshCw className="h-4 w-4 mr-2" /> Try Again
             </Button>
