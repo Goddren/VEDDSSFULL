@@ -453,6 +453,78 @@ async function withRetry<T>(
       console.error('[startup] Ambassador journey tables migration (non-fatal):', (err as Error).message);
     }
 
+    // ── VEDD Token Tables ─────────────────────────────────────────────────────
+    try {
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS vedd_pool_wallets (
+        id SERIAL PRIMARY KEY,
+        label TEXT NOT NULL,
+        public_key TEXT NOT NULL UNIQUE,
+        wallet_type TEXT NOT NULL DEFAULT 'rewards',
+        status TEXT NOT NULL DEFAULT 'active',
+        token_balance REAL DEFAULT 0,
+        low_balance_threshold REAL DEFAULT 1000,
+        last_sync_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL
+      )`);
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS vedd_reward_config (
+        id SERIAL PRIMARY KEY,
+        action_type TEXT NOT NULL UNIQUE,
+        base_amount REAL NOT NULL DEFAULT 0,
+        streak_multiplier REAL DEFAULT 1.0,
+        max_daily_rewards INTEGER DEFAULT 5,
+        requires_verification BOOLEAN DEFAULT false,
+        description TEXT,
+        is_active BOOLEAN DEFAULT true,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+        updated_at TIMESTAMP DEFAULT NOW() NOT NULL
+      )`);
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS ambassador_action_rewards (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) NOT NULL,
+        action_type TEXT NOT NULL,
+        action_id INTEGER,
+        base_reward REAL NOT NULL,
+        bonus_reward REAL DEFAULT 0,
+        total_reward REAL NOT NULL,
+        verification_status TEXT DEFAULT 'pending',
+        verified_by INTEGER REFERENCES users(id),
+        verified_at TIMESTAMP,
+        transfer_job_id INTEGER,
+        notes TEXT,
+        security_flag TEXT,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL
+      )`);
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS vedd_transfer_jobs (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) NOT NULL,
+        source_wallet_id INTEGER REFERENCES vedd_pool_wallets(id) NOT NULL,
+        destination_wallet TEXT NOT NULL,
+        amount REAL NOT NULL,
+        action_type TEXT NOT NULL,
+        action_id INTEGER,
+        status TEXT DEFAULT 'pending',
+        solana_transaction_sig TEXT,
+        error_message TEXT,
+        retry_count INTEGER DEFAULT 0,
+        idempotency_key TEXT UNIQUE,
+        metadata JSONB,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+        processed_at TIMESTAMP
+      )`);
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS vedd_wallet_blacklist (
+        id SERIAL PRIMARY KEY,
+        wallet_address TEXT NOT NULL UNIQUE,
+        reason TEXT NOT NULL,
+        added_by INTEGER REFERENCES users(id),
+        notes TEXT,
+        is_active BOOLEAN DEFAULT true,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL
+      )`);
+      console.log('[startup] VEDD token tables created/verified.');
+    } catch (err) {
+      console.error('[startup] VEDD token tables migration (non-fatal):', (err as Error).message);
+    }
+
     await withRetry(() => seedSubscriptionPlans(), 'seedSubscriptionPlans');
     await withRetry(() => seedAchievements(), 'seedAchievements');
     await withRetry(() => seedAdminUser(), 'seedAdminUser');
