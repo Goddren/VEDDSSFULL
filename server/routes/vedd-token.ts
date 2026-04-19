@@ -108,6 +108,7 @@ router.get('/daily-missions', async (req: Request, res: Response) => {
       { actionType: 'grant_apply',       label: 'Apply for a Grant',                veddReward: 25,  maxCount: 1, category: 'weekly', icon: 'dollar',   description: 'Start or submit a grant application' },
       { actionType: 'training_module',   label: 'Complete Training Module',         veddReward: 50,  maxCount: 3, category: 'weekly', icon: 'book',     description: 'Finish an ambassador training module (up to 3/week)' },
       { actionType: 'daily_post',        label: 'Post VEDD Content',                veddReward: 10,  maxCount: 1, category: 'daily',  icon: 'star',     description: 'Share VEDD branded content on social media' },
+      { actionType: 'event_hosting',     label: 'Host a Community Event',           veddReward: 100, maxCount: 1, category: 'weekly', icon: 'trophy',   description: 'Host a live community or ambassador event' },
       { actionType: 'event_attendance',  label: 'Attend Community Event',           veddReward: 15,  maxCount: 2, category: 'weekly', icon: 'calendar', description: 'Join a community or host event (up to 2/week)' },
       { actionType: 'devotional_streak_bonus', label: '5-Day Devotional Streak Bonus', veddReward: 200, maxCount: 1, category: 'weekly', icon: 'fire', description: 'Complete 5 devotionals in a week for a bonus' },
       { actionType: 'journey_day_complete', label: 'Free Path to Pro — Daily Step', veddReward: 10, maxCount: 1, category: 'daily',  icon: 'rocket',   description: 'Complete a day in the 44-day ambassador journey' },

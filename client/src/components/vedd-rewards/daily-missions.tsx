@@ -6,7 +6,7 @@ import {
   Heart, Users, TrendingUp, BarChart3, Radio, Share2,
   MessageSquare, DollarSign, BookOpen, Star, Calendar,
   Flame, Rocket, Coins, CheckCircle2, Circle, ChevronRight,
-  Zap, Lock,
+  Zap, Lock, Trophy,
 } from 'lucide-react';
 
 /* ─── Types ──────────────────────────────────────────────────────── */
@@ -48,6 +48,7 @@ const ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   fire:     Flame,
   rocket:   Rocket,
   coins:    Coins,
+  trophy:   Trophy,
 };
 
 const ICON_COLORS: Record<string, string> = {
@@ -65,6 +66,7 @@ const ICON_COLORS: Record<string, string> = {
   fire:     'text-orange-400',
   rocket:   'text-green-400',
   coins:    'text-amber-400',
+  trophy:   'text-orange-400',
 };
 
 const TASK_PATHS: Record<string, string> = {
@@ -78,6 +80,7 @@ const TASK_PATHS: Record<string, string> = {
   grant_apply:             '/grants',
   training_module:         '/ambassador-training',
   daily_post:              '/blog',
+  event_hosting:           '/community',
   event_attendance:        '/community',
   devotional_streak_bonus: '/devotional',
   journey_day_complete:    '/ambassador/free-path',
