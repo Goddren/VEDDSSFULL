@@ -2891,6 +2891,42 @@ Return JSON: { "grants": [ { "title", "funder", "description", "fundingAmount", 
   }
 }
 
+// ─── MASTER GRANT WRITER SYSTEM PROMPT ───────────────────────────────────────
+// Emulates a 10-year veteran grant writer with 98% award success rate
+
+const MASTER_GRANT_WRITER_SYSTEM = `You are Dr. Renée Hargrove, a senior grant strategist and proposal writer with 10 years of experience and a 98% funding success rate. You have secured over $47 million in competitive grants for fintech companies, community development organizations, EdTech platforms, and minority-owned enterprises.
+
+Your proposals consistently win because you:
+
+1. **Mirror the funder's language and priorities exactly** — You study what the funder cares about most and lead with their values before introducing the applicant.
+
+2. **Lead with urgency and a data-backed problem statement** — Reviewers decide in the first 30 seconds. Your openings are precise, emotionally resonant, and grounded in real data.
+
+3. **Demonstrate organizational credibility immediately** — You front-load proof of capacity: team expertise, existing infrastructure, past success metrics, and community relationships.
+
+4. **Write SMART, measurable objectives** — Every goal has a number, a timeline, and a responsible party. Reviewers hate vague language; you never use it.
+
+5. **Build a compelling Theory of Change** — You always show the causal chain: Activities → Outputs → Short-term Outcomes → Long-term Impact. Funders fund logic, not hope.
+
+6. **Tell human stories** — You weave real community narratives into technical sections to create emotional connection without sacrificing professionalism.
+
+7. **Write budget narratives that justify every dollar** — You show cost-effectiveness by benchmarking against industry standards and demonstrating efficiency.
+
+8. **Address sustainability proactively** — You always explain how the work continues post-grant, reducing perceived risk for the funder.
+
+9. **Include a strong evaluation plan** — Funders want to see how success will be measured. You always include specific KPIs, data collection methods, and reporting timelines.
+
+10. **Close with vision, not summary** — Your conclusions paint a picture of the world after the grant succeeds, creating a lasting impression on reviewers.
+
+Your writing is:
+- Professional but accessible (8th-grade readability, not academic jargon)
+- Specific (concrete numbers, names, places — never vague generalities)
+- Funder-centric (their mission first, applicant's needs second)
+- Action-oriented (present tense, active voice)
+- Formatted for skimmability (strong headers, strategic bullet use, clear paragraph breaks)
+
+You ALWAYS produce proposals that are ready to submit — no placeholders like [INSERT DATA HERE], no generic language, no filler content. Every sentence earns its place.`;
+
 export async function generateGrantProposal(
   grant: { title: string; funder: string; description: string; grantType: string; fundingAmount?: string | null; eligibilityCriteria?: any },
   mode: 'auto' | 'guided' | 'template',
@@ -2902,72 +2938,263 @@ export async function generateGrantProposal(
   }
 ): Promise<{ content: string; sections?: Record<string, string> }> {
 
+  const eligibilityText = Array.isArray(grant.eligibilityCriteria)
+    ? grant.eligibilityCriteria.join(', ')
+    : (grant.eligibilityCriteria || 'See grant requirements');
+
+  const fundingAmt = grant.fundingAmount || 'Amount not specified';
+
+  // Rich funder + org context block — used in every prompt
   const baseContext = `
-Organization: VEDD AI Trading
-${VEDD_IDENTITY_CONTEXT}
-Grant: ${grant.title}
-Funder: ${grant.funder}
+═══════════════════════════════════════════
+GRANT OPPORTUNITY DETAILS
+═══════════════════════════════════════════
+Grant Title: ${grant.title}
+Funding Organization: ${grant.funder}
 Grant Description: ${grant.description}
-Funding Amount: ${grant.fundingAmount || 'Not specified'}
-Eligibility: ${Array.isArray(grant.eligibilityCriteria) ? grant.eligibilityCriteria.join(', ') : 'See grant requirements'}
+Funding Amount Available: ${fundingAmt}
+Eligibility Requirements: ${eligibilityText}
+Grant Category: ${grant.grantType}
+
+═══════════════════════════════════════════
+APPLICANT ORGANIZATION — VEDD AI TRADING
+═══════════════════════════════════════════
+${VEDD_IDENTITY_CONTEXT}
+
+DIFFERENTIATORS (use these to stand out):
+- First-mover AI trading education platform integrated with Solana blockchain infrastructure
+- Proprietary 44-day Ambassador Certification Program with NFT-based credentialing
+- Faith-based community trust networks across multiple U.S. cities — channels that traditional fintech cannot access
+- Ambassador network model creates self-sustaining economic micro-ecosystems in underserved areas
+- Dual revenue model (subscriptions + VEDD token ecosystem) demonstrates financial sustainability
+- Technology democratizes tools previously available only to institutional traders ($50/month vs. $10,000+/year for institutional platforms)
+- Measurable community outcomes: each ambassador directly impacts 50-200 community members in financial literacy
 `;
 
   const aiClient = options?.userId ? await getUniversalAIClientForUser(options.userId) : null;
   const client = aiClient || openai;
   const model = aiClient ? aiClient.defaultModel : "gpt-4o";
 
-  const callAI = async (systemMsg: string, userMsg: string, maxTokens = 3500): Promise<string> => {
+  const callAI = async (systemMsg: string, userMsg: string, maxTokens = 4500): Promise<string> => {
     const response = await client.chat.completions.create({
       model,
       messages: [{ role: "system", content: systemMsg }, { role: "user", content: userMsg }],
       max_tokens: maxTokens,
-      temperature: 0.6,
+      temperature: 0.65,
     });
     return response.choices[0]?.message?.content || '';
   };
 
+  // ── AUTO MODE: Full winning proposal ──────────────────────────────────────
   if (mode === 'auto') {
     const content = await callAI(
-      "You are an expert grant writer specializing in fintech, community development, and technology education. Write compelling, fundable proposals.",
-      `Write a complete, professional grant proposal for VEDD AI Trading applying to the following grant.\n\n${baseContext}\n\nWrite a comprehensive proposal (1500-2500 words) with these clearly labeled sections:\n## EXECUTIVE SUMMARY\n## ORGANIZATIONAL BACKGROUND\n## PROJECT DESCRIPTION\n## GOALS AND OBJECTIVES\n## BUDGET NARRATIVE\n## IMPACT STATEMENT\n## CONCLUSION\n\nMake it compelling, specific to VEDD's mission, and tailored to what this funder values.`,
-      3500
+      MASTER_GRANT_WRITER_SYSTEM,
+      `Write a complete, competition-winning grant proposal for VEDD AI Trading to submit to ${grant.funder} for the "${grant.title}" grant.
+
+${baseContext}
+
+PROPOSAL REQUIREMENTS:
+Write a 2,200–3,000 word professional grant proposal with the following clearly formatted sections. Each section must be substantive, specific, and funder-aligned. Do NOT use placeholders. Write as if this is the final submission.
+
+## EXECUTIVE SUMMARY
+(250–300 words) Lead with the funder's mission. State: who VEDD is, what specific problem this grant will solve, what VEDD will do with the funding, the measurable outcomes, and the funding amount requested. Make the first sentence impossible to ignore.
+
+## STATEMENT OF NEED
+(300–400 words) Build an urgent, data-grounded case for the problem. Use national and community-level statistics on financial exclusion, the wealth gap, lack of access to investment tools in underserved communities, and the cost of financial illiteracy. Connect this directly to ${grant.funder}'s stated priorities. This is where reviewers decide whether your project matters.
+
+## ORGANIZATIONAL BACKGROUND & CAPACITY
+(250–350 words) Establish VEDD's credibility and readiness. Highlight: founding mission, platform capabilities, ambassador network scale, technical infrastructure, team expertise, and any existing community partnerships. Include specific metrics where possible. Demonstrate you have the organizational muscle to deliver.
+
+## PROJECT DESCRIPTION
+(400–500 words) Describe exactly what VEDD will do with this grant funding. Be specific: activities, timelines, team responsibilities, community partners, and delivery methods. Use a Theory of Change frame: Activities → Outputs → Outcomes → Long-term Impact. Make this feel real and executable, not theoretical.
+
+## GOALS, OBJECTIVES & EVALUATION PLAN
+(300–350 words) List 4–5 SMART objectives (Specific, Measurable, Achievable, Relevant, Time-bound). For each, include: the target number, how it will be measured, and the reporting timeline. Include a brief evaluation methodology: how VEDD will collect data, track progress, and report to the funder.
+
+## BUDGET NARRATIVE
+(200–300 words) Justify the use of ${fundingAmt} with line-item categories (personnel, technology infrastructure, training materials, community outreach, evaluation, indirect costs). Show cost-effectiveness by noting what each dollar achieves in terms of community impact. Demonstrate fiscal responsibility.
+
+## SUSTAINABILITY PLAN
+(200–250 words) Explain how this program continues after the grant period ends. Reference VEDD's subscription revenue model, token ecosystem, growing ambassador network, and plans for follow-on funding. Funders need to know their investment won't disappear.
+
+## COMMUNITY IMPACT & EQUITY STATEMENT
+(200–250 words) Paint a vivid, specific picture of who benefits and how. Name the communities. Use "before and after" language. Connect to themes of equity, access, and economic justice that resonate with ${grant.funder}'s values.
+
+## CONCLUSION
+(150–200 words) End with bold, forward-looking vision. Reinforce the partnership frame — VEDD and ${grant.funder} together accomplishing something that neither could alone. Express genuine gratitude and confidence. Leave the reviewer feeling inspired, not just informed.
+
+CRITICAL RULES:
+- Mirror ${grant.funder}'s language and values throughout
+- Every statistic must be plausible and consistent with publicly known data
+- Active voice, present/future tense throughout
+- No filler sentences — every sentence must add value
+- Professional but human — avoid academic jargon
+- This proposal must stand alone as a complete, ready-to-submit document`,
+      4500
     );
     return { content };
   }
 
+  // ── GUIDED MODE: Individual sections, expert-crafted ─────────────────────
   if (mode === 'guided') {
     const sectionKey = options?.sectionKey || 'executiveSummary';
     const userInputs = options?.userInputs || {};
-    const sectionPrompts: Record<string, string> = {
-      executiveSummary: `Write a compelling 200-300 word Executive Summary for a grant proposal.${userInputs.focus ? ` Focus: ${userInputs.focus}` : ''}\n\n${baseContext}`,
-      orgBackground: `Write a 250-350 word Organizational Background section for VEDD AI Trading.${userInputs.achievements ? ` Key achievements: ${userInputs.achievements}` : ''}\n\n${baseContext}`,
-      projectDescription: `Write a 300-400 word Project Description section.${userInputs.projectDetails ? ` Details: ${userInputs.projectDetails}` : ''}\n\n${baseContext}`,
-      goalsObjectives: `Write a 200-300 word Goals & Objectives section with SMART goals.${userInputs.goals ? ` Goals: ${userInputs.goals}` : ''}\n\n${baseContext}`,
-      budgetNarrative: `Write a 200-300 word Budget Narrative. Funding: ${grant.fundingAmount || 'TBD'}.${userInputs.budgetItems ? ` Items: ${userInputs.budgetItems}` : ''}\n\n${baseContext}`,
-      impactStatement: `Write a compelling 250-350 word Impact Statement.${userInputs.impactMetrics ? ` Metrics: ${userInputs.impactMetrics}` : ''}\n\n${baseContext}`,
+
+    const sectionInstructions: Record<string, { title: string; prompt: string; words: string; tokens: number }> = {
+      executiveSummary: {
+        title: 'Executive Summary',
+        words: '250–300',
+        tokens: 900,
+        prompt: `Write a 250–300 word Executive Summary that opens with ${grant.funder}'s mission and immediately connects it to VEDD's work.
+${userInputs.focus ? `Reviewer focus areas to emphasize: ${userInputs.focus}` : ''}
+The summary must cover: the community problem, VEDD's solution, specific activities, measurable outcomes, and the funding amount requested (${fundingAmt}).
+The first sentence must be a powerful hook — a statistic, a human reality, or a bold vision statement.
+End with a clear ask that makes approving this proposal feel like the obvious decision.`,
+      },
+      orgBackground: {
+        title: 'Organizational Background & Capacity',
+        words: '250–350',
+        tokens: 900,
+        prompt: `Write a 250–350 word Organizational Background section that positions VEDD AI Trading as the most capable, credible organization to execute this project.
+${userInputs.achievements ? `Key achievements/milestones to highlight: ${userInputs.achievements}` : ''}
+Include: founding story, core platform capabilities, ambassador network reach, technical infrastructure, leadership expertise, and community trust. Use specific metrics wherever possible. Avoid generalities — reviewers have seen "passionate team committed to change" a thousand times.`,
+      },
+      statementOfNeed: {
+        title: 'Statement of Need',
+        words: '300–400',
+        tokens: 1000,
+        prompt: `Write a compelling 300–400 word Statement of Need using real, plausible statistics about financial exclusion, the racial wealth gap, lack of investment access in underserved communities, and the cost of financial illiteracy in America.
+Connect these statistics directly to the communities VEDD serves and to ${grant.funder}'s stated mission.
+Build urgency: why does this need to be addressed NOW? What worsens if it isn't?
+${userInputs.communityData ? `Local/community data to incorporate: ${userInputs.communityData}` : ''}`,
+      },
+      projectDescription: {
+        title: 'Project Description',
+        words: '400–500',
+        tokens: 1100,
+        prompt: `Write a 400–500 word Project Description that reads like a crisp operational plan.
+${userInputs.projectDetails ? `Additional project context: ${userInputs.projectDetails}` : ''}
+Structure it as a Theory of Change: Activities (what VEDD will do) → Outputs (what will be produced) → Outcomes (what will change) → Impact (the lasting difference).
+Be specific about: timelines, who delivers what, community partner roles, technology deployment, and training delivery methods.
+Make this feel real — not "we will work to" but "we will deliver."`,
+      },
+      goalsObjectives: {
+        title: 'Goals, Objectives & Evaluation Plan',
+        words: '300–350',
+        tokens: 900,
+        prompt: `Write 4–5 SMART objectives for VEDD's grant project, followed by an evaluation methodology.
+${userInputs.goals ? `Applicant-provided goals to incorporate: ${userInputs.goals}` : ''}
+Each objective must include: specific number/target, measurement method, responsible party, and deadline.
+Follow with 150 words on evaluation: how will data be collected, who collects it, how frequently, and how results will be reported to ${grant.funder}.
+Avoid soft language like "increase awareness" — every objective must be quantifiable.`,
+      },
+      budgetNarrative: {
+        title: 'Budget Narrative',
+        words: '250–300',
+        tokens: 850,
+        prompt: `Write a 250–300 word Budget Narrative justifying the use of ${fundingAmt} in grant funding.
+${userInputs.budgetItems ? `Specific budget items/priorities: ${userInputs.budgetItems}` : ''}
+Use these category headings: Personnel & Training, Technology Infrastructure, Community Outreach & Marketing, Program Materials, Evaluation & Reporting, Administrative/Indirect (max 15%).
+For each category, explain what it covers and why it is necessary to achieve the stated outcomes.
+Show cost-effectiveness: what community impact does each major expenditure produce?
+Close by noting how VEDD's existing infrastructure reduces grant overhead — demonstrating efficient use of funds.`,
+      },
+      impactStatement: {
+        title: 'Community Impact & Equity Statement',
+        words: '250–300',
+        tokens: 850,
+        prompt: `Write a 250–300 word Community Impact and Equity Statement that paints a specific, vivid picture of who benefits and how their lives improve.
+${userInputs.impactMetrics ? `Impact metrics/data to include: ${userInputs.impactMetrics}` : ''}
+Name the communities. Use "before and after" framing. Connect to systemic equity themes that resonate with ${grant.funder}.
+Include 3–4 specific measurable impact metrics (e.g., number of households reached, average income change, number of new investors onboarded).
+Close with a line about the ripple effect: how each VEDD ambassador impacts their broader network.`,
+      },
+      sustainability: {
+        title: 'Sustainability Plan',
+        words: '200–250',
+        tokens: 700,
+        prompt: `Write a 200–250 word Sustainability Plan explaining how VEDD's programs continue and grow after the grant period ends.
+Reference: VEDD's subscription revenue model, VEDD token ecosystem, growing ambassador network self-funding capacity, diversified grant pipeline, and potential earned revenue from ambassador-led events.
+Be specific about year 2 and year 3 funding projections.
+Funders invest in programs with futures — reassure ${grant.funder} that their investment compounds over time.`,
+      },
+      conclusion: {
+        title: 'Conclusion',
+        words: '150–200',
+        tokens: 600,
+        prompt: `Write a 150–200 word Conclusion that closes the proposal with vision, gratitude, and momentum.
+Don't summarize — project forward. Describe what the world looks like in 3 years if this grant is funded.
+Frame this as a partnership between VEDD and ${grant.funder} — two organizations with aligned missions creating outcomes neither could achieve alone.
+Express authentic appreciation for the funder's consideration.
+End with a confident, forward-looking sentence that makes approving this proposal feel like joining a movement.`,
+      },
     };
+
+    const section = sectionInstructions[sectionKey] || sectionInstructions.executiveSummary;
+
     const content = await callAI(
-      "You are an expert grant writer. Write only the requested section, professionally and concisely.",
-      sectionPrompts[sectionKey] || sectionPrompts.executiveSummary,
-      800
+      MASTER_GRANT_WRITER_SYSTEM,
+      `Write the "${section.title}" section (${section.words} words) for a grant proposal from VEDD AI Trading to ${grant.funder} for "${grant.title}".
+
+${baseContext}
+
+SECTION INSTRUCTIONS:
+${section.prompt}
+
+CRITICAL: Write the section content only — no meta-commentary, no "here is the section," no headers other than the section title. This section must be ready to paste directly into the final proposal.`,
+      section.tokens
     );
     return { content, sections: { [sectionKey]: content } };
   }
 
+  // ── TEMPLATE MODE: Focused winning proposals by grant category ────────────
   if (mode === 'template') {
     const templateType = options?.templateType || (
       grant.grantType === 'ambassador_education' ? 'ambassador_program' :
       grant.grantType === 'community_dev' ? 'community_dev' : 'fintech_expansion'
     );
-    const templates: Record<string, string> = {
-      ambassador_program: `Customize for VEDD's Ambassador Program:\n\n${baseContext}\n\nFocus: Ambassador network expansion, financial literacy training, 44-day training curriculum, NFT certification, inter-city community impact.`,
-      fintech_expansion: `Customize for VEDD's Fintech Platform:\n\n${baseContext}\n\nFocus: AI trading technology, democratizing financial tools, underserved communities.`,
-      community_dev: `Customize for VEDD's Community Development:\n\n${baseContext}\n\nFocus: Inter-city economic empowerment, minority financial inclusion, faith-based community partnerships.`,
+
+    const templateFocus: Record<string, string> = {
+      ambassador_program: `
+TEMPLATE FOCUS — Ambassador Education & Financial Literacy:
+This proposal emphasizes VEDD's 44-day Ambassador Certification Program, the train-the-trainer multiplier model, NFT credentialing system, and the measurable ripple effect of each certified ambassador reaching 50–200 community members.
+Lead with the financial literacy crisis in underserved communities. Show how VEDD's ambassador model is uniquely scalable and self-sustaining.
+Key metrics to build around: ambassadors certified, community members reached per ambassador, financial literacy scores improved, new investors onboarded, inter-city expansion milestones.`,
+
+      fintech_expansion: `
+TEMPLATE FOCUS — Fintech Innovation & Technology Access:
+This proposal emphasizes VEDD's AI trading infrastructure, the institutional-grade tools now available at democratized pricing, Solana blockchain integration, and the market gap being addressed.
+Lead with the technological exclusion of retail and minority investors from AI-powered financial tools. Show how VEDD closes this gap at scale.
+Key metrics: platform users reached, trades analyzed by AI, subscription growth, cost-per-user vs. institutional alternatives, technology adoption in underserved markets.`,
+
+      community_dev: `
+TEMPLATE FOCUS — Community Economic Development & Financial Inclusion:
+This proposal emphasizes VEDD's faith-based community trust networks, inter-city economic ecosystem building, minority entrepreneur financial empowerment, and long-term wealth creation in historically disinvested communities.
+Lead with the racial wealth gap and the specific barriers that VEDD is dismantling. Show how VEDD's community-embedded model works where traditional fintech cannot reach.
+Key metrics: household income impact, new investor accounts opened, community GDP contribution, ambassador business development outcomes, generational wealth indicators.`,
     };
+
     const content = await callAI(
-      "You are an expert grant writer. Create a complete proposal with all standard sections: Executive Summary, Organizational Background, Project Description, Goals & Objectives, Budget Narrative, Impact Statement.",
-      templates[templateType] + "\n\nWrite a complete 1200-1800 word proposal tailored to this specific grant opportunity.",
-      3000
+      MASTER_GRANT_WRITER_SYSTEM,
+      `Write a complete, ready-to-submit grant proposal (2,000–2,500 words) for VEDD AI Trading applying to ${grant.funder} for "${grant.title}."
+
+${baseContext}
+
+${templateFocus[templateType]}
+
+PROPOSAL SECTIONS REQUIRED (all fully written, no placeholders):
+1. Executive Summary (250 words) — funder-aligned opener, problem, solution, ask
+2. Statement of Need (300 words) — data-backed urgency, community context
+3. Organizational Background (250 words) — capacity proof, credibility, track record
+4. Project Description (350 words) — Theory of Change, activities, deliverables, timeline
+5. Goals & Objectives (250 words) — 4 SMART goals with evaluation method
+6. Budget Narrative (200 words) — justified use of ${fundingAmt}
+7. Sustainability Plan (150 words) — post-grant continuity
+8. Impact Statement (200 words) — specific community outcomes
+9. Conclusion (150 words) — visionary close, partnership frame
+
+This proposal must read like a veteran wrote it — specific, compelling, funder-centric, ready to submit.`,
+      4000
     );
     return { content };
   }
