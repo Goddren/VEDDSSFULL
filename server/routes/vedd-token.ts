@@ -422,4 +422,25 @@ router.get('/referral/stats', async (req: Request, res: Response) => {
   }
 });
 
+// GET /api/vedd/live-price — server-side DexScreener proxy (avoids browser CORS)
+const VEDD_MINT = 'Ch7WbPBy5XjL1UULwWYwh75DsVdXhFUVXtiNvNGopump';
+let priceCache: { data: any; ts: number } | null = null;
+
+router.get('/live-price', async (_req: Request, res: Response) => {
+  try {
+    // Cache for 60 seconds to avoid hammering DexScreener
+    if (priceCache && Date.now() - priceCache.ts < 60_000) {
+      return res.json(priceCache.data);
+    }
+    const response = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${VEDD_MINT}`);
+    if (!response.ok) throw new Error(`DexScreener ${response.status}`);
+    const data = await response.json();
+    priceCache = { data, ts: Date.now() };
+    res.json(data);
+  } catch (err: any) {
+    // Return fallback so the page never crashes
+    res.json({ pairs: null, error: err.message });
+  }
+});
+
 export default router;

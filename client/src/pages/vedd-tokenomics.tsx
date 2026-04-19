@@ -320,17 +320,13 @@ export default function VeddTokenomics() {
 
   const MINT_ADDRESS = 'Ch7WbPBy5XjL1UULwWYwh75DsVdXhFUVXtiNvNGopump';
 
-  // Live price from DexScreener — refetches every 60 seconds
+  // Live price via server proxy — avoids browser CORS issues
   const { data: dexData, isLoading: priceLoading } = useQuery<DexScreenerResponse>({
-    queryKey: ['dexscreener-vedd-price'],
-    queryFn: async () => {
-      const res = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${MINT_ADDRESS}`);
-      if (!res.ok) throw new Error('DexScreener fetch failed');
-      return res.json();
-    },
-    refetchInterval: 60_000,   // refresh every 60 s
+    queryKey: ['/api/vedd/live-price'],
+    refetchInterval: 60_000,
     staleTime: 30_000,
-    retry: 2,
+    retry: 1,
+    throwOnError: false,
   });
 
   const pair = dexData?.pairs?.[0] ?? null;
