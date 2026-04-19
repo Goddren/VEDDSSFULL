@@ -53,6 +53,7 @@ import { DailyWisdom } from '@/components/scripture/daily-wisdom';
 import { NewsFeed } from '@/components/news/news-feed';
 import { ConnectedPairs } from '@/components/mt5/connected-pairs';
 import { VeddRewardsPanel } from '@/components/vedd-rewards/vedd-rewards-panel';
+import { DailyMissions } from '@/components/vedd-rewards/daily-missions';
 import { AISourceBadge } from '@/components/ai/ai-source-badge';
 import { AIKeyNudgeBanner } from '@/components/ai/ai-key-nudge-banner';
 
@@ -1139,7 +1140,21 @@ const Dashboard: React.FC = () => {
 
         {/* ── Rewards + Clothing ────────────────────────────────────────── */}
         <SectionHeader title="Rewards & Clothing" open={showRewards} onToggle={toggleRewards} icon={Trophy} iconClass="icon-box-amber" />
-        {showRewards && <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
+        {showRewards && <div className="space-y-5 mb-6">
+          {/* Daily Missions full-width */}
+          <div className="smart-card p-4">
+            <div className="flex items-center gap-2 mb-4">
+              <div className="icon-tile-sm bg-amber-500/15">
+                <Coins className="h-4 w-4 text-amber-400" />
+              </div>
+              <div>
+                <p className="text-white text-sm font-semibold">Daily & Weekly Missions</p>
+                <p className="text-[11px] text-gray-500">Complete tasks to earn VEDD tokens</p>
+              </div>
+            </div>
+            <DailyMissions />
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
           <div className="smart-card p-4">
             <VeddRewardsPanel />
           </div>
@@ -1192,6 +1207,7 @@ const Dashboard: React.FC = () => {
               </div>
             )}
           </div>
+          </div>{/* end inner grid */}
         </div>}
 
         {/* ── Market + News ─────────────────────────────────────────────── */}

@@ -8,6 +8,11 @@ const VEDD_TOKEN_MINT = process.env.VEDD_TOKEN_MINT || '';
 const SOLANA_RPC_URL = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
 const POOL_WALLET_PRIVATE_KEY = process.env.POOL_WALLET_PRIVATE_KEY;
 
+/** Max VEDD a user can earn per day across ALL action types */
+export const DAILY_VEDD_CAP = 500;
+/** Max VEDD a user can earn per calendar week (Mon–Sun) */
+export const WEEKLY_VEDD_CAP = 2000;
+
 let connection: Connection | null = null;
 let poolKeypair: Keypair | null = null;
 
@@ -131,6 +136,36 @@ export class VeddTokenService {
     };
   }
 
+  /** Sum all VEDD earned today (midnight to now) for a user */
+  async getDailyTotalEarned(userId: number): Promise<number> {
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const rows = await db.select({ total: sql<number>`coalesce(sum(total_reward), 0)` })
+      .from(ambassadorActionRewards)
+      .where(and(
+        eq(ambassadorActionRewards.userId, userId),
+        sql`${ambassadorActionRewards.createdAt} >= ${todayStart}`
+      ));
+    return Number(rows[0]?.total || 0);
+  }
+
+  /** Sum all VEDD earned this calendar week (Mon 00:00 to now) for a user */
+  async getWeeklyTotalEarned(userId: number): Promise<number> {
+    const now = new Date();
+    const day = now.getDay(); // 0 = Sun
+    const diffToMon = (day === 0 ? -6 : 1 - day);
+    const weekStart = new Date(now);
+    weekStart.setDate(now.getDate() + diffToMon);
+    weekStart.setHours(0, 0, 0, 0);
+    const rows = await db.select({ total: sql<number>`coalesce(sum(total_reward), 0)` })
+      .from(ambassadorActionRewards)
+      .where(and(
+        eq(ambassadorActionRewards.userId, userId),
+        sql`${ambassadorActionRewards.createdAt} >= ${weekStart}`
+      ));
+    return Number(rows[0]?.total || 0);
+  }
+
   async calculateReward(actionType: string, userId: number): Promise<{ baseReward: number; bonusReward: number; totalReward: number; securityFlag?: string } | null> {
     const config = await this.getRewardConfig(actionType);
     if (!config) return null;
@@ -138,6 +173,7 @@ export class VeddTokenService {
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
 
+    // Per-action daily limit
     const todaysRewards = await db.select({ count: sql<number>`count(*)` })
       .from(ambassadorActionRewards)
       .where(and(
@@ -148,6 +184,20 @@ export class VeddTokenService {
 
     const rewardCount = todaysRewards[0]?.count || 0;
     if (rewardCount >= config.maxDailyRewards) {
+      return null;
+    }
+
+    // Global daily cap check
+    const dailyTotal = await this.getDailyTotalEarned(userId);
+    if (dailyTotal >= DAILY_VEDD_CAP) {
+      console.log(`[VEDD] User ${userId} hit daily cap (${dailyTotal}/${DAILY_VEDD_CAP})`);
+      return null;
+    }
+
+    // Global weekly cap check
+    const weeklyTotal = await this.getWeeklyTotalEarned(userId);
+    if (weeklyTotal >= WEEKLY_VEDD_CAP) {
+      console.log(`[VEDD] User ${userId} hit weekly cap (${weeklyTotal}/${WEEKLY_VEDD_CAP})`);
       return null;
     }
 
@@ -163,7 +213,8 @@ export class VeddTokenService {
     const burstCount = recentBurst[0]?.count || 0;
     const securityFlag = burstCount >= 3 ? 'velocity' : undefined;
 
-    const baseReward = config.baseAmount;
+    // Clamp reward so we don't bust the daily cap
+    const baseReward = Math.min(config.baseAmount, DAILY_VEDD_CAP - dailyTotal);
     const bonusReward = 0;
     const totalReward = baseReward + bonusReward;
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'wouter';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
@@ -33,6 +33,13 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { apiRequest } from '@/lib/queryClient';
+
+/** Fire-and-forget VEDD reward tracker */
+async function trackReward(actionType: string, actionId?: number) {
+  try {
+    await apiRequest('POST', '/api/vedd/track', { actionType, actionId });
+  } catch { /* non-fatal */ }
+}
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -167,6 +174,8 @@ function SharePanel({
       document.execCommand('copy');
       document.body.removeChild(ta);
     }
+    // Award blog_share VEDD on first copy action today
+    trackReward('blog_share', post.id);
     if (which === 'msg') {
       setCopiedMsg(true);
       setTimeout(() => setCopiedMsg(false), 2200);
@@ -174,6 +183,10 @@ function SharePanel({
       setCopiedLink(true);
       setTimeout(() => setCopiedLink(false), 2200);
     }
+  };
+
+  const handleSocialClick = () => {
+    trackReward('blog_share', post.id);
   };
 
   return (
@@ -244,6 +257,7 @@ function SharePanel({
             href={p.url}
             target="_blank"
             rel="noopener noreferrer"
+            onClick={handleSocialClick}
             className={`${p.color} text-white text-xs font-semibold rounded-lg px-3 py-2.5 text-center transition-colors flex items-center justify-center gap-1.5`}
           >
             <span className="text-sm leading-none">{p.emoji}</span>

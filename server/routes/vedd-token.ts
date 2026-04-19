@@ -1,8 +1,8 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { veddTokenService } from '../services/vedd-token-service';
+import { veddTokenService, DAILY_VEDD_CAP, WEEKLY_VEDD_CAP } from '../services/vedd-token-service';
 import { db } from '../db';
 import { users, veddPoolWallets, veddRewardConfig, ambassadorActionRewards, veddTransferJobs, referrals, veddWalletBlacklist } from '@shared/schema';
-import { eq, desc, sql } from 'drizzle-orm';
+import { eq, desc, sql, and } from 'drizzle-orm';
 
 const router = Router();
 
@@ -52,6 +52,110 @@ router.get('/rewards/summary', async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('Error fetching reward summary:', error);
     res.status(500).json({ error: 'Failed to fetch reward summary' });
+  }
+});
+
+/* ─── Daily Missions ─────────────────────────────────────────────────────── */
+router.get('/daily-missions', async (req: Request, res: Response) => {
+  try {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: 'Not authenticated' });
+    const userId = (req.user as any).id;
+
+    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+    const now = new Date();
+    const day = now.getDay();
+    const diffToMon = (day === 0 ? -6 : 1 - day);
+    const weekStart = new Date(now);
+    weekStart.setDate(now.getDate() + diffToMon);
+    weekStart.setHours(0, 0, 0, 0);
+
+    // Today's rewards grouped by action type
+    const rawToday = await db.execute(sql`
+      SELECT action_type, COUNT(*) as count, COALESCE(SUM(total_reward),0) as earned
+      FROM ambassador_action_rewards
+      WHERE user_id = ${userId} AND created_at >= ${todayStart}
+      GROUP BY action_type
+    `);
+    const todayRows: any[] = Array.isArray(rawToday) ? rawToday : (rawToday as any).rows || [];
+    const todayMap: Record<string, { count: number; earned: number }> = {};
+    for (const r of todayRows) todayMap[r.action_type] = { count: Number(r.count), earned: Number(r.earned) };
+
+    // Weekly rewards grouped by action type
+    const rawWeek = await db.execute(sql`
+      SELECT action_type, COUNT(*) as count, COALESCE(SUM(total_reward),0) as earned
+      FROM ambassador_action_rewards
+      WHERE user_id = ${userId} AND created_at >= ${weekStart}
+      GROUP BY action_type
+    `);
+    const weekRows: any[] = Array.isArray(rawWeek) ? rawWeek : (rawWeek as any).rows || [];
+    const weekMap: Record<string, { count: number; earned: number }> = {};
+    for (const r of weekRows) weekMap[r.action_type] = { count: Number(r.count), earned: Number(r.earned) };
+
+    const dailyTotal  = await veddTokenService.getDailyTotalEarned(userId);
+    const weeklyTotal = await veddTokenService.getWeeklyTotalEarned(userId);
+
+    // Master task list — daily tasks use todayMap; weekly tasks use weekMap
+    const tasks = [
+      // ── Daily ──
+      { actionType: 'devotional_solo',   label: 'Daily Devotional (Solo)',          veddReward: 75,  maxCount: 1, category: 'daily',  icon: 'heart',    description: 'Complete today\'s devotional (5+ min)' },
+      { actionType: 'devotional_group',  label: 'Group Devotional w/ Ambassadors',  veddReward: 150, maxCount: 1, category: 'daily',  icon: 'users',    description: 'Join a group devotional session for 2× reward' },
+      { actionType: 'strategy_review',   label: 'Review Weekly Strategy',           veddReward: 15,  maxCount: 1, category: 'daily',  icon: 'trending', description: 'Check your weekly trading strategy page' },
+      { actionType: 'analysis_view',     label: 'View AI Chart Analysis',           veddReward: 10,  maxCount: 1, category: 'daily',  icon: 'chart',    description: 'Open an AI analysis on the analysis page' },
+      { actionType: 'live_monitor_check',label: 'Check Live Trading Monitor',       veddReward: 5,   maxCount: 1, category: 'daily',  icon: 'radio',    description: 'Visit the live monitor to check signals' },
+      { actionType: 'blog_share',        label: 'Share a Blog Article',             veddReward: 20,  maxCount: 1, category: 'daily',  icon: 'share',    description: 'Share any blog article with your affiliate link' },
+      { actionType: 'daily_comment',     label: 'Community Engagement',             veddReward: 5,   maxCount: 3, category: 'daily',  icon: 'chat',     description: 'Comment or engage in the community (up to 3×)' },
+      // ── Weekly ──
+      { actionType: 'grant_apply',       label: 'Apply for a Grant',                veddReward: 25,  maxCount: 1, category: 'weekly', icon: 'dollar',   description: 'Start or submit a grant application' },
+      { actionType: 'training_module',   label: 'Complete Training Module',         veddReward: 50,  maxCount: 3, category: 'weekly', icon: 'book',     description: 'Finish an ambassador training module (up to 3/week)' },
+      { actionType: 'daily_post',        label: 'Post VEDD Content',                veddReward: 10,  maxCount: 1, category: 'daily',  icon: 'star',     description: 'Share VEDD branded content on social media' },
+      { actionType: 'event_attendance',  label: 'Attend Community Event',           veddReward: 15,  maxCount: 2, category: 'weekly', icon: 'calendar', description: 'Join a community or host event (up to 2/week)' },
+      { actionType: 'devotional_streak_bonus', label: '5-Day Devotional Streak Bonus', veddReward: 200, maxCount: 1, category: 'weekly', icon: 'fire', description: 'Complete 5 devotionals in a week for a bonus' },
+      { actionType: 'journey_day_complete', label: 'Free Path to Pro — Daily Step', veddReward: 10, maxCount: 1, category: 'daily',  icon: 'rocket',   description: 'Complete a day in the 44-day ambassador journey' },
+    ].map(t => {
+      const map = t.category === 'daily' ? todayMap : weekMap;
+      const done = map[t.actionType]?.count || 0;
+      const earned = map[t.actionType]?.earned || 0;
+      return { ...t, completedCount: done, earnedVedd: earned, completed: done >= t.maxCount };
+    });
+
+    // Weekly devotional streak check (how many unique days this week had a devotional)
+    const rawDevDays = await db.execute(sql`
+      SELECT COUNT(DISTINCT DATE(created_at)) as days
+      FROM ambassador_action_rewards
+      WHERE user_id = ${userId}
+        AND action_type IN ('devotional_solo','devotional_group')
+        AND created_at >= ${weekStart}
+    `);
+    const devDaysRows: any[] = Array.isArray(rawDevDays) ? rawDevDays : (rawDevDays as any).rows || [];
+    const devotionalDaysThisWeek = Number(devDaysRows[0]?.days || 0);
+
+    res.json({
+      dailyEarned: dailyTotal,
+      weeklyEarned: weeklyTotal,
+      dailyCap: DAILY_VEDD_CAP,
+      weeklyCap: WEEKLY_VEDD_CAP,
+      devotionalDaysThisWeek,
+      tasks,
+    });
+  } catch (err: any) {
+    console.error('[daily-missions]', err);
+    res.status(500).json({ error: 'Failed to load daily missions' });
+  }
+});
+
+/* ─── Trigger a trackable action reward ─────────────────────────────────── */
+router.post('/track', async (req: Request, res: Response) => {
+  try {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: 'Not authenticated' });
+    const userId = (req.user as any).id;
+    const { actionType, actionId } = req.body;
+    if (!actionType) return res.status(400).json({ error: 'actionType required' });
+    const result = await veddTokenService.enqueueReward(userId, actionType, actionId);
+    if (!result) return res.json({ rewarded: false, message: 'Daily limit reached or already earned' });
+    res.json({ rewarded: true, rewardId: result.rewardId });
+  } catch (err: any) {
+    console.error('[track]', err);
+    res.status(500).json({ error: 'Failed to track action' });
   }
 });
 
