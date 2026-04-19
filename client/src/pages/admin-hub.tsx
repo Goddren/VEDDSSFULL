@@ -173,27 +173,28 @@ export default function AdminHub() {
       status: 'required',
       content: (
         <div className="space-y-3">
-          <p className="text-gray-300 text-sm">Load the Treasury wallet with VEDD tokens from your main holdings. We recommend <strong className="text-white">10–20 million VEDD</strong> to start — this covers months of ambassador rewards at current earn rates.</p>
+          <p className="text-gray-300 text-sm">Load the Treasury wallet with VEDD tokens from your main holdings. Start with what you have — even <strong className="text-white">11M VEDD covers over 12,000 ambassador-months</strong> at current reward rates. Replenish in batches as the program grows.</p>
 
-          {/* Price context banner */}
-          <div className="flex items-center gap-2 p-2.5 rounded-xl bg-blue-500/08 border border-blue-500/20 mb-2">
-            <span className="text-blue-400 text-xs font-semibold">💡 Current price context:</span>
-            <span className="text-gray-400 text-xs">At pump.fun price (~$0.00000244/VEDD) — 1M VEDD ≈ <strong className="text-white">$2.44</strong> · These are very affordable treasury loads right now</span>
+          {/* Current treasury loaded banner */}
+          <div className="flex items-center gap-2 p-2.5 rounded-xl bg-emerald-500/08 border border-emerald-500/20 mb-2">
+            <CheckCircle className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+            <span className="text-emerald-300 text-xs font-semibold">Current treasury: 11M VEDD</span>
+            <span className="text-gray-500 text-xs">≈ $26.84 today · covers ~12,222 ambassadors for 1 month · replenish when balance drops below 1M</span>
           </div>
 
           <div className="rounded-xl p-3 bg-emerald-500/08 border border-emerald-500/20 space-y-2">
-            <p className="text-emerald-400 text-xs font-semibold">📊 How long will it last? (avg ambassador earns ~900 VEDD/month)</p>
+            <p className="text-emerald-400 text-xs font-semibold">📊 Treasury runway at 11M VEDD (avg ambassador earns ~900 VEDD/month)</p>
             <div className="grid grid-cols-2 gap-2 text-xs">
               {[
-                { supply: '5M VEDD',  usd: '~$12',  ambassadors: '~5,556 ambassadors × 1 month' },
-                { supply: '10M VEDD', usd: '~$24',  ambassadors: '~11,111 ambassadors × 1 month' },
-                { supply: '20M VEDD', usd: '~$49',  ambassadors: '~22,222 ambassadors × 1 month' },
-                { supply: '50M VEDD', usd: '~$122', ambassadors: 'Full 5% rewards pool' },
+                { supply: '11M VEDD ✓', usd: '~$27 today', ambassadors: '~12,222 ambassadors × 1 month', highlight: true },
+                { supply: '100 ambassadors', usd: '~1.4 yrs', ambassadors: '90,000 VEDD/mo → lasts ~122 months', highlight: false },
+                { supply: '500 ambassadors', usd: '~2.4 months', ambassadors: '450,000 VEDD/mo → lasts ~24 months', highlight: false },
+                { supply: '1,000 ambassadors', usd: '~1.2 months', ambassadors: '900,000 VEDD/mo → replenish soon', highlight: false },
               ].map(r => (
-                <div key={r.supply} className="bg-white/[0.03] rounded-lg px-2 py-1.5">
+                <div key={r.supply} className={`rounded-lg px-2 py-1.5 ${r.highlight ? 'bg-emerald-500/10 border border-emerald-500/20' : 'bg-white/[0.03]'}`}>
                   <div className="flex items-center justify-between">
-                    <p className="text-amber-400 font-bold">{r.supply}</p>
-                    <p className="text-emerald-400 text-[10px] font-semibold">{r.usd} today</p>
+                    <p className={`font-bold text-[11px] ${r.highlight ? 'text-emerald-400' : 'text-amber-400'}`}>{r.supply}</p>
+                    <p className={`text-[10px] font-semibold ${r.highlight ? 'text-emerald-300' : 'text-gray-400'}`}>{r.usd}</p>
                   </div>
                   <p className="text-gray-500 text-[10px] mt-0.5">{r.ambassadors}</p>
                 </div>
