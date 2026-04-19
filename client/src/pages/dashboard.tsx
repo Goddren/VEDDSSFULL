@@ -42,7 +42,10 @@ import {
   Rocket,
   CheckSquare,
   Copy,
+  Target,
+  Wallet,
 } from 'lucide-react';
+import VeddLogo from '@/components/ui/vedd-logo';
 import { MarketCalendar } from '@/components/market/market-calendar';
 import { getUserLevel } from '@/lib/achievement-system';
 import TradingCoach from '@/components/trading-coach/trading-coach';
@@ -81,6 +84,23 @@ function useSectionToggle(key: string, defaultOpen = true) {
     });
   };
   return [open, toggle] as const;
+}
+
+// Chart thumbnail with VEDD logo fallback when image fails to load
+function ChartThumb({ src }: { src: string }) {
+  const [broken, setBroken] = useState(false);
+  return broken ? (
+    <div className="h-full w-full flex items-center justify-center p-1">
+      <VeddLogo height={32} className="opacity-30 object-contain" />
+    </div>
+  ) : (
+    <img
+      src={src}
+      alt="Chart"
+      className="h-full w-full object-cover"
+      onError={() => setBroken(true)}
+    />
+  );
 }
 
 function SectionHeader({
@@ -239,6 +259,45 @@ const Dashboard: React.FC = () => {
     refetchInterval: 60000,
   });
 
+  // MT5 account balance(s)
+  const { data: mt5AccountData } = useQuery<any>({
+    queryKey: ['/api/mt5/account-data'],
+    enabled: !!user,
+    refetchInterval: 60000,
+  });
+
+  // TradeLocker connection + balance
+  const { data: tlConnection } = useQuery<any>({
+    queryKey: ['/api/tradelocker/connection'],
+    enabled: !!user,
+    refetchInterval: 60000,
+  });
+
+  // Derive account balances for header display
+  const mt5Accounts: Array<{ label: string; balance: number; equity?: number }> = React.useMemo(() => {
+    if (!mt5AccountData) return [];
+    if (Array.isArray(mt5AccountData?.accounts)) {
+      return mt5AccountData.accounts.map((a: any, i: number) => ({
+        label: a.name || a.login || `MT5 #${i + 1}`,
+        balance: a.balance ?? 0,
+        equity: a.equity,
+      }));
+    }
+    if (mt5AccountData?.balance != null) {
+      return [{ label: 'MT5', balance: mt5AccountData.balance, equity: mt5AccountData.equity }];
+    }
+    return [];
+  }, [mt5AccountData]);
+
+  const tlBalance: number | null = React.useMemo(() => {
+    const b = (tlConnection as any)?.accountBalance ?? (tlConnection as any)?.balance ?? null;
+    return b && b > 0 ? b : null;
+  }, [tlConnection]);
+
+  const tlEquity: number | null = React.useMemo(() => {
+    return (tlConnection as any)?.equity ?? null;
+  }, [tlConnection]);
+
   // Derive AI tool states
   const ssEngineRunning = ssEngineStatus?.status === 'running';
   const solEngineRunning = solEngineStatus?.running ?? false;
@@ -364,6 +423,94 @@ const Dashboard: React.FC = () => {
 
       <div className="container mx-auto px-4 md:px-6">
         <AIKeyNudgeBanner />
+
+        {/* ── Account Balances + Weekly Goal Strip ─────────────────────── */}
+        {(mt5Accounts.length > 0 || tlBalance !== null || dailySummary?.weeklyTarget) && (
+          <div className="mb-4 space-y-2">
+            {/* Account balances row */}
+            {(mt5Accounts.length > 0 || tlBalance !== null) && (
+              <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+                {mt5Accounts.map((acc, i) => (
+                  <Link key={i} href="/mt5-chart-data">
+                    <div className="flex-shrink-0 smart-card px-3 py-2 flex items-center gap-2 cursor-pointer hover:border-red-500/30 transition-colors min-w-[140px]">
+                      <div className="icon-box-sm icon-box-cyan">
+                        <Wallet className="h-3.5 w-3.5" />
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-gray-500 font-medium">{acc.label}</p>
+                        <p className="text-white font-bold text-sm leading-none">${acc.balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                        {acc.equity != null && acc.equity !== acc.balance && (
+                          <p className={`text-[10px] mt-0.5 ${acc.equity >= acc.balance ? 'text-emerald-400' : 'text-red-400'}`}>
+                            Eq ${acc.equity.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </Link>
+                ))}
+                {tlBalance !== null && (
+                  <Link href="/weekly-strategy">
+                    <div className="flex-shrink-0 smart-card px-3 py-2 flex items-center gap-2 cursor-pointer hover:border-red-500/30 transition-colors min-w-[140px]">
+                      <div className="icon-box-sm icon-box-purple">
+                        <Wallet className="h-3.5 w-3.5" />
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-gray-500 font-medium">TradeLocker</p>
+                        <p className="text-white font-bold text-sm leading-none">${tlBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                        {tlEquity != null && tlEquity !== tlBalance && (
+                          <p className={`text-[10px] mt-0.5 ${tlEquity >= tlBalance ? 'text-emerald-400' : 'text-red-400'}`}>
+                            Eq ${tlEquity.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </Link>
+                )}
+              </div>
+            )}
+
+            {/* Weekly goal progress bar */}
+            {dailySummary?.weeklyTarget ? (
+              <Link href="/weekly-strategy">
+                <div className="smart-card px-3 py-2.5 cursor-pointer hover:border-red-500/30 transition-colors">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="flex items-center gap-1.5 text-xs font-semibold text-white">
+                      <Target className="h-3.5 w-3.5 text-yellow-400" /> Weekly Goal
+                    </span>
+                    <span className="text-[11px] text-gray-400">
+                      <span className={`font-bold ${(dailySummary.weekClosedProfit ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                        ${(dailySummary.weekClosedProfit ?? 0).toFixed(2)}
+                      </span>
+                      <span className="text-gray-600"> / </span>
+                      <span className="text-white">${dailySummary.weeklyTarget}</span>
+                      <span className="text-gray-500 ml-1.5">{dailySummary.weekProgressPct ?? 0}%</span>
+                    </span>
+                  </div>
+                  <div className="prog-track">
+                    <div className="prog-fill" style={{
+                      width: `${Math.min(100, dailySummary.weekProgressPct ?? 0)}%`,
+                      background: (dailySummary.weekProgressPct ?? 0) >= 100 ? 'linear-gradient(90deg,#10b981,#34d399)' :
+                                  (dailySummary.weekProgressPct ?? 0) >= 60  ? 'linear-gradient(90deg,#f59e0b,#fbbf24)' :
+                                                                                'linear-gradient(90deg,#ef4444,#f87171)',
+                    }} />
+                  </div>
+                  <div className="flex gap-3 text-[10px] text-gray-500 mt-1">
+                    <span>{dailySummary.weekTrades ?? 0} trades</span>
+                    <span>{dailySummary.weekWinRate ?? 0}% wins</span>
+                    {(dailySummary.weekProgressPct ?? 0) < 100 && <span className="text-amber-400/70 ml-auto">${Math.max(0, dailySummary.weeklyTarget - (dailySummary.weekClosedProfit ?? 0)).toFixed(2)} to go</span>}
+                  </div>
+                </div>
+              </Link>
+            ) : (
+              <Link href="/weekly-strategy">
+                <div className="smart-card px-3 py-2.5 cursor-pointer hover:border-amber-500/30 transition-colors flex items-center gap-2">
+                  <Target className="h-4 w-4 text-amber-400 shrink-0" />
+                  <span className="text-amber-400/80 text-xs font-medium">Set your weekly profit goal →</span>
+                </div>
+              </Link>
+            )}
+          </div>
+        )}
 
         {/* ── Hero Status Card ─────────────────────────────────────────── */}
         <div className="hero-card mb-5">
@@ -840,8 +987,8 @@ const Dashboard: React.FC = () => {
                 {recentAnalyses.slice(0, 3).map((analysis) => (
                   <Link key={analysis.id} href={`/analysis/${analysis.id}`}>
                     <div className="flex items-center gap-3 p-3 rounded-2xl bg-white/[0.02] border border-white/05 hover:bg-white/[0.05] hover:border-rose-500/20 transition-all cursor-pointer group">
-                      <div className="h-12 w-12 rounded-xl overflow-hidden border border-white/08 shrink-0">
-                        <img src={analysis.imageUrl} alt="Chart" className="h-full w-full object-cover" />
+                      <div className="h-12 w-12 rounded-xl overflow-hidden border border-white/08 shrink-0 bg-gray-900 flex items-center justify-center">
+                        <ChartThumb src={analysis.imageUrl} />
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">

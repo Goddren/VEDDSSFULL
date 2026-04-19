@@ -132,6 +132,7 @@ export function MobileBottomNav() {
   const tabs = [
     { name: 'Home',    path: '/dashboard',             Icon: Home       },
     { name: 'Trading', path: '/weekly-strategy',        Icon: TrendingUp },
+    { name: 'MT5',     path: '/mt5-chart-data',         Icon: BarChart3  },
     { name: 'AI',      path: '/analysis',               Icon: Zap        },
     { name: 'Grow',    path: '/ambassador/recruitment',  Icon: Users      },
   ];
