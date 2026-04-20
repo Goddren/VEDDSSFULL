@@ -257,8 +257,22 @@ const Dashboard: React.FC = () => {
   }>({
     queryKey: ['/api/mt5/daily-summary'],
     enabled: !!user,
-    refetchInterval: 60000,
+    refetchInterval: 30000,
   });
+
+  // Weekly strategy — same source the weekly plan page uses for live progress
+  const { data: activeStrategy } = useQuery<{
+    profitTarget: number; currentProfit: number; progressPercentage: number;
+  }>({
+    queryKey: ['/api/weekly-strategy'],
+    enabled: !!user,
+    refetchInterval: 30000,
+  });
+
+  // Merge: prefer strategy's live progress over daily-summary recalc when available
+  const weekProgressPct   = activeStrategy?.progressPercentage ?? dailySummary?.weekProgressPct ?? 0;
+  const weekClosedProfit  = activeStrategy?.currentProfit      ?? dailySummary?.weekClosedProfit ?? 0;
+  const weeklyTarget      = activeStrategy?.profitTarget       ?? dailySummary?.weeklyTarget     ?? 0;
 
   // MT5 account balance(s)
   const { data: mt5AccountData } = useQuery<any>({
@@ -471,7 +485,7 @@ const Dashboard: React.FC = () => {
             )}
 
             {/* Weekly goal progress bar */}
-            {dailySummary?.weeklyTarget ? (
+            {weeklyTarget > 0 ? (
               <Link href="/weekly-strategy">
                 <div className="smart-card px-3 py-2.5 cursor-pointer hover:border-red-500/30 transition-colors">
                   <div className="flex items-center justify-between mb-1.5">
@@ -479,26 +493,26 @@ const Dashboard: React.FC = () => {
                       <Target className="h-3.5 w-3.5 text-yellow-400" /> Weekly Goal
                     </span>
                     <span className="text-[11px] text-gray-400">
-                      <span className={`font-bold ${(dailySummary.weekClosedProfit ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                        ${(dailySummary.weekClosedProfit ?? 0).toFixed(2)}
+                      <span className={`font-bold ${weekClosedProfit >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                        ${weekClosedProfit.toFixed(2)}
                       </span>
                       <span className="text-gray-600"> / </span>
-                      <span className="text-white">${dailySummary.weeklyTarget}</span>
-                      <span className="text-gray-500 ml-1.5">{dailySummary.weekProgressPct ?? 0}%</span>
+                      <span className="text-white">${weeklyTarget}</span>
+                      <span className="text-gray-500 ml-1.5">{weekProgressPct}%</span>
                     </span>
                   </div>
                   <div className="prog-track">
                     <div className="prog-fill" style={{
-                      width: `${Math.min(100, dailySummary.weekProgressPct ?? 0)}%`,
-                      background: (dailySummary.weekProgressPct ?? 0) >= 100 ? 'linear-gradient(90deg,#10b981,#34d399)' :
-                                  (dailySummary.weekProgressPct ?? 0) >= 60  ? 'linear-gradient(90deg,#f59e0b,#fbbf24)' :
-                                                                                'linear-gradient(90deg,#ef4444,#f87171)',
+                      width: `${Math.min(100, weekProgressPct)}%`,
+                      background: weekProgressPct >= 100 ? 'linear-gradient(90deg,#10b981,#34d399)' :
+                                  weekProgressPct >= 60  ? 'linear-gradient(90deg,#f59e0b,#fbbf24)' :
+                                                           'linear-gradient(90deg,#ef4444,#f87171)',
                     }} />
                   </div>
                   <div className="flex gap-3 text-[10px] text-gray-500 mt-1">
-                    <span>{dailySummary.weekTrades ?? 0} trades</span>
-                    <span>{dailySummary.weekWinRate ?? 0}% wins</span>
-                    {(dailySummary.weekProgressPct ?? 0) < 100 && <span className="text-amber-400/70 ml-auto">${Math.max(0, dailySummary.weeklyTarget - (dailySummary.weekClosedProfit ?? 0)).toFixed(2)} to go</span>}
+                    <span>{dailySummary?.weekTrades ?? 0} trades</span>
+                    <span>{dailySummary?.weekWinRate ?? 0}% wins</span>
+                    {weekProgressPct < 100 && <span className="text-amber-400/70 ml-auto">${Math.max(0, weeklyTarget - weekClosedProfit).toFixed(2)} to go</span>}
                   </div>
                 </div>
               </Link>
@@ -581,15 +595,15 @@ const Dashboard: React.FC = () => {
               <div className="flex items-center justify-between mb-1.5">
                 <p className="text-white text-xs font-semibold">Weekly Goal</p>
                 <span className="text-[10px] text-gray-500">
-                  {dailySummary?.weeklyTarget ? `$${(dailySummary.weekClosedProfit ?? 0).toFixed(2)} / $${dailySummary.weeklyTarget}` : 'No target set'}
+                  {weeklyTarget > 0 ? `$${weekClosedProfit.toFixed(2)} / $${weeklyTarget}` : 'No target set'}
                 </span>
               </div>
               <div className="prog-track mb-1.5">
                 <div className="prog-fill" style={{
-                  width: `${dailySummary?.weekProgressPct ?? 0}%`,
-                  background: (dailySummary?.weekProgressPct ?? 0) >= 100 ? 'linear-gradient(90deg,#10b981,#34d399)' :
-                              (dailySummary?.weekProgressPct ?? 0) >= 60  ? 'linear-gradient(90deg,#f59e0b,#fbbf24)' :
-                                                                             'linear-gradient(90deg,#ef4444,#f87171)',
+                  width: `${Math.min(100, weekProgressPct)}%`,
+                  background: weekProgressPct >= 100 ? 'linear-gradient(90deg,#10b981,#34d399)' :
+                              weekProgressPct >= 60  ? 'linear-gradient(90deg,#f59e0b,#fbbf24)' :
+                                                       'linear-gradient(90deg,#ef4444,#f87171)',
                 }} />
               </div>
               <div className="flex gap-3 text-[11px] text-gray-500">
