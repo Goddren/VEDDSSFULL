@@ -16878,7 +16878,9 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
           const result = await veddTokenService.enqueueReward(userId, actionType, parseInt(sessionId));
           if (result) {
             rewardEarned = true;
-            rewardAmount = session.is_group_session ? 150 : 75;
+            // Read actual amount from DB config instead of hardcoding
+            const config = await veddTokenService.getRewardConfig(actionType);
+            rewardAmount = config?.baseAmount ?? (session.is_group_session ? 148 : 73);
           }
         } catch (rewardErr) {
           console.warn('[devotional] Reward enqueue failed (non-fatal):', rewardErr);
