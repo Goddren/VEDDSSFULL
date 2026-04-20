@@ -5782,8 +5782,17 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       const { closedTrades } = req.body;
       if (closedTrades && Array.isArray(closedTrades) && closedTrades.length > 0) {
         (global as any).mt5ClosedTrades = (global as any).mt5ClosedTrades || {};
+        // Merge incoming trades into existing cache by ticket — never overwrite/lose older trades
+        const existing: any[] = (global as any).mt5ClosedTrades[token.userId]?.trades || [];
+        const existingTickets = new Set(existing.map((t: any) => t.ticket?.toString()).filter(Boolean));
+        const newTrades = closedTrades.filter((t: any) =>
+          !t.ticket || !existingTickets.has(t.ticket.toString())
+        );
+        const merged = [...existing, ...newTrades];
+        // Keep last 500 trades max to prevent unbounded memory growth
+        const trimmed = merged.length > 500 ? merged.slice(merged.length - 500) : merged;
         (global as any).mt5ClosedTrades[token.userId] = {
-          trades: closedTrades,
+          trades: trimmed,
           lastUpdated: new Date().toISOString(),
         };
         
