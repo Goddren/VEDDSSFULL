@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'wouter';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/use-auth';
 import { BiBook } from 'react-icons/bi';
 import { SiSolana } from 'react-icons/si';
@@ -261,18 +261,64 @@ const Dashboard: React.FC = () => {
   });
 
   // Weekly strategy — same source the weekly plan page uses for live progress
-  const { data: activeStrategy } = useQuery<{
-    profitTarget: number; currentProfit: number; progressPercentage: number;
+  const { data: activeStrategy, refetch: refetchStrategy } = useQuery<{
+    profitTarget: number; currentProfit: number; progressPercentage: number; hasStrategy: boolean;
+    todayClosedProfit?: number; todayTotalProfit?: number; dailyTarget?: number;
+    dayProgressPct?: number; unrealizedPnL?: number; openPositions?: number;
+    todayTrades?: number; todayWinRate?: number;
   }>({
     queryKey: ['/api/weekly-strategy'],
     enabled: !!user,
     refetchInterval: 30000,
   });
 
+  // Live today's profit — updated by the sync mutation below
+  const [liveToday, setLiveToday] = React.useState<{
+    todayClosedProfit: number; unrealizedPnL: number; dailyTarget: number;
+    dayProgressPct: number; todayTrades: number; todayWinRate: number; openPositions: number;
+  } | null>(null);
+
+  // Silent update-progress call every 30s when strategy exists — keeps today's profit live
+  const syncProgressMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest('POST', '/api/weekly-strategy/update-progress', { silent: true });
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      // Capture today's values from the sync response directly — no extra GET needed
+      setLiveToday({
+        todayClosedProfit: data.todayClosedProfit ?? 0,
+        unrealizedPnL:     data.unrealizedPnL     ?? 0,
+        dailyTarget:       data.dailyTarget        ?? 0,
+        dayProgressPct:    data.dailyProgressClosed ?? 0,
+        todayTrades:       data.todayTrades        ?? 0,
+        todayWinRate:      data.todayWinRate       ?? 0,
+        openPositions:     data.activeTradeCount   ?? 0,
+      });
+      refetchStrategy();
+    },
+  });
+
+  React.useEffect(() => {
+    if (!activeStrategy?.hasStrategy) return;
+    syncProgressMutation.mutate();
+    const interval = setInterval(() => syncProgressMutation.mutate(), 30000);
+    return () => clearInterval(interval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeStrategy?.hasStrategy]);
+
   // Merge: prefer strategy's live progress over daily-summary recalc when available
   const weekProgressPct   = activeStrategy?.progressPercentage ?? dailySummary?.weekProgressPct ?? 0;
   const weekClosedProfit  = activeStrategy?.currentProfit      ?? dailySummary?.weekClosedProfit ?? 0;
   const weeklyTarget      = activeStrategy?.profitTarget       ?? dailySummary?.weeklyTarget     ?? 0;
+  // Today's profit — prefer live sync values, then daily-summary fallback
+  const todayClosedProfit = liveToday?.todayClosedProfit ?? dailySummary?.todayClosedProfit ?? 0;
+  const unrealizedPnL     = liveToday?.unrealizedPnL     ?? dailySummary?.unrealizedPnL     ?? 0;
+  const dayProgressPct    = liveToday?.dayProgressPct    ?? dailySummary?.dayProgressPct    ?? 0;
+  const dailyTarget       = liveToday?.dailyTarget       ?? dailySummary?.dailyTarget       ?? 0;
+  const todayTrades       = liveToday?.todayTrades       ?? dailySummary?.todayTrades       ?? 0;
+  const todayWinRate      = liveToday?.todayWinRate      ?? dailySummary?.todayWinRate      ?? 0;
+  const openPositions     = liveToday?.openPositions     ?? dailySummary?.openPositions     ?? 0;
 
   // MT5 account balance(s)
   const { data: mt5AccountData } = useQuery<any>({
@@ -555,36 +601,36 @@ const Dashboard: React.FC = () => {
               <div className="flex items-center justify-between mb-2">
                 <p className="text-white text-xs font-semibold">Today's Profit</p>
                 <span className="flex items-center gap-1">
-                  {dailySummary?.hasStrategy && dailySummary.dailyTarget > 0 && (
-                    <span className="text-[10px] text-gray-500">target ${dailySummary.dailyTarget.toFixed(0)}</span>
+                  {dailyTarget > 0 && (
+                    <span className="text-[10px] text-gray-500">target ${dailyTarget.toFixed(0)}</span>
                   )}
                   <ChevronRight className="h-3.5 w-3.5 text-gray-600" />
                 </span>
               </div>
               <div className="flex items-end gap-2 mb-2">
-                <span className={`text-2xl font-black leading-none ${(dailySummary?.todayClosedProfit ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                  {dailySummary ? `${(dailySummary.todayClosedProfit ?? 0) >= 0 ? '+' : ''}$${Math.abs(dailySummary.todayClosedProfit ?? 0).toFixed(2)}` : '--'}
+                <span className={`text-2xl font-black leading-none ${todayClosedProfit >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {`${todayClosedProfit >= 0 ? '+' : ''}$${Math.abs(todayClosedProfit).toFixed(2)}`}
                 </span>
-                {(dailySummary?.unrealizedPnL ?? 0) !== 0 && (
+                {unrealizedPnL !== 0 && (
                   <span className="text-xs text-yellow-400/70 mb-0.5">
-                    {(dailySummary!.unrealizedPnL) >= 0 ? '+' : ''}${dailySummary!.unrealizedPnL.toFixed(2)} open
+                    {unrealizedPnL >= 0 ? '+' : ''}${unrealizedPnL.toFixed(2)} open
                   </span>
                 )}
               </div>
-              {dailySummary?.dailyTarget && dailySummary.dailyTarget > 0 && (
+              {dailyTarget > 0 && (
                 <div className="prog-track mb-1.5">
                   <div className="prog-fill" style={{
-                    width: `${dailySummary.dayProgressPct}%`,
-                    background: dailySummary.dayProgressPct >= 100 ? 'linear-gradient(90deg,#10b981,#34d399)' :
-                                dailySummary.dayProgressPct >= 60  ? 'linear-gradient(90deg,#06b6d4,#22d3ee)' :
-                                                                      'linear-gradient(90deg,#ef4444,#f87171)',
+                    width: `${dayProgressPct}%`,
+                    background: dayProgressPct >= 100 ? 'linear-gradient(90deg,#10b981,#34d399)' :
+                                dayProgressPct >= 60  ? 'linear-gradient(90deg,#06b6d4,#22d3ee)' :
+                                                        'linear-gradient(90deg,#ef4444,#f87171)',
                   }} />
                 </div>
               )}
               <div className="flex gap-3 text-[11px] text-gray-500">
-                <span>{dailySummary?.todayTrades ?? 0} trades</span>
-                <span>{dailySummary?.todayWinRate ?? 0}% wins</span>
-                {dailySummary?.openPositions ? <span className="text-yellow-400/70">{dailySummary.openPositions} open</span> : null}
+                <span>{todayTrades} trades</span>
+                <span>{todayWinRate}% wins</span>
+                {openPositions > 0 ? <span className="text-yellow-400/70">{openPositions} open</span> : null}
               </div>
             </div>
           </Link>
