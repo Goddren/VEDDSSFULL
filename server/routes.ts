@@ -11861,10 +11861,25 @@ Respond with ONLY valid JSON:
         return res.status(404).json({ error: "Lesson not found" });
       }
       
-      // Initialize OpenAI client (user's own key when available, platform key as fallback)
+      // Initialize AI client — user's own key preferred, platform key as fallback
       const { getUniversalAIClientForUser: _getOAI_ambassador } = await import('./openai');
-      const openai = await _getOAI_ambassador(userId);
-      
+      const aiClient = await _getOAI_ambassador(userId);
+
+      // Check if we actually have a working key (platform key requires AI_INTEGRATIONS_OPENAI_API_KEY env var)
+      const hasUserKeys = await (async () => {
+        try {
+          const k = await storage.getUserApiKeys(userId);
+          return k.some(key => key.isActive && key.isValid !== false && key.apiKey);
+        } catch { return false; }
+      })();
+      const hasPlatformKey = !!(process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY);
+      if (!hasUserKeys && !hasPlatformKey) {
+        return res.status(503).json({
+          error: 'No AI key configured. Go to Settings → AI API Keys and add your OpenAI, Groq, or Anthropic key to enable content generation.',
+          needsApiKey: true,
+        });
+      }
+
       const prompt = `You are a social media content creator for VEDD AI, a faith-based trading platform. Create an engaging social media post based on the following:
 
 Day ${lesson.dayNumber}: ${lesson.title}
@@ -11889,21 +11904,40 @@ Create a compelling, authentic social media post that:
 
 Also provide a longer-form version (2-3 paragraphs) suitable for Instagram caption or LinkedIn.
 
-Format your response as JSON:
+Format your response as JSON with exactly these keys:
 {
   "shortPost": "Twitter-length post here",
   "longPost": "Longer Instagram/LinkedIn post here",
   "suggestedHashtags": ["hashtag1", "hashtag2"]
 }`;
 
-      const completion = await openai.chat.completions.create({
-        model: (openai as any).defaultModel || 'gpt-4o',
-        messages: [{ role: "user", content: prompt }],
-        response_format: { type: "json_object" }
-      });
-      
-      const content = completion.choices[0].message.content;
-      const generatedContent = JSON.parse(content || '{}');
+      let rawContent: string;
+      try {
+        const completion = await aiClient.chat.completions.create({
+          model: (aiClient as any).defaultModel || 'gpt-4o',
+          messages: [
+            { role: 'system', content: 'You are a social media content expert for VEDD AI Trading. Respond with valid JSON only — no markdown fences, no explanation text.' },
+            { role: 'user', content: prompt }
+          ],
+          response_format: { type: 'json_object' },
+          max_tokens: 1200,
+        });
+        rawContent = completion.choices[0].message.content || '{}';
+      } catch (aiErr: any) {
+        console.error('[Content Flow Generate] AI call failed:', aiErr?.message || aiErr);
+        const msg = aiErr?.message || '';
+        if (msg.includes('401') || msg.includes('Unauthorized') || msg.includes('Invalid API key')) {
+          return res.status(503).json({ error: 'Your AI API key is invalid or expired. Go to Settings → AI API Keys to update it.', needsApiKey: true });
+        }
+        if (msg.includes('429') || msg.includes('rate limit') || msg.includes('quota')) {
+          return res.status(503).json({ error: 'AI rate limit reached. Please wait a moment and try again.', needsApiKey: false });
+        }
+        throw aiErr; // re-throw for the outer catch
+      }
+
+      // Strip any accidental markdown fences before parsing
+      const clean = rawContent.replace(/^```[a-z]*\n?/i, '').replace(/\n?```$/i, '').trim();
+      const generatedContent = JSON.parse(clean || '{}');
       
       const progress = await storage.upsertAmbassadorDayProgress(userId, dayNumber, {
         aiGeneratedContent: JSON.stringify(generatedContent),

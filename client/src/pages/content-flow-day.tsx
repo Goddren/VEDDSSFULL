@@ -297,6 +297,19 @@ export default function ContentFlowDay() {
       return res.json();
     },
     onSuccess: (data) => {
+      if (data.needsApiKey) {
+        toast({
+          title: "AI Key Required",
+          description: data.error || "Add an API key in Settings → AI API Keys.",
+          variant: "destructive",
+          action: (
+            <a href="/ai-api-keys" className="underline text-xs font-medium whitespace-nowrap">
+              Set Up Key →
+            </a>
+          ) as any,
+        });
+        return;
+      }
       setGeneratedContent(data.content);
       queryClient.invalidateQueries({ queryKey: ['/api/ambassador/content-flow/day', day] });
       toast({
@@ -304,11 +317,24 @@ export default function ContentFlowDay() {
         description: "Your AI-powered social media post is ready."
       });
     },
-    onError: () => {
+    onError: (err: any) => {
+      const msg: string = err?.message || '';
+      // Parse error body from apiRequest throw format: "503: {json}"
+      let detail = '';
+      let needsKey = false;
+      try {
+        const jsonStart = msg.indexOf('{');
+        if (jsonStart !== -1) {
+          const parsed = JSON.parse(msg.slice(jsonStart));
+          detail = parsed.error || '';
+          needsKey = !!parsed.needsApiKey;
+        }
+      } catch { detail = msg; }
+
       toast({
-        title: "Generation Failed",
-        description: "Could not generate content. Please try again.",
-        variant: "destructive"
+        title: needsKey ? "AI Key Required" : "Generation Failed",
+        description: detail || "Could not generate content. Please try again.",
+        variant: "destructive",
       });
     }
   });
@@ -538,6 +564,36 @@ export default function ContentFlowDay() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
+
+                {/* No-key nudge — shown when last attempt failed with needsApiKey */}
+                {generateMutation.isError && (() => {
+                  const msg = (generateMutation.error as any)?.message || '';
+                  try {
+                    const jsonStart = msg.indexOf('{');
+                    if (jsonStart !== -1) {
+                      const parsed = JSON.parse(msg.slice(jsonStart));
+                      if (parsed.needsApiKey) {
+                        return (
+                          <div className="flex items-start gap-3 bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
+                            <Sparkles className="h-4 w-4 text-amber-400 mt-0.5 shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-amber-300 text-sm font-semibold">AI Key Needed</p>
+                              <p className="text-amber-200/70 text-xs mt-0.5">{parsed.error}</p>
+                              <a
+                                href="/ai-api-keys"
+                                className="inline-flex items-center gap-1 mt-2 text-xs font-semibold text-amber-400 hover:text-amber-300 underline"
+                              >
+                                Add API Key → Settings <ExternalLink className="h-3 w-3" />
+                              </a>
+                            </div>
+                          </div>
+                        );
+                      }
+                    }
+                  } catch { /* ignore */ }
+                  return null;
+                })()}
+
                 <div>
                   <label className="text-sm font-medium text-gray-300 mb-2 block">
                     Add Your Context (Optional)
@@ -551,7 +607,7 @@ export default function ContentFlowDay() {
                   />
                 </div>
 
-                <Button 
+                <Button
                   className="w-full bg-gradient-to-r from-green-500 to-emerald-600"
                   onClick={() => generateMutation.mutate()}
                   disabled={generateMutation.isPending}
@@ -561,7 +617,7 @@ export default function ContentFlowDay() {
                   ) : (
                     <Sparkles className="w-4 h-4 mr-2" />
                   )}
-                  Generate AI Content
+                  {generateMutation.isPending ? 'Generating...' : 'Generate AI Content'}
                 </Button>
               </CardContent>
             </Card>
