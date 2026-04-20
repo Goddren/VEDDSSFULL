@@ -44,7 +44,13 @@ import {
   Copy,
   Target,
   Wallet,
+  PenLine,
+  X,
 } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { apiRequest } from '@/lib/queryClient';
 import VeddLogo from '@/components/ui/vedd-logo';
 import { MarketCalendar } from '@/components/market/market-calendar';
 import { getUserLevel } from '@/lib/achievement-system';
@@ -137,9 +143,131 @@ function SectionHeader({
   );
 }
 
+// ── Manual Trade Dialog ──────────────────────────────────────────────────────
+function ManualTradeDialog({ open, onClose, onSaved }: { open: boolean; onClose: () => void; onSaved: () => void }) {
+  const [symbol, setSymbol] = useState('');
+  const [direction, setDirection] = useState('BUY');
+  const [result, setResult] = useState('WIN');
+  const [profitLoss, setProfitLoss] = useState('');
+  const [notes, setNotes] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSave = async () => {
+    if (!symbol.trim()) { setError('Symbol is required'); return; }
+    const pl = parseFloat(profitLoss);
+    if (isNaN(pl)) { setError('Enter a valid profit/loss amount'); return; }
+    setSaving(true); setError('');
+    try {
+      // entryPrice is optional for manual — use 0 as placeholder
+      await apiRequest('POST', '/api/mt5/manual-trade', {
+        symbol: symbol.trim().toUpperCase(),
+        direction,
+        entryPrice: 0,
+        profitLoss: result === 'LOSS' ? -Math.abs(pl) : result === 'WIN' ? Math.abs(pl) : 0,
+        result,
+        notes,
+        closedAt: new Date().toISOString(),
+      });
+      setSymbol(''); setDirection('BUY'); setResult('WIN'); setProfitLoss(''); setNotes('');
+      onSaved();
+      onClose();
+    } catch (e: any) {
+      setError(e?.message || 'Failed to save trade');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="bg-[#0f0f0f] border border-white/10 text-white max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="text-base font-bold flex items-center gap-2">
+            <PenLine className="h-4 w-4 text-amber-400" /> Log Manual Trade
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3 pt-1">
+          <div>
+            <label className="text-[11px] text-gray-400 mb-1 block">Pair / Symbol</label>
+            <Input
+              value={symbol}
+              onChange={e => setSymbol(e.target.value.toUpperCase())}
+              placeholder="e.g. EURUSD, XAUUSD, US30"
+              className="bg-[#1a1a1a] border-white/10 text-white placeholder:text-gray-600 h-9 text-sm"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-[11px] text-gray-400 mb-1 block">Direction</label>
+              <Select value={direction} onValueChange={setDirection}>
+                <SelectTrigger className="bg-[#1a1a1a] border-white/10 h-9 text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="BUY">BUY</SelectItem>
+                  <SelectItem value="SELL">SELL</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-[11px] text-gray-400 mb-1 block">Result</label>
+              <Select value={result} onValueChange={setResult}>
+                <SelectTrigger className="bg-[#1a1a1a] border-white/10 h-9 text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="WIN">WIN</SelectItem>
+                  <SelectItem value="LOSS">LOSS</SelectItem>
+                  <SelectItem value="BREAKEVEN">BREAKEVEN</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div>
+            <label className="text-[11px] text-gray-400 mb-1 block">Profit / Loss ($)</label>
+            <Input
+              type="number"
+              value={profitLoss}
+              onChange={e => setProfitLoss(e.target.value)}
+              placeholder="e.g. 45.50"
+              className="bg-[#1a1a1a] border-white/10 text-white placeholder:text-gray-600 h-9 text-sm"
+            />
+          </div>
+          <div>
+            <label className="text-[11px] text-gray-400 mb-1 block">Notes (optional)</label>
+            <Input
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+              placeholder="e.g. Manual scalp on NFP"
+              className="bg-[#1a1a1a] border-white/10 text-white placeholder:text-gray-600 h-9 text-sm"
+            />
+          </div>
+          {error && <p className="text-red-400 text-[11px]">{error}</p>}
+          <div className="flex gap-2 pt-1">
+            <Button variant="outline" size="sm" onClick={onClose} className="flex-1 border-white/10 text-gray-400 h-9">
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleSave}
+              disabled={saving}
+              className="flex-1 h-9 bg-gradient-to-r from-red-600 to-purple-600 text-white border-0 font-semibold"
+            >
+              {saving ? 'Saving...' : 'Save Trade'}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 const Dashboard: React.FC = () => {
   const { user } = useAuth();
   const [showFaithContent, setShowFaithContent] = useState<boolean>(true);
+
+  const [showManualTradeDialog, setShowManualTradeDialog] = useState(false);
 
   // Section toggles — persisted in localStorage
   const [showStats, toggleStats] = useSectionToggle('stats');
@@ -532,12 +660,12 @@ const Dashboard: React.FC = () => {
 
             {/* Weekly goal progress bar */}
             {weeklyTarget > 0 ? (
-              <Link href="/weekly-strategy">
-                <div className="smart-card px-3 py-2.5 cursor-pointer hover:border-red-500/30 transition-colors">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="flex items-center gap-1.5 text-xs font-semibold text-white">
-                      <Target className="h-3.5 w-3.5 text-yellow-400" /> Weekly Goal
-                    </span>
+              <div className="smart-card px-3 py-2.5">
+                <div className="flex items-center justify-between mb-1.5">
+                  <Link href="/weekly-strategy" className="flex items-center gap-1.5 text-xs font-semibold text-white hover:text-yellow-400 transition-colors">
+                    <Target className="h-3.5 w-3.5 text-yellow-400" /> Weekly Goal
+                  </Link>
+                  <div className="flex items-center gap-2">
                     <span className="text-[11px] text-gray-400">
                       <span className={`font-bold ${weekClosedProfit >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                         ${weekClosedProfit.toFixed(2)}
@@ -546,29 +674,44 @@ const Dashboard: React.FC = () => {
                       <span className="text-white">${weeklyTarget}</span>
                       <span className="text-gray-500 ml-1.5">{weekProgressPct}%</span>
                     </span>
-                  </div>
-                  <div className="prog-track">
-                    <div className="prog-fill" style={{
-                      width: `${Math.min(100, weekProgressPct)}%`,
-                      background: weekProgressPct >= 100 ? 'linear-gradient(90deg,#10b981,#34d399)' :
-                                  weekProgressPct >= 60  ? 'linear-gradient(90deg,#f59e0b,#fbbf24)' :
-                                                           'linear-gradient(90deg,#ef4444,#f87171)',
-                    }} />
-                  </div>
-                  <div className="flex gap-3 text-[10px] text-gray-500 mt-1">
-                    <span>{dailySummary?.weekTrades ?? 0} trades</span>
-                    <span>{dailySummary?.weekWinRate ?? 0}% wins</span>
-                    {weekProgressPct < 100 && <span className="text-amber-400/70 ml-auto">${Math.max(0, weeklyTarget - weekClosedProfit).toFixed(2)} to go</span>}
+                    <button
+                      onClick={() => setShowManualTradeDialog(true)}
+                      className="flex items-center gap-1 text-[10px] font-medium text-amber-400 hover:text-amber-300 bg-amber-400/10 hover:bg-amber-400/20 border border-amber-400/20 rounded px-1.5 py-0.5 transition-colors"
+                      title="Log a manual trade"
+                    >
+                      <PenLine className="h-2.5 w-2.5" /> Log Trade
+                    </button>
                   </div>
                 </div>
-              </Link>
+                <div className="prog-track">
+                  <div className="prog-fill" style={{
+                    width: `${Math.min(100, weekProgressPct)}%`,
+                    background: weekProgressPct >= 100 ? 'linear-gradient(90deg,#10b981,#34d399)' :
+                                weekProgressPct >= 60  ? 'linear-gradient(90deg,#f59e0b,#fbbf24)' :
+                                                         'linear-gradient(90deg,#ef4444,#f87171)',
+                  }} />
+                </div>
+                <div className="flex gap-3 text-[10px] text-gray-500 mt-1">
+                  <span>{dailySummary?.weekTrades ?? 0} trades</span>
+                  <span>{dailySummary?.weekWinRate ?? 0}% wins</span>
+                  {weekProgressPct < 100 && <span className="text-amber-400/70 ml-auto">${Math.max(0, weeklyTarget - weekClosedProfit).toFixed(2)} to go</span>}
+                </div>
+              </div>
             ) : (
-              <Link href="/weekly-strategy">
-                <div className="smart-card px-3 py-2.5 cursor-pointer hover:border-amber-500/30 transition-colors flex items-center gap-2">
-                  <Target className="h-4 w-4 text-amber-400 shrink-0" />
-                  <span className="text-amber-400/80 text-xs font-medium">Set your weekly profit goal →</span>
-                </div>
-              </Link>
+              <div className="flex gap-2">
+                <Link href="/weekly-strategy" className="flex-1">
+                  <div className="smart-card px-3 py-2.5 cursor-pointer hover:border-amber-500/30 transition-colors flex items-center gap-2">
+                    <Target className="h-4 w-4 text-amber-400 shrink-0" />
+                    <span className="text-amber-400/80 text-xs font-medium">Set your weekly profit goal →</span>
+                  </div>
+                </Link>
+                <button
+                  onClick={() => setShowManualTradeDialog(true)}
+                  className="smart-card px-3 py-2.5 flex items-center gap-1.5 text-[11px] font-medium text-amber-400 hover:border-amber-500/30 transition-colors"
+                >
+                  <PenLine className="h-3.5 w-3.5" /> Log Trade
+                </button>
+              </div>
             )}
           </div>
         )}
@@ -1329,6 +1472,16 @@ const Dashboard: React.FC = () => {
         </div>
 
       </div>
+
+      {/* Manual Trade Dialog */}
+      <ManualTradeDialog
+        open={showManualTradeDialog}
+        onClose={() => setShowManualTradeDialog(false)}
+        onSaved={() => {
+          // Trigger a fresh progress sync so the weekly bar updates immediately
+          syncProgressMutation.mutate();
+        }}
+      />
     </div>
   );
 };

@@ -8134,6 +8134,77 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
     });
   });
 
+  // ── Manual Trade Logging — lets users log trades not captured by MT5 sync ──
+  app.post("/api/mt5/manual-trade", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { symbol, direction, entryPrice, exitPrice, profitLoss, closedAt, notes, timeframe } = req.body;
+
+    if (!symbol || !direction || entryPrice == null) {
+      return res.status(400).json({ error: "symbol, direction, and entryPrice are required" });
+    }
+
+    const pl = parseFloat(profitLoss) || 0;
+    let result: string = 'PENDING';
+    if (exitPrice != null || pl !== 0) {
+      result = pl > 0 ? 'WIN' : pl < 0 ? 'LOSS' : 'BREAKEVEN';
+    }
+
+    try {
+      const trade = await storage.createAiTradeResult({
+        userId,
+        symbol: symbol.toUpperCase().replace('/', ''),
+        direction: direction.toUpperCase(),
+        entryPrice: parseFloat(entryPrice),
+        exitPrice: exitPrice != null ? parseFloat(exitPrice) : null,
+        profitLoss: pl,
+        result,
+        timeframe: timeframe || null,
+        closedAt: closedAt ? new Date(closedAt) : new Date(),
+        source: 'manual',
+        notes: notes || null,
+        aiConfidence: null,
+        mt5Ticket: null,
+        stopLoss: null,
+        takeProfit: null,
+        profitLossPips: null,
+        analysisId: null,
+      });
+      res.json({ success: true, trade });
+    } catch (err: any) {
+      console.error('[Manual Trade] Error saving trade:', err);
+      res.status(500).json({ error: 'Failed to save trade' });
+    }
+  });
+
+  // Delete a manual trade
+  app.delete("/api/mt5/manual-trade/:id", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: "Invalid ID" });
+    try {
+      const ok = await storage.deleteAiTradeResult(id, userId);
+      if (!ok) return res.status(404).json({ error: "Trade not found" });
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to delete trade" });
+    }
+  });
+
+  // List manual trades for current user
+  app.get("/api/mt5/manual-trades", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    try {
+      const all = await storage.getAiTradeResults(userId, 200);
+      const manual = all.filter((t: any) => t.source === 'manual');
+      res.json(manual);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch trades" });
+    }
+  });
+
   // Get MT5 account balance and breakdown data (supports multiple brokers)
   app.get("/api/mt5/account-data", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) {
@@ -8987,13 +9058,13 @@ Respond with ONLY valid JSON:
     const planPairs = (strategy.pairs || []).map((p: string) => p.toUpperCase().replace('/', ''));
 
     // ── Primary source: ai_trade_results DB (persists across deploys) ──
+    // Includes ALL trades this week (plan pairs + manual entries + any pair traded)
     const dbTrades = await storage.getAiTradeResults(userId, 500);
     const dbWeekTrades = dbTrades.filter((t: any) => {
       const tradeDate = new Date(t.closedAt || t.createdAt);
-      const sym = (t.symbol || '').toUpperCase().replace('/', '');
       return tradeDate >= weekStart
-        && planPairs.includes(sym)
         && t.result && t.result !== 'PENDING';
+      // NOTE: no planPairs filter — manual trades and off-plan trades count toward goal
     });
 
     // ── Supplement: global closed trades cache (catches trades not yet in DB) ──
@@ -9001,11 +9072,10 @@ Respond with ONLY valid JSON:
     const dbTickets = new Set(dbWeekTrades.map((t: any) => t.mt5Ticket).filter(Boolean));
     const cacheWeekTrades = cachedTrades.filter((t: any) => {
       const tradeDate = new Date(t.closeTime || t.timestamp || 0);
-      const sym = (t.symbol || '').toUpperCase().replace('/', '');
       const ticket = t.ticket?.toString();
       return tradeDate >= weekStart
-        && planPairs.includes(sym)
         && (!ticket || !dbTickets.has(ticket)); // don't double-count
+      // No planPairs filter — all MT5 trades count
     });
 
     // Merge both sources
