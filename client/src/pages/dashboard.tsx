@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { Link } from 'wouter';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -1446,6 +1446,49 @@ const Dashboard: React.FC = () => {
 
         <SectionHeader title="Trading Coach" open={showCoach} onToggle={toggleCoach} icon={Lightbulb} iconClass="icon-box-amber" />
         {showCoach && <div className="smart-card p-4 mb-6">
+          {/* ABBA Personal AI Card */}
+          <div className="rounded-2xl overflow-hidden mb-4" style={{ background: 'linear-gradient(135deg, #0a0a14 0%, #130a0a 100%)', border: '1px solid rgba(220,38,38,0.4)' }}>
+            <div className="px-3 py-2 flex items-center gap-2" style={{ borderBottom: '1px solid rgba(220,38,38,0.15)', background: 'rgba(220,38,38,0.06)' }}>
+              <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+              <span className="text-[10px] font-bold tracking-widest text-red-400 uppercase">New Feature</span>
+              <span className="ml-auto text-[10px] text-gray-600">Personal AI</span>
+            </div>
+            <div className="px-3 py-3 flex items-center gap-3">
+              {/* Mini Arc Reactor */}
+              <div className="relative w-10 h-10 flex-shrink-0">
+                <div className="absolute inset-0 rounded-full animate-ping opacity-30" style={{ background: 'radial-gradient(circle, rgba(220,38,38,0.4) 0%, transparent 70%)' }} />
+                <div className="absolute inset-0 rounded-full" style={{ background: 'linear-gradient(135deg, #1a0a0a 0%, #0d0d1a 100%)', border: '1.5px solid rgba(220,38,38,0.5)' }} />
+                <div className="absolute rounded-full" style={{ inset: 3, border: '1px solid rgba(220,38,38,0.7)', boxShadow: '0 0 6px rgba(220,38,38,0.5)' }} />
+                <div className="absolute rounded-full" style={{ inset: 12, background: 'radial-gradient(circle, #dc2626 0%, #7c3aed 100%)', boxShadow: '0 0 8px rgba(220,38,38,0.9)' }} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-base font-black tracking-widest" style={{ background: 'linear-gradient(90deg, #ef4444, #a855f7)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>ABBA</span>
+                  <span className="text-[9px] bg-red-500 text-white px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">AI</span>
+                </div>
+                <p className="text-[11px] text-gray-500">Your personal fund manager AI — ask about pace, entries, or create a plan.</p>
+              </div>
+            </div>
+            <div className="px-3 pb-3 grid grid-cols-3 gap-1.5">
+              {[
+                { label: 'Am I on pace?', icon: Target },
+                { label: 'Best entry?', icon: TrendingUp },
+                { label: 'Create plan', icon: Brain },
+              ].map(({ label, icon: Icon }) => (
+                <button
+                  key={label}
+                  onClick={() => window.dispatchEvent(new CustomEvent('open-ABBA'))}
+                  className="flex flex-col items-center gap-1 py-2 px-1 rounded-xl text-center transition-all"
+                  style={{ background: 'rgba(220,38,38,0.06)', border: '1px solid rgba(220,38,38,0.15)' }}
+                  onMouseEnter={e => (e.currentTarget.style.borderColor = 'rgba(220,38,38,0.4)')}
+                  onMouseLeave={e => (e.currentTarget.style.borderColor = 'rgba(220,38,38,0.15)')}
+                >
+                  <Icon className="h-3.5 w-3.5 text-red-400" />
+                  <span className="text-[10px] text-gray-400 font-medium leading-tight">{label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="h-[500px]">
             <TradingCoach personality="friendly" />
           </div>

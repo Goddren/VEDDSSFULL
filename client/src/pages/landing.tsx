@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+﻿import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { SlidingButton } from "@/components/ui/sliding-button";
 import { Link } from "wouter";
@@ -39,7 +39,8 @@ import {
   Calendar,
   MessageSquare,
   Trophy,
-  Gift
+  Gift,
+  X
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -78,6 +79,7 @@ function useCountUp(target: number, duration = 2000, start = false) {
 export default function LandingPage() {
   const [isLoginOpen, setIsLoginOpen] = useState(false);
   const [scrollProgress, setScrollProgress] = useState(0);
+  const [showABBAPopup, setShowABBAPopup] = useState(!localStorage.getItem('ABBA_announced'));
   // Scroll progress bar
   useEffect(() => {
     const handleScroll = () => {
@@ -321,6 +323,36 @@ export default function LandingPage() {
 
           {/* Feature Grid */}
           <motion.div variants={staggerContainer} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {/* ABBA AI Personal Assistant */}
+            <motion.div variants={fadeIn} className="bg-gradient-to-br from-red-950/40 to-purple-950/30 rounded-2xl p-6 border border-red-500/40 group hover:border-red-400/60 transition-all duration-300 relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-red-500/5 rounded-full blur-2xl" />
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 bg-red-500/20 rounded-lg group-hover:bg-red-500/30 transition-all relative">
+                  <div className="absolute inset-0 rounded-lg animate-pulse" style={{ background: 'rgba(220,38,38,0.1)' }} />
+                  <Brain className="h-6 w-6 text-red-400" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-xl font-bold text-white">ABBA</h3>
+                    <span className="text-[9px] font-bold bg-red-500 text-white px-1.5 py-0.5 rounded uppercase tracking-wider">NEW</span>
+                  </div>
+                  <p className="text-[10px] text-red-400/70 font-medium tracking-wider">PERSONAL AI TRADING ASSISTANT</p>
+                </div>
+              </div>
+              <p className="text-gray-300 mb-4">
+                Your JARVIS for trading. ABBA monitors your live P&L, weekly goal progress, open positions, and pair strategy — advising you like a personal fund manager from Wells Fargo or Chase, with VEDD intelligence.
+              </p>
+              <ul className="space-y-1.5 mb-4">
+                <li className="flex items-center gap-2 text-sm text-gray-400"><Zap className="h-3.5 w-3.5 text-red-400 shrink-0" /> Goal Intelligence — auto-adjusts lot sizes</li>
+                <li className="flex items-center gap-2 text-sm text-gray-400"><Target className="h-3.5 w-3.5 text-red-400 shrink-0" /> Natural language weekly plan creation</li>
+                <li className="flex items-center gap-2 text-sm text-gray-400"><TrendingUp className="h-3.5 w-3.5 text-red-400 shrink-0" /> Live entry alerts &amp; pacing analysis</li>
+              </ul>
+              <div className="flex items-center gap-2 text-red-400 text-sm">
+                <Bot className="h-4 w-4" />
+                <span>Active 24/7 — powered by your AI key</span>
+              </div>
+            </motion.div>
+
             {/* VEDD Token Rewards */}
             <motion.div variants={fadeIn} className="bg-gradient-to-br from-amber-900/30 to-yellow-900/20 rounded-2xl p-6 border border-amber-500/30 group hover:border-amber-400/50 transition-all duration-300">
               <div className="flex items-center gap-3 mb-4">
@@ -1338,6 +1370,53 @@ export default function LandingPage() {
       
       {/* Gamified Login Modal */}
       <GamifiedLogin isOpen={isLoginOpen} onClose={() => setIsLoginOpen(false)} />
+
+      {/* ABBA New Feature Announcement Popup */}
+      <AnimatePresence>
+        {showABBAPopup && (
+          <motion.div
+            initial={{ opacity: 0, y: 60, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 40, scale: 0.95 }}
+            transition={{ delay: 2, duration: 0.5 }}
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[9999] w-[calc(100%-2rem)] max-w-sm"
+          >
+            <div className="rounded-2xl overflow-hidden shadow-2xl"
+              style={{ background: 'linear-gradient(135deg, #0a0a14 0%, #130a0a 100%)', border: '1px solid rgba(220,38,38,0.5)', boxShadow: '0 0 40px rgba(220,38,38,0.2)' }}>
+              <div className="px-4 py-3 flex items-center gap-3" style={{ borderBottom: '1px solid rgba(220,38,38,0.2)', background: 'rgba(220,38,38,0.08)' }}>
+                {/* Mini arc reactor */}
+                <div className="relative w-8 h-8 flex-shrink-0">
+                  <div className="absolute inset-0 rounded-full animate-ping" style={{ background: 'radial-gradient(circle, rgba(220,38,38,0.3) 0%, transparent 70%)' }} />
+                  <div className="absolute inset-0 rounded-full" style={{ background: 'linear-gradient(135deg, #1a0a0a 0%, #0d0d1a 100%)', border: '1.5px solid rgba(220,38,38,0.5)' }} />
+                  <div className="absolute rounded-full" style={{ inset: 3, border: '1px solid rgba(220,38,38,0.7)', boxShadow: '0 0 6px rgba(220,38,38,0.5)' }} />
+                  <div className="absolute rounded-full" style={{ inset: 10, background: 'radial-gradient(circle, #dc2626 0%, #7c3aed 100%)', boxShadow: '0 0 10px rgba(220,38,38,0.9)' }} />
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-black tracking-widest" style={{ background: 'linear-gradient(90deg, #ef4444, #a855f7)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>ABBA</span>
+                    <span className="text-[9px] font-bold bg-red-500 text-white px-1.5 py-0.5 rounded uppercase tracking-wider">NEW</span>
+                  </div>
+                  <p className="text-[10px] text-gray-400">VEDD Personal AI Trading Assistant</p>
+                </div>
+                <button onClick={() => { setShowABBAPopup(false); localStorage.setItem('ABBA_announced', '1'); }} className="text-gray-500 hover:text-white p-1">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              <div className="px-4 py-3">
+                <p className="text-sm text-gray-300 mb-3">Your JARVIS for trading is here. ABBA monitors your weekly goal, live P&L, open positions, and pair plan — then advises you in real time like a personal fund manager.</p>
+                <div className="flex gap-2">
+                  <button onClick={() => setIsLoginOpen(true)} className="flex-1 py-2 rounded-xl text-xs font-bold text-white text-center" style={{ background: 'linear-gradient(135deg, #dc2626, #7c3aed)' }}>
+                    Try ABBA
+                  </button>
+                  <button onClick={() => { setShowABBAPopup(false); localStorage.setItem('ABBA_announced', '1'); }} className="px-3 py-2 rounded-xl text-xs text-gray-500 hover:text-gray-300" style={{ background: 'rgba(255,255,255,0.05)' }}>
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/use-auth';
 import { apiRequest, queryClient } from '@/lib/queryClient';
@@ -2652,6 +2652,27 @@ export default function AmbassadorTrainingPage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* ABBA Tip for Ambassadors */}
+        <div className="mb-6 rounded-2xl overflow-hidden" style={{ background: 'linear-gradient(135deg, #0a0a14 0%, #130a0a 100%)', border: '1px solid rgba(220,38,38,0.3)' }}>
+          <div className="px-4 py-3 flex items-start gap-3">
+            {/* Mini arc reactor */}
+            <div className="relative w-8 h-8 flex-shrink-0 mt-0.5">
+              <div className="absolute inset-0 rounded-full" style={{ background: 'linear-gradient(135deg, #1a0a0a 0%, #0d0d1a 100%)', border: '1.5px solid rgba(220,38,38,0.5)' }} />
+              <div className="absolute rounded-full" style={{ inset: 3, border: '1px solid rgba(220,38,38,0.7)' }} />
+              <div className="absolute rounded-full" style={{ inset: 10, background: 'radial-gradient(circle, #dc2626 0%, #7c3aed 100%)' }} />
+            </div>
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-sm font-black tracking-widest" style={{ background: 'linear-gradient(90deg, #ef4444, #a855f7)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>ABBA TIP</span>
+                <span className="text-[9px] bg-red-500/20 text-red-400 border border-red-500/30 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">AI ASSISTANT</span>
+              </div>
+              <p className="text-sm text-gray-400">
+                Use ABBA to help with your ambassador training! Ask: <span className="text-red-400 font-medium">"Create a weekly trading plan for my followers"</span> or <span className="text-red-400 font-medium">"What content should I post this week?"</span> — tap the arc reactor icon at the bottom-right of your screen anytime.
+              </p>
+            </div>
+          </div>
+        </div>
 
         {/* Weekly Schedule Section */}
         <Card className="mb-8 bg-gray-900/50 border-gray-800">

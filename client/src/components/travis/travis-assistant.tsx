@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+﻿import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation } from 'wouter';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useQuery, useMutation } from '@tanstack/react-query';
@@ -7,19 +7,38 @@ import { useAuth } from '@/hooks/use-auth';
 import {
   X, Send, ChevronRight, Target, TrendingUp, Activity,
   Zap, BarChart2, MapPin, Loader2, AlertTriangle, ExternalLink,
-  Minimize2, Maximize2, RefreshCw, Brain,
+  Minimize2, Maximize2, RefreshCw, Brain, Check, PenLine,
+  Calendar, DollarSign, Layers,
 } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
 
 // ── Types ────────────────────────────────────────────────────────────────────
-interface TravisMessage {
+interface PlanProposal {
+  pairs: string[];
+  sessions: string[];
+  direction: 'BUY' | 'SELL' | 'BOTH';
+  strategyType: string;
+  profitTarget: number | null;
+  accountBalance: number | null;
+  lotSize: number | null;
+  riskLevel: string;
+  tradingDays: string[];
+  maxTradesPerDay: number | null;
+  notes: string;
+  missingFields: string[];
+  summary: string;
+}
+
+interface AbbaMessage {
   id: string;
-  role: 'user' | 'travis';
+  role: 'user' | 'abba';
   content: string;
   timestamp: Date;
   navigateTo?: string | null;
+  planProposal?: PlanProposal | null;
 }
 
-interface TravisContext {
+interface AbbaContext {
   weekPct: number;
   weekProfit: number;
   weekTarget: number;
@@ -118,37 +137,55 @@ const QUICK_PROMPTS = [
 
 // ── Message bubble ────────────────────────────────────────────────────────────
 const MsgBubble = ({
-  msg, onNavigate,
-}: { msg: TravisMessage; onNavigate: (path: string) => void }) => {
-  const isTravis = msg.role === 'travis';
+  msg, onNavigate, onCreatePlan, creatingPlan,
+}: {
+  msg: AbbaMessage;
+  onNavigate: (path: string) => void;
+  onCreatePlan: (p: PlanProposal) => void;
+  creatingPlan: boolean;
+}) => {
+  const isAbba = msg.role === 'abba';
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      className={`flex gap-2.5 ${isTravis ? '' : 'flex-row-reverse'}`}
+      className={`flex gap-2.5 ${isAbba ? '' : 'flex-row-reverse'}`}
     >
-      {isTravis && (
+      {isAbba && (
         <div className="flex-shrink-0 mt-1">
           <ArcReactor size={26} />
         </div>
       )}
-      <div className={`max-w-[82%] flex flex-col gap-1 ${isTravis ? '' : 'items-end'}`}>
-        {isTravis && (
+      <div className={`max-w-[82%] flex flex-col gap-1 ${isAbba ? '' : 'items-end'}`}>
+        {isAbba && (
           <span className="text-[10px] font-bold tracking-widest uppercase"
             style={{ background: 'linear-gradient(90deg, #ef4444, #a855f7)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-            TRAVIS
+            ABBA
           </span>
         )}
-        <div
-          className={`rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
-            isTravis
-              ? 'bg-[#12121f] border border-red-900/40 text-gray-100'
-              : 'text-white'
-          }`}
-          style={isTravis ? {} : { background: 'linear-gradient(135deg, #dc2626, #7c3aed)' }}
-        >
-          {msg.content}
-        </div>
+        {msg.content && (
+          <div
+            className={`rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
+              isAbba
+                ? 'bg-[#12121f] border border-red-900/40 text-gray-100'
+                : 'text-white'
+            }`}
+            style={isAbba ? {} : { background: 'linear-gradient(135deg, #dc2626, #7c3aed)' }}
+          >
+            {msg.content}
+          </div>
+        )}
+        {/* Plan proposal card — rendered below the message bubble */}
+        {isAbba && msg.planProposal && (
+          <div className="w-full mt-1">
+            <PlanProposalCard
+              proposal={msg.planProposal}
+              onConfirm={onCreatePlan}
+              onEdit={() => {}}
+              creating={creatingPlan}
+            />
+          </div>
+        )}
         {msg.navigateTo && (
           <button
             onClick={() => onNavigate(msg.navigateTo!)}
@@ -165,6 +202,117 @@ const MsgBubble = ({
   );
 };
 
+// ── Plan Proposal Confirmation Card ──────────────────────────────────────────
+const PlanProposalCard = ({
+  proposal, onConfirm, onEdit, creating,
+}: {
+  proposal: PlanProposal;
+  onConfirm: (p: PlanProposal) => void;
+  onEdit: (field: string) => void;
+  creating: boolean;
+}) => {
+  const [target, setTarget] = useState(proposal.profitTarget?.toString() ?? '');
+  const [balance, setBalance] = useState(proposal.accountBalance?.toString() ?? '');
+  const [lots, setLots] = useState(proposal.lotSize?.toString() ?? '');
+  const hasMissing = proposal.missingFields?.length > 0;
+
+  const handleConfirm = () => {
+    const updated = {
+      ...proposal,
+      profitTarget: target ? parseFloat(target) : proposal.profitTarget,
+      accountBalance: balance ? parseFloat(balance) : proposal.accountBalance,
+      lotSize: lots ? parseFloat(lots) : proposal.lotSize,
+      missingFields: [],
+    };
+    onConfirm(updated);
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="rounded-2xl overflow-hidden text-sm"
+      style={{ border: '1px solid rgba(220,38,38,0.4)', background: 'linear-gradient(135deg, #0d0d1a 0%, #130a0a 100%)' }}
+    >
+      {/* Header */}
+      <div className="px-3 py-2 flex items-center gap-2" style={{ borderBottom: '1px solid rgba(220,38,38,0.2)', background: 'rgba(220,38,38,0.08)' }}>
+        <Calendar className="h-3.5 w-3.5 text-red-400 shrink-0" />
+        <span className="text-xs font-bold text-white">Weekly Plan Ready</span>
+        <span className="ml-auto text-[10px] text-gray-500">{proposal.strategyType?.toUpperCase()}</span>
+      </div>
+
+      {/* Plan details */}
+      <div className="px-3 py-2.5 space-y-1.5">
+        <div className="flex flex-wrap gap-1.5 mb-2">
+          {proposal.pairs?.map(p => (
+            <span key={p} className="px-2 py-0.5 rounded-full text-[10px] font-bold text-white"
+              style={{ background: 'rgba(220,38,38,0.2)', border: '1px solid rgba(220,38,38,0.4)' }}>
+              {p}
+            </span>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
+          <span className="text-gray-500">Sessions:</span>
+          <span className="text-white font-medium">{proposal.sessions?.join(', ') || 'All'}</span>
+          <span className="text-gray-500">Direction:</span>
+          <span className="text-white font-medium">{proposal.direction}</span>
+          <span className="text-gray-500">Trading days:</span>
+          <span className="text-white font-medium">{proposal.tradingDays?.length || 5}d/week</span>
+          <span className="text-gray-500">Risk level:</span>
+          <span className="text-white font-medium capitalize">{proposal.riskLevel}</span>
+        </div>
+
+        {/* Missing fields — quick input */}
+        {proposal.missingFields?.includes('profitTarget') && (
+          <div className="mt-2">
+            <label className="text-[10px] text-amber-400 mb-1 block">Weekly profit target ($)</label>
+            <input value={target} onChange={e => setTarget(e.target.value)} type="number" placeholder="e.g. 500"
+              className="w-full bg-[#1a1a2e] border border-amber-500/30 rounded-lg px-2.5 py-1.5 text-sm text-white placeholder:text-gray-600 outline-none focus:border-amber-500/60" />
+          </div>
+        )}
+        {proposal.missingFields?.includes('accountBalance') && (
+          <div className="mt-2">
+            <label className="text-[10px] text-amber-400 mb-1 block">Account balance ($)</label>
+            <input value={balance} onChange={e => setBalance(e.target.value)} type="number" placeholder="e.g. 5000"
+              className="w-full bg-[#1a1a2e] border border-amber-500/30 rounded-lg px-2.5 py-1.5 text-sm text-white placeholder:text-gray-600 outline-none focus:border-amber-500/60" />
+          </div>
+        )}
+        {proposal.missingFields?.includes('lotSize') && (
+          <div className="mt-2">
+            <label className="text-[10px] text-gray-400 mb-1 block">Lot size (optional — AI will calculate if blank)</label>
+            <input value={lots} onChange={e => setLots(e.target.value)} type="number" step="0.01" placeholder="e.g. 0.10"
+              className="w-full bg-[#1a1a2e] border border-white/10 rounded-lg px-2.5 py-1.5 text-sm text-white placeholder:text-gray-600 outline-none" />
+          </div>
+        )}
+
+        {proposal.notes && (
+          <p className="text-[10px] text-gray-500 italic mt-1">Note: {proposal.notes}</p>
+        )}
+      </div>
+
+      {/* Action buttons */}
+      <div className="px-3 pb-3 flex gap-2">
+        <button
+          onClick={handleConfirm}
+          disabled={creating || (proposal.missingFields?.includes('profitTarget') && !target) || (proposal.missingFields?.includes('accountBalance') && !balance)}
+          className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-bold text-white transition-all disabled:opacity-40"
+          style={{ background: 'linear-gradient(135deg, #dc2626, #7c3aed)' }}
+        >
+          {creating ? <><Loader2 className="h-3 w-3 animate-spin" /> Creating...</> : <><Check className="h-3 w-3" /> Create Plan</>}
+        </button>
+        <button
+          onClick={() => onEdit('modify')}
+          className="px-3 py-2 rounded-xl text-xs font-medium text-gray-400 hover:text-white transition-colors"
+          style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}
+        >
+          Modify
+        </button>
+      </div>
+    </motion.div>
+  );
+};
+
 // ── Goal mode badge ───────────────────────────────────────────────────────────
 const GOAL_MODE_CONFIG = {
   CATCH_UP:  { label: '⚡ CATCH UP',   color: '#f59e0b', bg: 'rgba(245,158,11,0.12)',  border: 'rgba(245,158,11,0.35)' },
@@ -173,7 +321,7 @@ const GOAL_MODE_CONFIG = {
 };
 
 // ── Live context header bar ────────────────────────────────────────────────────
-const ContextBar = ({ ctx }: { ctx: TravisContext | null }) => {
+const ContextBar = ({ ctx }: { ctx: AbbaContext | null }) => {
   if (!ctx) return null;
   const pct = ctx.weekPct;
   const barColor = pct >= 100 ? '#10b981' : pct >= 60 ? '#f59e0b' : '#ef4444';
@@ -239,19 +387,28 @@ const ContextBar = ({ ctx }: { ctx: TravisContext | null }) => {
   );
 };
 
-// ── Main TRAVIS component ─────────────────────────────────────────────────────
-export function TravisAssistant() {
+// ── Main ABBA component ─────────────────────────────────────────────────────
+export function AbbaAssistant() {
   const { user } = useAuth();
   const [location, navigate] = useLocation();
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [input, setInput] = useState('');
-  const [messages, setMessages] = useState<TravisMessage[]>([]);
-  const [context, setContext] = useState<TravisContext | null>(null);
+  const [messages, setMessages] = useState<AbbaMessage[]>([]);
+  const [context, setContext] = useState<AbbaContext | null>(null);
   const [showQuick, setShowQuick] = useState(true);
   const [needsKey, setNeedsKey] = useState(false);
+  const [creatingPlan, setCreatingPlan] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const { toast } = useToast();
+
+  // Listen for external open-ABBA events (e.g., from dashboard card)
+  useEffect(() => {
+    const handler = () => setOpen(true);
+    window.addEventListener('open-ABBA', handler);
+    return () => window.removeEventListener('open-ABBA', handler);
+  }, []);
 
   // Greeting on open
   useEffect(() => {
@@ -259,8 +416,8 @@ export function TravisAssistant() {
       const firstName = user?.username?.split(' ')[0] || 'Trader';
       setMessages([{
         id: genId(),
-        role: 'travis',
-        content: `Good ${getTimeOfDay()}, ${firstName}. TRAVIS online.\n\nI have access to your live trading data — weekly goal, open positions, today's P&L, and your pair plan. How can I assist you?`,
+        role: 'abba',
+        content: `Good ${getTimeOfDay()}, ${firstName}. ABBA online.\n\nI have access to your live trading data — weekly goal, open positions, today's P&L, and your pair plan. How can I assist you?`,
         timestamp: new Date(),
       }]);
     }
@@ -275,16 +432,20 @@ export function TravisAssistant() {
   }, [messages, open]);
 
   // Fetch live context when opened
-  const { refetch: refetchContext } = useQuery<TravisContext>({
-    queryKey: ['/api/travis/context'],
+  const { refetch: refetchContext, data: contextData } = useQuery<AbbaContext>({
+    queryKey: ['/api/abba/context'],
     enabled: open && !!user,
     refetchInterval: open ? 30000 : false,
-    onSuccess: (data: TravisContext) => setContext(data),
   });
+
+  // Sync context state whenever query data updates
+  useEffect(() => {
+    if (contextData) setContext(contextData);
+  }, [contextData]);
 
   const chatMutation = useMutation({
     mutationFn: async (msg: string) => {
-      const res = await apiRequest('POST', '/api/travis/chat', {
+      const res = await apiRequest('POST', '/api/abba/chat', {
         message: msg,
         history: messages.slice(-8).map(m => ({ role: m.role, content: m.content })),
         currentPage: location,
@@ -295,7 +456,7 @@ export function TravisAssistant() {
       if (data.needsApiKey) {
         setNeedsKey(true);
         setMessages(prev => [...prev, {
-          id: genId(), role: 'travis',
+          id: genId(), role: 'abba',
           content: 'I need an AI key to operate. Go to Settings → AI API Keys and add your OpenAI, Groq, or Anthropic key.',
           timestamp: new Date(), navigateTo: '/ai-api-keys',
         }]);
@@ -304,12 +465,13 @@ export function TravisAssistant() {
       // Update context if returned
       if (data.context) setContext(data.context);
       setMessages(prev => [...prev, {
-        id: genId(), role: 'travis',
+        id: genId(), role: 'abba',
         content: data.response,
         timestamp: new Date(),
         navigateTo: data.navigateTo || null,
+        planProposal: data.planProposal || null,
       }]);
-      // Auto-navigate if Travis gave a nav command
+      // Auto-navigate if ABBA gave a nav command
       if (data.navigateTo) {
         setTimeout(() => {
           navigate(data.navigateTo);
@@ -328,10 +490,40 @@ export function TravisAssistant() {
         }
       } catch { /* ignore */ }
       setMessages(prev => [...prev, {
-        id: genId(), role: 'travis', content: detail, timestamp: new Date(),
+        id: genId(), role: 'abba', content: detail, timestamp: new Date(),
       }]);
     },
   });
+
+  const handleCreatePlan = useCallback(async (proposal: PlanProposal) => {
+    setCreatingPlan(true);
+    try {
+      const res = await apiRequest('POST', '/api/abba/create-plan', { proposal });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      toast({
+        title: '✅ Weekly Plan Created!',
+        description: `Your ${proposal.pairs?.join(', ')} plan is live. ABBA will monitor it for you.`,
+      });
+      // Send a follow-up ABBA confirmation message
+      setMessages(prev => [...prev, {
+        id: genId(), role: 'abba',
+        content: `Weekly plan created! 🎯\n\nPairs: ${proposal.pairs?.join(', ')}\nSessions: ${proposal.sessions?.join(', ') || 'All'}\nDirection: ${proposal.direction}\n\nI'll be monitoring these pairs and alerting you to high-probability setups that align with your goal. Ask me "Best entry now?" anytime.`,
+        timestamp: new Date(),
+        navigateTo: '/weekly-strategy',
+      }]);
+      // Refresh context
+      refetchContext();
+    } catch (err: any) {
+      toast({
+        title: 'Plan creation failed',
+        description: err?.message || 'Could not create plan. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setCreatingPlan(false);
+    }
+  }, [toast, refetchContext]);
 
   const sendMessage = useCallback((msg: string) => {
     if (!msg.trim() || chatMutation.isPending) return;
@@ -363,7 +555,7 @@ export function TravisAssistant() {
       <AnimatePresence>
         {!open && (
           <motion.button
-            key="travis-fab"
+            key="ABBA-fab"
             initial={{ scale: 0, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0, opacity: 0 }}
@@ -392,7 +584,7 @@ export function TravisAssistant() {
           <>
             {/* Backdrop */}
             <motion.div
-              key="travis-backdrop"
+              key="ABBA-backdrop"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
@@ -402,7 +594,7 @@ export function TravisAssistant() {
 
             {/* Panel */}
             <motion.div
-              key="travis-panel"
+              key="ABBA-panel"
               initial={{ x: '100%', opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
               exit={{ x: '100%', opacity: 0 }}
@@ -427,7 +619,7 @@ export function TravisAssistant() {
                       className="text-base font-black tracking-[0.15em]"
                       style={{ background: 'linear-gradient(90deg, #ef4444, #a855f7)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}
                     >
-                      TRAVIS
+                      ABBA
                     </h2>
                     <span
                       className="text-[9px] font-bold tracking-widest uppercase px-1.5 py-0.5 rounded"
@@ -469,7 +661,7 @@ export function TravisAssistant() {
               {needsKey && (
                 <div className="mx-3 mt-2 flex items-center gap-2 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2">
                   <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
-                  <p className="text-[11px] text-amber-300 flex-1">No AI key. TRAVIS needs a key to operate.</p>
+                  <p className="text-[11px] text-amber-300 flex-1">No AI key. ABBA needs a key to operate.</p>
                   <a href="/ai-api-keys" onClick={() => setOpen(false)} className="text-[10px] text-amber-400 underline font-semibold whitespace-nowrap">
                     Add Key →
                   </a>
@@ -480,7 +672,13 @@ export function TravisAssistant() {
               <div className="flex-1 overflow-y-auto px-3 py-3 space-y-4 min-h-0">
                 <AnimatePresence>
                   {messages.map(msg => (
-                    <MsgBubble key={msg.id} msg={msg} onNavigate={handleNavigate} />
+                    <MsgBubble
+                      key={msg.id}
+                      msg={msg}
+                      onNavigate={handleNavigate}
+                      onCreatePlan={handleCreatePlan}
+                      creatingPlan={creatingPlan}
+                    />
                   ))}
                 </AnimatePresence>
                 {chatMutation.isPending && (
@@ -495,7 +693,7 @@ export function TravisAssistant() {
                           transition={{ duration: 0.8, repeat: Infinity, delay: d }}
                         />
                       ))}
-                      <span className="text-[11px] text-gray-500 ml-1">TRAVIS is analyzing...</span>
+                      <span className="text-[11px] text-gray-500 ml-1">ABBA is analyzing...</span>
                     </div>
                   </div>
                 )}
@@ -533,7 +731,7 @@ export function TravisAssistant() {
                     ref={inputRef}
                     value={input}
                     onChange={e => setInput(e.target.value)}
-                    placeholder="Ask TRAVIS anything..."
+                    placeholder="Ask ABBA anything..."
                     disabled={chatMutation.isPending}
                     className="flex-1 bg-[#12121f] border border-red-900/30 rounded-xl px-3 py-2.5 text-sm text-white placeholder:text-gray-600 outline-none focus:border-red-700/60 transition-colors"
                   />
@@ -566,4 +764,4 @@ function getTimeOfDay() {
   return 'evening';
 }
 
-export default TravisAssistant;
+export default AbbaAssistant;

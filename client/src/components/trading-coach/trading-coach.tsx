@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+﻿import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
@@ -79,7 +79,7 @@ const TypingIndicator = () => (
           transition={{ duration: 1, repeat: Infinity, delay: 0.4 }}
         />
       </div>
-      <span className="text-xs text-gray-400 ml-1">TRAVIS is analyzing...</span>
+      <span className="text-xs text-gray-400 ml-1">ABBA is analyzing...</span>
     </div>
   </div>
 );
@@ -118,7 +118,7 @@ const MessageBubble = ({ message, onCopy }: { message: Message; onCopy: (text: s
           {isCoach && (
             <div className="flex items-center gap-2 mb-0.5">
               <span className="text-xs font-bold bg-gradient-to-r from-rose-400 to-purple-400 bg-clip-text text-transparent">
-                TRAVIS
+                ABBA
               </span>
               <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 bg-gradient-to-r from-rose-500/10 to-purple-500/10 border-rose-500/30 text-rose-300">
                 <Brain className="w-2.5 h-2.5 mr-0.5" />
@@ -168,9 +168,9 @@ const TradingCoach = ({ personality = 'professional', className }: TradingCoachP
   const { toast } = useToast();
   
   const placeholderMessages = {
-    friendly: "Hey! TRAVIS online — your personal VEDD trading intelligence. I have your live weekly goal, plan pairs, and current P&L loaded. What do you need?",
-    professional: "TRAVIS online. I have your live trading context — weekly target, open positions, today's P&L, and your plan pairs. How can I assist you?",
-    casual: "Yo, TRAVIS here — your AI fund manager. I'm watching your numbers and your pairs. What's the move?"
+    friendly: "Hey! ABBA online — your personal VEDD trading intelligence. I have your live weekly goal, plan pairs, and current P&L loaded. What do you need?",
+    professional: "ABBA online. I have your live trading context — weekly target, open positions, today's P&L, and your plan pairs. How can I assist you?",
+    casual: "Yo, ABBA here — your AI fund manager. I'm watching your numbers and your pairs. What's the move?"
   };
 
   useEffect(() => {
@@ -202,10 +202,10 @@ const TradingCoach = ({ personality = 'professional', className }: TradingCoachP
   
   const coachMutation = useMutation({
     mutationFn: async (message: string) => {
-      // Route to TRAVIS endpoint for live-context-aware responses
-      const response = await apiRequest('POST', '/api/travis/chat', {
+      // Route to ABBA endpoint for live-context-aware responses
+      const response = await apiRequest('POST', '/api/ABBA/chat', {
         message,
-        history: messages.slice(-6).map(m => ({ role: m.sender === 'coach' ? 'travis' : 'user', content: m.content })),
+        history: messages.slice(-6).map(m => ({ role: m.sender === 'coach' ? 'abba' : 'user', content: m.content })),
         currentPage: window.location.pathname,
       });
       return await response.json();
@@ -279,7 +279,7 @@ const TradingCoach = ({ personality = 'professional', className }: TradingCoachP
             </div>
             <div>
               <h3 className="font-bold text-sm bg-gradient-to-r from-rose-400 to-purple-400 bg-clip-text text-transparent">
-                TRAVIS
+                ABBA
               </h3>
               <div className="flex items-center gap-1.5">
                 <span className="text-[10px] text-emerald-400 flex items-center gap-1">
@@ -373,7 +373,7 @@ const TradingCoach = ({ personality = 'professional', className }: TradingCoachP
               <Input
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder="Ask TRAVIS — market entries, goal pacing, strategy..."
+                placeholder="Ask ABBA — market entries, goal pacing, strategy..."
                 className="flex-1 bg-transparent border-0 focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-gray-500"
                 disabled={coachMutation.isPending}
                 data-testid="input-chat-message"

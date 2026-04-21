@@ -1,4 +1,4 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import { apiRequest } from '@/lib/queryClient';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/use-auth';
@@ -66,6 +66,7 @@ const PLAN_META: Record<number, {
     color: 'text-blue-500',
     border: 'border-blue-500/40',
     features: [
+      'ABBA AI Personal Assistant',
       '50 chart analyses per month',
       'Multi-timeframe analysis',
       'EA generator — MT5, TradingView, TradeLocker',
@@ -84,6 +85,7 @@ const PLAN_META: Record<number, {
     badge: 'Most Popular',
     highlight: true,
     features: [
+      'ABBA AI Personal Assistant (full context)',
       'Unlimited chart analyses',
       'Everything in Starter',
       'VEDD Live Trading Engine (Forex)',
@@ -102,6 +104,7 @@ const PLAN_META: Record<number, {
     border: 'border-amber-500/60',
     badge: 'Best Value',
     features: [
+      'ABBA AI Personal Assistant',
       'Everything in Premium — yearly renewal',
       'All future feature updates included',
       'Early access to beta features',
@@ -131,6 +134,7 @@ const FEATURE_ROWS = [
   { label: 'Bring Your Own AI Key (BYOK)', values: { 1: false, 2: true, 3: true, 4: true } },
   { label: 'Early Beta Access', values: { 1: false, 2: false, 3: false, 4: true } },
   { label: 'Yearly Updates Included', values: { 1: false, 2: false, 3: false, 4: true } },
+  { label: 'ABBA AI Personal Assistant', values: { 1: false, 2: true, 3: true, 4: true } },
 ];
 
 export default function SubscriptionPage() {
@@ -331,6 +335,42 @@ export default function SubscriptionPage() {
             </Button>
           </div>
         )}
+
+        {/* ABBA Feature Highlight Banner */}
+        <div className="mb-8 rounded-2xl overflow-hidden" style={{ background: 'linear-gradient(135deg, #0a0a14 0%, #130a0a 100%)', border: '1px solid rgba(220,38,38,0.4)', boxShadow: '0 0 30px rgba(220,38,38,0.08)' }}>
+          <div className="px-4 py-3 flex items-center gap-2" style={{ borderBottom: '1px solid rgba(220,38,38,0.2)', background: 'rgba(220,38,38,0.06)' }}>
+            <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+            <span className="text-xs font-bold tracking-widest text-red-400 uppercase">New Feature</span>
+          </div>
+          <div className="p-4 sm:p-6 flex flex-col sm:flex-row items-start sm:items-center gap-4">
+            <div className="relative w-12 h-12 flex-shrink-0">
+              <div className="absolute inset-0 rounded-full" style={{ background: 'linear-gradient(135deg, #1a0a0a 0%, #0d0d1a 100%)', border: '1.5px solid rgba(220,38,38,0.5)' }} />
+              <div className="absolute rounded-full" style={{ inset: 4, border: '1px solid rgba(220,38,38,0.7)', boxShadow: '0 0 6px rgba(220,38,38,0.5)' }} />
+              <div className="absolute rounded-full" style={{ inset: 14, background: 'radial-gradient(circle, #dc2626 0%, #7c3aed 100%)', boxShadow: '0 0 10px rgba(220,38,38,0.9)' }} />
+            </div>
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-1">
+                <h3 className="font-black tracking-widest text-lg" style={{ background: 'linear-gradient(90deg, #ef4444, #a855f7)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>ABBA</h3>
+                <Badge className="bg-red-500/20 text-red-400 border-red-500/30 text-[10px]">Included in Starter+</Badge>
+              </div>
+              <p className="text-sm text-muted-foreground">Your personal VEDD AI trading assistant. Monitors live P&L, weekly goal pacing, open positions, and pair strategy — suggests the best entries and protects your gains like a fund manager.</p>
+            </div>
+            <div className="grid grid-cols-3 gap-3 text-center flex-shrink-0">
+              <div className="px-3 py-2 rounded-xl" style={{ background: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.2)' }}>
+                <p className="text-red-400 font-bold text-sm">Goal AI</p>
+                <p className="text-[10px] text-muted-foreground">Auto lot sizing</p>
+              </div>
+              <div className="px-3 py-2 rounded-xl" style={{ background: 'rgba(168,85,247,0.08)', border: '1px solid rgba(168,85,247,0.2)' }}>
+                <p className="text-purple-400 font-bold text-sm">Live P&L</p>
+                <p className="text-[10px] text-muted-foreground">Real-time context</p>
+              </div>
+              <div className="px-3 py-2 rounded-xl" style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)' }}>
+                <p className="text-emerald-400 font-bold text-sm">NL Plans</p>
+                <p className="text-[10px] text-muted-foreground">Voice-style setup</p>
+              </div>
+            </div>
+          </div>
+        </div>
 
         {/* Plan Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-16">

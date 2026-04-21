@@ -1,4 +1,4 @@
-import type { Express, Request, Response } from "express";
+﻿import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { User, userApiKeys } from "@shared/schema";
@@ -3306,8 +3306,8 @@ Respond ONLY in valid JSON format with these exact keys:
   // Trading Coach endpoints
   app.post('/api/trading-coach', tradingCoachHandler);
 
-  // ── TRAVIS — VEDD Personal Trading Intelligence System ───────────────────
-  app.post('/api/travis/chat', async (req: Request, res: Response) => {
+  // ── ABBA — VEDD Personal Trading Intelligence System ───────────────────
+  app.post('/api/abba/chat', async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: 'Authentication required' });
     const userId = (req.user as User).id;
     const { message, history = [], currentPage = '/dashboard' } = req.body;
@@ -3400,7 +3400,7 @@ Respond ONLY in valid JSON format with these exact keys:
       const weekWinRate = strategy?.progressWinRate || 0;
 
       // ── System prompt — fund manager + JARVIS personality ─────────────────
-      const systemPrompt = `You are TRAVIS — the VEDD AI Personal Trading Intelligence System. You operate like a combination of JARVIS from Iron Man and a top-tier private wealth fund manager from Wells Fargo or JP Morgan Private Bank — but built exclusively for the VEDD trading environment.
+      const systemPrompt = `You are ABBA — the VEDD AI Personal Trading Intelligence System. You operate like a combination of JARVIS from Iron Man and a top-tier private wealth fund manager from Wells Fargo or JP Morgan Private Bank — but built exclusively for the VEDD trading environment.
 
 CURRENT USER CONTEXT (live data — use these exact numbers):
 - User: ${firstName}
@@ -3434,14 +3434,21 @@ Available routes: /dashboard | /analysis | /weekly-strategy | /my-wallet | /vedd
 
 TRADE ENTRY GUIDANCE: When asked about entries, use the plan pairs above, suggest based on session timing (Asian 00:00-07:00 UTC, London 07:00-13:00 UTC, New York 13:00-20:00 UTC), and factor in the remaining daily/weekly target to suggest appropriate lot sizing relative to balance.
 
+PLAN CREATION: If the user asks you to create, build, set up, or configure a weekly trading plan in natural language, extract the plan details and respond with a [PLAN_PROPOSAL:{json}] tag at the END of your response containing:
+{"pairs":[],"sessions":[],"direction":"BOTH","strategyType":"breakout","profitTarget":null,"accountBalance":${balance},"lotSize":null,"riskLevel":"moderate","tradingDays":["Monday","Tuesday","Wednesday","Thursday","Friday"],"maxTradesPerDay":null,"notes":"","missingFields":[],"summary":""}
+- Set missingFields to any of ["profitTarget","accountBalance","lotSize"] that are unknown — ABBA will ask the user for them
+- If profitTarget is missing, ask for it conversationally BEFORE including the proposal tag
+- Use the user's current account balance ($${balance}) for accountBalance if not specified
+- Only include [PLAN_PROPOSAL:{...}] when you have at MINIMUM: pairs and at least one of (profitTarget OR the user seems ready to confirm)
+
 VEDD CONTEXT: VEDD is a faith-based AI trading platform. The community uses VEDD tokens for rewards. Ambassadors share the platform. Users run MT5/TradeLocker with AI-powered signals.`;
 
       // ── Call AI ───────────────────────────────────────────────────────────
-      const { getUniversalAIClientForUser: getTravisAI } = await import('./openai');
-      const aiClient = await getTravisAI(userId);
+      const { getUniversalAIClientForUser: getABBAAI } = await import('./openai');
+      const aiClient = await getABBAAI(userId);
 
       const historyMessages = (history || []).slice(-10).map((m: any) => ({
-        role: m.role === 'travis' ? 'assistant' : 'user',
+        role: m.role === 'abba' ? 'assistant' : 'user',
         content: m.content,
       }));
 
@@ -3458,14 +3465,28 @@ VEDD CONTEXT: VEDD is a faith-based AI trading platform. The community uses VEDD
 
       const response = completion.choices[0].message.content || "Systems check complete. Standing by.";
 
-      // Extract any navigation command
+      // Extract navigation command
       const navMatch = response.match(/\[NAV:(\/[^\]]*)\]/);
       const navigateTo = navMatch ? navMatch[1] : null;
-      const cleanResponse = response.replace(/\[NAV:\/[^\]]*\]/g, '').trim();
+
+      // Extract plan proposal command
+      let planProposal: any = null;
+      const planMatch = response.match(/\[PLAN_PROPOSAL:(\{[\s\S]*?\})\]/);
+      if (planMatch) {
+        try {
+          planProposal = JSON.parse(planMatch[1]);
+        } catch { /* ignore malformed */ }
+      }
+
+      const cleanResponse = response
+        .replace(/\[NAV:\/[^\]]*\]/g, '')
+        .replace(/\[PLAN_PROPOSAL:\{[\s\S]*?\}\]/g, '')
+        .trim();
 
       res.json({
         response: cleanResponse,
         navigateTo,
+        planProposal,
         context: {
           weekPct,
           weekProfit,
@@ -3485,17 +3506,273 @@ VEDD CONTEXT: VEDD is a faith-based AI trading platform. The community uses VEDD
         },
       });
     } catch (err: any) {
-      console.error('[TRAVIS] Error:', err?.message || err);
+      console.error('[ABBA] Error:', err?.message || err);
       const msg = err?.message || '';
       if (msg.includes('401') || msg.includes('Invalid API key')) {
         return res.status(503).json({ error: 'No AI key configured. Go to Settings → AI API Keys.', needsApiKey: true });
       }
-      res.status(500).json({ error: 'TRAVIS systems offline. Please try again.' });
+      res.status(500).json({ error: 'ABBA systems offline. Please try again.' });
     }
   });
 
-  // TRAVIS context — live stats without a chat message (for header display)
-  app.get('/api/travis/context', async (req: Request, res: Response) => {
+  // ── ABBA Natural Language Plan Parser ──────────────────────────────────
+  // Parses plain English into a structured weekly strategy proposal.
+  app.post('/api/abba/parse-plan', async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: 'Authentication required' });
+    const userId = (req.user as User).id;
+    const { description } = req.body;
+    if (!description?.trim()) return res.status(400).json({ error: 'Description is required' });
+
+    try {
+      const { getUniversalAIClientForUser: getParserAI } = await import('./openai');
+      const aiClient = await getParserAI(userId);
+
+      // Fetch account balance from cache for context
+      const acctCache = (global as any).mt5AccountData?.[userId];
+      let knownBalance = 0;
+      if (acctCache) {
+        knownBalance = typeof acctCache === 'object' && acctCache.balance
+          ? acctCache.balance
+          : Object.values(acctCache).reduce((s: any, a: any) => s + (a?.balance || 0), 0);
+      }
+
+      const parsePrompt = `You are a trading plan parser for VEDD AI. Parse the following natural language description into a structured weekly trading strategy.
+
+User's account balance (if known): $${knownBalance > 0 ? knownBalance.toFixed(2) : 'unknown'}
+
+User said: "${description}"
+
+Extract:
+1. pairs: array of trading pairs mentioned (use standard notation: US30, XAUUSD, EURUSD, GBPUSD, USDJPY, NAS100, etc.)
+2. sessions: which trading sessions mentioned ("New York", "London", "Asian", "All") — New York open = "New York"
+3. direction: "BUY", "SELL", or "BOTH"
+4. strategyType: "breakout", "trend", "scalp", "reversal", or "mixed"
+5. profitTarget: weekly profit target in $ (if mentioned, otherwise null)
+6. accountBalance: account size in $ (if mentioned, otherwise use known balance or null)
+7. lotSize: lot size (if mentioned, otherwise null)
+8. riskLevel: "conservative" (0.5-1%), "moderate" (1-2%), or "aggressive" (2-3%)
+9. tradingDays: array of days ["Monday","Tuesday","Wednesday","Thursday","Friday"] — default all 5 if not specified
+10. maxTradesPerDay: integer (if mentioned, otherwise null)
+11. notes: any special instructions the user mentioned
+
+Respond with ONLY valid JSON — no markdown, no explanation:
+{
+  "pairs": string[],
+  "sessions": string[],
+  "direction": "BUY"|"SELL"|"BOTH",
+  "strategyType": "breakout"|"trend"|"scalp"|"reversal"|"mixed",
+  "profitTarget": number|null,
+  "accountBalance": number|null,
+  "lotSize": number|null,
+  "riskLevel": "conservative"|"moderate"|"aggressive",
+  "tradingDays": string[],
+  "maxTradesPerDay": number|null,
+  "notes": string,
+  "missingFields": string[],
+  "summary": string
+}
+
+For missingFields, include any of: "profitTarget", "accountBalance", "lotSize" that are unknown.
+For summary, write a 1-sentence human-readable description of the plan.`;
+
+      const completion = await aiClient.chat.completions.create({
+        model: (aiClient as any).defaultModel || 'gpt-4o',
+        messages: [
+          { role: 'system', content: 'You are a precise JSON parser. Return only valid JSON.' },
+          { role: 'user', content: parsePrompt }
+        ],
+        response_format: { type: 'json_object' },
+        max_tokens: 600,
+        temperature: 0.1,
+      });
+
+      const raw = completion.choices[0].message.content || '{}';
+      const clean = raw.replace(/^```[a-z]*\n?/i, '').replace(/\n?```$/i, '').trim();
+      const parsed = JSON.parse(clean);
+
+      // Auto-fill account balance from cache if not provided
+      if (!parsed.accountBalance && knownBalance > 0) {
+        parsed.accountBalance = knownBalance;
+        parsed.missingFields = (parsed.missingFields || []).filter((f: string) => f !== 'accountBalance');
+      }
+
+      res.json({ success: true, parsed });
+    } catch (err: any) {
+      console.error('[ABBA parse-plan] Error:', err?.message);
+      const msg = err?.message || '';
+      if (msg.includes('401') || msg.includes('Invalid API key')) {
+        return res.status(503).json({ error: 'No AI key configured. Go to Settings → AI API Keys.', needsApiKey: true });
+      }
+      res.status(500).json({ error: 'Failed to parse plan description' });
+    }
+  });
+
+  // ── ABBA Create Plan from parsed proposal ────────────────────────────────
+  // Takes the structured plan and calls the full strategy generator
+  app.post('/api/abba/create-plan', async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: 'Authentication required' });
+    const userId = (req.user as User).id;
+    const {
+      pairs, profitTarget, accountBalance, sessions, direction,
+      strategyType, lotSize, riskLevel, tradingDays, maxTradesPerDay,
+    } = req.body;
+
+    if (!pairs?.length || !profitTarget || !accountBalance) {
+      return res.status(400).json({ error: 'pairs, profitTarget, and accountBalance are required' });
+    }
+
+    try {
+      const { getUniversalAIClientForUser: getPlanAI, getAllStrategiesForPairs } = await import('./openai');
+      const aiClient = await getPlanAI(userId);
+
+      const cleanPairs = pairs.map((p: string) => p.toUpperCase().replace('/', ''));
+      const sessionConstraint = sessions?.length ? sessions.join(', ') : 'All';
+      const hftMode = strategyType === 'breakout' ? 'aggressive'
+        : strategyType === 'scalp' ? 'aggressive'
+        : strategyType === 'conservative' ? 'conservative' : 'moderate';
+
+      // Build pair history stats from cache
+      const closedTrades: any[] = (global as any).mt5ClosedTrades?.[userId]?.trades || [];
+      const pairStats: Record<string, any> = {};
+      for (const pair of cleanPairs) {
+        const trades = closedTrades.filter((t: any) => (t.symbol || '').toUpperCase().replace('/', '') === pair);
+        const wins = trades.filter((t: any) => t.profit > 0).length;
+        const losses = trades.filter((t: any) => t.profit < 0).length;
+        const total = wins + losses;
+        pairStats[pair] = {
+          totalTrades: total, winRate: total > 0 ? Math.round((wins / total) * 100) : 50,
+          avgWin: 0, avgLoss: 0,
+        };
+      }
+
+      // Generate the weekly plan via AI
+      const planDays = tradingDays?.length ? tradingDays : ['Monday','Tuesday','Wednesday','Thursday','Friday'];
+      const dailyTarget = Math.round((profitTarget / 5) * 100) / 100;
+
+      const planPrompt = `You are VEDD AI's elite weekly trading strategy generator. Create a precise, executable weekly trading plan.
+
+USER SPECIFICATIONS (follow these EXACTLY):
+- Pairs: ${cleanPairs.join(', ')}
+- Sessions: ${sessionConstraint} ONLY
+- Direction preference: ${direction || 'BOTH'}
+- Strategy type: ${strategyType || 'breakout'}
+- Weekly profit target: $${profitTarget}
+- Account balance: $${accountBalance}
+- Daily target: $${dailyTarget}
+- Trading days: ${planDays.join(', ')}
+- Lot size: ${lotSize || 'AI-calculated based on risk'}
+- Risk level: ${riskLevel || 'moderate'}
+${maxTradesPerDay ? `- Max trades per day: ${maxTradesPerDay}` : ''}
+
+Historical performance (from this account):
+${JSON.stringify(pairStats, null, 2)}
+
+Generate a JSON weekly plan with this EXACT structure:
+{
+  "weeklyPlan": {
+    "Monday": { "pairs": [{"symbol":"US30","direction":"BOTH","session":"New York","lotSize":0.1,"maxTrades":2,"confidence":80,"entryCondition":"Breakout of opening range first 15 min"}], "dailyTarget":${dailyTarget}, "skip":false },
+    "Tuesday": { ... same structure ... },
+    "Wednesday": { "skip": true },
+    "Thursday": { ... },
+    "Friday": { ... }
+  },
+  "rationale": "Brief explanation of the overall strategy",
+  "keyRules": ["Rule 1", "Rule 2", "Rule 3"],
+  "riskWarning": "Brief risk note"
+}
+
+IMPORTANT:
+- Only include the specified sessions in session fields
+- Set skip:true for days NOT in the trading days list
+- Direction should match user's preference (${direction || 'BOTH'})
+- entryCondition must describe a ${strategyType || 'breakout'} setup specifically
+- Keep lotSize at ${lotSize || 'calculate: risk 1-2% of $' + accountBalance} per trade`;
+
+      const planCompletion = await aiClient.chat.completions.create({
+        model: (aiClient as any).defaultModel || 'gpt-4o',
+        messages: [
+          { role: 'system', content: 'You are a precise trading plan generator. Return only valid JSON.' },
+          { role: 'user', content: planPrompt }
+        ],
+        response_format: { type: 'json_object' },
+        max_tokens: 2000,
+        temperature: 0.3,
+      });
+
+      const planRaw = planCompletion.choices[0].message.content || '{}';
+      const planClean = planRaw.replace(/^```[a-z]*\n?/i, '').replace(/\n?```$/i, '').trim();
+      const planData = JSON.parse(planClean);
+
+      // Save to DB
+      const weekStart = new Date();
+      weekStart.setUTCHours(0, 0, 0, 0);
+      // Set to Monday of current week
+      const dayOfWeek = weekStart.getUTCDay();
+      const daysToMonday = dayOfWeek === 0 ? 1 : (dayOfWeek === 1 ? 0 : -(dayOfWeek - 1));
+      weekStart.setUTCDate(weekStart.getUTCDate() + daysToMonday);
+
+      const savedStrategy = await storage.createWeeklyStrategy({
+        userId,
+        profitTarget: parseFloat(profitTarget),
+        accountBalance: parseFloat(accountBalance),
+        pairs: cleanPairs,
+        riskLevel: riskLevel || 'moderate',
+        lotSize: lotSize ? parseFloat(lotSize) : null,
+        plan: planData,
+        pairStats,
+        generatedAt: new Date(),
+        weekStart,
+        currentProfit: 0,
+        progressTrades: 0,
+        progressWinRate: 0,
+        progressPercentage: 0,
+        strategyMode: hftMode,
+        smartEscalation: true,
+        highConfidenceOverride: true,
+      });
+
+      // Store in memory for live engine
+      (global as any).mt5WeeklyStrategies = (global as any).mt5WeeklyStrategies || {};
+      (global as any).mt5WeeklyStrategies[userId] = {
+        profitTarget: parseFloat(profitTarget),
+        accountBalance: parseFloat(accountBalance),
+        pairs: cleanPairs,
+        riskLevel: riskLevel || 'moderate',
+        lotSize: lotSize ? parseFloat(lotSize) : null,
+        plan: planData,
+        pairStats,
+        generatedAt: new Date(),
+        weekStart,
+        currentProfit: 0,
+        progressTrades: 0,
+        progressWinRate: 0,
+        progressPercentage: 0,
+        smartEscalation: true,
+        highConfidenceOverride: true,
+      };
+
+      res.json({
+        success: true,
+        strategy: savedStrategy,
+        plan: planData,
+        summary: {
+          pairs: cleanPairs,
+          sessions: sessionConstraint,
+          direction: direction || 'BOTH',
+          strategyType: strategyType || 'breakout',
+          profitTarget,
+          dailyTarget,
+          tradingDays: planDays,
+        }
+      });
+    } catch (err: any) {
+      console.error('[ABBA create-plan] Error:', err?.message);
+      res.status(500).json({ error: err?.message || 'Failed to create plan' });
+    }
+  });
+
+  // ABBA context — live stats without a chat message (for header display)
+  app.get('/api/abba/context', async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: 'Authentication required' });
     const userId = (req.user as User).id;
     try {
@@ -7377,7 +7654,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               }
             }
 
-            // Store the current goal state for TRAVIS and dashboard to read
+            // Store the current goal state for ABBA and dashboard to read
             (global as any).veddGoalIntelligence = (global as any).veddGoalIntelligence || {};
             (global as any).veddGoalIntelligence[token.userId] = {
               mode: goalPaceMode,

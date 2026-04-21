@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+﻿import { useEffect } from "react";
 import { Switch, Route } from "wouter";
 import { Toaster } from "@/components/ui/toaster";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -89,7 +89,7 @@ import { NetworkStatus } from "@/components/network-status";
 import { NewsNotificationScheduler } from "@/components/news-notification-scheduler";
 import { SubscriptionUsageHeader } from "@/components/ui/subscription-usage-header";
 import { PageTransition } from "@/components/ui/page-transition";
-import { TravisAssistant } from "@/components/travis/travis-assistant";
+import { AbbaAssistant } from "@/components/travis/travis-assistant";
 
 import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
@@ -233,7 +233,7 @@ function AppLayout() {
       {showHeaderFooter && !isAuthPage && <Footer />}
       <OnboardingTutorial />
       <MobileBottomNav />
-      <TravisAssistant />
+      <AbbaAssistant />
       <NetworkStatus />
       <Toaster />
       <div className="pb-16 md:pb-0" />
