@@ -1,14 +1,14 @@
 ﻿import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation } from 'wouter';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useQuery, useMutation } from '@tanstack/react-query';
-import { apiRequest } from '@/lib/queryClient';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { apiRequest, queryClient } from '@/lib/queryClient';
 import { useAuth } from '@/hooks/use-auth';
 import {
   X, Send, ChevronRight, Target, TrendingUp, Activity,
   Zap, BarChart2, MapPin, Loader2, AlertTriangle, ExternalLink,
   Minimize2, Maximize2, RefreshCw, Brain, Check, PenLine,
-  Calendar, DollarSign, Layers,
+  Calendar, DollarSign, Layers, Wifi, WifiOff,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
@@ -387,6 +387,51 @@ const ContextBar = ({ ctx }: { ctx: AbbaContext | null }) => {
   );
 };
 
+// ── Platform Sync Status Bar ──────────────────────────────────────────────────
+const PlatformSyncBar = ({ userId }: { userId: number }) => {
+  const { data } = useQuery<any>({
+    queryKey: ['/api/abba/platform-sync'],
+    enabled: !!userId,
+    refetchInterval: 60000,
+  });
+
+  if (!data?.hasPlan) return null;
+
+  const platforms = data.platforms || {};
+  const entries = [
+    { key: 'mt5',         label: 'MT5',          synced: platforms.mt5?.synced,         connected: platforms.mt5?.connected },
+    { key: 'tradelocker', label: 'TradeLocker',   synced: platforms.tradelocker?.synced, connected: platforms.tradelocker?.connected },
+    { key: 'tradovate',   label: 'Futures',       synced: platforms.tradovate?.synced,   connected: platforms.tradovate?.connected },
+  ].filter(p => p.connected);
+
+  if (entries.length === 0) return null;
+
+  return (
+    <div className="px-3 py-1.5 flex items-center gap-2 flex-wrap" style={{ borderBottom: '1px solid rgba(220,38,38,0.1)', background: 'rgba(0,0,0,0.2)' }}>
+      <Wifi className="h-2.5 w-2.5 text-emerald-500 shrink-0" />
+      <span className="text-[9px] text-gray-600 font-medium uppercase tracking-wider">Plan active on:</span>
+      {entries.map(p => (
+        <span
+          key={p.key}
+          className="text-[9px] font-bold px-1.5 py-0.5 rounded"
+          style={{
+            color: p.synced ? '#10b981' : '#6b7280',
+            background: p.synced ? 'rgba(16,185,129,0.1)' : 'rgba(107,114,128,0.1)',
+            border: `1px solid ${p.synced ? 'rgba(16,185,129,0.3)' : 'rgba(107,114,128,0.2)'}`,
+          }}
+        >
+          {p.synced ? '✓' : '○'} {p.label}
+        </span>
+      ))}
+      {data.syncedAt && (
+        <span className="text-[8px] text-gray-700 ml-auto">
+          synced {new Date(data.syncedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+        </span>
+      )}
+    </div>
+  );
+};
+
 // ── Main ABBA component ─────────────────────────────────────────────────────
 export function AbbaAssistant() {
   const { user } = useAuth();
@@ -501,19 +546,41 @@ export function AbbaAssistant() {
       const res = await apiRequest('POST', '/api/abba/create-plan', { proposal });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
+
+      // Build platform sync summary
+      const sync = data.platformSync as {
+        mt5: boolean; tradelocker: boolean; tradelockerAccount?: string;
+        tradovate: boolean; tradovateAccount?: string;
+        webhooksTriggered: number; syncedPairs: string[];
+      } | undefined;
+
+      const syncLines: string[] = [];
+      if (sync?.mt5)         syncLines.push('✅ MT5 EA');
+      if (sync?.tradelocker) syncLines.push(`✅ TradeLocker${sync.tradelockerAccount ? ` (${sync.tradelockerAccount})` : ''}`);
+      if (sync?.tradovate)   syncLines.push(`✅ Futures${sync.tradovateAccount ? ` (${sync.tradovateAccount})` : ''}`);
+      if ((sync?.webhooksTriggered ?? 0) > 0) syncLines.push(`✅ ${sync!.webhooksTriggered} webhook${sync!.webhooksTriggered > 1 ? 's' : ''}`);
+      const noSync = syncLines.length === 0;
+
+      const syncBlock = noSync
+        ? '\n\n⚠️ No platforms connected yet. Go to Settings to connect MT5, TradeLocker, or Futures.'
+        : `\n\n📡 Strategy pushed to:\n${syncLines.join('\n')}`;
+
       toast({
         title: '✅ Weekly Plan Created!',
-        description: `Your ${proposal.pairs?.join(', ')} plan is live. ABBA will monitor it for you.`,
+        description: `Your ${proposal.pairs?.join(', ')} plan is live and synced to ${syncLines.length} platform${syncLines.length !== 1 ? 's' : ''}.`,
       });
-      // Send a follow-up ABBA confirmation message
+
+      // Follow-up ABBA confirmation message with sync details
       setMessages(prev => [...prev, {
         id: genId(), role: 'abba',
-        content: `Weekly plan created! 🎯\n\nPairs: ${proposal.pairs?.join(', ')}\nSessions: ${proposal.sessions?.join(', ') || 'All'}\nDirection: ${proposal.direction}\n\nI'll be monitoring these pairs and alerting you to high-probability setups that align with your goal. Ask me "Best entry now?" anytime.`,
+        content: `Weekly plan activated! 🎯\n\nPairs: ${proposal.pairs?.join(', ')}\nSessions: ${proposal.sessions?.join(', ') || 'All'}\nDirection: ${proposal.direction}${syncBlock}\n\nI'm now monitoring these pairs across all your connected accounts. Only signals matching this plan will auto-execute on connected platforms. Ask me "Best entry now?" anytime.`,
         timestamp: new Date(),
         navigateTo: '/weekly-strategy',
       }]);
-      // Refresh context
+
+      // Refresh context + sync status
       refetchContext();
+      queryClient.invalidateQueries({ queryKey: ['/api/abba/platform-sync'] });
     } catch (err: any) {
       toast({
         title: 'Plan creation failed',
@@ -656,6 +723,8 @@ export function AbbaAssistant() {
 
               {/* Live context bar */}
               <ContextBar ctx={context} />
+              {/* Platform sync status */}
+              {user && <PlatformSyncBar userId={user.id} />}
 
               {/* AI key nudge */}
               {needsKey && (

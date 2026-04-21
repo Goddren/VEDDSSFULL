@@ -671,6 +671,107 @@ async function triggerWebhooks(userId: number, triggerType: string, signal: any)
   }
 }
 
+// ─── Platform Strategy Sync ────────────────────────────────────────────────────
+interface PlatformSyncResult {
+  mt5: boolean;
+  tradelocker: boolean;
+  tradelockerAccount?: string;
+  tradovate: boolean;
+  tradovateAccount?: string;
+  webhooksTriggered: number;
+  syncedPairs: string[];
+  syncedAt: string;
+}
+
+async function pushStrategyToAllPlatforms(
+  userId: number,
+  strategy: any,
+  plan: any
+): Promise<PlatformSyncResult> {
+  const result: PlatformSyncResult = {
+    mt5: false, tradelocker: false, tradovate: false,
+    webhooksTriggered: 0,
+    syncedPairs: strategy.pairs || [],
+    syncedAt: new Date().toISOString(),
+  };
+
+  const g = global as any;
+
+  // 1. MT5 — already in memory from create-plan
+  result.mt5 = !!(g.mt5WeeklyStrategies?.[userId]);
+
+  // Build sync payload stored globally so signal handlers can read it
+  const syncPayload = {
+    strategyId: strategy.id,
+    pairs: strategy.pairs || [],
+    lotSize: strategy.lotSize,
+    riskLevel: strategy.riskLevel,
+    profitTarget: strategy.profitTarget,
+    accountBalance: strategy.accountBalance,
+    weeklyPlan: plan?.weeklyPlan || {},
+    syncedAt: result.syncedAt,
+    tradelockerSynced: false,
+    tradovateSynced: false,
+  };
+  g.veddPlatformSync = g.veddPlatformSync || {};
+  g.veddPlatformSync[userId] = syncPayload;
+
+  // 2. TradeLocker — check active connection
+  try {
+    const tlConn = await storage.getUserTradelockerConnection(userId);
+    if (tlConn?.isActive) {
+      g.veddPlatformSync[userId].tradelockerSynced = true;
+      result.tradelocker = true;
+      result.tradelockerAccount = tlConn.accNum || tlConn.accountId || 'Connected';
+    }
+  } catch (e) {
+    console.error('[Platform Sync] TradeLocker check failed:', e);
+  }
+
+  // 3. Tradovate / Futures — check active connection
+  try {
+    const tvConn = await storage.getUserTradovateConnection(userId);
+    if (tvConn) {
+      g.veddPlatformSync[userId].tradovateSynced = true;
+      result.tradovate = true;
+      result.tradovateAccount = tvConn.username || 'Connected';
+    }
+  } catch (e) {
+    console.error('[Platform Sync] Tradovate check failed:', e);
+  }
+
+  // 4. Webhooks — fire strategy_update to all configured webhooks
+  try {
+    const strategySignal = {
+      source: 'abba_plan_create',
+      action: 'STRATEGY_SYNC',
+      pairs: strategy.pairs,
+      lotSize: strategy.lotSize,
+      riskLevel: strategy.riskLevel,
+      profitTarget: strategy.profitTarget,
+      weeklyPlan: plan?.weeklyPlan,
+      message: `ABBA strategy activated: ${(strategy.pairs || []).join(', ')}`,
+    };
+    // Fire to strategy_update subscribers
+    await triggerWebhooks(userId, 'strategy_update', strategySignal);
+    // Also fire to ea_signal subscribers (most commonly configured)
+    await triggerWebhooks(userId, 'ea_signal', {
+      source: 'abba_strategy_sync',
+      action: 'STRATEGY_UPDATE',
+      pairs: strategy.pairs,
+      message: `New ABBA weekly plan: ${(strategy.pairs || []).join(', ')}`,
+    });
+    const stratWh = await storage.getActiveWebhooksByTrigger(userId, 'strategy_update');
+    const eaWh   = await storage.getActiveWebhooksByTrigger(userId, 'ea_signal');
+    result.webhooksTriggered = stratWh.length + eaWh.length;
+  } catch (e) {
+    console.error('[Platform Sync] Webhook trigger failed:', e);
+  }
+
+  console.log(`[Platform Sync] User ${userId}: MT5=${result.mt5}, TradeLocker=${result.tradelocker}, Tradovate=${result.tradovate}, Webhooks=${result.webhooksTriggered}`);
+  return result;
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Initialize Twilio if credentials are available
   setupTwilio();
@@ -3751,10 +3852,14 @@ IMPORTANT:
         highConfidenceOverride: true,
       };
 
+      // ── Auto-push strategy to all connected platforms ──────────────────────
+      const platformSync = await pushStrategyToAllPlatforms(userId, savedStrategy, planData);
+
       res.json({
         success: true,
         strategy: savedStrategy,
         plan: planData,
+        platformSync,
         summary: {
           pairs: cleanPairs,
           sessions: sessionConstraint,
@@ -3804,6 +3909,31 @@ IMPORTANT:
     }
   });
   
+  // ABBA platform sync status
+  app.get('/api/abba/platform-sync', async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: 'Authentication required' });
+    const userId = (req.user as User).id;
+    try {
+      const sync = (global as any).veddPlatformSync?.[userId] || null;
+      const [tlConn, tvConn] = await Promise.all([
+        storage.getUserTradelockerConnection(userId).catch(() => null),
+        storage.getUserTradovateConnection(userId).catch(() => null),
+      ]);
+      res.json({
+        hasPlan: !!(global as any).mt5WeeklyStrategies?.[userId],
+        syncedAt: sync?.syncedAt || null,
+        pairs: sync?.pairs || [],
+        platforms: {
+          mt5: { connected: true, synced: !!(global as any).mt5WeeklyStrategies?.[userId] },
+          tradelocker: { connected: !!(tlConn?.isActive), synced: sync?.tradelockerSynced || false, account: tlConn?.accNum || tlConn?.accountId || null },
+          tradovate: { connected: !!tvConn, synced: sync?.tradovateSynced || false, account: tvConn?.username || null },
+        },
+      });
+    } catch (err) {
+      res.json({ hasPlan: false, syncedAt: null, pairs: [], platforms: {} });
+    }
+  });
+
   // Trading Tips endpoint
   app.get('/api/trading-tips', tradingTipsHandler);
 
@@ -6028,7 +6158,19 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       if (tlConnection) {
         console.log('[TradeLocker] Connection status - isActive:', tlConnection.isActive, 'autoExecute:', tlConnection.autoExecute);
       }
-      if (tlConnection && tlConnection.isActive && tlConnection.autoExecute) {
+      // ── ABBA Plan Filter: if a plan is synced, only auto-execute plan pairs ──
+      const abbaPlanSync = (global as any).veddPlatformSync?.[token.userId];
+      let inAbbaPlan = true; // default: allow if no plan synced
+      if (abbaPlanSync?.pairs?.length > 0 && action === 'OPEN') {
+        const normSignal = (symbol || '').toUpperCase().replace('/', '').replace('_', '');
+        inAbbaPlan = abbaPlanSync.pairs.some((p: string) =>
+          p.toUpperCase().replace('/', '').replace('_', '') === normSignal
+        );
+        if (!inAbbaPlan) {
+          console.log(`[ABBA Plan Filter] ${symbol} not in active plan (${abbaPlanSync.pairs.join(', ')}) — TradeLocker auto-execute skipped`);
+        }
+      }
+      if (tlConnection && tlConnection.isActive && tlConnection.autoExecute && inAbbaPlan) {
         console.log('[TradeLocker] Executing signal on TradeLocker:', { action, symbol, direction, volume });
         try {
           tradelockerResult = await executeMT5SignalOnTradeLocker(tlConnection, {
