@@ -9,6 +9,7 @@ import {
   Zap, BarChart2, MapPin, Loader2, AlertTriangle, ExternalLink,
   Minimize2, Maximize2, RefreshCw, Brain, Check, PenLine,
   Calendar, DollarSign, Layers, Wifi, WifiOff,
+  Mic, MicOff, Volume2, VolumeX,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
@@ -60,6 +61,79 @@ interface AbbaContext {
 }
 
 const genId = () => Math.random().toString(36).slice(2, 10);
+
+// ── Browser speech support detection ─────────────────────────────────────────
+const hasSpeechRecognition = typeof window !== 'undefined' &&
+  !!(window.SpeechRecognition || (window as any).webkitSpeechRecognition);
+const hasSpeechSynthesis = typeof window !== 'undefined' && !!window.speechSynthesis;
+
+// ── Voice hook — STT + TTS ────────────────────────────────────────────────────
+function useVoice(onTranscript: (text: string, isFinal: boolean) => void) {
+  const recognitionRef = useRef<any>(null);
+  const [isListening, setIsListening] = useState(false);
+  const [voiceEnabled, setVoiceEnabled] = useState(() => {
+    try { return localStorage.getItem('abba_voice') !== 'off'; } catch { return true; }
+  });
+
+  const startListening = useCallback(() => {
+    if (!hasSpeechRecognition) return;
+    const SpeechRec = window.SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const rec = new SpeechRec();
+    rec.continuous = false;
+    rec.interimResults = true;
+    rec.lang = 'en-US';
+    rec.onstart  = () => setIsListening(true);
+    rec.onend    = () => setIsListening(false);
+    rec.onerror  = () => setIsListening(false);
+    rec.onresult = (e: any) => {
+      const transcript = Array.from(e.results as any[])
+        .map((r: any) => r[0].transcript)
+        .join('');
+      const isFinal = e.results[e.results.length - 1]?.isFinal ?? false;
+      onTranscript(transcript, isFinal);
+    };
+    recognitionRef.current = rec;
+    rec.start();
+  }, [onTranscript]);
+
+  const stopListening = useCallback(() => {
+    recognitionRef.current?.stop();
+    setIsListening(false);
+  }, []);
+
+  const speak = useCallback((text: string) => {
+    if (!hasSpeechSynthesis || !voiceEnabled) return;
+    window.speechSynthesis.cancel();
+    // Strip markdown-ish symbols for cleaner speech
+    const clean = text.replace(/[*_~`#]/g, '').replace(/\[.*?\]/g, '').trim();
+    const utt = new SpeechSynthesisUtterance(clean);
+    utt.rate  = 1.05;
+    utt.pitch = 0.88;  // slightly lower — authoritative fund-manager tone
+    utt.volume = 1.0;
+    // Prefer a deeper male voice if available
+    const voices = window.speechSynthesis.getVoices();
+    const preferred = voices.find(v =>
+      /google uk english male|daniel|alex|reed|liam/i.test(v.name)
+    ) || voices.find(v => /male/i.test(v.name)) || voices[0];
+    if (preferred) utt.voice = preferred;
+    window.speechSynthesis.speak(utt);
+  }, [voiceEnabled]);
+
+  const stopSpeaking = useCallback(() => {
+    if (hasSpeechSynthesis) window.speechSynthesis.cancel();
+  }, []);
+
+  const toggleVoice = useCallback(() => {
+    setVoiceEnabled(prev => {
+      const next = !prev;
+      try { localStorage.setItem('abba_voice', next ? 'on' : 'off'); } catch {}
+      if (!next) window.speechSynthesis?.cancel();
+      return next;
+    });
+  }, []);
+
+  return { isListening, voiceEnabled, startListening, stopListening, speak, stopSpeaking, toggleVoice };
+}
 
 // ── Arc Reactor icon (JARVIS-style) ──────────────────────────────────────────
 const ArcReactor = ({ size = 36, pulse = false }: { size?: number; pulse?: boolean }) => (
@@ -444,9 +518,29 @@ export function AbbaAssistant() {
   const [showQuick, setShowQuick] = useState(true);
   const [needsKey, setNeedsKey] = useState(false);
   const [creatingPlan, setCreatingPlan] = useState(false);
+  const [interimText, setInterimText] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const autoSendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Ref to avoid circular dependency between voice callback and chatMutation
+  const voiceSendRef = useRef<(msg: string) => void>(() => {});
   const { toast } = useToast();
+
+  // Voice hook — STT + TTS
+  const { isListening, voiceEnabled, startListening, stopListening, speak, stopSpeaking, toggleVoice } = useVoice(
+    useCallback((transcript: string, isFinal: boolean) => {
+      setInput(transcript);
+      setInterimText(isFinal ? '' : transcript);
+      if (isFinal && transcript.trim()) {
+        if (autoSendTimerRef.current) clearTimeout(autoSendTimerRef.current);
+        autoSendTimerRef.current = setTimeout(() => {
+          setInterimText('');
+          setInput('');
+          voiceSendRef.current(transcript.trim());
+        }, 600);
+      }
+    }, [])
+  );
 
   // Listen for external open-ABBA events (e.g., from dashboard card)
   useEffect(() => {
@@ -454,6 +548,11 @@ export function AbbaAssistant() {
     window.addEventListener('open-ABBA', handler);
     return () => window.removeEventListener('open-ABBA', handler);
   }, []);
+
+  // Stop listening/speaking when panel closes
+  useEffect(() => {
+    if (!open) { stopListening(); stopSpeaking(); }
+  }, [open, stopListening, stopSpeaking]);
 
   // Greeting on open
   useEffect(() => {
@@ -516,6 +615,8 @@ export function AbbaAssistant() {
         navigateTo: data.navigateTo || null,
         planProposal: data.planProposal || null,
       }]);
+      // ABBA speaks the response aloud when voice is enabled
+      if (data.response) speak(data.response);
       // Auto-navigate if ABBA gave a nav command
       if (data.navigateTo) {
         setTimeout(() => {
@@ -601,6 +702,9 @@ export function AbbaAssistant() {
     chatMutation.mutate(msg);
     setInput('');
   }, [chatMutation]);
+
+  // Keep voiceSendRef in sync so voice callback can call sendMessage without stale closure
+  voiceSendRef.current = sendMessage;
 
   const handleNavigate = useCallback((path: string) => {
     navigate(path);
@@ -698,6 +802,17 @@ export function AbbaAssistant() {
                   <p className="text-[10px] text-gray-500 tracking-wide">Personal Trading Intelligence</p>
                 </div>
                 <div className="flex items-center gap-1">
+                  {/* Voice output toggle */}
+                  {hasSpeechSynthesis && (
+                    <button
+                      onClick={toggleVoice}
+                      className="p-1.5 rounded-lg hover:bg-white/5 transition-colors"
+                      style={{ color: voiceEnabled ? '#a855f7' : '#4b5563' }}
+                      title={voiceEnabled ? 'ABBA voice ON — click to mute' : 'Voice OFF — click to enable'}
+                    >
+                      {voiceEnabled ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
+                    </button>
+                  )}
                   <button
                     onClick={() => { refetchContext(); }}
                     className="p-1.5 rounded-lg text-gray-500 hover:text-gray-300 hover:bg-white/5 transition-colors"
@@ -795,15 +910,59 @@ export function AbbaAssistant() {
 
               {/* Input */}
               <div className="px-3 pb-3 pt-1 flex-shrink-0" style={{ borderTop: '1px solid rgba(220,38,38,0.15)' }}>
+                {/* Listening indicator */}
+                {isListening && (
+                  <div className="flex items-center gap-2 mb-2 px-1">
+                    <div className="flex gap-0.5 items-end h-4">
+                      {[1,2,3,4,5].map(i => (
+                        <motion.div
+                          key={i}
+                          className="w-0.5 rounded-full bg-red-500"
+                          animate={{ height: ['4px','12px','4px'] }}
+                          transition={{ duration: 0.6, repeat: Infinity, delay: i * 0.1 }}
+                        />
+                      ))}
+                    </div>
+                    <span className="text-[11px] text-red-400 font-medium">Listening…</span>
+                    {interimText && (
+                      <span className="text-[11px] text-gray-500 italic truncate flex-1">"{interimText}"</span>
+                    )}
+                  </div>
+                )}
                 <form onSubmit={handleSubmit} className="flex gap-2">
                   <input
                     ref={inputRef}
                     value={input}
                     onChange={e => setInput(e.target.value)}
-                    placeholder="Ask ABBA anything..."
+                    placeholder={isListening ? 'Listening…' : hasSpeechRecognition ? 'Ask ABBA or tap mic…' : 'Ask ABBA anything…'}
                     disabled={chatMutation.isPending}
                     className="flex-1 bg-[#12121f] border border-red-900/30 rounded-xl px-3 py-2.5 text-sm text-white placeholder:text-gray-600 outline-none focus:border-red-700/60 transition-colors"
+                    style={isListening ? { borderColor: 'rgba(239,68,68,0.6)' } : {}}
                   />
+                  {/* Mic button — only shown on supporting browsers */}
+                  {hasSpeechRecognition && (
+                    <button
+                      type="button"
+                      onClick={isListening ? stopListening : startListening}
+                      disabled={chatMutation.isPending}
+                      className="flex items-center justify-center w-10 h-10 rounded-xl transition-all flex-shrink-0 disabled:opacity-40"
+                      style={{
+                        background: isListening
+                          ? 'linear-gradient(135deg, #dc2626, #b91c1c)'
+                          : 'rgba(220,38,38,0.12)',
+                        border: `1px solid ${isListening ? 'rgba(220,38,38,0.8)' : 'rgba(220,38,38,0.3)'}`,
+                        boxShadow: isListening ? '0 0 16px rgba(220,38,38,0.5)' : 'none',
+                      }}
+                      title={isListening ? 'Stop listening' : 'Talk to ABBA'}
+                    >
+                      {isListening
+                        ? <motion.div animate={{ scale: [1, 1.2, 1] }} transition={{ duration: 0.8, repeat: Infinity }}>
+                            <MicOff className="h-4 w-4 text-white" />
+                          </motion.div>
+                        : <Mic className="h-4 w-4 text-red-400" />
+                      }
+                    </button>
+                  )}
                   <button
                     type="submit"
                     disabled={!input.trim() || chatMutation.isPending}
@@ -816,6 +975,12 @@ export function AbbaAssistant() {
                     }
                   </button>
                 </form>
+                {/* Browser support note */}
+                {!hasSpeechRecognition && (
+                  <p className="text-[9px] text-gray-700 mt-1.5 text-center">
+                    Voice input available in Chrome / Edge / Safari
+                  </p>
+                )}
               </div>
             </motion.div>
           </>
