@@ -67,28 +67,30 @@ const hasSpeechRecognition = typeof window !== 'undefined' &&
   !!(window.SpeechRecognition || (window as any).webkitSpeechRecognition);
 const hasSpeechSynthesis = typeof window !== 'undefined' && !!window.speechSynthesis;
 
-// ── Voice hook — STT + TTS ────────────────────────────────────────────────────
+// ── Voice hook — STT + TTS (OpenAI Onyx + browser fallback) ──────────────────
 function useVoice(onTranscript: (text: string, isFinal: boolean) => void) {
   const recognitionRef = useRef<any>(null);
-  const [isListening, setIsListening] = useState(false);
+  const audioRef       = useRef<HTMLAudioElement | null>(null);
+  const [isListening,  setIsListening]  = useState(false);
+  const [isSpeaking,   setIsSpeaking]   = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(() => {
     try { return localStorage.getItem('abba_voice') !== 'off'; } catch { return true; }
   });
 
+  // ── STT ───────────────────────────────────────────────────────────────────
   const startListening = useCallback(() => {
     if (!hasSpeechRecognition) return;
     const SpeechRec = window.SpeechRecognition || (window as any).webkitSpeechRecognition;
     const rec = new SpeechRec();
-    rec.continuous = false;
+    rec.continuous     = false;
     rec.interimResults = true;
-    rec.lang = 'en-US';
+    rec.lang           = 'en-US';
     rec.onstart  = () => setIsListening(true);
     rec.onend    = () => setIsListening(false);
     rec.onerror  = () => setIsListening(false);
     rec.onresult = (e: any) => {
       const transcript = Array.from(e.results as any[])
-        .map((r: any) => r[0].transcript)
-        .join('');
+        .map((r: any) => r[0].transcript).join('');
       const isFinal = e.results[e.results.length - 1]?.isFinal ?? false;
       onTranscript(transcript, isFinal);
     };
@@ -101,38 +103,78 @@ function useVoice(onTranscript: (text: string, isFinal: boolean) => void) {
     setIsListening(false);
   }, []);
 
-  const speak = useCallback((text: string) => {
-    if (!hasSpeechSynthesis || !voiceEnabled) return;
+  // ── TTS — OpenAI Onyx first, browser fallback ────────────────────────────
+  const browserSpeak = useCallback((text: string) => {
+    if (!hasSpeechSynthesis) return;
     window.speechSynthesis.cancel();
-    // Strip markdown-ish symbols for cleaner speech
-    const clean = text.replace(/[*_~`#]/g, '').replace(/\[.*?\]/g, '').trim();
-    const utt = new SpeechSynthesisUtterance(clean);
-    utt.rate  = 1.05;
-    utt.pitch = 0.88;  // slightly lower — authoritative fund-manager tone
-    utt.volume = 1.0;
-    // Prefer a deeper male voice if available
-    const voices = window.speechSynthesis.getVoices();
-    const preferred = voices.find(v =>
-      /google uk english male|daniel|alex|reed|liam/i.test(v.name)
-    ) || voices.find(v => /male/i.test(v.name)) || voices[0];
+    const clean = text.replace(/[*_~`#>]/g, '').replace(/\[.*?\]/g, '').trim();
+    const utt   = new SpeechSynthesisUtterance(clean);
+    utt.rate    = 1.0;
+    utt.pitch   = 0.85;
+    utt.volume  = 1.0;
+    const voices   = window.speechSynthesis.getVoices();
+    const preferred = voices.find(v => /google uk english male|daniel|alex|reed|liam/i.test(v.name))
+                   || voices.find(v => /male/i.test(v.name))
+                   || voices[0];
     if (preferred) utt.voice = preferred;
+    utt.onend = () => setIsSpeaking(false);
+    setIsSpeaking(true);
     window.speechSynthesis.speak(utt);
-  }, [voiceEnabled]);
+  }, []);
+
+  const speak = useCallback(async (text: string) => {
+    if (!voiceEnabled) return;
+
+    // Stop any current audio
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+    if (hasSpeechSynthesis) window.speechSynthesis.cancel();
+
+    setIsSpeaking(true);
+    try {
+      const res = await fetch('/api/abba/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ text }),
+      });
+
+      if (!res.ok) throw new Error('TTS API unavailable');
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('audio')) throw new Error('Not audio response');
+
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      audio.onended = () => { setIsSpeaking(false); URL.revokeObjectURL(url); };
+      audio.onerror = () => { setIsSpeaking(false); URL.revokeObjectURL(url); };
+      await audio.play();
+    } catch {
+      // Graceful fallback to browser TTS
+      browserSpeak(text);
+    }
+  }, [voiceEnabled, browserSpeak]);
 
   const stopSpeaking = useCallback(() => {
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
     if (hasSpeechSynthesis) window.speechSynthesis.cancel();
+    setIsSpeaking(false);
   }, []);
 
   const toggleVoice = useCallback(() => {
     setVoiceEnabled(prev => {
       const next = !prev;
       try { localStorage.setItem('abba_voice', next ? 'on' : 'off'); } catch {}
-      if (!next) window.speechSynthesis?.cancel();
+      if (!next) {
+        if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+        window.speechSynthesis?.cancel();
+        setIsSpeaking(false);
+      }
       return next;
     });
   }, []);
 
-  return { isListening, voiceEnabled, startListening, stopListening, speak, stopSpeaking, toggleVoice };
+  return { isListening, isSpeaking, voiceEnabled, startListening, stopListening, speak, stopSpeaking, toggleVoice };
 }
 
 // ── Arc Reactor icon (JARVIS-style) ──────────────────────────────────────────
@@ -527,7 +569,7 @@ export function AbbaAssistant() {
   const { toast } = useToast();
 
   // Voice hook — STT + TTS
-  const { isListening, voiceEnabled, startListening, stopListening, speak, stopSpeaking, toggleVoice } = useVoice(
+  const { isListening, isSpeaking, voiceEnabled, startListening, stopListening, speak, stopSpeaking, toggleVoice } = useVoice(
     useCallback((transcript: string, isFinal: boolean) => {
       setInput(transcript);
       setInterimText(isFinal ? '' : transcript);
@@ -561,7 +603,7 @@ export function AbbaAssistant() {
       setMessages([{
         id: genId(),
         role: 'abba',
-        content: `Good ${getTimeOfDay()}, ${firstName}. ABBA online.\n\nI have access to your live trading data — weekly goal, open positions, today's P&L, and your pair plan. How can I assist you?`,
+        content: `Peace, ${firstName}. ABBA online.\n\nWord is bond — I got your live data right here. Weekly goal, open positions, today's P&L, your pair plan. The cipher is open. What you need?`,
         timestamp: new Date(),
       }]);
     }
@@ -601,7 +643,7 @@ export function AbbaAssistant() {
         setNeedsKey(true);
         setMessages(prev => [...prev, {
           id: genId(), role: 'abba',
-          content: 'I need an AI key to operate. Go to Settings → AI API Keys and add your OpenAI, Groq, or Anthropic key.',
+          content: "Peace. I need an AI key to build with you. Head to Settings → AI API Keys and drop in your OpenAI, Groq, or Anthropic key. Word is bond, once that's set — I'm fully online.",
           timestamp: new Date(), navigateTo: '/ai-api-keys',
         }]);
         return;
@@ -663,8 +705,8 @@ export function AbbaAssistant() {
       const noSync = syncLines.length === 0;
 
       const syncBlock = noSync
-        ? '\n\n⚠️ No platforms connected yet. Go to Settings to connect MT5, TradeLocker, or Futures.'
-        : `\n\n📡 Strategy pushed to:\n${syncLines.join('\n')}`;
+        ? '\n\n⚠️ No platforms connected yet. Connect MT5, TradeLocker, or Futures in Settings to push the plan live.'
+        : `\n\n📡 Plan pushed to the cipher:\n${syncLines.join('\n')}`;
 
       toast({
         title: '✅ Weekly Plan Created!',
@@ -674,7 +716,7 @@ export function AbbaAssistant() {
       // Follow-up ABBA confirmation message with sync details
       setMessages(prev => [...prev, {
         id: genId(), role: 'abba',
-        content: `Weekly plan activated! 🎯\n\nPairs: ${proposal.pairs?.join(', ')}\nSessions: ${proposal.sessions?.join(', ') || 'All'}\nDirection: ${proposal.direction}${syncBlock}\n\nI'm now monitoring these pairs across all your connected accounts. Only signals matching this plan will auto-execute on connected platforms. Ask me "Best entry now?" anytime.`,
+        content: `Peace — the plan is Born (9). 🎯\n\nPairs: ${proposal.pairs?.join(', ')}\nSessions: ${proposal.sessions?.join(', ') || 'All'}\nDirection: ${proposal.direction}${syncBlock}\n\nThe cipher is complete. I'm watching these pairs across every connected account — only plan signals move. Build on this. Ask me "Best entry now?" when you're ready.`,
         timestamp: new Date(),
         navigateTo: '/weekly-strategy',
       }]);
@@ -799,7 +841,9 @@ export function AbbaAssistant() {
                       VEDD AI
                     </span>
                   </div>
-                  <p className="text-[10px] text-gray-500 tracking-wide">Personal Trading Intelligence</p>
+                  <p className="text-[10px] tracking-wide" style={{ color: isSpeaking ? '#a855f7' : '#6b7280' }}>
+                    {isSpeaking ? '🔊 Speaking…' : 'Personal Trading Intelligence'}
+                  </p>
                 </div>
                 <div className="flex items-center gap-1">
                   {/* Voice output toggle */}
