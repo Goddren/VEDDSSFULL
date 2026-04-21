@@ -34,6 +34,10 @@ interface TravisContext {
   balance: number;
   planPairs: string[];
   hasStrategy: boolean;
+  // Goal Intelligence
+  goalMode?: 'CATCH_UP' | 'ON_PACE' | 'LOCK_IN' | null;
+  goalLotMultiplier?: number;
+  goalPaceRatio?: number;
 }
 
 const genId = () => Math.random().toString(36).slice(2, 10);
@@ -161,14 +165,40 @@ const MsgBubble = ({
   );
 };
 
+// ── Goal mode badge ───────────────────────────────────────────────────────────
+const GOAL_MODE_CONFIG = {
+  CATCH_UP:  { label: '⚡ CATCH UP',   color: '#f59e0b', bg: 'rgba(245,158,11,0.12)',  border: 'rgba(245,158,11,0.35)' },
+  ON_PACE:   { label: '✅ ON PACE',    color: '#10b981', bg: 'rgba(16,185,129,0.10)',  border: 'rgba(16,185,129,0.30)' },
+  LOCK_IN:   { label: '🔒 LOCK IN',   color: '#a855f7', bg: 'rgba(168,85,247,0.10)',  border: 'rgba(168,85,247,0.30)' },
+};
+
 // ── Live context header bar ────────────────────────────────────────────────────
 const ContextBar = ({ ctx }: { ctx: TravisContext | null }) => {
   if (!ctx) return null;
   const pct = ctx.weekPct;
   const barColor = pct >= 100 ? '#10b981' : pct >= 60 ? '#f59e0b' : '#ef4444';
+  const goalCfg = ctx.goalMode ? GOAL_MODE_CONFIG[ctx.goalMode] : null;
+  const dailyPct = ctx.dailyTarget > 0 ? Math.min(100, Math.round(((ctx.todayProfit ?? 0) / ctx.dailyTarget) * 100)) : 0;
+
   return (
     <div className="px-3 py-2 border-b border-red-900/20 space-y-1.5">
-      {/* Progress bar */}
+      {/* Goal Intelligence mode badge */}
+      {goalCfg && (
+        <div className="flex items-center justify-between">
+          <span
+            className="text-[9px] font-bold tracking-wider px-2 py-0.5 rounded-full"
+            style={{ color: goalCfg.color, background: goalCfg.bg, border: `1px solid ${goalCfg.border}` }}
+          >
+            {goalCfg.label}
+          </span>
+          {ctx.goalLotMultiplier && ctx.goalLotMultiplier !== 1.0 && (
+            <span className="text-[9px] text-gray-500">
+              Lots ×<span style={{ color: goalCfg.color }} className="font-bold">{ctx.goalLotMultiplier.toFixed(2)}</span>
+            </span>
+          )}
+        </div>
+      )}
+      {/* Weekly progress bar */}
       <div className="flex items-center gap-2">
         <div className="flex-1 h-1.5 bg-[#1a1a2e] rounded-full overflow-hidden">
           <motion.div
@@ -182,7 +212,7 @@ const ContextBar = ({ ctx }: { ctx: TravisContext | null }) => {
         <span className="text-[10px] font-bold" style={{ color: barColor }}>{pct}%</span>
       </div>
       {/* Stats row */}
-      <div className="flex items-center gap-3 text-[10px]">
+      <div className="flex items-center gap-3 text-[10px] flex-wrap">
         <span className="text-gray-400">
           Week: <span className={ctx.weekProfit >= 0 ? 'text-emerald-400 font-semibold' : 'text-red-400 font-semibold'}>
             ${ctx.weekProfit.toFixed(2)}
@@ -194,6 +224,9 @@ const ContextBar = ({ ctx }: { ctx: TravisContext | null }) => {
           Today: <span className={ctx.todayProfit >= 0 ? 'text-emerald-400 font-semibold' : 'text-red-400 font-semibold'}>
             ${ctx.todayProfit?.toFixed(2) ?? '0.00'}
           </span>
+          {ctx.dailyTarget > 0 && (
+            <span className="text-gray-600">/{ctx.dailyTarget.toFixed(0)} ({dailyPct}%)</span>
+          )}
         </span>
         {ctx.openCount > 0 && (
           <>

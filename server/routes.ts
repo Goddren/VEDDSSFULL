@@ -3510,7 +3510,18 @@ VEDD CONTEXT: VEDD is a faith-based AI trading platform. The community uses VEDD
       const weekTarget = strategy?.profitTarget || 0;
       const weekProfit = strategy?.currentProfit || 0;
       const weekPct = weekTarget > 0 ? Math.min(100, Math.round((weekProfit / weekTarget) * 100)) : 0;
-      res.json({ weekPct, weekProfit, weekTarget, unrealizedPnL, openCount: openPositions.length, hasStrategy: !!strategy && weekTarget > 0 });
+      // Include Goal Intelligence state if available
+      const goalState = (global as any).veddGoalIntelligence?.[userId] || null;
+      res.json({
+        weekPct, weekProfit, weekTarget, unrealizedPnL,
+        openCount: openPositions.length,
+        hasStrategy: !!strategy && weekTarget > 0,
+        goalMode: goalState?.mode || null,
+        goalLotMultiplier: goalState?.lotMultiplier || 1.0,
+        goalPaceRatio: goalState?.paceRatio || 0,
+        todayProfit: goalState?.todayProfit || 0,
+        dailyTarget: goalState?.dailyTarget || (weekTarget > 0 ? Math.round((weekTarget / 5) * 100) / 100 : 0),
+      });
     } catch (err) {
       res.json({ weekPct: 0, weekProfit: 0, weekTarget: 0, unrealizedPnL: 0, openCount: 0, hasStrategy: false });
     }
@@ -7142,6 +7153,10 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         }
       }
 
+      // Save the original EA signal BEFORE any VEDD filtering so Goal Intelligence can restore it
+      const preFilterSignal: string = analysis.signal;
+      let blockedByPlan = false; // set true when plan filter NULLs the signal
+
       // VEDD SS AI Plan Integration: Check if live mode is active and adjust trading based on plan
       let veddSSAIActive = false;
       let veddSSAIMatch: any = null;
@@ -7246,6 +7261,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               } else {
                 // Hard block — not scheduled and no override applies
                 console.log(`[VEDD SS AI] BLOCKED ${sanitizedSymbol} — not in today's plan (${todayName}). Plan has: ${todayPlan.pairs.map((p: any) => p.symbol).join(', ')}`);
+                blockedByPlan = true; // Goal Intelligence may override this below
                 analysis.signal = 'NEUTRAL';
                 analysis.alerts = analysis.alerts || [];
                 analysis.alerts.push(`VEDD SS AI: ${sanitizedSymbol} is NOT scheduled for ${todayName}. Today's pairs: ${todayPlan.pairs.map((p: any) => p.symbol).join(', ')}. Trade blocked.`);
@@ -7256,6 +7272,129 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       } catch (veddErr) {
         console.error('[VEDD SS AI] Error checking plan:', veddErr);
       }
+
+      // ── VEDD Goal Intelligence Layer ────────────────────────────────────────
+      // Adapts lot sizing and pair access based on progress toward the daily/weekly goal.
+      // Three modes: CATCH_UP (behind pace), ON_PACE (normal), LOCK_IN (goal achieved)
+      let goalPaceMode: 'CATCH_UP' | 'ON_PACE' | 'LOCK_IN' = 'ON_PACE';
+      let goalLotMultiplier = 1.0;
+      let goalIntelligenceActive = false;
+      // High-frequency pairs eligible for Goal Chase unlock (known liquid, high-setups)
+      const GOAL_CHASE_PAIRS = ['EURUSD','GBPUSD','XAUUSD','USDJPY','GBPJPY','EURJPY','USDCAD','US30','NAS100','NASDAQ100','USTEC','SPX500','AUDUSD','NZDUSD','USDCHF'];
+
+      if ((global as any).mt5VeddSSAILive?.[token.userId] === true) {
+        try {
+          const goalStrategy = (global as any).mt5WeeklyStrategies?.[token.userId];
+          if (goalStrategy?.profitTarget && goalStrategy.profitTarget > 0) {
+            const weeklyTarget = goalStrategy.profitTarget;
+            const dailyTarget = weeklyTarget / 5; // 5 trading days
+
+            // ── Today's closed P&L from DB + cache ──────────────────────────
+            const goalTodayStart = new Date(); goalTodayStart.setUTCHours(0, 0, 0, 0);
+            const goalCachedTrades: any[] = ((global as any).mt5ClosedTrades?.[token.userId]?.trades || [])
+              .filter((t: any) => new Date(t.closeTime || t.timestamp || 0) >= goalTodayStart);
+            const goalDbTrades = await storage.getAiTradeResults(token.userId, 150);
+            const goalDbToday = goalDbTrades.filter((t: any) => {
+              const d = new Date(t.closedAt || t.createdAt);
+              return d >= goalTodayStart && t.result && t.result !== 'PENDING';
+            });
+            const goalDbTickets = new Set(goalDbToday.map((t: any) => t.mt5Ticket).filter(Boolean));
+            const goalCacheDeduped = goalCachedTrades.filter((t: any) => {
+              const tk = t.ticket?.toString(); return !tk || !goalDbTickets.has(tk);
+            });
+            const todayProfitGoal =
+              goalDbToday.reduce((s: number, t: any) => s + (t.profitLoss || 0), 0) +
+              goalCacheDeduped.reduce((s: number, t: any) => s + (t.profit || 0), 0);
+
+            // ── Open unrealized P&L ─────────────────────────────────────────
+            const openPosGoal: any[] = (global as any).mt5OpenPositions?.[token.userId]?.positions || [];
+            const unrealizedGoal = openPosGoal.reduce((s: number, p: any) => s + (p.profit || 0), 0);
+            const effectiveToday = todayProfitGoal + unrealizedGoal; // closed + floating
+
+            const paceRatio = dailyTarget > 0 ? effectiveToday / dailyTarget : 0;
+            goalIntelligenceActive = true;
+
+            if (paceRatio >= 1.0) {
+              // Daily goal achieved — protect gains
+              goalPaceMode = 'LOCK_IN';
+              goalLotMultiplier = 0.5; // halve lots to lock in
+            } else if (paceRatio >= 0.6) {
+              // On track (60–100% of daily target)
+              goalPaceMode = 'ON_PACE';
+              goalLotMultiplier = 1.0;
+            } else {
+              // Behind pace — smart catch-up
+              goalPaceMode = 'CATCH_UP';
+              const deficit = Math.max(0, 1.0 - paceRatio); // 0-1
+              // Scale up gently: max 1.5x lots (50% increase) — never more than that for safety
+              goalLotMultiplier = Math.min(1.5, 1.0 + deficit * 0.5);
+            }
+
+            console.log(`[VEDD Goal Intelligence] DailyTarget=$${dailyTarget.toFixed(2)} | Today=$${todayProfitGoal.toFixed(2)} | Unrealized=$${unrealizedGoal.toFixed(2)} | Pace=${(paceRatio * 100).toFixed(0)}% | Mode=${goalPaceMode} | LotMult=${goalLotMultiplier.toFixed(2)}`);
+
+            // ── Goal Chase: unlock high-frequency pairs when behind pace ────
+            if (goalPaceMode === 'CATCH_UP' && blockedByPlan && preFilterSignal !== 'NEUTRAL') {
+              const normalizedSym = sanitizedSymbol.toUpperCase().replace('/', '');
+              const isHighFreqPair = GOAL_CHASE_PAIRS.some(p =>
+                normalizedSym === p.replace('/', '') ||
+                normalizedSym.includes(p.replace('/', '')) ||
+                p.replace('/', '').includes(normalizedSym)
+              );
+              const eaConf = analysis.confidence || 0;
+              const aiConf = (analysis as any).aiConfidence || 0;
+              // Use highest available confidence — EA or blended EA+AI
+              const bestConf = aiConf > 0 ? Math.max(eaConf, Math.round((eaConf + aiConf) / 2)) : eaConf;
+
+              if (isHighFreqPair && bestConf >= 78) {
+                // Restore the pre-filter signal — this pair is now unlocked for goal chasing
+                analysis.signal = preFilterSignal;
+                // Remove any previous "Trade blocked" alerts from this pair
+                analysis.alerts = (analysis.alerts || []).filter((a: string) => !a.includes('Trade blocked') && !a.includes('NOT scheduled'));
+                analysis.alerts.push(
+                  `VEDD GOAL CHASE ⚡: ${normalizedSym} unlocked — ${(paceRatio * 100).toFixed(0)}% to daily target ($${effectiveToday.toFixed(2)}/$${dailyTarget.toFixed(2)}). ` +
+                  `High-frequency pair with ${bestConf}% confidence. Lot size adjusted ×${goalLotMultiplier.toFixed(2)} for catch-up. Mode: CATCH UP`
+                );
+                console.log(`[VEDD Goal Intelligence] GOAL CHASE UNLOCK: ${normalizedSym} | Conf=${bestConf}% | Pace=${(paceRatio*100).toFixed(0)}% | Lots×${goalLotMultiplier.toFixed(2)}`);
+              }
+            }
+
+            // ── Lock-In mode: add protection notice to all active signals ───
+            if (goalPaceMode === 'LOCK_IN' && analysis.signal !== 'NEUTRAL') {
+              analysis.alerts = analysis.alerts || [];
+              analysis.alerts.push(
+                `VEDD GOAL INTELLIGENCE 🔒: Daily target achieved ($${effectiveToday.toFixed(2)}/$${dailyTarget.toFixed(2)}). ` +
+                `Lot sizes reduced to ${(goalLotMultiplier * 100).toFixed(0)}% to protect gains. Lock-in mode active.`
+              );
+            }
+
+            // ── On-Pace with progress note ───────────────────────────────────
+            if (goalPaceMode === 'ON_PACE' && analysis.signal !== 'NEUTRAL') {
+              const remaining = Math.max(0, dailyTarget - effectiveToday);
+              if (remaining > 0 && remaining < dailyTarget * 0.4) {
+                // Getting close to goal — add an encouraging note
+                analysis.alerts = analysis.alerts || [];
+                analysis.alerts.push(`VEDD GOAL INTELLIGENCE: $${remaining.toFixed(2)} remaining to hit today's target. Staying course. 🎯`);
+              }
+            }
+
+            // Store the current goal state for TRAVIS and dashboard to read
+            (global as any).veddGoalIntelligence = (global as any).veddGoalIntelligence || {};
+            (global as any).veddGoalIntelligence[token.userId] = {
+              mode: goalPaceMode,
+              lotMultiplier: goalLotMultiplier,
+              paceRatio,
+              todayProfit: Math.round(todayProfitGoal * 100) / 100,
+              unrealizedPnL: Math.round(unrealizedGoal * 100) / 100,
+              dailyTarget: Math.round(dailyTarget * 100) / 100,
+              weeklyTarget,
+              updatedAt: new Date().toISOString(),
+            };
+          }
+        } catch (goalErr) {
+          console.error('[VEDD Goal Intelligence] Error:', goalErr);
+        }
+      }
+      // ── End Goal Intelligence Layer ────────────────────────────────────────
 
       // AI Vision Confirmation: Get second opinion from AI before trading (if enabled)
       // ADVISORY MODE: AI provides its confidence and reasoning but does NOT block trades.
@@ -7840,6 +7979,19 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       } else {
         console.log(`[EQUALITY] Fixed lot mode active - ${fixedVolumeSetting} lots. Word is BOND.`);
         mt5Volume = fixedVolumeSetting;
+      }
+
+      // ── Goal Intelligence: apply lot multiplier AFTER base lot is computed ──
+      if (goalIntelligenceActive && goalLotMultiplier !== 1.0 && analysis.signal !== 'NEUTRAL') {
+        const preMult = mt5Volume;
+        mt5Volume = Math.max(0.01, Math.min(10, Math.round(mt5Volume * goalLotMultiplier * 100) / 100));
+        console.log(`[VEDD Goal Intelligence] Lot adjustment (${goalPaceMode}): ${preMult} → ${mt5Volume} lots (×${goalLotMultiplier.toFixed(2)})`);
+      }
+      // Also override plan lot size with goal multiplier in LOCK_IN/CATCH_UP
+      if (goalIntelligenceActive && goalLotMultiplier !== 1.0 && veddLotOverride > 0) {
+        const preMult = mt5Volume;
+        mt5Volume = Math.max(0.01, Math.min(10, Math.round(mt5Volume * goalLotMultiplier * 100) / 100));
+        console.log(`[VEDD Goal Intelligence] Plan lot override adjusted (${goalPaceMode}): ${preMult} → ${mt5Volume} lots (×${goalLotMultiplier.toFixed(2)})`);
       }
       
       if (analysis.signal !== 'NEUTRAL' && 
