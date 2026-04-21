@@ -47,10 +47,10 @@ type TradingTip = {
 const generateId = () => Math.random().toString(36).substring(2, 11);
 
 const quickPrompts = [
-  { icon: TrendingUp, label: "Explain RSI", prompt: "Explain RSI indicator and how to use it effectively" },
-  { icon: BarChart3, label: "MACD Strategy", prompt: "What's the best MACD trading strategy?" },
-  { icon: Target, label: "Entry Points", prompt: "How do I identify good entry points in trading?" },
-  { icon: Zap, label: "Risk Management", prompt: "Explain proper position sizing and risk management" },
+  { icon: TrendingUp, label: "Am I on pace?", prompt: "Am I on pace to hit my weekly profit goal? Give me a breakdown." },
+  { icon: BarChart3,  label: "Best entry now?", prompt: "What's the best trade entry right now based on my weekly plan pairs?" },
+  { icon: Target,    label: "Today's summary", prompt: "Give me a quick summary of today's trading performance." },
+  { icon: Zap,       label: "Risk Management", prompt: "Based on my current goal and balance, what lot sizes should I be using?" },
 ];
 
 const TypingIndicator = () => (
@@ -79,7 +79,7 @@ const TypingIndicator = () => (
           transition={{ duration: 1, repeat: Infinity, delay: 0.4 }}
         />
       </div>
-      <span className="text-xs text-gray-400 ml-1">VEDDAI is thinking...</span>
+      <span className="text-xs text-gray-400 ml-1">TRAVIS is analyzing...</span>
     </div>
   </div>
 );
@@ -118,7 +118,7 @@ const MessageBubble = ({ message, onCopy }: { message: Message; onCopy: (text: s
           {isCoach && (
             <div className="flex items-center gap-2 mb-0.5">
               <span className="text-xs font-bold bg-gradient-to-r from-rose-400 to-purple-400 bg-clip-text text-transparent">
-                VEDDAI
+                TRAVIS
               </span>
               <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 bg-gradient-to-r from-rose-500/10 to-purple-500/10 border-rose-500/30 text-rose-300">
                 <Brain className="w-2.5 h-2.5 mr-0.5" />
@@ -168,9 +168,9 @@ const TradingCoach = ({ personality = 'professional', className }: TradingCoachP
   const { toast } = useToast();
   
   const placeholderMessages = {
-    friendly: "Hey there, fellow trader! I'm VEDDAI, your AI trading companion. I'm here to help you navigate the markets with confidence. What would you like to explore today?",
-    professional: "Welcome to VEDDAI. I'm your AI-powered trading analyst, ready to provide insights on patterns, strategies, and market analysis. How may I assist you?",
-    casual: "Hey! I'm VEDDAI - your trading brain! Ready to help you level up your trading game. Fire away with any questions!"
+    friendly: "Hey! TRAVIS online — your personal VEDD trading intelligence. I have your live weekly goal, plan pairs, and current P&L loaded. What do you need?",
+    professional: "TRAVIS online. I have your live trading context — weekly target, open positions, today's P&L, and your plan pairs. How can I assist you?",
+    casual: "Yo, TRAVIS here — your AI fund manager. I'm watching your numbers and your pairs. What's the move?"
   };
 
   useEffect(() => {
@@ -202,13 +202,18 @@ const TradingCoach = ({ personality = 'professional', className }: TradingCoachP
   
   const coachMutation = useMutation({
     mutationFn: async (message: string) => {
-      const response = await apiRequest('POST', '/api/trading-coach', { message, personality });
+      // Route to TRAVIS endpoint for live-context-aware responses
+      const response = await apiRequest('POST', '/api/travis/chat', {
+        message,
+        history: messages.slice(-6).map(m => ({ role: m.sender === 'coach' ? 'travis' : 'user', content: m.content })),
+        currentPage: window.location.pathname,
+      });
       return await response.json();
     },
     onSuccess: (data) => {
       const coachMessage: Message = {
         id: generateId(),
-        content: data.response,
+        content: data.response || data.message || "Standing by.",
         sender: 'coach',
         timestamp: new Date()
       };
@@ -273,8 +278,8 @@ const TradingCoach = ({ personality = 'professional', className }: TradingCoachP
               <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-500 rounded-full border-2 border-gray-900" />
             </div>
             <div>
-              <h3 className="font-bold text-sm bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">
-                VEDDAI Trading Coach
+              <h3 className="font-bold text-sm bg-gradient-to-r from-rose-400 to-purple-400 bg-clip-text text-transparent">
+                TRAVIS
               </h3>
               <div className="flex items-center gap-1.5">
                 <span className="text-[10px] text-emerald-400 flex items-center gap-1">
@@ -282,7 +287,7 @@ const TradingCoach = ({ personality = 'professional', className }: TradingCoachP
                   Online
                 </span>
                 <span className="text-gray-600 text-[10px]">•</span>
-                <span className="text-[10px] text-gray-400">GPT-4</span>
+                <span className="text-[10px] text-gray-400">VEDD Intelligence</span>
               </div>
             </div>
           </div>
@@ -368,7 +373,7 @@ const TradingCoach = ({ personality = 'professional', className }: TradingCoachP
               <Input
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder="Ask VEDDAI about trading strategies, patterns, analysis..."
+                placeholder="Ask TRAVIS — market entries, goal pacing, strategy..."
                 className="flex-1 bg-transparent border-0 focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-gray-500"
                 disabled={coachMutation.isPending}
                 data-testid="input-chat-message"

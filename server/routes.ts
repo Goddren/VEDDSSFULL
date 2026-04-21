@@ -3305,6 +3305,216 @@ Respond ONLY in valid JSON format with these exact keys:
 
   // Trading Coach endpoints
   app.post('/api/trading-coach', tradingCoachHandler);
+
+  // ── TRAVIS — VEDD Personal Trading Intelligence System ───────────────────
+  app.post('/api/travis/chat', async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: 'Authentication required' });
+    const userId = (req.user as User).id;
+    const { message, history = [], currentPage = '/dashboard' } = req.body;
+
+    if (!message?.trim()) return res.status(400).json({ error: 'Message is required' });
+
+    try {
+      // ── Load live trading context ─────────────────────────────────────────
+      const user = await storage.getUser(userId);
+      const firstName = user?.username?.split(' ')[0] || user?.username || 'Trader';
+
+      // Strategy
+      let strategy: any = (global as any).mt5WeeklyStrategies?.[userId];
+      if (!strategy) {
+        const dbStrat = await storage.getActiveWeeklyStrategy(userId);
+        if (dbStrat) {
+          strategy = {
+            profitTarget: dbStrat.profitTarget, pairs: dbStrat.pairs,
+            accountBalance: dbStrat.accountBalance, weekStart: dbStrat.weekStart,
+            currentProfit: dbStrat.currentProfit || 0,
+            progressPercentage: dbStrat.progressPercentage || 0,
+            progressTrades: dbStrat.progressTrades || 0,
+            progressWinRate: dbStrat.progressWinRate || 0,
+            plan: dbStrat.plan,
+          };
+        }
+      }
+
+      // Live positions & trades
+      const openPosData = (global as any).mt5OpenPositions?.[userId];
+      const openPositions: any[] = openPosData?.positions || [];
+      const closedCache: any[] = (global as any).mt5ClosedTrades?.[userId]?.trades || [];
+      const accountCache = (global as any).mt5AccountData?.[userId];
+
+      // Today's P&L
+      const todayStart = new Date(); todayStart.setUTCHours(0, 0, 0, 0);
+      const todayClosedCache = closedCache.filter((t: any) => new Date(t.closeTime || t.timestamp || 0) >= todayStart);
+      const dbTrades = await storage.getAiTradeResults(userId, 200);
+      const todayDbTrades = dbTrades.filter((t: any) => {
+        const d = new Date(t.closedAt || t.createdAt);
+        return d >= todayStart && t.result && t.result !== 'PENDING';
+      });
+      const dbTicketsToday = new Set(todayDbTrades.map((t: any) => t.mt5Ticket).filter(Boolean));
+      const todayCacheDeduped = todayClosedCache.filter((t: any) => {
+        const tk = t.ticket?.toString();
+        return !tk || !dbTicketsToday.has(tk);
+      });
+      const todayProfit = Math.round((
+        todayDbTrades.reduce((s: number, t: any) => s + (t.profitLoss || 0), 0) +
+        todayCacheDeduped.reduce((s: number, t: any) => s + (t.profit || 0), 0)
+      ) * 100) / 100;
+      const unrealizedPnL = Math.round(openPositions.reduce((s: any, p: any) => s + (p.profit || 0), 0) * 100) / 100;
+
+      // Pacing
+      const weekTarget = strategy?.profitTarget || 0;
+      const weekProfit = strategy?.currentProfit ?? todayProfit;
+      const weekPct = weekTarget > 0 ? Math.min(100, Math.round((weekProfit / weekTarget) * 100)) : 0;
+      const weekStart = strategy?.weekStart ? new Date(strategy.weekStart) : null;
+      const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+      const today = dayNames[new Date().getUTCDay()];
+      const tradingDaysLeft = Math.max(1, (() => {
+        const days = ['Monday','Tuesday','Wednesday','Thursday','Friday'];
+        const todayIdx = days.indexOf(today);
+        return todayIdx >= 0 ? 5 - todayIdx : 1;
+      })());
+      const dailyTarget = weekTarget > 0 ? Math.round((weekTarget / 5) * 100) / 100 : 0;
+      const targetRemaining = Math.max(0, Math.round((weekTarget - weekProfit) * 100) / 100);
+      const pacingNeededPerDay = tradingDaysLeft > 0 ? Math.round((targetRemaining / tradingDaysLeft) * 100) / 100 : 0;
+
+      // Account balance
+      const balance = accountCache ? Object.values(accountCache).reduce((sum: any, a: any) => sum + (a?.balance || 0), 0) : strategy?.accountBalance || 0;
+
+      // Plan pairs & today's session
+      const planPairs: string[] = (strategy?.pairs || []).map((p: string) => p.toUpperCase().replace('/', ''));
+      const todayPlan = strategy?.plan?.weeklyPlan?.[today];
+      const todayPairs = todayPlan?.pairs || planPairs.map((p: string) => ({ symbol: p, direction: 'BOTH', session: 'Any' }));
+
+      // Open positions summary
+      const openSummary = openPositions.map((p: any) => ({
+        symbol: (p.symbol || '').toUpperCase(),
+        direction: p.direction,
+        lots: p.lots || 0,
+        profit: Math.round((p.profit || 0) * 100) / 100,
+        sl: p.sl,
+        tp: p.tp,
+      }));
+
+      // Week trades stats
+      const weekTrades = strategy?.progressTrades || 0;
+      const weekWinRate = strategy?.progressWinRate || 0;
+
+      // ── System prompt — fund manager + JARVIS personality ─────────────────
+      const systemPrompt = `You are TRAVIS — the VEDD AI Personal Trading Intelligence System. You operate like a combination of JARVIS from Iron Man and a top-tier private wealth fund manager from Wells Fargo or JP Morgan Private Bank — but built exclusively for the VEDD trading environment.
+
+CURRENT USER CONTEXT (live data — use these exact numbers):
+- User: ${firstName}
+- Account Balance: $${balance.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+- Weekly Target: $${weekTarget}
+- Weekly Profit (closed): $${weekProfit} (${weekPct}% of goal)
+- Unrealized P&L (open positions): $${unrealizedPnL}
+- Today's Closed P&L: $${todayProfit} / $${dailyTarget} daily target
+- Days Left This Week: ${tradingDaysLeft}
+- Remaining to Hit Goal: $${targetRemaining}
+- Needed Per Day to Hit Goal: $${pacingNeededPerDay}
+- Week Trades: ${weekTrades} trades | Win Rate: ${weekWinRate}%
+- Open Positions (${openSummary.length}): ${openSummary.length > 0 ? openSummary.map(p => `${p.symbol} ${p.direction} ${p.lots}L P&L:$${p.profit}`).join(' | ') : 'None'}
+- Today's Plan Pairs: ${todayPairs.map((p: any) => `${p.symbol} (${p.direction}, ${p.session || 'Any'} session)`).join(', ') || 'No plan set'}
+- Weekly Plan Pairs: ${planPairs.join(', ') || 'None configured'}
+- Today: ${today}
+- Current App Section: ${currentPage}
+
+PERSONALITY & BEHAVIOR:
+- Address the user by their first name: ${firstName}
+- Speak with the crispness of JARVIS: efficient, intelligent, loyal, never vague
+- Think like a fund manager: every answer centers on the goal number, pacing, and risk
+- Always know the numbers. Never give generic advice when you have real data above
+- If behind pace: acknowledge it directly, give a specific catch-up plan
+- If ahead of pace: affirm the progress, advise on protecting gains
+- If no weekly strategy set: immediately suggest setting one via the Weekly Strategy page
+- Keep responses focused. No unnecessary padding. Lead with the most important insight first
+
+NAVIGATION: When the user wants to go to a page, include [NAV:/path] anywhere in your response.
+Available routes: /dashboard | /analysis | /weekly-strategy | /my-wallet | /vedd-wallet | /devotional | /grants | /community | /ai-api-keys | /profile | /training-calendar | /mt5-chart-data | /mobile-alerts | /streak | /blog | /multi-timeframe-analysis
+
+TRADE ENTRY GUIDANCE: When asked about entries, use the plan pairs above, suggest based on session timing (Asian 00:00-07:00 UTC, London 07:00-13:00 UTC, New York 13:00-20:00 UTC), and factor in the remaining daily/weekly target to suggest appropriate lot sizing relative to balance.
+
+VEDD CONTEXT: VEDD is a faith-based AI trading platform. The community uses VEDD tokens for rewards. Ambassadors share the platform. Users run MT5/TradeLocker with AI-powered signals.`;
+
+      // ── Call AI ───────────────────────────────────────────────────────────
+      const { getUniversalAIClientForUser: getTravisAI } = await import('./openai');
+      const aiClient = await getTravisAI(userId);
+
+      const historyMessages = (history || []).slice(-10).map((m: any) => ({
+        role: m.role === 'travis' ? 'assistant' : 'user',
+        content: m.content,
+      }));
+
+      const completion = await aiClient.chat.completions.create({
+        model: (aiClient as any).defaultModel || 'gpt-4o',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          ...historyMessages,
+          { role: 'user', content: message },
+        ],
+        max_tokens: 600,
+        temperature: 0.55,
+      });
+
+      const response = completion.choices[0].message.content || "Systems check complete. Standing by.";
+
+      // Extract any navigation command
+      const navMatch = response.match(/\[NAV:(\/[^\]]*)\]/);
+      const navigateTo = navMatch ? navMatch[1] : null;
+      const cleanResponse = response.replace(/\[NAV:\/[^\]]*\]/g, '').trim();
+
+      res.json({
+        response: cleanResponse,
+        navigateTo,
+        context: {
+          weekPct,
+          weekProfit,
+          weekTarget,
+          todayProfit,
+          dailyTarget,
+          unrealizedPnL,
+          openCount: openPositions.length,
+          targetRemaining,
+          pacingNeededPerDay,
+          weekTrades,
+          weekWinRate,
+          balance,
+          planPairs,
+          todayPairs,
+          hasStrategy: !!strategy && weekTarget > 0,
+        },
+      });
+    } catch (err: any) {
+      console.error('[TRAVIS] Error:', err?.message || err);
+      const msg = err?.message || '';
+      if (msg.includes('401') || msg.includes('Invalid API key')) {
+        return res.status(503).json({ error: 'No AI key configured. Go to Settings → AI API Keys.', needsApiKey: true });
+      }
+      res.status(500).json({ error: 'TRAVIS systems offline. Please try again.' });
+    }
+  });
+
+  // TRAVIS context — live stats without a chat message (for header display)
+  app.get('/api/travis/context', async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: 'Authentication required' });
+    const userId = (req.user as User).id;
+    try {
+      let strategy: any = (global as any).mt5WeeklyStrategies?.[userId];
+      if (!strategy) {
+        const dbStrat = await storage.getActiveWeeklyStrategy(userId);
+        if (dbStrat) strategy = { profitTarget: dbStrat.profitTarget, currentProfit: dbStrat.currentProfit || 0, progressPercentage: dbStrat.progressPercentage || 0, pairs: dbStrat.pairs };
+      }
+      const openPosData = (global as any).mt5OpenPositions?.[userId];
+      const openPositions: any[] = openPosData?.positions || [];
+      const unrealizedPnL = Math.round(openPositions.reduce((s: any, p: any) => s + (p.profit || 0), 0) * 100) / 100;
+      const weekTarget = strategy?.profitTarget || 0;
+      const weekProfit = strategy?.currentProfit || 0;
+      const weekPct = weekTarget > 0 ? Math.min(100, Math.round((weekProfit / weekTarget) * 100)) : 0;
+      res.json({ weekPct, weekProfit, weekTarget, unrealizedPnL, openCount: openPositions.length, hasStrategy: !!strategy && weekTarget > 0 });
+    } catch (err) {
+      res.json({ weekPct: 0, weekProfit: 0, weekTarget: 0, unrealizedPnL: 0, openCount: 0, hasStrategy: false });
+    }
+  });
   
   // Trading Tips endpoint
   app.get('/api/trading-tips', tradingTipsHandler);
