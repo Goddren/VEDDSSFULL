@@ -86,33 +86,13 @@ function loadVoices(): Promise<SpeechSynthesisVoice[]> {
   });
 }
 
-// ── Pending TTS audio (set before async fetch so user can hit play manually) ──
+// ── Pending TTS audio ──────────────────────────────────────────────────────────
 let pendingTTSBlob: Blob | null = null;
-
-// ── Gain boost — amplify audio beyond browser's 1.0 cap ──────────────────────
-const ABBA_GAIN = 1.8; // 80% louder than max; adjust if needed
-
-function boostAudio(audio: HTMLAudioElement): AudioContext | null {
-  try {
-    const ACtx = window.AudioContext || (window as any).webkitAudioContext;
-    if (!ACtx) return null;
-    const ctx    = new ACtx();
-    const source = ctx.createMediaElementSource(audio);
-    const gain   = ctx.createGain();
-    gain.gain.value = ABBA_GAIN;
-    source.connect(gain);
-    gain.connect(ctx.destination);
-    return ctx;
-  } catch {
-    return null;
-  }
-}
 
 // ── Voice hook — STT + TTS (OpenAI Onyx + browser fallback) ──────────────────
 function useVoice(onTranscript: (text: string, isFinal: boolean) => void) {
   const recognitionRef    = useRef<any>(null);
   const audioRef          = useRef<HTMLAudioElement | null>(null);
-  const audioCtxRef       = useRef<AudioContext | null>(null);
   const speakingTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isListening,  setIsListening]  = useState(false);
   const [isSpeaking,   setIsSpeaking]   = useState(false);
@@ -189,7 +169,6 @@ function useVoice(onTranscript: (text: string, isFinal: boolean) => void) {
 
     // Stop any currently playing audio
     if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
-    if (audioCtxRef.current) { audioCtxRef.current.close().catch(() => {}); audioCtxRef.current = null; }
     if (hasSpeechSynthesis) window.speechSynthesis.cancel();
 
     // Keep text under 4096 chars for TTS API
@@ -213,19 +192,14 @@ function useVoice(onTranscript: (text: string, isFinal: boolean) => void) {
       pendingTTSBlob = blob;
       const url   = URL.createObjectURL(blob);
       const audio = new Audio(url);
-      audio.volume = 1.0; // base at max before gain boost
+      audio.volume = 1.0;
       audioRef.current = audio;
-
-      // Boost gain beyond browser's 1.0 cap using Web Audio API
-      const ctx = boostAudio(audio);
-      if (ctx) audioCtxRef.current = ctx;
 
       const cleanup = () => {
         safeSetSpeaking(false);
         URL.revokeObjectURL(url);
         pendingTTSBlob = null;
         audioRef.current = null;
-        if (audioCtxRef.current) { audioCtxRef.current.close().catch(() => {}); audioCtxRef.current = null; }
       };
 
       audio.onended = cleanup;
@@ -233,7 +207,6 @@ function useVoice(onTranscript: (text: string, isFinal: boolean) => void) {
 
       // play() can throw NotAllowedError if autoplay is blocked
       await audio.play().catch(async () => {
-        // Autoplay blocked — fall back to browser TTS
         cleanup();
         await browserSpeak(trimmed);
       });
@@ -244,7 +217,6 @@ function useVoice(onTranscript: (text: string, isFinal: boolean) => void) {
 
   const stopSpeaking = useCallback(() => {
     if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
-    if (audioCtxRef.current) { audioCtxRef.current.close().catch(() => {}); audioCtxRef.current = null; }
     if (hasSpeechSynthesis) window.speechSynthesis.cancel();
     safeSetSpeaking(false);
   }, [safeSetSpeaking]);

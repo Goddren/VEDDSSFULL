@@ -4081,10 +4081,10 @@ IMPORTANT:
         .slice(0, 4096);
 
       const mp3 = await ttsClient.audio.speech.create({
-        model: 'tts-1',
-        voice: 'onyx',   // Deep, authoritative male voice
+        model: 'tts-1-hd',  // Higher quality, better perceived loudness
+        voice: 'onyx',      // Deep, authoritative male voice
         input: clean,
-        speed: 0.96,
+        speed: 1.0,
       });
 
       const buffer = Buffer.from(await mp3.arrayBuffer());
