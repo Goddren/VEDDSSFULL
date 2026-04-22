@@ -37,6 +37,7 @@ interface AbbaMessage {
   timestamp: Date;
   navigateTo?: string | null;
   planProposal?: PlanProposal | null;
+  suggestions?: string[];
 }
 
 interface AbbaContext {
@@ -64,23 +65,56 @@ const genId = () => Math.random().toString(36).slice(2, 10);
 
 // ── Browser speech support detection ─────────────────────────────────────────
 const hasSpeechRecognition = typeof window !== 'undefined' &&
-  !!(window.SpeechRecognition || (window as any).webkitSpeechRecognition);
+  !!((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
 const hasSpeechSynthesis = typeof window !== 'undefined' && !!window.speechSynthesis;
+
+// ── Async voice loader — Chrome/Edge load voices lazily; getVoices() returns [] on first call ──
+function loadVoices(): Promise<SpeechSynthesisVoice[]> {
+  return new Promise(resolve => {
+    const voices = window.speechSynthesis.getVoices();
+    if (voices.length > 0) return resolve(voices);
+    const handler = () => {
+      window.speechSynthesis.removeEventListener('voiceschanged', handler);
+      resolve(window.speechSynthesis.getVoices());
+    };
+    window.speechSynthesis.addEventListener('voiceschanged', handler);
+    // Safety: some browsers never fire voiceschanged
+    setTimeout(() => {
+      window.speechSynthesis.removeEventListener('voiceschanged', handler);
+      resolve(window.speechSynthesis.getVoices());
+    }, 2000);
+  });
+}
+
+// ── Pending TTS audio (set before async fetch so user can hit play manually) ──
+let pendingTTSBlob: Blob | null = null;
 
 // ── Voice hook — STT + TTS (OpenAI Onyx + browser fallback) ──────────────────
 function useVoice(onTranscript: (text: string, isFinal: boolean) => void) {
-  const recognitionRef = useRef<any>(null);
-  const audioRef       = useRef<HTMLAudioElement | null>(null);
+  const recognitionRef    = useRef<any>(null);
+  const audioRef          = useRef<HTMLAudioElement | null>(null);
+  const speakingTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isListening,  setIsListening]  = useState(false);
   const [isSpeaking,   setIsSpeaking]   = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(() => {
     try { return localStorage.getItem('abba_voice') !== 'off'; } catch { return true; }
   });
 
+  // Safety: always clear the isSpeaking flag after a max duration
+  const safeSetSpeaking = useCallback((val: boolean) => {
+    setIsSpeaking(val);
+    if (val) {
+      if (speakingTimerRef.current) clearTimeout(speakingTimerRef.current);
+      speakingTimerRef.current = setTimeout(() => setIsSpeaking(false), 60_000);
+    } else {
+      if (speakingTimerRef.current) { clearTimeout(speakingTimerRef.current); speakingTimerRef.current = null; }
+    }
+  }, []);
+
   // ── STT ───────────────────────────────────────────────────────────────────
   const startListening = useCallback(() => {
     if (!hasSpeechRecognition) return;
-    const SpeechRec = window.SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     const rec = new SpeechRec();
     rec.continuous     = false;
     rec.interimResults = true;
@@ -103,63 +137,95 @@ function useVoice(onTranscript: (text: string, isFinal: boolean) => void) {
     setIsListening(false);
   }, []);
 
-  // ── TTS — OpenAI Onyx first, browser fallback ────────────────────────────
-  const browserSpeak = useCallback((text: string) => {
-    if (!hasSpeechSynthesis) return;
-    window.speechSynthesis.cancel();
-    const clean = text.replace(/[*_~`#>]/g, '').replace(/\[.*?\]/g, '').trim();
-    const utt   = new SpeechSynthesisUtterance(clean);
-    utt.rate    = 1.0;
-    utt.pitch   = 0.85;
-    utt.volume  = 1.0;
-    const voices   = window.speechSynthesis.getVoices();
-    const preferred = voices.find(v => /google uk english male|daniel|alex|reed|liam/i.test(v.name))
-                   || voices.find(v => /male/i.test(v.name))
-                   || voices[0];
-    if (preferred) utt.voice = preferred;
-    utt.onend = () => setIsSpeaking(false);
-    setIsSpeaking(true);
-    window.speechSynthesis.speak(utt);
-  }, []);
+  // ── Browser TTS fallback — loads voices async (fixes Chrome empty-array bug) ─
+  const browserSpeak = useCallback(async (text: string) => {
+    if (!hasSpeechSynthesis) { safeSetSpeaking(false); return; }
+    try {
+      window.speechSynthesis.cancel();
+      const clean = text.replace(/[*_~`#>]/g, '').replace(/\[.*?\]/g, '').trim().slice(0, 1000);
+      if (!clean) { safeSetSpeaking(false); return; }
+      const voices = await loadVoices();
+      const preferred = voices.find(v => /google uk english male|daniel|alex|reed|liam/i.test(v.name))
+                     || voices.find(v => /male/i.test(v.name))
+                     || voices[0];
+      const utt    = new SpeechSynthesisUtterance(clean);
+      utt.rate     = 0.95;
+      utt.pitch    = 0.82;
+      utt.volume   = 1.0;
+      if (preferred) utt.voice = preferred;
+      utt.onend    = () => safeSetSpeaking(false);
+      utt.onerror  = () => safeSetSpeaking(false);
+      safeSetSpeaking(true);
+      window.speechSynthesis.speak(utt);
+    } catch {
+      safeSetSpeaking(false);
+    }
+  }, [safeSetSpeaking]);
 
+  // ── Primary TTS — OpenAI Onyx; falls back to browser TTS ──────────────────
   const speak = useCallback(async (text: string) => {
     if (!voiceEnabled) return;
+    if (!text?.trim()) return;
 
-    // Stop any current audio
+    // Stop any currently playing audio
     if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
     if (hasSpeechSynthesis) window.speechSynthesis.cancel();
 
-    setIsSpeaking(true);
+    // Keep text under 4096 chars for TTS API
+    const trimmed = text.replace(/[*_~`#>]/g, '').replace(/\[.*?\]/g, '').trim().slice(0, 1200);
+    safeSetSpeaking(true);
+
     try {
       const res = await fetch('/api/abba/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text: trimmed }),
       });
 
-      if (!res.ok) throw new Error('TTS API unavailable');
+      // If TTS endpoint fails or returns non-audio, fall back immediately
+      if (!res.ok) throw new Error('TTS unavailable');
       const contentType = res.headers.get('content-type') || '';
-      if (!contentType.includes('audio')) throw new Error('Not audio response');
+      if (!contentType.includes('audio')) throw new Error('Not audio');
 
       const blob = await res.blob();
-      const url  = URL.createObjectURL(blob);
+      pendingTTSBlob = blob;
+      const url   = URL.createObjectURL(blob);
       const audio = new Audio(url);
       audioRef.current = audio;
-      audio.onended = () => { setIsSpeaking(false); URL.revokeObjectURL(url); };
-      audio.onerror = () => { setIsSpeaking(false); URL.revokeObjectURL(url); };
-      await audio.play();
+
+      audio.onended = () => {
+        safeSetSpeaking(false);
+        URL.revokeObjectURL(url);
+        pendingTTSBlob = null;
+        audioRef.current = null;
+      };
+      audio.onerror = () => {
+        safeSetSpeaking(false);
+        URL.revokeObjectURL(url);
+        pendingTTSBlob = null;
+        audioRef.current = null;
+        browserSpeak(trimmed);
+      };
+
+      // play() can throw NotAllowedError if autoplay is blocked
+      await audio.play().catch(async () => {
+        // Autoplay blocked — store blob so user can click to play,
+        // and fall back to browser TTS which is less strict about gestures
+        URL.revokeObjectURL(url);
+        audioRef.current = null;
+        await browserSpeak(trimmed);
+      });
     } catch {
-      // Graceful fallback to browser TTS
-      browserSpeak(text);
+      await browserSpeak(trimmed);
     }
-  }, [voiceEnabled, browserSpeak]);
+  }, [voiceEnabled, browserSpeak, safeSetSpeaking]);
 
   const stopSpeaking = useCallback(() => {
     if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
     if (hasSpeechSynthesis) window.speechSynthesis.cancel();
-    setIsSpeaking(false);
-  }, []);
+    safeSetSpeaking(false);
+  }, [safeSetSpeaking]);
 
   const toggleVoice = useCallback(() => {
     setVoiceEnabled(prev => {
@@ -168,11 +234,11 @@ function useVoice(onTranscript: (text: string, isFinal: boolean) => void) {
       if (!next) {
         if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
         window.speechSynthesis?.cancel();
-        setIsSpeaking(false);
+        safeSetSpeaking(false);
       }
       return next;
     });
-  }, []);
+  }, [safeSetSpeaking]);
 
   return { isListening, isSpeaking, voiceEnabled, startListening, stopListening, speak, stopSpeaking, toggleVoice };
 }
@@ -253,12 +319,14 @@ const QUICK_PROMPTS = [
 
 // ── Message bubble ────────────────────────────────────────────────────────────
 const MsgBubble = ({
-  msg, onNavigate, onCreatePlan, creatingPlan,
+  msg, onNavigate, onCreatePlan, creatingPlan, onSuggestion, isLast,
 }: {
   msg: AbbaMessage;
   onNavigate: (path: string) => void;
   onCreatePlan: (p: PlanProposal) => void;
   creatingPlan: boolean;
+  onSuggestion: (text: string) => void;
+  isLast: boolean;
 }) => {
   const isAbba = msg.role === 'abba';
   return (
@@ -313,6 +381,34 @@ const MsgBubble = ({
         <span className="text-[10px] text-gray-600">
           {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
         </span>
+        {/* Continuation chips — only on last ABBA message */}
+        {isAbba && isLast && msg.suggestions && msg.suggestions.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3 }}
+            className="flex flex-col gap-1.5 mt-2 w-full"
+          >
+            <span className="text-[9px] text-gray-600 uppercase tracking-wider font-medium flex items-center gap-1">
+              <ChevronRight className="h-2.5 w-2.5 text-red-700" /> Keep the cipher going
+            </span>
+            {msg.suggestions.map((s, i) => (
+              <button
+                key={i}
+                onClick={() => onSuggestion(s)}
+                className="text-left text-[11px] text-gray-300 hover:text-white px-2.5 py-1.5 rounded-xl transition-all"
+                style={{
+                  background: 'rgba(220,38,38,0.06)',
+                  border: '1px solid rgba(220,38,38,0.18)',
+                }}
+                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(220,38,38,0.45)'; (e.currentTarget as HTMLButtonElement).style.background = 'rgba(220,38,38,0.12)'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(220,38,38,0.18)'; (e.currentTarget as HTMLButtonElement).style.background = 'rgba(220,38,38,0.06)'; }}
+              >
+                {s}
+              </button>
+            ))}
+          </motion.div>
+        )}
       </div>
     </motion.div>
   );
@@ -656,6 +752,7 @@ export function AbbaAssistant() {
         timestamp: new Date(),
         navigateTo: data.navigateTo || null,
         planProposal: data.planProposal || null,
+        suggestions: data.suggestions || [],
       }]);
       // ABBA speaks the response aloud when voice is enabled
       if (data.response) speak(data.response);
@@ -721,9 +818,10 @@ export function AbbaAssistant() {
         navigateTo: '/weekly-strategy',
       }]);
 
-      // Refresh context + sync status
+      // Refresh context + sync status + weekly strategy page
       refetchContext();
       queryClient.invalidateQueries({ queryKey: ['/api/abba/platform-sync'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/weekly-strategy'] });
     } catch (err: any) {
       toast({
         title: 'Plan creation failed',
@@ -846,17 +944,15 @@ export function AbbaAssistant() {
                   </p>
                 </div>
                 <div className="flex items-center gap-1">
-                  {/* Voice output toggle */}
-                  {hasSpeechSynthesis && (
-                    <button
-                      onClick={toggleVoice}
-                      className="p-1.5 rounded-lg hover:bg-white/5 transition-colors"
-                      style={{ color: voiceEnabled ? '#a855f7' : '#4b5563' }}
-                      title={voiceEnabled ? 'ABBA voice ON — click to mute' : 'Voice OFF — click to enable'}
-                    >
-                      {voiceEnabled ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
-                    </button>
-                  )}
+                  {/* Voice output toggle — always visible */}
+                  <button
+                    onClick={toggleVoice}
+                    className="p-1.5 rounded-lg hover:bg-white/5 transition-colors"
+                    style={{ color: voiceEnabled ? '#a855f7' : '#4b5563' }}
+                    title={voiceEnabled ? 'ABBA voice ON — click to mute' : 'Voice OFF — click to enable'}
+                  >
+                    {voiceEnabled ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
+                  </button>
                   <button
                     onClick={() => { refetchContext(); }}
                     className="p-1.5 rounded-lg text-gray-500 hover:text-gray-300 hover:bg-white/5 transition-colors"
@@ -899,13 +995,15 @@ export function AbbaAssistant() {
               {/* Messages */}
               <div className="flex-1 overflow-y-auto px-3 py-3 space-y-4 min-h-0">
                 <AnimatePresence>
-                  {messages.map(msg => (
+                  {messages.map((msg, idx) => (
                     <MsgBubble
                       key={msg.id}
                       msg={msg}
                       onNavigate={handleNavigate}
                       onCreatePlan={handleCreatePlan}
                       creatingPlan={creatingPlan}
+                      onSuggestion={sendMessage}
+                      isLast={idx === messages.length - 1 && !chatMutation.isPending}
                     />
                   ))}
                 </AnimatePresence>

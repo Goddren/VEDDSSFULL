@@ -3609,10 +3609,52 @@ VEDD CONTEXT: VEDD is a faith-based AI trading platform with a community of trad
         .replace(/\[PLAN_PROPOSAL:\{[\s\S]*?\}\]/g, '')
         .trim();
 
+      // ── Generate contextual continuation suggestions ──────────────────────
+      const lc = cleanResponse.toLowerCase();
+      let suggestions: string[] = [];
+      if (lc.includes('plan') || lc.includes('strategy') || lc.includes('cipher') || lc.includes('pairs')) {
+        suggestions = [
+          'Best entry right now for my plan pairs?',
+          'What session should I trade today?',
+          'How do I protect my gains this week?',
+        ];
+      } else if (lc.includes('pacing') || lc.includes('goal') || lc.includes('pace') || lc.includes('target') || lc.includes('%')) {
+        suggestions = [
+          'Break down my remaining daily targets.',
+          'Should I increase lot size to catch up?',
+          'What pairs should I focus on to close the gap?',
+        ];
+      } else if (lc.includes('entry') || lc.includes('setup') || lc.includes('trade') || lc.includes('buy') || lc.includes('sell')) {
+        suggestions = [
+          'What SL and TP should I use?',
+          'Is this a high-confidence setup or medium?',
+          "What's the invalidation point for this trade?",
+        ];
+      } else if (lc.includes('profit') || lc.includes('p&l') || lc.includes('close') || lc.includes('win')) {
+        suggestions = [
+          "What's my win rate this week?",
+          'Should I keep trading today or secure my gains?',
+          'Show me my best performing pair this week.',
+        ];
+      } else if (lc.includes('risk') || lc.includes('lot') || lc.includes('size') || lc.includes('loss')) {
+        suggestions = [
+          'What lot size fits my risk tolerance?',
+          'How many trades can I take before hitting drawdown limit?',
+          'Recalculate my risk plan for the rest of the week.',
+        ];
+      } else {
+        suggestions = [
+          'Am I on pace to hit my weekly goal?',
+          'Best trade setup for me right now?',
+          "Walk me through today's plan.",
+        ];
+      }
+
       res.json({
         response: cleanResponse,
         navigateTo,
         planProposal,
+        suggestions,
         context: {
           weekPct,
           weekProfit,
@@ -3837,42 +3879,91 @@ IMPORTANT:
       const daysToMonday = dayOfWeek === 0 ? 1 : (dayOfWeek === 1 ? 0 : -(dayOfWeek - 1));
       weekStart.setUTCDate(weekStart.getUTCDate() + daysToMonday);
 
-      const savedStrategy = await storage.createWeeklyStrategy({
-        userId,
-        profitTarget: parseFloat(profitTarget),
-        accountBalance: parseFloat(accountBalance),
-        pairs: cleanPairs,
-        riskLevel: riskLevel || 'moderate',
-        lotSize: lotSize ? parseFloat(lotSize) : null,
-        plan: planData,
-        pairStats,
-        generatedAt: new Date(),
-        weekStart,
-        currentProfit: 0,
-        progressTrades: 0,
-        progressWinRate: 0,
-        progressPercentage: 0,
-        strategyMode: hftMode,
-        smartEscalation: true,
-        highConfidenceOverride: true,
-      });
+      // Check if a strategy already exists — if so, merge ABBA pairs into it
+      const existingStrategy = await storage.getActiveWeeklyStrategy(userId);
+      let savedStrategy: any;
 
-      // Store in memory for live engine
+      if (existingStrategy) {
+        // Merge: add ABBA pairs that aren't already in the existing plan
+        const existingPairs: string[] = (existingStrategy.pairs as string[]) || [];
+        const mergedPairs = Array.from(new Set([...existingPairs, ...cleanPairs]));
+        const existingPlan: any = existingStrategy.plan || {};
+        // Merge ABBA plan days into existing plan
+        const mergedWeeklyPlan: any = { ...(existingPlan.weeklyPlan || {}) };
+        if (planData?.weeklyPlan) {
+          for (const [day, dayPlan] of Object.entries(planData.weeklyPlan as Record<string, any>)) {
+            if (!mergedWeeklyPlan[day]) {
+              mergedWeeklyPlan[day] = dayPlan;
+            } else {
+              // Add new pairs to existing day plan
+              const existingDayPairs: any[] = mergedWeeklyPlan[day].pairs || [];
+              const newDayPairs: any[] = (dayPlan as any).pairs || [];
+              const existingSymbols = new Set(existingDayPairs.map((p: any) => (p.symbol || p).toUpperCase()));
+              const addPairs = newDayPairs.filter((p: any) => !existingSymbols.has((p.symbol || p).toUpperCase()));
+              mergedWeeklyPlan[day].pairs = [...existingDayPairs, ...addPairs];
+              // Note that ABBA added this
+              mergedWeeklyPlan[day].abbaAddon = true;
+            }
+          }
+        }
+        const mergedPlan = { ...existingPlan, weeklyPlan: mergedWeeklyPlan, abbaGenerated: true, abbaAddedAt: new Date().toISOString() };
+
+        savedStrategy = await storage.saveWeeklyStrategy(userId, {
+          profitTarget: parseFloat(profitTarget),
+          accountBalance: parseFloat(accountBalance),
+          pairs: mergedPairs,
+          riskLevel: riskLevel || existingStrategy.riskLevel || 'moderate',
+          lotSize: lotSize ? parseFloat(lotSize) : (existingStrategy.lotSize ?? null),
+          plan: mergedPlan,
+          pairStats,
+          generatedAt: new Date(),
+          weekStart,
+          currentProfit: existingStrategy.currentProfit || 0,
+          progressTrades: existingStrategy.progressTrades || 0,
+          progressWinRate: existingStrategy.progressWinRate || 0,
+          progressPercentage: existingStrategy.progressPercentage || 0,
+          strategyMode: hftMode,
+          smartEscalation: true,
+          highConfidenceOverride: true,
+        });
+      } else {
+        // No existing strategy — save ABBA's plan as the primary active strategy
+        savedStrategy = await storage.saveWeeklyStrategy(userId, {
+          profitTarget: parseFloat(profitTarget),
+          accountBalance: parseFloat(accountBalance),
+          pairs: cleanPairs,
+          riskLevel: riskLevel || 'moderate',
+          lotSize: lotSize ? parseFloat(lotSize) : null,
+          plan: planData,
+          pairStats,
+          generatedAt: new Date(),
+          weekStart,
+          currentProfit: 0,
+          progressTrades: 0,
+          progressWinRate: 0,
+          progressPercentage: 0,
+          strategyMode: hftMode,
+          smartEscalation: true,
+          highConfidenceOverride: true,
+        });
+      }
+
+      // Store in memory for live engine — use the actual saved strategy data (may include merged pairs)
       (global as any).mt5WeeklyStrategies = (global as any).mt5WeeklyStrategies || {};
       (global as any).mt5WeeklyStrategies[userId] = {
-        profitTarget: parseFloat(profitTarget),
-        accountBalance: parseFloat(accountBalance),
-        pairs: cleanPairs,
-        riskLevel: riskLevel || 'moderate',
-        lotSize: lotSize ? parseFloat(lotSize) : null,
-        plan: planData,
+        profitTarget: savedStrategy?.profitTarget ?? parseFloat(profitTarget),
+        accountBalance: savedStrategy?.accountBalance ?? parseFloat(accountBalance),
+        pairs: (savedStrategy?.pairs as string[]) || cleanPairs,
+        riskLevel: savedStrategy?.riskLevel || riskLevel || 'moderate',
+        lotSize: savedStrategy?.lotSize ?? (lotSize ? parseFloat(lotSize) : null),
+        plan: savedStrategy?.plan || planData,
         pairStats,
         generatedAt: new Date(),
         weekStart,
-        currentProfit: 0,
-        progressTrades: 0,
-        progressWinRate: 0,
-        progressPercentage: 0,
+        currentProfit: savedStrategy?.currentProfit || 0,
+        progressTrades: savedStrategy?.progressTrades || 0,
+        progressWinRate: savedStrategy?.progressWinRate || 0,
+        progressPercentage: savedStrategy?.progressPercentage || 0,
         smartEscalation: true,
         highConfidenceOverride: true,
       };
