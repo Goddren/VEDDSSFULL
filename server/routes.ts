@@ -4072,78 +4072,76 @@ IMPORTANT:
     try {
       const allKeys = await storage.getUserApiKeys(userId);
 
-      // ── 1. ElevenLabs — most human-sounding voice, try first ──────────────
+      // ── 1. Microsoft Edge TTS — free, no key needed, Azure Neural quality ──
+      try {
+        const { MsEdgeTTS, OUTPUT_FORMAT } = await import('msedge-tts');
+        const tts = new MsEdgeTTS();
+        // en-US-DavisNeural = natural young adult male, very human
+        // Alternatives: en-US-JasonNeural (deep), en-US-TonyNeural (warm), en-US-GuyNeural (neutral)
+        const voice = process.env.EDGE_TTS_VOICE || 'en-US-DavisNeural';
+        await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3);
+        const audioStream = tts.toStream(clean);
+
+        res.set({
+          'Content-Type': 'audio/mpeg',
+          'Cache-Control': 'no-cache',
+          'X-TTS-Provider': 'edge',
+          'X-TTS-Voice': voice,
+        });
+
+        await new Promise<void>((resolve, reject) => {
+          audioStream.on('error', reject);
+          audioStream.on('end', resolve);
+          audioStream.pipe(res);
+        });
+        return;
+      } catch (edgeErr: any) {
+        console.warn('[ABBA TTS] Edge TTS failed, trying next:', edgeErr?.message);
+      }
+
+      // ── 2. ElevenLabs — most expressive, if key configured ─────────────────
       const elKey = allKeys.find((k: any) => k.provider === 'elevenlabs' && k.isActive && k.isValid !== false)?.apiKey
         || process.env.ELEVENLABS_API_KEY;
 
       if (elKey) {
         try {
-          // "Marcus" style: deep, natural American male — ElevenLabs "Adam" voice
-          // Voice IDs: Adam=pNInz6obpgDQGcFmaJgB, Antoni=ErXwobaYiN019PkySvjV, Josh=TxGEqnHWrfWFTfGW9XjX
           const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || 'pNInz6obpgDQGcFmaJgB'; // Adam
           const elRes = await fetch(
             `https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}/stream`,
             {
               method: 'POST',
-              headers: {
-                'xi-api-key': elKey,
-                'Content-Type': 'application/json',
-                'Accept': 'audio/mpeg',
-              },
+              headers: { 'xi-api-key': elKey, 'Content-Type': 'application/json', 'Accept': 'audio/mpeg' },
               body: JSON.stringify({
                 text: clean,
-                model_id: 'eleven_multilingual_v2', // Most realistic model
-                voice_settings: {
-                  stability: 0.38,          // Lower = more expressive/human
-                  similarity_boost: 0.78,   // Voice character strength
-                  style: 0.42,              // Emotional expression
-                  use_speaker_boost: true,  // Louder, clearer output
-                },
+                model_id: 'eleven_multilingual_v2',
+                voice_settings: { stability: 0.38, similarity_boost: 0.78, style: 0.42, use_speaker_boost: true },
               }),
             }
           );
-
           if (elRes.ok) {
             const buffer = Buffer.from(await elRes.arrayBuffer());
-            res.set({
-              'Content-Type': 'audio/mpeg',
-              'Content-Length': String(buffer.length),
-              'Cache-Control': 'no-cache',
-              'X-TTS-Provider': 'elevenlabs',
-            });
+            res.set({ 'Content-Type': 'audio/mpeg', 'Content-Length': String(buffer.length), 'Cache-Control': 'no-cache', 'X-TTS-Provider': 'elevenlabs' });
             return res.send(buffer);
           }
-          console.warn('[ABBA TTS] ElevenLabs failed:', elRes.status, await elRes.text().catch(() => ''));
         } catch (elErr: any) {
           console.warn('[ABBA TTS] ElevenLabs error:', elErr?.message);
         }
       }
 
-      // ── 2. OpenAI TTS — fallback ───────────────────────────────────────────
+      // ── 3. OpenAI TTS — last fallback ──────────────────────────────────────
       const OpenAILib = (await import('openai')).default;
       const openaiKey = allKeys.find((k: any) => k.provider === 'openai' && k.isActive && k.isValid !== false)?.apiKey
         || process.env.OPENAI_API_KEY
         || process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
 
       if (!openaiKey) {
-        return res.status(503).json({ error: 'No TTS key configured. Add an ElevenLabs or OpenAI key in Settings → AI API Keys.', fallback: true });
+        return res.status(503).json({ error: 'No TTS available. Add an OpenAI key in Settings → AI API Keys.', fallback: true });
       }
 
       const ttsClient = new OpenAILib({ apiKey: openaiKey });
-      const mp3 = await ttsClient.audio.speech.create({
-        model: 'tts-1-hd',
-        voice: 'onyx',
-        input: clean,
-        speed: 1.0,
-      });
-
+      const mp3 = await ttsClient.audio.speech.create({ model: 'tts-1-hd', voice: 'onyx', input: clean, speed: 1.0 });
       const buffer = Buffer.from(await mp3.arrayBuffer());
-      res.set({
-        'Content-Type': 'audio/mpeg',
-        'Content-Length': String(buffer.length),
-        'Cache-Control': 'no-cache',
-        'X-TTS-Provider': 'openai',
-      });
+      res.set({ 'Content-Type': 'audio/mpeg', 'Content-Length': String(buffer.length), 'Cache-Control': 'no-cache', 'X-TTS-Provider': 'openai' });
       res.send(buffer);
 
     } catch (err: any) {
