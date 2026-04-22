@@ -60,14 +60,23 @@ const AI_PROVIDERS = [
     color: 'from-purple-500 to-violet-600',
     icon: '⚡'
   },
-  { 
-    id: 'mistral', 
-    name: 'Mistral AI', 
+  {
+    id: 'mistral',
+    name: 'Mistral AI',
     description: 'Mistral Large, Medium, Small models',
     placeholder: '',
     docsUrl: 'https://console.mistral.ai/api-keys/',
     color: 'from-red-500 to-pink-600',
     icon: '🌊'
+  },
+  {
+    id: 'elevenlabs',
+    name: 'ElevenLabs',
+    description: 'Ultra-realistic human voice for ABBA — most natural TTS available',
+    placeholder: 'el-...',
+    docsUrl: 'https://elevenlabs.io/app/settings/api-keys',
+    color: 'from-violet-500 to-purple-700',
+    icon: '🎙️'
   },
 ];
 
