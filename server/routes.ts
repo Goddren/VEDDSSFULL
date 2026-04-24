@@ -4076,27 +4076,33 @@ IMPORTANT:
       try {
         const { MsEdgeTTS, OUTPUT_FORMAT } = await import('msedge-tts');
         const tts = new MsEdgeTTS();
-        // en-US-DavisNeural = natural young adult male, very human
-        // Alternatives: en-US-JasonNeural (deep), en-US-TonyNeural (warm), en-US-GuyNeural (neutral)
         const voice = process.env.EDGE_TTS_VOICE || 'en-US-DavisNeural';
         await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3);
         const audioStream = tts.toStream(clean);
 
-        res.set({
-          'Content-Type': 'audio/mpeg',
-          'Cache-Control': 'no-cache',
-          'X-TTS-Provider': 'edge',
-          'X-TTS-Voice': voice,
+        // Buffer all chunks before sending — more reliable than streaming directly
+        const chunks: Buffer[] = [];
+        await new Promise<void>((resolve, reject) => {
+          audioStream.on('data', (chunk: any) => chunks.push(Buffer.from(chunk)));
+          audioStream.on('end', resolve);
+          audioStream.on('error', reject);
+          // Safety timeout — if Edge service hangs, fall through to next provider
+          setTimeout(() => reject(new Error('Edge TTS timeout')), 10000);
         });
 
-        await new Promise<void>((resolve, reject) => {
-          audioStream.on('error', reject);
-          audioStream.on('end', resolve);
-          audioStream.pipe(res);
+        const buffer = Buffer.concat(chunks);
+        if (buffer.length < 100) throw new Error('Edge TTS returned empty audio');
+
+        console.log(`[ABBA TTS] Edge TTS OK — ${buffer.length} bytes, voice: ${voice}`);
+        res.set({
+          'Content-Type': 'audio/mpeg',
+          'Content-Length': String(buffer.length),
+          'Cache-Control': 'no-cache',
+          'X-TTS-Provider': 'edge',
         });
-        return;
+        return res.send(buffer);
       } catch (edgeErr: any) {
-        console.warn('[ABBA TTS] Edge TTS failed, trying next:', edgeErr?.message);
+        console.warn('[ABBA TTS] Edge TTS failed:', edgeErr?.message, '— trying next provider');
       }
 
       // ── 2. ElevenLabs — most expressive, if key configured ─────────────────

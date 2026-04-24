@@ -162,18 +162,21 @@ function useVoice(onTranscript: (text: string, isFinal: boolean) => void) {
     }
   }, [safeSetSpeaking]);
 
-  // ── Primary TTS — OpenAI Onyx; falls back to browser TTS ──────────────────
+  // ── Primary TTS — Edge/ElevenLabs/OpenAI; falls back to browser TTS ─────────
   const speak = useCallback(async (text: string) => {
-    if (!voiceEnabled) return;
+    if (!voiceEnabled) {
+      console.log('[ABBA voice] skipped — voice disabled');
+      return;
+    }
     if (!text?.trim()) return;
 
     // Stop any currently playing audio
     if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
     if (hasSpeechSynthesis) window.speechSynthesis.cancel();
 
-    // Keep text under 4096 chars for TTS API
     const trimmed = text.replace(/[*_~`#>]/g, '').replace(/\[.*?\]/g, '').trim().slice(0, 1200);
     safeSetSpeaking(true);
+    console.log('[ABBA voice] fetching TTS…');
 
     try {
       const res = await fetch('/api/abba/tts', {
@@ -183,14 +186,26 @@ function useVoice(onTranscript: (text: string, isFinal: boolean) => void) {
         body: JSON.stringify({ text: trimmed }),
       });
 
-      // If TTS endpoint fails or returns non-audio, fall back immediately
-      if (!res.ok) throw new Error('TTS unavailable');
+      console.log('[ABBA voice] TTS response:', res.status, res.headers.get('content-type'), 'provider:', res.headers.get('x-tts-provider'));
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        console.warn('[ABBA voice] TTS endpoint error:', err);
+        throw new Error('TTS unavailable');
+      }
+
       const contentType = res.headers.get('content-type') || '';
-      if (!contentType.includes('audio')) throw new Error('Not audio');
+      if (!contentType.includes('audio')) {
+        console.warn('[ABBA voice] Non-audio response:', contentType);
+        throw new Error('Not audio');
+      }
 
       const blob = await res.blob();
-      pendingTTSBlob = blob;
-      const url   = URL.createObjectURL(blob);
+      console.log('[ABBA voice] blob size:', blob.size, 'bytes');
+
+      if (blob.size < 100) throw new Error('Empty audio blob');
+
+      const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
       audio.volume = 1.0;
       audioRef.current = audio;
@@ -203,14 +218,21 @@ function useVoice(onTranscript: (text: string, isFinal: boolean) => void) {
       };
 
       audio.onended = cleanup;
-      audio.onerror = () => { cleanup(); browserSpeak(trimmed); };
+      audio.onerror = (e) => {
+        console.warn('[ABBA voice] audio element error:', e);
+        cleanup();
+        browserSpeak(trimmed);
+      };
 
-      // play() can throw NotAllowedError if autoplay is blocked
-      await audio.play().catch(async () => {
+      console.log('[ABBA voice] calling audio.play()…');
+      await audio.play().catch(async (playErr) => {
+        console.warn('[ABBA voice] autoplay blocked:', playErr?.message, '— falling back to browser TTS');
         cleanup();
         await browserSpeak(trimmed);
       });
-    } catch {
+      console.log('[ABBA voice] playing ✓');
+    } catch (err: any) {
+      console.warn('[ABBA voice] caught error, using browser TTS:', err?.message);
       await browserSpeak(trimmed);
     }
   }, [voiceEnabled, browserSpeak, safeSetSpeaking]);
