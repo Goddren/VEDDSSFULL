@@ -38,6 +38,7 @@ interface AbbaMessage {
   navigateTo?: string | null;
   planProposal?: PlanProposal | null;
   suggestions?: string[];
+  audioUrl?: string; // blob URL for tap-to-play
 }
 
 interface AbbaContext {
@@ -162,21 +163,16 @@ function useVoice(onTranscript: (text: string, isFinal: boolean) => void) {
     }
   }, [safeSetSpeaking]);
 
-  // ── Primary TTS — Edge/ElevenLabs/OpenAI; falls back to browser TTS ─────────
-  const speak = useCallback(async (text: string) => {
-    if (!voiceEnabled) {
-      console.log('[ABBA voice] skipped — voice disabled');
-      return;
-    }
+  // ── Primary TTS — fetches audio, tries autoplay, stores URL for tap-to-play ──
+  const speak = useCallback(async (text: string, msgId?: string, onAudioReady?: (url: string) => void) => {
+    if (!voiceEnabled) return;
     if (!text?.trim()) return;
 
-    // Stop any currently playing audio
     if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
     if (hasSpeechSynthesis) window.speechSynthesis.cancel();
 
     const trimmed = text.replace(/[*_~`#>]/g, '').replace(/\[.*?\]/g, '').trim().slice(0, 1200);
     safeSetSpeaking(true);
-    console.log('[ABBA voice] fetching TTS…');
 
     try {
       const res = await fetch('/api/abba/tts', {
@@ -186,56 +182,50 @@ function useVoice(onTranscript: (text: string, isFinal: boolean) => void) {
         body: JSON.stringify({ text: trimmed }),
       });
 
-      console.log('[ABBA voice] TTS response:', res.status, res.headers.get('content-type'), 'provider:', res.headers.get('x-tts-provider'));
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        console.warn('[ABBA voice] TTS endpoint error:', err);
-        throw new Error('TTS unavailable');
-      }
-
+      if (!res.ok) throw new Error('TTS unavailable');
       const contentType = res.headers.get('content-type') || '';
-      if (!contentType.includes('audio')) {
-        console.warn('[ABBA voice] Non-audio response:', contentType);
-        throw new Error('Not audio');
-      }
+      if (!contentType.includes('audio')) throw new Error('Not audio');
 
       const blob = await res.blob();
-      console.log('[ABBA voice] blob size:', blob.size, 'bytes');
-
-      if (blob.size < 100) throw new Error('Empty audio blob');
+      if (blob.size < 100) throw new Error('Empty audio');
 
       const url = URL.createObjectURL(blob);
+
+      // Store URL on the message so the tap-to-play button can use it
+      if (onAudioReady) onAudioReady(url);
+
       const audio = new Audio(url);
       audio.volume = 1.0;
       audioRef.current = audio;
 
-      const cleanup = () => {
+      audio.onended = () => { safeSetSpeaking(false); audioRef.current = null; };
+      audio.onerror = () => { safeSetSpeaking(false); audioRef.current = null; browserSpeak(trimmed); };
+
+      // Try autoplay — may be blocked by browser policy
+      await audio.play().catch(async () => {
+        // Autoplay blocked — audio URL is stored on message; user can tap 🔊 to play
         safeSetSpeaking(false);
-        URL.revokeObjectURL(url);
-        pendingTTSBlob = null;
         audioRef.current = null;
-      };
-
-      audio.onended = cleanup;
-      audio.onerror = (e) => {
-        console.warn('[ABBA voice] audio element error:', e);
-        cleanup();
-        browserSpeak(trimmed);
-      };
-
-      console.log('[ABBA voice] calling audio.play()…');
-      await audio.play().catch(async (playErr) => {
-        console.warn('[ABBA voice] autoplay blocked:', playErr?.message, '— falling back to browser TTS');
-        cleanup();
+        // Also try browser TTS as silent fallback
         await browserSpeak(trimmed);
       });
-      console.log('[ABBA voice] playing ✓');
-    } catch (err: any) {
-      console.warn('[ABBA voice] caught error, using browser TTS:', err?.message);
+    } catch {
+      safeSetSpeaking(false);
       await browserSpeak(trimmed);
     }
   }, [voiceEnabled, browserSpeak, safeSetSpeaking]);
+
+  // ── Play a stored audio URL on user tap (bypasses autoplay policy) ───────────
+  const playStoredAudio = useCallback((url: string) => {
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+    const audio = new Audio(url);
+    audio.volume = 1.0;
+    audioRef.current = audio;
+    safeSetSpeaking(true);
+    audio.onended = () => { safeSetSpeaking(false); audioRef.current = null; };
+    audio.onerror = () => { safeSetSpeaking(false); audioRef.current = null; };
+    audio.play().catch(() => safeSetSpeaking(false));
+  }, [safeSetSpeaking]);
 
   const stopSpeaking = useCallback(() => {
     if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
@@ -256,7 +246,7 @@ function useVoice(onTranscript: (text: string, isFinal: boolean) => void) {
     });
   }, [safeSetSpeaking]);
 
-  return { isListening, isSpeaking, voiceEnabled, startListening, stopListening, speak, stopSpeaking, toggleVoice };
+  return { isListening, isSpeaking, voiceEnabled, startListening, stopListening, speak, stopSpeaking, toggleVoice, playStoredAudio };
 }
 
 // ── Arc Reactor icon (JARVIS-style) ──────────────────────────────────────────
@@ -335,7 +325,7 @@ const QUICK_PROMPTS = [
 
 // ── Message bubble ────────────────────────────────────────────────────────────
 const MsgBubble = ({
-  msg, onNavigate, onCreatePlan, creatingPlan, onSuggestion, isLast,
+  msg, onNavigate, onCreatePlan, creatingPlan, onSuggestion, isLast, onPlayAudio,
 }: {
   msg: AbbaMessage;
   onNavigate: (path: string) => void;
@@ -343,6 +333,7 @@ const MsgBubble = ({
   creatingPlan: boolean;
   onSuggestion: (text: string) => void;
   isLast: boolean;
+  onPlayAudio: (url: string) => void;
 }) => {
   const isAbba = msg.role === 'abba';
   return (
@@ -394,9 +385,22 @@ const MsgBubble = ({
             <MapPin className="h-2.5 w-2.5" /> Navigate → {msg.navigateTo}
           </button>
         )}
-        <span className="text-[10px] text-gray-600">
-          {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] text-gray-600">
+            {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </span>
+          {/* Tap-to-play button — shown when audio is ready, bypasses autoplay policy */}
+          {isAbba && msg.audioUrl && (
+            <button
+              onClick={() => onPlayAudio(msg.audioUrl!)}
+              className="flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full transition-all"
+              style={{ background: 'rgba(168,85,247,0.15)', border: '1px solid rgba(168,85,247,0.4)', color: '#a855f7' }}
+              title="Tap to hear ABBA"
+            >
+              <Volume2 className="h-2.5 w-2.5" /> Hear
+            </button>
+          )}
+        </div>
         {/* Continuation chips — only on last ABBA message */}
         {isAbba && isLast && msg.suggestions && msg.suggestions.length > 0 && (
           <motion.div
@@ -681,7 +685,7 @@ export function AbbaAssistant() {
   const { toast } = useToast();
 
   // Voice hook — STT + TTS
-  const { isListening, isSpeaking, voiceEnabled, startListening, stopListening, speak, stopSpeaking, toggleVoice } = useVoice(
+  const { isListening, isSpeaking, voiceEnabled, startListening, stopListening, speak, stopSpeaking, toggleVoice, playStoredAudio } = useVoice(
     useCallback((transcript: string, isFinal: boolean) => {
       setInput(transcript);
       setInterimText(isFinal ? '' : transcript);
@@ -762,16 +766,21 @@ export function AbbaAssistant() {
       }
       // Update context if returned
       if (data.context) setContext(data.context);
+      const newMsgId = genId();
       setMessages(prev => [...prev, {
-        id: genId(), role: 'abba',
+        id: newMsgId, role: 'abba',
         content: data.response,
         timestamp: new Date(),
         navigateTo: data.navigateTo || null,
         planProposal: data.planProposal || null,
         suggestions: data.suggestions || [],
       }]);
-      // ABBA speaks the response aloud when voice is enabled
-      if (data.response) speak(data.response);
+      // ABBA speaks — stores audio URL on message so user can tap 🔊 if autoplay blocked
+      if (data.response) {
+        speak(data.response, newMsgId, (audioUrl) => {
+          setMessages(prev => prev.map(m => m.id === newMsgId ? { ...m, audioUrl } : m));
+        });
+      }
       // Auto-navigate if ABBA gave a nav command
       if (data.navigateTo) {
         setTimeout(() => {
@@ -1020,6 +1029,7 @@ export function AbbaAssistant() {
                       creatingPlan={creatingPlan}
                       onSuggestion={sendMessage}
                       isLast={idx === messages.length - 1 && !chatMutation.isPending}
+                      onPlayAudio={playStoredAudio}
                     />
                   ))}
                 </AnimatePresence>
