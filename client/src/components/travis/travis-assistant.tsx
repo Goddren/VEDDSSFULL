@@ -246,7 +246,7 @@ function useVoice(onTranscript: (text: string, isFinal: boolean) => void) {
     });
   }, [safeSetSpeaking]);
 
-  return { isListening, isSpeaking, voiceEnabled, startListening, stopListening, speak, stopSpeaking, toggleVoice, playStoredAudio };
+  return { isListening, isSpeaking, voiceEnabled, startListening, stopListening, speak, stopSpeaking, toggleVoice, playStoredAudio, audioRef, safeSetSpeaking };
 }
 
 // ── Arc Reactor icon (JARVIS-style) ──────────────────────────────────────────
@@ -685,7 +685,7 @@ export function AbbaAssistant() {
   const { toast } = useToast();
 
   // Voice hook — STT + TTS
-  const { isListening, isSpeaking, voiceEnabled, startListening, stopListening, speak, stopSpeaking, toggleVoice, playStoredAudio } = useVoice(
+  const { isListening, isSpeaking, voiceEnabled, startListening, stopListening, speak, stopSpeaking, toggleVoice, playStoredAudio, audioRef, safeSetSpeaking } = useVoice(
     useCallback((transcript: string, isFinal: boolean) => {
       setInput(transcript);
       setInterimText(isFinal ? '' : transcript);
@@ -767,6 +767,19 @@ export function AbbaAssistant() {
       // Update context if returned
       if (data.context) setContext(data.context);
       const newMsgId = genId();
+
+      // Decode inline audio that came bundled with the chat response (no 2nd fetch needed)
+      let inlineAudioUrl: string | undefined;
+      if (data.audioBase64 && voiceEnabled) {
+        try {
+          const bytes = atob(data.audioBase64);
+          const arr = new Uint8Array(bytes.length);
+          for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+          const blob = new Blob([arr], { type: 'audio/mpeg' });
+          inlineAudioUrl = URL.createObjectURL(blob);
+        } catch { /* ignore decode errors */ }
+      }
+
       setMessages(prev => [...prev, {
         id: newMsgId, role: 'abba',
         content: data.response,
@@ -774,9 +787,24 @@ export function AbbaAssistant() {
         navigateTo: data.navigateTo || null,
         planProposal: data.planProposal || null,
         suggestions: data.suggestions || [],
+        audioUrl: inlineAudioUrl,
       }]);
-      // ABBA speaks — stores audio URL on message so user can tap 🔊 if autoplay blocked
-      if (data.response) {
+
+      // Try autoplay immediately with inline audio (no extra fetch)
+      if (inlineAudioUrl) {
+        const audio = new Audio(inlineAudioUrl);
+        audio.volume = 1.0;
+        audioRef.current = audio;
+        safeSetSpeaking(true);
+        audio.onended = () => { safeSetSpeaking(false); audioRef.current = null; };
+        audio.onerror = () => { safeSetSpeaking(false); audioRef.current = null; };
+        audio.play().catch(() => {
+          // Autoplay blocked — Hear button is visible on the message
+          safeSetSpeaking(false);
+          audioRef.current = null;
+        });
+      } else if (data.response && voiceEnabled) {
+        // Fallback: fetch TTS separately (Edge TTS may have timed out inline)
         speak(data.response, newMsgId, (audioUrl) => {
           setMessages(prev => prev.map(m => m.id === newMsgId ? { ...m, audioUrl } : m));
         });

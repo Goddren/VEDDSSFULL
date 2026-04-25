@@ -3650,11 +3650,40 @@ VEDD CONTEXT: VEDD is a faith-based AI trading platform with a community of trad
         ];
       }
 
+      // ── Inline TTS — generate audio alongside chat so client gets both at once ─
+      // Limit to first 800 chars for speed; client falls back to /api/abba/tts for full text
+      let audioBase64: string | null = null;
+      try {
+        const ttsText = cleanResponse.replace(/[*_~`#>]/g, '').trim().slice(0, 800);
+        if (ttsText.length > 10) {
+          const { MsEdgeTTS, OUTPUT_FORMAT } = await import('msedge-tts');
+          const tts = new MsEdgeTTS();
+          await tts.setMetadata(
+            process.env.EDGE_TTS_VOICE || 'en-US-DavisNeural',
+            OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3
+          );
+          const audioStream = tts.toStream(ttsText);
+          const chunks: Buffer[] = [];
+          await new Promise<void>((resolve, reject) => {
+            audioStream.on('data', (chunk: any) => chunks.push(Buffer.from(chunk)));
+            audioStream.on('end', resolve);
+            audioStream.on('error', reject);
+            setTimeout(() => reject(new Error('TTS timeout')), 8000);
+          });
+          const buf = Buffer.concat(chunks);
+          if (buf.length > 100) audioBase64 = buf.toString('base64');
+        }
+      } catch (ttsErr: any) {
+        // Non-fatal — client will show Hear button and fetch on demand
+        console.warn('[ABBA chat] inline TTS skipped:', ttsErr?.message);
+      }
+
       res.json({
         response: cleanResponse,
         navigateTo,
         planProposal,
         suggestions,
+        audioBase64,
         context: {
           weekPct,
           weekProfit,
