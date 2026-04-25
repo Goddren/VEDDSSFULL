@@ -3712,6 +3712,150 @@ VEDD CONTEXT: VEDD is a faith-based AI trading platform with a community of trad
     }
   });
 
+  // ── ABBA Streaming Chat — sentence-level TTS, fastest possible response ────
+  app.post('/api/abba/stream', async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: 'Authentication required' });
+    const userId = (req.user as User).id;
+    const { message, history = [], currentPage = '/dashboard' } = req.body;
+    if (!message?.trim()) return res.status(400).json({ error: 'Message required' });
+
+    // SSE headers — disable all buffering
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+
+    const sendEvent = (type: string, data: any) => {
+      if (!res.writableEnded) res.write(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+
+    try {
+      // ── Build context (same as /api/abba/chat) ────────────────────────────
+      const user = await storage.getUser(userId);
+      const firstName = user?.username?.split(' ')[0] || 'Trader';
+      let strategy: any = (global as any).mt5WeeklyStrategies?.[userId];
+      if (!strategy) {
+        const dbStrat = await storage.getActiveWeeklyStrategy(userId);
+        if (dbStrat) strategy = { profitTarget: dbStrat.profitTarget, pairs: dbStrat.pairs, accountBalance: dbStrat.accountBalance, currentProfit: dbStrat.currentProfit || 0, plan: dbStrat.plan };
+      }
+      const openPositions: any[] = (global as any).mt5OpenPositions?.[userId]?.positions || [];
+      const closedCache: any[] = (global as any).mt5ClosedTrades?.[userId]?.trades || [];
+      const accountCache = (global as any).mt5AccountData?.[userId];
+      const todayStart = new Date(); todayStart.setUTCHours(0,0,0,0);
+      const todayClosed = closedCache.filter((t: any) => new Date(t.closeTime || t.timestamp || 0) >= todayStart);
+      const todayProfit = Math.round((todayClosed.reduce((s: number, t: any) => s + (t.profit || 0), 0)) * 100) / 100;
+      const unrealizedPnL = Math.round(openPositions.reduce((s: number, p: any) => s + (p.profit || 0), 0) * 100) / 100;
+      const weekTarget = strategy?.profitTarget || 0;
+      const weekProfit = strategy?.currentProfit ?? todayProfit;
+      const weekPct = weekTarget > 0 ? Math.min(100, Math.round((weekProfit / weekTarget) * 100)) : 0;
+      const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+      const today = dayNames[new Date().getUTCDay()];
+      const tradingDaysLeft = Math.max(1, (() => { const d=['Monday','Tuesday','Wednesday','Thursday','Friday']; const i=d.indexOf(today); return i>=0?5-i:1; })());
+      const dailyTarget = weekTarget > 0 ? Math.round((weekTarget / 5) * 100) / 100 : 0;
+      const targetRemaining = Math.max(0, Math.round((weekTarget - weekProfit) * 100) / 100);
+      const pacingNeededPerDay = tradingDaysLeft > 0 ? Math.round((targetRemaining / tradingDaysLeft) * 100) / 100 : 0;
+      const balance = accountCache ? Object.values(accountCache).reduce((s: any, a: any) => s + (a?.balance || 0), 0) : strategy?.accountBalance || 0;
+      const planPairs: string[] = (strategy?.pairs || []).map((p: string) => p.toUpperCase().replace('/', ''));
+      const todayPlan = strategy?.plan?.weeklyPlan?.[today];
+      const todayPairs = todayPlan?.pairs || planPairs.map((p: string) => ({ symbol: p, direction: 'BOTH', session: 'Any' }));
+      const openSummary = openPositions.map((p: any) => `${(p.symbol||'').toUpperCase()} ${p.direction} ${p.lots||0}L P&L:$${Math.round((p.profit||0)*100)/100}`).join(' | ');
+
+      const systemPrompt = `You are ABBA — VEDD AI Personal Trading Intelligence. Supreme Mathematics foundation, street intelligence, fund manager precision. Built for ${firstName}.
+
+LIVE DATA: Balance $${balance.toLocaleString('en-US',{minimumFractionDigits:2})} | Week ${weekPct}% ($${weekProfit}/$${weekTarget}) | Today $${todayProfit}/$${dailyTarget} | ${tradingDaysLeft}d left | Need $${pacingNeededPerDay}/day | Open(${openPositions.length}): ${openSummary||'None'} | Pairs: ${planPairs.join(',')||'None'} | Today: ${today} | Page: ${currentPage}
+
+Supreme Math: 1=Knowledge 2=Wisdom 3=Understanding 4=Culture/Freedom 5=Power 6=Equality 7=God 8=Build 9=Born 0=Cipher. Weave naturally.
+
+Keep responses under 120 words. Speak with authority, street intelligence, financial mastery. No fluff.
+NAV: include [NAV:/path] to navigate. PLAN: include [PLAN_PROPOSAL:{json}] to propose a plan.`;
+
+      const { getUniversalAIClientForUser: getStreamAI } = await import('./openai');
+      const aiClient = await getStreamAI(userId);
+      const historyMessages = (history || []).slice(-6).map((m: any) => ({
+        role: m.role === 'abba' ? 'assistant' : 'user', content: m.content,
+      }));
+
+      // ── Stream LLM response ───────────────────────────────────────────────
+      const stream = await aiClient.chat.completions.create({
+        model: (aiClient as any).defaultModel || 'gpt-4o',
+        messages: [{ role: 'system', content: systemPrompt }, ...historyMessages, { role: 'user', content: message }],
+        stream: true,
+        max_tokens: 350,
+        temperature: 0.55,
+      });
+
+      let tokenBuffer = '';
+      let fullText = '';
+
+      // Generate TTS for a sentence and send text + audio events
+      const processSentence = async (sentence: string) => {
+        const clean = sentence.replace(/\[NAV:\/[^\]]*\]/g, '').replace(/\[PLAN_PROPOSAL:\{[\s\S]*?\}\]/g, '').replace(/[*_~`#>]/g, '').trim();
+        if (!clean || clean.length < 4) return;
+        sendEvent('text', { text: sentence });
+        try {
+          const { MsEdgeTTS, OUTPUT_FORMAT } = await import('msedge-tts');
+          const tts = new MsEdgeTTS();
+          await tts.setMetadata(process.env.EDGE_TTS_VOICE || 'en-US-DavisNeural', OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3);
+          const audioStream = tts.toStream(clean.slice(0, 300));
+          const chunks: Buffer[] = [];
+          await new Promise<void>((resolve, reject) => {
+            audioStream.on('data', (c: any) => chunks.push(Buffer.from(c)));
+            audioStream.on('end', resolve);
+            audioStream.on('error', reject);
+            setTimeout(() => reject(new Error('TTS timeout')), 5000);
+          });
+          const buf = Buffer.concat(chunks);
+          if (buf.length > 100) sendEvent('audio', { audioBase64: buf.toString('base64') });
+        } catch { /* TTS optional — text still sent */ }
+      };
+
+      for await (const chunk of stream) {
+        const delta = chunk.choices[0]?.delta?.content || '';
+        tokenBuffer += delta;
+        fullText += delta;
+        // Split on sentence-ending punctuation followed by space or end
+        const match = tokenBuffer.match(/^([\s\S]+?[.!?\n])(\s|$)/);
+        if (match && match[1].trim().length > 12) {
+          const sentence = match[1];
+          tokenBuffer = tokenBuffer.slice(match[0].length);
+          await processSentence(sentence);
+        }
+      }
+      // Flush remaining
+      if (tokenBuffer.trim().length > 3) await processSentence(tokenBuffer.trim());
+
+      // Parse nav + plan from full text
+      const navMatch = fullText.match(/\[NAV:(\/[^\]]*)\]/);
+      const navigateTo = navMatch ? navMatch[1] : null;
+      let planProposal: any = null;
+      const planMatch = fullText.match(/\[PLAN_PROPOSAL:(\{[\s\S]*?\})\]/);
+      if (planMatch) { try { planProposal = JSON.parse(planMatch[1]); } catch {} }
+
+      // Suggestions
+      const lc = fullText.toLowerCase();
+      const suggestions = lc.includes('plan') || lc.includes('pairs') ? ['Best entry for my pairs?','What session today?','Protect my gains']
+        : lc.includes('pacing') || lc.includes('goal') || lc.includes('%') ? ['Break down daily targets','Should I increase lots?','Pairs to close the gap']
+        : lc.includes('entry') || lc.includes('setup') || lc.includes('trade') ? ['SL and TP for this?','High or medium confidence?','Invalidation point?']
+        : ['Am I on pace?','Best trade now?',"Today's summary"];
+
+      sendEvent('done', {
+        navigateTo, planProposal, suggestions,
+        context: { weekPct, weekProfit, weekTarget, todayProfit, dailyTarget, unrealizedPnL, openCount: openPositions.length, targetRemaining, pacingNeededPerDay, weekTrades: strategy?.progressTrades||0, weekWinRate: strategy?.progressWinRate||0, balance, planPairs, todayPairs, hasStrategy: !!strategy && weekTarget > 0 },
+      });
+      res.end();
+    } catch (err: any) {
+      console.error('[ABBA stream] Error:', err?.message);
+      const msg = err?.message || '';
+      if (msg.includes('401') || msg.includes('Invalid API key')) {
+        sendEvent('error', { error: 'No AI key configured. Go to Settings → AI API Keys.', needsApiKey: true });
+      } else {
+        sendEvent('error', { error: 'ABBA stream offline. Try again.' });
+      }
+      res.end();
+    }
+  });
+
   // ── ABBA Natural Language Plan Parser ──────────────────────────────────
   // Parses plain English into a structured weekly strategy proposal.
   app.post('/api/abba/parse-plan', async (req: Request, res: Response) => {

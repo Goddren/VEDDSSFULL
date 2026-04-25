@@ -676,11 +676,13 @@ export function AbbaAssistant() {
   const [showQuick, setShowQuick] = useState(true);
   const [needsKey, setNeedsKey] = useState(false);
   const [creatingPlan, setCreatingPlan] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
   const [interimText, setInterimText] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const autoSendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Ref to avoid circular dependency between voice callback and chatMutation
+  const audioQueueRef = useRef<string[]>([]);
+  const audioPlayingRef = useRef(false);
   const voiceSendRef = useRef<(msg: string) => void>(() => {});
   const { toast } = useToast();
 
@@ -886,15 +888,144 @@ export function AbbaAssistant() {
     }
   }, [toast, refetchContext]);
 
-  const sendMessage = useCallback((msg: string) => {
-    if (!msg.trim() || chatMutation.isPending) return;
-    setMessages(prev => [...prev, {
-      id: genId(), role: 'user', content: msg, timestamp: new Date(),
-    }]);
+  // ── Sequential audio queue player ────────────────────────────────────────
+  const playNextQueued = useCallback(() => {
+    if (audioPlayingRef.current || audioQueueRef.current.length === 0) return;
+    audioPlayingRef.current = true;
+    const url = audioQueueRef.current.shift()!;
+    const audio = new Audio(url);
+    audio.volume = 1.0;
+    audioRef.current = audio;
+    safeSetSpeaking(true);
+    audio.onended = () => {
+      safeSetSpeaking(false);
+      audioRef.current = null;
+      audioPlayingRef.current = false;
+      URL.revokeObjectURL(url);
+      playNextQueued();
+    };
+    audio.onerror = () => {
+      safeSetSpeaking(false);
+      audioRef.current = null;
+      audioPlayingRef.current = false;
+      URL.revokeObjectURL(url);
+      playNextQueued();
+    };
+    audio.play().catch(() => {
+      audioPlayingRef.current = false;
+      safeSetSpeaking(false);
+    });
+  }, [audioRef, safeSetSpeaking]);
+
+  const sendMessage = useCallback(async (msg: string) => {
+    if (!msg.trim() || isStreaming) return;
+    setMessages(prev => [...prev, { id: genId(), role: 'user', content: msg, timestamp: new Date() }]);
     setShowQuick(false);
-    chatMutation.mutate(msg);
     setInput('');
-  }, [chatMutation]);
+
+    // Reset audio queue
+    audioQueueRef.current = [];
+    audioPlayingRef.current = false;
+
+    const msgId = genId();
+    // Add empty ABBA bubble that fills in as stream arrives
+    setMessages(prev => [...prev, { id: msgId, role: 'abba', content: '', timestamp: new Date() }]);
+    setIsStreaming(true);
+
+    try {
+      const res = await fetch('/api/abba/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          message: msg,
+          history: messages.slice(-8).map(m => ({ role: m.role, content: m.content })),
+          currentPage: location,
+        }),
+      });
+
+      if (!res.ok || !res.body) throw new Error('Stream unavailable');
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let sseBuffer = '';
+      let fullText = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        sseBuffer += decoder.decode(value, { stream: true });
+        const parts = sseBuffer.split('\n\n');
+        sseBuffer = parts.pop() || '';
+
+        for (const part of parts) {
+          let eventType = 'message';
+          let dataStr = '';
+          for (const line of part.split('\n')) {
+            if (line.startsWith('event: ')) eventType = line.slice(7).trim();
+            if (line.startsWith('data: ')) dataStr = line.slice(6).trim();
+          }
+          if (!dataStr) continue;
+          let parsed: any;
+          try { parsed = JSON.parse(dataStr); } catch { continue; }
+
+          if (eventType === 'text') {
+            fullText += parsed.text;
+            setMessages(prev => prev.map(m => m.id === msgId ? { ...m, content: fullText } : m));
+          }
+
+          if (eventType === 'audio' && voiceEnabled && parsed.audioBase64) {
+            try {
+              const bytes = atob(parsed.audioBase64);
+              const arr = new Uint8Array(bytes.length);
+              for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+              const blob = new Blob([arr], { type: 'audio/mpeg' });
+              const url = URL.createObjectURL(blob);
+              audioQueueRef.current.push(url);
+              playNextQueued();
+            } catch { /* ignore audio decode error */ }
+          }
+
+          if (eventType === 'done') {
+            if (parsed.context) setContext(parsed.context);
+            setMessages(prev => prev.map(m => m.id === msgId ? {
+              ...m,
+              navigateTo: parsed.navigateTo || null,
+              planProposal: parsed.planProposal || null,
+              suggestions: parsed.suggestions || [],
+            } : m));
+            if (parsed.navigateTo) setTimeout(() => { navigate(parsed.navigateTo); setOpen(false); }, 1200);
+          }
+
+          if (eventType === 'error') {
+            if (parsed.needsApiKey) setNeedsKey(true);
+            setMessages(prev => prev.map(m => m.id === msgId ? { ...m, content: parsed.error || 'Something went wrong.' } : m));
+          }
+        }
+      }
+    } catch {
+      // Fallback to non-streaming chat
+      try {
+        const fallback = await fetch('/api/abba/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ message: msg, history: messages.slice(-8).map(m => ({ role: m.role, content: m.content })), currentPage: location }),
+        });
+        const data = await fallback.json();
+        if (data.context) setContext(data.context);
+        setMessages(prev => prev.map(m => m.id === msgId ? {
+          ...m, content: data.response || 'Systems offline.',
+          navigateTo: data.navigateTo || null, planProposal: data.planProposal || null, suggestions: data.suggestions || [],
+        } : m));
+        if (data.response && voiceEnabled) speak(data.response, msgId, (url) => setMessages(prev => prev.map(m => m.id === msgId ? { ...m, audioUrl: url } : m)));
+      } catch {
+        setMessages(prev => prev.map(m => m.id === msgId ? { ...m, content: 'Connection lost. Please try again.' } : m));
+      }
+    } finally {
+      setIsStreaming(false);
+    }
+  }, [isStreaming, messages, location, voiceEnabled, navigate, playNextQueued, speak]);
 
   // Keep voiceSendRef in sync so voice callback can call sendMessage without stale closure
   voiceSendRef.current = sendMessage;
@@ -1056,12 +1187,12 @@ export function AbbaAssistant() {
                       onCreatePlan={handleCreatePlan}
                       creatingPlan={creatingPlan}
                       onSuggestion={sendMessage}
-                      isLast={idx === messages.length - 1 && !chatMutation.isPending}
+                      isLast={idx === messages.length - 1 && !isStreaming}
                       onPlayAudio={playStoredAudio}
                     />
                   ))}
                 </AnimatePresence>
-                {chatMutation.isPending && (
+                {isStreaming && messages[messages.length - 1]?.content === '' && (
                   <div className="flex items-center gap-2.5">
                     <ArcReactor size={24} pulse />
                     <div className="flex gap-1 items-center">
@@ -1081,7 +1212,7 @@ export function AbbaAssistant() {
               </div>
 
               {/* Quick prompts */}
-              {showQuick && messages.length <= 1 && !chatMutation.isPending && (
+              {showQuick && messages.length <= 1 && !isStreaming && (
                 <div className="px-3 pb-2">
                   <p className="text-[10px] text-gray-600 mb-1.5 flex items-center gap-1">
                     <Zap className="h-2.5 w-2.5 text-red-500" /> Quick commands
@@ -1131,7 +1262,7 @@ export function AbbaAssistant() {
                     value={input}
                     onChange={e => setInput(e.target.value)}
                     placeholder={isListening ? 'Listening…' : hasSpeechRecognition ? 'Ask ABBA or tap mic…' : 'Ask ABBA anything…'}
-                    disabled={chatMutation.isPending}
+                    disabled={isStreaming}
                     className="flex-1 bg-[#12121f] border border-red-900/30 rounded-xl px-3 py-2.5 text-sm text-white placeholder:text-gray-600 outline-none focus:border-red-700/60 transition-colors"
                     style={isListening ? { borderColor: 'rgba(239,68,68,0.6)' } : {}}
                   />
@@ -1140,7 +1271,7 @@ export function AbbaAssistant() {
                     <button
                       type="button"
                       onClick={isListening ? stopListening : startListening}
-                      disabled={chatMutation.isPending}
+                      disabled={isStreaming}
                       className="flex items-center justify-center w-10 h-10 rounded-xl transition-all flex-shrink-0 disabled:opacity-40"
                       style={{
                         background: isListening
@@ -1161,11 +1292,11 @@ export function AbbaAssistant() {
                   )}
                   <button
                     type="submit"
-                    disabled={!input.trim() || chatMutation.isPending}
+                    disabled={!input.trim() || isStreaming}
                     className="flex items-center justify-center w-10 h-10 rounded-xl transition-all flex-shrink-0 disabled:opacity-40"
                     style={{ background: 'linear-gradient(135deg, #dc2626, #7c3aed)' }}
                   >
-                    {chatMutation.isPending
+                    {isStreaming
                       ? <Loader2 className="h-4 w-4 text-white animate-spin" />
                       : <Send className="h-4 w-4 text-white" />
                     }
