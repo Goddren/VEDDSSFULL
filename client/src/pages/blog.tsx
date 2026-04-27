@@ -30,6 +30,7 @@ import {
   Copy,
   Check,
   X,
+  Radio,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { apiRequest } from '@/lib/queryClient';
@@ -99,6 +100,105 @@ function truncate(text: string, max: number): string {
   return text.slice(0, max).replace(/\s+\S*$/, '') + '…';
 }
 
+// ─── Breaking News Card (share image preview) ────────────────────────────────
+
+function BreakingNewsCard({
+  post,
+  referralCode,
+}: {
+  post: BlogPost;
+  referralCode?: string | null;
+}) {
+  const signupUrl = referralCode
+    ? `${window.location.origin}/auth?ref=${referralCode}`
+    : `${window.location.origin}/auth`;
+  const plainContent = stripHtml(post.content || '');
+  const snippet = truncate(post.excerpt || truncate(plainContent, 160), 160);
+
+  return (
+    <div
+      className="rounded-xl overflow-hidden select-none"
+      style={{
+        background: 'linear-gradient(135deg, #0a0a0f 0%, #12060a 60%, #0f0a1a 100%)',
+        border: '2px solid rgba(220,38,38,0.7)',
+        boxShadow: '0 0 24px rgba(220,38,38,0.25), inset 0 0 40px rgba(0,0,0,0.4)',
+        fontFamily: 'system-ui, sans-serif',
+      }}
+    >
+      {/* BREAKING NEWS bar */}
+      <div
+        className="flex items-center gap-2 px-3 py-1.5"
+        style={{ background: 'linear-gradient(90deg, #dc2626 0%, #b91c1c 100%)' }}
+      >
+        <span
+          className="text-[9px] font-black tracking-[0.3em] uppercase text-white animate-pulse"
+          style={{ letterSpacing: '0.3em' }}
+        >
+          ● BREAKING NEWS
+        </span>
+        <span className="ml-auto text-[9px] text-red-200 font-mono opacity-80">
+          VEDD AI TRADING
+        </span>
+      </div>
+
+      {/* Content */}
+      <div className="px-4 py-3 space-y-2">
+        {/* VEDD logo row */}
+        <div className="flex items-center gap-2 mb-1">
+          <div
+            className="w-5 h-5 rounded-full flex items-center justify-center"
+            style={{ background: 'linear-gradient(135deg, #dc2626, #7c3aed)', border: '1px solid rgba(220,38,38,0.5)' }}
+          >
+            <span className="text-[8px] font-black text-white">V</span>
+          </div>
+          <span className="text-[10px] font-bold tracking-widest text-red-400 uppercase">VEDD · Trading Intelligence</span>
+        </div>
+
+        {/* Headline */}
+        <h3 className="text-sm font-extrabold text-white leading-snug" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>
+          📈 {post.title}
+        </h3>
+
+        {/* Divider */}
+        <div className="h-px" style={{ background: 'linear-gradient(90deg, #dc2626 0%, transparent 100%)' }} />
+
+        {/* Snippet */}
+        <p className="text-[11px] text-gray-300 leading-relaxed">{snippet}</p>
+
+        {/* CTA */}
+        <div
+          className="rounded-lg px-3 py-2 mt-1"
+          style={{ background: 'rgba(220,38,38,0.12)', border: '1px solid rgba(220,38,38,0.35)' }}
+        >
+          <p className="text-[10px] text-gray-400 mb-0.5">🔗 Join VEDD AI Trading now →</p>
+          <p
+            className="text-[11px] font-bold text-red-400 break-all"
+            style={{ wordBreak: 'break-all' }}
+          >
+            {signupUrl}
+          </p>
+        </div>
+
+        {referralCode && (
+          <p className="text-[9px] text-emerald-400 opacity-75">
+            Referral code: <span className="font-mono font-bold">{referralCode}</span>
+          </p>
+        )}
+      </div>
+
+      {/* Footer ticker */}
+      <div
+        className="px-3 py-1 flex items-center gap-2"
+        style={{ background: 'rgba(220,38,38,0.08)', borderTop: '1px solid rgba(220,38,38,0.2)' }}
+      >
+        <span className="text-[8px] text-gray-600 uppercase tracking-widest">veddbuild.com · AI-Powered Forex & Crypto Trading</span>
+      </div>
+    </div>
+  );
+}
+
+// ─── Share Panel ─────────────────────────────────────────────────────────────
+
 function SharePanel({
   post,
   referralCode,
@@ -108,8 +208,14 @@ function SharePanel({
   referralCode?: string | null;
   onClose: () => void;
 }) {
-  const [copiedMsg, setCopiedMsg] = useState(false);
-  const [copiedLink, setCopiedLink] = useState(false);
+  const [copiedMsg, setCopiedMsg]     = useState(false);
+  const [copiedLink, setCopiedLink]   = useState(false);
+  const [copiedBreaking, setCopiedBreaking] = useState(false);
+  const [activeTab, setActiveTab]     = useState<'share' | 'breaking'>('breaking');
+
+  const signupUrl = referralCode
+    ? `${window.location.origin}/auth?ref=${referralCode}`
+    : `${window.location.origin}/auth`;
 
   const articleUrl = `${window.location.origin}/blog`;
   const readMoreUrl = referralCode
@@ -120,6 +226,15 @@ function SharePanel({
   const plainContent = stripHtml(post.content || '');
   const plainExcerpt = post.excerpt || truncate(plainContent, 220);
   const snippet = truncate(plainExcerpt, 220);
+
+  // Breaking news formatted text (copy-paste ready)
+  const breakingText =
+    `📡 BREAKING NEWS — VEDD AI Trading\n` +
+    `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+    `📈 ${post.title}\n\n` +
+    `${truncate(plainExcerpt, 180)}\n\n` +
+    `🔗 Join VEDD AI Trading now:\n${signupUrl}\n\n` +
+    `#VEDD #Trading #Forex #AI #BreakingNews`;
 
   // Full rich share message — what the reader will actually see
   const fullMessage =
@@ -135,13 +250,14 @@ function SharePanel({
   const encodedFull    = encodeURIComponent(fullMessage);
   const encodedUrl     = encodeURIComponent(readMoreUrl);
   const encodedTwitter = encodeURIComponent(twitterMessage);
+  const encodedBreaking = encodeURIComponent(breakingText);
 
   const platforms = [
     {
       name: 'WhatsApp',
       color: 'bg-green-700 hover:bg-green-600',
       emoji: '💬',
-      url: `https://wa.me/?text=${encodedFull}`,
+      url: `https://wa.me/?text=${activeTab === 'breaking' ? encodedBreaking : encodedFull}`,
     },
     {
       name: 'X / Twitter',
@@ -153,17 +269,17 @@ function SharePanel({
       name: 'Facebook',
       color: 'bg-blue-700 hover:bg-blue-600',
       emoji: 'f',
-      url: `https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}&quote=${encodeURIComponent(fullMessage)}`,
+      url: `https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}&quote=${encodeURIComponent(activeTab === 'breaking' ? breakingText : fullMessage)}`,
     },
     {
       name: 'LinkedIn',
       color: 'bg-blue-600 hover:bg-blue-500',
       emoji: 'in',
-      url: `https://www.linkedin.com/sharing/share-offsite/?url=${encodedUrl}&summary=${encodeURIComponent(fullMessage)}`,
+      url: `https://www.linkedin.com/sharing/share-offsite/?url=${encodedUrl}&summary=${encodeURIComponent(activeTab === 'breaking' ? breakingText : fullMessage)}`,
     },
   ];
 
-  const copyToClipboard = async (text: string, which: 'msg' | 'link') => {
+  const copyText = async (text: string, which: 'msg' | 'link' | 'breaking') => {
     try {
       await navigator.clipboard.writeText(text);
     } catch {
@@ -174,20 +290,13 @@ function SharePanel({
       document.execCommand('copy');
       document.body.removeChild(ta);
     }
-    // Award blog_share VEDD on first copy action today
     trackReward('blog_share', post.id);
-    if (which === 'msg') {
-      setCopiedMsg(true);
-      setTimeout(() => setCopiedMsg(false), 2200);
-    } else {
-      setCopiedLink(true);
-      setTimeout(() => setCopiedLink(false), 2200);
-    }
+    if (which === 'msg')      { setCopiedMsg(true);      setTimeout(() => setCopiedMsg(false), 2200); }
+    if (which === 'link')     { setCopiedLink(true);     setTimeout(() => setCopiedLink(false), 2200); }
+    if (which === 'breaking') { setCopiedBreaking(true); setTimeout(() => setCopiedBreaking(false), 2200); }
   };
 
-  const handleSocialClick = () => {
-    trackReward('blog_share', post.id);
-  };
+  const handleSocialClick = () => trackReward('blog_share', post.id);
 
   return (
     <div className="mt-4 bg-gray-900/90 border border-gray-700 rounded-xl p-4 space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
@@ -208,48 +317,102 @@ function SharePanel({
         </button>
       </div>
 
-      {/* Preview card — shows exactly what followers will read */}
-      <div className="bg-gray-800/70 border border-gray-600/50 rounded-lg p-3 space-y-2">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-1">Preview — what your followers will see</p>
-        <p className="text-xs font-bold text-white leading-snug">📈 {post.title}</p>
-        <p className="text-xs text-gray-300 leading-relaxed">{snippet}</p>
-        <div className="pt-1 border-t border-gray-700/60">
-          <p className="text-xs text-gray-400">Read the full article on VEDD AI Trading 👇</p>
-          <p className="text-xs text-emerald-400 font-mono truncate mt-0.5">{readMoreUrl}</p>
-        </div>
+      {/* Tab switcher */}
+      <div className="flex gap-1 bg-gray-800/60 p-1 rounded-lg">
+        <button
+          onClick={() => setActiveTab('breaking')}
+          className={`flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold py-1.5 rounded-md transition-all ${
+            activeTab === 'breaking'
+              ? 'bg-red-700 text-white shadow'
+              : 'text-gray-400 hover:text-white'
+          }`}
+        >
+          <Radio className="h-3 w-3" /> Breaking News
+        </button>
+        <button
+          onClick={() => setActiveTab('share')}
+          className={`flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold py-1.5 rounded-md transition-all ${
+            activeTab === 'share'
+              ? 'bg-gray-600 text-white shadow'
+              : 'text-gray-400 hover:text-white'
+          }`}
+        >
+          <Share2 className="h-3 w-3" /> Standard Share
+        </button>
       </div>
 
-      {/* Copy full message */}
-      <div className="flex gap-2">
-        <Button
-          size="sm"
-          onClick={() => copyToClipboard(fullMessage, 'msg')}
-          className={`flex-1 text-xs h-8 transition-all ${
-            copiedMsg
-              ? 'bg-emerald-700 text-white border-emerald-600'
-              : 'bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-600'
-          }`}
-          variant="outline"
-        >
-          {copiedMsg ? <Check className="h-3.5 w-3.5 mr-1" /> : <Copy className="h-3.5 w-3.5 mr-1" />}
-          {copiedMsg ? 'Message Copied!' : 'Copy Full Message'}
-        </Button>
-        <Button
-          size="sm"
-          onClick={() => copyToClipboard(readMoreUrl, 'link')}
-          className={`text-xs h-8 transition-all ${
-            copiedLink
-              ? 'bg-emerald-700 text-white border-emerald-600'
-              : 'bg-gray-800 hover:bg-gray-700 text-gray-400 border border-gray-700'
-          }`}
-          variant="outline"
-          title="Copy link only"
-        >
-          {copiedLink ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-        </Button>
-      </div>
+      {activeTab === 'breaking' ? (
+        <>
+          {/* Breaking News card preview */}
+          <BreakingNewsCard post={post} referralCode={referralCode} />
 
-      {/* Social share buttons */}
+          {/* Copy breaking news text */}
+          <Button
+            size="sm"
+            onClick={() => copyText(breakingText, 'breaking')}
+            className={`w-full text-xs h-9 font-semibold transition-all ${
+              copiedBreaking
+                ? 'bg-emerald-700 text-white'
+                : 'bg-red-900/40 hover:bg-red-800/60 text-red-300 border border-red-700/50'
+            }`}
+            variant="outline"
+          >
+            {copiedBreaking
+              ? <><Check className="h-3.5 w-3.5 mr-1.5" /> Breaking News Text Copied!</>
+              : <><Copy className="h-3.5 w-3.5 mr-1.5" /> Copy Breaking News Caption</>
+            }
+          </Button>
+
+          <p className="text-[10px] text-gray-500 italic text-center">
+            Screenshot the card above + paste the caption — or share directly 👇
+          </p>
+        </>
+      ) : (
+        <>
+          {/* Standard preview card */}
+          <div className="bg-gray-800/70 border border-gray-600/50 rounded-lg p-3 space-y-2">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-1">Preview — what your followers will see</p>
+            <p className="text-xs font-bold text-white leading-snug">📈 {post.title}</p>
+            <p className="text-xs text-gray-300 leading-relaxed">{snippet}</p>
+            <div className="pt-1 border-t border-gray-700/60">
+              <p className="text-xs text-gray-400">Read the full article on VEDD AI Trading 👇</p>
+              <p className="text-xs text-emerald-400 font-mono truncate mt-0.5">{readMoreUrl}</p>
+            </div>
+          </div>
+
+          {/* Copy buttons */}
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              onClick={() => copyText(fullMessage, 'msg')}
+              className={`flex-1 text-xs h-8 transition-all ${
+                copiedMsg
+                  ? 'bg-emerald-700 text-white border-emerald-600'
+                  : 'bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-600'
+              }`}
+              variant="outline"
+            >
+              {copiedMsg ? <Check className="h-3.5 w-3.5 mr-1" /> : <Copy className="h-3.5 w-3.5 mr-1" />}
+              {copiedMsg ? 'Message Copied!' : 'Copy Full Message'}
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => copyText(readMoreUrl, 'link')}
+              className={`text-xs h-8 transition-all ${
+                copiedLink
+                  ? 'bg-emerald-700 text-white border-emerald-600'
+                  : 'bg-gray-800 hover:bg-gray-700 text-gray-400 border border-gray-700'
+              }`}
+              variant="outline"
+              title="Copy link only"
+            >
+              {copiedLink ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+            </Button>
+          </div>
+        </>
+      )}
+
+      {/* Social share buttons — always visible */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         {platforms.map((p) => (
           <a
@@ -272,6 +435,70 @@ function SharePanel({
         </p>
       )}
     </div>
+  );
+}
+
+// ─── Article Content — intercepts all link clicks → VEDD sign-up ─────────────
+
+function ArticleContent({
+  html,
+  referralCode,
+  className,
+}: {
+  html: string;
+  referralCode?: string | null;
+  className?: string;
+}) {
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  const signupUrl = referralCode
+    ? `${window.location.origin}/auth?ref=${referralCode}`
+    : `${window.location.origin}/auth`;
+
+  // After every render, patch all <a> tags so they point to VEDD sign-up
+  useEffect(() => {
+    const el = contentRef.current;
+    if (!el) return;
+    el.querySelectorAll('a').forEach((a) => {
+      const href = a.getAttribute('href') || '';
+      if (
+        href.startsWith('#') ||
+        href === '' ||
+        href.includes(window.location.hostname)
+      ) {
+        // Internal / anchor → sign-up page
+        a.setAttribute('href', signupUrl);
+        a.removeAttribute('target');
+      } else if (href.startsWith('http')) {
+        // External → open in new tab AND show sign-up link
+        a.setAttribute('target', '_blank');
+        a.setAttribute('rel', 'noopener noreferrer');
+        // Wrap in a parent span with a VEDD sign-up nudge if not already done
+        if (!a.dataset.veddPatched) {
+          a.dataset.veddPatched = '1';
+          // Append a small "→ Join VEDD" sibling link after external links
+          const nudge = document.createElement('a');
+          nudge.href = signupUrl;
+          nudge.className = 'vedd-signup-nudge';
+          nudge.textContent = ' → Join VEDD';
+          nudge.style.cssText =
+            'display:inline-block;margin-left:4px;font-size:0.75em;font-weight:700;color:#ef4444;text-decoration:none;background:rgba(220,38,38,0.12);border:1px solid rgba(220,38,38,0.35);border-radius:4px;padding:0 5px;line-height:1.6;';
+          a.insertAdjacentElement('afterend', nudge);
+        }
+      } else {
+        // Relative path → sign-up page
+        a.setAttribute('href', signupUrl);
+        a.removeAttribute('target');
+      }
+    });
+  }, [html, signupUrl]);
+
+  return (
+    <div
+      ref={contentRef}
+      className={className}
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
   );
 }
 
@@ -352,9 +579,10 @@ function BlogPostCard({
 
         {/* Content */}
         {expanded ? (
-          <div
+          <ArticleContent
+            html={post.content}
+            referralCode={referralCode}
             className="text-gray-300 mb-6 prose prose-invert max-w-none prose-p:text-gray-300 prose-li:text-gray-300 prose-headings:text-white prose-strong:text-white"
-            dangerouslySetInnerHTML={{ __html: post.content }}
           />
         ) : (
           <p className="text-gray-300 mb-6">{post.excerpt}</p>
@@ -709,10 +937,15 @@ function GenerateDialog({
 
 export default function BlogPage() {
   const { user } = useAuth();
-  const isAdmin = !!(user as any)?.isAdmin;
+  const isAdmin     = !!(user as any)?.isAdmin;
   const isAmbassador = !!(user as any)?.isAmbassador;
   const referralCode: string | null = (user as any)?.referralCode ?? null;
   const queryClient = useQueryClient();
+
+  // Canonical sign-up URL — embeds referral code when viewer is an ambassador
+  const signupUrl = referralCode
+    ? `/auth?ref=${referralCode}`
+    : '/auth';
 
   const [generateDialogOpen, setGenerateDialogOpen] = useState(false);
 
@@ -816,14 +1049,19 @@ export default function BlogPage() {
 
         {/* CTA section */}
         <div className="mt-16 text-center">
-          <h2 className="text-2xl font-bold text-white mb-6">Ready to Elevate Your Trading?</h2>
+          <h2 className="text-2xl font-bold text-white mb-3">Ready to Elevate Your Trading?</h2>
+          {referralCode && (
+            <p className="text-sm text-emerald-400 mb-5">
+              🔗 Referred by an ambassador — your code <span className="font-mono font-bold">{referralCode}</span> will be applied automatically.
+            </p>
+          )}
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Link href="/auth">
+            <Link href={signupUrl}>
               <Button
                 size="lg"
                 className="bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-700 hover:to-rose-700 text-white shadow-lg shadow-red-500/30 hover:shadow-red-500/50 transition-all duration-300 transform hover:scale-105"
               >
-                Sign Up Now <ArrowRight className="ml-2 h-4 w-4" />
+                Join VEDD AI Trading <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
             </Link>
             <EarlyAccessForm />
