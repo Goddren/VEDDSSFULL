@@ -702,6 +702,11 @@ export function AbbaAssistant() {
     }, [])
   );
 
+  // Pre-warm browser voices so they're ready when first text event arrives
+  useEffect(() => {
+    if (hasSpeechSynthesis) loadVoices().catch(() => {});
+  }, []);
+
   // Listen for external open-ABBA events (e.g., from dashboard card)
   useEffect(() => {
     const handler = () => setOpen(true);
@@ -917,13 +922,50 @@ export function AbbaAssistant() {
     });
   }, [audioRef, safeSetSpeaking]);
 
+  // ── Browser speech queue — speaks each streamed sentence instantly ──────────
+  const speechQueueRef = useRef<string[]>([]);
+  const speechBusyRef  = useRef(false);
+
+  const speakNext = useCallback(() => {
+    if (!hasSpeechSynthesis) return;
+    if (speechBusyRef.current || speechQueueRef.current.length === 0) return;
+    const text = speechQueueRef.current.shift()!;
+    speechBusyRef.current = true;
+    window.speechSynthesis.cancel();
+    const utt = new SpeechSynthesisUtterance(text);
+    utt.rate   = 1.0;
+    utt.pitch  = 0.85;
+    utt.volume = 1.0;
+    // Use best available voice — Edge/Chrome have neural voices built in
+    const voices = window.speechSynthesis.getVoices();
+    const best = voices.find(v => /microsoft david|microsoft mark|google uk english male|daniel|alex|reed|liam/i.test(v.name))
+              || voices.find(v => v.lang === 'en-US' && /male|man/i.test(v.name))
+              || voices.find(v => v.lang === 'en-US')
+              || voices[0];
+    if (best) utt.voice = best;
+    utt.onend = utt.onerror = () => { speechBusyRef.current = false; speakNext(); };
+    safeSetSpeaking(true);
+    window.speechSynthesis.speak(utt);
+  }, [safeSetSpeaking]);
+
+  const queueSpeak = useCallback((text: string) => {
+    if (!voiceEnabled || !hasSpeechSynthesis) return;
+    const clean = text.replace(/[*_~`#>]/g, '').replace(/\[.*?\]/g, '').trim();
+    if (!clean) return;
+    speechQueueRef.current.push(clean);
+    speakNext();
+  }, [voiceEnabled, speakNext]);
+
   const sendMessage = useCallback(async (msg: string) => {
     if (!msg.trim() || isStreaming) return;
     setMessages(prev => [...prev, { id: genId(), role: 'user', content: msg, timestamp: new Date() }]);
     setShowQuick(false);
     setInput('');
 
-    // Reset audio queue
+    // Stop any in-progress speech
+    if (hasSpeechSynthesis) window.speechSynthesis.cancel();
+    speechQueueRef.current = [];
+    speechBusyRef.current = false;
     audioQueueRef.current = [];
     audioPlayingRef.current = false;
 
@@ -972,18 +1014,8 @@ export function AbbaAssistant() {
           if (eventType === 'text') {
             fullText += parsed.text;
             setMessages(prev => prev.map(m => m.id === msgId ? { ...m, content: fullText } : m));
-          }
-
-          if (eventType === 'audio' && voiceEnabled && parsed.audioBase64) {
-            try {
-              const bytes = atob(parsed.audioBase64);
-              const arr = new Uint8Array(bytes.length);
-              for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
-              const blob = new Blob([arr], { type: 'audio/mpeg' });
-              const url = URL.createObjectURL(blob);
-              audioQueueRef.current.push(url);
-              playNextQueued();
-            } catch { /* ignore audio decode error */ }
+            // Speak this sentence immediately via browser speechSynthesis (no autoplay block)
+            if (parsed.speak) queueSpeak(parsed.speak);
           }
 
           if (eventType === 'done') {
@@ -1024,8 +1056,10 @@ export function AbbaAssistant() {
       }
     } finally {
       setIsStreaming(false);
+      // If no speech queued, clear speaking indicator
+      if (speechQueueRef.current.length === 0 && !speechBusyRef.current) safeSetSpeaking(false);
     }
-  }, [isStreaming, messages, location, voiceEnabled, navigate, playNextQueued, speak]);
+  }, [isStreaming, messages, location, voiceEnabled, navigate, queueSpeak, speak, safeSetSpeaking]);
 
   // Keep voiceSendRef in sync so voice callback can call sendMessage without stale closure
   voiceSendRef.current = sendMessage;

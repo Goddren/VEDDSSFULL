@@ -3789,25 +3789,12 @@ NAV: include [NAV:/path] to navigate. PLAN: include [PLAN_PROPOSAL:{json}] to pr
       let fullText = '';
 
       // Generate TTS for a sentence and send text + audio events
-      const processSentence = async (sentence: string) => {
-        const clean = sentence.replace(/\[NAV:\/[^\]]*\]/g, '').replace(/\[PLAN_PROPOSAL:\{[\s\S]*?\}\]/g, '').replace(/[*_~`#>]/g, '').trim();
-        if (!clean || clean.length < 4) return;
-        sendEvent('text', { text: sentence });
-        try {
-          const { MsEdgeTTS, OUTPUT_FORMAT } = await import('msedge-tts');
-          const tts = new MsEdgeTTS();
-          await tts.setMetadata(process.env.EDGE_TTS_VOICE || 'en-US-DavisNeural', OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3);
-          const audioStream = tts.toStream(clean.slice(0, 300));
-          const chunks: Buffer[] = [];
-          await new Promise<void>((resolve, reject) => {
-            audioStream.on('data', (c: any) => chunks.push(Buffer.from(c)));
-            audioStream.on('end', resolve);
-            audioStream.on('error', reject);
-            setTimeout(() => reject(new Error('TTS timeout')), 5000);
-          });
-          const buf = Buffer.concat(chunks);
-          if (buf.length > 100) sendEvent('audio', { audioBase64: buf.toString('base64') });
-        } catch { /* TTS optional — text still sent */ }
+      // Send each sentence as a text event immediately — no server-side TTS in stream.
+      // The client speaks via browser speechSynthesis (instant, no autoplay block).
+      const processSentence = (sentence: string) => {
+        const stripped = sentence.replace(/\[NAV:\/[^\]]*\]/g, '').replace(/\[PLAN_PROPOSAL:\{[\s\S]*?\}\]/g, '').trim();
+        if (!stripped || stripped.length < 4) return;
+        sendEvent('text', { text: sentence, speak: stripped });
       };
 
       for await (const chunk of stream) {
@@ -3816,14 +3803,14 @@ NAV: include [NAV:/path] to navigate. PLAN: include [PLAN_PROPOSAL:{json}] to pr
         fullText += delta;
         // Split on sentence-ending punctuation followed by space or end
         const match = tokenBuffer.match(/^([\s\S]+?[.!?\n])(\s|$)/);
-        if (match && match[1].trim().length > 12) {
+        if (match && match[1].trim().length > 10) {
           const sentence = match[1];
           tokenBuffer = tokenBuffer.slice(match[0].length);
-          await processSentence(sentence);
+          processSentence(sentence);
         }
       }
       // Flush remaining
-      if (tokenBuffer.trim().length > 3) await processSentence(tokenBuffer.trim());
+      if (tokenBuffer.trim().length > 3) processSentence(tokenBuffer.trim());
 
       // Parse nav + plan from full text
       const navMatch = fullText.match(/\[NAV:(\/[^\]]*)\]/);
