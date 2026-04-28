@@ -40,6 +40,7 @@ const communityItems = [
   { name: 'Host Dash',    path: '/host-dashboard',                        icon: Award,       color: '#f59e0b' },
   { name: 'Blog',         path: '/blog',                                  icon: Newspaper,   color: '#22c55e' },
   { name: 'Devotional',   path: '/devotional',                            icon: Heart,       color: '#ef4444' },
+  { name: 'Content Studio', path: '/ambassador/content-studio',           icon: Zap,         color: '#a855f7' },
 ];
 
 const financeItems = [

@@ -77,6 +77,7 @@ import FuturesLiveFeedPage from "@/pages/futures-live-feed";
 import SevenEightPage from "@/pages/seven-eight";
 import GrantsFundingPage from "@/pages/grants-funding";
 import CreditBuilderPage from "@/pages/credit-builder";
+import ContentStudioPage from "@/pages/content-studio";
 import ReferralHubPage from "@/pages/referral-hub";
 import AmbassadorRecruitmentPage from "@/pages/ambassador-recruitment";
 import AmbassadorLandingPage from "@/pages/ambassador-landing-page";
@@ -161,6 +162,7 @@ function AppLayout() {
             <ProtectedRoute path="/ambassador/challenge/:id" component={ChallengeSession} />
             <ProtectedRoute path="/ambassador/sales-script" component={AmbassadorSalesScriptPage} />
             <ProtectedRoute path="/ambassador/free-path" component={AmbassadorFreePathPage} />
+            <ProtectedRoute path="/ambassador/content-studio" component={ContentStudioPage} />
             <Route path="/devotional" component={DevotionalPage} />
             
             {/* Public event page (no auth required) */}
