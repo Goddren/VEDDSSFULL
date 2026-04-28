@@ -76,6 +76,7 @@ import FuturesEaGeneratorPage from "@/pages/futures-ea-generator";
 import FuturesLiveFeedPage from "@/pages/futures-live-feed";
 import SevenEightPage from "@/pages/seven-eight";
 import GrantsFundingPage from "@/pages/grants-funding";
+import CreditBuilderPage from "@/pages/credit-builder";
 import ReferralHubPage from "@/pages/referral-hub";
 import AmbassadorRecruitmentPage from "@/pages/ambassador-recruitment";
 import AmbassadorLandingPage from "@/pages/ambassador-landing-page";
@@ -197,6 +198,7 @@ function AppLayout() {
             
             {/* Grants & Funding (Ambassador + Admin) */}
             <ProtectedRoute path="/grants" component={GrantsFundingPage} />
+            <ProtectedRoute path="/credit-builder" component={CreditBuilderPage} />
 
             {/* Token-Backed Investments */}
             <ProtectedRoute path="/token-investments" component={TokenInvestmentsPage} />

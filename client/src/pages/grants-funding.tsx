@@ -69,6 +69,7 @@ function SwipeGrantCard({
   const isDragging = useRef(false);
   const [offset, setOffset] = useState(0);
   const [direction, setDirection] = useState<'left' | 'right' | null>(null);
+  const [showSteps, setShowSteps] = useState(false);
 
   const typeConfig = grantTypeConfig[grant.grantType] || { label: grant.grantType, color: "bg-gray-600/30 text-gray-200 border-gray-500/50" };
   const score = grant.relevanceScore || 0;
@@ -187,6 +188,100 @@ function SwipeGrantCard({
 
         {grant.aiScanNotes && (
           <p className="text-[11px] text-gray-500 italic mb-4 line-clamp-2">💡 {grant.aiScanNotes}</p>
+        )}
+
+        {/* ── Next Steps Action Guide ─────────────────────────────── */}
+        {isTop && (
+          <div className="mt-3 mx-1">
+            <div className="rounded-xl overflow-hidden" style={{ background: 'rgba(0,0,0,.4)', border: '1px solid rgba(255,255,255,.08)' }}>
+              {/* Collapsible header */}
+              <button
+                className="w-full flex items-center justify-between px-3 py-2 text-left"
+                onClick={e => { e.stopPropagation(); setShowSteps(s => !s); }}
+              >
+                <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                  <ChevronRight className="h-3 w-3 text-green-400" />
+                  How to Apply — Direct Steps
+                </span>
+                <span className="text-[10px] text-gray-500">{showSteps ? '▲' : '▼'}</span>
+              </button>
+
+              {showSteps && (
+                <div className="px-3 pb-3 space-y-2">
+                  {/* Step 1 */}
+                  <div className="flex gap-2">
+                    <span className="flex-shrink-0 w-5 h-5 rounded-full bg-blue-600 text-white text-[10px] font-black flex items-center justify-center mt-0.5">1</span>
+                    <div>
+                      <p className="text-[11px] font-semibold text-white">Verify Eligibility</p>
+                      <p className="text-[10px] text-gray-400 leading-relaxed">
+                        Review eligibility criteria above. Confirm VEDD meets all requirements before investing time in the proposal.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Step 2 */}
+                  <div className="flex gap-2">
+                    <span className="flex-shrink-0 w-5 h-5 rounded-full bg-purple-600 text-white text-[10px] font-black flex items-center justify-center mt-0.5">2</span>
+                    <div>
+                      <p className="text-[11px] font-semibold text-white">Start Application Draft</p>
+                      <p className="text-[10px] text-gray-400 leading-relaxed">
+                        Tap the ❤️ button to save this grant, then open it in your Applications tab. Choose Auto, Guided, or Template proposal mode.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Step 3 */}
+                  <div className="flex gap-2">
+                    <span className="flex-shrink-0 w-5 h-5 rounded-full bg-green-600 text-white text-[10px] font-black flex items-center justify-center mt-0.5">3</span>
+                    <div>
+                      <p className="text-[11px] font-semibold text-white">Generate AI Proposal</p>
+                      <p className="text-[10px] text-gray-400 leading-relaxed">
+                        Use Auto mode for a full 1,500-word proposal in one click. Guided mode lets you refine section by section for higher acceptance rates.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Step 4 */}
+                  <div className="flex gap-2">
+                    <span className="flex-shrink-0 w-5 h-5 rounded-full bg-amber-500 text-white text-[10px] font-black flex items-center justify-center mt-0.5">4</span>
+                    <div>
+                      <p className="text-[11px] font-semibold text-white">Submit Before Deadline</p>
+                      <p className="text-[10px] text-gray-400 leading-relaxed">
+                        {grant.deadline
+                          ? `Deadline: ${new Date(grant.deadline).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}. Submit at least 5 days early to allow for questions.`
+                          : 'Check the funder website for current deadline. Submit at least 5 days early.'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Step 5 */}
+                  <div className="flex gap-2">
+                    <span className="flex-shrink-0 w-5 h-5 rounded-full bg-red-600 text-white text-[10px] font-black flex items-center justify-center mt-0.5">5</span>
+                    <div>
+                      <p className="text-[11px] font-semibold text-white">Track & Follow Up</p>
+                      <p className="text-[10px] text-gray-400 leading-relaxed">
+                        Update application status in your pipeline after submitting. Follow up with the funder 2 weeks after submission deadline if no response.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Direct apply link */}
+                  {grant.applicationUrl && (
+                    <a
+                      href={grant.applicationUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-center gap-1.5 mt-2 w-full rounded-lg py-2 text-xs font-bold text-white"
+                      style={{ background: 'linear-gradient(135deg,#059669,#0891b2)' }}
+                      onClick={e => e.stopPropagation()}
+                    >
+                      <Globe className="h-3.5 w-3.5" /> Open Official Application →
+                    </a>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
         )}
 
         {/* Swipe hint */}

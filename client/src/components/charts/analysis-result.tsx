@@ -23,6 +23,117 @@ interface AnalysisResultProps {
   onReanalyze: () => void;
 }
 
+// ── Position Size Calculator Component ────────────────────────────────────────
+function PositionSizeCalc({ analysis }: { analysis: ChartAnalysisResponse }) {
+  const [balance, setBalance] = React.useState('');
+  const [weeklyGoal, setWeeklyGoal] = React.useState('');
+  const [riskPct, setRiskPct] = React.useState('1');
+
+  const stopPips = parseFloat((analysis.potentialPips || '0').replace(/[^0-9.]/g, '')) || 20;
+  const balNum = parseFloat(balance) || 0;
+  const goalNum = parseFloat(weeklyGoal) || 0;
+  const riskNum = parseFloat(riskPct) || 1;
+
+  // Standard forex lot size calculation
+  // Risk amount = balance * riskPct / 100
+  // Lot size = riskAmount / (stopPips * pipValue) where pipValue ≈ $10 for major pairs at 1.0 lot
+  const riskAmount = (balNum * riskNum) / 100;
+  const pipValuePerLot = 10; // $10 per pip at 1 standard lot for most majors
+  const recommendedLots = stopPips > 0 && balNum > 0
+    ? Math.floor((riskAmount / (stopPips * pipValuePerLot)) * 100) / 100
+    : 0;
+
+  // How many trades at this lot size to reach weekly goal
+  const profitPips = parseFloat((analysis.potentialPips || '0').replace(/[^0-9.]/g, '')) || 30;
+  const profitPerTrade = recommendedLots * profitPips * pipValuePerLot;
+  const tradesNeeded = goalNum > 0 && profitPerTrade > 0
+    ? Math.ceil(goalNum / profitPerTrade) : 0;
+
+  const goalFitPct = goalNum > 0 && profitPerTrade > 0
+    ? Math.min(100, Math.round((profitPerTrade / (goalNum / 5)) * 100)) : 0;
+
+  const fitColor = goalFitPct >= 80 ? '#4CAF50' : goalFitPct >= 40 ? '#F39C12' : '#E64A4A';
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">Account Balance ($)</label>
+          <input
+            type="number" placeholder="e.g. 5000"
+            value={balance} onChange={e => setBalance(e.target.value)}
+            className="w-full bg-[#0A0A0A] border border-[#333] rounded-lg px-3 py-2 text-sm text-white placeholder:text-gray-600 outline-none focus:border-[#E64A4A]"
+          />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">Weekly Goal ($)</label>
+          <input
+            type="number" placeholder="e.g. 500"
+            value={weeklyGoal} onChange={e => setWeeklyGoal(e.target.value)}
+            className="w-full bg-[#0A0A0A] border border-[#333] rounded-lg px-3 py-2 text-sm text-white placeholder:text-gray-600 outline-none focus:border-[#E64A4A]"
+          />
+        </div>
+      </div>
+
+      <div>
+        <label className="block text-xs text-gray-400 mb-1">Risk per Trade: <span className="text-white font-bold">{riskPct}%</span></label>
+        <input type="range" min="0.5" max="3" step="0.5"
+          value={riskPct} onChange={e => setRiskPct(e.target.value)}
+          className="w-full accent-[#E64A4A]" />
+        <div className="flex justify-between text-[10px] text-gray-600"><span>0.5%</span><span>3%</span></div>
+      </div>
+
+      {balNum > 0 ? (
+        <div className="space-y-3">
+          <div className="bg-[#0A0A0A] rounded-xl px-4 py-3 flex items-center justify-between">
+            <div>
+              <p className="text-xs text-gray-400">Recommended Lot Size</p>
+              <p className="text-2xl font-black text-[#E64A4A]">{recommendedLots.toFixed(2)}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-xs text-gray-400">Risk Amount</p>
+              <p className="text-sm font-bold text-white">${riskAmount.toFixed(2)}</p>
+            </div>
+          </div>
+
+          {goalNum > 0 && (
+            <>
+              <div>
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="text-gray-400">Weekly Goal Fit</span>
+                  <span className="font-bold" style={{ color: fitColor }}>{goalFitPct}% per trade</span>
+                </div>
+                <div className="w-full bg-[#333] rounded-full h-2">
+                  <div className="h-2 rounded-full transition-all duration-500"
+                    style={{ width: `${goalFitPct}%`, background: fitColor }} />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="bg-[#0A0A0A] rounded-lg p-2.5">
+                  <p className="text-gray-400">Profit/Trade</p>
+                  <p className="font-bold text-white">${profitPerTrade.toFixed(2)}</p>
+                </div>
+                <div className="bg-[#0A0A0A] rounded-lg p-2.5">
+                  <p className="text-gray-400">Trades to Goal</p>
+                  <p className="font-bold text-white">{tradesNeeded} trades</p>
+                </div>
+              </div>
+            </>
+          )}
+
+          <p className="text-[10px] text-gray-600 italic">
+            Based on {stopPips} pip stop · {riskPct}% risk · major pair pip value. Adjust for your broker.
+          </p>
+        </div>
+      ) : (
+        <div className="bg-[#0A0A0A] rounded-xl px-4 py-6 text-center">
+          <p className="text-gray-500 text-sm">Enter your balance to calculate the optimal lot size for this signal.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const AnalysisResult: React.FC<AnalysisResultProps> = ({ analysis, imageUrl, annotatedImageUrl, onReanalyze }) => {
   const [newsEvents, setNewsEvents] = useState<NewsEvent[]>([]);
   const { isSubscribed, subscribeToSymbol, unsubscribeFromSymbol } = useNewsNotifications();
@@ -238,6 +349,178 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({ analysis, imageUrl, ann
             </div>
           </div>
         </div>
+      </div>
+
+      {/* ── AI Confidence Score Gauge ────────────────────────────────────── */}
+      <div className="bg-[#1E1E1E] rounded-xl p-6 shadow-lg md:col-span-2">
+        <h2 className="text-xl font-semibold mb-5 flex items-center gap-2">
+          <span className="text-2xl">🎯</span> AI Confidence Score
+        </h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* Numeric gauge */}
+          {(() => {
+            // Compute 0–100 score from available fields
+            const base = analysis.confidence?.toLowerCase() === 'high' ? 78
+              : analysis.confidence?.toLowerCase() === 'medium' ? 52 : 30;
+            const patternBonus = Math.min(15, (analysis.patterns?.length || 0) * 3);
+            const indicatorBonus = Math.min(10, (analysis.indicators?.length || 0) * 2);
+            const highStrength = (analysis.patterns || []).filter((p: any) => /high|strong/i.test(p.strength || '')).length;
+            const strengthBonus = Math.min(10, highStrength * 5);
+            const rrParts = (analysis.riskRewardRatio || '').split(':');
+            const rrBonus = rrParts.length === 2 && parseFloat(rrParts[1]) >= 2 ? 5 : 0;
+            const score = Math.min(98, Math.max(10, base + patternBonus + indicatorBonus + strengthBonus + rrBonus));
+            const color = score >= 75 ? '#4CAF50' : score >= 50 ? '#F39C12' : '#E64A4A';
+            const label = score >= 75 ? 'High Confidence' : score >= 50 ? 'Moderate' : 'Low Confidence';
+            const circumference = 2 * Math.PI * 52;
+            const dashOffset = circumference * (1 - score / 100);
+            return (
+              <>
+                <div className="flex flex-col items-center justify-center">
+                  <div className="relative w-36 h-36">
+                    <svg viewBox="0 0 120 120" className="w-full h-full -rotate-90">
+                      <circle cx="60" cy="60" r="52" fill="none" stroke="#333" strokeWidth="10" />
+                      <circle
+                        cx="60" cy="60" r="52" fill="none"
+                        stroke={color} strokeWidth="10" strokeLinecap="round"
+                        strokeDasharray={circumference}
+                        strokeDashoffset={dashOffset}
+                        style={{ transition: 'stroke-dashoffset 1.2s ease' }}
+                      />
+                    </svg>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center">
+                      <span className="text-3xl font-black" style={{ color }}>{score}%</span>
+                      <span className="text-[10px] text-gray-400 uppercase tracking-widest">Score</span>
+                    </div>
+                  </div>
+                  <span className="mt-2 text-sm font-bold" style={{ color }}>{label}</span>
+                </div>
+
+                {/* Score breakdown */}
+                <div className="space-y-3 col-span-2">
+                  {[
+                    { label: 'Signal Confidence', value: base, max: 80 },
+                    { label: 'Pattern Strength', value: patternBonus + strengthBonus, max: 25 },
+                    { label: 'Indicator Alignment', value: indicatorBonus, max: 10 },
+                    { label: 'Risk/Reward Quality', value: rrBonus, max: 5 },
+                  ].map((row) => {
+                    const pct = Math.round((row.value / row.max) * 100);
+                    const rowColor = pct >= 75 ? '#4CAF50' : pct >= 40 ? '#F39C12' : '#E64A4A';
+                    return (
+                      <div key={row.label}>
+                        <div className="flex justify-between text-xs text-gray-400 mb-1">
+                          <span>{row.label}</span>
+                          <span style={{ color: rowColor }}>{row.value}/{row.max} pts</span>
+                        </div>
+                        <div className="w-full bg-[#333] rounded-full h-1.5">
+                          <div className="h-1.5 rounded-full transition-all duration-700"
+                            style={{ width: `${Math.min(100, pct)}%`, background: rowColor }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <p className="text-xs text-gray-500 mt-2 italic">
+                    Score computed from {(analysis.patterns?.length || 0) + (analysis.indicators?.length || 0)} signal{((analysis.patterns?.length || 0) + (analysis.indicators?.length || 0)) !== 1 ? 's' : ''} · {analysis.confidence} raw AI confidence · R:R {analysis.riskRewardRatio}
+                  </p>
+                </div>
+              </>
+            );
+          })()}
+        </div>
+      </div>
+
+      {/* ── Best Time to Trade Meter ──────────────────────────────────────── */}
+      <div className="bg-[#1E1E1E] rounded-xl p-6 shadow-lg md:col-span-1">
+        <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+          <span className="text-2xl">⏰</span> Best Time to Trade
+        </h2>
+        {(() => {
+          const preferred = (analysis.preferredTradingTime || 'Any Session').toLowerCase();
+          const now = new Date();
+          const utcHour = now.getUTCHours();
+
+          // Session windows (UTC)
+          const sessions: { name: string; open: number; close: number; emoji: string }[] = [
+            { name: 'Sydney',   open: 22, close: 7,  emoji: '🇦🇺' },
+            { name: 'Tokyo',    open: 0,  close: 9,  emoji: '🇯🇵' },
+            { name: 'London',   open: 8,  close: 17, emoji: '🇬🇧' },
+            { name: 'New York', open: 13, close: 22, emoji: '🇺🇸' },
+          ];
+
+          const isInSession = (s: typeof sessions[0]) => {
+            if (s.open < s.close) return utcHour >= s.open && utcHour < s.close;
+            return utcHour >= s.open || utcHour < s.close;
+          };
+
+          const matchScore = (s: typeof sessions[0]) => {
+            const nameMatch = preferred.includes(s.name.toLowerCase()) || preferred.includes('any') || preferred.includes('all');
+            const active = isInSession(s);
+            if (nameMatch && active) return 100;
+            if (nameMatch) return 60;
+            if (active) return 40;
+            return 10;
+          };
+
+          const best = sessions.reduce((a, b) => matchScore(a) >= matchScore(b) ? a : b);
+          const overallScore = matchScore(best);
+
+          const meterColor = overallScore >= 80 ? '#4CAF50' : overallScore >= 50 ? '#F39C12' : '#E64A4A';
+          const meterLabel = overallScore >= 80 ? '🟢 Trade Now' : overallScore >= 50 ? '🟡 Near Window' : '🔴 Off Session';
+
+          return (
+            <div className="space-y-4">
+              {/* Meter bar */}
+              <div>
+                <div className="flex justify-between text-xs mb-1.5">
+                  <span className="text-gray-400">Trade Window Score</span>
+                  <span className="font-bold" style={{ color: meterColor }}>{meterLabel}</span>
+                </div>
+                <div className="w-full bg-[#333] rounded-full h-3 overflow-hidden">
+                  <div className="h-3 rounded-full transition-all duration-700"
+                    style={{ width: `${overallScore}%`, background: `linear-gradient(90deg, ${meterColor}88, ${meterColor})` }} />
+                </div>
+              </div>
+
+              {/* Preferred session */}
+              <div className="bg-[#0A0A0A] rounded-lg px-4 py-3">
+                <p className="text-xs text-gray-400 mb-0.5">AI Recommended Session</p>
+                <p className="font-semibold text-white">{analysis.preferredTradingTime || 'Any Session'}</p>
+              </div>
+
+              {/* Live session grid */}
+              <div className="grid grid-cols-2 gap-2">
+                {sessions.map(s => {
+                  const active = isInSession(s);
+                  const matched = preferred.includes(s.name.toLowerCase()) || preferred.includes('any');
+                  return (
+                    <div key={s.name} className="rounded-lg px-3 py-2 flex items-center gap-2"
+                      style={{
+                        background: active && matched ? 'rgba(76,175,80,.15)' : active ? 'rgba(255,255,255,.05)' : 'rgba(0,0,0,.3)',
+                        border: `1px solid ${active && matched ? 'rgba(76,175,80,.4)' : active ? 'rgba(255,255,255,.1)' : 'rgba(255,255,255,.04)'}`,
+                      }}>
+                      <span>{s.emoji}</span>
+                      <div>
+                        <p className="text-xs font-semibold text-white">{s.name}</p>
+                        <p className="text-[10px]" style={{ color: active ? '#4CAF50' : '#666' }}>
+                          {active ? '● Live' : '○ Closed'}
+                          {matched ? ' ★' : ''}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="text-[10px] text-gray-600">Current UTC time: {String(utcHour).padStart(2,'0')}:00 · ★ = AI recommended</p>
+            </div>
+          );
+        })()}
+      </div>
+
+      {/* ── Position Size Calculator ──────────────────────────────────────── */}
+      <div className="bg-[#1E1E1E] rounded-xl p-6 shadow-lg md:col-span-1">
+        <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+          <span className="text-2xl">📐</span> Position Size & Goal Fit
+        </h2>
+        <PositionSizeCalc analysis={analysis} />
       </div>
 
       {/* Pattern Recognition */}
