@@ -55,12 +55,13 @@ const ecosystemItems = [
 ];
 
 const financeItems = [
-  { name: 'Investments', path: '/token-investments', icon: Coins,      color: '#f59e0b' },
-  { name: 'VEDD Wallet', path: '/vedd-wallet',       icon: Wallet,     color: '#8b5cf6' },
-  { name: 'Referral Hub',path: '/referral',          icon: DollarSign, color: '#22c55e' },
-  { name: 'Grants',      path: '/grants',            icon: DollarSign, color: '#22c55e' },
-  { name: 'Achievements',path: '/achievements',      icon: Award,      color: '#f59e0b' },
-  { name: 'Pricing',     path: '/subscription',      icon: CreditCard, color: '#ef4444' },
+  { name: 'Investments',    path: '/token-investments',  icon: Coins,      color: '#f59e0b' },
+  { name: 'VEDD Wallet',    path: '/vedd-wallet',        icon: Wallet,     color: '#8b5cf6' },
+  { name: 'Referral Hub',   path: '/referral',           icon: DollarSign, color: '#22c55e' },
+  { name: 'Grants',         path: '/grants',             icon: DollarSign, color: '#22c55e' },
+  { name: 'Credit Builder', path: '/credit-builder',     icon: Award,      color: '#06b6d4' },
+  { name: 'Achievements',   path: '/achievements',       icon: Award,      color: '#f59e0b' },
+  { name: 'Pricing',        path: '/subscription',       icon: CreditCard, color: '#ef4444' },
 ];
 
 /* ─── Tile button ─────────────────────────────────── */
