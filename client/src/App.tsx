@@ -45,6 +45,7 @@ import EAMarketplacePage from "@/pages/ea-marketplace";
 import SocialHub from "@/pages/social-hub";
 import UserGuidePage from "@/pages/user-guide";
 import AmbassadorTrainingPage from "@/pages/ambassador-training";
+import WorkforceAcademyPage from "@/pages/workforce-academy";
 import AmbassadorSalesScriptPage from "@/pages/ambassador-sales-script";
 import TrainingCalendar from "@/pages/training-calendar";
 import TrainingDay from "@/pages/training-day";
@@ -69,6 +70,12 @@ import SolScannerLanding from "@/pages/sol-scanner-landing";
 import SolScannerTrades from "@/pages/sol-scanner-trades";
 import VeddTokenomics from "@/pages/vedd-tokenomics";
 import VeddClothingPage from "@/pages/vedd-clothing";
+import VeddEcosystemPage from "@/pages/vedd-ecosystem";
+import CommunityImpactPage from "@/pages/community-impact";
+import ImpactDashboardPage from "@/pages/impact-dashboard";
+import AIGovernancePage from "@/pages/ai-governance";
+import InnovationLabPage from "@/pages/innovation-lab";
+import CompliancePage from "@/pages/compliance";
 import LiveMonitorPage from "@/pages/live-monitor";
 import WeeklyStrategyPage from "@/pages/weekly-strategy";
 import FuturesConnectPage from "@/pages/futures-connect";
@@ -152,6 +159,7 @@ function AppLayout() {
             <Route path="/security" component={SecurityPage} />
             <Route path="/user-guide" component={UserGuidePage} />
             <Route path="/ambassador-training" component={AmbassadorTrainingPage} />
+            <Route path="/workforce-academy" component={WorkforceAcademyPage} />
             <Route path="/training-calendar" component={TrainingCalendar} />
             <Route path="/training-calendar/day/:dayNumber" component={TrainingDay} />
             <Route path="/streak" component={StreakTrackerPage} />
@@ -225,6 +233,12 @@ function AppLayout() {
             <Route path="/sol-scanner/trades" component={SolScannerTrades} />
             <Route path="/vedd-tokenomics" component={VeddTokenomics} />
             <ProtectedRoute path="/vedd-clothing" component={VeddClothingPage} />
+            <ProtectedRoute path="/vedd-ecosystem" component={VeddEcosystemPage} />
+            <ProtectedRoute path="/community-impact" component={CommunityImpactPage} />
+            <ProtectedRoute path="/impact-dashboard" component={ImpactDashboardPage} />
+            <ProtectedRoute path="/ai-governance" component={AIGovernancePage} />
+            <ProtectedRoute path="/innovation-lab" component={InnovationLabPage} />
+            <ProtectedRoute path="/compliance" component={CompliancePage} />
             <ProtectedRoute path="/live-monitor" component={LiveMonitorPage} />
             <ProtectedRoute path="/futures-connect" component={FuturesConnectPage} />
             <ProtectedRoute path="/futures-ea-generator" component={FuturesEaGeneratorPage} />

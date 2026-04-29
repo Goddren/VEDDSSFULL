@@ -5,6 +5,7 @@ import {
   Briefcase, HelpCircle, BookOpen, GraduationCap, Lightbulb,
   Coins, Webhook, Wallet, DollarSign, Globe, Search, BarChart3,
   LineChart, Scan, Brain, Radio, Rocket, Heart, X,
+  FlaskConical, Shield, BarChart2, Lock, Building2,
 } from 'lucide-react';
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useAuth } from '@/hooks/use-auth';
@@ -41,6 +42,16 @@ const communityItems = [
   { name: 'Blog',         path: '/blog',                                  icon: Newspaper,   color: '#22c55e' },
   { name: 'Devotional',   path: '/devotional',                            icon: Heart,       color: '#ef4444' },
   { name: 'Content Studio', path: '/ambassador/content-studio',           icon: Zap,         color: '#a855f7' },
+];
+
+const ecosystemItems = [
+  { name: 'Ecosystem Hub',   path: '/vedd-ecosystem',    icon: Building2,    color: '#6366f1' },
+  { name: 'Workforce Acad.', path: '/workforce-academy', icon: GraduationCap, color: '#06b6d4' },
+  { name: 'Community Impact',path: '/community-impact',  icon: Users,        color: '#22c55e' },
+  { name: 'Impact Dashboard',path: '/impact-dashboard',  icon: BarChart2,    color: '#f59e0b' },
+  { name: 'AI Governance',   path: '/ai-governance',     icon: Shield,       color: '#ef4444' },
+  { name: 'Innovation Lab',  path: '/innovation-lab',    icon: FlaskConical, color: '#a855f7' },
+  { name: 'Compliance',      path: '/compliance',        icon: Lock,         color: '#06b6d4' },
 ];
 
 const financeItems = [
@@ -243,6 +254,13 @@ export function MobileBottomNav() {
           <SectionLabel label="Finance" />
           <div className="grid grid-cols-3 gap-2">
             {financeItems.map(item => (
+              <NavTile key={item.path} {...item} isActive={isActive(item.path)} onClose={close} />
+            ))}
+          </div>
+
+          <SectionLabel label="Grant Ecosystem" />
+          <div className="grid grid-cols-3 gap-2">
+            {ecosystemItems.map(item => (
               <NavTile key={item.path} {...item} isActive={isActive(item.path)} onClose={close} />
             ))}
           </div>

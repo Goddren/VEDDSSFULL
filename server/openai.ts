@@ -3585,3 +3585,93 @@ Return ONLY valid JSON, no markdown, no extra text.`;
     };
   }
 }
+
+// ─── WORKFORCE ACADEMY — AI Curriculum Generator ─────────────────────────────
+
+export async function generateWorkforceCurriculum(params: {
+  title: string;
+  category: string;
+  targetAudience: string;
+  difficulty: string;
+  estimatedMinutes: number;
+  objectives: string;
+  grantTags: string[];
+  userId?: number;
+}): Promise<{
+  overview: string;
+  objectives: string[];
+  modules: { title: string; duration: string; content: string }[];
+  assessmentQuestions: { question: string; options: string[]; correct: number; explanation: string }[];
+  grantAlignment: string;
+  instructorNotes: string;
+}> {
+  const client = await getUniversalAIClientForUser(params.userId || 0).catch(() => null);
+
+  const systemPrompt = `You are an expert workforce development curriculum designer for VEDD Technologies, LLC — an AI trading education and community finance platform. VEDD serves underrepresented communities, offering AI literacy, digital skills, financial planning, and trading education aligned with DOL WIOA, NSF AI Workforce, SBA, CDFI Fund, and EDA grant programs. All curricula must be inclusive, practical, and measurable for grant reporting.`;
+
+  const userPrompt = `Design a complete workforce training curriculum with these parameters:
+
+Title: ${params.title}
+Category: ${params.category}
+Target Audience: ${params.targetAudience}
+Difficulty: ${params.difficulty}
+Estimated Duration: ${params.estimatedMinutes} minutes
+Learning Objectives: ${params.objectives}
+Grant Alignment: ${params.grantTags.join(', ')}
+
+Return a JSON object with exactly this structure:
+{
+  "overview": "2-3 sentence course overview",
+  "objectives": ["measurable learning objective 1", "objective 2", "objective 3", "objective 4"],
+  "modules": [
+    { "title": "Module 1 title", "duration": "X minutes", "content": "Detailed module description and key topics covered" },
+    { "title": "Module 2 title", "duration": "X minutes", "content": "..." }
+  ],
+  "assessmentQuestions": [
+    { "question": "Question text", "options": ["A", "B", "C", "D"], "correct": 0, "explanation": "Why this answer is correct" }
+  ],
+  "grantAlignment": "Explanation of how this curriculum aligns with specified grant programs and their workforce development goals",
+  "instructorNotes": "Facilitation tips, differentiation strategies for diverse learners, and accommodations for underserved populations"
+}
+
+Create 4-6 modules and 5 assessment questions. Make objectives measurable (Bloom's taxonomy verbs). Ensure content is practical and immediately applicable.`;
+
+  try {
+    const aiClient = client || new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const response = await (aiClient as any).chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt }
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.7,
+    });
+
+    const content = response.choices[0].message.content;
+    return JSON.parse(content || "{}");
+  } catch (err) {
+    console.error("generateWorkforceCurriculum error:", err);
+    // Fallback structure
+    return {
+      overview: `${params.title} is a ${params.difficulty}-level course designed to build ${params.category.replace(/_/g, ' ')} skills for ${params.targetAudience} learners.`,
+      objectives: [
+        `Define key concepts in ${params.category.replace(/_/g, ' ')}`,
+        `Apply learned skills to real-world scenarios`,
+        `Demonstrate competency through practical exercises`,
+        `Connect skills to career and financial opportunities`,
+      ],
+      modules: [
+        { title: "Introduction & Foundations", duration: `${Math.floor(params.estimatedMinutes * 0.2)} minutes`, content: "Course overview, learning expectations, and foundational concepts." },
+        { title: "Core Concepts", duration: `${Math.floor(params.estimatedMinutes * 0.3)} minutes`, content: "Deep dive into primary subject matter with examples and case studies." },
+        { title: "Practical Application", duration: `${Math.floor(params.estimatedMinutes * 0.3)} minutes`, content: "Hands-on exercises and real-world application of learned concepts." },
+        { title: "Assessment & Next Steps", duration: `${Math.floor(params.estimatedMinutes * 0.2)} minutes`, content: "Knowledge check, certificate preparation, and career pathway guidance." },
+      ],
+      assessmentQuestions: [
+        { question: "Which best describes the primary goal of this course?", options: ["Build technical skills", "Develop financial literacy", "Improve career readiness", "All of the above"], correct: 3, explanation: "This course addresses all three areas as part of VEDD's holistic workforce development approach." }
+      ],
+      grantAlignment: `This curriculum aligns with ${params.grantTags.join(' and ')} grant requirements for workforce development, skills training, and community economic empowerment.`,
+      instructorNotes: "Accommodate diverse learning styles with visual aids, real-world examples, and peer discussion. Provide additional support resources for participants with limited prior exposure to digital tools.",
+    };
+  }
+}

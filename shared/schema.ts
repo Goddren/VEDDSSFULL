@@ -2209,4 +2209,155 @@ export type InsertDevotionalGroup = z.infer<typeof insertDevotionalGroupSchema>;
 
 export const insertDevotionalSessionSchema = createInsertSchema(devotionalSessions).omit({ id: true, createdAt: true });
 export type DevotionalSession = typeof devotionalSessions.$inferSelect;
+
+// ─── WORKFORCE ACADEMY ENGINE ────────────────────────────────────────────────
+
+export const workforceModules = pgTable("workforce_modules", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  category: text("category").notNull(), // 'ai_literacy'|'digital_skills'|'trading_fundamentals'|'financial_planning'|'web3_basics'|'stem'
+  difficulty: text("difficulty").default("beginner"), // 'beginner'|'intermediate'|'advanced'
+  estimatedMinutes: integer("estimated_minutes").default(30),
+  content: jsonb("content"), // Array of { title, body, videoUrl? }
+  assessmentQuestions: jsonb("assessment_questions"), // [{ question, options: string[], correct: number, explanation }]
+  passingScore: integer("passing_score").default(70),
+  targetAudience: text("target_audience").default("all"), // 'all'|'youth'|'community'|'ambassador'
+  grantTags: jsonb("grant_tags"), // ['DOL', 'NSF', 'CDFI', 'EDA', 'SBA']
+  isPublished: boolean("is_published").default(true),
+  sortOrder: integer("sort_order").default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const workforceEnrollments = pgTable("workforce_enrollments", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  moduleId: integer("module_id").references(() => workforceModules.id).notNull(),
+  status: text("status").default("enrolled"), // 'enrolled'|'in_progress'|'completed'
+  progressPct: integer("progress_pct").default(0),
+  score: integer("score"),
+  completedAt: timestamp("completed_at"),
+  enrolledAt: timestamp("enrolled_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const workforceCertificates = pgTable("workforce_certificates", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  moduleId: integer("module_id").references(() => workforceModules.id),
+  certificateType: text("certificate_type").default("module"), // 'module'|'program'|'ambassador'|'workforce'
+  certificateId: text("certificate_id").notNull().unique(), // VEDD-CERT-XXXXX
+  title: text("title").notNull(),
+  recipientName: text("recipient_name"),
+  score: integer("score"),
+  issuedAt: timestamp("issued_at").defaultNow().notNull(),
+});
+
+// ─── IMPACT MEASUREMENT SYSTEM ───────────────────────────────────────────────
+
+export const impactMetrics = pgTable("impact_metrics", {
+  id: serial("id").primaryKey(),
+  metricType: text("metric_type").notNull(), // 'enrollment'|'completion'|'job_placement'|'skills_gain'|'community_reach'|'partner_engagement'
+  value: integer("value").default(0),
+  grantTag: text("grant_tag"), // Which grant program this metric supports
+  period: text("period"), // 'Q1_2025', 'Q2_2025', etc.
+  demographicData: jsonb("demographic_data"), // { ageGroup, geography, incomeLevel, ethnicity }
+  notes: text("notes"),
+  recordedAt: timestamp("recorded_at").defaultNow().notNull(),
+});
+
+export const communityPartnerships = pgTable("community_partnerships", {
+  id: serial("id").primaryKey(),
+  organizationName: text("organization_name").notNull(),
+  partnerType: text("partner_type").notNull(), // 'nonprofit'|'school'|'workforce_board'|'church'|'cdfi'|'government'
+  contactName: text("contact_name"),
+  contactEmail: text("contact_email"),
+  status: text("status").default("active"), // 'prospect'|'active'|'reporting'|'inactive'
+  programsSupported: jsonb("programs_supported"), // ['workforce_academy', 'financial_literacy', 'youth_stem']
+  participantsReferred: integer("participants_referred").default(0),
+  mou: boolean("mou").default(false), // Memorandum of Understanding signed
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// ─── AI ETHICS & GOVERNANCE ──────────────────────────────────────────────────
+
+export const auditLogs = pgTable("audit_logs", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id),
+  action: text("action").notNull(), // 'ai_decision'|'data_access'|'model_run'|'bias_check'|'policy_update'|'ethics_review'
+  resource: text("resource"), // 'chart_analysis'|'grant_proposal'|'user_data'|'curriculum'
+  details: jsonb("details"),
+  ipAddress: text("ip_address"),
+  outcome: text("outcome").default("success"), // 'success'|'flagged'|'blocked'|'reviewed'
+  riskLevel: text("risk_level").default("low"), // 'low'|'medium'|'high'
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const biasReports = pgTable("bias_reports", {
+  id: serial("id").primaryKey(),
+  triggeredBy: integer("triggered_by").references(() => users.id),
+  scanScope: text("scan_scope").notNull(), // 'full'|'curriculum'|'ai_outputs'|'recommendations'
+  findingsCount: integer("findings_count").default(0),
+  riskScore: integer("risk_score").default(0), // 0-100
+  findings: jsonb("findings"), // [{ category, severity, description, recommendation }]
+  status: text("status").default("pending"), // 'pending'|'running'|'completed'|'reviewed'
+  reviewedBy: integer("reviewed_by").references(() => users.id),
+  reviewNotes: text("review_notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  completedAt: timestamp("completed_at"),
+});
+
+// ─── RESEARCH & INNOVATION LAB ───────────────────────────────────────────────
+
+export const innovationProjects = pgTable("innovation_projects", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  title: text("title").notNull(),
+  category: text("category").notNull(), // 'algorithm'|'wearable_ai'|'community_finance'|'ai_ethics'|'workforce_tech'
+  hypothesis: text("hypothesis"),
+  methodology: text("methodology"),
+  dataPoints: jsonb("data_points"), // Experiment data collected
+  status: text("status").default("active"), // 'active'|'paused'|'published'|'archived'
+  tags: jsonb("tags"),
+  grantAlignment: text("grant_alignment"), // Which grant type this research supports
+  reportContent: text("report_content"), // Generated innovation report
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Insert schemas and types
+export const insertWorkforceModuleSchema = createInsertSchema(workforceModules).omit({ id: true, createdAt: true, updatedAt: true });
+export type WorkforceModule = typeof workforceModules.$inferSelect;
+export type InsertWorkforceModule = z.infer<typeof insertWorkforceModuleSchema>;
+
+export const insertWorkforceEnrollmentSchema = createInsertSchema(workforceEnrollments).omit({ id: true, enrolledAt: true, updatedAt: true });
+export type WorkforceEnrollment = typeof workforceEnrollments.$inferSelect;
+export type InsertWorkforceEnrollment = z.infer<typeof insertWorkforceEnrollmentSchema>;
+
+export const insertWorkforceCertificateSchema = createInsertSchema(workforceCertificates).omit({ id: true, issuedAt: true });
+export type WorkforceCertificate = typeof workforceCertificates.$inferSelect;
+export type InsertWorkforceCertificate = z.infer<typeof insertWorkforceCertificateSchema>;
+
+export const insertImpactMetricSchema = createInsertSchema(impactMetrics).omit({ id: true, recordedAt: true });
+export type ImpactMetric = typeof impactMetrics.$inferSelect;
+export type InsertImpactMetric = z.infer<typeof insertImpactMetricSchema>;
+
+export const insertCommunityPartnershipSchema = createInsertSchema(communityPartnerships).omit({ id: true, createdAt: true, updatedAt: true });
+export type CommunityPartnership = typeof communityPartnerships.$inferSelect;
+export type InsertCommunityPartnership = z.infer<typeof insertCommunityPartnershipSchema>;
+
+export const insertAuditLogSchema = createInsertSchema(auditLogs).omit({ id: true, createdAt: true });
+export type AuditLog = typeof auditLogs.$inferSelect;
+export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
+
+export const insertBiasReportSchema = createInsertSchema(biasReports).omit({ id: true, createdAt: true });
+export type BiasReport = typeof biasReports.$inferSelect;
+export type InsertBiasReport = z.infer<typeof insertBiasReportSchema>;
+
+export const insertInnovationProjectSchema = createInsertSchema(innovationProjects).omit({ id: true, createdAt: true, updatedAt: true });
+export type InnovationProject = typeof innovationProjects.$inferSelect;
+export type InsertInnovationProject = z.infer<typeof insertInnovationProjectSchema>;
 export type InsertDevotionalSession = z.infer<typeof insertDevotionalSessionSchema>;
