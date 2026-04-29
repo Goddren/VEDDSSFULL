@@ -7,6 +7,8 @@ import { db } from "./db";
 import { scrypt, randomBytes } from "crypto";
 import { promisify } from "util";
 import { z } from "zod";
+import * as fs from "fs";
+import * as path from "path";
 
 const scryptAsync = promisify(scrypt);
 
@@ -18331,19 +18333,95 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       return res.status(403).json({ error: "Admin access required" });
     }
     try {
-      // Store in DB when workforce_modules table exists; for now return success
-      res.json({ success: true, message: "Curriculum saved to Academy" });
+      const dataFile = path.join(process.cwd(), "data", "curricula.json");
+      let curricula: any[] = [];
+      try { curricula = JSON.parse(fs.readFileSync(dataFile, "utf-8")); } catch {}
+      const entry = {
+        id: `curr_${Date.now()}`,
+        savedBy: req.user.id,
+        savedAt: new Date().toISOString(),
+        ...req.body,
+      };
+      curricula.push(entry);
+      fs.mkdirSync(path.join(process.cwd(), "data"), { recursive: true });
+      fs.writeFileSync(dataFile, JSON.stringify(curricula, null, 2));
+      res.json({ success: true, id: entry.id, message: "Curriculum saved to Academy" });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  // GET /api/workforce/modules — list published modules
+  // GET /api/workforce/modules — list published modules (saved + static catalog)
   app.get("/api/workforce/modules", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
     try {
-      // Return static catalog for now; DB-backed when tables are pushed
-      res.json({ modules: [], total: 12 });
+      const dataFile = path.join(process.cwd(), "data", "curricula.json");
+      let saved: any[] = [];
+      try { saved = JSON.parse(fs.readFileSync(dataFile, "utf-8")); } catch {}
+      res.json({ modules: saved, total: saved.length + 12 });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/workforce/certificates — save a certificate (earned after passing assessment)
+  app.post("/api/workforce/certificates", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const dataFile = path.join(process.cwd(), "data", "certificates.json");
+      let certs: any[] = [];
+      try { certs = JSON.parse(fs.readFileSync(dataFile, "utf-8")); } catch {}
+      const cert = {
+        ...req.body,
+        userId: req.user!.id,
+        userName: (req.user as any).fullName || (req.user as any).username,
+        savedAt: new Date().toISOString(),
+      };
+      // Deduplicate by certId
+      if (!certs.find((c: any) => c.certId === cert.certId)) {
+        certs.push(cert);
+        fs.mkdirSync(path.join(process.cwd(), "data"), { recursive: true });
+        fs.writeFileSync(dataFile, JSON.stringify(certs, null, 2));
+      }
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/workforce/certificates — get current user's certificates
+  app.get("/api/workforce/certificates", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const dataFile = path.join(process.cwd(), "data", "certificates.json");
+      let certs: any[] = [];
+      try { certs = JSON.parse(fs.readFileSync(dataFile, "utf-8")); } catch {}
+      const mine = certs.filter((c: any) => c.userId === req.user!.id);
+      res.json({ certificates: mine });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/verify/:certId — PUBLIC certificate verification endpoint
+  app.get("/api/verify/:certId", async (req: Request, res: Response) => {
+    try {
+      const dataFile = path.join(process.cwd(), "data", "certificates.json");
+      let certs: any[] = [];
+      try { certs = JSON.parse(fs.readFileSync(dataFile, "utf-8")); } catch {}
+      const cert = certs.find((c: any) => c.certId === req.params.certId);
+      if (!cert) return res.status(404).json({ valid: false, message: "Certificate not found" });
+      res.json({
+        valid: true,
+        certId: cert.certId,
+        recipientName: cert.userName,
+        courseTitle: cert.title,
+        score: cert.score,
+        issuedDate: cert.date,
+        issuer: "VEDD Technologies, LLC — Workforce Academy",
+        ceuHours: cert.ceuHours,
+        grantFrameworks: cert.grantFrameworks,
+      });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
