@@ -778,6 +778,27 @@ function SetupCard({
               R:R {setup.riskReward}:1 • Pattern: <span className="text-amber-400">{setup.pattern || "None"}</span>
             </p>
           )}
+          {/* MT5 auto-detected bias + pattern badges */}
+          {setup.autoMode && (setup.preMarketBias || setup.pattern) && (
+            <div className="flex items-center justify-center gap-2 flex-wrap mt-1.5">
+              {setup.preMarketBias && (
+                <span className="text-[8px] font-bold px-2 py-0.5 rounded-full"
+                  style={{
+                    background: setup.preMarketBias === "bullish" ? "rgba(34,197,94,0.15)" : setup.preMarketBias === "bearish" ? "rgba(239,68,68,0.15)" : "rgba(107,114,128,0.15)",
+                    color: setup.preMarketBias === "bullish" ? "#4ade80" : setup.preMarketBias === "bearish" ? "#f87171" : "#9ca3af",
+                    border: `1px solid ${setup.preMarketBias === "bullish" ? "#22c55e30" : setup.preMarketBias === "bearish" ? "#ef444430" : "#6b728030"}`,
+                  }}>
+                  {setup.preMarketBias === "bullish" ? "📈" : setup.preMarketBias === "bearish" ? "📉" : "➖"} {setup.preMarketBias} bias (MT5)
+                </span>
+              )}
+              {setup.pattern && setup.autoMode && (
+                <span className="text-[8px] font-bold px-2 py-0.5 rounded-full"
+                  style={{ background: "rgba(245,158,11,0.12)", color: "#fbbf24", border: "1px solid rgba(245,158,11,0.25)" }}>
+                  🕯 {setup.pattern} (MT5)
+                </span>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -1240,6 +1261,9 @@ export default function ORBBreakoutPage() {
         orbHigh: number | null; orbLow: number | null;
         orbRange: number; orbRangePct: number; orbPhase: ORBPhase;
         foundOrbCandle: boolean; lastUpdated: string;
+        preMarketBias?: "bullish" | "bearish" | "neutral";
+        preMarketDetail?: string;
+        detectedPattern?: string | null;
       };
 
       if (!data.currentPrice) {
@@ -1252,6 +1276,18 @@ export default function ORBBreakoutPage() {
         currentPrice: data.currentPrice,
         lastUpdated: new Date().toLocaleTimeString() + " (MT5)",
       };
+
+      // Auto-fill pre-market bias from MT5 candle history
+      if (data.preMarketBias && data.preMarketBias !== "neutral") {
+        patch.preMarketBias = data.preMarketBias;
+      } else if (data.preMarketBias === "neutral") {
+        patch.preMarketBias = "neutral";
+      }
+
+      // Auto-fill candlestick pattern detected at current price
+      if (data.detectedPattern) {
+        patch.pattern = data.detectedPattern;
+      }
 
       // Only update ORB levels if the MT5 data found the 9:30 candle
       if (data.foundOrbCandle && data.orbHigh && data.orbLow) {

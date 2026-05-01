@@ -3502,6 +3502,111 @@ Respond ONLY in valid JSON format with these exact keys:
       const weekTrades = strategy?.progressTrades || 0;
       const weekWinRate = strategy?.progressWinRate || 0;
 
+      // ── Live ORB context from MT5 cache ──────────────────────────────────────
+      const mt5ChartCache = (global as any).mt5ChartDataCache || {};
+      const orbLiveContext: string[] = [];
+      const trackedSymbols = Object.keys(mt5ChartCache)
+        .filter(k => k.startsWith(`mt5_chart_${userId}_`))
+        .map(k => k.replace(`mt5_chart_${userId}_`, '').replace(/_[A-Z0-9]+$/, ''))
+        .filter((v, i, a) => a.indexOf(v) === i); // dedupe
+
+      for (const sym of trackedSymbols.slice(0, 6)) {
+        // Try M6/M5/M1/M15 timeframes
+        for (const tf of ['M6','M5','M1','M15','M30']) {
+          const cacheKey = `mt5_chart_${userId}_${sym}_${tf}`;
+          const cacheEntry = mt5ChartCache[cacheKey];
+          if (!cacheEntry?.candles?.length) continue;
+
+          const candles: any[] = cacheEntry.candles;
+          const latest = candles[0];
+          const currPrice = latest?.c || latest?.close || 0;
+          if (!currPrice) continue;
+
+          // Find today's 9:30 AM candle (EST/EDT)
+          const nowMs2 = Date.now();
+          const todayUTCStart2 = Math.floor(nowMs2 / 86400000) * 86400;
+          const todayC = candles.filter((c: any) => (c.t || c.time || 0) >= todayUTCStart2)
+            .sort((a: any, b: any) => (a.t || a.time) - (b.t || b.time));
+
+          let orbH = 0, orbL = 0;
+          for (const off of [-5, -4]) {
+            const oc = todayC.find((c: any) => {
+              const ts = c.t || c.time || 0;
+              if (!ts) return false;
+              const d = new Date(ts * 1000);
+              const h = ((d.getUTCHours() + off) % 24 + 24) % 24;
+              return h === 9 && d.getUTCMinutes() === 30;
+            });
+            if (oc) { orbH = oc.h || oc.high || 0; orbL = oc.l || oc.low || 0; break; }
+          }
+
+          let phase = 'Range Set';
+          let dir = '';
+          if (orbH > 0 && orbL > 0) {
+            if (currPrice > orbH * 1.001) { phase = 'BREAKOUT LONG 🚀'; dir = 'LONG'; }
+            else if (currPrice < orbL * 0.999) { phase = 'BREAKOUT SHORT 🔻'; dir = 'SHORT'; }
+            else if (currPrice >= orbH * 0.998 && currPrice <= orbH * 1.002) { phase = 'RETEST LONG ⚡'; dir = 'LONG'; }
+            else if (currPrice >= orbL * 0.998 && currPrice <= orbL * 1.002) { phase = 'RETEST SHORT ⚡'; dir = 'SHORT'; }
+          }
+
+          // Pre-market bias from candles before 9:30 AM
+          let pmBias = 'neutral';
+          for (const off of [-5, -4]) {
+            const pmC = todayC.filter((c: any) => {
+              const ts = c.t || c.time || 0;
+              const h = ((new Date(ts*1000).getUTCHours() + off) % 24 + 24) % 24;
+              return h >= 4 && h < 9;
+            });
+            if (pmC.length >= 2) {
+              const fo = pmC[0].o || pmC[0].open || pmC[0].c || pmC[0].close || 0;
+              const lc2 = pmC[pmC.length-1].c || pmC[pmC.length-1].close || 0;
+              if (fo > 0 && lc2 > 0) {
+                const chg = (lc2 - fo) / fo * 100;
+                pmBias = chg > 0.15 ? 'bullish' : chg < -0.15 ? 'bearish' : 'neutral';
+                break;
+              }
+            }
+          }
+
+          // Detected candlestick pattern
+          const c1 = candles[0], c2 = candles[1];
+          let pattern = '';
+          if (c1) {
+            const o = c1.o || c1.open || (c2 ? c2.c || c2.close : 0) || 0;
+            const cl = c1.c || c1.close || 0;
+            const hi = c1.h || c1.high || 0;
+            const lo = c1.l || c1.low || 0;
+            if (o && cl && hi && lo) {
+              const body = Math.abs(cl - o);
+              const rng = hi - lo;
+              const upper = hi - Math.max(o, cl);
+              const lower = Math.min(o, cl) - lo;
+              if (rng > 0) {
+                if (body / rng < 0.1) pattern = 'Doji';
+                else if (lower >= body * 2 && upper <= body * 0.8) pattern = 'Hammer/Pin Bar';
+                else if (upper >= body * 2 && lower <= body * 0.8) pattern = 'Shooting Star';
+                else if (upper / rng < 0.05 && lower / rng < 0.05) pattern = cl >= o ? 'Bullish Marubozu' : 'Bearish Marubozu';
+                else if (c2) {
+                  const po = c2.o || c2.open || c2.c || c2.close || 0;
+                  const pc = c2.c || c2.close || 0;
+                  if (po && pc) {
+                    if (cl > Math.max(po,pc) && o < Math.min(po,pc)) pattern = 'Bullish Engulfing';
+                    else if (cl < Math.min(po,pc) && o > Math.max(po,pc)) pattern = 'Bearish Engulfing';
+                    else if (hi < (c2.h || c2.high || 0) && lo > (c2.l || c2.low || 0)) pattern = 'Inside Bar';
+                  }
+                }
+              }
+            }
+          }
+
+          const rng = orbH > 0 ? (orbH - orbL).toFixed(2) : '?';
+          orbLiveContext.push(
+            `${sym} (${tf}): Price=${currPrice.toFixed(4)} | ORB High=${orbH > 0 ? orbH.toFixed(4) : 'N/A'} | ORB Low=${orbL > 0 ? orbL.toFixed(4) : 'N/A'} | Range=${rng} | Phase=${phase}${dir ? ' '+dir : ''} | Pre-Mkt Bias=${pmBias} | Pattern=${pattern || 'none'}`
+          );
+          break; // one entry per symbol
+        }
+      }
+
       // ── System prompt — Supreme Mathematics + Fund Manager personality ──────
       const systemPrompt = `You are ABBA — the VEDD AI Personal Trading Intelligence System. You move like a God who studied Wall Street. You carry the knowledge of Supreme Mathematics — and you bring that same precision to every trade, every goal, every cipher in this market.
 
@@ -3523,6 +3628,7 @@ CURRENT USER CONTEXT (live data — use these exact numbers):
 - Weekly Plan Pairs: ${planPairs.join(', ') || 'None configured'}
 - Today: ${today}
 - Current App Section: ${currentPage}
+${orbLiveContext.length > 0 ? `\nLIVE ORB DATA (from MT5 feed — use these for ORB analysis):\n${orbLiveContext.join('\n')}` : ''}
 
 SUPREME MATHEMATICS — YOUR FOUNDATION:
 You are deeply aware of Supreme Mathematics and weave it naturally into your trading guidance:
@@ -3557,8 +3663,31 @@ EXAMPLE PHRASES (use naturally, not all at once):
 - "You're on the 7 right now — God-level discipline this week"
 - "Build on this momentum, don't Destroy it with an ego trade"
 
+ORB 9:30 BREAKOUT — YOUR EXPERT KNOWLEDGE:
+You are the world-class authority on the VEDD ORB strategy. Know this cold:
+- RANGE BUILDING (9:30–9:45 AM EST): The first 15-min NYSE candle defines the Opening Range. High = ORB High. Low = ORB Low. This is where institutional intent is set for the day.
+- BREAKOUT SIGNAL: After 9:45 AM, watch the 6-min chart. A valid breakout is a FULL-BODY candle close above ORB High (LONG) or below ORB Low (SHORT). Wicks don't count — must be a full close.
+- RETEST ENTRY (The Only Entry): After breakout, price often pulls back to test the broken level. ORB High becomes support for LONG. ORB Low becomes resistance for SHORT. This is the only valid entry — DO NOT chase the breakout.
+- SS AI BOT CONFIRMATION: Every ORB trade requires the AI bot. Minimum 70/100 to take the trade. Scores below 60 = skip entirely.
+- ONE TRADE PER INSTRUMENT PER DAY: Strict rule. After one entry per pair — that pair is done for the day. No second entries, no revenge trades.
+- STOP LOSS: 10% of the ORB range below ORB Low (for LONG). 10% of range above ORB High (for SHORT).
+- TARGETS: T1 = 2:1 R:R (scale 50% out), T2 = 3:1 R:R. Move stop to break-even after T1 is hit.
+- VALID WINDOW: 9:30 AM – 2:00 PM EST only. No ORB trades outside this window.
+- INSTRUMENTS: US30, NAS100, SPX500, AAPL, TSLA, XAUUSD, and any instrument the broker offers.
+- RANGE QUALITY: Sweet spot = 0.3%–2.0% of price (stocks), 150–600 pts (indices). Too narrow = false breakouts. Too wide = oversized risk.
+- GOOD RETEST CANDLE PATTERNS: Bullish Engulfing, Hammer/Pin Bar (for LONGs); Bearish Engulfing, Shooting Star (for SHORTs); Inside Bar, Doji at level.
+
+LIVE TRADE OBSERVATION (ORB):
+When you have live ORB data above, you can assess whether an active setup or open position is still a valid trade. Analyze:
+1. PRICE vs ORB LEVELS: Is price holding above ORB High (for LONGs)? Is it respecting support? Or has it broken back into the range (invalidation)?
+2. CANDLESTICK PATTERN: What pattern is forming at the current level? Is it confirming strength or showing reversal?
+3. PHASE: Is the trade still in a valid phase (Retest = entry zone, Breakout = hold, Range Set = wait)?
+4. PRE-MARKET BIAS: Does the pre-market direction align with the trade direction?
+5. DIRECTION ALIGNMENT: Is the trade aligned with the overall session direction and bias?
+When asked "is this still a good trade?" or "should I hold this ORB position?", use the live data above to give a real assessment with specific price levels.
+
 NAVIGATION: When the user wants to go to a page, include [NAV:/path] anywhere in your response.
-Available routes: /dashboard | /analysis | /weekly-strategy | /my-wallet | /vedd-wallet | /devotional | /grants | /community | /ai-api-keys | /profile | /training-calendar | /mt5-chart-data | /mobile-alerts | /streak | /blog | /multi-timeframe-analysis
+Available routes: /dashboard | /analysis | /weekly-strategy | /my-wallet | /vedd-wallet | /devotional | /grants | /community | /ai-api-keys | /profile | /training-calendar | /mt5-chart-data | /mobile-alerts | /streak | /blog | /multi-timeframe-analysis | /orb-breakout
 
 TRADE ENTRY GUIDANCE: When asked about entries, use the plan pairs above, suggest based on session timing (Asian 00:00-07:00 UTC, London 07:00-13:00 UTC, New York 13:00-20:00 UTC), and factor in the remaining daily/weekly target to suggest appropriate lot sizing relative to balance.
 
@@ -3763,14 +3892,55 @@ VEDD CONTEXT: VEDD is a faith-based AI trading platform with a community of trad
       const todayPairs = todayPlan?.pairs || planPairs.map((p: string) => ({ symbol: p, direction: 'BOTH', session: 'Any' }));
       const openSummary = openPositions.map((p: any) => `${(p.symbol||'').toUpperCase()} ${p.direction} ${p.lots||0}L P&L:$${Math.round((p.profit||0)*100)/100}`).join(' | ');
 
+      // ── Live ORB context for stream endpoint ─────────────────────────────
+      const mt5ChartCacheStream = (global as any).mt5ChartDataCache || {};
+      const orbStreamContext: string[] = [];
+      const streamSymbols = Object.keys(mt5ChartCacheStream)
+        .filter(k => k.startsWith(`mt5_chart_${userId}_`))
+        .map(k => k.replace(`mt5_chart_${userId}_`, '').replace(/_[A-Z0-9]+$/, ''))
+        .filter((v, i, a) => a.indexOf(v) === i).slice(0, 4);
+
+      for (const sym of streamSymbols) {
+        for (const tf of ['M6','M5','M1','M15']) {
+          const ce = mt5ChartCacheStream[`mt5_chart_${userId}_${sym}_${tf}`];
+          if (!ce?.candles?.length) continue;
+          const c0 = ce.candles[0];
+          const cp = c0?.c || c0?.close || 0;
+          if (!cp) continue;
+          const tds = Math.floor(Date.now() / 86400000) * 86400;
+          const tc = ce.candles.filter((c: any) => (c.t||c.time||0) >= tds).sort((a: any, b: any) => (a.t||a.time)-(b.t||b.time));
+          let oh = 0, ol = 0;
+          for (const off of [-5,-4]) {
+            const oc = tc.find((c: any) => { const ts=c.t||c.time||0; if(!ts)return false; const d=new Date(ts*1000); const h=((d.getUTCHours()+off)%24+24)%24; return h===9&&d.getUTCMinutes()===30; });
+            if (oc) { oh=oc.h||oc.high||0; ol=oc.l||oc.low||0; break; }
+          }
+          let phase='Range Set';
+          if (oh>0&&ol>0) {
+            if (cp>oh*1.001) phase='BREAKOUT LONG 🚀';
+            else if (cp<ol*0.999) phase='BREAKOUT SHORT 🔻';
+            else if (cp>=oh*0.998&&cp<=oh*1.002) phase='RETEST LONG ⚡';
+            else if (cp>=ol*0.998&&cp<=ol*1.002) phase='RETEST SHORT ⚡';
+          }
+          const c1=ce.candles[0],c2=ce.candles[1];
+          let pat='';
+          if(c1){const o=c1.o||c1.open||(c2?c2.c||c2.close:0)||0,cl=c1.c||c1.close||0,hi=c1.h||c1.high||0,lo=c1.l||c1.low||0;if(o&&cl&&hi&&lo){const bd=Math.abs(cl-o),rn=hi-lo,up=hi-Math.max(o,cl),lw=Math.min(o,cl)-lo;if(rn>0){if(bd/rn<0.1)pat='Doji';else if(lw>=bd*2&&up<=bd*0.8)pat='Hammer/Pin Bar';else if(up>=bd*2&&lw<=bd*0.8)pat='Shooting Star';else if(c2){const po=c2.o||c2.open||c2.c||c2.close||0,pc=c2.c||c2.close||0;if(po&&pc){if(cl>Math.max(po,pc)&&o<Math.min(po,pc))pat='Bullish Engulfing';else if(cl<Math.min(po,pc)&&o>Math.max(po,pc))pat='Bearish Engulfing';else if(hi<(c2.h||c2.high||0)&&lo>(c2.l||c2.low||0))pat='Inside Bar';}}}}}
+          orbStreamContext.push(`${sym}: ${cp.toFixed(4)} | ORB ${oh>0?oh.toFixed(4):'?'}/${ol>0?ol.toFixed(4):'?'} | ${phase} | Pattern: ${pat||'none'}`);
+          break;
+        }
+      }
+
       const systemPrompt = `You are ABBA — VEDD AI Personal Trading Intelligence. Supreme Mathematics foundation, street intelligence, fund manager precision. Built for ${firstName}.
 
 LIVE DATA: Balance $${balance.toLocaleString('en-US',{minimumFractionDigits:2})} | Week ${weekPct}% ($${weekProfit}/$${weekTarget}) | Today $${todayProfit}/$${dailyTarget} | ${tradingDaysLeft}d left | Need $${pacingNeededPerDay}/day | Open(${openPositions.length}): ${openSummary||'None'} | Pairs: ${planPairs.join(',')||'None'} | Today: ${today} | Page: ${currentPage}
+${orbStreamContext.length > 0 ? `\nORB LIVE: ${orbStreamContext.join(' || ')}` : ''}
+
+ORB KNOWLEDGE: 9:30 AM NYSE open. First 15-min candle = Opening Range (High/Low). After 9:45, watch 6-min chart for full-body close ABOVE ORB High (LONG) or BELOW ORB Low (SHORT). DO NOT CHASE — wait for RETEST of broken level. At retest, look for confirming candle pattern (Engulfing, Hammer, Doji). SS AI Bot must score ≥70. ONE trade per instrument per day. Stop = 10% of range outside ORB. T1=2:1 R:R, T2=3:1. Hold is valid while price stays above/below the broken ORB level. Trade is invalidated if price re-enters the range.
 
 Supreme Math: 1=Knowledge 2=Wisdom 3=Understanding 4=Culture/Freedom 5=Power 6=Equality 7=God 8=Build 9=Born 0=Cipher. Weave naturally.
 
 Keep responses under 120 words. Speak with authority, street intelligence, financial mastery. No fluff.
-NAV: include [NAV:/path] to navigate. PLAN: include [PLAN_PROPOSAL:{json}] to propose a plan.`;
+NAV: include [NAV:/path] to navigate. Routes: /dashboard /weekly-strategy /orb-breakout /analysis /my-wallet /community /grants
+PLAN: include [PLAN_PROPOSAL:{json}] to propose a plan.`;
 
       const { getUniversalAIClientForUser: getStreamAI } = await import('./openai');
       const aiClient = await getStreamAI(userId);
@@ -18338,51 +18508,168 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     }
 
     const candles: any[] = found.candles;
+    // Candles are typically newest-first from MT5 EA
     const currentPrice: number = candles[0]?.c || candles[0]?.close || 0;
 
-    // Find opening range candle — the candle that covers 9:30–9:45 AM EST
-    // MT5 brokers send time as Unix seconds. We look for the candle at 9:30 AM EST (14:30 UTC or 13:30 UTC in EDT)
-    // We check both UTC-5 (EST) and UTC-4 (EDT) to handle daylight saving
-    const estOffsets = [-5, -4]; // Try both EST and EDT
-    let orbHigh = 0, orbLow = 0;
+    // ── Helper: get EST hour+minute from unix-seconds timestamp ──────────────
+    function toEST(ts: number, offsetHours: number) {
+      const d = new Date(ts * 1000);
+      const localH = ((d.getUTCHours() + offsetHours) % 24 + 24) % 24;
+      const localM = d.getUTCMinutes();
+      return { h: localH, m: localM };
+    }
+
+    // ── Find today's candles (UTC midnight boundary) ──────────────────────────
+    const nowMs = Date.now();
+    const todayUTCStart = Math.floor(nowMs / 86400000) * 86400; // seconds
+    const todayCandles: any[] = candles.filter((c: any) => {
+      const ts = c.t || c.time || 0;
+      return ts >= todayUTCStart;
+    }).sort((a: any, b: any) => (a.t || a.time) - (b.t || b.time)); // oldest first
+
+    // ── Find the 9:30 AM ORB candle ──────────────────────────────────────────
+    const estOffsets = [-5, -4]; // try EST then EDT
+    let orbHigh = 0, orbLow = 0, orbOpen = 0;
     let foundOrbCandle = false;
+    let orbCandle: any = null;
 
     for (const offsetHours of estOffsets) {
-      const openRangeCandle = candles.find((c: any) => {
-        const ts = (c.t || c.time || 0);
+      orbCandle = todayCandles.find((c: any) => {
+        const ts = c.t || c.time || 0;
         if (!ts) return false;
-        const d = new Date(ts * 1000);
-        const localH = d.getUTCHours() + offsetHours;
-        const localM = d.getUTCMinutes();
-        // The 9:30 AM candle — handle overnight wraparound
-        const hAdj = ((localH % 24) + 24) % 24;
-        return hAdj === 9 && localM === 30;
+        const { h, m } = toEST(ts, offsetHours);
+        return h === 9 && m === 30;
       });
-      if (openRangeCandle) {
-        orbHigh = openRangeCandle.h || openRangeCandle.high || 0;
-        orbLow  = openRangeCandle.l || openRangeCandle.low  || 0;
+      if (orbCandle) {
+        orbHigh = orbCandle.h || orbCandle.high || 0;
+        orbLow  = orbCandle.l || orbCandle.low  || 0;
+        orbOpen = orbCandle.o || orbCandle.open || 0;
         foundOrbCandle = true;
         break;
       }
     }
 
-    // If no exact 9:30 candle found, use the candle from earliest today
-    if (!foundOrbCandle && candles.length > 0) {
-      const now = new Date();
-      const todayStart = new Date(now);
-      todayStart.setUTCHours(0, 0, 0, 0);
-      const todayCandles = candles.filter((c: any) => {
+    // Fallback: use first candle of today if no exact 9:30 found
+    if (!foundOrbCandle && todayCandles.length > 0) {
+      orbCandle = todayCandles[0];
+      orbHigh = orbCandle.h || orbCandle.high || 0;
+      orbLow  = orbCandle.l || orbCandle.low  || 0;
+      orbOpen = orbCandle.o || orbCandle.open || 0;
+    }
+
+    // ── Pre-market bias ───────────────────────────────────────────────────────
+    // Look at candles from 4:00 AM to 9:29 AM EST. Compare open of first candle
+    // vs close of last candle to determine directional drift.
+    let preMarketBias: "bullish" | "bearish" | "neutral" = "neutral";
+    let preMarketDetail = "";
+
+    for (const offsetHours of estOffsets) {
+      const pmCandles = todayCandles.filter((c: any) => {
         const ts = c.t || c.time || 0;
-        return ts && new Date(ts * 1000) >= todayStart;
-      }).sort((a: any, b: any) => (a.t || a.time) - (b.t || b.time));
-      if (todayCandles.length > 0) {
-        const firstToday = todayCandles[0];
-        orbHigh = firstToday.h || firstToday.high || 0;
-        orbLow  = firstToday.l || firstToday.low  || 0;
+        if (!ts) return false;
+        const { h } = toEST(ts, offsetHours);
+        return h >= 4 && h < 9; // 4:00 AM – 8:59 AM pre-market
+      });
+
+      if (pmCandles.length >= 2) {
+        const firstPM = pmCandles[0];
+        const lastPM  = pmCandles[pmCandles.length - 1];
+        const firstOpen  = firstPM.o || firstPM.open || firstPM.c || firstPM.close || 0;
+        const lastClose  = lastPM.c || lastPM.close || 0;
+        if (firstOpen > 0 && lastClose > 0) {
+          const changePct = (lastClose - firstOpen) / firstOpen * 100;
+          if (changePct > 0.15)       { preMarketBias = "bullish"; preMarketDetail = `+${changePct.toFixed(2)}% pre-market drift`; }
+          else if (changePct < -0.15) { preMarketBias = "bearish"; preMarketDetail = `${changePct.toFixed(2)}% pre-market drift`; }
+          else                        { preMarketDetail = `${changePct.toFixed(2)}% — flat pre-market`; }
+          break;
+        }
+      } else if (pmCandles.length === 1) {
+        // Only one pre-market candle available — use candle direction
+        const c = pmCandles[0];
+        const o = c.o || c.open || 0;
+        const cl = c.c || c.close || 0;
+        if (o > 0 && cl > 0) {
+          if (cl > o * 1.001)      { preMarketBias = "bullish"; preMarketDetail = "Single pre-market candle bullish"; break; }
+          else if (cl < o * 0.999) { preMarketBias = "bearish"; preMarketDetail = "Single pre-market candle bearish"; break; }
+          else                     { preMarketDetail = "Pre-market candle flat"; break; }
+        }
       }
     }
 
-    // Determine current ORB phase
+    // ── Candlestick pattern detection at current price ────────────────────────
+    // Use the most recent 2 candles for pattern recognition (newest-first array)
+    function detectCandlePattern(c1: any, c2: any | null): string | null {
+      const open1  = c1.o || c1.open  || 0;
+      const close1 = c1.c || c1.close || 0;
+      const high1  = c1.h || c1.high  || 0;
+      const low1   = c1.l || c1.low   || 0;
+
+      // Need at least close/high/low to detect patterns
+      if (!close1 || !high1 || !low1) return null;
+
+      // If open not provided by EA, estimate from c2's close (continuous candles)
+      const eff_open1 = open1 || (c2 ? (c2.c || c2.close || close1) : close1);
+
+      const body      = Math.abs(close1 - eff_open1);
+      const totalRng  = high1 - low1;
+      if (totalRng <= 0) return null;
+
+      const upperWick = high1 - Math.max(eff_open1, close1);
+      const lowerWick = Math.min(eff_open1, close1) - low1;
+      const bullish   = close1 >= eff_open1;
+
+      // Doji: body < 10% of range (indecision candle at key level)
+      if (body / totalRng < 0.10) return "Doji Reversal";
+
+      // Pin Bar / Hammer: lower wick ≥ 2× body, upper wick ≤ body (bullish signal)
+      if (lowerWick >= body * 2 && upperWick <= body * 0.8 && bullish) return "Hammer / Pin Bar";
+      if (lowerWick >= body * 2 && upperWick <= body * 0.8 && !bullish) return "Hammer / Pin Bar";
+
+      // Shooting Star / Inverted Hammer: upper wick ≥ 2× body, lower wick ≤ body (bearish)
+      if (upperWick >= body * 2 && lowerWick <= body * 0.8) return "Shooting Star";
+
+      // Marubozu: no wicks (momentum candle, clean directional move)
+      if (upperWick / totalRng < 0.05 && lowerWick / totalRng < 0.05) {
+        return bullish ? "Bullish Marubozu" : "Bearish Marubozu";
+      }
+
+      if (c2) {
+        const open2  = c2.o || c2.open  || 0;
+        const close2 = c2.c || c2.close || 0;
+        const high2  = c2.h || c2.high  || 0;
+        const low2   = c2.l || c2.low   || 0;
+        const eff_open2 = open2 || close2;
+
+        if (close2 && high2 && low2) {
+          const prevMax = Math.max(eff_open2, close2);
+          const prevMin = Math.min(eff_open2, close2);
+          const currMax = Math.max(eff_open1, close1);
+          const currMin = Math.min(eff_open1, close1);
+
+          // Engulfing: current body fully engulfs previous body
+          if (bullish && close1 > prevMax && eff_open1 < prevMin && !( close2 >= eff_open2)) {
+            return "Bullish Engulfing";
+          }
+          if (!bullish && close1 < prevMin && eff_open1 > prevMax && close2 >= eff_open2) {
+            return "Bearish Engulfing";
+          }
+          // Simpler engulfing check
+          if (bullish && currMax > prevMax && currMin < prevMin) return "Bullish Engulfing";
+          if (!bullish && currMax > prevMax && currMin < prevMin) return "Bearish Engulfing";
+
+          // Inside Bar: current candle contained within previous candle's range
+          if (high1 < high2 && low1 > low2) return "Inside Bar (IB)";
+        }
+      }
+
+      return null; // no clear pattern identified
+    }
+
+    const latestCandle  = candles[0] || null;
+    const prevCandle    = candles[1] || null;
+    const detectedPattern: string | null = latestCandle ? detectCandlePattern(latestCandle, prevCandle) : null;
+
+    // ── Determine current ORB phase ───────────────────────────────────────────
     let orbPhase = "RANGE_SET";
     if (orbHigh > 0 && orbLow > 0 && currentPrice > 0) {
       if (currentPrice > orbHigh * 1.001) orbPhase = "BREAKOUT_LONG";
@@ -18397,11 +18684,16 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       currentPrice,
       orbHigh,
       orbLow,
+      orbOpen,
       orbRange: orbHigh > 0 ? +(orbHigh - orbLow).toFixed(5) : 0,
       orbRangePct: orbHigh > 0 && currentPrice > 0 ? +((orbHigh - orbLow) / currentPrice * 100).toFixed(3) : 0,
       orbPhase,
+      preMarketBias,
+      preMarketDetail,
+      detectedPattern,
       lastUpdated: found.receivedAt,
       candleCount: candles.length,
+      todayCandleCount: todayCandles.length,
       foundOrbCandle,
       broker: found.broker,
     });

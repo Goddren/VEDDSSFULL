@@ -84,6 +84,8 @@ interface ORBPairState {
   autoMode: boolean;
   mt5Status?: "connected" | "no_data" | "error" | "idle";
   lastUpdated?: string;
+  preMarketBias?: "bullish" | "bearish" | "neutral";
+  detectedPattern?: string | null;
 }
 
 const ORB_PHASE_CFG: Record<ORBPairPhase, { label: string; color: string }> = {
@@ -194,6 +196,8 @@ function ORBWeeklyPanel({ pairs }: { pairs: string[] }) {
       const data = await res.json() as {
         currentPrice: number; orbHigh: number | null; orbLow: number | null;
         foundOrbCandle: boolean;
+        preMarketBias?: "bullish" | "bearish" | "neutral";
+        detectedPattern?: string | null;
       };
       if (!data.currentPrice) { updatePair(sym, { mt5Status: "no_data" }); return; }
 
@@ -205,6 +209,9 @@ function ORBWeeklyPanel({ pairs }: { pairs: string[] }) {
         patch.orbHigh = data.orbHigh;
         patch.orbLow = data.orbLow;
       }
+      // Auto-fill pre-market bias and candlestick pattern from MT5 candle data
+      if (data.preMarketBias) patch.preMarketBias = data.preMarketBias;
+      if (data.detectedPattern) patch.detectedPattern = data.detectedPattern;
 
       const high = patch.orbHigh ?? pair.orbHigh;
       const low = patch.orbLow ?? pair.orbLow;
@@ -403,6 +410,26 @@ function ORBWeeklyPanel({ pairs }: { pairs: string[] }) {
                 <p className="text-[9px] text-gray-500 text-center">Current: <span className="text-white font-semibold">{pair.currentPrice.toFixed(2)}</span>
                   {pair.lastUpdated && <span className="ml-1 text-gray-600">· {pair.lastUpdated}</span>}
                 </p>
+              )}
+              {/* Pre-market bias + detected pattern row */}
+              {(pair.preMarketBias || pair.detectedPattern) && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  {pair.preMarketBias && (
+                    <span className="text-[8px] font-bold px-1.5 py-0.5 rounded-full"
+                      style={{
+                        background: pair.preMarketBias === "bullish" ? "rgba(34,197,94,0.15)" : pair.preMarketBias === "bearish" ? "rgba(239,68,68,0.15)" : "rgba(107,114,128,0.15)",
+                        color: pair.preMarketBias === "bullish" ? "#4ade80" : pair.preMarketBias === "bearish" ? "#f87171" : "#9ca3af",
+                      }}>
+                      {pair.preMarketBias === "bullish" ? "📈" : pair.preMarketBias === "bearish" ? "📉" : "➖"} {pair.preMarketBias} bias
+                    </span>
+                  )}
+                  {pair.detectedPattern && (
+                    <span className="text-[8px] font-bold px-1.5 py-0.5 rounded-full"
+                      style={{ background: "rgba(245,158,11,0.15)", color: "#fbbf24" }}>
+                      🕯 {pair.detectedPattern}
+                    </span>
+                  )}
+                </div>
               )}
 
               {/* AI score bar */}
