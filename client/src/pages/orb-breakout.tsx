@@ -616,59 +616,103 @@ function SetupCard({
             exit={{ height: 0, opacity: 0 }}
             className="overflow-hidden"
           >
-            <div className="p-4 space-y-3 border-t border-white/5">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Update Setup Data</p>
-              <div className="grid grid-cols-3 gap-2">
-                <div>
-                  <Label className="text-[9px] text-gray-500 mb-1 block">ORB HIGH</Label>
-                  <Input value={form.orbHigh} onChange={e => setForm(f => ({ ...f, orbHigh: e.target.value }))}
-                    placeholder="ORB High" className="bg-white/5 border-white/10 text-xs h-8" />
-                </div>
-                <div>
-                  <Label className="text-[9px] text-gray-500 mb-1 block">ORB LOW</Label>
-                  <Input value={form.orbLow} onChange={e => setForm(f => ({ ...f, orbLow: e.target.value }))}
-                    placeholder="ORB Low" className="bg-white/5 border-white/10 text-xs h-8" />
-                </div>
-                <div>
-                  <Label className="text-[9px] text-gray-500 mb-1 block">CURRENT</Label>
-                  <Input value={form.currentPrice} onChange={e => setForm(f => ({ ...f, currentPrice: e.target.value }))}
-                    placeholder="Current" className="bg-white/5 border-white/10 text-xs h-8" />
-                </div>
+            <div className="p-4 space-y-4 border-t border-white/5">
+              {/* Step-by-step guidance banner */}
+              <div className="p-3 rounded-xl text-xs leading-relaxed" style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.25)" }}>
+                <p className="text-amber-300 font-bold mb-1.5">📋 How to fill this in:</p>
+                <ol className="space-y-1 text-gray-300 list-decimal list-inside">
+                  <li>Open your chart (MT5, TradingView, etc.) on the <strong className="text-white">{setup.symbol}</strong> pair</li>
+                  <li>Switch to the <strong className="text-white">15-minute</strong> timeframe</li>
+                  <li>Find the <strong className="text-amber-300">first completed candle</strong> after 9:30 AM EST (the 9:30–9:45 candle)</li>
+                  <li>Enter its <strong className="text-white">High</strong> as "ORB HIGH" and <strong className="text-white">Low</strong> as "ORB LOW"</li>
+                  <li>Enter where price is <strong className="text-white">right now</strong> as "CURRENT PRICE"</li>
+                  <li>Hit <strong className="text-indigo-300">Apply</strong> — the system auto-detects your phase</li>
+                </ol>
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <Label className="text-[9px] text-gray-500 mb-1 block">PRE-MARKET BIAS</Label>
-                  <select value={form.preMarketBias} onChange={e => setForm(f => ({ ...f, preMarketBias: e.target.value }))}
-                    className="w-full bg-[#0f1525] border border-white/10 text-white rounded-md text-xs h-8 px-2">
-                    <option value="bullish">Bullish (Gapped Up)</option>
-                    <option value="bearish">Bearish (Gapped Down)</option>
-                    <option value="neutral">Neutral (Flat Open)</option>
-                  </select>
-                </div>
-                <div>
-                  <Label className="text-[9px] text-gray-500 mb-1 block">BREAKOUT CANDLE TF</Label>
-                  <select value={form.breakoutCandle} onChange={e => setForm(f => ({ ...f, breakoutCandle: e.target.value }))}
-                    className="w-full bg-[#0f1525] border border-white/10 text-white rounded-md text-xs h-8 px-2">
-                    <option value="6min">6-Minute (VEDD Standard)</option>
-                    <option value="1min">1-Minute (Aggressive)</option>
-                  </select>
-                </div>
-              </div>
+
+              {/* Price inputs */}
               <div>
-                <Label className="text-[9px] text-gray-500 mb-1 block">CANDLESTICK PATTERN ON RETEST</Label>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-2">Step 1 — Enter the Opening Range</p>
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <Label className="text-[9px] text-amber-400 mb-1 block font-bold">ORB HIGH ↑</Label>
+                    <Input value={form.orbHigh} onChange={e => setForm(f => ({ ...f, orbHigh: e.target.value }))}
+                      placeholder="e.g. 39250" className="bg-white/5 border-amber-500/30 text-xs h-9 text-white" />
+                    <p className="text-[8px] text-gray-600 mt-0.5">High of 9:30–9:45 candle</p>
+                  </div>
+                  <div>
+                    <Label className="text-[9px] text-amber-400 mb-1 block font-bold">ORB LOW ↓</Label>
+                    <Input value={form.orbLow} onChange={e => setForm(f => ({ ...f, orbLow: e.target.value }))}
+                      placeholder="e.g. 39150" className="bg-white/5 border-amber-500/30 text-xs h-9 text-white" />
+                    <p className="text-[8px] text-gray-600 mt-0.5">Low of 9:30–9:45 candle</p>
+                  </div>
+                  <div>
+                    <Label className="text-[9px] text-cyan-400 mb-1 block font-bold">CURRENT PRICE</Label>
+                    <Input value={form.currentPrice} onChange={e => setForm(f => ({ ...f, currentPrice: e.target.value }))}
+                      placeholder="e.g. 39310" className="bg-white/5 border-cyan-500/30 text-xs h-9 text-white" />
+                    <p className="text-[8px] text-gray-600 mt-0.5">Where price is right now</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Context inputs */}
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-2">Step 2 — Add Context</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label className="text-[9px] text-gray-400 mb-1 block">PRE-MARKET BIAS</Label>
+                    <select value={form.preMarketBias} onChange={e => setForm(f => ({ ...f, preMarketBias: e.target.value }))}
+                      className="w-full bg-[#0f1525] border border-white/10 text-white rounded-md text-xs h-9 px-2">
+                      <option value="bullish">📈 Bullish — Gapped Up pre-market</option>
+                      <option value="bearish">📉 Bearish — Gapped Down pre-market</option>
+                      <option value="neutral">➡️ Neutral — Flat / no clear bias</option>
+                    </select>
+                    <p className="text-[8px] text-gray-600 mt-0.5">Check pre-market futures before 9:30 AM</p>
+                  </div>
+                  <div>
+                    <Label className="text-[9px] text-gray-400 mb-1 block">BREAKOUT CANDLE TIMEFRAME</Label>
+                    <select value={form.breakoutCandle} onChange={e => setForm(f => ({ ...f, breakoutCandle: e.target.value }))}
+                      className="w-full bg-[#0f1525] border border-white/10 text-white rounded-md text-xs h-9 px-2">
+                      <option value="6min">6-Minute ✅ VEDD Standard (recommended)</option>
+                      <option value="1min">1-Minute ⚠️ Aggressive (more false signals)</option>
+                    </select>
+                    <p className="text-[8px] text-gray-600 mt-0.5">The candle that must close outside the range</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Pattern — only relevant at retest */}
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-2">Step 3 — Pattern on Retest (fill in when price returns to ORB level)</p>
                 <select value={form.pattern} onChange={e => setForm(f => ({ ...f, pattern: e.target.value }))}
-                  className="w-full bg-[#0f1525] border border-white/10 text-white rounded-md text-xs h-8 px-2">
-                  <option value="">None detected yet</option>
+                  className="w-full bg-[#0f1525] border border-white/10 text-white rounded-md text-xs h-9 px-2">
+                  <option value="">Not at retest yet — leave blank for now</option>
                   {CANDLESTICK_PATTERNS.map(p => <option key={p} value={p}>{p}</option>)}
                 </select>
+                <p className="text-[8px] text-gray-600 mt-0.5">
+                  Look for this pattern on your 6-min chart when price touches back to the ORB level.
+                  A Bullish Engulfing or Hammer at the ORB High (long trade) = high confidence entry.
+                </p>
               </div>
+
               <div className="flex gap-2">
-                <Button size="sm" className="flex-1 bg-indigo-600 hover:bg-indigo-700 h-8 text-xs" onClick={applyForm}>
-                  Apply & Auto-Detect Phase
+                <Button size="sm" className="flex-1 bg-indigo-600 hover:bg-indigo-700 h-9 text-xs font-bold" onClick={applyForm}>
+                  ✅ Apply & Auto-Detect Phase
                 </Button>
-                <Button size="sm" variant="outline" className="border-white/10 text-gray-400 h-8 text-xs" onClick={() => setEditing(false)}>
+                <Button size="sm" variant="outline" className="border-white/10 text-gray-400 h-9 text-xs" onClick={() => setEditing(false)}>
                   Cancel
                 </Button>
+              </div>
+
+              {/* Phase legend */}
+              <div className="p-3 rounded-lg" style={{ background: "rgba(99,102,241,0.07)", border: "1px solid rgba(99,102,241,0.2)" }}>
+                <p className="text-[9px] font-bold text-indigo-400 uppercase tracking-wider mb-1.5">What the system auto-detects from your prices:</p>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[9px] text-gray-400">
+                  <span><span className="text-amber-400">●</span> Price inside range → Range Set</span>
+                  <span><span className="text-green-400">●</span> Price above ORB High → Breakout Long</span>
+                  <span><span className="text-red-400">●</span> Price below ORB Low → Breakout Short</span>
+                  <span><span className="text-green-400 font-bold">⚡</span> Price back at ORB High (after breakout) → Retest Long = ENTRY</span>
+                </div>
               </div>
             </div>
           </motion.div>
@@ -754,6 +798,128 @@ function SetupCard({
         </div>
       )}
     </motion.div>
+  );
+}
+
+// ─── Quick Start Guide ────────────────────────────────────────────────────────
+
+function ORBQuickGuide() {
+  const [open, setOpen] = useState(false);
+
+  const steps = [
+    {
+      n: 1, time: "9:25 AM", color: "#6366f1", title: "Pre-Market Prep",
+      what: "Before the open, check pre-market futures for bias.",
+      how: "If US30 futures are up 150+ pts pre-market → Bullish bias. Down 150+ → Bearish. Flat → Neutral.",
+      action: "Set pre-market bias in the setup card when you add your instrument.",
+    },
+    {
+      n: 2, time: "9:30–9:45 AM", color: "#f59e0b", title: "Build the Opening Range",
+      what: "Watch the FIRST 15-minute candle after the NYSE open.",
+      how: "On your chart (MT5 or TradingView), switch to 15-min timeframe. The candle from 9:30 to 9:45 AM EST defines your range. Its HIGH is your ORB High. Its LOW is your ORB Low.",
+      action: "After 9:45 AM when the candle closes → tap the ↻ icon on the card → enter ORB High and ORB Low.",
+    },
+    {
+      n: 3, time: "9:45 AM+", color: "#06b6d4", title: "Watch for Breakout on 6-Min Chart",
+      what: "Switch to the 6-MINUTE chart. Watch for price to close OUTSIDE the range.",
+      how: "LONG signal: a 6-min candle body closes ABOVE ORB High (wicks don't count — must be a full close).\nSHORT signal: a 6-min candle body closes BELOW ORB Low.\nUpdate current price in the card — system auto-detects the breakout phase.",
+      action: "Tap ↻ on card → update current price → tap Apply. Phase will change to 🚀 Breakout.",
+    },
+    {
+      n: 4, time: "After breakout", color: "#22c55e", title: "Wait for the Retest (Your Entry Zone)",
+      what: "After breakout, DO NOT chase. Wait for price to pull back to the broken level.",
+      how: "For LONG trades: after price breaks above ORB High, wait for it to come back DOWN and tap the ORB High level from above. This ORB High is now support.\nFor SHORT trades: after price breaks below ORB Low, wait for it to bounce back UP to ORB Low from below.\nUpdate current price when this happens → phase changes to ⚡ Retest.",
+      action: "Update current price on card. Look at your 6-min chart for a confirming candle pattern at that level.",
+    },
+    {
+      n: 5, time: "At the retest", color: "#a855f7", title: "Confirm Pattern + Run SS AI Bot",
+      what: "You need a confirming candlestick pattern on the 6-min chart AT the retest level.",
+      how: "Look for: Bullish Engulfing, Hammer, Pin Bar (for longs) — or Bearish Engulfing, Shooting Star (for shorts). Select it in the Pattern dropdown on the card.\nThen tap 'SS AI Bot' — it scores the setup 0–100. You need 80+ to take the trade.",
+      action: "Select pattern in card → tap SS AI Bot → wait for score.",
+    },
+    {
+      n: 6, time: "Score 80+", color: "#22c55e", title: "Enter the Trade + Log It",
+      what: "SS AI Bot scored 80+? Now enter the trade manually in your broker/MT5.",
+      how: "Your stop loss, T1 (2:1 R:R), and T2 (3:1 R:R) are auto-calculated and shown on the card.\nPlace your trade in MT5 or your broker at the current retest price.\nOptional: tap 'Fire Webhook Signal' to auto-notify any connected EA/bot.\nRemember: ONE trade per instrument per day — after this, that pair is done.",
+      action: "Tap 'Log LONG/SHORT Entry' to record the trade. Card locks for the day.",
+    },
+  ];
+
+  return (
+    <div className="mb-4 rounded-2xl border overflow-hidden" style={{ borderColor: "rgba(99,102,241,0.3)", background: "rgba(99,102,241,0.04)" }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full px-4 py-3 flex items-center gap-3 text-left"
+      >
+        <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: "rgba(99,102,241,0.2)" }}>
+          <BookOpen className="w-4 h-4 text-indigo-400" />
+        </div>
+        <div className="flex-1">
+          <p className="text-sm font-bold text-white">📖 How to Use the ORB Scanner — Step-by-Step</p>
+          <p className="text-[10px] text-gray-500">Tap to {open ? "hide" : "show"} the 6-step setup guide</p>
+        </div>
+        {open ? <ChevronUp className="w-4 h-4 text-gray-500" /> : <ChevronDown className="w-4 h-4 text-gray-500" />}
+      </button>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden"
+          >
+            <div className="px-4 pb-4 space-y-3 border-t border-white/5">
+              <p className="text-xs text-gray-500 pt-3">
+                This scanner helps you identify, track, and confirm ORB trade setups. <strong className="text-white">You still place trades manually in your broker</strong> — this tool tells you when the setup is ready.
+              </p>
+
+              {steps.map(step => (
+                <div key={step.n} className="flex gap-3">
+                  {/* Step number + time */}
+                  <div className="flex-shrink-0 flex flex-col items-center">
+                    <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-black"
+                      style={{ background: step.color + "25", color: step.color, border: `1.5px solid ${step.color}50` }}>
+                      {step.n}
+                    </div>
+                    {step.n < 6 && <div className="w-px flex-1 mt-1" style={{ background: step.color + "30", minHeight: 16 }} />}
+                  </div>
+
+                  {/* Content */}
+                  <div className="flex-1 pb-2">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs font-black text-white">{step.title}</span>
+                      <span className="text-[8px] font-bold px-1.5 py-0.5 rounded-full"
+                        style={{ background: step.color + "20", color: step.color }}>{step.time}</span>
+                    </div>
+                    <p className="text-[11px] text-gray-300 leading-relaxed mb-1">{step.what}</p>
+                    <div className="p-2 rounded-lg mb-1.5" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
+                      <p className="text-[10px] text-gray-400 leading-relaxed whitespace-pre-line">{step.how}</p>
+                    </div>
+                    <p className="text-[10px] font-semibold" style={{ color: step.color }}>
+                      → {step.action}
+                    </p>
+                  </div>
+                </div>
+              ))}
+
+              {/* Phase cheat sheet */}
+              <div className="mt-2 p-3 rounded-xl" style={{ background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.2)" }}>
+                <p className="text-[9px] font-bold text-amber-400 uppercase tracking-wider mb-2">Phase Status Cheat Sheet</p>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {Object.entries(PHASE_CONFIG).map(([key, cfg]) => (
+                    <div key={key} className="flex items-center gap-1.5">
+                      <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: cfg.color }} />
+                      <span className="text-[9px] text-gray-400"><span style={{ color: cfg.color }}>{cfg.label}</span></span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   );
 }
 
@@ -1106,13 +1272,20 @@ export default function ORBBreakoutPage() {
 
           {/* Scanner Tab */}
           <TabsContent value="scanner">
+
+            {/* Quick Start Guide — always shown, collapsible */}
+            <ORBQuickGuide />
+
             {setups.length === 0 ? (
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-                className="text-center py-16 rounded-2xl border border-dashed border-white/10">
+                className="text-center py-16 rounded-2xl border border-dashed border-white/10 mt-4">
                 <TrendingUp className="w-14 h-14 mx-auto mb-4 text-gray-700" />
-                <h3 className="text-lg font-bold text-white mb-2">No Instruments Tracked</h3>
-                <p className="text-gray-500 text-sm mb-6 max-w-sm mx-auto">
-                  Add US30, NAS100, SPX500, stocks, or any instrument to start tracking the 9:30 ORB setup.
+                <h3 className="text-lg font-bold text-white mb-2">No Instruments Added Yet</h3>
+                <p className="text-gray-500 text-sm mb-2 max-w-sm mx-auto">
+                  Add US30, NAS100, SPX500, AAPL, TSLA, or any instrument your broker offers.
+                </p>
+                <p className="text-gray-600 text-xs mb-6 max-w-sm mx-auto">
+                  After adding, tap the ↻ icon on a card to enter your ORB High/Low from the 9:30–9:45 candle.
                 </p>
                 <Button onClick={() => setShowAddModal(true)} className="bg-green-600 hover:bg-green-700">
                   <Plus className="w-4 h-4 mr-2" /> Add Your First Instrument
