@@ -84,6 +84,7 @@ import FuturesLiveFeedPage from "@/pages/futures-live-feed";
 import SevenEightPage from "@/pages/seven-eight";
 import GrantsFundingPage from "@/pages/grants-funding";
 import CreditBuilderPage from "@/pages/credit-builder";
+import ORBBreakoutPage from "@/pages/orb-breakout";
 import ContentStudioPage from "@/pages/content-studio";
 import ReferralHubPage from "@/pages/referral-hub";
 import AmbassadorRecruitmentPage from "@/pages/ambassador-recruitment";
@@ -243,6 +244,7 @@ function AppLayout() {
             <ProtectedRoute path="/futures-connect" component={FuturesConnectPage} />
             <ProtectedRoute path="/futures-ea-generator" component={FuturesEaGeneratorPage} />
             <ProtectedRoute path="/futures-live-feed" component={FuturesLiveFeedPage} />
+            <ProtectedRoute path="/orb-breakout" component={ORBBreakoutPage} />
             
             <Route component={NotFound} />
           </Switch>

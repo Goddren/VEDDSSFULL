@@ -3675,3 +3675,152 @@ Create 4-6 modules and 5 assessment questions. Make objectives measurable (Bloom
     };
   }
 }
+
+// ─── ORB Breakout — SS AI Bot 2nd Confirmation ───────────────────────────────
+
+interface ORBAnalysisParams {
+  symbol: string;
+  orbHigh: number;
+  orbLow: number;
+  orbRange: number;
+  orbRangePct: number;
+  currentPrice: number;
+  preMarketBias: "bullish" | "bearish" | "neutral";
+  phase: string;
+  pattern?: string;
+  breakoutCandle?: string;
+  tradeDirection?: "LONG" | "SHORT";
+}
+
+interface ORBAnalysisResult {
+  score: number;
+  verdict: string;
+  checks: { label: string; pass: boolean; note: string }[];
+  note: string;
+}
+
+export async function analyzeORBSignal(params: ORBAnalysisParams): Promise<ORBAnalysisResult> {
+  // Determine optimal range thresholds per instrument type
+  const isIndex = ["US30", "NAS100", "SPX500", "UK100", "DAX40"].includes(params.symbol.toUpperCase());
+  const isCommodity = ["XAUUSD", "XAGUSD", "USOIL"].includes(params.symbol.toUpperCase());
+
+  let rangeMinPct = 0.10;
+  let rangeMaxPct = 2.5;
+  if (isIndex) { rangeMinPct = 0.08; rangeMaxPct = 1.5; }
+  if (isCommodity) { rangeMinPct = 0.10; rangeMaxPct = 1.2; }
+
+  const rangeOk = params.orbRangePct >= rangeMinPct && params.orbRangePct <= rangeMaxPct;
+
+  // Check time window
+  const now = new Date();
+  const utc = now.getTime() + now.getTimezoneOffset() * 60000;
+  const est = new Date(utc + -5 * 3600000);
+  const h = est.getHours(); const m = est.getMinutes();
+  const totalMin = h * 60 + m;
+  const peakWindowStart = 9 * 60 + 45;
+  const peakWindowEnd = 11 * 60 + 30;
+  const extWindowEnd = 14 * 60;
+  const inPeakWindow = totalMin >= peakWindowStart && totalMin <= peakWindowEnd;
+  const inExtWindow = totalMin > peakWindowEnd && totalMin <= extWindowEnd;
+
+  const isBreakout = params.phase.includes("BREAKOUT");
+  const isRetest   = params.phase.includes("RETEST");
+  const hasPattern = !!(params.pattern && params.pattern !== "" && params.pattern !== "None detected yet");
+  const biasMatches = (
+    (params.tradeDirection === "LONG"  && params.preMarketBias !== "bearish") ||
+    (params.tradeDirection === "SHORT" && params.preMarketBias !== "bullish") ||
+    params.preMarketBias === "neutral"
+  );
+
+  const systemPrompt = `You are the VEDD SS AI Bot — a professional institutional-grade ORB (Opening Range Breakout) trade analyzer.
+You specialize in the 9:30 AM NYSE open strategy: 15-min opening range, 6-minute breakout confirmation, retest entry.
+You are objective, data-driven, and always prioritize risk management over trade frequency.
+Respond ONLY with valid JSON. No extra text.`;
+
+  const userPrompt = `Analyze this ORB setup and provide a second confirmation score.
+
+INSTRUMENT: ${params.symbol}
+ORB HIGH: ${params.orbHigh}
+ORB LOW: ${params.orbLow}
+ORB RANGE: ${params.orbRange} (${params.orbRangePct.toFixed(2)}% of price)
+CURRENT PRICE: ${params.currentPrice}
+PHASE: ${params.phase}
+TRADE DIRECTION: ${params.tradeDirection || "Not determined"}
+PRE-MARKET BIAS: ${params.preMarketBias}
+BREAKOUT CANDLE TF: ${params.breakoutCandle || "6min"}
+CANDLESTICK PATTERN ON RETEST: ${params.pattern || "None observed"}
+CURRENT EST TIME: ${h}:${m.toString().padStart(2,"0")}
+
+CONTEXT:
+- Range quality: ${rangeOk ? "GOOD (within ideal range)" : `CONCERN — ${params.orbRangePct.toFixed(2)}% is ${params.orbRangePct < rangeMinPct ? "too narrow (false break risk)" : "too wide (risk too large)"}`}
+- Time window: ${inPeakWindow ? "PEAK (9:45–11:30 AM)" : inExtWindow ? "EXTENDED (marginal)" : "OUTSIDE WINDOW"}
+- Bias alignment: ${biasMatches ? "ALIGNED" : "CONFLICTING with trade direction"}
+
+Evaluate these 6 checks and score the overall setup 0-100:
+1. ORB Range Quality — Is ${params.orbRangePct.toFixed(2)}% within optimal parameters for ${params.symbol}?
+2. Breakout Candle Strength — Was the breakout on a ${params.breakoutCandle || "6min"} full-body close? Rate strength.
+3. Retest Validity — Is price respecting the broken ORB level as new support/resistance? Phase is "${params.phase}".
+4. Pattern Confirmation — Is "${params.pattern || "none"}" a valid pattern for a ${params.tradeDirection || "directional"} retest entry?
+5. Trading Window — ${inPeakWindow ? "In peak window" : inExtWindow ? "Extended window" : "Outside standard window"} — rate timing quality.
+6. Pre-Market Bias Alignment — ${params.preMarketBias} bias with ${params.tradeDirection || "unknown"} direction trade.
+
+SCORING:
+- 80–100: High confidence, all major criteria met
+- 60–79: Marginal, proceed with reduced size
+- 0–59: Pass — one or more critical criteria failed
+
+Respond with this exact JSON structure:
+{
+  "score": <number 0-100>,
+  "verdict": "<TAKE TRADE | MARGINAL — CAUTION | PASS — SKIP THIS>",
+  "checks": [
+    { "label": "ORB Range Quality", "pass": <boolean>, "note": "<specific note about this setup>" },
+    { "label": "Breakout Candle Strength", "pass": <boolean>, "note": "<specific note>" },
+    { "label": "Retest Validity", "pass": <boolean>, "note": "<specific note>" },
+    { "label": "Pattern Confirmation", "pass": <boolean>, "note": "<specific note>" },
+    { "label": "Trading Window", "pass": <boolean>, "note": "<specific note>" },
+    { "label": "Pre-Market Bias Alignment", "pass": <boolean>, "note": "<specific note>" }
+  ],
+  "note": "<2-3 sentence SS AI Bot summary — specific to this exact setup, mention the symbol, key level, and what to watch for on the retest>"
+}`;
+
+  try {
+    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const completion = await client.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.3,
+      max_tokens: 800,
+    });
+
+    const result = JSON.parse(completion.choices[0].message.content || "{}");
+    return {
+      score: Math.max(0, Math.min(100, result.score || 0)),
+      verdict: result.verdict || "PASS — SKIP THIS",
+      checks: result.checks || [],
+      note: result.note || "",
+    };
+  } catch {
+    // Fallback: rule-based scoring without AI
+    const checks = [
+      { label: "ORB Range Quality",        pass: rangeOk,        note: rangeOk ? `${params.orbRangePct.toFixed(2)}% is within optimal parameters` : `${params.orbRangePct.toFixed(2)}% is outside the ideal range — skip` },
+      { label: "Breakout Candle Strength", pass: isBreakout || isRetest, note: isRetest ? "Price has broken out and is retesting — breakout confirmed" : isBreakout ? "Breakout detected, waiting for retest" : "No confirmed breakout yet" },
+      { label: "Retest Validity",          pass: isRetest,       note: isRetest ? "Price is at the retest zone — entry condition met" : "Wait for price to pull back to ORB level" },
+      { label: "Pattern Confirmation",     pass: hasPattern,     note: hasPattern ? `${params.pattern} detected on retest — valid confirmation` : "No candlestick pattern detected yet — wait for confirmation candle" },
+      { label: "Trading Window",           pass: inPeakWindow || inExtWindow, note: inPeakWindow ? "In peak ORB window (9:45–11:30 AM)" : inExtWindow ? "Extended window — valid but lower probability" : "Outside trading window — wait for next session" },
+      { label: "Pre-Market Bias Alignment",pass: biasMatches,   note: biasMatches ? `${params.preMarketBias} bias aligns with ${params.tradeDirection} direction` : "Bias conflicts with trade direction — proceed with caution" },
+    ];
+    const passing = checks.filter(c => c.pass).length;
+    const score = Math.round((passing / 6) * 100);
+    return {
+      score,
+      verdict: score >= 80 ? "TAKE TRADE" : score >= 60 ? "MARGINAL — CAUTION" : "PASS — SKIP THIS",
+      checks,
+      note: `Rule-based analysis (AI unavailable): ${passing}/6 checks passed. ${score >= 80 ? "Setup meets criteria — enter on retest with pattern confirmation." : score >= 60 ? "Marginal setup — consider half size or wait for stronger confirmation." : "Critical criteria not met — skip this setup."}`,
+    };
+  }
+}

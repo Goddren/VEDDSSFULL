@@ -17,7 +17,7 @@ async function hashPasswordForWallet(password: string) {
   const buf = (await scryptAsync(password, salt, 64)) as Buffer;
   return `${buf.toString("hex")}.${salt}`;
 }
-import { analyzeChartImage, testOpenAIApiKey, generateTradingTip, generateMarketTrendPredictions, generatePresentationOutline, scanGrantsWithAI, generateGrantProposal, generateSocialOutreachKit, enrichLeadWithAI, generateVeddBlogPost, generateDailyDevotional, generateWorkforceCurriculum } from "./openai";
+import { analyzeChartImage, testOpenAIApiKey, generateTradingTip, generateMarketTrendPredictions, generatePresentationOutline, scanGrantsWithAI, generateGrantProposal, generateSocialOutreachKit, enrichLeadWithAI, generateVeddBlogPost, generateDailyDevotional, generateWorkforceCurriculum, analyzeORBSignal } from "./openai";
 import { setupTwilio, sendTradingSignal } from "./twilio";
 import { checkUserAchievements } from "./achievement-tracker";
 import { generateMT5EACode, generateTradingViewCode, generateTradeLockerCode } from './ea-generators';
@@ -18297,6 +18297,38 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       );
       const leaderboardRows: any[] = Array.isArray(raw) ? raw : (raw as any).rows || [];
       res.json(leaderboardRows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ─── ORB BREAKOUT — SS AI BOT ─────────────────────────────────────────────────
+
+  // POST /api/orb/analyze — SS AI Bot 2nd confirmation for ORB setups
+  app.post("/api/orb/analyze", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const {
+        symbol, orbHigh, orbLow, orbRange, orbRangePct,
+        currentPrice, preMarketBias, phase, pattern,
+        breakoutCandle, tradeDirection,
+      } = req.body;
+
+      if (!symbol || !orbHigh || !orbLow) {
+        return res.status(400).json({ error: "symbol, orbHigh, and orbLow are required" });
+      }
+
+      const result = await analyzeORBSignal({
+        symbol, orbHigh, orbLow,
+        orbRange: orbRange || orbHigh - orbLow,
+        orbRangePct: orbRangePct || ((orbHigh - orbLow) / orbLow) * 100,
+        currentPrice: currentPrice || orbHigh,
+        preMarketBias: preMarketBias || "neutral",
+        phase: phase || "RANGE_SET",
+        pattern, breakoutCandle, tradeDirection,
+      });
+
+      res.json(result);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
