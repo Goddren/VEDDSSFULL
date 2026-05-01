@@ -94,12 +94,34 @@ let pendingTTSBlob: Blob | null = null;
 function useVoice(onTranscript: (text: string, isFinal: boolean) => void) {
   const recognitionRef    = useRef<any>(null);
   const audioRef          = useRef<HTMLAudioElement | null>(null);
+  const audioCtxRef       = useRef<AudioContext | null>(null);
+  const audioSourceRef    = useRef<AudioBufferSourceNode | null>(null);
   const speakingTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isListening,  setIsListening]  = useState(false);
   const [isSpeaking,   setIsSpeaking]   = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(() => {
     try { return localStorage.getItem('abba_voice') !== 'off'; } catch { return true; }
   });
+
+  // ── Audio unlock — MUST be called directly inside a user gesture (tap/click) ─
+  // On iOS Safari and Android Chrome, audio is blocked until the AudioContext
+  // is resumed AND a buffer is played while the gesture is still active.
+  // Calling this in handleSubmit/handleMicClick unblocks all subsequent audio.play() calls.
+  const unlockAudio = useCallback(() => {
+    try {
+      const AC = (window as any).AudioContext || (window as any).webkitAudioContext;
+      if (!AC) return;
+      if (!audioCtxRef.current) audioCtxRef.current = new AC();
+      const ctx = audioCtxRef.current;
+      if (ctx.state === 'suspended') ctx.resume();
+      // Play a 0-sample silent buffer — satisfies mobile gesture requirement
+      const buf = ctx.createBuffer(1, 1, 22050);
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.connect(ctx.destination);
+      src.start(0);
+    } catch { /* ignore — desktop doesn't need this */ }
+  }, []);
 
   // Safety: always clear the isSpeaking flag after a max duration
   const safeSetSpeaking = useCallback((val: boolean) => {
@@ -163,11 +185,16 @@ function useVoice(onTranscript: (text: string, isFinal: boolean) => void) {
     }
   }, [safeSetSpeaking]);
 
-  // ── Primary TTS — fetches audio, tries autoplay, stores URL for tap-to-play ──
+  // ── Primary TTS — fetches audio from server, plays via Web Audio API (mobile-safe) ──
+  // Web Audio API (AudioContext) works on iOS/Android AFTER unlockAudio() has been called
+  // once in a gesture. Unlike new Audio().play(), it is NOT blocked by autoplay policies
+  // in subsequent async calls once the context is running.
   const speak = useCallback(async (text: string, msgId?: string, onAudioReady?: (url: string) => void) => {
     if (!voiceEnabled) return;
     if (!text?.trim()) return;
 
+    // Stop any current playback
+    if (audioSourceRef.current) { try { audioSourceRef.current.stop(); } catch {} audioSourceRef.current = null; }
     if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
     if (hasSpeechSynthesis) window.speechSynthesis.cancel();
 
@@ -189,24 +216,37 @@ function useVoice(onTranscript: (text: string, isFinal: boolean) => void) {
       const blob = await res.blob();
       if (blob.size < 100) throw new Error('Empty audio');
 
+      // Store blob URL on message for tap-to-play button
       const url = URL.createObjectURL(blob);
-
-      // Store URL on the message so the tap-to-play button can use it
       if (onAudioReady) onAudioReady(url);
 
+      // ── Try Web Audio API first (works on iOS after AudioContext is unlocked) ──
+      const ctx = audioCtxRef.current;
+      if (ctx && ctx.state === 'running') {
+        try {
+          const arrayBuffer = await blob.arrayBuffer();
+          const decoded = await ctx.decodeAudioData(arrayBuffer);
+          const src = ctx.createBufferSource();
+          src.buffer = decoded;
+          src.connect(ctx.destination);
+          src.onended = () => { safeSetSpeaking(false); audioSourceRef.current = null; };
+          audioSourceRef.current = src;
+          src.start(0);
+          return; // Successfully playing via Web Audio API
+        } catch {
+          // Web Audio decode failed — fall through to HTML5 Audio
+        }
+      }
+
+      // ── Fallback: HTML5 Audio element (works on desktop, may be blocked on mobile) ──
       const audio = new Audio(url);
       audio.volume = 1.0;
       audioRef.current = audio;
-
       audio.onended = () => { safeSetSpeaking(false); audioRef.current = null; };
       audio.onerror = () => { safeSetSpeaking(false); audioRef.current = null; browserSpeak(trimmed); };
-
-      // Try autoplay — may be blocked by browser policy
       await audio.play().catch(async () => {
-        // Autoplay blocked — audio URL is stored on message; user can tap 🔊 to play
         safeSetSpeaking(false);
         audioRef.current = null;
-        // Also try browser TTS as silent fallback
         await browserSpeak(trimmed);
       });
     } catch {
@@ -228,6 +268,7 @@ function useVoice(onTranscript: (text: string, isFinal: boolean) => void) {
   }, [safeSetSpeaking]);
 
   const stopSpeaking = useCallback(() => {
+    if (audioSourceRef.current) { try { audioSourceRef.current.stop(); } catch {} audioSourceRef.current = null; }
     if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
     if (hasSpeechSynthesis) window.speechSynthesis.cancel();
     safeSetSpeaking(false);
@@ -246,7 +287,7 @@ function useVoice(onTranscript: (text: string, isFinal: boolean) => void) {
     });
   }, [safeSetSpeaking]);
 
-  return { isListening, isSpeaking, voiceEnabled, startListening, stopListening, speak, stopSpeaking, toggleVoice, playStoredAudio, audioRef, safeSetSpeaking };
+  return { isListening, isSpeaking, voiceEnabled, startListening, stopListening, speak, stopSpeaking, toggleVoice, playStoredAudio, unlockAudio, audioRef, audioCtxRef, safeSetSpeaking };
 }
 
 // ── Arc Reactor icon (JARVIS-style) ──────────────────────────────────────────
@@ -380,12 +421,20 @@ const MsgBubble = ({
           </div>
         )}
         {msg.navigateTo && (
-          <button
+          <div
+            className="flex items-center justify-between gap-3 rounded-xl px-3 py-2.5 mt-1 cursor-pointer group"
+            style={{ background: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.25)' }}
             onClick={() => onNavigate(msg.navigateTo!)}
-            className="flex items-center gap-1 text-[10px] text-red-400 hover:text-red-300 font-medium mt-0.5"
           >
-            <MapPin className="h-2.5 w-2.5" /> Navigate → {msg.navigateTo}
-          </button>
+            <div className="flex items-center gap-2">
+              <MapPin className="h-3.5 w-3.5 text-red-400 flex-shrink-0" />
+              <div>
+                <p className="text-[11px] font-semibold text-white leading-tight">Take me there?</p>
+                <p className="text-[10px] text-gray-400">{msg.navigateTo}</p>
+              </div>
+            </div>
+            <ChevronRight className="h-4 w-4 text-red-400 group-hover:translate-x-0.5 transition-transform flex-shrink-0" />
+          </div>
         )}
         <div className="flex items-center gap-2">
           <span className="text-[10px] text-gray-600">
@@ -698,7 +747,7 @@ export function AbbaAssistant() {
   const { toast } = useToast();
 
   // Voice hook — STT + TTS
-  const { isListening, isSpeaking, voiceEnabled, startListening, stopListening, speak, stopSpeaking, toggleVoice, playStoredAudio, audioRef, safeSetSpeaking } = useVoice(
+  const { isListening, isSpeaking, voiceEnabled, startListening, stopListening, speak, stopSpeaking, toggleVoice, playStoredAudio, unlockAudio, audioRef, audioCtxRef, safeSetSpeaking } = useVoice(
     useCallback((transcript: string, isFinal: boolean) => {
       setInput(transcript);
       setInterimText(isFinal ? '' : transcript);
@@ -1004,7 +1053,10 @@ export function AbbaAssistant() {
       let sseBuffer = '';
       let fullText = '';
 
-      let serverTTSPlayed = false;
+      // ── Instant TTS: fire as soon as the first complete sentence arrives ──
+      // This gives immediate audio feedback instead of waiting for the full stream.
+      let earlyTTSFired = false;
+      let sentenceBuffer = '';
 
       while (true) {
         const { done, value } = await reader.read();
@@ -1026,20 +1078,35 @@ export function AbbaAssistant() {
 
           if (eventType === 'text') {
             fullText += parsed.text;
+            sentenceBuffer += parsed.text;
             setMessages(prev => prev.map(m => m.id === msgId ? { ...m, content: fullText } : m));
-            // Speak this sentence immediately via browser speechSynthesis (no autoplay block)
-            if (parsed.speak) queueSpeak(parsed.speak);
+
+            // ── Fire TTS as soon as we detect the first sentence boundary (30+ chars) ──
+            // This starts audio 2-4 seconds sooner than waiting for the full response.
+            if (voiceEnabled && !earlyTTSFired) {
+              const match = sentenceBuffer.match(/^[\s\S]{30,}?[.!?]+(?:\s|$)/);
+              if (match) {
+                earlyTTSFired = true;
+                // Clear browser speech queue
+                if (hasSpeechSynthesis) { window.speechSynthesis.cancel(); speechQueueRef.current = []; speechBusyRef.current = false; }
+                speak(match[0].trim(), msgId, (audioUrl) => {
+                  setMessages(prev => prev.map(m => m.id === msgId ? { ...m, audioUrl } : m));
+                });
+              }
+            }
           }
 
           if (eventType === 'done') {
             if (parsed.context) setContext(parsed.context);
             setMessages(prev => prev.map(m => m.id === msgId ? {
               ...m,
+              // ── navigateTo stored on message — MsgBubble shows "Take me there" button ──
+              // We do NOT auto-navigate. User must tap the button to confirm.
               navigateTo: parsed.navigateTo || null,
               planProposal: parsed.planProposal || null,
               suggestions: parsed.suggestions || [],
             } : m));
-            if (parsed.navigateTo) setTimeout(() => { navigate(parsed.navigateTo); setOpen(false); }, 1200);
+            // NO auto-navigate — removed intentionally
           }
 
           if (eventType === 'error') {
@@ -1049,12 +1116,8 @@ export function AbbaAssistant() {
         }
       }
 
-      // ── After stream completes: fetch server TTS for reliable audio playback ──
-      // Browser speechSynthesis (queueSpeak above) is silently blocked on mobile PWA.
-      // Fetching /api/abba/tts and playing via Audio element works reliably everywhere.
-      if (voiceEnabled && fullText && !serverTTSPlayed) {
-        serverTTSPlayed = true;
-        // Stop any browser speech that may have started
+      // ── After full stream: if early TTS didn't fire (very short response), speak now ──
+      if (voiceEnabled && fullText && !earlyTTSFired) {
         if (hasSpeechSynthesis) { window.speechSynthesis.cancel(); speechQueueRef.current = []; speechBusyRef.current = false; }
         speak(fullText, msgId, (audioUrl) => {
           setMessages(prev => prev.map(m => m.id === msgId ? { ...m, audioUrl } : m));
@@ -1097,6 +1160,9 @@ export function AbbaAssistant() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    // ── Unlock Web Audio API during this user gesture so subsequent audio.play()
+    // calls work on iOS Safari and Android Chrome without being blocked. ──
+    if (voiceEnabled) unlockAudio();
     sendMessage(input);
   };
 
@@ -1246,10 +1312,10 @@ export function AbbaAssistant() {
                       onNavigate={handleNavigate}
                       onCreatePlan={handleCreatePlan}
                       creatingPlan={creatingPlan}
-                      onSuggestion={sendMessage}
+                      onSuggestion={(text) => { if (voiceEnabled) unlockAudio(); sendMessage(text); }}
                       isLast={idx === messages.length - 1 && !isStreaming}
                       onPlayAudio={playStoredAudio}
-                      onFetchAndPlayTTS={(text, id) => speak(text, id, (url) =>
+                      onFetchAndPlayTTS={(text, id) => { unlockAudio(); speak(text, id, (url) =>
                         setMessages(prev => prev.map(m => m.id === id ? { ...m, audioUrl: url } : m))
                       )}
                     />
@@ -1284,7 +1350,7 @@ export function AbbaAssistant() {
                     {QUICK_PROMPTS.map((qp, i) => (
                       <button
                         key={i}
-                        onClick={() => sendMessage(qp.prompt)}
+                        onClick={() => { if (voiceEnabled) unlockAudio(); sendMessage(qp.prompt); }}
                         className="flex items-center gap-1.5 px-2.5 py-2 rounded-xl text-left text-[11px] font-medium text-gray-300 hover:text-white transition-all"
                         style={{ background: 'rgba(220,38,38,0.06)', border: '1px solid rgba(220,38,38,0.15)' }}
                         onMouseEnter={e => (e.currentTarget.style.borderColor = 'rgba(220,38,38,0.4)')}
@@ -1333,7 +1399,11 @@ export function AbbaAssistant() {
                   {hasSpeechRecognition && (
                     <button
                       type="button"
-                      onClick={isListening ? stopListening : startListening}
+                      onClick={() => {
+                        // Unlock audio on mic tap (user gesture) so TTS plays on mobile
+                        if (!isListening && voiceEnabled) unlockAudio();
+                        isListening ? stopListening() : startListening();
+                      }}
                       disabled={isStreaming}
                       className="flex items-center justify-center w-10 h-10 rounded-xl transition-all flex-shrink-0 disabled:opacity-40"
                       style={{
