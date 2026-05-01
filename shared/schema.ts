@@ -2361,3 +2361,71 @@ export const insertInnovationProjectSchema = createInsertSchema(innovationProjec
 export type InnovationProject = typeof innovationProjects.$inferSelect;
 export type InsertInnovationProject = z.infer<typeof insertInnovationProjectSchema>;
 export type InsertDevotionalSession = z.infer<typeof insertDevotionalSessionSchema>;
+
+// ─── GRANTS & FUNDING ────────────────────────────────────────────────────────
+
+export const grants = pgTable("grants", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  grantType: text("grant_type").notNull(), // 'business_fintech'|'community_dev'|'ambassador_education'|'international'|'ai_focused'
+  funder: text("funder").notNull(),
+  fundingAmount: text("funding_amount"),        // "$5,000–$50,000" as text range
+  deadline: timestamp("deadline"),
+  eligibilityCriteria: jsonb("eligibility_criteria"), // string[]
+  targetAudience: text("target_audience").default("both"), // 'business'|'ambassador'|'both'
+  geographicScope: text("geographic_scope").default("US"),
+  applicationUrl: text("application_url"),
+  aiScanNotes: text("ai_scan_notes"),
+  relevanceScore: integer("relevance_score").default(0), // 0-100
+  isActive: boolean("is_active").default(true),
+  isVerified: boolean("is_verified").default(false),
+  isFeatured: boolean("is_featured").default(false),
+  source: text("source").default("ai_scan"), // 'ai_scan'|'manual'
+  lastScannedAt: timestamp("last_scanned_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const grantApplications = pgTable("grant_applications", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  grantId: integer("grant_id").references(() => grants.id).notNull(),
+  status: text("status").default("draft"), // 'draft'|'applied'|'under_review'|'awarded'|'rejected'
+  proposalMode: text("proposal_mode").notNull(), // 'auto'|'guided'|'template'
+  proposalContent: text("proposal_content"),    // Full assembled proposal text
+  proposalSections: jsonb("proposal_sections"), // { executiveSummary, orgBackground, projectDescription, goalsObjectives, budgetNarrative, impactStatement }
+  proposalVersion: integer("proposal_version").default(1),
+  submittedAt: timestamp("submitted_at"),
+  awardedAt: timestamp("awarded_at"),
+  awardedAmount: text("awarded_amount"),
+  rejectionReason: text("rejection_reason"),
+  applicationNotes: text("application_notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const grantScanSessions = pgTable("grant_scan_sessions", {
+  id: serial("id").primaryKey(),
+  triggeredBy: integer("triggered_by").references(() => users.id),
+  scanType: text("scan_type").notNull(), // 'full'|'targeted'
+  grantTypesScanned: jsonb("grant_types_scanned"),
+  grantsFound: integer("grants_found").default(0),
+  grantsCreated: integer("grants_created").default(0),
+  status: text("status").default("pending"), // 'pending'|'running'|'completed'|'failed'
+  errorMessage: text("error_message"),
+  startedAt: timestamp("started_at").defaultNow().notNull(),
+  completedAt: timestamp("completed_at"),
+});
+
+export const insertGrantSchema = createInsertSchema(grants).omit({ id: true, createdAt: true, updatedAt: true });
+export type Grant = typeof grants.$inferSelect;
+export type InsertGrant = z.infer<typeof insertGrantSchema>;
+
+export const insertGrantApplicationSchema = createInsertSchema(grantApplications).omit({ id: true, createdAt: true, updatedAt: true });
+export type GrantApplication = typeof grantApplications.$inferSelect;
+export type InsertGrantApplication = z.infer<typeof insertGrantApplicationSchema>;
+
+export const insertGrantScanSessionSchema = createInsertSchema(grantScanSessions).omit({ id: true, startedAt: true });
+export type GrantScanSession = typeof grantScanSessions.$inferSelect;
+export type InsertGrantScanSession = z.infer<typeof insertGrantScanSessionSchema>;

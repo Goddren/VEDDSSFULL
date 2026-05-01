@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { GrantCard } from "@/components/grants/grant-card";
+import { GrantCard, type Grant } from "@/components/grants/grant-card";
 import { GrantScanButton } from "@/components/grants/grant-scan-button";
 import { ProposalEditor } from "@/components/grants/proposal-editor";
 import { ProposalPreview } from "@/components/grants/proposal-preview";
@@ -43,24 +43,6 @@ const grantTypeConfig: Record<string, { label: string; color: string }> = {
   international:    { label: "International", color: "bg-orange-600/30 text-orange-200 border-orange-500/50" },
   ai_focused:       { label: "AI/Tech", color: "bg-cyan-600/30 text-cyan-200 border-cyan-500/50" },
 };
-
-interface Grant {
-  id: number;
-  title: string;
-  funder: string;
-  description: string;
-  grantType: string;
-  fundingAmount: string | null;
-  deadline: string | null;
-  targetAudience: string | null;
-  geographicScope: string | null;
-  applicationUrl: string | null;
-  relevanceScore: number | null;
-  isVerified: boolean | null;
-  isFeatured: boolean | null;
-  aiScanNotes: string | null;
-  eligibilityCriteria: string[] | null;
-}
 
 function SwipeGrantCard({
   grant,
@@ -330,7 +312,7 @@ function GrantSwiper({
   const handleSwipeLeft = useCallback((grantId: number) => {
     setSkipAnim(grantId);
     setTimeout(() => {
-      setSkipped(prev => new Set([...prev, grantId]));
+      setSkipped(prev => new Set(Array.from(prev).concat(grantId)));
       onSkip(grantId);
       setSkipAnim(null);
       setSwipeCount(c => c + 1);
@@ -340,7 +322,7 @@ function GrantSwiper({
   const handleSwipeRight = useCallback((grant: Grant) => {
     setApplyAnim(grant.id);
     setTimeout(() => {
-      setSkipped(prev => new Set([...prev, grant.id]));
+      setSkipped(prev => new Set(Array.from(prev).concat(grant.id)));
       onApply(grant);
       setApplyAnim(null);
       setSwipeCount(c => c + 1);
@@ -401,7 +383,7 @@ function GrantSwiper({
           <X className="w-6 h-6 text-red-400" />
         </button>
         <button
-          onClick={() => { setSkipped(new Set([...skipped, topGrant?.id ?? -1])); setSwipeCount(c => c + 1); }}
+          onClick={() => { setSkipped(new Set(Array.from(skipped).concat(topGrant?.id ?? -1))); setSwipeCount(c => c + 1); }}
           className="w-10 h-10 rounded-full bg-gray-800 border border-gray-600 flex items-center justify-center hover:bg-gray-700 transition-all"
           title="Skip"
         >
@@ -467,8 +449,8 @@ export default function GrantsFundingPage() {
 
   const dismissGrant = useCallback((grantId: number) => {
     setDismissedIds(prev => {
-      const next = new Set([...prev, grantId]);
-      localStorage.setItem(DISMISS_KEY, JSON.stringify([...next]));
+      const next = new Set(Array.from(prev).concat(grantId));
+      localStorage.setItem(DISMISS_KEY, JSON.stringify(Array.from(next)));
       return next;
     });
     toast({ title: "Grant dismissed", description: "It won't appear in your list. Refresh to restore all grants." });

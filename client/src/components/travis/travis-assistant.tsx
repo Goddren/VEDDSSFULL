@@ -1086,7 +1086,6 @@ export function AbbaAssistant() {
       if (speechQueueRef.current.length === 0 && !speechBusyRef.current) safeSetSpeaking(false);
     }
   }, [isStreaming, messages, location, voiceEnabled, navigate, queueSpeak, speak, safeSetSpeaking]);
-  }, [isStreaming, messages, location, voiceEnabled, navigate, queueSpeak, speak, safeSetSpeaking]);
 
   // Keep voiceSendRef in sync so voice callback can call sendMessage without stale closure
   voiceSendRef.current = sendMessage;

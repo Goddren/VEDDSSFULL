@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Calendar, DollarSign, Globe, ExternalLink, Star, X } from "lucide-react";
 
-interface Grant {
+export interface Grant {
   id: number;
   title: string;
   funder: string;
@@ -18,6 +18,7 @@ interface Grant {
   isVerified: boolean | null;
   isFeatured: boolean | null;
   aiScanNotes: string | null;
+  eligibilityCriteria?: string[] | null;
 }
 
 const grantTypeConfig: Record<string, { label: string; color: string }> = {
