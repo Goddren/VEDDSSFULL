@@ -2750,6 +2750,7 @@ export default function WeeklyStrategyPage() {
                     { id: 'aggressive', name: 'Aggressive Compound', icon: '🔥', risk: 'EXTREME', desc: 'All strategies, max frequency, compound sizing' },
                     { id: 'sniper', name: 'Sniper Mode', icon: '🎯', risk: 'MEDIUM', desc: 'ICT precision entries, high-quality setups only' },
                     { id: 'prop_firm', name: 'Prop Firm Challenge', icon: '🛡️', risk: 'PROTECTED', desc: 'Challenge-safe rules, 0.5% risk, 1:2+ R:R only' },
+                    { id: 'orb_breakout', name: 'ORB 9:30 Breakout', icon: '📈', risk: 'MEDIUM', desc: '9:30 open range · 15-min range · 6-min breakout · retest entry · SS AI Bot required' },
                   ].map(mode => (
                     <button key={mode.id} onClick={() => {
                       setStrategyMode(mode.id === 'prop_firm' ? 'sniper' : mode.id);
@@ -2758,7 +2759,9 @@ export default function WeeklyStrategyPage() {
                     }}
                       className={`text-left p-3 rounded-xl border transition-all text-xs ${
                         (mode.id === 'prop_firm' ? enginePropFirmMode : strategyMode === mode.id && !enginePropFirmMode)
-                          ? mode.id === 'prop_firm' ? 'border-amber-500 bg-amber-500/10 text-amber-300' : 'border-orange-500 bg-orange-500/10 text-orange-300'
+                          ? mode.id === 'orb_breakout' ? 'border-green-500 bg-green-500/10 text-green-300'
+                          : mode.id === 'prop_firm' ? 'border-amber-500 bg-amber-500/10 text-amber-300'
+                          : 'border-orange-500 bg-orange-500/10 text-orange-300'
                           : 'border-gray-700 bg-gray-900/50 text-gray-400 hover:border-gray-500'
                       }`}>
                       <div className="flex items-center gap-1.5 mb-1">
@@ -2770,12 +2773,44 @@ export default function WeeklyStrategyPage() {
                         mode.risk === 'EXTREME' ? 'bg-red-500/20 text-red-400' :
                         mode.risk === 'HIGH' ? 'bg-orange-500/20 text-orange-400' :
                         mode.risk === 'PROTECTED' ? 'bg-amber-500/20 text-amber-400' :
+                        mode.id === 'orb_breakout' ? 'bg-green-500/20 text-green-400' :
                         'bg-yellow-500/20 text-yellow-400'
                       }`}>{mode.risk}</Badge>
+                      {mode.id === 'orb_breakout' && (
+                        <p className="text-[8px] text-green-500 mt-1 font-semibold">SS AI Bot · 1 trade/pair/day</p>
+                      )}
                     </button>
                   ))}
                 </div>
               </div>
+              {/* ── ORB Mode callout ─────────────────────────────── */}
+              {strategyMode === 'orb_breakout' && (
+                <div className="p-4 rounded-xl border" style={{ background: "rgba(34,197,94,0.07)", borderColor: "rgba(34,197,94,0.3)" }}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-base">📈</span>
+                    <span className="text-sm font-bold text-green-300">ORB 9:30 Breakout Mode Active</span>
+                    <a href="/orb-breakout" className="ml-auto text-[10px] text-green-400 underline font-semibold">Open ORB Scanner →</a>
+                  </div>
+                  <div className="space-y-1.5 text-[11px] text-gray-300">
+                    <p>📅 <span className="text-white font-semibold">Session:</span> NYSE open only — 9:30 AM EST. No trades outside this window.</p>
+                    <p>⏱ <span className="text-white font-semibold">Range:</span> First 15-min candle (9:30–9:45 AM) defines Opening Range High and Low.</p>
+                    <p>📊 <span className="text-white font-semibold">Entry:</span> 6-min candle full-body close above/below range → wait for <strong className="text-green-300">retest</strong> of broken level → confirm pattern.</p>
+                    <p>🤖 <span className="text-white font-semibold">SS AI Bot:</span> Required before every entry. Minimum score <strong className="text-green-300">80/100</strong> to take trade.</p>
+                    <p>🛡 <span className="text-white font-semibold">Rule:</span> One trade per instrument per day. After first entry — done for that pair.</p>
+                    <p>🎯 <span className="text-white font-semibold">Targets:</span> T1 = 2:1 R:R (scale 50%), T2 = 3:1 R:R. Move stop to break-even after T1.</p>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 mt-3">
+                    {['US30','NAS100','SPX500','AAPL','TSLA','XAUUSD'].map(s => (
+                      <span key={s} className="text-[9px] font-bold px-2 py-0.5 rounded-full"
+                        style={{ background: "rgba(34,197,94,0.15)", border: "1px solid rgba(34,197,94,0.3)", color: "#86efac" }}>
+                        {s}
+                      </span>
+                    ))}
+                    <span className="text-[9px] text-gray-500 italic py-0.5">+ any instrument your broker offers</span>
+                  </div>
+                </div>
+              )}
+
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <Label className="text-gray-300 text-sm">Select Pairs <span className="text-gray-500 font-normal">(pick 1 or more — all optional)</span></Label>

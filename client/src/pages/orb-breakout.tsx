@@ -16,7 +16,7 @@ import {
   TrendingUp, TrendingDown, Clock, Target, Shield, Zap, AlertTriangle,
   CheckCircle2, XCircle, ChevronUp, ChevronDown, BarChart3, BookOpen,
   RefreshCw, ArrowUpRight, ArrowDownRight, Minus, Star, Info,
-  Activity, Radio, Lock, Plus, Trash2
+  Activity, Radio, Lock, Plus, Trash2, Send, Webhook
 } from "lucide-react";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -306,6 +306,73 @@ function ORBRangeBar({ setup }: { setup: ORBSetup }) {
   );
 }
 
+// ─── Webhook Fire Button ──────────────────────────────────────────────────────
+
+function WebhookFireButton({ setup }: { setup: ORBSetup }) {
+  const { toast } = useToast();
+  const canFire = (setup.aiScore ?? 0) >= 80 && (setup.phase === "RETEST_LONG" || setup.phase === "RETEST_SHORT") && !setup.tradeTaken;
+
+  const fireMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/orb/fire-webhook", {
+        symbol: setup.symbol,
+        direction: setup.tradeDirection,
+        entry: setup.entryPrice,
+        stop: setup.stopLoss,
+        target1: setup.target1,
+        target2: setup.target2,
+        rr: setup.riskReward,
+        orbHigh: setup.orbHigh,
+        orbLow: setup.orbLow,
+        orbRange: setup.orbRange,
+        orbRangePct: setup.orbRangePct,
+        aiScore: setup.aiScore,
+        pattern: setup.pattern,
+        phase: setup.phase,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Webhook failed" }));
+        throw new Error(err.error || "Webhook failed");
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: `🚀 Webhook fired — ${setup.symbol} ${setup.tradeDirection}`,
+        description: `Signal sent to your connected webhooks. Score: ${setup.aiScore}/100`,
+      });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Webhook failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  if (!canFire) {
+    return (
+      <div className="mt-2 p-2 rounded-lg text-center text-[10px] text-gray-600" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)" }}>
+        {setup.aiScore !== undefined && setup.aiScore < 80
+          ? `⚠️ Score ${setup.aiScore}/100 — need 80+ to fire webhook`
+          : setup.tradeTaken
+          ? "✅ Trade already logged — webhook fired"
+          : "Run SS AI Bot and reach retest phase to enable auto-signal"}
+      </div>
+    );
+  }
+
+  return (
+    <Button
+      className="w-full mt-2 h-9 text-xs font-bold"
+      style={{ background: "linear-gradient(135deg, #7c3aed, #4f46e5)", color: "white" }}
+      onClick={() => fireMutation.mutate()}
+      disabled={fireMutation.isPending}
+    >
+      {fireMutation.isPending
+        ? <><RefreshCw className="w-3.5 h-3.5 mr-2 animate-spin" /> Firing…</>
+        : <><Send className="w-3.5 h-3.5 mr-2" /> Fire Webhook Signal ({setup.aiScore}/100)</>}
+    </Button>
+  );
+}
+
 // ─── SS AI Bot Panel ──────────────────────────────────────────────────────────
 
 function SSAIBotPanel({
@@ -399,6 +466,15 @@ function SSAIBotPanel({
               {isLoading ? <RefreshCw className="w-3 h-3 mr-1.5 animate-spin" /> : <RefreshCw className="w-3 h-3 mr-1.5" />}
               Re-analyze
             </Button>
+
+            {/* Webhook auto-signal — fires to MT5/TradingView when score ≥ 80 */}
+            <WebhookFireButton setup={setup} />
+
+            {(setup.aiScore ?? 0) >= 80 && (
+              <p className="text-[9px] text-center text-gray-600 mt-1">
+                Webhook fires to all your active <a href="/webhooks" className="text-indigo-400 underline">configured webhooks</a> with the full ORB signal payload.
+              </p>
+            )}
           </>
         )}
       </CardContent>
@@ -626,7 +702,7 @@ function SetupCard({
       )}
 
       {/* Action buttons */}
-      <div className="px-4 pb-4 flex gap-2">
+      <div className="px-4 pb-2 flex gap-2">
         <Button
           size="sm"
           onClick={() => onAnalyze(setup)}
@@ -661,6 +737,22 @@ function SetupCard({
           </div>
         )}
       </div>
+
+      {/* Webhook signal row — visible when SS AI Bot score ≥ 80 */}
+      {(setup.aiScore ?? 0) >= 80 && !setup.tradeTaken && (
+        <div className="px-4 pb-4">
+          <WebhookFireButton setup={setup} />
+        </div>
+      )}
+      {/* AI score badge when analyzed */}
+      {setup.aiScore !== undefined && (setup.aiScore ?? 0) < 80 && (
+        <div className="px-4 pb-3">
+          <div className="text-center text-[9px] py-1.5 rounded-lg"
+            style={{ background: "rgba(239,68,68,0.07)", border: "1px solid rgba(239,68,68,0.2)", color: "#fca5a5" }}>
+            SS AI Bot: {setup.aiScore}/100 — Score 80+ required to fire webhook
+          </div>
+        </div>
+      )}
     </motion.div>
   );
 }

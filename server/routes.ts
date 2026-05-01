@@ -18304,6 +18304,53 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
 
   // ─── ORB BREAKOUT — SS AI BOT ─────────────────────────────────────────────────
 
+  // POST /api/orb/fire-webhook — fire trade signal webhook when SS AI Bot ≥ 80
+  app.post("/api/orb/fire-webhook", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const {
+        symbol, direction, entry, stop, target1, target2, rr,
+        orbHigh, orbLow, orbRange, orbRangePct, aiScore, pattern, phase,
+      } = req.body;
+
+      if (!symbol || !direction || aiScore === undefined) {
+        return res.status(400).json({ error: "symbol, direction, and aiScore required" });
+      }
+      if (aiScore < 80) {
+        return res.status(400).json({ error: "SS AI Bot score must be ≥ 80 to fire signal" });
+      }
+
+      const signal = {
+        source: "VEDD_ORB_BOT",
+        strategy: "ORB_9:30_BREAKOUT",
+        symbol,
+        direction,
+        entry,
+        stop,
+        target1,
+        target2,
+        riskReward: rr,
+        orbHigh,
+        orbLow,
+        orbRange,
+        orbRangePct,
+        ssAIBotScore: aiScore,
+        pattern: pattern || "none",
+        phase,
+        timeframe: "6min",
+        sessionRule: "one_trade_per_day",
+        generatedAt: new Date().toISOString(),
+        generatedBy: req.user!.id,
+      };
+
+      await triggerWebhooks(req.user!.id, "orb_signal", signal);
+
+      res.json({ success: true, message: `ORB ${direction} signal fired for ${symbol}`, signal });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // POST /api/orb/analyze — SS AI Bot 2nd confirmation for ORB setups
   app.post("/api/orb/analyze", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
