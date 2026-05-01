@@ -3793,7 +3793,8 @@ VEDD CONTEXT: VEDD is a faith-based AI trading platform with a community of trad
             process.env.EDGE_TTS_VOICE || 'en-US-DavisNeural',
             OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3
           );
-          const audioStream = tts.toStream(ttsText);
+          // toStream() returns { audioStream, metadataStream, requestId } — must destructure
+          const { audioStream } = tts.toStream(ttsText);
           const chunks: Buffer[] = [];
           await new Promise<void>((resolve, reject) => {
             audioStream.on('data', (chunk: any) => chunks.push(Buffer.from(chunk)));
@@ -4410,7 +4411,8 @@ IMPORTANT:
         const tts = new MsEdgeTTS();
         const voice = process.env.EDGE_TTS_VOICE || 'en-US-DavisNeural';
         await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3);
-        const audioStream = tts.toStream(clean);
+        // toStream() returns { audioStream, metadataStream, requestId } — must destructure
+        const { audioStream } = tts.toStream(clean);
 
         // Buffer all chunks before sending — more reliable than streaming directly
         const chunks: Buffer[] = [];
@@ -4419,7 +4421,7 @@ IMPORTANT:
           audioStream.on('end', resolve);
           audioStream.on('error', reject);
           // Safety timeout — if Edge service hangs, fall through to next provider
-          setTimeout(() => reject(new Error('Edge TTS timeout')), 10000);
+          setTimeout(() => reject(new Error('Edge TTS timeout')), 12000);
         });
 
         const buffer = Buffer.concat(chunks);

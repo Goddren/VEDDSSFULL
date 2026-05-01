@@ -325,7 +325,7 @@ const QUICK_PROMPTS = [
 
 // ── Message bubble ────────────────────────────────────────────────────────────
 const MsgBubble = ({
-  msg, onNavigate, onCreatePlan, creatingPlan, onSuggestion, isLast, onPlayAudio,
+  msg, onNavigate, onCreatePlan, creatingPlan, onSuggestion, isLast, onPlayAudio, onFetchAndPlayTTS,
 }: {
   msg: AbbaMessage;
   onNavigate: (path: string) => void;
@@ -334,8 +334,10 @@ const MsgBubble = ({
   onSuggestion: (text: string) => void;
   isLast: boolean;
   onPlayAudio: (url: string) => void;
+  onFetchAndPlayTTS: (text: string, msgId: string) => void;
 }) => {
   const isAbba = msg.role === 'abba';
+  const [fetchingAudio, setFetchingAudio] = useState(false);
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
@@ -389,15 +391,24 @@ const MsgBubble = ({
           <span className="text-[10px] text-gray-600">
             {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </span>
-          {/* Tap-to-play button — shown when audio is ready, bypasses autoplay policy */}
-          {isAbba && msg.audioUrl && (
+          {/* Hear button — plays stored audio or fetches TTS on demand */}
+          {isAbba && msg.content && msg.content.length > 5 && (
             <button
-              onClick={() => onPlayAudio(msg.audioUrl!)}
-              className="flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full transition-all"
+              onClick={() => {
+                if (msg.audioUrl) {
+                  onPlayAudio(msg.audioUrl);
+                } else {
+                  setFetchingAudio(true);
+                  onFetchAndPlayTTS(msg.content, msg.id);
+                  setTimeout(() => setFetchingAudio(false), 3000);
+                }
+              }}
+              disabled={fetchingAudio}
+              className="flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full transition-all disabled:opacity-50"
               style={{ background: 'rgba(168,85,247,0.15)', border: '1px solid rgba(168,85,247,0.4)', color: '#a855f7' }}
               title="Tap to hear ABBA"
             >
-              <Volume2 className="h-2.5 w-2.5" /> Hear
+              <Volume2 className="h-2.5 w-2.5" /> {fetchingAudio ? '…' : 'Hear'}
             </button>
           )}
         </div>
@@ -926,7 +937,7 @@ export function AbbaAssistant() {
   const speechQueueRef = useRef<string[]>([]);
   const speechBusyRef  = useRef(false);
 
-  const speakNext = useCallback(() => {
+  const speakNext = useCallback(async () => {
     if (!hasSpeechSynthesis) return;
     if (speechBusyRef.current || speechQueueRef.current.length === 0) return;
     const text = speechQueueRef.current.shift()!;
@@ -936,8 +947,8 @@ export function AbbaAssistant() {
     utt.rate   = 1.0;
     utt.pitch  = 0.85;
     utt.volume = 1.0;
-    // Use best available voice — Edge/Chrome have neural voices built in
-    const voices = window.speechSynthesis.getVoices();
+    // Use async loadVoices() — Chrome/Edge return empty array on first sync call
+    const voices = await loadVoices();
     const best = voices.find(v => /microsoft david|microsoft mark|google uk english male|daniel|alex|reed|liam/i.test(v.name))
               || voices.find(v => v.lang === 'en-US' && /male|man/i.test(v.name))
               || voices.find(v => v.lang === 'en-US')
@@ -993,6 +1004,8 @@ export function AbbaAssistant() {
       let sseBuffer = '';
       let fullText = '';
 
+      let serverTTSPlayed = false;
+
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -1035,6 +1048,19 @@ export function AbbaAssistant() {
           }
         }
       }
+
+      // ── After stream completes: fetch server TTS for reliable audio playback ──
+      // Browser speechSynthesis (queueSpeak above) is silently blocked on mobile PWA.
+      // Fetching /api/abba/tts and playing via Audio element works reliably everywhere.
+      if (voiceEnabled && fullText && !serverTTSPlayed) {
+        serverTTSPlayed = true;
+        // Stop any browser speech that may have started
+        if (hasSpeechSynthesis) { window.speechSynthesis.cancel(); speechQueueRef.current = []; speechBusyRef.current = false; }
+        speak(fullText, msgId, (audioUrl) => {
+          setMessages(prev => prev.map(m => m.id === msgId ? { ...m, audioUrl } : m));
+        });
+      }
+
     } catch {
       // Fallback to non-streaming chat
       try {
@@ -1059,6 +1085,7 @@ export function AbbaAssistant() {
       // If no speech queued, clear speaking indicator
       if (speechQueueRef.current.length === 0 && !speechBusyRef.current) safeSetSpeaking(false);
     }
+  }, [isStreaming, messages, location, voiceEnabled, navigate, queueSpeak, speak, safeSetSpeaking]);
   }, [isStreaming, messages, location, voiceEnabled, navigate, queueSpeak, speak, safeSetSpeaking]);
 
   // Keep voiceSendRef in sync so voice callback can call sendMessage without stale closure
@@ -1223,6 +1250,9 @@ export function AbbaAssistant() {
                       onSuggestion={sendMessage}
                       isLast={idx === messages.length - 1 && !isStreaming}
                       onPlayAudio={playStoredAudio}
+                      onFetchAndPlayTTS={(text, id) => speak(text, id, (url) =>
+                        setMessages(prev => prev.map(m => m.id === id ? { ...m, audioUrl: url } : m))
+                      )}
                     />
                   ))}
                 </AnimatePresence>
