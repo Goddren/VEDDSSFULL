@@ -1317,7 +1317,7 @@ export function AbbaAssistant() {
                       onPlayAudio={playStoredAudio}
                       onFetchAndPlayTTS={(text, id) => { unlockAudio(); speak(text, id, (url) =>
                         setMessages(prev => prev.map(m => m.id === id ? { ...m, audioUrl: url } : m))
-                      )}
+                      ); }}
                     />
                   ))}
                 </AnimatePresence>
