@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -19,7 +19,8 @@ import {
   Rocket, Flame, ArrowUpRight, Power, XCircle, Lightbulb,
   Newspaper, Radio, Activity, Share2, Loader2, Copy, Download,
   Sparkles, ExternalLink, Settings, ChevronDown, ChevronUp,
-  TrendingDown, Crosshair, BookOpen, Swords
+  TrendingDown, Crosshair, BookOpen, Swords,
+  Webhook, ArrowDownRight, Minus, Send
 } from "lucide-react";
 import { SiX, SiFacebook, SiLinkedin } from "react-icons/si";
 import VeddLogo from "@/components/ui/vedd-logo";
@@ -57,6 +58,462 @@ function useSectionToggle(pageKey: string, key: string, defaultOpen = true) {
   });
   return [open, toggle] as const;
 }
+
+// ─── ORB Weekly Panel types ───────────────────────────────────────────────────
+
+type ORBPairPhase =
+  | "PRE_MARKET" | "BUILDING" | "RANGE_SET"
+  | "BREAKOUT_LONG" | "BREAKOUT_SHORT"
+  | "RETEST_LONG" | "RETEST_SHORT"
+  | "TRADE_TAKEN" | "WINDOW_CLOSED";
+
+interface ORBPairState {
+  symbol: string;
+  orbHigh: number;
+  orbLow: number;
+  currentPrice: number;
+  phase: ORBPairPhase;
+  tradeDirection?: "LONG" | "SHORT";
+  entryPrice?: number;
+  stopLoss?: number;
+  target1?: number;
+  target2?: number;
+  aiScore?: number;
+  aiNote?: string;
+  tradeTaken: boolean;
+  autoMode: boolean;
+  mt5Status?: "connected" | "no_data" | "error" | "idle";
+  lastUpdated?: string;
+}
+
+const ORB_PHASE_CFG: Record<ORBPairPhase, { label: string; color: string }> = {
+  PRE_MARKET:     { label: "Pre-Market",      color: "#6b7280" },
+  BUILDING:       { label: "Building Range",  color: "#f59e0b" },
+  RANGE_SET:      { label: "Range Set",       color: "#06b6d4" },
+  BREAKOUT_LONG:  { label: "🚀 Breakout ↑",   color: "#22c55e" },
+  BREAKOUT_SHORT: { label: "🔻 Breakout ↓",   color: "#ef4444" },
+  RETEST_LONG:    { label: "⚡ Retest LONG",   color: "#22c55e" },
+  RETEST_SHORT:   { label: "⚡ Retest SHORT",  color: "#ef4444" },
+  TRADE_TAKEN:    { label: "✅ Trade Taken",   color: "#8b5cf6" },
+  WINDOW_CLOSED:  { label: "Window Closed",   color: "#374151" },
+};
+
+function getORBClockPhase(): ORBPairPhase {
+  const now = new Date();
+  const utc = now.getTime() + now.getTimezoneOffset() * 60000;
+  const est = new Date(utc + -5 * 3600000);
+  const h = est.getHours(); const m = est.getMinutes();
+  if (h < 9 || (h === 9 && m < 30)) return "PRE_MARKET";
+  if (h === 9 && m < 45) return "BUILDING";
+  if (h < 14) return "RANGE_SET";
+  return "WINDOW_CLOSED";
+}
+
+function calcORBLevels(dir: "LONG" | "SHORT", entry: number, orbHigh: number, orbLow: number) {
+  const range = orbHigh - orbLow;
+  if (dir === "LONG") {
+    const stop = orbLow - range * 0.1;
+    const risk = entry - stop;
+    return { stopLoss: +stop.toFixed(2), target1: +(entry + risk * 2).toFixed(2), target2: +(entry + risk * 3).toFixed(2) };
+  } else {
+    const stop = orbHigh + range * 0.1;
+    const risk = stop - entry;
+    return { stopLoss: +stop.toFixed(2), target1: +(entry - risk * 2).toFixed(2), target2: +(entry - risk * 3).toFixed(2) };
+  }
+}
+
+// ─── ORB Weekly Panel ─────────────────────────────────────────────────────────
+
+function ORBWeeklyPanel({ pairs }: { pairs: string[] }) {
+  const { toast } = useToast();
+  const [pairStates, setPairStates] = useState<Record<string, ORBPairState>>({});
+  const [analyzingId, setAnalyzingId] = useState<string | null>(null);
+  const autoFiredRef = useRef<Set<string>>(new Set());
+  const autoAnalyzingRef = useRef<Set<string>>(new Set());
+
+  // Sync pairs list: add new pairs, keep existing state
+  useEffect(() => {
+    setPairStates(prev => {
+      const next = { ...prev };
+      // Add new pairs
+      pairs.forEach(sym => {
+        if (!next[sym]) {
+          next[sym] = {
+            symbol: sym, orbHigh: 0, orbLow: 0, currentPrice: 0,
+            phase: getORBClockPhase(), tradeTaken: false, autoMode: false,
+          };
+        }
+      });
+      // Remove pairs no longer selected
+      Object.keys(next).forEach(sym => { if (!pairs.includes(sym)) delete next[sym]; });
+      return next;
+    });
+  }, [pairs]);
+
+  function updatePair(sym: string, patch: Partial<ORBPairState>) {
+    setPairStates(prev => ({ ...prev, [sym]: { ...prev[sym], ...patch } }));
+  }
+
+  // SS AI Bot mutation
+  const analyzeMutation = useMutation({
+    mutationFn: async (pair: ORBPairState) => {
+      const res = await apiRequest("POST", "/api/orb/analyze", {
+        symbol: pair.symbol, orbHigh: pair.orbHigh, orbLow: pair.orbLow,
+        orbRange: pair.orbHigh - pair.orbLow,
+        orbRangePct: pair.orbHigh > 0 ? ((pair.orbHigh - pair.orbLow) / pair.currentPrice) * 100 : 0,
+        currentPrice: pair.currentPrice, phase: pair.phase,
+        tradeDirection: pair.tradeDirection,
+      });
+      if (!res.ok) throw new Error("AI failed");
+      return res.json() as Promise<{ score: number; verdict: string; note: string; checks: any[] }>;
+    },
+    onSuccess: (data, pair) => {
+      updatePair(pair.symbol, { aiScore: data.score, aiNote: data.note });
+      autoAnalyzingRef.current.delete(pair.symbol);
+      setAnalyzingId(null);
+      toast({
+        title: `🤖 SS AI Bot: ${data.verdict}`,
+        description: `${pair.symbol} scored ${data.score}/100`,
+        variant: data.score >= 70 ? "default" : "destructive",
+      });
+    },
+    onError: (_, pair) => {
+      autoAnalyzingRef.current.delete(pair.symbol);
+      setAnalyzingId(null);
+      toast({ title: "AI analysis failed", variant: "destructive" });
+    },
+  });
+
+  // MT5 polling
+  const pollMT5Pair = useCallback(async (sym: string) => {
+    const pair = pairStates[sym];
+    if (!pair) return;
+    try {
+      const res = await apiRequest("GET", `/api/orb/mt5-live/${encodeURIComponent(sym)}`);
+      if (!res.ok) { updatePair(sym, { mt5Status: "error" }); return; }
+      const data = await res.json() as {
+        currentPrice: number; orbHigh: number | null; orbLow: number | null;
+        foundOrbCandle: boolean;
+      };
+      if (!data.currentPrice) { updatePair(sym, { mt5Status: "no_data" }); return; }
+
+      const patch: Partial<ORBPairState> = {
+        mt5Status: "connected", currentPrice: data.currentPrice,
+        lastUpdated: new Date().toLocaleTimeString() + " (MT5)",
+      };
+      if (data.foundOrbCandle && data.orbHigh && data.orbLow) {
+        patch.orbHigh = data.orbHigh;
+        patch.orbLow = data.orbLow;
+      }
+
+      const high = patch.orbHigh ?? pair.orbHigh;
+      const low = patch.orbLow ?? pair.orbLow;
+      const curr = data.currentPrice;
+
+      if (high > 0 && low > 0 && !pair.tradeTaken) {
+        let newPhase = pair.phase;
+        if (curr > high * 1.001 && pair.phase !== "BREAKOUT_LONG" && pair.phase !== "RETEST_LONG") {
+          newPhase = "BREAKOUT_LONG"; patch.tradeDirection = "LONG";
+          patch.entryPrice = curr; Object.assign(patch, calcORBLevels("LONG", curr, high, low));
+          patch.aiScore = undefined; autoFiredRef.current.delete(sym);
+        } else if (curr < low * 0.999 && pair.phase !== "BREAKOUT_SHORT" && pair.phase !== "RETEST_SHORT") {
+          newPhase = "BREAKOUT_SHORT"; patch.tradeDirection = "SHORT";
+          patch.entryPrice = curr; Object.assign(patch, calcORBLevels("SHORT", curr, high, low));
+          patch.aiScore = undefined; autoFiredRef.current.delete(sym);
+        } else if (curr >= high * 0.998 && curr <= high * 1.002 && pair.phase === "BREAKOUT_LONG") {
+          newPhase = "RETEST_LONG"; patch.entryPrice = curr;
+          Object.assign(patch, calcORBLevels("LONG", curr, high, low));
+        } else if (curr >= low * 0.998 && curr <= low * 1.002 && pair.phase === "BREAKOUT_SHORT") {
+          newPhase = "RETEST_SHORT"; patch.entryPrice = curr;
+          Object.assign(patch, calcORBLevels("SHORT", curr, high, low));
+        }
+        if (newPhase !== pair.phase) {
+          patch.phase = newPhase;
+          toast({ title: `📡 MT5: ${sym} → ${ORB_PHASE_CFG[newPhase].label}`, description: "Phase auto-detected" });
+        }
+        const effectivePhase = patch.phase ?? pair.phase;
+        const isRetest = effectivePhase === "RETEST_LONG" || effectivePhase === "RETEST_SHORT";
+        if (isRetest && pair.aiScore === undefined && !autoAnalyzingRef.current.has(sym)) {
+          autoAnalyzingRef.current.add(sym);
+          setAnalyzingId(sym);
+          toast({ title: `🤖 Auto-analyzing ${sym}…`, description: "Retest detected via MT5" });
+          analyzeMutation.mutate({ ...pair, ...patch } as ORBPairState);
+        }
+      }
+      updatePair(sym, patch);
+    } catch { updatePair(sym, { mt5Status: "error" }); }
+  }, [pairStates, toast, analyzeMutation]);
+
+  // 30-second auto-poll interval
+  useEffect(() => {
+    const interval = setInterval(() => {
+      Object.values(pairStates).filter(p => p.autoMode && !p.tradeTaken).forEach(p => pollMT5Pair(p.symbol));
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [pairStates, pollMT5Pair]);
+
+  // Auto-fire webhook when score ≥ 70 at retest in auto mode
+  useEffect(() => {
+    Object.values(pairStates).forEach(pair => {
+      if (!pair.autoMode || pair.tradeTaken || autoFiredRef.current.has(pair.symbol)) return;
+      const isRetest = pair.phase === "RETEST_LONG" || pair.phase === "RETEST_SHORT";
+      if (isRetest && (pair.aiScore ?? 0) >= 70) {
+        autoFiredRef.current.add(pair.symbol);
+        autoAnalyzingRef.current.delete(pair.symbol);
+        apiRequest("POST", "/api/orb/fire-webhook", {
+          symbol: pair.symbol, orbHigh: pair.orbHigh, orbLow: pair.orbLow,
+          currentPrice: pair.currentPrice, phase: pair.phase,
+          tradeDirection: pair.tradeDirection, aiScore: pair.aiScore,
+          entryPrice: pair.entryPrice, stopLoss: pair.stopLoss,
+          target1: pair.target1, target2: pair.target2,
+        }).catch(() => {});
+        toast({ title: `🚀 Auto-Webhook: ${pair.symbol}`, description: `Retest + SS AI ${pair.aiScore}/100 — signal fired!` });
+      }
+    });
+  }, [pairStates]);
+
+  function toggleAutoMode(sym: string) {
+    const pair = pairStates[sym];
+    if (!pair) return;
+    const enabling = !pair.autoMode;
+    updatePair(sym, { autoMode: enabling, mt5Status: enabling ? "idle" : undefined });
+    if (enabling) {
+      toast({ title: `⚡ MT5 Auto-Fill: ${sym}`, description: "Polling live data every 30s" });
+      setTimeout(() => pollMT5Pair(sym), 500);
+    } else {
+      autoFiredRef.current.delete(sym);
+      autoAnalyzingRef.current.delete(sym);
+    }
+  }
+
+  function logTrade(sym: string) {
+    updatePair(sym, { tradeTaken: true, phase: "TRADE_TAKEN" });
+    const pair = pairStates[sym];
+    toast({ title: `✅ ${sym} trade logged`, description: `${pair?.tradeDirection ?? ""} — done for today` });
+  }
+
+  function fireWebhook(sym: string) {
+    const pair = pairStates[sym];
+    if (!pair) return;
+    apiRequest("POST", "/api/orb/fire-webhook", {
+      symbol: sym, orbHigh: pair.orbHigh, orbLow: pair.orbLow,
+      currentPrice: pair.currentPrice, phase: pair.phase,
+      tradeDirection: pair.tradeDirection, aiScore: pair.aiScore,
+      entryPrice: pair.entryPrice, stopLoss: pair.stopLoss,
+      target1: pair.target1, target2: pair.target2,
+    }).then(r => {
+      if (r.ok) toast({ title: `📡 Webhook fired: ${sym}`, description: "Signal sent to connected EA/bot" });
+      else toast({ title: "Webhook failed", variant: "destructive" });
+    }).catch(() => toast({ title: "Webhook failed", variant: "destructive" }));
+  }
+
+  const pairList = pairs.filter(p => pairStates[p]);
+  const tradedCount = pairList.filter(p => pairStates[p]?.tradeTaken).length;
+  const retestCount = pairList.filter(p => pairStates[p]?.phase === "RETEST_LONG" || pairStates[p]?.phase === "RETEST_SHORT").length;
+  const mt5LiveCount = pairList.filter(p => pairStates[p]?.mt5Status === "connected").length;
+
+  if (pairList.length === 0) {
+    return (
+      <div className="p-3 rounded-xl text-center text-xs text-gray-500 border border-dashed border-white/10 mt-3">
+        Select pairs above to track them in the ORB engine
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-3 space-y-3">
+      {/* Mini stats */}
+      <div className="grid grid-cols-4 gap-2">
+        {[
+          { label: "Pairs Tracked", value: pairList.length, color: "#6366f1" },
+          { label: "MT5 Live", value: mt5LiveCount, color: "#22c55e" },
+          { label: "Retest Alerts", value: retestCount, color: "#f59e0b" },
+          { label: "Trades Taken", value: tradedCount, color: "#8b5cf6" },
+        ].map(({ label, value, color }) => (
+          <div key={label} className="p-2 rounded-xl text-center border" style={{ background: color + "0d", borderColor: color + "30" }}>
+            <p className="text-lg font-black" style={{ color }}>{value}</p>
+            <p className="text-[9px] text-gray-500 leading-tight">{label}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Per-pair cards */}
+      <div className="grid sm:grid-cols-2 gap-2">
+        {pairList.map(sym => {
+          const pair = pairStates[sym];
+          if (!pair) return null;
+          const cfg = ORB_PHASE_CFG[pair.phase];
+          const isRetest = pair.phase === "RETEST_LONG" || pair.phase === "RETEST_SHORT";
+          const isAnalyzing = analyzingId === sym;
+
+          return (
+            <div key={sym} className="rounded-xl border p-3 space-y-2"
+              style={{ background: "linear-gradient(135deg, #0a0e1f, #0d1229)", borderColor: cfg.color + "40" }}>
+
+              {/* Header row */}
+              <div className="flex items-center gap-2">
+                <span className="font-black text-white text-sm">{sym}</span>
+                {pair.tradeDirection === "LONG"
+                  ? <ArrowUpRight className="w-3.5 h-3.5 text-green-400" />
+                  : pair.tradeDirection === "SHORT"
+                  ? <ArrowDownRight className="w-3.5 h-3.5 text-red-400" />
+                  : <Minus className="w-3.5 h-3.5 text-gray-600" />}
+                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: cfg.color + "20", color: cfg.color }}>{cfg.label}</span>
+                {isRetest && <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full animate-pulse" style={{ background: "rgba(34,197,94,0.25)", color: "#22c55e" }}>ENTRY ZONE</span>}
+                {pair.autoMode && (
+                  <span className="text-[8px] font-bold px-1.5 py-0.5 rounded-full ml-auto animate-pulse"
+                    style={{
+                      background: pair.mt5Status === "connected" ? "rgba(34,197,94,0.2)" : "rgba(245,158,11,0.2)",
+                      color: pair.mt5Status === "connected" ? "#4ade80" : "#fbbf24",
+                    }}>
+                    {pair.mt5Status === "connected" ? "⚡ LIVE" : "⏳ SYNC"}
+                  </span>
+                )}
+                {/* MT5 auto toggle */}
+                <button
+                  onClick={() => toggleAutoMode(sym)}
+                  title={pair.autoMode ? "Disable MT5 auto-fill" : "Enable MT5 auto-fill"}
+                  className="w-6 h-6 rounded-md flex items-center justify-center ml-auto transition-colors"
+                  style={{
+                    background: pair.autoMode ? "rgba(34,197,94,0.2)" : "rgba(255,255,255,0.05)",
+                    border: pair.autoMode ? "1px solid rgba(34,197,94,0.4)" : "1px solid transparent",
+                    color: pair.autoMode ? "#4ade80" : "#6b7280",
+                  }}>
+                  <Activity className="w-3 h-3" />
+                </button>
+              </div>
+
+              {/* Price levels */}
+              {pair.orbHigh > 0 && (
+                <div className="grid grid-cols-4 gap-1 text-center">
+                  {[
+                    { l: "ORB H", v: pair.orbHigh, c: "#f59e0b" },
+                    { l: "ORB L", v: pair.orbLow,  c: "#f59e0b" },
+                    { l: "Stop",  v: pair.stopLoss, c: "#ef4444" },
+                    { l: "T1",    v: pair.target1,  c: "#22c55e" },
+                  ].map(({ l, v, c }) => (
+                    <div key={l} className="p-1 rounded-md" style={{ background: "rgba(255,255,255,0.03)" }}>
+                      <p className="text-[7px] uppercase" style={{ color: c }}>{l}</p>
+                      <p className="text-[10px] font-bold text-white">{v ? v.toFixed(2) : "—"}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {pair.currentPrice > 0 && (
+                <p className="text-[9px] text-gray-500 text-center">Current: <span className="text-white font-semibold">{pair.currentPrice.toFixed(2)}</span>
+                  {pair.lastUpdated && <span className="ml-1 text-gray-600">· {pair.lastUpdated}</span>}
+                </p>
+              )}
+
+              {/* AI score bar */}
+              {pair.aiScore !== undefined && (
+                <div className="space-y-1">
+                  <div className="flex justify-between text-[9px]">
+                    <span style={{ color: pair.aiScore >= 70 ? "#4ade80" : "#f87171" }}>SS AI Bot: {pair.aiScore}/100</span>
+                    <span className="text-gray-500">{pair.aiScore >= 70 ? "✅ Trade eligible" : "❌ Below threshold"}</span>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-white/5 overflow-hidden">
+                    <div className="h-full rounded-full transition-all" style={{ width: `${pair.aiScore}%`, background: pair.aiScore >= 70 ? "#22c55e" : "#ef4444" }} />
+                  </div>
+                  {pair.aiNote && <p className="text-[8px] text-gray-600 italic">{pair.aiNote}</p>}
+                </div>
+              )}
+
+              {/* Action buttons */}
+              {!pair.tradeTaken ? (
+                <div className="flex gap-1.5">
+                  <button
+                    onClick={() => { setAnalyzingId(sym); analyzeMutation.mutate(pair); }}
+                    disabled={isAnalyzing || !pair.orbHigh}
+                    className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg text-[10px] font-semibold transition-colors disabled:opacity-40"
+                    style={{ background: "rgba(139,92,246,0.15)", border: "1px solid rgba(139,92,246,0.4)", color: "#c4b5fd" }}>
+                    {isAnalyzing ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Radio className="w-3 h-3" />}
+                    {isAnalyzing ? "Analyzing…" : "SS AI Bot"}
+                  </button>
+                  {isRetest && (
+                    <button
+                      onClick={() => logTrade(sym)}
+                      className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg text-[10px] font-bold"
+                      style={{
+                        background: pair.tradeDirection === "LONG" ? "linear-gradient(135deg,#16a34a,#15803d)" : "linear-gradient(135deg,#dc2626,#b91c1c)",
+                        color: "white",
+                      }}>
+                      {pair.tradeDirection === "LONG" ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
+                      Log {pair.tradeDirection ?? "Trade"}
+                    </button>
+                  )}
+                  {(pair.aiScore ?? 0) >= 70 && isRetest && (
+                    <button
+                      onClick={() => fireWebhook(sym)}
+                      className="w-8 flex items-center justify-center rounded-lg transition-colors"
+                      style={{ background: "rgba(245,158,11,0.15)", border: "1px solid rgba(245,158,11,0.4)", color: "#fbbf24" }}
+                      title="Fire webhook signal">
+                      <Send className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="flex items-center justify-center gap-1.5 py-2 rounded-lg text-[10px] font-semibold"
+                  style={{ background: "rgba(139,92,246,0.12)", border: "1px solid rgba(139,92,246,0.3)", color: "#c4b5fd" }}>
+                  <CheckCircle className="w-3 h-3" /> Trade Taken — Done For Today
+                </div>
+              )}
+
+              {/* Manual price override (if auto mode is off) */}
+              {!pair.autoMode && (
+                <details className="text-[9px]">
+                  <summary className="text-gray-600 cursor-pointer hover:text-gray-400 transition-colors">✏ Manual entry</summary>
+                  <div className="mt-2 grid grid-cols-3 gap-1.5">
+                    {[
+                      { label: "ORB High", key: "orbHigh" as const, placeholder: "e.g. 39250" },
+                      { label: "ORB Low",  key: "orbLow"  as const, placeholder: "e.g. 39100" },
+                      { label: "Price",    key: "currentPrice" as const, placeholder: "e.g. 39310" },
+                    ].map(({ label, key, placeholder }) => (
+                      <div key={key}>
+                        <p className="text-gray-600 mb-0.5">{label}</p>
+                        <input
+                          type="number"
+                          defaultValue={pair[key] || ""}
+                          placeholder={placeholder}
+                          className="w-full bg-white/5 border border-white/10 rounded px-1.5 py-1 text-white text-[9px] focus:outline-none focus:border-indigo-500/50"
+                          onBlur={e => {
+                            const val = parseFloat(e.target.value);
+                            if (val > 0) {
+                              const updated = { ...pair, [key]: val };
+                              if (updated.orbHigh > 0 && updated.orbLow > 0 && updated.currentPrice > 0) {
+                                const h = updated.orbHigh; const l = updated.orbLow; const c = updated.currentPrice;
+                                let phase: ORBPairPhase = "RANGE_SET";
+                                let dir: "LONG" | "SHORT" | undefined;
+                                let levels = {};
+                                if (c > h * 1.001) { phase = "BREAKOUT_LONG"; dir = "LONG"; levels = calcORBLevels("LONG", c, h, l); }
+                                else if (c < l * 0.999) { phase = "BREAKOUT_SHORT"; dir = "SHORT"; levels = calcORBLevels("SHORT", c, h, l); }
+                                else if (c >= h * 0.998 && c <= h * 1.002 && pair.phase === "BREAKOUT_LONG") { phase = "RETEST_LONG"; dir = "LONG"; levels = calcORBLevels("LONG", c, h, l); }
+                                else if (c >= l * 0.998 && c <= l * 1.002 && pair.phase === "BREAKOUT_SHORT") { phase = "RETEST_SHORT"; dir = "SHORT"; levels = calcORBLevels("SHORT", c, h, l); }
+                                updatePair(sym, { [key]: val, phase, tradeDirection: dir, entryPrice: dir ? c : undefined, ...levels, aiScore: undefined, lastUpdated: new Date().toLocaleTimeString() });
+                              } else {
+                                updatePair(sym, { [key]: val });
+                              }
+                            }
+                          }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <p className="text-[9px] text-gray-600 text-center">
+        ⚡ Tap the activity icon on any pair to enable MT5 auto-fill · SS AI Bot auto-runs at retest · Webhook fires automatically when score ≥ 70
+      </p>
+    </div>
+  );
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function WeeklyStrategyPage() {
   const { toast } = useToast();
@@ -2229,7 +2686,7 @@ export default function WeeklyStrategyPage() {
                     }`}>{plan.feasibility}</Badge>
                   </div>
                   <div className="flex gap-2">
-                    <Button size="sm" variant="outline" onClick={() => updateProgressMutation.mutate()} disabled={updateProgressMutation.isPending} className="text-xs h-7">
+                    <Button size="sm" variant="outline" onClick={() => updateProgressMutation.mutate(false)} disabled={updateProgressMutation.isPending} className="text-xs h-7">
                       <RefreshCw className={`w-3 h-3 mr-1 ${updateProgressMutation.isPending ? 'animate-spin' : ''}`} /> Sync
                     </Button>
                     <Button size="sm" variant="outline" className="text-red-400 border-red-500/30 h-7 px-2" onClick={() => deleteMutation.mutate()}>
@@ -2785,28 +3242,28 @@ export default function WeeklyStrategyPage() {
               </div>
               {/* ── ORB Mode callout ─────────────────────────────── */}
               {strategyMode === 'orb_breakout' && (
-                <div className="p-4 rounded-xl border" style={{ background: "rgba(34,197,94,0.07)", borderColor: "rgba(34,197,94,0.3)" }}>
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="text-base">📈</span>
-                    <span className="text-sm font-bold text-green-300">ORB 9:30 Breakout Mode Active</span>
-                    <a href="/orb-breakout" className="ml-auto text-[10px] text-green-400 underline font-semibold">Open ORB Scanner →</a>
+                <div className="rounded-xl border overflow-hidden" style={{ background: "rgba(34,197,94,0.05)", borderColor: "rgba(34,197,94,0.3)" }}>
+                  {/* Header */}
+                  <div className="p-4 pb-2">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-base">📈</span>
+                      <span className="text-sm font-bold text-green-300">ORB 9:30 Breakout — Live Engine</span>
+                      <a href="/orb-breakout" className="ml-auto text-[10px] text-green-400 underline font-semibold">Full ORB Scanner →</a>
+                    </div>
+                    <div className="space-y-1.5 text-[11px] text-gray-300">
+                      <p>📅 <span className="text-white font-semibold">Session:</span> NYSE open only — 9:30 AM EST. No trades outside this window.</p>
+                      <p>⏱ <span className="text-white font-semibold">Range:</span> First 15-min candle (9:30–9:45 AM) defines Opening Range High and Low.</p>
+                      <p>📊 <span className="text-white font-semibold">Entry:</span> 6-min candle full-body close above/below range → wait for <strong className="text-green-300">retest</strong> → confirm pattern.</p>
+                      <p>🤖 <span className="text-white font-semibold">SS AI Bot:</span> Required before every entry. Minimum score <strong className="text-green-300">70/100</strong> to take trade.</p>
+                      <p>🛡 <span className="text-white font-semibold">Rule:</span> <strong className="text-white">One trade per instrument per day.</strong> After first entry — done for that pair.</p>
+                      <p>🎯 <span className="text-white font-semibold">Targets:</span> T1 = 2:1 R:R (scale 50%), T2 = 3:1 R:R. Move stop to break-even after T1.</p>
+                      <p className="text-[10px] text-green-400">⚡ <strong>MT5 Auto-Fill:</strong> Tap the activity icon on any pair card below to connect your MT5 live feed — ORB levels, phase detection, SS AI Bot, and webhook signals all run automatically.</p>
+                    </div>
                   </div>
-                  <div className="space-y-1.5 text-[11px] text-gray-300">
-                    <p>📅 <span className="text-white font-semibold">Session:</span> NYSE open only — 9:30 AM EST. No trades outside this window.</p>
-                    <p>⏱ <span className="text-white font-semibold">Range:</span> First 15-min candle (9:30–9:45 AM) defines Opening Range High and Low.</p>
-                    <p>📊 <span className="text-white font-semibold">Entry:</span> 6-min candle full-body close above/below range → wait for <strong className="text-green-300">retest</strong> of broken level → confirm pattern.</p>
-                    <p>🤖 <span className="text-white font-semibold">SS AI Bot:</span> Required before every entry. Minimum score <strong className="text-green-300">80/100</strong> to take trade.</p>
-                    <p>🛡 <span className="text-white font-semibold">Rule:</span> One trade per instrument per day. After first entry — done for that pair.</p>
-                    <p>🎯 <span className="text-white font-semibold">Targets:</span> T1 = 2:1 R:R (scale 50%), T2 = 3:1 R:R. Move stop to break-even after T1.</p>
-                  </div>
-                  <div className="flex flex-wrap gap-1.5 mt-3">
-                    {['US30','NAS100','SPX500','AAPL','TSLA','XAUUSD'].map(s => (
-                      <span key={s} className="text-[9px] font-bold px-2 py-0.5 rounded-full"
-                        style={{ background: "rgba(34,197,94,0.15)", border: "1px solid rgba(34,197,94,0.3)", color: "#86efac" }}>
-                        {s}
-                      </span>
-                    ))}
-                    <span className="text-[9px] text-gray-500 italic py-0.5">+ any instrument your broker offers</span>
+                  {/* Live panel — uses selected pairs */}
+                  <div className="px-4 pb-4 border-t border-green-500/10 pt-3">
+                    <p className="text-[10px] font-bold text-green-400 uppercase tracking-wider mb-2">Live ORB Engine — Selected Pairs</p>
+                    <ORBWeeklyPanel pairs={selectedPairs} />
                   </div>
                 </div>
               )}
