@@ -18304,7 +18304,110 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
 
   // ─── ORB BREAKOUT — SS AI BOT ─────────────────────────────────────────────────
 
-  // POST /api/orb/fire-webhook — fire trade signal webhook when SS AI Bot ≥ 80
+  // GET /api/orb/mt5-live/:symbol — pull live ORB data from MT5 chart cache
+  // Returns: orbHigh, orbLow, currentPrice, phase, candles since 9:30 AM
+  app.get("/api/orb/mt5-live/:symbol", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    const userId = (req.user as User).id;
+    const rawSymbol = req.params.symbol.toUpperCase().replace(/[^A-Za-z0-9/_.-]/g, '');
+
+    // Scan cache for all timeframes of this symbol
+    const cache = (global as any).mt5ChartDataCache || {};
+    const allKeys = Object.keys(cache);
+
+    // Prefer M6/M5/M1 for breakout detection; M15/H1 for range candle
+    const PREFER_TF = ["M6","M5","M1","M15","M30","H1","H4"];
+    let found: any = null;
+    let foundTf = "";
+    for (const tf of PREFER_TF) {
+      const key = `mt5_chart_${userId}_${rawSymbol}_${tf}`;
+      if (cache[key]) { found = cache[key]; foundTf = tf; break; }
+    }
+    // Try partial symbol match (e.g. XAUUSD.raw → XAUUSD)
+    if (!found) {
+      const partialKey = allKeys.find(k => k.includes(`_${userId}_`) && k.includes(rawSymbol));
+      if (partialKey) { found = cache[partialKey]; foundTf = partialKey.split("_").pop() || ""; }
+    }
+
+    if (!found || !found.candles?.length) {
+      return res.status(404).json({
+        error: "No MT5 data found for this symbol",
+        hint: `Make sure your MT5 Chart Data EA is running and pushing ${rawSymbol} data. Tried timeframes: ${PREFER_TF.join(", ")}`,
+        connectedSymbols: allKeys.filter(k => k.includes(`_${userId}_`)).map(k => k.replace(`mt5_chart_${userId}_`, "")),
+      });
+    }
+
+    const candles: any[] = found.candles;
+    const currentPrice: number = candles[0]?.c || candles[0]?.close || 0;
+
+    // Find opening range candle — the candle that covers 9:30–9:45 AM EST
+    // MT5 brokers send time as Unix seconds. We look for the candle at 9:30 AM EST (14:30 UTC or 13:30 UTC in EDT)
+    // We check both UTC-5 (EST) and UTC-4 (EDT) to handle daylight saving
+    const estOffsets = [-5, -4]; // Try both EST and EDT
+    let orbHigh = 0, orbLow = 0;
+    let foundOrbCandle = false;
+
+    for (const offsetHours of estOffsets) {
+      const openRangeCandle = candles.find((c: any) => {
+        const ts = (c.t || c.time || 0);
+        if (!ts) return false;
+        const d = new Date(ts * 1000);
+        const localH = d.getUTCHours() + offsetHours;
+        const localM = d.getUTCMinutes();
+        // The 9:30 AM candle — handle overnight wraparound
+        const hAdj = ((localH % 24) + 24) % 24;
+        return hAdj === 9 && localM === 30;
+      });
+      if (openRangeCandle) {
+        orbHigh = openRangeCandle.h || openRangeCandle.high || 0;
+        orbLow  = openRangeCandle.l || openRangeCandle.low  || 0;
+        foundOrbCandle = true;
+        break;
+      }
+    }
+
+    // If no exact 9:30 candle found, use the candle from earliest today
+    if (!foundOrbCandle && candles.length > 0) {
+      const now = new Date();
+      const todayStart = new Date(now);
+      todayStart.setUTCHours(0, 0, 0, 0);
+      const todayCandles = candles.filter((c: any) => {
+        const ts = c.t || c.time || 0;
+        return ts && new Date(ts * 1000) >= todayStart;
+      }).sort((a: any, b: any) => (a.t || a.time) - (b.t || b.time));
+      if (todayCandles.length > 0) {
+        const firstToday = todayCandles[0];
+        orbHigh = firstToday.h || firstToday.high || 0;
+        orbLow  = firstToday.l || firstToday.low  || 0;
+      }
+    }
+
+    // Determine current ORB phase
+    let orbPhase = "RANGE_SET";
+    if (orbHigh > 0 && orbLow > 0 && currentPrice > 0) {
+      if (currentPrice > orbHigh * 1.001) orbPhase = "BREAKOUT_LONG";
+      else if (currentPrice < orbLow * 0.999) orbPhase = "BREAKOUT_SHORT";
+      else if (currentPrice >= orbHigh * 0.998 && currentPrice <= orbHigh * 1.002) orbPhase = "RETEST_LONG";
+      else if (currentPrice >= orbLow * 0.998 && currentPrice <= orbLow * 1.002) orbPhase = "RETEST_SHORT";
+    }
+
+    res.json({
+      symbol: rawSymbol,
+      timeframe: foundTf,
+      currentPrice,
+      orbHigh,
+      orbLow,
+      orbRange: orbHigh > 0 ? +(orbHigh - orbLow).toFixed(5) : 0,
+      orbRangePct: orbHigh > 0 && currentPrice > 0 ? +((orbHigh - orbLow) / currentPrice * 100).toFixed(3) : 0,
+      orbPhase,
+      lastUpdated: found.receivedAt,
+      candleCount: candles.length,
+      foundOrbCandle,
+      broker: found.broker,
+    });
+  });
+
+  // POST /api/orb/fire-webhook — fire trade signal webhook when SS AI Bot ≥ 70
   app.post("/api/orb/fire-webhook", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
     try {
@@ -18316,8 +18419,8 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       if (!symbol || !direction || aiScore === undefined) {
         return res.status(400).json({ error: "symbol, direction, and aiScore required" });
       }
-      if (aiScore < 80) {
-        return res.status(400).json({ error: "SS AI Bot score must be ≥ 80 to fire signal" });
+      if (aiScore < 70) {
+        return res.status(400).json({ error: "SS AI Bot score must be ≥ 70 to fire signal" });
       }
 
       const signal = {

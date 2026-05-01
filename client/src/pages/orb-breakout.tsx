@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -63,6 +63,8 @@ interface ORBSetup {
   aiScore?: number;
   aiChecks?: AICheck[];
   aiNote?: string;
+  autoMode?: boolean;
+  mt5Status?: "connected" | "no_data" | "error" | "idle";
 }
 
 interface AICheck {
@@ -310,7 +312,7 @@ function ORBRangeBar({ setup }: { setup: ORBSetup }) {
 
 function WebhookFireButton({ setup }: { setup: ORBSetup }) {
   const { toast } = useToast();
-  const canFire = (setup.aiScore ?? 0) >= 80 && (setup.phase === "RETEST_LONG" || setup.phase === "RETEST_SHORT") && !setup.tradeTaken;
+  const canFire = (setup.aiScore ?? 0) >= 70 && (setup.phase === "RETEST_LONG" || setup.phase === "RETEST_SHORT") && !setup.tradeTaken;
 
   const fireMutation = useMutation({
     mutationFn: async () => {
@@ -350,8 +352,8 @@ function WebhookFireButton({ setup }: { setup: ORBSetup }) {
   if (!canFire) {
     return (
       <div className="mt-2 p-2 rounded-lg text-center text-[10px] text-gray-600" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)" }}>
-        {setup.aiScore !== undefined && setup.aiScore < 80
-          ? `⚠️ Score ${setup.aiScore}/100 — need 80+ to fire webhook`
+        {setup.aiScore !== undefined && setup.aiScore < 70
+          ? `⚠️ Score ${setup.aiScore}/100 — need 70+ to fire webhook`
           : setup.tradeTaken
           ? "✅ Trade already logged — webhook fired"
           : "Run SS AI Bot and reach retest phase to enable auto-signal"}
@@ -389,9 +391,9 @@ function SSAIBotPanel({
   const passing = checks.filter(c => c.pass).length;
   const total = checks.length;
 
-  const scoreColor = score >= 80 ? "#22c55e" : score >= 60 ? "#f59e0b" : "#ef4444";
-  const verdict = score >= 80 ? "TAKE TRADE" : score >= 60 ? "MARGINAL — CAUTION" : "PASS — SKIP THIS";
-  const verdictColor = score >= 80 ? "#22c55e" : score >= 60 ? "#f59e0b" : "#ef4444";
+  const scoreColor = score >= 70 ? "#22c55e" : score >= 60 ? "#f59e0b" : "#ef4444";
+  const verdict = score >= 70 ? "TAKE TRADE" : score >= 60 ? "MARGINAL — CAUTION" : "PASS — SKIP THIS";
+  const verdictColor = score >= 70 ? "#22c55e" : score >= 60 ? "#f59e0b" : "#ef4444";
 
   return (
     <Card className="bg-white/[0.03] border-white/10">
@@ -467,10 +469,10 @@ function SSAIBotPanel({
               Re-analyze
             </Button>
 
-            {/* Webhook auto-signal — fires to MT5/TradingView when score ≥ 80 */}
+            {/* Webhook auto-signal — fires to MT5/TradingView when score ≥ 70 */}
             <WebhookFireButton setup={setup} />
 
-            {(setup.aiScore ?? 0) >= 80 && (
+            {(setup.aiScore ?? 0) >= 70 && (
               <p className="text-[9px] text-center text-gray-600 mt-1">
                 Webhook fires to all your active <a href="/webhooks" className="text-indigo-400 underline">configured webhooks</a> with the full ORB signal payload.
               </p>
@@ -491,6 +493,7 @@ function SetupCard({
   onTakeTrade,
   onAnalyze,
   isAnalyzing,
+  onToggleAuto,
 }: {
   setup: ORBSetup;
   onUpdate: (id: string, patch: Partial<ORBSetup>) => void;
@@ -498,6 +501,7 @@ function SetupCard({
   onTakeTrade: (id: string) => void;
   onAnalyze: (setup: ORBSetup) => void;
   isAnalyzing: boolean;
+  onToggleAuto: (id: string) => void;
 }) {
   const { toast } = useToast();
   const [editing, setEditing] = useState(false);
@@ -584,9 +588,32 @@ function SetupCard({
             <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: cfg.bg, color: cfg.color }}>{cfg.label}</span>
             {isRetest && <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full animate-pulse" style={{ background: "rgba(34,197,94,0.25)", color: "#22c55e", border: "1px solid #22c55e50" }}>ENTRY ZONE</span>}
           </div>
-          {setup.lastUpdated && <p className="text-[9px] text-gray-600 mt-0.5">Updated {setup.lastUpdated}</p>}
+          <div className="flex items-center gap-1.5 mt-0.5">
+            {setup.lastUpdated && <p className="text-[9px] text-gray-600">Updated {setup.lastUpdated}</p>}
+            {setup.autoMode && (
+              <span className="text-[8px] font-bold px-1.5 py-0.5 rounded-full animate-pulse"
+                style={{
+                  background: setup.mt5Status === "connected" ? "rgba(34,197,94,0.2)" : setup.mt5Status === "error" ? "rgba(239,68,68,0.2)" : "rgba(245,158,11,0.2)",
+                  color: setup.mt5Status === "connected" ? "#4ade80" : setup.mt5Status === "error" ? "#f87171" : "#fbbf24",
+                  border: `1px solid ${setup.mt5Status === "connected" ? "#22c55e40" : setup.mt5Status === "error" ? "#ef444440" : "#f59e0b40"}`,
+                }}>
+                {setup.mt5Status === "connected" ? "⚡ MT5 LIVE" : setup.mt5Status === "error" ? "⚠ MT5 ERR" : setup.mt5Status === "no_data" ? "📡 NO DATA" : "⏳ MT5 SYNC"}
+              </span>
+            )}
+          </div>
         </div>
         <div className="flex gap-1.5">
+          <button
+            onClick={() => onToggleAuto(setup.id)}
+            title={setup.autoMode ? "Disable MT5 Auto-Fill" : "Enable MT5 Auto-Fill"}
+            className="w-7 h-7 rounded-lg flex items-center justify-center transition-colors"
+            style={{
+              background: setup.autoMode ? "rgba(34,197,94,0.2)" : "rgba(255,255,255,0.05)",
+              border: setup.autoMode ? "1px solid rgba(34,197,94,0.4)" : "1px solid transparent",
+              color: setup.autoMode ? "#4ade80" : "#6b7280",
+            }}>
+            <Activity className="w-3.5 h-3.5" />
+          </button>
           <button onClick={() => setEditing(!editing)}
             className="w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-white transition-colors"
             style={{ background: "rgba(255,255,255,0.05)" }}>
@@ -617,18 +644,27 @@ function SetupCard({
             className="overflow-hidden"
           >
             <div className="p-4 space-y-4 border-t border-white/5">
-              {/* Step-by-step guidance banner */}
-              <div className="p-3 rounded-xl text-xs leading-relaxed" style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.25)" }}>
-                <p className="text-amber-300 font-bold mb-1.5">📋 How to fill this in:</p>
-                <ol className="space-y-1 text-gray-300 list-decimal list-inside">
-                  <li>Open your chart (MT5, TradingView, etc.) on the <strong className="text-white">{setup.symbol}</strong> pair</li>
-                  <li>Switch to the <strong className="text-white">15-minute</strong> timeframe</li>
-                  <li>Find the <strong className="text-amber-300">first completed candle</strong> after 9:30 AM EST (the 9:30–9:45 candle)</li>
-                  <li>Enter its <strong className="text-white">High</strong> as "ORB HIGH" and <strong className="text-white">Low</strong> as "ORB LOW"</li>
-                  <li>Enter where price is <strong className="text-white">right now</strong> as "CURRENT PRICE"</li>
-                  <li>Hit <strong className="text-indigo-300">Apply</strong> — the system auto-detects your phase</li>
-                </ol>
-              </div>
+              {/* MT5 auto mode banner */}
+              {setup.autoMode ? (
+                <div className="p-3 rounded-xl text-xs leading-relaxed" style={{ background: "rgba(34,197,94,0.07)", border: "1px solid rgba(34,197,94,0.3)" }}>
+                  <p className="text-green-400 font-bold mb-1">⚡ MT5 Auto-Fill is ON</p>
+                  <p className="text-gray-300">Your MT5 connection is feeding live data. ORB High/Low and current price update automatically every 30 seconds — no manual entry needed. The system will auto-detect phases and run the SS AI Bot when a retest is detected.</p>
+                  <p className="text-gray-500 text-[10px] mt-1">You can still manually override values below. Click the green ⚡ button on the card to disable auto-fill.</p>
+                </div>
+              ) : (
+                <div className="p-3 rounded-xl text-xs leading-relaxed" style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.25)" }}>
+                  <p className="text-amber-300 font-bold mb-1.5">📋 How to fill this in:</p>
+                  <p className="text-[10px] text-green-400 mb-1.5">💡 <strong>Tip:</strong> If your MT5 is connected and sending live data, tap the <span className="text-green-400">⚡ activity icon</span> in the card header to enable auto-fill — no manual entry needed!</p>
+                  <ol className="space-y-1 text-gray-300 list-decimal list-inside">
+                    <li>Open your chart (MT5, TradingView, etc.) on the <strong className="text-white">{setup.symbol}</strong> pair</li>
+                    <li>Switch to the <strong className="text-white">15-minute</strong> timeframe</li>
+                    <li>Find the <strong className="text-amber-300">first completed candle</strong> after 9:30 AM EST (the 9:30–9:45 candle)</li>
+                    <li>Enter its <strong className="text-white">High</strong> as "ORB HIGH" and <strong className="text-white">Low</strong> as "ORB LOW"</li>
+                    <li>Enter where price is <strong className="text-white">right now</strong> as "CURRENT PRICE"</li>
+                    <li>Hit <strong className="text-indigo-300">Apply</strong> — the system auto-detects your phase</li>
+                  </ol>
+                </div>
+              )}
 
               {/* Price inputs */}
               <div>
@@ -782,18 +818,18 @@ function SetupCard({
         )}
       </div>
 
-      {/* Webhook signal row — visible when SS AI Bot score ≥ 80 */}
-      {(setup.aiScore ?? 0) >= 80 && !setup.tradeTaken && (
+      {/* Webhook signal row — visible when SS AI Bot score ≥ 70 */}
+      {(setup.aiScore ?? 0) >= 70 && !setup.tradeTaken && (
         <div className="px-4 pb-4">
           <WebhookFireButton setup={setup} />
         </div>
       )}
       {/* AI score badge when analyzed */}
-      {setup.aiScore !== undefined && (setup.aiScore ?? 0) < 80 && (
+      {setup.aiScore !== undefined && (setup.aiScore ?? 0) < 70 && (
         <div className="px-4 pb-3">
           <div className="text-center text-[9px] py-1.5 rounded-lg"
             style={{ background: "rgba(239,68,68,0.07)", border: "1px solid rgba(239,68,68,0.2)", color: "#fca5a5" }}>
-            SS AI Bot: {setup.aiScore}/100 — Score 80+ required to fire webhook
+            SS AI Bot: {setup.aiScore}/100 — Score 70+ required to fire webhook
           </div>
         </div>
       )}
@@ -817,7 +853,7 @@ function ORBQuickGuide() {
       n: 2, time: "9:30–9:45 AM", color: "#f59e0b", title: "Build the Opening Range",
       what: "Watch the FIRST 15-minute candle after the NYSE open.",
       how: "On your chart (MT5 or TradingView), switch to 15-min timeframe. The candle from 9:30 to 9:45 AM EST defines your range. Its HIGH is your ORB High. Its LOW is your ORB Low.",
-      action: "After 9:45 AM when the candle closes → tap the ↻ icon on the card → enter ORB High and ORB Low.",
+      action: "After 9:45 AM when the candle closes → tap the ↻ icon on the card → enter ORB High and ORB Low. OR if your MT5 is connected, tap the ⚡ icon to enable Auto-Fill — the system reads your live MT5 data automatically.",
     },
     {
       n: 3, time: "9:45 AM+", color: "#06b6d4", title: "Watch for Breakout on 6-Min Chart",
@@ -834,12 +870,12 @@ function ORBQuickGuide() {
     {
       n: 5, time: "At the retest", color: "#a855f7", title: "Confirm Pattern + Run SS AI Bot",
       what: "You need a confirming candlestick pattern on the 6-min chart AT the retest level.",
-      how: "Look for: Bullish Engulfing, Hammer, Pin Bar (for longs) — or Bearish Engulfing, Shooting Star (for shorts). Select it in the Pattern dropdown on the card.\nThen tap 'SS AI Bot' — it scores the setup 0–100. You need 80+ to take the trade.",
+      how: "Look for: Bullish Engulfing, Hammer, Pin Bar (for longs) — or Bearish Engulfing, Shooting Star (for shorts). Select it in the Pattern dropdown on the card.\nThen tap 'SS AI Bot' — it scores the setup 0–100. You need 70+ to take the trade.",
       action: "Select pattern in card → tap SS AI Bot → wait for score.",
     },
     {
-      n: 6, time: "Score 80+", color: "#22c55e", title: "Enter the Trade + Log It",
-      what: "SS AI Bot scored 80+? Now enter the trade manually in your broker/MT5.",
+      n: 6, time: "Score 70+", color: "#22c55e", title: "Enter the Trade + Log It",
+      what: "SS AI Bot scored 70+? Now enter the trade manually in your broker/MT5.",
       how: "Your stop loss, T1 (2:1 R:R), and T2 (3:1 R:R) are auto-calculated and shown on the card.\nPlace your trade in MT5 or your broker at the current retest price.\nOptional: tap 'Fire Webhook Signal' to auto-notify any connected EA/bot.\nRemember: ONE trade per instrument per day — after this, that pair is done.",
       action: "Tap 'Log LONG/SHORT Entry' to record the trade. Card locks for the day.",
     },
@@ -1121,14 +1157,16 @@ export default function ORBBreakoutPage() {
       ));
       setSSAISetup(prev => prev?.id === setup.id ? { ...prev, aiScore: data.score, aiChecks: data.checks, aiNote: data.note } : prev);
       setAnalyzingId(null);
+      autoAnalyzingRef.current?.delete(setup.id);
       toast({
         title: `SS AI Bot: ${data.verdict}`,
         description: `${setup.symbol} scored ${data.score}/100`,
         variant: data.score >= 70 ? "default" : "destructive",
       });
     },
-    onError: () => {
+    onError: (_, setup) => {
       setAnalyzingId(null);
+      autoAnalyzingRef.current?.delete(setup.id);
       toast({ title: "AI analysis failed", description: "Check your API key or try again", variant: "destructive" });
     },
   });
@@ -1184,7 +1222,175 @@ export default function ORBBreakoutPage() {
     });
   }
 
+  // Track which setups have already had auto-webhook fired this session (prevent repeated fires)
+  const autoFiredRef = useRef<Set<string>>(new Set());
+  // Track which setups are currently being auto-analyzed (prevent duplicate AI calls)
+  const autoAnalyzingRef = useRef<Set<string>>(new Set());
+
+  // MT5 auto-poll logic
+  const pollMT5 = useCallback(async (setup: ORBSetup) => {
+    try {
+      const res = await apiRequest("GET", `/api/orb/mt5-live/${encodeURIComponent(setup.symbol)}`);
+      if (!res.ok) {
+        updateSetup(setup.id, { mt5Status: "error" });
+        return;
+      }
+      const data = await res.json() as {
+        symbol: string; timeframe: string; currentPrice: number;
+        orbHigh: number | null; orbLow: number | null;
+        orbRange: number; orbRangePct: number; orbPhase: ORBPhase;
+        foundOrbCandle: boolean; lastUpdated: string;
+      };
+
+      if (!data.currentPrice) {
+        updateSetup(setup.id, { mt5Status: "no_data" });
+        return;
+      }
+
+      const patch: Partial<ORBSetup> = {
+        mt5Status: "connected",
+        currentPrice: data.currentPrice,
+        lastUpdated: new Date().toLocaleTimeString() + " (MT5)",
+      };
+
+      // Only update ORB levels if the MT5 data found the 9:30 candle
+      if (data.foundOrbCandle && data.orbHigh && data.orbLow) {
+        const range = data.orbHigh - data.orbLow;
+        const rangePct = (range / data.currentPrice) * 100;
+        patch.orbHigh = data.orbHigh;
+        patch.orbLow = data.orbLow;
+        patch.orbRange = range;
+        patch.orbRangePct = rangePct;
+      }
+
+      // Auto-detect phase from MT5 price (only if we have valid ORB levels)
+      const high = patch.orbHigh ?? setup.orbHigh;
+      const low = patch.orbLow ?? setup.orbLow;
+      const curr = data.currentPrice;
+
+      if (high > 0 && low > 0) {
+        let newPhase: ORBPhase = setup.phase;
+        const prevPhase = setup.phase;
+
+        if (curr > high * 1.001 && prevPhase !== "BREAKOUT_LONG" && prevPhase !== "RETEST_LONG" && prevPhase !== "TRADE_TAKEN") {
+          newPhase = "BREAKOUT_LONG";
+          patch.tradeDirection = "LONG";
+          patch.entryPrice = curr;
+          const levels = calcLevels("LONG", curr, high, low);
+          Object.assign(patch, levels);
+          // Reset AI score on new breakout
+          patch.aiScore = undefined; patch.aiChecks = undefined; patch.aiNote = undefined;
+          autoFiredRef.current.delete(setup.id);
+        } else if (curr < low * 0.999 && prevPhase !== "BREAKOUT_SHORT" && prevPhase !== "RETEST_SHORT" && prevPhase !== "TRADE_TAKEN") {
+          newPhase = "BREAKOUT_SHORT";
+          patch.tradeDirection = "SHORT";
+          patch.entryPrice = curr;
+          const levels = calcLevels("SHORT", curr, high, low);
+          Object.assign(patch, levels);
+          patch.aiScore = undefined; patch.aiChecks = undefined; patch.aiNote = undefined;
+          autoFiredRef.current.delete(setup.id);
+        } else if (curr >= high * 0.998 && curr <= high * 1.002 && (prevPhase === "BREAKOUT_LONG")) {
+          newPhase = "RETEST_LONG";
+          patch.retestLevel = high;
+          patch.entryPrice = curr;
+          const levels = calcLevels("LONG", curr, high, low);
+          Object.assign(patch, levels);
+        } else if (curr >= low * 0.998 && curr <= low * 1.002 && (prevPhase === "BREAKOUT_SHORT")) {
+          newPhase = "RETEST_SHORT";
+          patch.retestLevel = low;
+          patch.entryPrice = curr;
+          const levels = calcLevels("SHORT", curr, high, low);
+          Object.assign(patch, levels);
+        } else if (prevPhase !== "TRADE_TAKEN" && prevPhase !== "WINDOW_CLOSED") {
+          // Keep existing breakout/retest phase if still near level; otherwise RANGE_SET
+          if (prevPhase !== "BREAKOUT_LONG" && prevPhase !== "BREAKOUT_SHORT" &&
+              prevPhase !== "RETEST_LONG" && prevPhase !== "RETEST_SHORT") {
+            const { phase: clockPhase } = getESTHour();
+            newPhase = clockPhase;
+          }
+        }
+
+        if (newPhase !== setup.phase && newPhase !== "TRADE_TAKEN") {
+          patch.phase = newPhase;
+          toast({
+            title: `📡 MT5 Auto: ${setup.symbol} → ${PHASE_CONFIG[newPhase].label}`,
+            description: `Price ${curr.toFixed(2)} | Auto-updated from MT5`,
+          });
+        }
+
+        // Auto-run SS AI Bot when retest phase is detected and no AI score yet
+        const effectivePhase = patch.phase ?? setup.phase;
+        const isRetest = effectivePhase === "RETEST_LONG" || effectivePhase === "RETEST_SHORT";
+        if (isRetest && setup.aiScore === undefined && !autoAnalyzingRef.current.has(setup.id) && !setup.tradeTaken) {
+          autoAnalyzingRef.current.add(setup.id);
+          toast({ title: `🤖 SS AI Bot auto-analyzing ${setup.symbol}…`, description: "Retest detected via MT5 live feed" });
+          const updatedSetup: ORBSetup = { ...setup, ...patch };
+          setAnalyzingId(setup.id);
+          setSSAISetup(updatedSetup);
+          analyzeMutation.mutate(updatedSetup);
+        }
+      }
+
+      updateSetup(setup.id, patch);
+    } catch {
+      updateSetup(setup.id, { mt5Status: "error" });
+    }
+  }, [analyzeMutation, toast, updateSetup]);
+
+  // Interval: poll MT5 every 30 seconds for any setup with autoMode=true
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setSetups(prev => {
+        prev.filter(s => s.autoMode && !s.tradeTaken).forEach(s => pollMT5(s));
+        return prev; // no state change here — pollMT5 calls updateSetup internally
+      });
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [pollMT5]);
+
+  // Auto-fire webhook when SS AI Bot scores ≥ 70 on a retest in auto mode
+  useEffect(() => {
+    setups.forEach(setup => {
+      if (!setup.autoMode || setup.tradeTaken || autoFiredRef.current.has(setup.id)) return;
+      const isRetest = setup.phase === "RETEST_LONG" || setup.phase === "RETEST_SHORT";
+      if (isRetest && (setup.aiScore ?? 0) >= 70) {
+        autoFiredRef.current.add(setup.id);
+        autoAnalyzingRef.current.delete(setup.id);
+        // Fire webhook automatically
+        apiRequest("POST", "/api/orb/fire-webhook", {
+          symbol: setup.symbol, orbHigh: setup.orbHigh, orbLow: setup.orbLow,
+          currentPrice: setup.currentPrice, phase: setup.phase,
+          tradeDirection: setup.tradeDirection, aiScore: setup.aiScore,
+          pattern: setup.pattern, entryPrice: setup.entryPrice,
+          stopLoss: setup.stopLoss, target1: setup.target1, target2: setup.target2,
+        }).catch(() => {});
+        toast({
+          title: `🚀 Auto-Webhook Fired: ${setup.symbol}`,
+          description: `MT5 detected retest + SS AI Bot ${setup.aiScore}/100 ≥ 70 — signal sent!`,
+        });
+      }
+    });
+  }, [setups]);
+
+  function toggleAutoMode(id: string) {
+    setSetups(prev => prev.map(s => {
+      if (s.id !== id) return s;
+      const enabling = !s.autoMode;
+      if (enabling) {
+        toast({ title: `⚡ MT5 Auto-Fill enabled for ${s.symbol}`, description: "Polling live data every 30 seconds" });
+        // Immediate first poll
+        setTimeout(() => pollMT5({ ...s, autoMode: true }), 500);
+      } else {
+        toast({ title: `MT5 Auto-Fill disabled for ${s.symbol}`, description: "Returning to manual entry mode" });
+        autoFiredRef.current.delete(id);
+        autoAnalyzingRef.current.delete(id);
+      }
+      return { ...s, autoMode: enabling, mt5Status: enabling ? "idle" : undefined };
+    }));
+  }
+
   function handleAnalyze(setup: ORBSetup) {
+    autoAnalyzingRef.current.delete(setup.id);
     setAnalyzingId(setup.id);
     setSSAISetup(setup);
     analyzeMutation.mutate(setup);
@@ -1193,6 +1399,7 @@ export default function ORBBreakoutPage() {
   const activeSetups = setups.filter(s => s.phase !== "TRADE_TAKEN" && s.phase !== "WINDOW_CLOSED");
   const tradesTaken = setups.filter(s => s.tradeTaken).length;
   const retestSignals = setups.filter(s => s.phase === "RETEST_LONG" || s.phase === "RETEST_SHORT").length;
+  const mt5AutoCount = setups.filter(s => s.autoMode && s.mt5Status === "connected").length;
 
   return (
     <div className="min-h-screen bg-[#080B14] text-white">
@@ -1233,12 +1440,13 @@ export default function ORBBreakoutPage() {
         </div>
 
         {/* Stats row */}
-        <div className="grid grid-cols-4 gap-3 mb-6">
+        <div className="grid grid-cols-5 gap-3 mb-6">
           {[
             { label: "Instruments Tracked", value: setups.length, color: "#6366f1", icon: BarChart3 },
             { label: "Active Setups", value: activeSetups.length, color: "#06b6d4", icon: Activity },
+            { label: "MT5 Live", value: mt5AutoCount, color: "#22c55e", icon: Radio },
             { label: "Retest Signals", value: retestSignals, color: "#f59e0b", icon: Zap },
-            { label: "Trades Taken Today", value: tradesTaken, color: "#22c55e", icon: CheckCircle2 },
+            { label: "Trades Taken Today", value: tradesTaken, color: "#8b5cf6", icon: CheckCircle2 },
           ].map(({ label, value, color, icon: Icon }) => (
             <Card key={label} className="bg-white/[0.03] border-white/10">
               <CardContent className="p-3 flex items-center gap-2">
@@ -1303,6 +1511,7 @@ export default function ORBBreakoutPage() {
                       onTakeTrade={logTrade}
                       onAnalyze={handleAnalyze}
                       isAnalyzing={analyzingId === setup.id}
+                      onToggleAuto={toggleAutoMode}
                     />
                   ))}
                 </AnimatePresence>
@@ -1391,7 +1600,7 @@ export default function ORBBreakoutPage() {
                           </span>
                         </div>
                         {s.aiScore !== undefined && (
-                          <p className="text-xs mt-1" style={{ color: s.aiScore >= 80 ? "#22c55e" : s.aiScore >= 60 ? "#f59e0b" : "#ef4444" }}>
+                          <p className="text-xs mt-1" style={{ color: s.aiScore >= 70 ? "#22c55e" : s.aiScore >= 60 ? "#f59e0b" : "#ef4444" }}>
                             Last score: {s.aiScore}/100
                           </p>
                         )}
