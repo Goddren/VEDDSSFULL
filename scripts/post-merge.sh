@@ -1,7 +1,5 @@
 #!/bin/bash
 set -e
 npm install
-# Only push schema if DATABASE_URL is available
-if [ -n "$DATABASE_URL" ] || [ -n "$PGHOST" ]; then
-  npm run db:push || true
-fi
+# Schema sync is handled automatically by the server on startup (server/index.ts)
+# Do not run db:push here — drizzle-kit may not be installed in production
