@@ -1,7 +1,16 @@
 import fs from 'fs';
 import path from 'path';
-import { createCanvas, loadImage } from 'canvas';
 import { ChartAnalysisResponse } from '../shared/types';
+
+// canvas is a native module — load lazily so a missing binary doesn't crash
+// the server on startup (it is only needed when these functions are called).
+async function getCanvas() {
+  try {
+    return await import('canvas');
+  } catch {
+    throw new Error('canvas native module is not available on this platform');
+  }
+}
 
 /**
  * Adds a VEDDAI watermark to an image and saves it to the uploads/shared directory
@@ -11,6 +20,7 @@ import { ChartAnalysisResponse } from '../shared/types';
  */
 export async function addWatermarkToImage(originalImagePath: string, outputFilename: string): Promise<string> {
   try {
+    const { createCanvas, loadImage } = await getCanvas();
     // Load the original image
     const image = await loadImage(originalImagePath);
     
@@ -75,11 +85,12 @@ export async function addWatermarkToImage(originalImagePath: string, outputFilen
  * @returns The path to the annotated image
  */
 export async function addTradeSetupAnnotations(
-  originalImagePath: string, 
-  analysis: ChartAnalysisResponse, 
+  originalImagePath: string,
+  analysis: ChartAnalysisResponse,
   outputFilename: string
 ): Promise<string> {
   try {
+    const { createCanvas, loadImage } = await getCanvas();
     // Load the original image
     const image = await loadImage(originalImagePath);
     
