@@ -110,11 +110,22 @@ async function withRetry<T>(
 (async () => {
   const dbUrl = process.env.DATABASE_URL || '(not set)';
   const maskedDb = dbUrl.replace(/:\/\/[^@]+@/, '://***@');
+  console.log(`[startup] NODE_ENV=${process.env.NODE_ENV}`);
   console.log(`[startup] DATABASE_URL: ${maskedDb}`);
+  console.log(`[startup] PORT=${process.env.PORT}`);
+  console.log(`[startup] Registering routes...`);
 
   // Start the HTTP server immediately so the process doesn't crash-loop
   // while waiting for the Neon endpoint to wake up.
-  const server = await registerRoutes(app);
+  let server: any;
+  try {
+    server = await registerRoutes(app);
+    console.log(`[startup] Routes registered OK`);
+  } catch (err: any) {
+    console.error(`[startup] FATAL: registerRoutes threw:`, err?.message ?? err);
+    console.error(err?.stack);
+    process.exit(1);
+  }
 
   app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
     // Handle JSON parsing errors from MT5 EA with helpful message
@@ -137,15 +148,23 @@ async function withRetry<T>(
   // importantly only setup vite in development and after
   // setting up all the other routes so the catch-all route
   // doesn't interfere with the other routes
-  if (app.get("env") === "development") {
-    await setupVite(app, server);
-  } else {
-    serveStatic(app);
+  console.log(`[startup] env=${app.get("env")} — setting up static/vite...`);
+  try {
+    if (app.get("env") === "development") {
+      await setupVite(app, server);
+    } else {
+      serveStatic(app);
+    }
+    console.log(`[startup] Static/Vite setup OK`);
+  } catch (err: any) {
+    console.error(`[startup] FATAL: static/vite setup threw:`, err?.message ?? err);
+    console.error(err?.stack);
+    process.exit(1);
   }
 
   // Use Railway's dynamic PORT env var, fallback to 5000 for local dev
   const port = parseInt(process.env.PORT || '5000', 10);
-  console.log(`[railway-debug] PORT env=${process.env.PORT} parsed=${port}`);
+  console.log(`[startup] Listening on port ${port}...`);
   server.listen(port, "0.0.0.0", () => {
     log(`serving on port ${port}`);
   });
