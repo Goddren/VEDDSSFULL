@@ -1,4 +1,7 @@
 #!/bin/bash
 set -e
 npm install
-npm run db:push
+# Only push schema if DATABASE_URL is available
+if [ -n "$DATABASE_URL" ] || [ -n "$PGHOST" ]; then
+  npm run db:push || true
+fi
