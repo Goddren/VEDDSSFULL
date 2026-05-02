@@ -131,18 +131,27 @@ async function withRetry<T>(
     // Handle JSON parsing errors from MT5 EA with helpful message
     if (err instanceof SyntaxError && 'body' in err && req.path.includes('/mt5/')) {
       console.error('MT5 JSON Parse Error:', err.message);
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: "Invalid JSON format from EA",
         message: err.message,
         fix: "Download the latest EA (v3.65) from VEDD, recompile it in MetaEditor (F7), and restart MT5. Your EA may be sending invalid characters or numbers.",
         help: "Check MT5 View > Experts tab for errors. Make sure you have chart history loaded."
       });
     }
-    
+
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
 
     res.status(status).json({ message });
+  });
+
+  // Bind the port BEFORE static/vite setup so Render's 60-second port-scan
+  // succeeds even if static setup is slow. Express middleware added after
+  // listen() still applies to all subsequent requests.
+  const port = parseInt(process.env.PORT || '5000', 10);
+  console.log(`[startup] Listening on port ${port}...`);
+  server.listen(port, "0.0.0.0", () => {
+    log(`serving on port ${port}`);
   });
 
   // importantly only setup vite in development and after
@@ -161,13 +170,6 @@ async function withRetry<T>(
     console.error(err?.stack);
     process.exit(1);
   }
-
-  // Use Railway's dynamic PORT env var, fallback to 5000 for local dev
-  const port = parseInt(process.env.PORT || '5000', 10);
-  console.log(`[startup] Listening on port ${port}...`);
-  server.listen(port, "0.0.0.0", () => {
-    log(`serving on port ${port}`);
-  });
 
   // Seed initial data after the server is already listening.
   // Retries with backoff to handle Neon endpoint wake-up delays.
