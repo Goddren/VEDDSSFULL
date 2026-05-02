@@ -113,19 +113,16 @@ function useVoice(onTranscript: (text: string, isFinal: boolean) => void) {
       if (!AC) return;
       if (!audioCtxRef.current) audioCtxRef.current = new AC();
       const ctx = audioCtxRef.current;
-      // resume() MUST be called synchronously inside the gesture handler.
-      // The promise is then awaited so the state is 'running' before we start
-      // the silent buffer — this is what iOS requires to unblock audio.
-      const resumePromise = ctx.state !== 'running' ? ctx.resume() : Promise.resolve();
-      resumePromise.then(() => {
-        try {
-          const buf = ctx.createBuffer(1, 1, 22050);
-          const src = ctx.createBufferSource();
-          src.buffer = buf;
-          src.connect(ctx.destination);
-          src.start(0);
-        } catch {}
-      }).catch(() => {});
+      // resume() called synchronously in the gesture — iOS marks the context
+      // as user-activated at this point, not when the promise resolves.
+      if (ctx.state === 'suspended') ctx.resume();
+      // Silent buffer MUST be played synchronously inside the gesture handler.
+      // This is what actually unblocks iOS audio for all subsequent async calls.
+      const buf = ctx.createBuffer(1, 1, 22050);
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.connect(ctx.destination);
+      src.start(0);
     } catch { /* ignore — desktop doesn't need this */ }
   }, []);
 
