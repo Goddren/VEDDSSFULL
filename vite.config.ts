@@ -8,9 +8,14 @@ const isReplit = process.env.REPL_ID !== undefined;
 const replitPlugins = isReplit
   ? [
       (await import("@replit/vite-plugin-shadcn-theme-json")).default(),
-      (await import("@replit/vite-plugin-runtime-error-modal")).default(),
+      // runtime-error-modal and cartographer are devDependencies — only safe
+      // to import in development. Production deploys skip devDeps so importing
+      // them would throw "Cannot find module" → exit 127 build failure.
       ...(process.env.NODE_ENV !== "production"
-        ? [(await import("@replit/vite-plugin-cartographer")).cartographer()]
+        ? [
+            (await import("@replit/vite-plugin-runtime-error-modal")).default(),
+            (await import("@replit/vite-plugin-cartographer")).cartographer(),
+          ]
         : []),
     ]
   : [];
