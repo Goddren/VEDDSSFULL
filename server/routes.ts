@@ -774,7 +774,7 @@ async function pushStrategyToAllPlatforms(
   return result;
 }
 
-export async function registerRoutes(app: Express): Promise<Server> {
+export async function registerRoutes(app: Express, existingServer?: Server): Promise<Server> {
   // Initialize Twilio if credentials are available
   setupTwilio();
   
@@ -18974,7 +18974,8 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     }
   });
 
-  const httpServer = createServer(app);
+  // Use the pre-created server if provided (port already bound), otherwise create one
+  const httpServer = existingServer || createServer(app);
 
   streamingService.initialize(httpServer);
 

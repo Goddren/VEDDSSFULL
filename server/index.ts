@@ -1,4 +1,5 @@
 import express, { type Request, Response, NextFunction } from "express";
+import { createServer } from "http";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import path from "path";
@@ -25,6 +26,17 @@ app.use(express.urlencoded({ extended: false, limit: '50mb' }));
 
 // Health check endpoint — must respond before Vite compiles (Railway health check)
 app.get("/health", (_req, res) => res.status(200).json({ status: "ok" }));
+
+// ── Bind the port RIGHT NOW, before any async work ──────────────────────────
+// Render kills the deploy if no port is open within 60 s. By listening here
+// (before registerRoutes, before DB, before static setup) we guarantee the
+// port is open within milliseconds of process start.
+const PORT = parseInt(process.env.PORT || '5000', 10);
+const httpServer = createServer(app);
+httpServer.listen(PORT, "0.0.0.0", () => {
+  log(`serving on port ${PORT}`);
+});
+// ────────────────────────────────────────────────────────────────────────────
 
 // Set up authentication
 setupAuth(app);
@@ -115,16 +127,13 @@ async function withRetry<T>(
   console.log(`[startup] PORT=${process.env.PORT}`);
   console.log(`[startup] Registering routes...`);
 
-  // Start the HTTP server immediately so the process doesn't crash-loop
-  // while waiting for the Neon endpoint to wake up.
-  let server: any;
+  // Register routes and attach WebSocket to the already-listening server
   try {
-    server = await registerRoutes(app);
+    await registerRoutes(app, httpServer);
     console.log(`[startup] Routes registered OK`);
   } catch (err: any) {
-    console.error(`[startup] FATAL: registerRoutes threw:`, err?.message ?? err);
+    console.error(`[startup] registerRoutes error (non-fatal, server still running):`, err?.message ?? err);
     console.error(err?.stack);
-    process.exit(1);
   }
 
   app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
@@ -145,22 +154,11 @@ async function withRetry<T>(
     res.status(status).json({ message });
   });
 
-  // Bind the port BEFORE static/vite setup so Render's 60-second port-scan
-  // succeeds even if static setup is slow. Express middleware added after
-  // listen() still applies to all subsequent requests.
-  const port = parseInt(process.env.PORT || '5000', 10);
-  console.log(`[startup] Listening on port ${port}...`);
-  server.listen(port, "0.0.0.0", () => {
-    log(`serving on port ${port}`);
-  });
-
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
+  // Setup static file serving / Vite dev middleware
   console.log(`[startup] env=${app.get("env")} — setting up static/vite...`);
   try {
     if (app.get("env") === "development") {
-      await setupVite(app, server);
+      await setupVite(app, httpServer);
     } else {
       serveStatic(app);
     }
