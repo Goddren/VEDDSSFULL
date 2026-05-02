@@ -94,6 +94,7 @@ let pendingTTSBlob: Blob | null = null;
 function useVoice(onTranscript: (text: string, isFinal: boolean) => void) {
   const recognitionRef    = useRef<any>(null);
   const audioRef          = useRef<HTMLAudioElement | null>(null);
+  const primedAudioRef    = useRef<HTMLAudioElement | null>(null); // pre-unlocked element for iOS fallback
   const audioCtxRef       = useRef<AudioContext | null>(null);
   const audioSourceRef    = useRef<AudioBufferSourceNode | null>(null);
   const speakingTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -108,22 +109,33 @@ function useVoice(onTranscript: (text: string, isFinal: boolean) => void) {
   // is resumed AND a buffer is played while the gesture is still active.
   // Calling this in handleSubmit/handleMicClick unblocks all subsequent audio.play() calls.
   const unlockAudio = useCallback(() => {
+    // ── 1. Web Audio API unlock (synchronous silent buffer during gesture) ──
     try {
       const AC = (window as any).AudioContext || (window as any).webkitAudioContext;
-      if (!AC) return;
-      if (!audioCtxRef.current) audioCtxRef.current = new AC();
-      const ctx = audioCtxRef.current;
-      // resume() called synchronously in the gesture — iOS marks the context
-      // as user-activated at this point, not when the promise resolves.
-      if (ctx.state === 'suspended') ctx.resume();
-      // Silent buffer MUST be played synchronously inside the gesture handler.
-      // This is what actually unblocks iOS audio for all subsequent async calls.
-      const buf = ctx.createBuffer(1, 1, 22050);
-      const src = ctx.createBufferSource();
-      src.buffer = buf;
-      src.connect(ctx.destination);
-      src.start(0);
-    } catch { /* ignore — desktop doesn't need this */ }
+      if (AC) {
+        if (!audioCtxRef.current) audioCtxRef.current = new AC();
+        const ctx = audioCtxRef.current;
+        if (ctx.state === 'suspended') ctx.resume();
+        const buf = ctx.createBuffer(1, 1, 22050);
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        src.connect(ctx.destination);
+        src.start(0);
+      }
+    } catch { /* ignore */ }
+    // ── 2. HTML5 Audio element unlock (primes element for async src swaps) ──
+    // iOS Safari allows future audio.src = url; audio.play() on an element
+    // that was already .play()'d during a user gesture, even after the src changes.
+    try {
+      if (!primedAudioRef.current) {
+        // Shortest valid silent WAV as a data URI — no network request needed
+        const silent = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAA=';
+        const a = new Audio(silent);
+        a.volume = 0.001;
+        a.play().then(() => { a.pause(); a.volume = 1.0; }).catch(() => {});
+        primedAudioRef.current = a;
+      }
+    } catch { /* ignore */ }
   }, []);
 
   // Safety: always clear the isSpeaking flag after a max duration
@@ -246,8 +258,12 @@ function useVoice(onTranscript: (text: string, isFinal: boolean) => void) {
         }
       }
 
-      // ── Fallback: HTML5 Audio element (works on desktop, may be blocked on mobile) ──
-      const audio = new Audio(url);
+      // ── Fallback: HTML5 Audio — reuse the primed element if available ──
+      // The primed element was .play()'d during a user gesture so iOS allows
+      // subsequent src-swap + play() calls without a new gesture.
+      const audio = primedAudioRef.current || new Audio();
+      primedAudioRef.current = null; // consume it — will be re-primed on next gesture
+      audio.src = url;
       audio.volume = 1.0;
       audioRef.current = audio;
       audio.onended = () => { safeSetSpeaking(false); audioRef.current = null; };
