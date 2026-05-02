@@ -113,13 +113,19 @@ function useVoice(onTranscript: (text: string, isFinal: boolean) => void) {
       if (!AC) return;
       if (!audioCtxRef.current) audioCtxRef.current = new AC();
       const ctx = audioCtxRef.current;
-      if (ctx.state === 'suspended') ctx.resume();
-      // Play a 0-sample silent buffer — satisfies mobile gesture requirement
-      const buf = ctx.createBuffer(1, 1, 22050);
-      const src = ctx.createBufferSource();
-      src.buffer = buf;
-      src.connect(ctx.destination);
-      src.start(0);
+      // resume() MUST be called synchronously inside the gesture handler.
+      // The promise is then awaited so the state is 'running' before we start
+      // the silent buffer — this is what iOS requires to unblock audio.
+      const resumePromise = ctx.state !== 'running' ? ctx.resume() : Promise.resolve();
+      resumePromise.then(() => {
+        try {
+          const buf = ctx.createBuffer(1, 1, 22050);
+          const src = ctx.createBufferSource();
+          src.buffer = buf;
+          src.connect(ctx.destination);
+          src.start(0);
+        } catch {}
+      }).catch(() => {});
     } catch { /* ignore — desktop doesn't need this */ }
   }, []);
 
@@ -220,10 +226,15 @@ function useVoice(onTranscript: (text: string, isFinal: boolean) => void) {
       const url = URL.createObjectURL(blob);
       if (onAudioReady) onAudioReady(url);
 
-      // ── Try Web Audio API first (works on iOS after AudioContext is unlocked) ──
+      // ── Try Web Audio API first (works on iOS/Android once unlocked) ──
+      // We call ctx.resume() here too — once the context was user-activated via
+      // unlockAudio() during a gesture, subsequent resume() calls succeed even
+      // outside a gesture. This covers the case where ctx.state is still
+      // 'suspended' because the earlier resume() promise hadn't resolved yet.
       const ctx = audioCtxRef.current;
-      if (ctx && ctx.state === 'running') {
+      if (ctx) {
         try {
+          if (ctx.state !== 'running') await ctx.resume();
           const arrayBuffer = await blob.arrayBuffer();
           const decoded = await ctx.decodeAudioData(arrayBuffer);
           const src = ctx.createBufferSource();
@@ -234,7 +245,7 @@ function useVoice(onTranscript: (text: string, isFinal: boolean) => void) {
           src.start(0);
           return; // Successfully playing via Web Audio API
         } catch {
-          // Web Audio decode failed — fall through to HTML5 Audio
+          // Web Audio failed — fall through to HTML5 Audio
         }
       }
 
