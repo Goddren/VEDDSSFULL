@@ -3355,6 +3355,44 @@ export default function SolanaScanner() {
       {/* ═══ DAILY GAIN METER ═══ */}
       <DailyGainMeter />
 
+      {/* ═══ UNIFIED MODULE TABS ═══ */}
+      <Tabs defaultValue="autotrade" className="w-full">
+        <TabsList className="flex w-full overflow-x-auto gap-1 h-auto flex-wrap sm:flex-nowrap bg-gray-900/60 border border-gray-700/50 rounded-2xl p-1">
+          <TabsTrigger value="autotrade" className="flex-shrink-0 text-xs sm:text-sm px-3 py-2 rounded-xl data-[state=active]:bg-purple-500/20 data-[state=active]:text-purple-300">
+            <Brain className="h-3.5 w-3.5 mr-1.5" />Auto Trade Engine
+          </TabsTrigger>
+          <TabsTrigger value="wallet" className="flex-shrink-0 text-xs sm:text-sm px-3 py-2 rounded-xl data-[state=active]:bg-blue-500/20 data-[state=active]:text-blue-300">
+            <Wallet className="h-3.5 w-3.5 mr-1.5" />My Wallet Tokens
+          </TabsTrigger>
+          <TabsTrigger value="strategies" className="flex-shrink-0 text-xs sm:text-sm px-3 py-2 rounded-xl data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-300">
+            <Target className="h-3.5 w-3.5 mr-1.5" />Strategy Picker
+          </TabsTrigger>
+          <TabsTrigger value="social" className="flex-shrink-0 text-xs sm:text-sm px-3 py-2 rounded-xl data-[state=active]:bg-green-500/20 data-[state=active]:text-green-300">
+            <Activity className="h-3.5 w-3.5 mr-1.5" />Social Scanner
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="autotrade" className="mt-4">
+          <AutoTradingPanel />
+        </TabsContent>
+
+        <TabsContent value="wallet" className="mt-4">
+          <MyWalletTokens />
+        </TabsContent>
+
+        <TabsContent value="strategies" className="mt-4">
+          <StrategyPicker />
+        </TabsContent>
+
+        <TabsContent value="social" className="mt-4">
+          <SocialTokenScanner
+            onAutoTrade={(tokenAddress, _tokenSymbol) => {
+              setSearchQuery(tokenAddress);
+            }}
+          />
+        </TabsContent>
+      </Tabs>
+
       {/* ═══ SOL ENGINE COMMAND CENTER ═══ */}
       {(() => {
         const weights = solEngineStatus?.signalWeights || {};
@@ -4421,44 +4459,6 @@ export default function SolanaScanner() {
           </CardContent>
         </Card>
       </div>
-      
-      {/* ═══ UNIFIED MODULE TABS ═══ */}
-      <Tabs defaultValue="autotrade" className="w-full">
-        <TabsList className="flex w-full overflow-x-auto gap-1 h-auto flex-wrap sm:flex-nowrap bg-gray-900/60 border border-gray-700/50 rounded-2xl p-1">
-          <TabsTrigger value="autotrade" className="flex-shrink-0 text-xs sm:text-sm px-3 py-2 rounded-xl data-[state=active]:bg-purple-500/20 data-[state=active]:text-purple-300">
-            <Brain className="h-3.5 w-3.5 mr-1.5" />Auto Trade Engine
-          </TabsTrigger>
-          <TabsTrigger value="wallet" className="flex-shrink-0 text-xs sm:text-sm px-3 py-2 rounded-xl data-[state=active]:bg-blue-500/20 data-[state=active]:text-blue-300">
-            <Wallet className="h-3.5 w-3.5 mr-1.5" />My Wallet Tokens
-          </TabsTrigger>
-          <TabsTrigger value="strategies" className="flex-shrink-0 text-xs sm:text-sm px-3 py-2 rounded-xl data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-300">
-            <Target className="h-3.5 w-3.5 mr-1.5" />Strategy Picker
-          </TabsTrigger>
-          <TabsTrigger value="social" className="flex-shrink-0 text-xs sm:text-sm px-3 py-2 rounded-xl data-[state=active]:bg-green-500/20 data-[state=active]:text-green-300">
-            <Activity className="h-3.5 w-3.5 mr-1.5" />Social Scanner
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="autotrade" className="mt-4">
-          <AutoTradingPanel />
-        </TabsContent>
-
-        <TabsContent value="wallet" className="mt-4">
-          <MyWalletTokens />
-        </TabsContent>
-
-        <TabsContent value="strategies" className="mt-4">
-          <StrategyPicker />
-        </TabsContent>
-
-        <TabsContent value="social" className="mt-4">
-          <SocialTokenScanner
-            onAutoTrade={(tokenAddress, tokenSymbol) => {
-              setSearchQuery(tokenAddress);
-            }}
-          />
-        </TabsContent>
-      </Tabs>
       
       {scanData?.scannedAt && !searchResults.length && (
         <p className="text-sm text-muted-foreground text-center">
