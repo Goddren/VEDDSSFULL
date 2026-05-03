@@ -6,6 +6,7 @@ import { queryClient } from "@/lib/queryClient";
 import { AuthProvider } from "@/hooks/use-auth";
 import { ProtectedRoute } from "@/lib/protected-route";
 import { SolanaWalletProvider } from "@/hooks/use-solana-wallet";
+import { SolTradingProvider } from "@/hooks/use-sol-trading-state";
 import NotFound from "@/pages/not-found";
 import Header from "@/components/layout/header";
 import Footer from "@/components/layout/footer";
@@ -269,10 +270,12 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <SolanaWalletProvider>
-        <AuthProvider>
-          <AppRoutes />
-          <NewsNotificationScheduler />
-        </AuthProvider>
+        <SolTradingProvider>
+          <AuthProvider>
+            <AppRoutes />
+            <NewsNotificationScheduler />
+          </AuthProvider>
+        </SolTradingProvider>
       </SolanaWalletProvider>
     </QueryClientProvider>
   );

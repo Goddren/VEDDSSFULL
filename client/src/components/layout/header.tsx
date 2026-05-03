@@ -5,6 +5,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import VeddLogo from '@/components/ui/vedd-logo';
+import { GlobalWalletIndicator } from '@/components/wallet/global-wallet-indicator';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Input } from '@/components/ui/input';
@@ -271,6 +272,9 @@ const Header: React.FC = () => {
                 </div>
               )}
             </div>
+
+            {/* Global Solana wallet indicator — shows for all users */}
+            <GlobalWalletIndicator />
 
             <ThemeToggle />
 

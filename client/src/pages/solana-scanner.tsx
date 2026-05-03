@@ -42,7 +42,8 @@ import {
   Users,
   BarChart3,
   Trash2,
-  Layers
+  Layers,
+  Loader2
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Link } from 'wouter';
@@ -59,6 +60,9 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { DailyGainMeter } from '@/components/sol/daily-gain-meter';
+import { StrategyPicker } from '@/components/sol/strategy-picker';
+import { SocialTokenScanner } from '@/components/sol/social-token-scanner';
 
 type DexSource = 'all' | 'raydium' | 'orca' | 'meteora' | 'pumpfun' | 'jupiter';
 
@@ -3160,6 +3164,64 @@ export default function SolanaScanner() {
   const holdSignals = tokens.filter(t => t.signal === 'HOLD');
   const sellSignals = tokens.filter(t => t.signal === 'SELL' || t.signal === 'STRONG_SELL');
   
+  // ── Wallet-connect gate: show connect prompt before anything else ──────────
+  const { connect: connectWallet, connecting: walletConnecting } = useSolanaWallet();
+  if (!connected) {
+    return (
+      <div className="container mx-auto px-4 py-16 flex flex-col items-center justify-center min-h-[60vh] space-y-8">
+        <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-purple-600 to-blue-600 flex items-center justify-center shadow-2xl shadow-purple-500/30">
+          <SiSolana className="h-10 w-10 text-white" />
+        </div>
+        <div className="text-center space-y-3 max-w-md">
+          <h1 className="text-3xl font-bold bg-gradient-to-r from-purple-400 to-blue-400 bg-clip-text text-transparent">
+            VEDD AI SOL Platform
+          </h1>
+          <p className="text-gray-400 text-sm leading-relaxed">
+            Connect your Phantom wallet to unlock the AI token scanner, auto trade engine,
+            strategy picker, social scanner, and daily gain tracker — all powered by a
+            single connected wallet.
+          </p>
+        </div>
+
+        <div className="flex flex-col items-center gap-4 w-full max-w-xs">
+          <Button
+            size="lg"
+            className="w-full h-12 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white font-semibold rounded-2xl shadow-lg shadow-purple-500/20 gap-2"
+            onClick={() => connectWallet('phantom')}
+            disabled={walletConnecting}
+          >
+            {walletConnecting ? (
+              <><Loader2 className="h-5 w-5 animate-spin" /> Connecting…</>
+            ) : (
+              <><Wallet className="h-5 w-5" /> Connect Phantom Wallet</>
+            )}
+          </Button>
+          <p className="text-xs text-gray-600 text-center">
+            Phantom wallet required. Solflare also supported via browser extension.
+          </p>
+        </div>
+
+        {/* Feature preview tiles */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 w-full max-w-xl mt-4">
+          {[
+            { icon: '🤖', label: 'AI Token Scanner', desc: 'Real-time signals' },
+            { icon: '⚡', label: 'Auto Trade Engine', desc: 'Jupiter-powered' },
+            { icon: '📊', label: 'Daily Gain Meter', desc: 'Goal tracking' },
+            { icon: '🎯', label: 'Strategy Picker', desc: '6 proven strategies' },
+            { icon: '📱', label: 'Social Scanner', desc: 'Twitter + Reddit' },
+            { icon: '🛡️', label: 'Risk Shield', desc: 'Loss limit engine' },
+          ].map(f => (
+            <div key={f.label} className="flex flex-col items-center gap-1.5 p-3 rounded-xl bg-gray-800/40 border border-gray-700/40 text-center">
+              <span className="text-xl">{f.icon}</span>
+              <span className="text-xs font-semibold text-gray-200">{f.label}</span>
+              <span className="text-[10px] text-gray-500">{f.desc}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="container mx-auto px-4 py-8 space-y-8">
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
@@ -3289,6 +3351,9 @@ export default function SolanaScanner() {
           </div>
         </div>
       )}
+
+      {/* ═══ DAILY GAIN METER ═══ */}
+      <DailyGainMeter />
 
       {/* ═══ SOL ENGINE COMMAND CENTER ═══ */}
       {(() => {
@@ -4357,9 +4422,43 @@ export default function SolanaScanner() {
         </Card>
       </div>
       
-      <AutoTradingPanel />
-      
-      <MyWalletTokens />
+      {/* ═══ UNIFIED MODULE TABS ═══ */}
+      <Tabs defaultValue="autotrade" className="w-full">
+        <TabsList className="flex w-full overflow-x-auto gap-1 h-auto flex-wrap sm:flex-nowrap bg-gray-900/60 border border-gray-700/50 rounded-2xl p-1">
+          <TabsTrigger value="autotrade" className="flex-shrink-0 text-xs sm:text-sm px-3 py-2 rounded-xl data-[state=active]:bg-purple-500/20 data-[state=active]:text-purple-300">
+            <Brain className="h-3.5 w-3.5 mr-1.5" />Auto Trade Engine
+          </TabsTrigger>
+          <TabsTrigger value="wallet" className="flex-shrink-0 text-xs sm:text-sm px-3 py-2 rounded-xl data-[state=active]:bg-blue-500/20 data-[state=active]:text-blue-300">
+            <Wallet className="h-3.5 w-3.5 mr-1.5" />My Wallet Tokens
+          </TabsTrigger>
+          <TabsTrigger value="strategies" className="flex-shrink-0 text-xs sm:text-sm px-3 py-2 rounded-xl data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-300">
+            <Target className="h-3.5 w-3.5 mr-1.5" />Strategy Picker
+          </TabsTrigger>
+          <TabsTrigger value="social" className="flex-shrink-0 text-xs sm:text-sm px-3 py-2 rounded-xl data-[state=active]:bg-green-500/20 data-[state=active]:text-green-300">
+            <Activity className="h-3.5 w-3.5 mr-1.5" />Social Scanner
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="autotrade" className="mt-4">
+          <AutoTradingPanel />
+        </TabsContent>
+
+        <TabsContent value="wallet" className="mt-4">
+          <MyWalletTokens />
+        </TabsContent>
+
+        <TabsContent value="strategies" className="mt-4">
+          <StrategyPicker />
+        </TabsContent>
+
+        <TabsContent value="social" className="mt-4">
+          <SocialTokenScanner
+            onAutoTrade={(tokenAddress, tokenSymbol) => {
+              setSearchQuery(tokenAddress);
+            }}
+          />
+        </TabsContent>
+      </Tabs>
       
       {scanData?.scannedAt && !searchResults.length && (
         <p className="text-sm text-muted-foreground text-center">
