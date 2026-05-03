@@ -220,11 +220,24 @@ function getAssetSpecificPrompt(symbol: string): string {
   return ''; // Standard forex - no additional prompt needed
 }
 
-// This is using Replit's AI Integrations service, which provides OpenAI-compatible API access without requiring your own OpenAI API key.
-// The AI integration uses Replit credits and is billed to your Replit account.
-export const openai = new OpenAI({
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+// Lazy singleton — only instantiated on first use, so a missing API key at startup
+// does NOT crash the process before the HTTP server can bind its port.
+let _openaiInstance: OpenAI | null = null;
+export function getDefaultOpenAIClient(): OpenAI {
+  if (!_openaiInstance) {
+    const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY || 'not-configured';
+    const opts: ConstructorParameters<typeof OpenAI>[0] = { apiKey };
+    if (process.env.AI_INTEGRATIONS_OPENAI_BASE_URL) opts.baseURL = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
+    _openaiInstance = new OpenAI(opts);
+  }
+  return _openaiInstance;
+}
+// Backward-compat: legacy code that references the exported `openai` object calls
+// through this proxy so behaviour is unchanged.
+export const openai = new Proxy({} as OpenAI, {
+  get(_target, prop) {
+    return (getDefaultOpenAIClient() as any)[prop];
+  },
 });
 
 export const AVAILABLE_VISION_MODELS = [
