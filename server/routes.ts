@@ -16057,20 +16057,25 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     const { startSolEngine, stopSolEngine, getSolEngineStatus, recordSolSignalResult, updateSolPortfolioValue, setSolWeeklyGoal, resetSolWeeklyGoal, setSolStrategy, setSolStrategies, getSolStrategies, triggerSolAIReview, setAutoTrade, getPendingSignals, confirmLiveTrade, cancelSignal, getAutoTradePositions, getPendingExits, confirmLiveExit, saveServerWallet, clearServerWallet, getServerWalletStatus } = await import('./services/sol-engine');
 
     app.post("/api/sol-engine/start", async (req: Request, res: Response) => {
-      if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+      if (!req.isAuthenticated()) return res.status(401).json({ error: "Not logged in — sign in to VEDD to use the SOL engine" });
       const userId = (req.user as User).id;
       const { dexFilter, minConfidence, maxTokens, useKelly, shieldEnabled, shieldThreshold, adaptiveScan, aiMode } = req.body;
-      await startSolEngine(userId, {
-        dexFilter: dexFilter || 'all',
-        minConfidence: Number(minConfidence) || 65,
-        maxTokens: Math.min(Number(maxTokens) || 10, 20),
-        useKelly: !!useKelly,
-        shieldEnabled: shieldEnabled !== false,
-        shieldThreshold: Number(shieldThreshold) || 10,
-        adaptiveScan: adaptiveScan !== false,
-        aiMode: ['full', 'economy'].includes(aiMode) ? aiMode : 'full',
-      });
-      res.json({ success: true, message: 'Sol Engine started' });
+      try {
+        await startSolEngine(userId, {
+          dexFilter: dexFilter || 'all',
+          minConfidence: Number(minConfidence) || 65,
+          maxTokens: Math.min(Number(maxTokens) || 10, 20),
+          useKelly: !!useKelly,
+          shieldEnabled: shieldEnabled !== false,
+          shieldThreshold: Number(shieldThreshold) || 10,
+          adaptiveScan: adaptiveScan !== false,
+          aiMode: ['full', 'economy'].includes(aiMode) ? aiMode : 'full',
+        });
+        res.json({ success: true, message: 'Sol Engine started' });
+      } catch (err: any) {
+        console.error('[SOL Engine] start error:', err?.message ?? err);
+        res.status(500).json({ error: err?.message || 'Failed to start SOL engine' });
+      }
     });
 
     app.post("/api/sol-engine/stop", async (req: Request, res: Response) => {

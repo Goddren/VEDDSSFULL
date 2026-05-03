@@ -606,6 +606,48 @@ async function withRetry<T>(
       console.error('[startup] Devotional tables migration (non-fatal):', (err as Error).message);
     }
 
+    // ── SOL Engine tables ─────────────────────────────────────────────────────
+    try {
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS sol_engine_settings (
+        id serial PRIMARY KEY,
+        user_id integer REFERENCES users(id) NOT NULL UNIQUE,
+        active_strategy text DEFAULT 'momentum_surfer',
+        active_strategies jsonb DEFAULT '[]',
+        signal_weights jsonb DEFAULT '{}',
+        kelly_stats jsonb DEFAULT '{}',
+        weekly_goal jsonb DEFAULT '{}',
+        session_high_watermark real DEFAULT 0,
+        current_portfolio_value real DEFAULT 0,
+        shield_active boolean DEFAULT false,
+        auto_trade_enabled boolean DEFAULT false,
+        live_trade_enabled boolean DEFAULT false,
+        auto_trade_tp real DEFAULT 8,
+        auto_trade_sl real DEFAULT 4,
+        server_wallet_key text,
+        created_at timestamp DEFAULT now() NOT NULL,
+        updated_at timestamp DEFAULT now() NOT NULL
+      )`);
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS sol_engine_positions (
+        id serial PRIMARY KEY,
+        user_id integer REFERENCES users(id) NOT NULL,
+        token_address text NOT NULL,
+        token_symbol text NOT NULL,
+        dex text NOT NULL,
+        mode text NOT NULL DEFAULT 'paper',
+        entry_price real NOT NULL,
+        entry_sol real NOT NULL,
+        take_profit_pct real DEFAULT 8,
+        stop_loss_pct real DEFAULT 4,
+        status text NOT NULL DEFAULT 'open',
+        close_pnl_pct real,
+        opened_at timestamp DEFAULT now() NOT NULL,
+        closed_at timestamp
+      )`);
+      console.log('[startup] SOL Engine tables created/verified.');
+    } catch (err) {
+      console.error('[startup] SOL Engine tables migration (non-fatal):', (err as Error).message);
+    }
+
     await withRetry(() => seedSubscriptionPlans(), 'seedSubscriptionPlans');
     await withRetry(() => seedAchievements(), 'seedAchievements');
 

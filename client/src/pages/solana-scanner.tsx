@@ -2803,7 +2803,13 @@ export default function SolanaScanner() {
       aiMode: solEngineAiMode,
     }),
     onSuccess: () => { toast({ title: '🚀 Sol Engine started', description: 'Autonomous scanning active' }); refetchEngineStatus(); },
-    onError: () => toast({ title: 'Failed to start engine', variant: 'destructive' }),
+    onError: (err: any) => {
+      const msg = err?.message || '';
+      const description = msg.includes('401') || msg.includes('Not logged in')
+        ? 'You need to be signed in to VEDD to use the SOL engine'
+        : msg.includes('500') ? msg.replace(/^500:\s*/, '') : 'Check your connection and try again';
+      toast({ title: 'Failed to start engine', description, variant: 'destructive' });
+    },
   });
 
   const stopSolEngineMutation = useMutation({
