@@ -608,6 +608,19 @@ async function withRetry<T>(
 
     await withRetry(() => seedSubscriptionPlans(), 'seedSubscriptionPlans');
     await withRetry(() => seedAchievements(), 'seedAchievements');
+
+    // Ensure "Grant Champion" achievement exists (idempotent — skips if already present)
+    try {
+      const existing = await db.execute(sql`SELECT id FROM achievements WHERE name = 'Grant Champion' LIMIT 1`);
+      if ((existing.rows ?? existing).length === 0) {
+        await db.execute(sql`
+          INSERT INTO achievements (name, description, category, icon, points, threshold, is_secret)
+          VALUES ('Grant Champion', 'Successfully secure your first grant award for VEDD', 'special', 'trophy', 100, 1, false)
+        `);
+        console.log('[startup] Grant Champion achievement seeded.');
+      }
+    } catch (_) {}
+
     await withRetry(() => seedAdminUser(), 'seedAdminUser');
     await withRetry(() => seedInvestmentPools(), 'seedInvestmentPools');
     await withRetry(() => seedBlogPosts(), 'seedBlogPosts');
