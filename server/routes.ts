@@ -4471,8 +4471,7 @@ IMPORTANT:
       // ── 3. OpenAI TTS — last fallback ──────────────────────────────────────
       const OpenAILib = (await import('openai')).default;
       const openaiKey = allKeys.find((k: any) => k.provider === 'openai' && k.isActive && k.isValid !== false)?.apiKey
-        || process.env.OPENAI_API_KEY
-        || process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
+        || process.env.OPENAI_API_KEY;
 
       if (!openaiKey) {
         return res.status(503).json({ error: 'No TTS available. Add an OpenAI key in Settings → AI API Keys.', fallback: true });
@@ -13202,14 +13201,13 @@ Respond with ONLY valid JSON:
       const { getUniversalAIClientForUser: _getOAI_ambassador } = await import('./openai');
       const aiClient = await _getOAI_ambassador(userId);
 
-      // Check if we actually have a working key (platform key requires AI_INTEGRATIONS_OPENAI_API_KEY env var)
       const hasUserKeys = await (async () => {
         try {
           const k = await storage.getUserApiKeys(userId);
           return k.some(key => key.isActive && key.isValid !== false && key.apiKey);
         } catch { return false; }
       })();
-      const hasPlatformKey = !!(process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY);
+      const hasPlatformKey = !!process.env.OPENAI_API_KEY;
       if (!hasUserKeys && !hasPlatformKey) {
         return res.status(503).json({
           error: 'No AI key configured. Go to Settings → AI API Keys and add your OpenAI, Groq, or Anthropic key to enable content generation.',

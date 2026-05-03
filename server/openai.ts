@@ -225,9 +225,8 @@ function getAssetSpecificPrompt(symbol: string): string {
 let _openaiInstance: OpenAI | null = null;
 export function getDefaultOpenAIClient(): OpenAI {
   if (!_openaiInstance) {
-    const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY || 'not-configured';
+    const apiKey = process.env.OPENAI_API_KEY || 'not-configured';
     const opts: ConstructorParameters<typeof OpenAI>[0] = { apiKey };
-    if (process.env.AI_INTEGRATIONS_OPENAI_BASE_URL) opts.baseURL = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
     _openaiInstance = new OpenAI(opts);
   }
   return _openaiInstance;
@@ -2152,12 +2151,7 @@ export async function getOpenAIInstanceForUser(userId: number): Promise<any> {
 // Function to test if OpenAI API key is valid
 export async function testOpenAIApiKey(): Promise<boolean> {
   try {
-    // If using Replit AI Integrations, just check if the env vars are set
-    if (process.env.AI_INTEGRATIONS_OPENAI_BASE_URL && process.env.AI_INTEGRATIONS_OPENAI_API_KEY) {
-      return true;
-    }
-    
-    // For regular OpenAI API, test with models.list()
+    // Test with models.list()
     const openai = getOpenAIInstance();
     const response = await openai.models.list();
     return response.data.length > 0;
