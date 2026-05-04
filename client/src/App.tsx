@@ -92,6 +92,7 @@ import AmbassadorRecruitmentPage from "@/pages/ambassador-recruitment";
 import AmbassadorLandingPage from "@/pages/ambassador-landing-page";
 import AmbassadorFreePathPage from "@/pages/ambassador-free-path";
 import TokenInvestmentsPage from "@/pages/token-investments";
+import AccountGrowthPlan from "@/pages/account-growth-plan";
 import StreakBanner from "@/components/StreakBanner";
 import { OnboardingTutorial } from "@/components/onboarding-tutorial";
 import { MobileFAB } from "@/components/mobile-fab";
@@ -211,6 +212,9 @@ function AppLayout() {
             {/* Grants & Funding (Ambassador + Admin) */}
             <ProtectedRoute path="/grants" component={GrantsFundingPage} />
             <ProtectedRoute path="/credit-builder" component={CreditBuilderPage} />
+
+            {/* Account Growth Plan */}
+            <ProtectedRoute path="/account-growth" component={AccountGrowthPlan} />
 
             {/* Token-Backed Investments */}
             <ProtectedRoute path="/token-investments" component={TokenInvestmentsPage} />

@@ -648,6 +648,47 @@ async function withRetry<T>(
       console.error('[startup] SOL Engine tables migration (non-fatal):', (err as Error).message);
     }
 
+    // ── Account Growth Plan tables ────────────────────────────────────────────
+    try {
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS account_growth_plans (
+        id serial PRIMARY KEY,
+        user_id integer REFERENCES users(id) NOT NULL UNIQUE,
+        starting_balance real NOT NULL DEFAULT 0,
+        current_balance real NOT NULL DEFAULT 0,
+        goal_balance real NOT NULL DEFAULT 0,
+        risk_profile text NOT NULL DEFAULT 'conservative',
+        trading_style text NOT NULL DEFAULT 'day',
+        current_phase integer NOT NULL DEFAULT 1,
+        phase_unlocked_at jsonb DEFAULT '{}',
+        milestones_hit jsonb DEFAULT '[]',
+        weekly_target_pct real DEFAULT 3,
+        created_at timestamp DEFAULT now() NOT NULL,
+        updated_at timestamp DEFAULT now() NOT NULL
+      )`);
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS growth_plan_trades (
+        id serial PRIMARY KEY,
+        user_id integer REFERENCES users(id) NOT NULL,
+        plan_id integer REFERENCES account_growth_plans(id),
+        symbol text NOT NULL,
+        direction text NOT NULL DEFAULT 'long',
+        entry_price real,
+        exit_price real,
+        stop_loss real,
+        lot_size real,
+        pnl_usd real,
+        pnl_pct real,
+        risk_usd real,
+        phase_at_entry integer DEFAULT 1,
+        notes text,
+        opened_at timestamp DEFAULT now() NOT NULL,
+        closed_at timestamp,
+        status text DEFAULT 'open'
+      )`);
+      console.log('[startup] Account Growth Plan tables created/verified.');
+    } catch (err) {
+      console.error('[startup] Account Growth Plan tables migration (non-fatal):', (err as Error).message);
+    }
+
     await withRetry(() => seedSubscriptionPlans(), 'seedSubscriptionPlans');
     await withRetry(() => seedAchievements(), 'seedAchievements');
 

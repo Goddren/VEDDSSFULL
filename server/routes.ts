@@ -18977,6 +18977,108 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     }
   });
 
+  // ─── ACCOUNT GROWTH PLAN ────────────────────────────────────────────────────
+  app.get("/api/growth-plan", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    try {
+      const [plan] = await db.execute(sql`SELECT * FROM account_growth_plans WHERE user_id = ${userId} LIMIT 1`);
+      const rows = (plan as any).rows ?? plan;
+      if (!rows || rows.length === 0) return res.json({ plan: null });
+      const trades = await db.execute(sql`SELECT * FROM growth_plan_trades WHERE user_id = ${userId} ORDER BY opened_at DESC LIMIT 200`);
+      const tradeRows = (trades as any).rows ?? trades;
+      res.json({ plan: rows[0], trades: tradeRows });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/growth-plan", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { startingBalance, goalBalance, riskProfile, tradingStyle, weeklyTargetPct } = req.body;
+    if (!startingBalance || !goalBalance) return res.status(400).json({ error: "startingBalance and goalBalance required" });
+    try {
+      // Determine starting phase from balance
+      const bal = Number(startingBalance);
+      const phase = bal < 500 ? 1 : bal < 1500 ? 2 : bal < 5000 ? 3 : bal < 15000 ? 4 : bal < 50000 ? 5 : 6;
+      await db.execute(sql`
+        INSERT INTO account_growth_plans (user_id, starting_balance, current_balance, goal_balance, risk_profile, trading_style, current_phase, weekly_target_pct)
+        VALUES (${userId}, ${Number(startingBalance)}, ${Number(startingBalance)}, ${Number(goalBalance)}, ${riskProfile || 'conservative'}, ${tradingStyle || 'day'}, ${phase}, ${Number(weeklyTargetPct) || 3})
+        ON CONFLICT (user_id) DO UPDATE SET
+          starting_balance = EXCLUDED.starting_balance,
+          current_balance = EXCLUDED.current_balance,
+          goal_balance = EXCLUDED.goal_balance,
+          risk_profile = EXCLUDED.risk_profile,
+          trading_style = EXCLUDED.trading_style,
+          current_phase = EXCLUDED.current_phase,
+          weekly_target_pct = EXCLUDED.weekly_target_pct,
+          updated_at = now()
+      `);
+      const [updated] = await db.execute(sql`SELECT * FROM account_growth_plans WHERE user_id = ${userId} LIMIT 1`);
+      const rows = (updated as any).rows ?? updated;
+      res.json({ success: true, plan: rows[0] });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.patch("/api/growth-plan/balance", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { currentBalance } = req.body;
+    if (currentBalance === undefined) return res.status(400).json({ error: "currentBalance required" });
+    try {
+      const bal = Number(currentBalance);
+      const phase = bal < 500 ? 1 : bal < 1500 ? 2 : bal < 5000 ? 3 : bal < 15000 ? 4 : bal < 50000 ? 5 : 6;
+      await db.execute(sql`
+        UPDATE account_growth_plans SET current_balance = ${bal}, current_phase = ${phase}, updated_at = now()
+        WHERE user_id = ${userId}
+      `);
+      res.json({ success: true, currentBalance: bal, currentPhase: phase });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/growth-plan/trades", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { symbol, direction, entryPrice, exitPrice, stopLoss, lotSize, pnlUsd, pnlPct, riskUsd, phaseAtEntry, notes } = req.body;
+    if (!symbol) return res.status(400).json({ error: "symbol required" });
+    try {
+      const [planResult] = await db.execute(sql`SELECT id FROM account_growth_plans WHERE user_id = ${userId} LIMIT 1`);
+      const planRows = (planResult as any).rows ?? planResult;
+      const planId = planRows[0]?.id || null;
+      await db.execute(sql`
+        INSERT INTO growth_plan_trades (user_id, plan_id, symbol, direction, entry_price, exit_price, stop_loss, lot_size, pnl_usd, pnl_pct, risk_usd, phase_at_entry, notes, status, closed_at)
+        VALUES (${userId}, ${planId}, ${symbol}, ${direction || 'long'}, ${entryPrice || null}, ${exitPrice || null}, ${stopLoss || null}, ${lotSize || null}, ${pnlUsd || null}, ${pnlPct || null}, ${riskUsd || null}, ${phaseAtEntry || 1}, ${notes || null}, ${exitPrice ? 'closed' : 'open'}, ${exitPrice ? new Date() : null})
+      `);
+      // Auto-update balance if pnlUsd provided
+      if (pnlUsd) {
+        await db.execute(sql`
+          UPDATE account_growth_plans SET current_balance = current_balance + ${Number(pnlUsd)}, updated_at = now()
+          WHERE user_id = ${userId}
+        `);
+      }
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete("/api/growth-plan/trades/:id", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    try {
+      await db.execute(sql`DELETE FROM growth_plan_trades WHERE id = ${Number(req.params.id)} AND user_id = ${userId}`);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+  // ─────────────────────────────────────────────────────────────────────────────
+
   // Use the pre-created server if provided (port already bound), otherwise create one
   const httpServer = existingServer || createServer(app);
 
