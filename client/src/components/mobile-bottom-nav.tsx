@@ -9,7 +9,6 @@ import {
 } from 'lucide-react';
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useAuth } from '@/hooks/use-auth';
-import { isMobileDevice } from '@/lib/pwa';
 
 /* ─── Nav item definitions ────────────────────────── */
 const tradingItems = [
@@ -165,8 +164,6 @@ export function MobileBottomNav() {
     document.body.style.overflow = open ? 'hidden' : '';
     return () => { document.body.style.overflow = ''; };
   }, [open]);
-
-  if (!isMobileDevice()) return null;
 
   const authPages = ['/', '/login', '/register', '/forgot-password'];
   if (authPages.includes(location) || !user) return null;
