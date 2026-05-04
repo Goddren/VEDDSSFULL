@@ -1341,7 +1341,7 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
             // Attempt fully-automated server-side buy (requires stored private key)
             addActivity(state, {
               type: 'live_signal',
-              message: `⚡ Live signal: ${analysis.token.symbol} — ${sizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} | Attempting server-side execution...`,
+              message: `⚡ Live signal: ${analysis.token.symbol} — ${sizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}] | Attempting server-side execution...`,
             });
             executeServerSideBuy(userId, sig, state).then(executed => {
               if (!executed) {
@@ -1349,7 +1349,7 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
                 state.pendingSignals.push(sig);
                 addActivity(state, {
                   type: 'live_signal',
-                  message: `⚡ Live signal queued: ${analysis.token.symbol} — ${sizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} | ⚠️ APPROVE IN PHANTOM (90s window)`,
+                  message: `⚡ Live signal queued: ${analysis.token.symbol} — ${sizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}] | ⚠️ APPROVE IN PHANTOM (90s window)`,
                 });
               }
             }).catch(() => {
@@ -1357,7 +1357,7 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
               state.pendingSignals.push(sig);
               addActivity(state, {
                 type: 'live_signal',
-                message: `⚡ Live signal queued: ${analysis.token.symbol} — ${sizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} | ⚠️ APPROVE IN PHANTOM (90s window)`,
+                message: `⚡ Live signal queued: ${analysis.token.symbol} — ${sizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}] | ⚠️ APPROVE IN PHANTOM (90s window)`,
               });
             });
           }

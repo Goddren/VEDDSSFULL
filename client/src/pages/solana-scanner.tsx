@@ -3965,6 +3965,37 @@ export default function SolanaScanner() {
               {autoTradeMutation.isPending && <span className="text-[10px] text-gray-500 animate-pulse">Updating...</span>}
             </div>
 
+            {/* Active Strategy indicator */}
+            {solEngineRunning && (() => {
+              const activeIds: string[] = (solEngineStatus?.activeStrategies?.length > 0
+                ? solEngineStatus.activeStrategies
+                : [solEngineStatus?.activeStrategy || serverStrategy || 'momentum_surfer']);
+              const activeStratList = activeIds.map((id: string) => STRATEGIES.find(s => s.id === id)).filter(Boolean) as typeof STRATEGIES;
+              if (activeStratList.length === 0) return null;
+              return (
+                <div className="flex items-start gap-2 px-3 py-2 rounded-xl bg-purple-500/10 border border-purple-500/25">
+                  <span className="text-sm shrink-0 mt-0.5">🎯</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[10px] font-semibold text-purple-300 mb-1">Strategy used for every auto-trade buy:</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {activeStratList.map(s => (
+                        <span key={s.id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-purple-600/20 border border-purple-500/30 text-[10px] font-semibold text-purple-200">
+                          {s.icon} {s.name}
+                          <span className="text-[9px] text-purple-400/70 font-normal">· {s.hold} · {s.conf}% min conf</span>
+                        </span>
+                      ))}
+                    </div>
+                    {activeStratList.length > 1 && (
+                      <p className="text-[9px] text-purple-400/60 mt-1">Multi-strategy: a signal must match at least one of these to trigger a buy</p>
+                    )}
+                    {activeStratList.length === 1 && (
+                      <p className="text-[9px] text-purple-400/60 mt-1">Change strategy in the Strategy Picker above to switch what auto-trade buys</p>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* Toggle rows */}
             <div className="space-y-2">
               {/* Paper Trading */}
@@ -4350,15 +4381,28 @@ export default function SolanaScanner() {
                 <div className="space-y-1">
                   {allOpen.map((pos: any) => {
                     const gainPct = pos.entryPrice > 0 ? ((pos.currentPrice - pos.entryPrice) / pos.entryPrice) * 100 : 0;
-                    const STRAT_ICONS: Record<string, string> = { momentum_surfer: '🏄', breakout_hunter: '🚀', dip_sniper: '🎯', meme_velocity: '⚡', whale_follower: '🐋', volume_explosion: '💥', smart_money_flow: '🧠', liquidity_sweep: '🌊' };
-                    const strat = pos.strategyId ? { icon: STRAT_ICONS[pos.strategyId] || '📊' } : null;
+                    const STRAT_MAP: Record<string, { icon: string; name: string }> = {
+                      momentum_surfer:  { icon: '🏄', name: 'Momentum' },
+                      breakout_hunter:  { icon: '🚀', name: 'Breakout' },
+                      dip_sniper:       { icon: '🎯', name: 'Dip Sniper' },
+                      meme_velocity:    { icon: '⚡', name: 'Meme Vel.' },
+                      whale_follower:   { icon: '🐋', name: 'Whale' },
+                      volume_explosion: { icon: '💥', name: 'Vol. Exp.' },
+                      smart_money_flow: { icon: '🧠', name: 'Smart $' },
+                      liquidity_sweep:  { icon: '🌊', name: 'Liq. Sweep' },
+                    };
+                    const strat = pos.strategyId ? (STRAT_MAP[pos.strategyId] || { icon: '📊', name: pos.strategyId }) : null;
                     return (
                       <div key={pos.id} className={`px-3 py-2 rounded-lg border space-y-1 ${pos.trailingActive ? 'bg-violet-900/20 border-violet-500/30' : 'bg-gray-800/50 border-gray-700/30'}`}>
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2 min-w-0">
                             <span className="text-[10px]">{pos.mode === 'paper' ? '📄' : '⚡'}</span>
                             <span className="text-xs font-semibold text-gray-200 truncate">{pos.symbol}</span>
-                            {strat && <span className="text-[9px] text-gray-500">{strat.icon}</span>}
+                            {strat && (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-purple-500/15 border border-purple-500/25 text-[9px] text-purple-300 font-medium shrink-0">
+                                {strat.icon} {strat.name}
+                              </span>
+                            )}
                             {pos.trailingActive && (
                               <span className="shrink-0 text-[8px] font-bold px-1 py-0.5 rounded bg-violet-500/20 text-violet-300 border border-violet-500/30">🔒 TRAIL LOCKED</span>
                             )}
