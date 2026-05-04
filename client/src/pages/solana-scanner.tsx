@@ -2930,7 +2930,7 @@ export default function SolanaScanner() {
     },
   });
 
-  // Live trade: poll pending signals and auto-execute via Jupiter
+  // Live trade: poll pending signals and auto-execute via Phantom
   useEffect(() => {
     if (!liveTradeEnabled || !connected || !solEngineRunning) return;
     const poll = setInterval(async () => {
@@ -2939,6 +2939,15 @@ export default function SolanaScanner() {
         if (!res.ok) return;
         const data = await res.json();
         const signals: any[] = data.signals || [];
+        if (signals.length === 0) return;
+
+        // Show approval notification before attempting Phantom popup
+        toast({
+          title: `⚡ ${signals.length} live signal${signals.length > 1 ? 's' : ''} ready`,
+          description: `Approve in your Phantom wallet to execute ${signals.map((s: any) => s.symbol).join(', ')}`,
+          duration: 15000,
+        });
+
         for (const sig of signals) {
           try {
             const result = await buyToken(sig.mint, sig.sizeSOL, signAndSendTransaction, walletData?.address || '');
@@ -2951,16 +2960,32 @@ export default function SolanaScanner() {
                 entryPrice: sig.price,
                 mint: sig.mint,
               });
-              toast({ title: `⚡ Auto-bought ${sig.symbol}`, description: `${sig.sizeSOL.toFixed(3)} SOL via Jupiter` });
+              toast({ title: `✅ Bought ${sig.symbol}`, description: `${sig.sizeSOL.toFixed(3)} SOL via Jupiter · TX confirmed` });
+            } else if (result.error) {
+              toast({
+                title: `⚠️ Buy failed: ${sig.symbol}`,
+                description: result.error.includes('rejected') ? 'Phantom popup was dismissed — approve the next signal to trade' : result.error,
+                variant: 'destructive',
+                duration: 10000,
+              });
             }
-          } catch {}
+          } catch (err: any) {
+            toast({
+              title: `⚠️ Buy error: ${sig.symbol}`,
+              description: err?.message || 'Jupiter swap failed — check your SOL balance',
+              variant: 'destructive',
+              duration: 8000,
+            });
+          }
         }
-      } catch {}
+      } catch (err: any) {
+        console.warn('[live poll] pending-signals fetch error:', err?.message);
+      }
     }, 5000);
     return () => clearInterval(poll);
   }, [liveTradeEnabled, connected, solEngineRunning]);
 
-  // Live trade: poll pending exits and auto-sell via Jupiter
+  // Live trade: poll pending exits and auto-sell via Phantom
   useEffect(() => {
     if (!liveTradeEnabled || !connected || !solEngineRunning) return;
     const pollExits = setInterval(async () => {
@@ -2968,25 +2993,43 @@ export default function SolanaScanner() {
         const res = await fetch('/api/sol-engine/pending-exits', { credentials: 'include' });
         if (!res.ok) return;
         const exits: any[] = await res.json();
+        if (exits.length === 0) return;
+
+        toast({
+          title: `📤 Selling ${exits.length} position${exits.length > 1 ? 's' : ''}`,
+          description: `Approve in Phantom: ${exits.map((e: any) => `${e.symbol} (${e.reason === 'tp' ? '✅ TP' : '🛡️ SL'})`).join(', ')}`,
+          duration: 15000,
+        });
+
         for (const exit of exits) {
           try {
             const result = await sellToken(exit.mint, exit.tokenAmount, exit.decimals, signAndSendTransaction, walletData?.address || '');
             if (result.success && result.signature) {
               confirmExitMutation.mutate({ positionId: exit.positionId, txHash: result.signature });
               toast({
-                title: `📤 Auto-sold ${exit.symbol}`,
+                title: `📤 Sold ${exit.symbol}`,
                 description: exit.reason === 'tp' ? 'Take Profit hit ✅' : 'Stop Loss hit 🛡️',
               });
-            } else if (!result.success) {
+            } else {
               toast({
-                title: `⚠️ Auto-sell failed for ${exit.symbol}`,
-                description: result.error || 'Jupiter swap error',
+                title: `⚠️ Sell failed: ${exit.symbol}`,
+                description: result.error || 'Jupiter swap error — position remains open',
                 variant: 'destructive',
+                duration: 10000,
               });
             }
-          } catch {}
+          } catch (err: any) {
+            toast({
+              title: `⚠️ Sell error: ${exit.symbol}`,
+              description: err?.message || 'Check your wallet and try again',
+              variant: 'destructive',
+              duration: 8000,
+            });
+          }
         }
-      } catch {}
+      } catch (err: any) {
+        console.warn('[live poll] pending-exits fetch error:', err?.message);
+      }
     }, 5000);
     return () => clearInterval(pollExits);
   }, [liveTradeEnabled, connected, solEngineRunning]);
@@ -3001,6 +3044,19 @@ export default function SolanaScanner() {
       if ((autoPositionsData as any).autoTrailDistancePct) setAutoTrailDistancePct((autoPositionsData as any).autoTrailDistancePct);
     }
   }, [autoPositionsData?.autoTradeEnabled, autoPositionsData?.liveTradeEnabled, autoPositionsData?.autoTradeTP, autoPositionsData?.autoTradeSL]);
+
+  // Auto-sync portfolio value from Phantom wallet SOL balance when connected
+  useEffect(() => {
+    if (connected && walletData?.solBalance && walletData.solBalance > 0) {
+      // Only auto-fill if portfolio value hasn't been set yet (engine shows 0)
+      if (!solEngineStatus?.currentPortfolioValue || solEngineStatus.currentPortfolioValue === 0) {
+        const solBal = walletData.solBalance.toFixed(3);
+        setSolPortfolioValue(solBal);
+        // Auto-update the engine with the wallet balance
+        updatePortfolioMutation.mutate(walletData.solBalance);
+      }
+    }
+  }, [connected, walletData?.solBalance]);
 
   useEffect(() => {
     if (solEngineStatus) {
@@ -3952,7 +4008,22 @@ export default function SolanaScanner() {
               {liveTradeEnabled && connected && (
                 <div className="flex items-start gap-2 p-2 rounded-lg bg-emerald-500/5 border border-emerald-500/20">
                   <Wallet className="w-3 h-3 text-emerald-400 shrink-0 mt-0.5" />
-                  <p className="text-[10px] text-emerald-300/80">When a buy executes, SOL leaves your Phantom wallet and the token appears there. Sells trigger automatically at your TP/SL targets.</p>
+                  <p className="text-[10px] text-emerald-300/80">When a buy signal fires, VEDD attempts to execute it server-side (if a server wallet is configured), otherwise a Phantom popup will appear for approval.</p>
+                </div>
+              )}
+
+              {/* ⚡ Pending signal approval banner */}
+              {liveTradeEnabled && connected && (solEngineStatus as any)?.pendingSignalsCount > 0 && (
+                <div className="flex items-start gap-2 p-3 rounded-xl bg-yellow-500/10 border border-yellow-500/40 animate-pulse">
+                  <span className="text-sm shrink-0">👁️</span>
+                  <div>
+                    <p className="text-xs font-bold text-yellow-300">⚡ APPROVE IN PHANTOM NOW</p>
+                    <p className="text-[10px] text-yellow-200/80 mt-0.5">
+                      {(solEngineStatus as any).pendingSignalsCount} live buy signal{(solEngineStatus as any).pendingSignalsCount > 1 ? 's' : ''} waiting:&nbsp;
+                      <span className="font-semibold">{((solEngineStatus as any).pendingSignalSymbols || []).join(', ')}</span>
+                      &nbsp;— check your Phantom wallet extension for the approval popup (90s window)
+                    </p>
+                  </div>
                 </div>
               )}
 

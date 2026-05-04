@@ -516,6 +516,97 @@ async function executeServerSideSell(userId: number, pos: SolAutoPosition, reaso
   }
 }
 
+// ── Server-side Jupiter BUY execution (mirrors executeServerSideSell) ────────
+async function executeServerSideBuy(
+  userId: number,
+  signal: SolPendingSignal,
+  state: SolEngineState
+): Promise<boolean> {
+  try {
+    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey })
+      .from(solEngineSettings).where(eq(solEngineSettings.userId, userId));
+    if (!settings?.serverWalletKey) return false;
+
+    const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
+    const { Keypair, Connection, VersionedTransaction } = await import('@solana/web3.js');
+    const bs58 = (await import('bs58')).default;
+    const secretKey = bs58.decode(privateKeyBase58);
+    const keypair = Keypair.fromSecretKey(secretKey);
+
+    const SOL_MINT = 'So11111111111111111111111111111111111111112';
+    const lamports = Math.floor(signal.sizeSOL * 1e9);
+    if (lamports <= 0) return false;
+
+    const quoteResp = await fetch(
+      `https://quote-api.jup.ag/v6/quote?inputMint=${SOL_MINT}&outputMint=${signal.mint}&amount=${lamports}&slippageBps=200`
+    );
+    if (!quoteResp.ok) return false;
+    const quote = await quoteResp.json();
+    if (quote.error) {
+      console.warn('[SolEngine] Jupiter buy quote error:', quote.error);
+      return false;
+    }
+
+    const swapResp = await fetch('https://quote-api.jup.ag/v6/swap', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        quoteResponse: quote,
+        userPublicKey: keypair.publicKey.toBase58(),
+        wrapAndUnwrapSol: true,
+        dynamicComputeUnitLimit: true,
+        prioritizationFeeLamports: 'auto',
+      }),
+    });
+    if (!swapResp.ok) return false;
+    const { swapTransaction } = await swapResp.json();
+
+    const txBuffer = Buffer.from(swapTransaction, 'base64');
+    const transaction = VersionedTransaction.deserialize(txBuffer);
+    transaction.sign([keypair]);
+
+    const connection = new Connection('https://api.mainnet-beta.solana.com', { commitment: 'confirmed' });
+    const signature = await connection.sendRawTransaction(transaction.serialize(), {
+      skipPreflight: false,
+      maxRetries: 3,
+    });
+
+    // Parse output token amount from quote
+    const rawOut = parseInt(quote.outAmount || '0');
+    const decimals = 9; // default; positions track raw amount
+    const tokenAmount = rawOut;
+
+    const pos: SolAutoPosition = {
+      id: `live_pos_${Date.now()}_${signal.symbol}`,
+      symbol: signal.symbol,
+      mint: signal.mint,
+      entryPrice: signal.price,
+      currentPrice: signal.price,
+      targetPct: state.autoTradeTP,
+      slPct: state.autoTradeSL,
+      size: signal.sizeSOL,
+      tokenAmount,
+      decimals,
+      strategyId: signal.strategyId,
+      mode: 'live',
+      txHash: signature,
+      openedAt: new Date().toISOString(),
+      status: 'open',
+    };
+    state.livePositions.push(pos);
+    addActivity(state, {
+      type: 'live_buy',
+      message: `🤖 Server auto-bought ${signal.symbol} — ${signal.sizeSOL.toFixed(3)} SOL @ $${signal.price.toFixed(6)} | TX: ${signature.slice(0, 16)}... | TP: +${state.autoTradeTP}% | SL: -${state.autoTradeSL}%`,
+    });
+    upsertPosition(userId, pos).catch(() => {});
+    saveEngineState(userId, state).catch(() => {});
+    return true;
+  } catch (err) {
+    console.error('[SolEngine] executeServerSideBuy error:', err);
+    return false;
+  }
+}
+
 function createInitialState(config: SolEngineConfig): SolEngineState {
   return {
     isRunning: false,
@@ -1224,15 +1315,16 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
           }
         }
 
-        // Live auto-trade: queue pending signal
+        // Live auto-trade: try server-side execution first, then queue for Phantom
         if (state.liveTradeEnabled && sizeSOL > 0 && tokenPrice > 0) {
+          const alreadyOpen = state.livePositions.some(p => p.symbol === analysis.token.symbol && p.status === 'open');
           const alreadyQueued = state.pendingSignals.some(s => s.symbol === analysis.token.symbol);
           const SIGNAL_COOLDOWN_MS = 5 * 60 * 1000;
           const lastRejected = state.signalCooldowns.get(tokenMint);
           const onCooldown = lastRejected && (Date.now() - lastRejected) < SIGNAL_COOLDOWN_MS;
-          if (!alreadyQueued && !onCooldown) {
+          if (!alreadyOpen && !alreadyQueued && !onCooldown) {
             const created = new Date();
-            const expires = new Date(created.getTime() + 60000);
+            const expires = new Date(created.getTime() + 90000); // extended to 90s
             const sig: SolPendingSignal = {
               id: `live_${Date.now()}_${analysis.token.symbol}`,
               symbol: analysis.token.symbol,
@@ -1245,10 +1337,28 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
               createdAt: created.toISOString(),
               expiresAt: expires.toISOString(),
             };
-            state.pendingSignals.push(sig);
+
+            // Attempt fully-automated server-side buy (requires stored private key)
             addActivity(state, {
               type: 'live_signal',
-              message: `⚡ Live signal queued: ${analysis.token.symbol} — ${sizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} | Waiting for wallet execution (60s window)`,
+              message: `⚡ Live signal: ${analysis.token.symbol} — ${sizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} | Attempting server-side execution...`,
+            });
+            executeServerSideBuy(userId, sig, state).then(executed => {
+              if (!executed) {
+                // No server wallet configured — queue for Phantom approval
+                state.pendingSignals.push(sig);
+                addActivity(state, {
+                  type: 'live_signal',
+                  message: `⚡ Live signal queued: ${analysis.token.symbol} — ${sizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} | ⚠️ APPROVE IN PHANTOM (90s window)`,
+                });
+              }
+            }).catch(() => {
+              // Fallback to pending signal on any error
+              state.pendingSignals.push(sig);
+              addActivity(state, {
+                type: 'live_signal',
+                message: `⚡ Live signal queued: ${analysis.token.symbol} — ${sizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} | ⚠️ APPROVE IN PHANTOM (90s window)`,
+              });
             });
           }
         }
@@ -1418,6 +1528,10 @@ export function getSolEngineStatus(userId: number) {
     autoTradeEnabled: state.autoTradeEnabled,
     liveTradeEnabled: state.liveTradeEnabled,
     autoTradeMode: state.liveTradeEnabled ? 'live' : state.autoTradeEnabled ? 'paper' : 'off',
+    pendingSignalsCount: state.pendingSignals.filter(s => new Date(s.expiresAt).getTime() > Date.now()).length,
+    pendingSignalSymbols: state.pendingSignals
+      .filter(s => new Date(s.expiresAt).getTime() > Date.now())
+      .map(s => s.symbol),
   };
 }
 
