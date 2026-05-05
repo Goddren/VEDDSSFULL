@@ -754,6 +754,9 @@ export function AbbaAssistant() {
   const [location, navigate] = useLocation();
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [dismissed, setDismissed] = useState(() => {
+    try { return sessionStorage.getItem('abba_dismissed') === '1'; } catch { return false; }
+  });
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<AbbaMessage[]>([]);
   const [context, setContext] = useState<AbbaContext | null>(null);
@@ -1191,6 +1194,7 @@ export function AbbaAssistant() {
   };
 
   if (!user) return null;
+  if (dismissed) return null;
 
   const panelWidth = expanded ? 'min(96vw, 600px)' : 'min(92vw, 400px)';
 
@@ -1199,27 +1203,47 @@ export function AbbaAssistant() {
       {/* ── Floating trigger button ─────────────────────────────────────── */}
       <AnimatePresence>
         {!open && (
-          <motion.button
-            key="ABBA-fab"
+          <motion.div
+            key="ABBA-fab-wrap"
             initial={{ scale: 0, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0, opacity: 0 }}
-            whileHover={{ scale: 1.08 }}
-            whileTap={{ scale: 0.94 }}
-            onClick={() => setOpen(true)}
-            className="fixed z-[9998] flex items-center justify-center rounded-full shadow-2xl"
-            style={{
-              bottom: 82,
-              right: 16,
-              width: 54,
-              height: 54,
-              background: 'linear-gradient(135deg, #1a0a0a 60%, #0d0d1a 100%)',
-              border: '1.5px solid rgba(220,38,38,0.6)',
-              boxShadow: '0 0 20px rgba(220,38,38,0.35), 0 0 40px rgba(139,92,246,0.15)',
-            }}
+            className="fixed z-[9998]"
+            style={{ bottom: 82, right: 16 }}
           >
-            <ArcReactor size={38} pulse />
-          </motion.button>
+            {/* Dismiss X — top-right corner of the orb */}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setDismissed(true);
+                try { sessionStorage.setItem('abba_dismissed', '1'); } catch {}
+              }}
+              className="absolute -top-1.5 -right-1.5 z-10 flex items-center justify-center rounded-full transition-all hover:scale-110"
+              style={{
+                width: 18, height: 18,
+                background: 'rgba(20,20,32,0.95)',
+                border: '1px solid rgba(220,38,38,0.5)',
+              }}
+              title="Hide ABBA"
+            >
+              <X className="h-2.5 w-2.5 text-gray-400" />
+            </button>
+            <motion.button
+              whileHover={{ scale: 1.08 }}
+              whileTap={{ scale: 0.94 }}
+              onClick={() => setOpen(true)}
+              className="flex items-center justify-center rounded-full shadow-2xl"
+              style={{
+                width: 54,
+                height: 54,
+                background: 'linear-gradient(135deg, #1a0a0a 60%, #0d0d1a 100%)',
+                border: '1.5px solid rgba(220,38,38,0.6)',
+                boxShadow: '0 0 20px rgba(220,38,38,0.35), 0 0 40px rgba(139,92,246,0.15)',
+              }}
+            >
+              <ArcReactor size={38} pulse />
+            </motion.button>
+          </motion.div>
         )}
       </AnimatePresence>
 

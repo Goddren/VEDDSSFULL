@@ -13,7 +13,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Wallet, Copy, CheckCheck, LogOut, RefreshCw, Loader2, AlertCircle, ChevronDown } from 'lucide-react';
+import { Wallet, Copy, CheckCheck, LogOut, RefreshCw, Loader2, AlertCircle, ChevronDown, ExternalLink } from 'lucide-react';
+
+const isMobileDevice = () => /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+const isInPhantomBrowser = () => /Phantom/i.test(navigator.userAgent) || !!(window as any).__phantom__;
 import { useToast } from '@/hooks/use-toast';
 
 function truncate(addr: string) {
@@ -52,28 +55,41 @@ export function GlobalWalletIndicator() {
 
   // Not connected
   if (!connected) {
+    // On mobile but NOT inside Phantom browser — show deep-link to open site in Phantom
+    const onMobileOutsidePhantom = isMobileDevice() && !isInPhantomBrowser();
+
     return (
       <div className="flex items-center gap-1.5">
         {error && (
           <span title={error} className="text-red-400 flex items-center gap-1 text-xs">
             <AlertCircle className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Retry</span>
           </span>
         )}
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={connecting || retrying}
-          onClick={handleConnect}
-          className="h-7 px-2.5 text-xs rounded-xl border-purple-500/40 text-purple-300 hover:bg-purple-500/10 hover:border-purple-400 gap-1"
-        >
-          {(connecting || retrying) ? (
-            <Loader2 className="h-3 w-3 animate-spin" />
-          ) : (
-            <Wallet className="h-3 w-3" />
-          )}
-          {connecting ? 'Connecting…' : 'Connect Wallet'}
-        </Button>
+        {onMobileOutsidePhantom ? (
+          /* Deep-link — opens current page inside Phantom's built-in browser */
+          <a
+            href={`https://phantom.app/ul/browse/${encodeURIComponent(window.location.href)}?ref=${encodeURIComponent(window.location.origin)}`}
+            className="flex items-center gap-1 h-7 px-2.5 text-xs rounded-xl border border-purple-500/40 text-purple-300 hover:bg-purple-500/10 font-medium"
+          >
+            <ExternalLink className="h-3 w-3" />
+            Open in Phantom
+          </a>
+        ) : (
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={connecting || retrying}
+            onClick={handleConnect}
+            className="h-7 px-2.5 text-xs rounded-xl border-purple-500/40 text-purple-300 hover:bg-purple-500/10 hover:border-purple-400 gap-1"
+          >
+            {(connecting || retrying) ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <Wallet className="h-3 w-3" />
+            )}
+            {connecting ? 'Connecting…' : 'Connect Wallet'}
+          </Button>
+        )}
       </div>
     );
   }

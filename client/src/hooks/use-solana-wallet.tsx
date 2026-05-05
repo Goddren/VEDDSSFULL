@@ -59,29 +59,35 @@ const isMobile = () => {
   return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 };
 
+const isInsidePhantomBrowser = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  // Phantom in-app browser adds "Phantom" to the user agent string
+  return /Phantom/i.test(ua) || !!(window as any).__phantom__;
+};
+
 const getPhantomProvider = (): SolanaProvider | null => {
   if (typeof window === 'undefined') return null;
   const anyWindow = window as any;
-  
-  // Check multiple injection points for Phantom (desktop and mobile)
-  const providers = [
+
+  // Check multiple injection points for Phantom (desktop, extension and in-app browser)
+  const candidates = [
     anyWindow.phantom?.solana,
     anyWindow.solana,
+    anyWindow.phantom,        // some Phantom browser builds expose this directly
   ];
-  
-  for (const provider of providers) {
+
+  for (const provider of candidates) {
     if (provider?.isPhantom) {
-      console.log('Found Phantom provider:', provider);
       return provider;
     }
   }
-  
-  // On mobile in Phantom browser, it may take a moment to inject
-  if (isMobile() && anyWindow.solana) {
-    console.log('Mobile: Using window.solana provider');
+
+  // Phantom in-app browser always injects window.solana — use it even without isPhantom flag
+  if ((isMobile() || isInsidePhantomBrowser()) && anyWindow.solana) {
     return anyWindow.solana;
   }
-  
+
   return null;
 };
 
@@ -126,6 +132,43 @@ export function SolanaWalletProvider({ children }: { children: ReactNode }) {
     checkWallets();
     const interval = setInterval(checkWallets, 1000);
     return () => clearInterval(interval);
+  }, []);
+
+  // Auto-connect when running inside Phantom's in-app browser
+  // The provider is pre-approved so we silently connect without a popup
+  useEffect(() => {
+    if (!isInsidePhantomBrowser()) return;
+    const tryAutoConnect = async () => {
+      // Wait for provider injection
+      let provider: SolanaProvider | null = null;
+      for (let i = 0; i < 6 && !provider; i++) {
+        await new Promise(r => setTimeout(r, 300));
+        provider = getPhantomProvider();
+      }
+      if (!provider) return;
+      try {
+        const response = await provider.connect({ onlyIfTrusted: true });
+        const address = response.publicKey.toString();
+        // Fetch balances and set state
+        const balances = await fetchTokenBalances(address);
+        setWalletData({
+          address,
+          solBalance: balances.solBalance || 0,
+          veddBalance: balances.veddBalance || 0,
+          isAmbassador: balances.isAmbassador || false,
+          ambassadorNftMint: balances.ambassadorNftMint || null,
+          membershipTier: balances.membershipTier || 'none',
+          hasVeddNft: balances.hasVeddNft || false,
+          membershipNftMint: balances.membershipNftMint || null,
+        });
+        setWalletType('phantom');
+        setConnected(true);
+      } catch {
+        // Not yet trusted — user will need to tap Connect manually, that's fine
+      }
+    };
+    tryAutoConnect();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchTokenBalances = useCallback(async (address: string): Promise<Partial<WalletData>> => {
@@ -212,24 +255,24 @@ export function SolanaWalletProvider({ children }: { children: ReactNode }) {
 
   const connect = useCallback(async (type?: WalletType) => {
     const targetType = type || 'phantom';
-    console.log('Wallet connect: Starting connection for type:', targetType, 'isMobile:', isMobile());
-    
-    // On mobile, give the provider a moment to inject
+
+    // On mobile / Phantom in-app browser, give the provider time to inject (up to 1.5s)
     let provider = getProvider(targetType);
-    if (!provider && isMobile()) {
-      console.log('Wallet connect: Mobile - waiting for provider injection...');
-      await new Promise(r => setTimeout(r, 500));
-      provider = getProvider(targetType);
+    if (!provider && (isMobile() || isInsidePhantomBrowser())) {
+      for (let i = 0; i < 3 && !provider; i++) {
+        await new Promise(r => setTimeout(r, 500));
+        provider = getProvider(targetType);
+      }
     }
-    
+
     if (!provider) {
-      console.log('Wallet connect: No provider found');
       if (targetType === 'pumpfun') {
         setError('Please install pump.fun wallet to connect');
         window.open('https://pump.fun/', '_blank');
       } else {
-        setError('Please install Phantom wallet to connect');
-        if (!isMobile()) {
+        setError('Phantom wallet not detected. Please open this site inside the Phantom app browser or install the Phantom extension.');
+        // Only open phantom.app on desktop — on mobile the user is already on mobile
+        if (!isMobile() && !isInsidePhantomBrowser()) {
           window.open('https://phantom.app/', '_blank');
         }
       }
@@ -240,10 +283,22 @@ export function SolanaWalletProvider({ children }: { children: ReactNode }) {
       setConnecting(true);
       setError(null);
 
-      console.log('Wallet connect: Calling provider.connect()');
-      const response = await provider.connect();
+      let response: { publicKey: { toString: () => string } };
+
+      // Inside Phantom's in-app browser, try silent auto-connect first (no popup needed
+      // if the user previously approved this site). Falls back to explicit connect.
+      if (isInsidePhantomBrowser() || isMobile()) {
+        try {
+          response = await provider.connect({ onlyIfTrusted: true });
+        } catch {
+          // Site not yet trusted — ask for explicit approval
+          response = await provider.connect();
+        }
+      } else {
+        response = await provider.connect();
+      }
+
       const address = response.publicKey.toString();
-      console.log('Wallet connect: Connected to address:', address);
 
       const balances = await fetchTokenBalances(address);
       console.log('Wallet connect: Fetched balances:', balances);
