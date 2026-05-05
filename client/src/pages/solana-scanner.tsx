@@ -4017,6 +4017,69 @@ export default function SolanaScanner() {
                 </button>
               </div>
 
+              {/* ── Full Auto Trading Setup — always visible so users can set up bot wallet any time ── */}
+              <div className={`rounded-xl border space-y-2 overflow-hidden ${serverWalletStatus?.hasServerWallet ? 'border-emerald-500/40 bg-emerald-500/8' : 'border-violet-500/35 bg-violet-500/8'}`}>
+                {/* Header row */}
+                <div className="flex items-center justify-between px-3 pt-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base">🤖</span>
+                    <div>
+                      <p className="text-[11px] font-bold text-gray-200">Full Auto Trading</p>
+                      <p className="text-[10px] text-gray-500">Runs like paper trading — no popups, fully automatic</p>
+                    </div>
+                  </div>
+                  {serverWalletStatus?.hasServerWallet && (
+                    <button
+                      onClick={() => clearServerWalletMutation.mutate()}
+                      disabled={clearServerWalletMutation.isPending}
+                      className="text-[10px] text-red-400 hover:text-red-300 border border-red-500/30 rounded-lg px-2 py-1 shrink-0"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+
+                {serverWalletStatus?.hasServerWallet ? (
+                  /* ✅ Active state */
+                  <div className="px-3 pb-3 space-y-1.5">
+                    <div className="flex items-center gap-2 px-2 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/25">
+                      <span className="text-sm">✅</span>
+                      <div>
+                        <p className="text-[11px] font-bold text-emerald-300">Active — Fully Automatic</p>
+                        <p className="text-[10px] text-emerald-400/70 font-mono">{serverWalletStatus.walletAddress?.slice(0, 10)}...{serverWalletStatus.walletAddress?.slice(-6)}</p>
+                      </div>
+                    </div>
+                    <p className="text-[10px] text-gray-500 text-center">All buys and sells fire instantly. Enable Live Trading below to start.</p>
+                  </div>
+                ) : (
+                  /* 🔧 Setup form */
+                  <div className="px-3 pb-3 space-y-2">
+                    <div className="flex items-start gap-2 p-2 rounded-lg bg-violet-500/10 border border-violet-500/20">
+                      <span className="text-xs shrink-0 mt-0.5">💡</span>
+                      <p className="text-[10px] text-violet-200/80 leading-relaxed">Set up once — then every buy &amp; sell executes automatically, exactly like paper trading. No Phantom approval needed per trade.</p>
+                    </div>
+                    <div className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                      <p className="text-[10px] text-amber-300 font-semibold">⚠️ Use a DEDICATED bot wallet — never your main wallet</p>
+                      <p className="text-[9px] text-amber-400/70 mt-0.5">Create a new Solana wallet, fund it with only the SOL you want to trade.</p>
+                    </div>
+                    <input
+                      type="password"
+                      placeholder="Paste base58 private key of your bot wallet..."
+                      value={serverWalletKey}
+                      onChange={e => setServerWalletKey(e.target.value)}
+                      className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2.5 text-[11px] text-gray-200 placeholder-gray-600 focus:outline-none focus:border-violet-500/60"
+                    />
+                    <button
+                      onClick={() => serverWalletKey.trim() && saveServerWalletMutation.mutate(serverWalletKey.trim())}
+                      disabled={!serverWalletKey.trim() || saveServerWalletMutation.isPending}
+                      className="w-full py-2.5 rounded-lg bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white text-[11px] font-bold transition-colors"
+                    >
+                      {saveServerWalletMutation.isPending ? '⏳ Saving...' : '🤖 Activate Full Auto Trading'}
+                    </button>
+                  </div>
+                )}
+              </div>
+
               {/* Live Trading */}
               <div className={`flex items-center justify-between p-3 rounded-xl border ${liveTradeEnabled ? 'border-emerald-500/40 bg-emerald-500/10' : connected ? 'border-gray-700 bg-gray-800/30' : 'border-gray-700/30 bg-gray-800/10 opacity-50'}`}>
                 <div className="flex items-center gap-3">
@@ -4024,7 +4087,11 @@ export default function SolanaScanner() {
                   <div>
                     <p className="text-xs font-semibold text-gray-200">Live Trading</p>
                     <p className="text-[10px] text-gray-500">
-                      {connected ? 'Real Jupiter swap via Phantom — tokens land in YOUR wallet' : 'Connect Phantom wallet to enable'}
+                      {connected
+                        ? serverWalletStatus?.hasServerWallet
+                          ? '🤖 Full Auto active — trades fire instantly'
+                          : 'Phantom approval required per trade'
+                        : 'Connect Phantom wallet to enable'}
                     </p>
                   </div>
                 </div>
@@ -4037,112 +4104,18 @@ export default function SolanaScanner() {
                 </button>
               </div>
 
-              {/* ── Execution Mode (shown when live trading is ON) ── */}
-              {liveTradeEnabled && connected && (
-                <div className="space-y-2">
-                  {/* Mode selector */}
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      onClick={() => setLiveExecMode('auto')}
-                      className={`flex flex-col items-center gap-1 p-3 rounded-xl border text-center transition-all ${liveExecMode === 'auto' ? 'border-violet-500/60 bg-violet-500/15' : 'border-gray-700/50 bg-gray-800/30 hover:border-gray-600'}`}
-                    >
-                      <span className="text-xl">🤖</span>
-                      <p className={`text-[11px] font-bold ${liveExecMode === 'auto' ? 'text-violet-300' : 'text-gray-400'}`}>Full Auto</p>
-                      <p className="text-[9px] text-gray-500 leading-tight">Like paper trading — no approvals needed</p>
-                    </button>
-                    <button
-                      onClick={() => setLiveExecMode('phantom')}
-                      className={`flex flex-col items-center gap-1 p-3 rounded-xl border text-center transition-all ${liveExecMode === 'phantom' ? 'border-blue-500/60 bg-blue-500/15' : 'border-gray-700/50 bg-gray-800/30 hover:border-gray-600'}`}
-                    >
-                      <span className="text-xl">👻</span>
-                      <p className={`text-[11px] font-bold ${liveExecMode === 'phantom' ? 'text-blue-300' : 'text-gray-400'}`}>Manual (Phantom)</p>
-                      <p className="text-[9px] text-gray-500 leading-tight">Approve each trade in Phantom wallet</p>
-                    </button>
+              {/* Pending Phantom signal banner (manual mode only) */}
+              {liveTradeEnabled && connected && !serverWalletStatus?.hasServerWallet && (solEngineStatus as any)?.pendingSignalsCount > 0 && (
+                <div className="flex items-start gap-2 p-3 rounded-xl bg-yellow-500/10 border border-yellow-500/40 animate-pulse">
+                  <span className="text-sm shrink-0">👁️</span>
+                  <div>
+                    <p className="text-xs font-bold text-yellow-300">⚡ APPROVE IN PHANTOM NOW</p>
+                    <p className="text-[10px] text-yellow-200/80 mt-0.5">
+                      {(solEngineStatus as any).pendingSignalsCount} buy signal{(solEngineStatus as any).pendingSignalsCount > 1 ? 's' : ''} waiting:&nbsp;
+                      <span className="font-semibold">{((solEngineStatus as any).pendingSignalSymbols || []).join(', ')}</span>
+                      &nbsp;— 90s window
+                    </p>
                   </div>
-
-                  {/* ── FULL AUTO mode content ── */}
-                  {liveExecMode === 'auto' && (
-                    <>
-                      {serverWalletStatus?.hasServerWallet ? (
-                        /* ✅ Bot wallet active — fully automatic */
-                        <div className="p-3 rounded-xl border border-emerald-500/40 bg-emerald-500/10 space-y-2">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <span className="text-base">✅</span>
-                              <div>
-                                <p className="text-[11px] font-bold text-emerald-300">Fully Automatic — Active</p>
-                                <p className="text-[10px] text-emerald-400/70">Trades execute instantly, just like paper trading. No Phantom popups.</p>
-                              </div>
-                            </div>
-                            <button
-                              onClick={() => clearServerWalletMutation.mutate()}
-                              disabled={clearServerWalletMutation.isPending}
-                              className="text-[10px] text-red-400 hover:text-red-300 border border-red-500/30 rounded-lg px-2 py-1 shrink-0"
-                            >
-                              Remove
-                            </button>
-                          </div>
-                          <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
-                            <span className="text-[10px] text-emerald-300/80">🤖 Bot wallet:</span>
-                            <span className="text-[10px] font-mono text-emerald-300">{serverWalletStatus.walletAddress?.slice(0, 8)}...{serverWalletStatus.walletAddress?.slice(-6)}</span>
-                          </div>
-                        </div>
-                      ) : (
-                        /* 🔧 Bot wallet setup — one-time setup to unlock auto mode */
-                        <div className="p-3 rounded-xl border border-violet-500/40 bg-violet-500/8 space-y-2">
-                          <div className="flex items-start gap-2 p-2 rounded-lg bg-violet-500/10 border border-violet-500/20">
-                            <span className="text-sm shrink-0">💡</span>
-                            <div>
-                              <p className="text-[11px] font-bold text-violet-300">One-time setup — then it's fully automatic</p>
-                              <p className="text-[10px] text-violet-300/70 mt-0.5">Create a dedicated bot wallet, fund it with the SOL you want to trade, paste the private key below. After this, every buy AND sell runs automatically — exactly like paper trading.</p>
-                            </div>
-                          </div>
-                          <div className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
-                            <p className="text-[10px] text-amber-300 font-semibold">⚠️ Use a DEDICATED bot wallet — never your main wallet</p>
-                            <p className="text-[9px] text-amber-400/70 mt-0.5">Create a fresh Solana wallet, fund it with only what you want to trade. Keep your main wallet separate.</p>
-                          </div>
-                          <input
-                            type="password"
-                            placeholder="Paste base58 private key of your bot wallet..."
-                            value={serverWalletKey}
-                            onChange={e => setServerWalletKey(e.target.value)}
-                            className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2.5 text-[11px] text-gray-200 placeholder-gray-600 focus:outline-none focus:border-violet-500/50"
-                          />
-                          <button
-                            onClick={() => serverWalletKey.trim() && saveServerWalletMutation.mutate(serverWalletKey.trim())}
-                            disabled={!serverWalletKey.trim() || saveServerWalletMutation.isPending}
-                            className="w-full py-2.5 rounded-lg bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white text-[11px] font-bold transition-colors"
-                          >
-                            {saveServerWalletMutation.isPending ? '⏳ Saving...' : '🤖 Activate Full Auto Trading'}
-                          </button>
-                        </div>
-                      )}
-                    </>
-                  )}
-
-                  {/* ── PHANTOM MANUAL mode content ── */}
-                  {liveExecMode === 'phantom' && (
-                    <div className="space-y-2">
-                      <div className="flex items-start gap-2 p-2 rounded-lg bg-blue-500/5 border border-blue-500/20">
-                        <Wallet className="w-3 h-3 text-blue-400 shrink-0 mt-0.5" />
-                        <p className="text-[10px] text-blue-300/80">When a buy signal fires, a Phantom approval popup will appear. You have 90 seconds to approve each trade.</p>
-                      </div>
-                      {/* Pending signal banner */}
-                      {(solEngineStatus as any)?.pendingSignalsCount > 0 && (
-                        <div className="flex items-start gap-2 p-3 rounded-xl bg-yellow-500/10 border border-yellow-500/40 animate-pulse">
-                          <span className="text-sm shrink-0">👁️</span>
-                          <div>
-                            <p className="text-xs font-bold text-yellow-300">⚡ APPROVE IN PHANTOM NOW</p>
-                            <p className="text-[10px] text-yellow-200/80 mt-0.5">
-                              {(solEngineStatus as any).pendingSignalsCount} buy signal{(solEngineStatus as any).pendingSignalsCount > 1 ? 's' : ''} waiting:&nbsp;
-                              <span className="font-semibold">{((solEngineStatus as any).pendingSignalSymbols || []).join(', ')}</span>
-                              &nbsp;— 90s window
-                            </p>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
                 </div>
               )}
 
@@ -4389,21 +4362,6 @@ export default function SolanaScanner() {
               )}
             </div>
 
-            {/* Bot wallet status — compact reference (full setup is in Live Trading section above) */}
-            {!liveTradeEnabled && (
-              <div className={`flex items-center justify-between p-2.5 rounded-xl border ${serverWalletStatus?.hasServerWallet ? 'border-emerald-500/30 bg-emerald-500/8' : 'border-gray-700/40 bg-gray-800/20'}`}>
-                <div className="flex items-center gap-2">
-                  <span className="text-sm">🤖</span>
-                  <div>
-                    <p className="text-[10px] font-semibold text-gray-300">Auto Trading Mode</p>
-                    <p className="text-[9px] text-gray-500">{serverWalletStatus?.hasServerWallet ? `Bot wallet active — ${serverWalletStatus.walletAddress?.slice(0,6)}...` : 'Enable Live Trading above to set up'}</p>
-                  </div>
-                </div>
-                {serverWalletStatus?.hasServerWallet && (
-                  <span className="text-[9px] text-emerald-400 font-semibold">✅ Auto</span>
-                )}
-              </div>
-            )}
 
             {/* Stats strip */}
             {anyActive && stats.totalTrades > 0 && (
