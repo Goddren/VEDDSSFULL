@@ -477,8 +477,9 @@ async function executeServerSideSell(userId: number, pos: SolAutoPosition, reaso
     const transaction = VersionedTransaction.deserialize(txBuffer);
     transaction.sign([keypair]);
 
-    const connection = new Connection('https://api.mainnet-beta.solana.com', { commitment: 'confirmed' });
-    const signature = await connection.sendRawTransaction(transaction.serialize(), { skipPreflight: false, maxRetries: 3 });
+    const rpcUrl = process.env.SOLANA_RPC_URL || 'https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92';
+    const connection = new Connection(rpcUrl, { commitment: 'confirmed' });
+    const signature = await connection.sendRawTransaction(transaction.serialize(), { skipPreflight: true, maxRetries: 3 });
 
     const gainPct = pos.entryPrice > 0 ? ((pos.currentPrice - pos.entryPrice) / pos.entryPrice) * 100 : 0;
     const label = reason === 'tp' ? 'TP ✅' : 'SL 🛡️';
@@ -565,9 +566,10 @@ async function executeServerSideBuy(
     const transaction = VersionedTransaction.deserialize(txBuffer);
     transaction.sign([keypair]);
 
-    const connection = new Connection('https://api.mainnet-beta.solana.com', { commitment: 'confirmed' });
+    const rpcUrl = process.env.SOLANA_RPC_URL || 'https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92';
+    const connection = new Connection(rpcUrl, { commitment: 'confirmed' });
     const signature = await connection.sendRawTransaction(transaction.serialize(), {
-      skipPreflight: false,
+      skipPreflight: true,
       maxRetries: 3,
     });
 
