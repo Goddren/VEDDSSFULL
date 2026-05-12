@@ -318,13 +318,13 @@ function RealWorldExampleCard({ example }: { example: RealWorldExample }) {
 
 // Weekly content schedule for ambassadors
 const weeklySchedule = [
-  { day: 'Monday', action: 'YouTube Tutorial', details: 'Deep dive: MT5 EA setup, Tradovate futures connect, NinjaScript generator, or prop firm drawdown guide', icon: Video },
-  { day: 'Tuesday', action: 'Quick Tip Reel', details: '30-60 sec tip: gestures, news sentiment, drawdown gauge, or tick value calculator', icon: Camera },
-  { day: 'Wednesday', action: 'Live Session', details: 'Real-time chart analysis OR live futures trading demo with Tradovate connection', icon: Mic },
-  { day: 'Thursday', action: 'Futures AI Live Feed Demo', details: 'Screen-record the Futures Live Feed running — show a live BUY/SELL signal appearing for NQ or ES with entry, SL, TP, and confidence score. Highlight the prop firm halt protection and self-learning scanner.', icon: TrendingUp },
-  { day: 'Friday', action: 'EA Generator Showcase', details: 'Generate MT5 EA or NinjaScript strategy live on camera — show the .cs file downloading', icon: Monitor },
-  { day: 'Saturday', action: 'Twitter/X Space', details: 'Q&A on features — include futures, prop firm presets, and NinjaTrader questions', icon: MessageSquare },
-  { day: 'Sunday', action: 'Weekly Recap & CTA', details: 'Highlight account gains + push subscription and futures features', icon: Megaphone }
+  { day: 'Monday', action: 'Drop a YouTube Tutorial 🎥', details: 'Deep dive content: "I let VEDD AI trade for me all week — here\'s the bag report" OR MT5 EA setup, Solana scanner walkthrough, prop firm drawdown guide. Make it educational AND entertaining. Show results. Real talk, no fluff.', icon: Video },
+  { day: 'Tuesday', action: 'Quick Tip Reel 🔥', details: '30-60 sec banger — "Here\'s the one thing most traders don\'t know about [VEDD feature]." Street energy, fast cuts, text overlays. Show the AI doing something that looks impossible. Hook in the first 2 seconds or you lost \'em.', icon: Camera },
+  { day: 'Wednesday', action: 'Go Live — Pull Up on \'Em 🎙️', details: 'Real-time chart analysis with the community OR live VEDD AI demo. Take requests from chat, analyze live charts, show signals dropping. This is where trust gets built. Be authentic, answer questions, keep it moving.', icon: Mic },
+  { day: 'Thursday', action: 'Signal Drop + Proof Post 📊', details: 'Screen-record a live VEDD signal hitting — show entry, SL, TP, confidence score. If it won: celebrate it. If it missed: be transparent and show how risk was managed. The streets respect honesty more than fake flexing.', icon: TrendingUp },
+  { day: 'Friday', action: 'EA Generator or Sol Scanner Demo 🤖', details: 'Generate an MT5 EA or run the Sol Scanner live on camera. Show the download, show it loading into MetaTrader or scanning tokens. "No coding, no cap." Short, punchy, straight to the W.', icon: Monitor },
+  { day: 'Saturday', action: 'X/Twitter Space or Community Q&A 💬', details: 'Host a spaces or drop a thread answering the real questions from your community. Address objections, share features, hype the platform authentically. Pull in other ambassadors — collaboration > competition.', icon: MessageSquare },
+  { day: 'Sunday', action: 'Weekly Bag Report + CTA 💰', details: 'Recap the week — what VEDD did, what the AI found, what your community said. Build FOMO naturally. End with the link and a clear CTA: "Free plan is still up — stop sleeping on it." Close the week strong.', icon: Megaphone }
 ];
 
 // Success metrics for ambassadors
@@ -337,48 +337,49 @@ const successMetrics = [
 
 // Ideal candidate traits
 const idealCandidateTraits = [
-  'Strong presence on live platforms; comfortable teaching technical concepts in real time',
-  'Skilled at simplifying chart analysis for beginners while offering depth for advanced users',
-  'Experienced in video production and editing for YouTube tutorials',
-  'Active trader or analyst with credibility in financial communities',
-  'Ability to consistently produce content aligned with market cycles'
+  'You can go live and break down a chart without flinching — real traders trust real energy, not a script',
+  'You can make complex stuff hit simple — whether your audience is a beginner or a pro, they understand you',
+  'You move authentic on camera — your community buys YOU first, then the platform',
+  'You\'re actually in the markets — your credibility comes from living what you teach, not just talking about it',
+  'You\'re consistent — one viral post is luck, showing up every week is a real ambassador brand',
+  'You understand the community — you\'re from these streets financially, and you\'re paying it forward'
 ];
 
 // Core responsibilities
 const coreResponsibilities = [
   {
-    title: 'Content Creation',
+    title: 'Drop Real Content 🎥',
     items: [
-      'Produce weekly YouTube tutorials explaining AI Trading Vault features (chart layouts, indicators, overlays, analysis workflows)',
-      'Create short-form content (TikTok/Instagram Reels) highlighting quick tips and chart hacks'
+      'Weekly YouTube tutorials — real platform walkthroughs, not scripted infomercials. Show results, show your face, show real trades. That\'s what the community respects.',
+      'Short-form fire — TikTok and IG Reels that hook in 2 seconds. Tips, AI breakdowns, "POV" content, chart analysis reveals. Make people stop scrolling.'
     ]
   },
   {
-    title: 'Live Engagement',
+    title: 'Show Up Live 🎙️',
     items: [
-      'Host regular live sessions (YouTube Live, Instagram Live, Twitter/X Spaces) demonstrating real-time chart analysis',
-      'Answer community questions and provide practical trading insights using the platform'
+      'Pull up on YouTube Live, IG Live, or X Spaces and analyze charts in real time with your community. The comments will tell you what they need to see — deliver it.',
+      'Be the resource. When people in your community have trading questions, you\'re the one they think of first. That\'s how you build real loyalty.'
     ]
   },
   {
-    title: 'Community Building',
+    title: 'Build the Community 🤝',
     items: [
-      'Spotlight user success stories and encourage participation in discussions',
-      'Actively engage with comments, forums, and social groups to foster loyalty'
+      'Shine light on wins from your community members — when one of your people gets a W, put them on. That builds ride-or-die loyalty that no ad can buy.',
+      'Stay active in comments, DMs, groups, Discord servers. People invest in platforms when they feel seen and heard. Be that person for VEDD.'
     ]
   },
   {
-    title: 'Brand Representation',
+    title: 'Represent the Brand Right 💎',
     items: [
-      'Embody AI Trading Vault\'s professional yet accessible identity',
-      'Align content with product updates, campaigns, and market cycles'
+      'VEDD is for everyone the financial industry slept on. That\'s the energy you bring — accessible, real, and built for communities that deserve better tools.',
+      'Stay aligned with what\'s dropping on the platform — new features, campaigns, market moments. Your content should feel current, not outdated.'
     ]
   },
   {
-    title: 'Growth & Conversion',
+    title: 'Grow the Bag — Yours and Theirs 💰',
     items: [
-      'Drive sign-ups and subscriptions through clear CTAs in content',
-      'Track and report engagement metrics tied to ambassador activities'
+      'Every piece of content has a purpose — educate, entertain, and convert. End every video with a clear CTA. Your referral link should be everywhere.',
+      'Track what\'s working. Which content gets people clicking? What questions lead to signups? Data tells you where to put your energy next.'
     ]
   }
 ];
@@ -1426,53 +1427,54 @@ const trainingModules: TrainingModule[] = [
     lessons: [
       {
         id: 'social-1',
-        title: 'Platform-Specific Strategies',
+        title: 'Platform-Specific Game Plan 🔥',
         content: [
-          'Twitter/X: Share quick analysis screenshots with your referral link',
-          'Instagram: Create carousel posts showing before/after analysis',
-          'TikTok: Short videos demonstrating the upload and analysis process',
-          'YouTube: In-depth tutorials and trading education content',
-          'LinkedIn: Professional content targeting serious traders'
+          'Twitter/X: Drop quick analysis screenshots, bag updates, and AI receipts. Short captions, real energy. Your referral link stays in bio.',
+          'Instagram: Carousel posts work — show the before chart, after AI analysis, and the result. Story polls and Reel hooks hit different for reach.',
+          'TikTok: 30-60 sec videos showing the upload and AI reading the chart — hook in the first 2 seconds or they\'re gone. Fast cuts, text overlays, real results.',
+          'YouTube: Deep-dive tutorials, bag reports, tool walkthroughs. 8-15 min videos where you show everything — no cap, no fluff.',
+          'LinkedIn: Hit the professional crowd — fintech angle, technology breakdown, career/business value. Keep it credible but don\'t be stiff about it.'
         ],
         tips: [
-          'Use platform-native features (Reels, Stories, Threads)',
-          'Post consistently at optimal times for your audience'
+          'Use platform-native features — Reels, Stories, Threads. The algorithm rewards native content, real talk.',
+          'Post consistently — your audience needs to see you showing up. Pick 3 days a week and lock in.'
         ]
       },
       {
         id: 'social-2',
-        title: 'Content Ideas That Work',
+        title: 'Content Ideas That Actually Hit 💡',
         content: [
-          'Before/after analysis comparisons',
-          '"Day in the life" of using AI Trading Vault',
-          'Weekly market analysis using the platform',
-          'Tutorial walkthroughs for new features',
-          'Success stories and testimonials',
-          'Live trading sessions using AI insights'
+          '"I let VEDD AI trade for me" — bag report format, before/after. The most viral format in this niche.',
+          '"AI caught what my eyes slept on" — upload a chart, reveal the pattern it found. Relatable to every trader.',
+          '"Day in my life using VEDD" — walk through your actual workflow. Authenticity builds trust, facts.',
+          'Weekly market analysis drops — use the AI for real setups, show the confidence scores and SL/TP.',
+          '"I built an EA in 60 seconds" — tutorial format, no coding. The shock factor gets clicks.',
+          'Live trading sessions using AI signals — pull up, go live, let people watch in real time. That\'s community.'
         ],
         tips: [
-          'Always include a clear call-to-action',
-          'Use your branded referral link in bio/description'
+          'Always end with a CTA — "Link in bio", "Try it free", "Let\'s get this bag." Every. Single. Post.',
+          'Put your referral link in bio across ALL platforms. That\'s your income stream, don\'t fumble it.'
         ]
       },
       {
         id: 'social-3',
-        title: 'Hashtags & SEO',
+        title: 'Hashtags & Search Game 🔍',
         content: [
-          'Use trading-related hashtags: #forex #trading #crypto #stocks',
-          'Add AI hashtags: #AI #tradingAI #automation',
-          'Include platform tags: #MT5 #TradingView',
-          'Create a unique hashtag for your content'
+          'Forex stack: #Forex #ForexTrading #XAUUSD #GBPUSD #MT5 #TradingBot #AlgoTrading #VEDDAI',
+          'Crypto/Solana stack: #Solana #SOL #DeFi #CryptoTrading #SolanaGems #Web3 #VEDDAI',
+          'Futures/Prop Firm stack: #FuturesTrading #NQ #PropFirm #Topstep #NinjaTrader #VEDDAI',
+          'Vibe tags that get engagement: #SecureTheBag #LevelUp #NoCapTrading #TradingLife',
+          'Create your own: something like #[YourName]Trades or #VEDDSquad to build your personal brand'
         ],
         tips: [
-          'Research trending hashtags in the trading niche',
-          'Mix popular and niche hashtags for reach'
+          'Research trending hashtags in the trading niche before you post — TikTok and IG both show trending tags.',
+          'Mix big hashtags (#Forex = millions of posts) with niche ones (#VEDDAITrading). Big = reach, small = community.'
         ],
         quiz: {
           question: 'What should always be included in your social media posts?',
           options: [
-            'Your personal trading results',
-            'A clear call-to-action with referral link',
+            'Your personal trading results only',
+            'A clear call-to-action with your referral link',
             'Criticism of other platforms',
             'Guaranteed profit claims'
           ],
@@ -1491,53 +1493,54 @@ const trainingModules: TrainingModule[] = [
     lessons: [
       {
         id: 'video-1',
-        title: 'Video Equipment & Setup',
+        title: 'Your Setup — Keep It Real, Not Perfect 📱',
         content: [
-          'Smartphone camera is sufficient for starting out',
-          'Use good lighting - natural light or ring light',
-          'Clear audio is essential - consider a lapel mic',
-          'Clean, professional background',
-          'Screen recording software for demos (OBS, Loom, etc.)'
+          'Phone camera is 100% enough to start — don\'t wait on gear to show up. Pull up now.',
+          'Lighting matters more than camera quality. Natural light from a window or a $20 ring light is all you need.',
+          'Audio is non-negotiable — nobody\'s watching a video they can\'t hear clearly. Wired earbuds mic works fine to start.',
+          'Background: clean, not cluttered. Doesn\'t have to be fancy — a blank wall with good lighting hits better than a messy room.',
+          'Screen recording for demos: OBS (free, fire), Loom (easy, fast), or just record your screen on iPhone/Android — works perfectly.'
         ],
         tips: [
-          'Test your setup before recording',
-          'Record in a quiet environment'
+          'Test your whole setup before recording. Watch it back. Would you watch this? Be honest.',
+          'Quiet environment = professional energy. Tell people in your space you\'re recording. No interruptions mid-flow.'
         ]
       },
       {
         id: 'video-2',
-        title: 'Video Structure',
+        title: 'Video Structure That Gets Views 🎬',
         content: [
-          'Hook (0-5 sec): Grab attention with a bold statement or question',
-          'Problem (5-15 sec): Address the pain point of manual analysis',
-          'Solution (15-45 sec): Introduce AI Trading Vault as the answer',
-          'Demo (45-90 sec): Show the platform in action',
-          'CTA (last 10 sec): Direct viewers to sign up'
+          'HOOK (0-5 sec): Drop the boldest statement or result first. "I let AI trade my account" or "I was about to lose $500 and the AI saved me." No intro, no fluff — hook or lose \'em.',
+          'PROBLEM (5-15 sec): Call out the pain. "Most traders spend hours analyzing charts and still get it wrong." Make them feel seen.',
+          'SOLUTION (15-45 sec): Here\'s where VEDD comes in. Keep it tight — what it does, why it\'s different, one sentence each.',
+          'DEMO (45-90 sec): Show it working. Real-time, real charts, real results. This is the proof that builds trust.',
+          'CTA (last 10 sec): "Link in bio — free to try, start with paper mode, zero risk." Direct and clean.'
         ],
         tips: [
-          'Keep videos under 2 minutes for social media',
-          'Longer tutorials can be 5-10 minutes for YouTube'
+          'Social media Reels/TikTok: keep it under 90 seconds. If it\'s longer, they\'re gone.',
+          'YouTube tutorials: 8-15 minutes. Go deep — people watching YouTube tutorials want the full breakdown.'
         ]
       },
       {
         id: 'video-3',
-        title: 'Scripting Your Videos',
+        title: 'Scripting With Street Energy 🎙️',
         content: [
-          'Start with: "Are you tired of spending hours analyzing charts?"',
-          'Transition: "What if AI could do it for you in seconds?"',
-          'Demo: "Let me show you how AI Trading Vault works..."',
-          'Benefits: "This saves me X hours every week"',
-          'Close: "Click the link below to try it yourself"'
+          'Hook option 1: "Bro I was about to fumble this trade — then the AI caught what my eyes slept on 👀"',
+          'Hook option 2: "Real talk — I gave this AI my charts for a week. Here\'s the bag report."',
+          'Transition: "What if you had a second set of expert eyes on every chart — powered by GPT-4o? No cap, that\'s what VEDD does."',
+          'Demo bridge: "Let me put you on — watch this. I\'m uploading my chart right now..."',
+          'Benefits line: "This lowkey saves me 2 hours every week. I just upload and the AI tells me what to do."',
+          'Close: "Link in bio — free to try. Start with paper mode if you\'re not ready to go live. No risk, just experience."'
         ],
         tips: [
-          'Speak naturally - don\'t read word-for-word',
-          'Show your personality and enthusiasm'
+          'Speak YOUR way — don\'t try to sound like someone else. Your authentic energy is the whole point.',
+          'Energy sells. If you\'re excited about VEDD, that excitement is contagious. Show it.'
         ],
         quiz: {
           question: 'How long should social media explainer videos be?',
           options: [
             'Under 30 seconds',
-            'Under 2 minutes',
+            'Under 90 seconds (2 min max)',
             '5-10 minutes',
             '30+ minutes'
           ],
@@ -1546,17 +1549,17 @@ const trainingModules: TrainingModule[] = [
       },
       {
         id: 'video-4',
-        title: 'Editing Tips',
+        title: 'Editing to Keep Them Watching ✂️',
         content: [
-          'Use jump cuts to keep pace engaging',
-          'Add text overlays for key points',
-          'Include the AI Trading Vault logo/branding',
-          'Add background music (royalty-free)',
-          'Use transitions between sections'
+          'Jump cuts are your best friend — cut out every pause, every "um", every dead second. Keep the pace moving.',
+          'Text overlays for key stats: "18 strategies running", "+23% paper trade", "84% confidence". Grab the skimmers.',
+          'VEDD branding: add the logo in corner or the outro slide. Builds recognition across your content.',
+          'Background music: low volume, energy matches the vibe. Use CapCut built-in tracks or Epidemic Sound.',
+          'Captions/subtitles: a LOT of people watch on mute. Add them. CapCut and TikTok both auto-caption now.'
         ],
         tips: [
-          'Free editing apps: CapCut, DaVinci Resolve, iMovie',
-          'Keep branding consistent across videos'
+          'Free editing apps that are fire: CapCut (easiest, mobile-first), DaVinci Resolve (desktop, pro), iMovie (Mac/iPhone simple).',
+          'Consistency in your style = brand identity. Same intro, same colors, same energy. People start to recognize YOUR content.'
         ]
       }
     ]
@@ -1571,54 +1574,55 @@ const trainingModules: TrainingModule[] = [
     lessons: [
       {
         id: 'live-1',
-        title: 'Preparing for Live Demos',
+        title: 'Prep Before You Pull Up Live 🎙️',
         content: [
-          'Have sample charts ready to upload',
-          'Pre-load the platform and log in',
-          'Test your internet connection',
-          'Prepare talking points for each feature',
-          'Have backup content if something fails'
+          'Have 2-3 sample charts ready to upload — real charts, real setups. Don\'t wing it with nothing ready.',
+          'Pre-load VEDD and stay logged in. Nothing kills the energy faster than watching someone type their password live.',
+          'Test your internet connection. Wired ethernet > WiFi if you\'re at home. Buffering on a live stream fumbles trust.',
+          'Know your talking points for each feature you\'re showing — you don\'t need a script, just know the story you\'re telling.',
+          'Have backup content if something glitches — a screenshot of an analysis, a saved result, a testimonial. Live tech fails sometimes, it\'s fine. Stay composed.'
         ],
         tips: [
-          'Practice your demo multiple times',
-          'Anticipate common questions'
+          'Run a practice demo by yourself before going live. Know the flow cold. Confidence shows.',
+          'Think through the 5 most common questions your audience will ask. Have short, clear answers ready.'
         ]
       },
       {
         id: 'live-2',
-        title: 'Engaging Your Audience',
+        title: 'Keep the Energy Up — Pull the Community In 🔥',
         content: [
-          'Ask questions to involve viewers',
-          'Respond to comments in real-time',
-          'Use polls and Q&A features',
-          'Share personal experiences and results',
-          'Create urgency with limited-time offers'
+          'Open with a question: "Who in here is tired of spending hours on charts?" Let them respond. Get them talking.',
+          'Read and respond to comments while you\'re live — call people by name, acknowledge their questions. "Aye [name], good question—"',
+          'Use polls: "Y\'all want me to run the AI on XAUUSD or GBPUSD?" Let the audience decide what you demo. They\'re invested now.',
+          'Share YOUR personal experience and results — what you actually use, what you actually saw. Realness over perfection every time.',
+          'Create natural urgency — "I\'m dropping my referral link in the chat now — grab free access while you\'re here."'
         ],
         tips: [
-          'Have a co-host to manage chat',
-          'Acknowledge viewers by name when possible'
+          'Get a co-host or a homie to manage chat when it gets busy. You can\'t demo AND moderate at the same time.',
+          'Acknowledge viewers by name when they comment — builds loyalty fast. They feel seen, they stay watching.'
         ]
       },
       {
         id: 'live-3',
-        title: 'Handling Objections',
+        title: 'Handle the Hard Questions With Confidence 💬',
         content: [
-          '"Is this a scam?" - Explain the legitimate AI technology',
-          '"Does it guarantee profits?" - Never guarantee, focus on analysis quality',
-          '"Why should I pay?" - Highlight time savings and value',
-          '"Is my data safe?" - Explain security measures'
+          '"Is this a scam?" — "Real talk, I understand the skepticism. Here\'s what the platform actually does..." Walk them through it live. Show don\'t tell.',
+          '"Does it guarantee profits?" — "Nah, and nothing legit ever does. What VEDD does is give you better analysis so you make smarter decisions. Risk management is still on you." Never promise returns.',
+          '"Why should I pay for this?" — "Think about what an hour of your time is worth. VEDD saves you 2+ hours of chart analysis every day. The math hits different." Focus on value.',
+          '"Is my data safe?" — "VEDD uses industry-standard security. Your chart screenshots are analyzed and not stored permanently. No brokerage access unless you explicitly connect one."',
+          '"Can I try it free?" — "Yes — start with paper mode. Zero money, real market data, real AI signals. Try it before you commit. That\'s real."'
         ],
         tips: [
-          'Stay calm and professional',
-          'Redirect to positive aspects'
+          'Stay calm when people push back — it\'s normal. Your composure is what builds trust, not getting defensive.',
+          'Objections are just questions dressed up. Answer them clearly and move forward. Don\'t dwell.'
         ],
         quiz: {
-          question: 'How should you respond to profit guarantee questions?',
+          question: 'How should you respond to profit guarantee questions during a live demo?',
           options: [
-            'Promise high returns',
-            'Never guarantee, focus on analysis quality',
-            'Ignore the question',
-            'Show past trade results'
+            'Promise high returns to close the deal',
+            'Never guarantee — focus on analysis quality and smarter decisions',
+            'Ignore the question and keep demoing',
+            'Show only past successful trade results'
           ],
           correct: 1
         }
@@ -1635,32 +1639,32 @@ const trainingModules: TrainingModule[] = [
     lessons: [
       {
         id: 'compliance-1',
-        title: 'What NOT to Do',
+        title: 'What NOT to Do — Protect the Brand 🛡️',
         content: [
-          'Never guarantee profits or returns',
-          'Don\'t make false claims about the AI',
-          'Avoid showing fake testimonials',
-          'Don\'t pressure people aggressively',
-          'Never share others\' personal trading data'
+          'NEVER guarantee profits or returns. Not even "you could make X". No cap means no fake promises either.',
+          'Don\'t make false claims about the AI. Don\'t say it\'s "100% accurate" or "can\'t lose." That\'s not real and it will blow up on you.',
+          'Don\'t show fake testimonials or make up results. Your real experience, even if it\'s "I\'m learning," is more valuable than fake screenshots.',
+          'Don\'t pressure people aggressively. Pushing hard sells makes people feel manipulated — that\'s how you lose the community, not build it.',
+          'Never share other people\'s personal trading data or results without their permission. That\'s their bag, their privacy. Respect it.'
         ],
         tips: [
-          'When in doubt, keep claims modest',
-          'Focus on features, not unrealistic promises'
+          'When you\'re not sure if a claim is too far — pull back. Keep it modest and honest. Modest and real beats bold and fake every time.',
+          'Focus on what the tool actually does, not what people "could" make. Features sell. Fake hype gets people hurt.'
         ]
       },
       {
         id: 'compliance-2',
-        title: 'Building Trust',
+        title: 'Build Real Trust — That\'s Your Long Game 🤝',
         content: [
-          'Be transparent about how the AI works',
-          'Share your own genuine experience',
-          'Acknowledge limitations honestly',
-          'Provide value before asking for signups',
-          'Respond promptly to questions and concerns'
+          'Be transparent about how the AI actually works — people respect honesty. Say "it analyzes patterns and gives you a recommendation, not a guarantee."',
+          'Share YOUR genuine experience — including the early confusion, the learning curve. That authenticity is what connects you to people.',
+          'Acknowledge limitations straight up. "It works best when you also understand the basics of trading." Honesty builds credibility.',
+          'Drop value BEFORE you ask for a signup. Post a free tip, show a free analysis, teach something. Give first. Then the CTA hits harder.',
+          'Respond to questions and comments fast. Someone asking "does this actually work?" is one good reply away from becoming your next referral.'
         ],
         tips: [
-          'Trust leads to long-term followers',
-          'Quality over quantity in referrals'
+          'Trust is the whole business. One real relationship beats 100 people who signed up and left. Build for the long run.',
+          'Quality referrals over quantity. Someone who truly gets value stays, subscribes, and tells their people. That\'s the real compound effect.'
         ]
       },
       {
@@ -2978,47 +2982,47 @@ export default function AmbassadorTrainingPage() {
             {/* Twitter / X Content */}
             {socialTab === 'twitter' && (
               <div className="space-y-4">
-                <p className="text-gray-400 text-sm mb-4">Copy-paste posts optimized for Twitter / X. Customize the numbers to match your own results before posting.</p>
+                <p className="text-gray-400 text-sm mb-4">Copy-paste posts optimized for Twitter / X. Swap in your real numbers before posting — no cap.</p>
                 {[
                   {
                     id: 'tw-1', tool: 'SS AI Engine', color: 'emerald',
-                    text: 'The VEDD SS AI Engine just ran 18 strategies across XAUUSD and GBPUSD — picked the highest-confluence setup and auto-entered at market open. This is what AI-powered HFT looks like. 🔥\n\n#VEDDAI #AlgoTrading #Forex #TradingBot',
+                    text: 'Bro the VEDD SS AI Engine just ran 18 strategies across XAUUSD and GBPUSD, picked the highest-confluence setup, and auto-entered at market open — all while I was asleep 😴💰\n\nThis what AI-powered HFT actually looks like. No cap.\n\n#VEDDAI #AlgoTrading #Forex #TradingBot #SecureTheBag',
                   },
                   {
                     id: 'tw-2', tool: 'VEDD Brain', color: 'violet',
-                    text: 'VEDD\'s self-learning brain analyzed 47 historical trades this week and updated its EUR/USD win-rate model. Every trade makes it smarter. 🧠\n\nThe more you trade, the better it gets. This is next-level AI.\n\n#VEDDAI #MachineLearning #Trading #AlgoTrading',
+                    text: 'Real talk — VEDD\'s self-learning brain just analyzed 47 of my trades and updated its EUR/USD win-rate model ON ITS OWN 🧠\n\nEvery trade makes it smarter. This ain\'t your average bot — it\'s literally leveling up with you.\n\n#VEDDAI #MachineLearning #Trading #AlgoTrading #LevelUp',
                   },
                   {
                     id: 'tw-3', tool: 'Sol Engine', color: 'blue',
-                    text: 'Tested VEDD Sol Engine paper trade mode on a trending Solana token — virtual +23% in 4 hours. Zero risk, real market data, real prices.\n\nNow considering live mode. ⚡\n\n#VEDDAI #Solana #Crypto #DeFi #SolanaTrading',
+                    text: 'On God — tested VEDD Sol Engine paper trade mode on a trending Solana token and hit a virtual +23% in 4 hours. Zero risk. Real market data. Real prices. ⚡\n\nConsidering going live fr fr.\n\n#VEDDAI #Solana #Crypto #DeFi #SolanaTrading #Bussin',
                   },
                   {
                     id: 'tw-4', tool: 'Chart Analysis', color: 'amber',
-                    text: 'Uploaded my TradingView screenshot to VEDD AI — it spotted a Head & Shoulders pattern I completely missed. Saved me from a losing trade. 🎯\n\nGPT-4o vision + technical analysis = your second set of expert eyes.\n\n#VEDDAI #ChartAnalysis #Trading #TradingView',
+                    text: 'Lowkey this AI just saved me from a bag fumble 😤\n\nUploaded my TradingView chart to VEDD — it spotted a Head & Shoulders I completely slept on. GPT-4o vision + technical analysis = second set of expert eyes, on God 🎯\n\n#VEDDAI #ChartAnalysis #Trading #TradingView #DontFumble',
                   },
                   {
                     id: 'tw-5', tool: 'AI Second Opinion', color: 'rose',
-                    text: 'Before entering ANY trade I run VEDD\'s AI Second Opinion. 14-point institutional checklist + live news sentiment. If it doesn\'t pass, I don\'t enter.\n\nDiscipline is the edge. ✅\n\n#VEDDAI #RiskManagement #Trading #TradingDiscipline',
+                    text: 'Before I enter ANY trade I run VEDD\'s AI Second Opinion. 14-point institutional checklist + live news sentiment.\n\nIf it don\'t pass, I don\'t enter. Period. ✅\n\nDiscipline is the real edge. Not the signal — the discipline.\n\n#VEDDAI #RiskManagement #Trading #TradingDiscipline #Facts',
                   },
                   {
                     id: 'tw-6', tool: 'EA Generator', color: 'cyan',
-                    text: 'Generated a complete MT5 Expert Advisor from my chart analysis in under 60 seconds. No coding. No outsourcing. No $500 developer fee.\n\nJust VEDD AI + my strategy = automated trading robot. 💻\n\n#VEDDAI #MT5 #ExpertAdvisor #AlgoTrading #NoCode',
+                    text: 'Built a full MT5 Expert Advisor from my chart analysis in under 60 seconds 💻\n\nNo coding. No outsourcing. No $500 developer fee. Just VEDD AI + my strategy = trading robot, lowkey fire.\n\nWho else was sleeping on this??\n\n#VEDDAI #MT5 #ExpertAdvisor #AlgoTrading #NoCode #Slept',
                   },
                   {
                     id: 'tw-8', tool: 'Futures Connect', color: 'purple',
-                    text: 'Just connected my Tradovate account to VEDD AI — live NQ futures balance, open P&L, and trailing drawdown all tracked in one dashboard. 📊\n\nNo more jumping between 3 apps. One screen, full picture.\n\n#VEDDAI #FuturesTrading #NQ #NinjaTrader #PropFirm #Topstep',
+                    text: 'Just connected my Tradovate to VEDD AI — live NQ futures balance, open P&L, and trailing drawdown all in one dashboard 📊\n\nNo cap it hits different when you can see your prop firm rules in real time. No more jumpin between 3 apps.\n\n#VEDDAI #FuturesTrading #NQ #PropFirm #Topstep #HitsDifferent',
                   },
                   {
                     id: 'tw-9', tool: 'NinjaScript Generator', color: 'indigo',
-                    text: 'Generated a complete NinjaTrader 8 NinjaScript strategy in under 60 seconds. No C# knowledge. No developer. Just selected NQ, set my R:R, and downloaded the .cs file. 🤖\n\nDaily loss circuit breaker is baked right in — prop firm safe.\n\n#VEDDAI #NinjaTrader #NinjaScript #FuturesTrading #AlgoTrading #Topstep',
+                    text: 'Bro I generated a complete NinjaTrader 8 strategy in under 60 seconds 🤖\n\nNo C#. No developer. Just selected NQ, set my R:R, downloaded the .cs file. Daily loss circuit breaker baked right in — prop firm safe, no cap.\n\n#VEDDAI #NinjaTrader #NinjaScript #FuturesTrading #AlgoTrading #Topstep',
                   },
                   {
                     id: 'tw-10', tool: 'Prop Firm Gauge', color: 'emerald',
-                    text: 'VEDD now shows your prop firm drawdown gauge in real time — trailing drawdown buffer, daily loss budget, profit target progress. All three bars in one view. 🟢\n\nIf any bar hits red, the system blocks new trades automatically.\n\nNo more guessing if you\'re near your limit.\n\n#VEDDAI #PropFirm #Topstep #ApexFunding #FuturesTrading #Drawdown',
+                    text: 'Real talk — VEDD shows your prop firm drawdown gauge in REAL TIME 🟢\n\nTrailing drawdown buffer. Daily loss budget. Profit target. All three bars in one view.\n\nHit red? System blocks new trades automatically. No more guessing if you\'re near your limit fam.\n\n#VEDDAI #PropFirm #Topstep #ApexFunding #FuturesTrading #SecureTheBag',
                   },
                   {
                     id: 'tw-7', tool: 'Hashtag Packs', color: 'gray',
-                    text: 'FOREX PACK:\n#Forex #ForexTrading #ForexSignals #XAUUSD #GBPUSD #MT5 #TradingBot #AlgoTrading #VEDDAI\n\nCRYPTO PACK:\n#Solana #SOL #Crypto #DeFi #SolanaTrading #CryptoTrading #Web3 #VEDDAI\n\nFUTURES PACK:\n#FuturesTrading #NQ #ES #GoldFutures #NinjaTrader #PropFirm #Topstep #ApexFunding #VEDDAI\n\nGENERAL TRADING:\n#Trading #TradingSignals #TradingStrategy #TradingPsychology #SmartMoney #VEDDAI',
+                    text: 'FOREX PACK:\n#Forex #ForexTrading #ForexSignals #XAUUSD #GBPUSD #MT5 #TradingBot #AlgoTrading #VEDDAI #SecureTheBag\n\nCRYPTO PACK:\n#Solana #SOL #Crypto #DeFi #SolanaTrading #CryptoTrading #Web3 #VEDDAI #OnGod\n\nFUTURES PACK:\n#FuturesTrading #NQ #ES #GoldFutures #NinjaTrader #PropFirm #Topstep #ApexFunding #VEDDAI\n\nGENERAL TRADING:\n#Trading #TradingSignals #TradingStrategy #SmartMoney #VEDDAI #LevelUp #NoCapTrading',
                   },
                 ].map(post => (
                   <Card key={post.id} className="bg-gray-800/60 border-gray-700 hover:border-gray-600 transition-all">
@@ -3045,49 +3049,49 @@ export default function AmbassadorTrainingPage() {
             {/* Instagram / TikTok Content */}
             {socialTab === 'instagram' && (
               <div className="space-y-4">
-                <p className="text-gray-400 text-sm mb-4">Hook → Demo → CTA scripts for Reels and TikTok. Each script is designed for a 30–60 second video.</p>
+                <p className="text-gray-400 text-sm mb-4">Hook → Demo → CTA scripts for Reels and TikTok. Each one built for 30–60 seconds. Hook gotta hit in the first 2 seconds or you already lost 'em.</p>
                 {[
                   {
                     id: 'ig-1', tool: 'SS AI Engine', duration: '45 sec Reel',
-                    hook: '⚡ HOOK (0–5s): "I let an AI trade forex for me for a full week — here\'s exactly what happened"',
-                    demo: '📱 DEMO (5–45s):\n→ Show VEDD dashboard with SS Engine running\n→ Zoom in on live activity feed (trades firing)\n→ Show weekly P&L tracker updating\n→ Pull back to show profit goal progress bar moving\n→ Text overlay: "18 strategies running 24/5 — no manual trading needed"',
-                    cta: '🔗 CTA (45–50s): "Link in bio — VEDD AI is free to try. Start with paper mode, zero risk."',
-                    caption: 'I handed my forex account to an AI for a week 😳 Here\'s what happened... 📈\n\nVEDD SS AI Engine runs 18 strategies simultaneously — scalping, momentum, session breakout. It picks the best setup in real-time.\n\nStarted with paper mode (no risk). Results spoke for themselves.\n\nLink in bio to try for free 👆\n\n#VEDDAI #ForexTrading #TradingBot #AlgoTrading #PassiveIncome #Forex #TradingTips',
+                    hook: '⚡ HOOK (0–5s): "I gave an AI my forex account for a whole week — bro this is what happened 😳"',
+                    demo: '📱 DEMO (5–45s):\n→ Show VEDD dashboard with SS Engine running, vibes up\n→ Zoom in on live activity feed (trades firing back to back)\n→ Show weekly P&L tracker updating in real time\n→ Pull back to show profit goal progress bar moving\n→ Text overlay: "18 strategies running 24/5 — I didn\'t place a single trade manually"',
+                    cta: '🔗 CTA (45–50s): "Link in bio — VEDD AI is free to try. Start with paper mode, zero risk, no cap."',
+                    caption: 'I handed my forex account to an AI for a week 😳 Here\'s what happened fr... 📈\n\nVEDD SS AI Engine runs 18 strategies at the same time — scalping, momentum, session breakout. It picks the best setup in real-time, no cap.\n\nStarted with paper mode (zero risk). Results spoke for themselves.\n\nLink in bio to try for free 👆\n\n#VEDDAI #ForexTrading #TradingBot #AlgoTrading #SecureTheBag #Forex #TradingTips #NoCapTrading',
                   },
                   {
                     id: 'ig-2', tool: 'Sol Engine', duration: '30 sec Reel',
-                    hook: '⚡ HOOK (0–5s): "This AI scanned 200+ Solana tokens in 10 seconds and found 3 buy signals"',
-                    demo: '📱 DEMO (5–30s):\n→ Show Sol Engine scanning (activity feed scrolling)\n→ Zoom to a token result with confidence score\n→ Show paper trade opening automatically\n→ Time-lapse: position going from entry to +18%\n→ Text: "Paper mode = real prices, zero risk"',
-                    cta: '🔗 CTA (30–35s): "Try VEDD Sol Engine — link in bio. Paper mode is 100% free."',
-                    caption: 'POV: AI finds the Solana gem before you do 🤖⚡\n\nVEDD Sol Engine scans Raydium, Orca, Jupiter, and more — all at once.\n\nPaper trading mode = REAL market data, ZERO risk. Perfect to test before going live.\n\nWho else is tired of manually scanning DexScreener? 😅\n\nLink in bio 👆\n\n#Solana #SOL #DeFi #CryptoTrading #VEDDAI #SolanaGems #CryptoBot',
+                    hook: '⚡ HOOK (0–5s): "This AI scanned 200+ Solana tokens in 10 seconds and found 3 buy signals — on God 👀"',
+                    demo: '📱 DEMO (5–30s):\n→ Show Sol Engine scanning (activity feed scrolling fast)\n→ Zoom to a token result with confidence score\n→ Show paper trade opening automatically\n→ Time-lapse: position going from entry to +18%\n→ Text: "Paper mode = real prices, ZERO risk — no bag lost"',
+                    cta: '🔗 CTA (30–35s): "Try VEDD Sol Engine — link in bio. Paper mode is 100% free, real talk."',
+                    caption: 'POV: AI finds the Solana gem before you do 🤖⚡\n\nVEDD Sol Engine is bussin — scans Raydium, Orca, Jupiter, and more all at once.\n\nPaper trading mode = REAL market data, ZERO risk. Perfect to test before you go live fr.\n\nWho else tired of manually grinding DexScreener? 😅\n\nLink in bio 👆\n\n#Solana #SOL #DeFi #CryptoTrading #VEDDAI #SolanaGems #CryptoBot #OnGod',
                   },
                   {
                     id: 'ig-3', tool: 'VEDD Brain', duration: '30 sec Reel',
-                    hook: '⚡ HOOK (0–5s): "The longer you trade with this AI, the smarter it gets"',
-                    demo: '📱 DEMO (5–30s):\n→ Show Brain status panel: "47 trades analyzed, 8 pairs learned"\n→ Zoom to per-pair win rate breakdown\n→ Show Brain Enforcer blocking a losing signal\n→ Text: "It blocked this GBPUSD trade — pair was on 3-loss streak"\n→ Show autonomous signal being generated from brain data',
-                    cta: '🔗 CTA (30–35s): "Your AI that learns YOUR market — link in bio"',
-                    caption: 'Most trading bots are dumb. This one learns. 🧠\n\nVEDD Self-Learning Brain analyzes every trade you make and builds a model of your market — which pairs you win on, which sessions, which direction.\n\nThe more you use it, the more personalized it becomes.\n\nThis is not a generic signal service. This is YOUR AI.\n\n#VEDDAI #TradingBot #MachineLearning #AI #Forex #SmartTrading',
+                    hook: '⚡ HOOK (0–5s): "Real talk — the longer you trade with this AI, the smarter it gets. Watch 👇"',
+                    demo: '📱 DEMO (5–30s):\n→ Show Brain status panel: "47 trades analyzed, 8 pairs learned"\n→ Zoom to per-pair win rate breakdown, lowkey impressive\n→ Show Brain Enforcer BLOCKING a losing signal\n→ Text: "It blocked this GBPUSD trade — pair was on a 3-loss streak fr"\n→ Show autonomous signal being generated straight from the brain data',
+                    cta: '🔗 CTA (30–35s): "Your AI that learns YOUR market — link in bio. This hits different."',
+                    caption: 'Most trading bots are mid. This one actually learns. 🧠\n\nVEDD Self-Learning Brain analyzes every trade and builds a model of YOUR market — which pairs you win on, which sessions, which direction.\n\nThe more you use it, the more it levels up with you.\n\nThis ain\'t a generic signal service. This is YOUR AI. Real talk.\n\n#VEDDAI #TradingBot #MachineLearning #AI #Forex #SmartTrading #LevelUp',
                   },
                   {
                     id: 'ig-5', tool: 'Futures Connect', duration: '45 sec Reel',
-                    hook: '⚡ HOOK (0–5s): "I connected my Tradovate prop firm account to an AI — it now tells me when I\'m about to breach my drawdown limit"',
-                    demo: '📱 DEMO (5–45s):\n→ Show VEDD Futures Connect page loading\n→ Zoom in on the drawdown gauge: 3 progress bars (trailing DD, daily loss, profit target)\n→ Show gauge color: green = SAFE\n→ Simulate: close a losing trade — daily loss bar moves to DANGER (red)\n→ Text overlay: "System blocked new trades automatically — prop firm rules enforced"\n→ Show contract calculator: "2 contracts = $450 risk on NQ"\n→ Text: "No more mentally calculating tick values mid-trade"',
-                    cta: '🔗 CTA (45–50s): "Futures traders — link in bio. VEDD supports Topstep, Apex, Bulenox and more."',
-                    caption: 'The prop firm drawdown check I wish I had earlier 😤\n\nVEDD now connects to Tradovate and shows your:\n✅ Trailing drawdown buffer\n✅ Daily loss budget used\n✅ Profit target progress\n\nAll in real time. If any limit is close, it blocks new trades before you breach.\n\nCurrently supports Topstep, Apex, Bulenox, Earn2Trade, Take Profit Trader.\n\nLink in bio 👆\n\n#FuturesTrading #PropFirm #Topstep #ApexFunding #VEDDAI #NQ #ES #TradingBot',
+                    hook: '⚡ HOOK (0–5s): "Bro I connected my Tradovate prop firm account to this AI — it now tells me when I\'m about to fumble my drawdown 😤"',
+                    demo: '📱 DEMO (5–45s):\n→ Show VEDD Futures Connect page loading clean\n→ Zoom in on the drawdown gauge: 3 bars (trailing DD, daily loss, profit target)\n→ Show gauge green = SAFE, vibes\n→ Simulate closing a losing trade — daily loss bar moves to DANGER (red)\n→ Text overlay: "System blocked new trades automatically — prop firm rules enforced, no cap"\n→ Show contract calculator: "2 contracts = $450 risk on NQ"\n→ Text: "No more mentally calculating tick values mid-trade fr"',
+                    cta: '🔗 CTA (45–50s): "Futures traders — link in bio. VEDD supports Topstep, Apex, Bulenox and more. Secure the bag."',
+                    caption: 'The prop firm drawdown check I WISH I had earlier 😤\n\nVEDD connects to Tradovate and shows you:\n✅ Trailing drawdown buffer\n✅ Daily loss budget used\n✅ Profit target progress\n\nAll in real time fr. If any limit is close, it BLOCKS new trades before you breach. No fumbling the bag.\n\nCurrently supports Topstep, Apex, Bulenox, Earn2Trade, Take Profit Trader.\n\nLink in bio 👆\n\n#FuturesTrading #PropFirm #Topstep #ApexFunding #VEDDAI #NQ #ES #TradingBot #SecureTheBag',
                   },
                   {
                     id: 'ig-6', tool: 'NinjaScript Generator', duration: '30 sec Reel',
-                    hook: '⚡ HOOK (0–5s): "I generated a NinjaTrader 8 strategy file in 60 seconds — no C# coding"',
-                    demo: '📱 DEMO (5–30s):\n→ Show VEDD Futures EA Generator page\n→ Select NQ, Day Trading strategy type\n→ Set contracts, ATR multiplier, R:R ratio\n→ Select Topstep preset — daily loss limit auto-fills\n→ Click Download — .cs file downloads\n→ Paste into NinjaTrader 8 editor, press F5\n→ Strategy compiles clean\n→ Text: "Daily loss circuit breaker built in — prop firm safe"',
-                    cta: '🔗 CTA (30–35s): "NinjaTrader traders — VEDD generates your strategy. Link in bio."',
-                    caption: 'No C# knowledge. No developer. Just download and trade. 💻\n\nVEDD Futures EA Generator → select your instrument (NQ, ES, YM, GC, CL) → configure risk → download NinjaScript .cs file → paste into NinjaTrader 8.\n\nThe generated strategy includes:\n🛡️ Daily loss circuit breaker\n📊 RSI, EMA 20/50, ATR, ADX\n🔄 Trailing stop option\n✅ Session close exit (Topstep compliant)\n\nLink in bio 👆\n\n#NinjaTrader #NinjaScript #FuturesTrading #VEDDAI #AlgoTrading #PropFirm #NQ',
+                    hook: '⚡ HOOK (0–5s): "I generated a NinjaTrader 8 strategy in 60 seconds — no C# coding, on God 💻"',
+                    demo: '📱 DEMO (5–30s):\n→ Show VEDD Futures EA Generator page loading fast\n→ Select NQ, Day Trading strategy type\n→ Set contracts, ATR multiplier, R:R ratio\n→ Select Topstep preset — daily loss limit auto-fills lowkey perfect\n→ Click Download — .cs file downloads instantly\n→ Paste into NinjaTrader 8 editor, press F5\n→ Strategy compiles clean first try\n→ Text: "Daily loss circuit breaker built in — prop firm safe, no cap"',
+                    cta: '🔗 CTA (30–35s): "NinjaTrader traders — VEDD generates your strategy, facts. Link in bio."',
+                    caption: 'No C#. No developer. No cap — just download and trade. 💻\n\nVEDD Futures EA Generator → pick your instrument (NQ, ES, YM, GC, CL) → configure your risk → download the .cs file → paste into NinjaTrader 8.\n\nStrategy comes with:\n🛡️ Daily loss circuit breaker (prop firm safe)\n📊 RSI, EMA 20/50, ATR, ADX built in\n🔄 Trailing stop option\n✅ Session close exit (Topstep compliant)\n\nThis is fire fr. Link in bio 👆\n\n#NinjaTrader #NinjaScript #FuturesTrading #VEDDAI #AlgoTrading #PropFirm #NQ #Bussin',
                   },
                   {
                     id: 'ig-4', tool: 'Chart Analysis', duration: '30 sec Reel',
-                    hook: '⚡ HOOK (0–5s): "I uploaded my chart and the AI spotted something I completely missed"',
-                    demo: '📱 DEMO (5–30s):\n→ Show uploading a TradingView screenshot\n→ Show AI analysis loading (progress animation)\n→ Reveal: Head & Shoulders pattern highlighted\n→ Show full analysis: entry, SL, TP, confidence 84%\n→ Text: "I would have bought. AI said SELL. AI was right."',
-                    cta: '🔗 CTA (30–35s): "Free chart analysis — link in bio. Any chart, any platform."',
-                    caption: 'The AI caught what my eyes missed 👀\n\nUploaded my XAUUSD chart to VEDD AI → it identified a Head & Shoulders pattern forming → gave me a SELL signal with 84% confidence.\n\nI was about to BUY 😅\n\nGPT-4o vision + technical analysis = your trading second opinion.\n\nFree to try — link in bio 👆\n\n#ChartAnalysis #VEDDAI #ForexTrading #TechnicalAnalysis #Trading #GoldTrading',
+                    hook: '⚡ HOOK (0–5s): "I was about to BUY this chart — AI said SELL. AI was right. 😮"',
+                    demo: '📱 DEMO (5–30s):\n→ Show uploading a TradingView screenshot to VEDD\n→ Show AI analysis loading (progress animation looking clean)\n→ Reveal: Head & Shoulders pattern highlighted — lowkey obvious now\n→ Show full analysis: entry, SL, TP, confidence 84%\n→ Text: "I woulda fumbled this bag. AI saved me fr."',
+                    cta: '🔗 CTA (30–35s): "Free chart analysis — link in bio. Any chart, any platform, no cap."',
+                    caption: 'The AI caught what my eyes slept on 👀\n\nUploaded my XAUUSD chart to VEDD AI → it spotted a Head & Shoulders forming → gave me a SELL signal at 84% confidence.\n\nI was literally about to BUY 😅 Would\'ve fumbled the whole bag.\n\nGPT-4o vision + technical analysis = your trading second opinion. Real talk.\n\nFree to try — link in bio 👆\n\n#ChartAnalysis #VEDDAI #ForexTrading #TechnicalAnalysis #Trading #GoldTrading #DontFumble',
                   },
                 ].map(script => (
                   <Card key={script.id} className="bg-gray-800/60 border-gray-700">
@@ -3128,61 +3132,61 @@ export default function AmbassadorTrainingPage() {
             {/* YouTube Content */}
             {socialTab === 'youtube' && (
               <div className="space-y-4">
-                <p className="text-gray-400 text-sm mb-4">Title templates and description frameworks optimized for search and clicks. Replace [RESULT] with your actual outcome.</p>
+                <p className="text-gray-400 text-sm mb-4">Title templates and description frameworks built to get clicks. Swap [RESULT] for your real numbers — no faking it. Keep it authentic, keep it real.</p>
                 {[
                   {
                     id: 'yt-1', tool: 'SS AI Engine', category: 'Viral Hook',
                     titles: [
-                      'I Let AI Trade Forex For Me For 7 Days — [RESULT]',
-                      'VEDD AI Engine: 18 Strategies Running Simultaneously — Full Demo',
-                      'This AI Bot Made [X]% Return In One Week (Forex Algo Trading)',
+                      'I Let AI Trade My Forex Account For 7 Days — Here\'s The Real Bag Report [RESULT]',
+                      'VEDD AI Running 18 Strategies At Once — I Just Watched The Money Move (Full Demo)',
+                      'This AI Bot Secured [X]% In One Week No Cap (Forex Algo Trading Breakdown)',
                     ],
-                    description: 'In this video I show you exactly how VEDD\'s SS AI Engine works — 18 HFT strategies running on XAUUSD, GBPUSD, and EURUSD simultaneously.\n\n⏱️ TIMESTAMPS:\n0:00 — What is VEDD SS AI Engine?\n2:00 — Setting weekly profit goals\n4:00 — Live demo: watching trades fire\n8:00 — Results breakdown\n12:00 — How to get started free\n\n🔗 Try VEDD AI free: [YOUR LINK]\n\n#VEDDAI #ForexBot #AlgoTrading #TradingBot',
+                    description: 'Real talk — in this video I show you exactly how VEDD\'s SS AI Engine works. 18 HFT strategies running on XAUUSD, GBPUSD, and EURUSD simultaneously. I did not place a single trade manually. Whole thing is fire.\n\n⏱️ TIMESTAMPS:\n0:00 — What is VEDD SS AI Engine? (real intro, no fluff)\n2:00 — Setting weekly profit goals\n4:00 — Live demo: watching trades fire in real time\n8:00 — Full bag report breakdown\n12:00 — How to get started free (paper mode first, no risk)\n\n🔗 Try VEDD AI free — start with paper mode: [YOUR LINK]\n\n#VEDDAI #ForexBot #AlgoTrading #TradingBot #SecureTheBag #NoCapTrading',
                   },
                   {
                     id: 'yt-2', tool: 'Chart Analysis', category: 'Educational',
                     titles: [
-                      'VEDD AI Found a Pattern My Eyes Missed — Chart Analysis Breakdown',
-                      'I Uploaded 10 Charts to AI — Here\'s What It Found (GPT-4o Trading)',
-                      'AI vs Manual Chart Analysis: Which Is More Accurate? (Real Test)',
+                      'VEDD AI Spotted The Pattern I Slept On — Full Chart Analysis Breakdown',
+                      'I Uploaded 10 Real Charts to AI — Here\'s What It Found (GPT-4o Trading)',
+                      'AI vs My Eyes: Which One Read the Chart Better? (Real Test, No Cap)',
                     ],
-                    description: 'I tested VEDD\'s GPT-4o chart analysis tool on 10 of my real trades — here\'s exactly what patterns it identified that I missed.\n\n⏱️ TIMESTAMPS:\n0:00 — How VEDD chart analysis works\n1:30 — Upload #1: XAUUSD — what AI found\n4:00 — Upload #2: GBPUSD — the pattern I missed\n7:00 — Full breakdown: AI accuracy rate\n10:00 — How to use it in your trading routine\n\n🔗 Free chart analysis: [YOUR LINK]\n\n#ChartAnalysis #VEDDAI #TradingAI #GPT4 #TechnicalAnalysis',
+                    description: 'On God — I tested VEDD\'s GPT-4o chart analysis on 10 of my real trades and it caught patterns I completely slept on. Here\'s the full breakdown, no filter.\n\n⏱️ TIMESTAMPS:\n0:00 — How VEDD chart analysis works (quick intro)\n1:30 — Upload #1: XAUUSD — what the AI found that I missed\n4:00 — Upload #2: GBPUSD — the pattern that woulda fumbled my bag\n7:00 — Full breakdown: AI accuracy rate, real talk\n10:00 — How to add this to your daily trading routine\n\n🔗 Free chart analysis — try it right now: [YOUR LINK]\n\n#ChartAnalysis #VEDDAI #TradingAI #GPT4 #TechnicalAnalysis #DontFumble',
                   },
                   {
                     id: 'yt-3', tool: 'Sol Engine', category: 'Crypto',
                     titles: [
-                      'Solana AI Bot Paper Trading — From $0 to $[X] in 72 Hours (No Risk)',
-                      'I Let VEDD AI Pick Solana Tokens For 3 Days — Here\'s The Result',
-                      'Best Solana Trading Bot 2025? I Tested VEDD Sol Engine (Full Review)',
+                      'Solana AI Bot Paper Mode — From Zero to +$[X] in 72 Hours (No Risk Whatsoever)',
+                      'I Let VEDD AI Pick Solana Tokens For 3 Days Straight — Here\'s The Bag Report',
+                      'Best Solana Bot 2025? I Ran VEDD Sol Engine For Real (Honest Review)',
                     ],
-                    description: 'I ran VEDD\'s Sol Engine in paper trading mode for 72 hours — scanning Raydium, Orca, Meteora, PumpFun, and Jupiter for the best signals.\n\n⏱️ TIMESTAMPS:\n0:00 — What is VEDD Sol Engine?\n2:00 — Setting up paper trading mode\n5:00 — Watching the first signals fire\n9:00 — 72-hour results: wins, losses, P&L\n13:00 — Should you go live? My honest take\n\n🔗 Try paper trading free: [YOUR LINK]\n\n#Solana #VEDDAI #SolanaBot #CryptoTrading #DeFi',
+                    description: 'Real talk — I ran VEDD\'s Sol Engine in paper trading mode for 72 hours. It was scanning Raydium, Orca, Meteora, PumpFun, and Jupiter all at once. I just watched the W\'s stack up.\n\n⏱️ TIMESTAMPS:\n0:00 — What is VEDD Sol Engine? (no cap intro)\n2:00 — Setting up paper trading mode — literally 2 minutes\n5:00 — Watching the first signals fire (lowkey wild)\n9:00 — 72-hour bag report: wins, losses, P&L breakdown\n13:00 — Should you go live? My honest take, no fluff\n\n🔗 Try paper trading free — zero risk: [YOUR LINK]\n\n#Solana #VEDDAI #SolanaBot #CryptoTrading #DeFi #SecureTheBag #OnGod',
                   },
                   {
                     id: 'yt-4', tool: 'EA Generator', category: 'Tutorial',
                     titles: [
-                      'I Generated a Forex EA in 60 Seconds — No Coding Required (VEDD AI)',
-                      'How to Create a MT5 Expert Advisor Without Coding in 2025',
-                      'Turn Your Trading Strategy Into an Automated Robot — Free Tool',
+                      'I Built a Forex EA in 60 Seconds — No Coding, No Developer, No Cap (VEDD AI)',
+                      'How to Create a MT5 Expert Advisor Without Coding in 2025 (Step by Step)',
+                      'Turn Your Trading Strategy Into an Automated Robot for Free — This is Bussin',
                     ],
-                    description: 'Step-by-step tutorial: how to turn your chart analysis into a fully working MT5 Expert Advisor using VEDD AI — no programming required.\n\n⏱️ TIMESTAMPS:\n0:00 — Why most traders fail at automation\n2:00 — VEDD EA Generator: how it works\n4:00 — Live demo: generating an EA from scratch\n7:00 — Installing the EA on MT5\n10:00 — Backtesting the generated EA\n13:00 — Uploading to the marketplace\n\n🔗 Generate your first EA free: [YOUR LINK]\n\n#MT5 #ExpertAdvisor #ForexBot #VEDDAI #TradingAutomation',
+                    description: 'No cap — this is the tutorial I wish I had. How to turn your chart analysis into a fully working MT5 Expert Advisor using VEDD AI. Zero programming required, real talk.\n\n⏱️ TIMESTAMPS:\n0:00 — Why most traders fumble automation (common mistakes)\n2:00 — VEDD EA Generator: how it works, quick overview\n4:00 — Live demo: generating an EA from scratch, watch it happen\n7:00 — Installing the EA on MT5 (step by step, lowkey easy)\n10:00 — Backtesting the generated EA — do your due diligence\n13:00 — How to upload to the marketplace and earn passive\n\n🔗 Generate your first EA free — link in bio: [YOUR LINK]\n\n#MT5 #ExpertAdvisor #ForexBot #VEDDAI #TradingAutomation #SecureTheBag',
                   },
                   {
                     id: 'yt-5', tool: 'Futures Connect', category: 'Prop Firm',
                     titles: [
-                      'VEDD AI + Tradovate: The Prop Firm Drawdown Tracker You Need in 2025',
-                      'How I Track My Topstep Drawdown in Real Time (VEDD Futures Dashboard)',
-                      'Futures Prop Firm Setup — Topstep, Apex, Bulenox Rules on Autopilot',
+                      'VEDD AI + Tradovate: The Prop Firm Drawdown Tracker You Need Right Now (2025)',
+                      'How I Track My Topstep Drawdown in Real Time — No More Guessing (VEDD Futures)',
+                      'Futures Prop Firm Setup — Topstep, Apex, Bulenox Rules on Autopilot, No Cap',
                     ],
-                    description: 'Full walkthrough: connecting your Tradovate account to VEDD AI and using the prop firm drawdown gauge to stay within your funded account rules.\n\n⏱️ TIMESTAMPS:\n0:00 — Why prop firm traders need a drawdown tracker\n2:00 — Connecting Tradovate to VEDD (demo + live)\n5:00 — Selecting your prop firm preset (Topstep, Apex, Bulenox etc.)\n8:00 — Reading the drawdown gauge: 3 bars explained\n11:00 — What happens when you hit DANGER / BREACHED\n14:00 — Contract size calculator: tick values explained\n17:00 — Executing a futures trade through VEDD\n\n🔗 Try VEDD Futures free: [YOUR LINK]\n\n#PropFirm #Topstep #FuturesTrading #Tradovate #VEDDAI #DrawdownTracker',
+                    description: 'Real talk — this walkthrough shows you how to connect your Tradovate account to VEDD AI and use the prop firm drawdown gauge so you NEVER fumble your funded account again.\n\n⏱️ TIMESTAMPS:\n0:00 — Why prop firm traders keep getting caught lacking (real talk)\n2:00 — Connecting Tradovate to VEDD (demo + live, lowkey easy)\n5:00 — Selecting your prop firm preset (Topstep, Apex, Bulenox etc.)\n8:00 — Reading the drawdown gauge: 3 bars explained\n11:00 — What happens when you hit DANGER / BREACHED — system blocks it\n14:00 — Contract size calculator: tick values broken down simply\n17:00 — Executing a futures trade straight through VEDD\n\n🔗 Try VEDD Futures free — link in bio: [YOUR LINK]\n\n#PropFirm #Topstep #FuturesTrading #Tradovate #VEDDAI #DrawdownTracker #SecureTheBag',
                   },
                   {
                     id: 'yt-6', tool: 'NinjaScript Generator', category: 'Tutorial',
                     titles: [
-                      'Generate a NinjaTrader 8 Strategy in 60 Seconds — No Coding (VEDD AI)',
-                      'NinjaScript EA Generator: NQ Strategy With Prop Firm Rules Built In',
-                      'I Generated a Topstep-Safe NinjaTrader Bot — Full Setup Guide 2025',
+                      'Generate a NinjaTrader 8 Strategy in 60 Seconds — No C# No Cap (VEDD AI)',
+                      'NinjaScript EA Generator: NQ Strategy With Prop Firm Rules Baked In (Fire)',
+                      'I Built a Topstep-Safe NinjaTrader Bot in Under a Minute — Full Setup 2025',
                     ],
-                    description: 'Complete tutorial: use VEDD AI to generate a NinjaTrader 8 NinjaScript strategy (.cs file) with daily loss circuit breaker, ATR stops, and prop firm compliance built in.\n\n⏱️ TIMESTAMPS:\n0:00 — Why NinjaTrader traders need automation\n2:00 — VEDD Futures EA Generator overview\n4:00 — Selecting instrument: NQ, ES, GC, YM\n6:00 — Strategy type: day trading vs scalping\n8:00 — Prop firm settings: Topstep daily limits auto-filled\n10:00 — Downloading the .cs file\n12:00 — Installing in NinjaTrader 8 (step-by-step)\n16:00 — Attaching to a chart and watching it run\n19:00 — How the daily loss circuit breaker works\n\n🔗 Generate your NinjaScript free: [YOUR LINK]\n\n#NinjaTrader #NinjaScript #FuturesTrading #VEDDAI #PropFirm #AlgoTrading #NQ',
+                    description: 'On God — this is the most useful thing I\'ve done for my futures trading setup. Full tutorial: use VEDD AI to generate a NinjaTrader 8 NinjaScript strategy (.cs file) with daily loss circuit breaker, ATR stops, and prop firm compliance built right in.\n\n⏱️ TIMESTAMPS:\n0:00 — Why NinjaTrader traders need this (real talk, no fluff)\n2:00 — VEDD Futures EA Generator overview (quick but thorough)\n4:00 — Selecting your instrument: NQ, ES, GC, YM\n6:00 — Strategy type: day trading vs scalping (I\'ll break it down)\n8:00 — Prop firm settings: Topstep daily limits auto-fill — lowkey fire\n10:00 — Downloading the .cs file\n12:00 — Installing in NinjaTrader 8 (step by step, real easy)\n16:00 — Attaching to a chart and watching it run live\n19:00 — How the daily loss circuit breaker actually works\n\n🔗 Generate your NinjaScript free — link in bio: [YOUR LINK]\n\n#NinjaTrader #NinjaScript #FuturesTrading #VEDDAI #PropFirm #AlgoTrading #NQ #Bussin',
                   },
                 ].map(item => (
                   <Card key={item.id} className="bg-gray-800/60 border-gray-700">
@@ -3227,19 +3231,19 @@ export default function AmbassadorTrainingPage() {
             {/* LinkedIn Content */}
             {socialTab === 'linkedin' && (
               <div className="space-y-4">
-                <p className="text-gray-400 text-sm mb-4">Professional-tone posts for LinkedIn. Focus on technology, innovation, and business value — not just trade results.</p>
+                <p className="text-gray-400 text-sm mb-4">LinkedIn posts with edge — still professional, but real. These connect with the corporate crowd AND the hustlers building something. Drop your authentic experience.</p>
                 {[
                   {
                     id: 'li-1', tool: 'Platform Overview', category: 'Thought Leadership',
-                    text: 'The future of retail trading is autonomous AI — and it\'s already here.\n\nI\'ve been using VEDD AI Trading Platform for the past month. Here\'s what genuinely surprised me:\n\n1. Chart Analysis: Upload any screenshot. GPT-4o identifies patterns, trend direction, entry/exit levels, and confidence score — in seconds.\n\n2. SS AI Engine: 18 HFT strategies run simultaneously. The system picks the highest-confluence setup, executes the trade, and manages the trail stop automatically.\n\n3. Self-Learning Brain: Every completed trade updates a per-pair knowledge model. Win rates, preferred sessions, directional bias — all learned from your own history.\n\nThis isn\'t a signal service. It\'s an AI system that gets better the more you use it.\n\nIf you\'re involved in fintech, trading, or AI applications — this is worth exploring.\n\n🔗 [YOUR LINK]\n\n#FinTech #AI #Trading #MachineLearning #AlgorithmicTrading #Forex',
+                    text: 'The future of retail trading is autonomous AI — and it\'s already here. Real talk.\n\nI\'ve been using VEDD AI Trading Platform this past month. Here\'s what genuinely surprised me:\n\n1. Chart Analysis: Upload any screenshot. GPT-4o identifies patterns, trend direction, entry/exit levels, and a confidence score — in seconds. The kind of analysis that used to take 30+ minutes.\n\n2. SS AI Engine: 18 HFT strategies run simultaneously on your behalf. The system picks the highest-confluence setup, enters the trade, and manages the trail stop automatically — while you\'re doing other things.\n\n3. Self-Learning Brain: Every completed trade updates a per-pair knowledge model. Win rates, preferred sessions, directional bias — all learned from YOUR actual history.\n\nThis isn\'t a signal service. It\'s an AI system that levels up the more you use it. And it\'s built for people who want to stop leaving money on the table.\n\nIf you\'re in fintech, trading, or just serious about AI applications in finance — worth your time to explore.\n\n🔗 [YOUR LINK]\n\n#FinTech #AI #Trading #MachineLearning #AlgorithmicTrading #Forex #LevelUp',
                   },
                   {
                     id: 'li-2', tool: 'VEDD Brain', category: 'Technology Deep-Dive',
-                    text: 'Most trading systems use static rules. VEDD\'s Self-Learning Brain doesn\'t.\n\nHere\'s how it works in practice:\n\nEvery 5 completed trades, the system auto-retrains. It builds per-pair models tracking:\n• Win rate by pair (XAUUSD, GBPUSD, EURUSD, etc.)\n• Preferred direction (buy vs sell performance)\n• Session performance (London, New York, Tokyo)\n• ATR-relative risk tolerance\n• Consecutive loss streak tracking\n\nThe Brain Enforcer then uses this model as a hard filter. If a pair is on a losing streak in the current session, the proposed trade is blocked before it reaches the AI.\n\nThis is how institutional desks manage risk at scale — VEDD makes it accessible to individual traders.\n\nThe pattern recognition layer is GPT-4o. The memory layer is the Brain. Together, they compound in value.\n\n#AI #MachineLearning #AlgorithmicTrading #RiskManagement #FinTech #Innovation',
+                    text: 'Most trading systems use static rules. VEDD\'s Self-Learning Brain doesn\'t — and that\'s the real differentiator.\n\nHere\'s how it works under the hood:\n\nEvery 5 completed trades, the system auto-retrains. It builds per-pair models that track:\n• Win rate by pair (XAUUSD, GBPUSD, EURUSD, and more)\n• Preferred direction (buy vs sell performance per pair)\n• Session performance — London, New York, Tokyo separately\n• ATR-relative risk tolerance based on real volatility\n• Consecutive loss streak tracking (the stuff that causes traders to fumble)\n\nThe Brain Enforcer then uses this model as a hard filter. If a pair is on a losing streak in the current session, the proposed trade gets blocked before it even reaches the AI engine.\n\nThis is how institutional desks manage risk at scale. VEDD makes it accessible to individual traders who are serious about their bag.\n\nPattern recognition: GPT-4o. Memory layer: the Brain. Together, they compound in value every single trade.\n\n#AI #MachineLearning #AlgorithmicTrading #RiskManagement #FinTech #Innovation #SecureTheBag',
                   },
                   {
                     id: 'li-3', tool: 'Risk Management', category: 'Educational',
-                    text: 'Institutional traders have one advantage most retail traders never get: systematic risk management.\n\nVEDD AI\'s approach to this is worth understanding:\n\nBefore any trade enters:\n✅ Brain Enforcer checks pair win rate history\n✅ Volume filter confirms above-average market participation\n✅ News sentiment checks for high-impact events\n✅ Session alignment (London/NY overlap prioritized)\n✅ ATR-relative lot sizing prevents oversizing\n\nDuring a trade:\n✅ Multiple trail stop methods (Parabolic SAR, Fixed Pip, Profit Lock %, Stepped Fixed)\n✅ Auto-compounding on win streaks\n✅ Automatic lot reduction on loss streaks\n\nAfter 5 trades:\n✅ Brain retrains with new data\n✅ Losing pairs flagged for temporary avoidance\n\nThis is a 14+ point risk framework running automatically. The 14-point AI Second Opinion applies the same logic to manual trades.\n\nSystematic edge, not luck.\n\n🔗 [YOUR LINK]\n\n#RiskManagement #Trading #AlgorithmicTrading #FinTech #AI #Investing',
+                    text: 'Institutional traders have one advantage most retail traders never get: systematic risk management that doesn\'t rely on emotion.\n\nHere\'s how VEDD AI approaches this — and why it matters:\n\nBefore any trade enters the market:\n✅ Brain Enforcer checks pair win rate history\n✅ Volume filter confirms above-average market participation\n✅ News sentiment scans for high-impact events (NFP, FOMC, CPI)\n✅ Session alignment check — London/NY overlap prioritized\n✅ ATR-relative lot sizing prevents oversizing on volatile pairs\n\nWhile a trade is open:\n✅ Multiple trail stop methods (Parabolic SAR, Fixed Pip, Profit Lock %, Stepped Fixed)\n✅ Auto-compounding on win streaks\n✅ Automatic lot reduction on consecutive losses\n\nAfter every 5 trades:\n✅ Brain retrains with new performance data\n✅ Losing pairs get flagged for temporary avoidance\n\nThis is a 14+ point risk framework running on autopilot. The same logic powers the 14-point AI Second Opinion for manual traders.\n\nSystematic edge, not luck. That\'s how you secure the bag long-term.\n\n🔗 [YOUR LINK]\n\n#RiskManagement #Trading #AlgorithmicTrading #FinTech #AI #Investing #SecureTheBag',
                   },
                 ].map(post => (
                   <Card key={post.id} className="bg-gray-800/60 border-gray-700">

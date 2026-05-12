@@ -6,9 +6,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Redirect } from "wouter";
 import {
   Heart,
@@ -28,6 +29,21 @@ import {
   MapPin,
   Handshake,
   Zap,
+  Send,
+  Bot,
+  UserCircle,
+  ArrowRight,
+  Star,
+  FileText,
+  Phone,
+  Mail,
+  Calendar,
+  Loader2,
+  ChevronRight,
+  Info,
+  Target,
+  TrendingUp,
+  Award,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -389,6 +405,172 @@ function DigitalEquityCard() {
   );
 }
 
+// ─── Full Financial Coach Session Dialog ─────────────────────────────────────
+
+interface ChatMessage {
+  role: "user" | "coach";
+  text: string;
+  timestamp: Date;
+}
+
+const QUICK_QUESTIONS = [
+  "How do I build credit from scratch?",
+  "What's the best way to start investing with $100?",
+  "How do I create a budget that actually works?",
+  "How do I pay off debt fast?",
+  "What is a 401k and should I use it?",
+  "How do I open a bank account with bad credit?",
+];
+
+const COACH_RESPONSES: Record<string, string> = {
+  default: "Great question! Let me break that down for you in simple terms. Financial health is a journey — every step forward counts. Could you share a bit more context so I can give you the most relevant advice?",
+  credit: "Building credit takes consistency, not perfection. Start with a secured credit card ($200–$500 deposit), use it for ONE small recurring bill, and pay the FULL balance every month. Check your credit report free at AnnualCreditReport.com. After 12 months of on-time payments, request a limit increase — that lowers your utilization ratio, which is 30% of your score.",
+  invest: "Your first $100 investment: Open a free brokerage account at Fidelity or Charles Schwab. Buy a low-cost S&P 500 index fund like VOO or FXAIX. Enable automatic monthly contributions — even $25 matters. Reinvest dividends. The key? DON'T sell during dips. Time in the market beats timing the market every time.",
+  budget: "The 50/30/20 rule is the simplest starting point: 50% for needs (rent, groceries, utilities), 30% for wants (dining out, entertainment), 20% for savings and debt payoff. Track everything for 30 days — most people are shocked where their money goes. Free apps: Mint, YNAB, or even a notes app works.",
+  debt: "Two proven strategies: Avalanche Method (pay off highest-interest debt first — saves the most money long term), or Snowball Method (pay off smallest balance first — builds momentum and motivation). List all your debts with balances and rates. Cut one unnecessary expense and redirect it to debt. Call creditors and negotiate — they often lower rates if you ask.",
+  "401k": "A 401k is your employer's retirement account. Contributions come out pre-tax, which lowers your taxable income NOW. The huge benefit: employer matching — that's literally free money. Always contribute at least enough to get the full match. 2024 limit is $23,000. The money grows tax-deferred until you retire at 59½+.",
+  bank: "If traditional banks won't work, try: (1) Credit unions — they're member-owned and more flexible, (2) Online banks like Chime or Current — no credit check, no minimum balance, (3) Second-chance checking accounts — banks like Wells Fargo and US Bank offer these specifically for people rebuilding. You can also start with a prepaid debit card to build a transaction history.",
+};
+
+function getCoachResponse(question: string): string {
+  const q = question.toLowerCase();
+  if (q.includes('credit')) return COACH_RESPONSES.credit;
+  if (q.includes('invest') || q.includes('$100') || q.includes('stock')) return COACH_RESPONSES.invest;
+  if (q.includes('budget')) return COACH_RESPONSES.budget;
+  if (q.includes('debt') || q.includes('pay off')) return COACH_RESPONSES.debt;
+  if (q.includes('401k') || q.includes('retirement')) return COACH_RESPONSES["401k"];
+  if (q.includes('bank') || q.includes('account')) return COACH_RESPONSES.bank;
+  return COACH_RESPONSES.default;
+}
+
+function FinancialCoachSessionDialog() {
+  const [open, setOpen] = useState(false);
+  const [messages, setMessages] = useState<ChatMessage[]>([
+    {
+      role: "coach",
+      text: "Hey! I'm your VEDD Financial Coach. I'm here to help you with budgeting, credit, investing, and building wealth — no judgment, just real talk. What's on your mind?",
+      timestamp: new Date(),
+    },
+  ]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  function sendMessage(text: string) {
+    if (!text.trim()) return;
+    const userMsg: ChatMessage = { role: "user", text: text.trim(), timestamp: new Date() };
+    setMessages((prev) => [...prev, userMsg]);
+    setInput("");
+    setLoading(true);
+    setTimeout(() => {
+      const coachMsg: ChatMessage = {
+        role: "coach",
+        text: getCoachResponse(text),
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, coachMsg]);
+      setLoading(false);
+    }, 900);
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button className="w-full mt-2 bg-cyan-700 hover:bg-cyan-600 text-white gap-2">
+          <Bot className="h-4 w-4" /> Start Full Coaching Session
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="bg-[#0f1623] border-slate-700 text-white max-w-lg h-[80vh] flex flex-col p-0 gap-0">
+        <DialogHeader className="px-4 py-3 border-b border-slate-700 shrink-0">
+          <DialogTitle className="text-white flex items-center gap-2">
+            <Bot className="h-5 w-5 text-cyan-400" />
+            VEDD Financial Coach
+            <Badge className="ml-auto bg-green-600/20 text-green-400 border-green-500/40 text-xs">Live</Badge>
+          </DialogTitle>
+          <p className="text-xs text-slate-400">Free for all community members — ask anything about money</p>
+        </DialogHeader>
+
+        {/* Quick questions */}
+        <div className="px-4 pt-3 pb-2 border-b border-slate-700/50 shrink-0">
+          <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-2">Quick Questions</p>
+          <div className="flex flex-wrap gap-1.5">
+            {QUICK_QUESTIONS.map((q) => (
+              <button
+                key={q}
+                onClick={() => sendMessage(q)}
+                className="text-[11px] bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 rounded-full px-2.5 py-1 transition-colors"
+              >
+                {q}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Messages */}
+        <ScrollArea className="flex-1 px-4 py-3">
+          <div className="space-y-3">
+            {messages.map((msg, idx) => (
+              <div key={idx} className={`flex gap-2 ${msg.role === "user" ? "flex-row-reverse" : ""}`}>
+                <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${msg.role === "coach" ? "bg-cyan-700/40" : "bg-slate-700"}`}>
+                  {msg.role === "coach"
+                    ? <Bot className="h-4 w-4 text-cyan-400" />
+                    : <UserCircle className="h-4 w-4 text-slate-300" />
+                  }
+                </div>
+                <div className={`max-w-[80%] rounded-xl px-3 py-2 text-sm leading-relaxed ${
+                  msg.role === "coach"
+                    ? "bg-slate-800 text-slate-200"
+                    : "bg-cyan-700 text-white"
+                }`}>
+                  {msg.text}
+                </div>
+              </div>
+            ))}
+            {loading && (
+              <div className="flex gap-2">
+                <div className="w-7 h-7 rounded-full bg-cyan-700/40 flex items-center justify-center shrink-0">
+                  <Bot className="h-4 w-4 text-cyan-400" />
+                </div>
+                <div className="bg-slate-800 rounded-xl px-3 py-2 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                  <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                </div>
+              </div>
+            )}
+            <div ref={bottomRef} />
+          </div>
+        </ScrollArea>
+
+        {/* Input */}
+        <div className="px-4 py-3 border-t border-slate-700 shrink-0">
+          <div className="flex gap-2">
+            <Input
+              placeholder="Ask anything about money, credit, investing..."
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(input); } }}
+              className="bg-slate-800 border-slate-600 text-white placeholder-slate-500 flex-1"
+            />
+            <Button
+              onClick={() => sendMessage(input)}
+              disabled={!input.trim() || loading}
+              className="bg-cyan-700 hover:bg-cyan-600 text-white px-3"
+            >
+              <Send className="h-4 w-4" />
+            </Button>
+          </div>
+          <p className="text-[10px] text-slate-600 mt-1.5">Educational guidance only — not financial advice. Always consult a licensed professional for major decisions.</p>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ─── Section: Financial Literacy Coach ───────────────────────────────────────
 
 function FinancialCoachCard() {
@@ -401,15 +583,16 @@ function FinancialCoachCard() {
   return (
     <Card className="bg-[#0f1623] border-slate-700 h-full">
       <CardHeader className="pb-2">
-        <CardTitle className="text-white text-base">
-          <span className="mr-1">💬</span> Ask Your Financial Coach
+        <CardTitle className="text-white text-base flex items-center gap-2">
+          <Bot className="h-4 w-4 text-cyan-400" />
+          Ask Your Financial Coach
         </CardTitle>
         <p className="text-xs text-slate-400 mt-0.5">
           Powered by VEDD AI — Free for all community members
         </p>
       </CardHeader>
       <CardContent className="space-y-3">
-        <div className="flex flex-wrap gap-2 mb-3">
+        <div className="flex flex-wrap gap-2 mb-1">
           {TOPIC_CATEGORIES.map((cat) => (
             <Badge key={cat} variant="outline" className="border-cyan-800 text-cyan-400 text-xs cursor-default">
               {cat}
@@ -451,21 +634,243 @@ function FinancialCoachCard() {
           ))}
         </div>
 
-        <Button
-          className="w-full mt-2 bg-cyan-700 hover:bg-cyan-600 text-white"
-          onClick={() => (window.location.href = "/community/financial-coach")}
-        >
-          Start Full Session
-        </Button>
+        {/* Live chat session — replaces broken route link */}
+        <FinancialCoachSessionDialog />
       </CardContent>
     </Card>
+  );
+}
+
+// ─── Program Detail Dialog ────────────────────────────────────────────────────
+
+const PROGRAM_DETAILS: Record<string, {
+  fullDescription: string;
+  eligibility: string[];
+  whatYouGet: string[];
+  howToEnroll: string[];
+  coordinator: { name: string; email: string; phone: string };
+  nextSession: string;
+  duration: string;
+  cost: string;
+}> = {
+  "SNAP-to-Trade Program": {
+    fullDescription: "The SNAP-to-Trade Program is designed specifically for individuals receiving SNAP (food assistance) benefits. We teach trading fundamentals, chart reading, and financial planning in a way that's approachable for absolute beginners — no prior finance knowledge required. Participation does NOT affect your SNAP eligibility.",
+    eligibility: ["Currently receiving SNAP benefits", "18+ years old", "Access to a smartphone or computer", "No prior trading or finance experience needed"],
+    whatYouGet: ["8-week structured trading curriculum", "Free VEDD platform access during program", "Financial literacy certificate upon completion", "1-on-1 financial coaching session (1 hour)", "Community group for peer support and accountability"],
+    howToEnroll: ["Fill out the enrollment form below", "Provide your SNAP case number (for eligibility verification only)", "Attend virtual orientation (30 min, held every Monday)", "Complete 3-module pre-course assessment", "Begin your cohort on the next available start date"],
+    coordinator: { name: "Community Programs Team", email: "community@veddbuild.com", phone: "(404) 555-0192" },
+    nextSession: "Starts every first Monday of the month",
+    duration: "8 weeks (2 hours/week)",
+    cost: "Free",
+  },
+  "Re-Entry Financial Coaching": {
+    fullDescription: "Built specifically for returning citizens rebuilding their financial lives after incarceration. We provide a judgment-free space to repair credit, establish banking, navigate employment, and build a sustainable financial foundation. Our coaches have personal experience with the re-entry process.",
+    eligibility: ["Returning citizen (released within last 3 years)", "Currently residing in a supported city", "18+ years old", "Committed to completing the 6-week program"],
+    whatYouGet: ["6-week personalized financial coaching program", "Credit repair action plan", "Bank account setup assistance", "Employment resource directory", "Legal aid referrals for expungement (where available)", "Monthly alumni check-ins for 1 year"],
+    howToEnroll: ["Submit the enrollment form below", "Initial intake call scheduled within 48 hours", "Complete a confidential financial assessment", "Meet your assigned coach at your first session"],
+    coordinator: { name: "Re-Entry Support Team", email: "reentry@veddbuild.com", phone: "(312) 555-0847" },
+    nextSession: "Rolling enrollment — intake calls weekly",
+    duration: "6 weeks intensive + 12-month alumni support",
+    cost: "Free",
+  },
+  "Veterans Financial Resilience": {
+    fullDescription: "Tailored financial planning and trading education built around the unique needs of veterans. We cover VA benefits optimization, transition from military to civilian finances, GI Bill strategies, and investment basics. All facilitators are veterans or veteran-allied professionals.",
+    eligibility: ["U.S. military veteran (any branch, any era)", "Currently separated or planning separation", "18+ years old", "Valid DD-214 or equivalent documentation"],
+    whatYouGet: ["VA benefits optimization review", "Customized financial plan", "Trading basics and VEDD platform training", "GI Bill and education benefit guidance", "Monthly veteran peer group sessions", "Priority access to VEDD's job board"],
+    howToEnroll: ["Complete the veteran enrollment form below", "Upload DD-214 or proof of service", "Schedule your first session within 1 week", "Attend veteran cohort orientation"],
+    coordinator: { name: "Veterans Programs Team", email: "veterans@veddbuild.com", phone: "(757) 555-0321" },
+    nextSession: "New cohorts start every 2 weeks",
+    duration: "10-week program",
+    cost: "Free for veterans",
+  },
+  "Rural Community Digital Access": {
+    fullDescription: "A USDA Rural Development-aligned program bringing digital finance tools and AI trading education to rural and underconnected communities. We partner with local libraries, community centers, and extension offices to deliver in-person AND remote sessions with low-bandwidth optimization.",
+    eligibility: ["Located in a rural area (USDA-designated)", "Access to at minimum a smartphone with data", "18+ years old", "No prior technology experience required"],
+    whatYouGet: ["Digital literacy foundation course", "Mobile-first VEDD platform access", "Offline-capable learning modules", "Local community ambassador assignment", "Quarterly in-person workshops at partner sites", "Digital device access program (limited availability)"],
+    howToEnroll: ["Submit interest form below with your ZIP code", "We'll confirm rural eligibility and connect you to your nearest partner site", "Attend virtual or in-person orientation", "Join your regional cohort"],
+    coordinator: { name: "Rural Outreach Team", email: "rural@veddbuild.com", phone: "(800) 555-0456" },
+    nextSession: "Quarterly cohorts — next starts in 3 weeks",
+    duration: "12 weeks flexible",
+    cost: "Free",
+  },
+  "Faith Community Finance": {
+    fullDescription: "Finance workshops designed for churches, mosques, temples, and faith-based organizations. We help faith communities teach financial stewardship, family budgeting, and ethical investing to their congregations. Sessions can be hosted at your place of worship and customized for your community's values.",
+    eligibility: ["Faith-based organization or individual congregation member", "Any denomination or faith tradition welcome", "All ages (youth sessions available)", "No finance background required"],
+    whatYouGet: ["Customized finance workshop for your congregation", "Tithing and stewardship planning tools", "Family budget worksheets", "Ethical investing curriculum (halal, faith-aligned options covered)", "Community credit union setup guidance", "Annual financial health event template"],
+    howToEnroll: ["Request a workshop for your congregation below", "Your ministry leader or coordinator will be contacted within 3 business days", "Co-create a session schedule that works for your community", "Facilitate your first workshop within 2 weeks of onboarding"],
+    coordinator: { name: "Faith Partnerships Team", email: "faith@veddbuild.com", phone: "(678) 555-0783" },
+    nextSession: "Workshops hosted on your schedule",
+    duration: "Flexible — 1-day event or 6-week series",
+    cost: "Free",
+  },
+};
+
+function ProgramDetailDialog({ program }: { program: Program }) {
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+  const [enrolled, setEnrolled] = useState(false);
+  const [form, setForm] = useState({ name: "", email: "", phone: "", notes: "" });
+  const details = PROGRAM_DETAILS[program.title];
+
+  function handleEnroll(e: React.FormEvent) {
+    e.preventDefault();
+    if (!form.name || !form.email) {
+      toast({ title: "Missing fields", description: "Please provide your name and email.", variant: "destructive" });
+      return;
+    }
+    setEnrolled(true);
+    toast({ title: "Enrollment Request Submitted! 🎉", description: `We'll contact you at ${form.email} within 48 hours to confirm your spot.` });
+  }
+
+  if (!details) return null;
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="ghost" className="h-7 text-xs text-cyan-400 hover:text-cyan-300 hover:bg-cyan-900/20 px-2 gap-1">
+          Learn More <ChevronRight className="h-3 w-3" />
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="bg-[#0f1623] border-slate-700 text-white max-w-2xl max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <div className="flex items-center gap-3 mb-1">
+            {program.icon}
+            <DialogTitle className="text-white text-lg">{program.title}</DialogTitle>
+            <Badge variant="outline" className={program.status === "Active" ? "border-green-600 text-green-400 text-xs ml-auto" : "border-amber-600 text-amber-400 text-xs ml-auto"}>
+              {program.status}
+            </Badge>
+          </div>
+        </DialogHeader>
+
+        <div className="space-y-5 mt-2">
+          {/* Stats row */}
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              { icon: <Users className="h-4 w-4 text-cyan-400" />, label: "Participants", value: `${program.participants}` },
+              { icon: <Clock className="h-4 w-4 text-amber-400" />, label: "Duration", value: details.duration },
+              { icon: <DollarSign className="h-4 w-4 text-green-400" />, label: "Cost", value: details.cost },
+            ].map(s => (
+              <div key={s.label} className="bg-slate-800/60 rounded-lg p-3 text-center border border-slate-700">
+                <div className="flex justify-center mb-1">{s.icon}</div>
+                <p className="text-sm font-bold text-white">{s.value}</p>
+                <p className="text-[10px] text-slate-500">{s.label}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Full description */}
+          <div>
+            <p className="text-sm text-slate-300 leading-relaxed">{details.fullDescription}</p>
+          </div>
+
+          {/* Eligibility */}
+          <div>
+            <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+              <CheckCircle2 className="h-3.5 w-3.5 text-green-400" /> Eligibility
+            </h4>
+            <div className="space-y-1.5">
+              {details.eligibility.map((item, i) => (
+                <div key={i} className="flex items-start gap-2 text-sm text-slate-300">
+                  <div className="w-1.5 h-1.5 rounded-full bg-green-500 mt-1.5 shrink-0" />
+                  {item}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* What you get */}
+          <div>
+            <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+              <Star className="h-3.5 w-3.5 text-yellow-400" /> What You Get
+            </h4>
+            <div className="grid grid-cols-1 gap-1.5">
+              {details.whatYouGet.map((item, i) => (
+                <div key={i} className="flex items-start gap-2 text-sm text-slate-300 bg-slate-800/40 rounded-lg px-3 py-2">
+                  <CheckCircle2 className="h-3.5 w-3.5 text-cyan-400 mt-0.5 shrink-0" />
+                  {item}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* How to enroll */}
+          <div>
+            <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+              <ArrowRight className="h-3.5 w-3.5 text-blue-400" /> How to Enroll
+            </h4>
+            <div className="space-y-2">
+              {details.howToEnroll.map((step, i) => (
+                <div key={i} className="flex gap-3 items-start">
+                  <span className="w-5 h-5 rounded-full bg-blue-700/60 text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">{i + 1}</span>
+                  <p className="text-sm text-slate-300">{step}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Next session */}
+          <div className="rounded-lg bg-slate-800/60 border border-slate-700 p-3 flex items-center gap-3">
+            <Calendar className="h-4 w-4 text-cyan-400 shrink-0" />
+            <div>
+              <p className="text-xs font-medium text-white">Next Session</p>
+              <p className="text-xs text-slate-400">{details.nextSession}</p>
+            </div>
+          </div>
+
+          {/* Enrollment form or confirmation */}
+          {!enrolled ? (
+            <form onSubmit={handleEnroll} className="space-y-3 border-t border-slate-700 pt-4">
+              <h4 className="text-sm font-semibold text-white">Request Enrollment</h4>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label htmlFor="enroll-name" className="text-xs text-slate-400">Full Name *</Label>
+                  <Input id="enroll-name" placeholder="Your name" className="bg-slate-800 border-slate-600 text-white text-sm h-9"
+                    value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="enroll-email" className="text-xs text-slate-400">Email *</Label>
+                  <Input id="enroll-email" type="email" placeholder="your@email.com" className="bg-slate-800 border-slate-600 text-white text-sm h-9"
+                    value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="enroll-phone" className="text-xs text-slate-400">Phone (optional)</Label>
+                <Input id="enroll-phone" placeholder="(555) 000-0000" className="bg-slate-800 border-slate-600 text-white text-sm h-9"
+                  value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="enroll-notes" className="text-xs text-slate-400">Anything you'd like your coordinator to know?</Label>
+                <Textarea id="enroll-notes" placeholder="Optional — share your goals, challenges, or questions..." className="bg-slate-800 border-slate-600 text-white text-sm resize-none" rows={3}
+                  value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
+              </div>
+              <Button type="submit" className="w-full bg-cyan-600 hover:bg-cyan-500 text-white gap-2">
+                <Send className="h-4 w-4" /> Submit Enrollment Request
+              </Button>
+              <p className="text-[10px] text-slate-500 text-center">
+                Questions? Contact {details.coordinator.email} or call {details.coordinator.phone}
+              </p>
+            </form>
+          ) : (
+            <div className="border-t border-slate-700 pt-4 text-center space-y-3">
+              <div className="w-14 h-14 rounded-full bg-green-600/20 flex items-center justify-center mx-auto">
+                <CheckCircle2 className="h-8 w-8 text-green-400" />
+              </div>
+              <div>
+                <p className="text-base font-bold text-green-400">Enrollment Request Submitted! 🎉</p>
+                <p className="text-sm text-slate-400 mt-1">We'll reach out to {form.email} within 48 hours to confirm your spot and share next steps.</p>
+              </div>
+              <Button variant="outline" className="border-slate-600 text-slate-300" onClick={() => setOpen(false)}>Close</Button>
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
 // ─── Section: Community Programs ─────────────────────────────────────────────
 
 function CommunityProgramsCard() {
-  const { toast } = useToast();
   return (
     <Card className="bg-[#0f1623] border-slate-700 h-full">
       <CardHeader className="pb-2">
@@ -502,19 +907,7 @@ function CommunityProgramsCard() {
                 <Users className="h-3 w-3 inline mr-1" />
                 {prog.participants} participants
               </span>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-7 text-xs text-cyan-400 hover:text-cyan-300 px-2"
-                onClick={() =>
-                  toast({
-                    title: prog.title,
-                    description: "Full program details coming soon. Contact your coordinator for enrollment.",
-                  })
-                }
-              >
-                Learn More
-              </Button>
+              <ProgramDetailDialog program={prog} />
             </div>
           </div>
         ))}

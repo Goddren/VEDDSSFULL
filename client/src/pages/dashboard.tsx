@@ -46,6 +46,8 @@ import {
   Wallet,
   PenLine,
   X,
+  Award,
+  GraduationCap,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -278,6 +280,7 @@ const Dashboard: React.FC = () => {
   const [showFinance, toggleFinance] = useSectionToggle('finance');
   const [showEvents, toggleEvents] = useSectionToggle('events');
   const [showRewards, toggleRewards] = useSectionToggle('rewards');
+  const [showCerts, toggleCerts] = useSectionToggle('certs');
   const [showMarket, toggleMarket] = useSectionToggle('market');
   const [showCoach, toggleCoach] = useSectionToggle('coach');
 
@@ -339,6 +342,13 @@ const Dashboard: React.FC = () => {
     enabled: !!user,
     refetchInterval: 60000,
   });
+
+  // Workforce Academy certificates
+  const { data: certData } = useQuery<{ certificates: Array<{ certId: string; title: string; score: number; date: string; courseId: number; ceuHours?: number; grantFrameworks?: string[] }> }>({
+    queryKey: ['/api/workforce/certificates'],
+    enabled: !!user,
+  });
+  const dashCerts = certData?.certificates ?? [];
 
   // AI engine status queries
   const { data: ssEngineStatus } = useQuery<{ status: string; running?: boolean }>({
@@ -1412,6 +1422,61 @@ const Dashboard: React.FC = () => {
           </div>
           </div>{/* end inner grid */}
         </div>}
+
+        {/* ── My Certifications ─────────────────────────────────────────── */}
+        <SectionHeader title={`My Certifications${dashCerts.length > 0 ? ` (${dashCerts.length})` : ''}`} open={showCerts} onToggle={toggleCerts} icon={Award} iconClass="icon-box-amber" />
+        {showCerts && (
+          <div className="smart-card p-4 mb-6">
+            {dashCerts.length === 0 ? (
+              <div className="text-center py-8 space-y-3">
+                <div className="icon-tile mx-auto bg-amber-500/10 border border-amber-500/15">
+                  <GraduationCap className="w-6 h-6 text-amber-400/60" />
+                </div>
+                <div>
+                  <p className="text-sm text-gray-300 font-medium">No certificates yet</p>
+                  <p className="text-xs text-gray-500 mt-1">Complete a Workforce Academy course and pass the assessment to earn certificates</p>
+                </div>
+                <Link href="/workforce-academy">
+                  <Button size="sm" className="bg-amber-500 hover:bg-amber-400 text-black font-semibold text-xs rounded-xl">
+                    <GraduationCap className="w-3 h-3 mr-1" /> Go to Academy
+                  </Button>
+                </Link>
+              </div>
+            ) : (
+              <div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-3">
+                  {dashCerts.map(cert => (
+                    <div key={cert.certId} className="flex items-start gap-3 p-3 rounded-xl border border-amber-500/20 bg-amber-500/5 hover:bg-amber-500/8 transition-all">
+                      <div className="w-9 h-9 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center flex-shrink-0">
+                        <Award className="w-5 h-5 text-amber-400" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-semibold text-white leading-tight truncate">{cert.title}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-[10px] text-amber-400 font-mono">{cert.score}%</span>
+                          <span className="text-[10px] text-gray-500">{new Date(cert.date).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}</span>
+                          {cert.ceuHours && <span className="text-[10px] text-indigo-400">{cert.ceuHours} CEU hrs</span>}
+                        </div>
+                        {cert.grantFrameworks && cert.grantFrameworks.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {cert.grantFrameworks.slice(0, 3).map(f => (
+                              <span key={f} className="text-[9px] px-1.5 py-0.5 rounded bg-indigo-500/15 text-indigo-400 border border-indigo-500/20">{f}</span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <Link href="/workforce-academy">
+                  <Button variant="outline" size="sm" className="w-full border-amber-500/25 text-amber-400 hover:bg-amber-500/10 text-xs rounded-xl">
+                    <GraduationCap className="w-3 h-3 mr-1.5" /> View All Certificates & Earn More
+                  </Button>
+                </Link>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* ── Market + News ─────────────────────────────────────────────── */}
         <SectionHeader title="Market & News" open={showMarket} onToggle={toggleMarket} icon={Newspaper} iconClass="icon-box-blue" />

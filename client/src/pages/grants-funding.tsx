@@ -16,7 +16,8 @@ import { ApplicationStatusBadge, ApplicationStatusPipeline } from "@/components/
 import {
   DollarSign, Award, FileText, Users, TrendingUp, AlertTriangle,
   ChevronLeft, Trash2, Send, RotateCcw, Trophy, Layers, LayoutGrid,
-  X, Heart, ChevronRight, SkipForward, Star, Globe, Calendar
+  X, Heart, ChevronRight, SkipForward, Star, Globe, Calendar,
+  CheckCircle2, Copy, ExternalLink, ClipboardCheck, Rocket, Clock
 } from "lucide-react";
 import { TokenomicsBanner } from '@/components/vedd-rewards/tokenomics-banner';
 import { Redirect } from "wouter";
@@ -780,39 +781,169 @@ export default function GrantsFundingPage() {
                     <p className="text-xs text-gray-400">{selectedApplication.grant.funder}</p>
                   </div>
                   <ApplicationStatusBadge status={selectedApplication.status || 'draft'} />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs border-red-900/60 text-red-400 hover:bg-red-900/30 gap-1"
+                    onClick={() => { if (confirm('Delete this application?')) deleteApplicationMutation.mutate(selectedApplication.id); }}
+                  >
+                    <Trash2 className="w-3 h-3" /> Delete
+                  </Button>
                 </div>
 
-                {/* Status actions */}
-                <div className="flex flex-wrap items-center gap-2 bg-gray-900/60 border border-gray-700 rounded-lg p-3">
-                  <span className="text-xs text-gray-400 mr-1">Update Status:</span>
-                  {(['draft','applied','under_review','awarded','rejected'] as const).map(s => (
-                    <Button
-                      key={s}
-                      size="sm"
-                      variant="outline"
-                      className={`h-7 text-xs border-gray-600 ${selectedApplication.status === s ? 'bg-green-600/30 border-green-500/60 text-green-200' : 'text-gray-300 hover:text-white'}`}
-                      onClick={() => updateStatusMutation.mutate({ appId: selectedApplication.id, status: s })}
-                    >
-                      {s.replace('_', ' ')}
-                    </Button>
-                  ))}
-                  <div className="ml-auto">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 text-xs border-red-900/60 text-red-400 hover:bg-red-900/30 gap-1"
-                      onClick={() => { if (confirm('Delete this application?')) deleteApplicationMutation.mutate(selectedApplication.id); }}
-                    >
-                      <Trash2 className="w-3 h-3" /> Delete
-                    </Button>
+                {/* ── APPLY NOW BANNER — appears once proposal is generated ── */}
+                {selectedApplication.proposalContent && selectedApplication.status === 'draft' && (
+                  <div className="rounded-xl border border-green-500/40 bg-gradient-to-r from-green-900/30 to-emerald-900/20 p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="w-9 h-9 rounded-full bg-green-500/20 flex items-center justify-center shrink-0">
+                        <Rocket className="w-5 h-5 text-green-400" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h3 className="text-sm font-bold text-green-300 mb-1">Proposal Ready — Time to Apply!</h3>
+                        <p className="text-xs text-gray-400 mb-3">
+                          Your proposal has been generated. Follow the steps below to submit it to the funder, then mark your application as submitted.
+                        </p>
+
+                        {/* Checklist */}
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-4">
+                          {[
+                            { label: 'Proposal written', done: !!selectedApplication.proposalContent },
+                            { label: 'Proposal reviewed', done: false },
+                            { label: 'Submitted to funder', done: ['applied','under_review','awarded'].includes(selectedApplication.status || '') },
+                          ].map(item => (
+                            <div key={item.label} className={`flex items-center gap-2 text-xs rounded-lg px-3 py-2 border ${item.done ? 'bg-green-900/30 border-green-700/40 text-green-300' : 'bg-gray-800/60 border-gray-700/50 text-gray-400'}`}>
+                              {item.done
+                                ? <CheckCircle2 className="w-3.5 h-3.5 text-green-400 shrink-0" />
+                                : <div className="w-3.5 h-3.5 rounded-full border border-gray-600 shrink-0" />
+                              }
+                              {item.label}
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Action buttons */}
+                        <div className="flex flex-wrap gap-2">
+                          {/* Copy proposal */}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="border-gray-600 text-gray-200 hover:border-gray-500 gap-1.5 h-8 text-xs"
+                            onClick={() => {
+                              navigator.clipboard.writeText(selectedApplication.proposalContent || '');
+                              toast({ title: "Proposal copied!", description: "Paste it into the funder's application form." });
+                            }}
+                          >
+                            <Copy className="w-3.5 h-3.5" /> Copy Proposal
+                          </Button>
+
+                          {/* Open official application */}
+                          {selectedApplication.grant.applicationUrl && (
+                            <a
+                              href={selectedApplication.grant.applicationUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              <Button
+                                size="sm"
+                                className="bg-blue-600 hover:bg-blue-500 text-white gap-1.5 h-8 text-xs"
+                              >
+                                <ExternalLink className="w-3.5 h-3.5" /> Open Official Application
+                              </Button>
+                            </a>
+                          )}
+
+                          {/* Mark as applied */}
+                          <Button
+                            size="sm"
+                            className="bg-green-600 hover:bg-green-500 text-white gap-1.5 h-8 text-xs"
+                            onClick={() => {
+                              updateStatusMutation.mutate({ appId: selectedApplication.id, status: 'applied' });
+                              toast({ title: "Application marked as submitted! 🎉", description: "Your pipeline has been updated. Follow up with the funder in 2 weeks." });
+                            }}
+                            disabled={updateStatusMutation.isPending}
+                          >
+                            <ClipboardCheck className="w-3.5 h-3.5" /> Mark as Submitted
+                          </Button>
+                        </div>
+
+                        {/* Deadline reminder */}
+                        {selectedApplication.grant.deadline && (
+                          <p className="text-[11px] text-amber-400 mt-3 flex items-center gap-1">
+                            <Clock className="w-3 h-3" />
+                            Deadline: {new Date(selectedApplication.grant.deadline).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+                            {' '}— Submit at least 5 days early
+                          </p>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                </div>
+                )}
+
+                {/* Applied / in-review status banner */}
+                {selectedApplication.proposalContent && ['applied','under_review'].includes(selectedApplication.status || '') && (
+                  <div className="rounded-xl border border-blue-500/40 bg-blue-900/20 p-4 flex items-start gap-3">
+                    <ClipboardCheck className="w-5 h-5 text-blue-400 shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="text-sm font-semibold text-blue-300 mb-1">
+                        {selectedApplication.status === 'applied' ? 'Application Submitted ✓' : 'Under Review — Nice Work!'}
+                      </p>
+                      <p className="text-xs text-gray-400 mb-3">
+                        {selectedApplication.status === 'applied'
+                          ? "Your application has been submitted to the funder. Follow up in 2 weeks if you haven't received a confirmation."
+                          : 'The funder is reviewing your application. This process typically takes 4–12 weeks.'}
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {selectedApplication.grant.applicationUrl && (
+                          <a href={selectedApplication.grant.applicationUrl} target="_blank" rel="noopener noreferrer">
+                            <Button size="sm" variant="outline" className="border-blue-700/60 text-blue-300 gap-1.5 h-7 text-xs">
+                              <ExternalLink className="w-3 h-3" /> View Application Portal
+                            </Button>
+                          </a>
+                        )}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="border-yellow-700/60 text-yellow-300 gap-1.5 h-7 text-xs"
+                          onClick={() => updateStatusMutation.mutate({ appId: selectedApplication.id, status: 'under_review' })}
+                        >
+                          Move to Under Review
+                        </Button>
+                        <Button
+                          size="sm"
+                          className="bg-green-600 hover:bg-green-500 text-white gap-1.5 h-7 text-xs"
+                          onClick={() => updateStatusMutation.mutate({ appId: selectedApplication.id, status: 'awarded' })}
+                        >
+                          <Trophy className="w-3 h-3" /> Mark Awarded 🎉
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Awarded banner */}
+                {selectedApplication.status === 'awarded' && (
+                  <div className="rounded-xl border border-yellow-500/50 bg-gradient-to-r from-yellow-900/30 to-amber-900/20 p-4 flex items-start gap-3">
+                    <Trophy className="w-6 h-6 text-yellow-400 shrink-0" />
+                    <div>
+                      <p className="text-sm font-bold text-yellow-300 mb-1">🎉 Grant Awarded! Congratulations!</p>
+                      <p className="text-xs text-gray-400">This funding has been awarded. Update the awarded amount below to track your total funding secured.</p>
+                    </div>
+                  </div>
+                )}
 
                 {/* Two-panel layout: Editor + Preview */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                   <div className="space-y-4">
+                    {/* Generate Proposal */}
                     <div className="bg-gray-900/60 border border-gray-700 rounded-lg p-4">
-                      <h3 className="text-sm font-semibold text-white mb-3">Generate Proposal</h3>
+                      <div className="flex items-center justify-between mb-3">
+                        <h3 className="text-sm font-semibold text-white">
+                          {selectedApplication.proposalContent ? '✓ Proposal Generated' : 'Generate Proposal'}
+                        </h3>
+                        {selectedApplication.proposalContent && (
+                          <Badge className="text-[10px] bg-green-600/20 text-green-300 border-green-500/40">Ready</Badge>
+                        )}
+                      </div>
                       <ProposalEditor
                         applicationId={selectedApplication.id}
                         currentMode={selectedApplication.proposalMode || 'auto'}
@@ -820,6 +951,37 @@ export default function GrantsFundingPage() {
                         currentSections={selectedApplication.proposalSections}
                         onGenerated={handleProposalGenerated}
                       />
+                    </div>
+
+                    {/* Quick Apply Actions (compact, always visible) */}
+                    <div className="bg-gray-900/60 border border-gray-700 rounded-lg p-4">
+                      <h3 className="text-xs font-semibold text-gray-300 mb-3">Application Status & Actions</h3>
+                      <div className="flex flex-wrap gap-2 mb-3">
+                        {(['draft','applied','under_review','awarded','rejected'] as const).map(s => {
+                          const colors: Record<string, string> = {
+                            draft: 'text-gray-400', applied: 'text-blue-400', under_review: 'text-yellow-400',
+                            awarded: 'text-green-400', rejected: 'text-red-400'
+                          };
+                          return (
+                            <Button
+                              key={s}
+                              size="sm"
+                              variant="outline"
+                              className={`h-7 text-xs border-gray-600 ${selectedApplication.status === s ? `bg-gray-700 border-gray-500 ${colors[s]}` : 'text-gray-500 hover:text-white'}`}
+                              onClick={() => updateStatusMutation.mutate({ appId: selectedApplication.id, status: s })}
+                            >
+                              {s.replace('_', ' ')}
+                            </Button>
+                          );
+                        })}
+                      </div>
+                      {selectedApplication.grant.applicationUrl && (
+                        <a href={selectedApplication.grant.applicationUrl} target="_blank" rel="noopener noreferrer" className="block w-full">
+                          <Button size="sm" className="w-full bg-blue-600/80 hover:bg-blue-600 text-white gap-1.5 h-8 text-xs">
+                            <ExternalLink className="w-3.5 h-3.5" /> Open Official Application Portal
+                          </Button>
+                        </a>
+                      )}
                     </div>
 
                     {/* Application Notes */}
