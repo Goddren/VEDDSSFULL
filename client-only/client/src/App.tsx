@@ -33,6 +33,7 @@ import Community from "@/pages/community";
 import InteractiveTooltipShowcase from "@/pages/interactive-tooltip-showcase";
 import BlogPage from "@/pages/blog";
 import StrategyWizard from "@/pages/strategy-wizard";
+import WorkforceAcademyPage from "@/pages/workforce-academy";
 import { NewsNotificationScheduler } from "@/components/news-notification-scheduler";
 import { SubscriptionUsageHeader } from "@/components/ui/subscription-usage-header";
 import { PageTransition } from "@/components/ui/page-transition";
@@ -90,6 +91,7 @@ function AppLayout() {
             <ProtectedRoute path="/market-sentiment" component={MarketSentimentPage} />
             <ProtectedRoute path="/strategy-wizard" component={StrategyWizard} />
             <ProtectedRoute path="/interactive-tooltips" component={InteractiveTooltipShowcase} />
+            <ProtectedRoute path="/workforce-academy" component={WorkforceAcademyPage} />
             
             <Route component={NotFound} />
           </Switch>
