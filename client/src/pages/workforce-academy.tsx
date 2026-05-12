@@ -710,7 +710,7 @@ function CertificateCard({
   <div class="accred">Issued under IACET CEU guidelines • DOL WIOA Title I workforce training standards •<br>
   Continuing Education Units are recognized for grant reporting, workforce compliance documentation, and employer verification.</div>
   <div class="footer">
-    <div class="sig"><div class="sig-line"></div><div class="sig-name">Chris Dawson</div><div class="sig-title">CEO, VEDD Technologies, LLC</div></div>
+    <div class="sig"><div class="sig-line"></div><div class="sig-name">Christopher Chism</div><div class="sig-title">CEO, VEDD Technologies, LLC</div></div>
     <div class="seal">VEDD<br>CERTIFIED<br>${new Date().getFullYear()}</div>
     <div style="text-align:right">
       <div class="cert-id">Certificate ID: ${certId}</div>
