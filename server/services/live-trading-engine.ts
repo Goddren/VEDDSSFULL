@@ -920,9 +920,19 @@ async function scanMarkets(userId: number): Promise<void> {
 
         if (!result.bars || result.bars.length < 20) continue;
 
-        const candles = convertToCandles(result.bars);
+        // ── Candle-close confirmation: drop the last (live/partial) bar ──────────
+        // The final bar in the feed is the CURRENT unfinished M15 candle. It can be
+        // 1 second or 14 minutes old. Computing indicators off it creates phantom
+        // signals: RSI dips to 28 mid-candle as noise, engine calls BUY, candle
+        // closes bearish and the trade is already onside for the wrong direction.
+        // Using only confirmed closed bars eliminates this class of false signals.
+        const confirmedBars = result.bars.slice(0, -1); // all except live partial candle
+        if (confirmedBars.length < 20) continue;
+
+        const candles = convertToCandles(confirmedBars);
         const indicators = computeAllAdvancedIndicators(candles, 0, symbol, 'M15');
 
+        // currentPrice and change still use the live bar for accurate display/SL calc
         const currentPrice = result.bars[result.bars.length - 1]?.close || 0;
         const prevPrice = result.bars[result.bars.length - 2]?.close || currentPrice;
         const change = prevPrice > 0 ? ((currentPrice - prevPrice) / prevPrice) * 100 : 0;
@@ -951,7 +961,7 @@ async function scanMarkets(userId: number): Promise<void> {
         const rsi = indicators.stochastic?.k || 50;
         const atr = indicators.volatilityContext?.currentATR || 0;
 
-        const volumeMetrics = computeVolumeMetrics(result.bars);
+        const volumeMetrics = computeVolumeMetrics(confirmedBars); // confirmed bars only
 
         state.marketSnapshot[symbol] = {
           price: currentPrice,
@@ -1013,7 +1023,10 @@ async function scanMarkets(userId: number): Promise<void> {
               limit: 50,
             });
             if (!htfResult.bars || htfResult.bars.length < 15) return;
-            const htfCandles = convertToCandles(htfResult.bars);
+            // Drop partial live candle on HTF too — same reasoning as M15
+            const htfConfirmedBars = htfResult.bars.slice(0, -1);
+            if (htfConfirmedBars.length < 14) return;
+            const htfCandles = convertToCandles(htfConfirmedBars);
             const htfPrice = htfResult.bars[htfResult.bars.length - 1]?.close || 0;
             const bosChoch = detectBOSCHOCH(htfCandles, 'NEUTRAL');
             const wyckoff = detectWyckoff(htfCandles);
