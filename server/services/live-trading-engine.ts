@@ -927,11 +927,26 @@ async function scanMarkets(userId: number): Promise<void> {
         const prevPrice = result.bars[result.bars.length - 2]?.close || currentPrice;
         const change = prevPrice > 0 ? ((currentPrice - prevPrice) / prevPrice) * 100 : 0;
 
+        // ── Trend detection: use DI lines, not just ADX strength ────────────
+        // BUG FIX: Previously trend was only set to BULLISH/BEARISH when ADX > 25.
+        // GBP/JPY mild downtrends typically show ADX 15–22 — these were all marked
+        // NEUTRAL, causing the voting system to use mean-reversion logic (RSI<38=bull)
+        // even in a clear downtrend. The DI lines always show direction regardless of
+        // ADX magnitude.
         let trend = 'NEUTRAL';
         const adxData = indicators.adx as any;
-        if (adxData && (adxData.adx || adxData.value) > 25) {
-          trend = adxData.plusDI > adxData.minusDI ? 'BULLISH' : 'BEARISH';
+        const adxStrength = adxData?.adx ?? adxData?.value ?? 0;
+        const plusDI = adxData?.plusDI ?? 0;
+        const minusDI = adxData?.minusDI ?? 0;
+        const diSeparation = Math.abs(plusDI - minusDI);
+        if (adxStrength > 20) {
+          // Strong trend: ADX > 20 — use DI direction
+          trend = plusDI > minusDI ? 'BULLISH' : 'BEARISH';
+        } else if (adxStrength > 12 && diSeparation > 8) {
+          // Mild trend: DI lines clearly separated even with weak ADX
+          trend = plusDI > minusDI ? 'BULLISH' : 'BEARISH';
         }
+        // If ADX < 12 or DI lines are close together → genuinely ranging, keep NEUTRAL
 
         const rsi = indicators.stochastic?.k || 50;
         const atr = indicators.volatilityContext?.currentATR || 0;
@@ -944,6 +959,9 @@ async function scanMarkets(userId: number): Promise<void> {
           trend,
           rsi: Math.round(rsi),
           atr: Math.round(atr * 100000) / 100000,
+          adx: adxStrength,   // stored so processDecision can access it directly
+          plusDI,              // stored for DI-based conflict detection
+          minusDI,             // stored for DI-based conflict detection
           updatedAt: new Date().toISOString(),
         };
         // Cache ATR per symbol for post-GPT enforcement
@@ -962,6 +980,8 @@ async function scanMarkets(userId: number): Promise<void> {
           currentPrice,
           change,
           trend,
+          plusDI,    // DI lines stored so countIndicatorAlignment can use them
+          minusDI,   // even if indicators.adx object doesn't expose them
           adx: indicators.adx,
           rsi: indicators.rsi,
           macd: indicators.macd,
@@ -1497,7 +1517,8 @@ function generateRuleBasedSignals(indicators: Record<string, any>, config: LiveE
 
   const adxVal = indicators.adx?.adx ?? indicators.adx?.value ?? 0;
   const trend = indicators.trend ?? 'NEUTRAL';
-  const trendIsStrong = adxVal > 25 && trend !== 'NEUTRAL';
+  // Lowered from 25→18 to match the updated trend detection (DI-based, ADX>12+diSep>8)
+  const trendIsStrong = adxVal > 18 && trend !== 'NEUTRAL';
 
   // RSI — trend-aware: in a trending market, RSI confirms direction; in ranging, use extremes
   const rsi = indicators.rsi?.value ?? indicators.stochastic?.k ?? 50;
@@ -1616,7 +1637,10 @@ function countIndicatorAlignment(data: any): { bull: number; bear: number } {
 
   const trend = data.trend ?? 'NEUTRAL';
   const adxVal = data.adx?.adx ?? data.adx?.value ?? 0;
-  const trendIsStrong = adxVal > 22 && trend !== 'NEUTRAL';
+  // trendIsStrong: lowered threshold from 22→15 to catch mild GBP/JPY downtrends
+  // where ADX is 15–22 but direction is clear. The trend itself is now set from
+  // DI lines at ADX>12 level, so checking adxVal>15 here is consistent.
+  const trendIsStrong = adxVal > 15 && trend !== 'NEUTRAL';
 
   // Vote 1: RSI — trend-aware
   // Trending: RSI above/below 50 CONFIRMS trend direction (momentum, not reversal)
@@ -1649,9 +1673,18 @@ function countIndicatorAlignment(data: any): { bull: number; bear: number } {
   const macdHist = data.macd?.histogram ?? 0;
   if (macdHist > 0) bull++; else if (macdHist < 0) bear++;
 
-  // Vote 4: ADX trend direction (unchanged)
-  if (adxVal > 22 && trend === 'BULLISH') bull++;
-  else if (adxVal > 22 && trend === 'BEARISH') bear++;
+  // Vote 3b: MACD centerline — MACD line above/below zero = sustained trend bias
+  // MACD line < 0 means bearish momentum has persisted. This is different from
+  // the histogram (which shows acceleration). The centerline rarely flips in
+  // intraday ranges so this is a reliable trend-direction vote.
+  const macdLine = data.macd?.macd ?? data.macd?.value ?? null;
+  if (macdLine !== null) {
+    if (macdLine > 0) bull++; else if (macdLine < 0) bear++;
+  }
+
+  // Vote 4: ADX + DI trend direction — lowered threshold to match new trend detection
+  if (adxVal > 15 && trend === 'BULLISH') bull++;
+  else if (adxVal > 15 && trend === 'BEARISH') bear++;
 
   // Vote 5: OBV trend (unchanged — volume direction is always directional)
   const obvTrend = data.obv?.trend ?? '';
@@ -2532,23 +2565,32 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
     }
 
     // ── M15 Trend Conflict Penalty ──────────────────────────────────────
-    // If the M15 trend itself disagrees with signal direction AND is confirmed (ADX > 22),
-    // apply a confidence penalty. This catches same-timeframe direction conflicts that
-    // HTF bias alone may miss (e.g. both HTF and M15 bearish but engine still outputs BUY).
+    // Uses DI lines from the snapshot (now stored alongside trend) so mild GBP/JPY
+    // downtrends at ADX 15–22 are caught correctly, not just strong ADX > 25 trends.
     const m15Snap = state.marketSnapshot?.[decision.symbol];
     if (m15Snap && decision.direction) {
       const signalDir = decision.direction.toUpperCase();
-      const m15Trend = (m15Snap as any).trend ?? 'NEUTRAL';
       const m15ADX = (m15Snap as any).adx || 0;
-      const m15TrendStrong = m15ADX > 22 && m15Trend !== 'NEUTRAL';
-      const m15Conflicts = (signalDir === 'BUY' && m15Trend === 'BEARISH') || (signalDir === 'SELL' && m15Trend === 'BULLISH');
-      if (m15TrendStrong && m15Conflicts) {
-        const penalty = 8; // 8% confidence penalty for trading against confirmed M15 trend
+      const m15PlusDI = (m15Snap as any).plusDI || 0;
+      const m15MinusDI = (m15Snap as any).minusDI || 0;
+      const diSep = Math.abs(m15PlusDI - m15MinusDI);
+
+      // Derive effective trend from DI lines — same logic as the scan loop
+      let effectiveTrend = (m15Snap as any).trend ?? 'NEUTRAL';
+      if (effectiveTrend === 'NEUTRAL' && m15ADX > 12 && diSep > 8) {
+        effectiveTrend = m15PlusDI > m15MinusDI ? 'BULLISH' : 'BEARISH';
+      }
+
+      const trendDetected = (m15ADX > 15 || diSep > 8) && effectiveTrend !== 'NEUTRAL';
+      const m15Conflicts = (signalDir === 'BUY' && effectiveTrend === 'BEARISH') || (signalDir === 'SELL' && effectiveTrend === 'BULLISH');
+
+      if (trendDetected && m15Conflicts) {
+        const penalty = 10; // raised from 8% to 10% — trend conflict is a serious warning
         adjustedConfidence = Math.max(0, adjustedConfidence - penalty);
         addActivity(userId, {
           type: 'info',
           symbol: decision.symbol,
-          message: `⚠️ M15 TREND CONFLICT: ${signalDir} vs M15 ${m15Trend} (ADX ${m15ADX.toFixed(1)}) — confidence penalised by ${penalty}% → ${adjustedConfidence}%`,
+          message: `⚠️ M15 TREND CONFLICT: ${signalDir} vs M15 ${effectiveTrend} (ADX ${m15ADX.toFixed(1)}, +DI ${m15PlusDI.toFixed(1)} / -DI ${m15MinusDI.toFixed(1)}) — confidence penalised by ${penalty}% → ${adjustedConfidence}%`,
         });
       }
     }
