@@ -1495,26 +1495,51 @@ function generateRuleBasedSignals(indicators: Record<string, any>, config: LiveE
   let bear = 0;
   const votes: string[] = [];
 
-  const rsi = indicators.rsi?.value ?? indicators.stochastic?.k ?? 50;
-  if (rsi < 35) { bull++; votes.push(`RSI oversold (${rsi.toFixed(1)})`); }
-  else if (rsi > 65) { bear++; votes.push(`RSI overbought (${rsi.toFixed(1)})`); }
+  const adxVal = indicators.adx?.adx ?? indicators.adx?.value ?? 0;
+  const trend = indicators.trend ?? 'NEUTRAL';
+  const trendIsStrong = adxVal > 25 && trend !== 'NEUTRAL';
 
+  // RSI — trend-aware: in a trending market, RSI confirms direction; in ranging, use extremes
+  const rsi = indicators.rsi?.value ?? indicators.stochastic?.k ?? 50;
+  if (trendIsStrong) {
+    if (trend === 'BULLISH' && rsi > 50) { bull++; votes.push(`RSI ${rsi.toFixed(1)} above 50 (bullish trend confirmation)`); }
+    else if (trend === 'BEARISH' && rsi < 50) { bear++; votes.push(`RSI ${rsi.toFixed(1)} below 50 (bearish trend confirmation)`); }
+    else if (trend === 'BULLISH' && rsi < 30) { bear++; votes.push(`RSI ${rsi.toFixed(1)} extreme oversold (exhaustion warning)`); }
+    else if (trend === 'BEARISH' && rsi > 70) { bull++; votes.push(`RSI ${rsi.toFixed(1)} extreme overbought (exhaustion warning)`); }
+  } else {
+    if (rsi < 35) { bull++; votes.push(`RSI oversold (${rsi.toFixed(1)})`); }
+    else if (rsi > 65) { bear++; votes.push(`RSI overbought (${rsi.toFixed(1)})`); }
+  }
+
+  // Stochastic — trend-aware: same logic as RSI
   const stochK = indicators.stochastic?.k ?? 50;
-  if (stochK < 25) { bull++; votes.push(`Stoch K oversold (${stochK.toFixed(1)})`); }
-  else if (stochK > 75) { bear++; votes.push(`Stoch K overbought (${stochK.toFixed(1)})`); }
+  if (trendIsStrong) {
+    if (trend === 'BULLISH' && stochK > 50) { bull++; votes.push(`Stoch K ${stochK.toFixed(1)} above 50 (bullish confirmation)`); }
+    else if (trend === 'BEARISH' && stochK < 50) { bear++; votes.push(`Stoch K ${stochK.toFixed(1)} below 50 (bearish confirmation)`); }
+    else if (trend === 'BULLISH' && stochK < 20) { bear++; votes.push(`Stoch K ${stochK.toFixed(1)} extreme (trend exhaustion)`); }
+    else if (trend === 'BEARISH' && stochK > 80) { bull++; votes.push(`Stoch K ${stochK.toFixed(1)} extreme (trend exhaustion)`); }
+  } else {
+    if (stochK < 25) { bull++; votes.push(`Stoch K oversold (${stochK.toFixed(1)})`); }
+    else if (stochK > 75) { bear++; votes.push(`Stoch K overbought (${stochK.toFixed(1)})`); }
+  }
 
   const macdHist = indicators.macd?.histogram ?? 0;
   if (macdHist > 0) { bull++; votes.push('MACD histogram positive'); }
   else if (macdHist < 0) { bear++; votes.push('MACD histogram negative'); }
 
-  const adxVal = indicators.adx?.adx ?? indicators.adx?.value ?? 0;
-  const trend = indicators.trend ?? 'NEUTRAL';
   if (adxVal > 25 && trend === 'BULLISH') { bull++; votes.push(`ADX ${adxVal.toFixed(1)} + bullish trend`); }
   else if (adxVal > 25 && trend === 'BEARISH') { bear++; votes.push(`ADX ${adxVal.toFixed(1)} + bearish trend`); }
 
+  // VWAP deviation — trend-aware: in a trend, VWAP position confirms direction
   const vwapDev = indicators.vwap?.deviationPercent ?? 0;
-  if (vwapDev < -0.10) { bull++; votes.push(`Price below VWAP (${vwapDev.toFixed(2)}%)`); }
-  else if (vwapDev > 0.10) { bear++; votes.push(`Price above VWAP (+${vwapDev.toFixed(2)}%)`); }
+  const vwapRelation = (indicators.vwap?.priceRelation ?? '').toUpperCase();
+  if (trendIsStrong) {
+    if (trend === 'BULLISH' && vwapDev > 0) { bull++; votes.push(`Price above VWAP +${vwapDev.toFixed(2)}% (bullish confirmation)`); }
+    else if (trend === 'BEARISH' && vwapDev < 0) { bear++; votes.push(`Price below VWAP ${vwapDev.toFixed(2)}% (bearish confirmation)`); }
+  } else {
+    if (vwapDev < -0.10) { bull++; votes.push(`Price below VWAP (${vwapDev.toFixed(2)}%)`); }
+    else if (vwapDev > 0.10) { bear++; votes.push(`Price above VWAP (+${vwapDev.toFixed(2)}%)`); }
+  }
 
   const obvTrend = indicators.obv?.trend ?? '';
   if (obvTrend === 'up') { bull++; votes.push('OBV uptrend'); }
@@ -1581,35 +1606,67 @@ function generateRuleBasedSignals(indicators: Record<string, any>, config: LiveE
 }
 
 // ── Indicator pre-filter: count indicator direction votes ────────────────────
+// TREND-AWARE LOGIC: In a confirmed trending market (ADX > 22), oscillators like
+// RSI and Stochastic CONFIRM the trend rather than signal reversals. Treating
+// RSI<38 as "bull" in a BEARISH downtrend is wrong — it means continuation.
+// In NEUTRAL/ranging markets we keep the original mean-reversion interpretation.
 function countIndicatorAlignment(data: any): { bull: number; bear: number } {
   let bull = 0;
   let bear = 0;
 
-  // Vote 1: RSI (14-period, now properly computed)
+  const trend = data.trend ?? 'NEUTRAL';
+  const adxVal = data.adx?.adx ?? data.adx?.value ?? 0;
+  const trendIsStrong = adxVal > 22 && trend !== 'NEUTRAL';
+
+  // Vote 1: RSI — trend-aware
+  // Trending: RSI above/below 50 CONFIRMS trend direction (momentum, not reversal)
+  // Neutral: RSI extreme levels signal potential mean reversion
   const rsiVal = data.rsi?.value ?? 50;
-  if (rsiVal < 38) bull++; else if (rsiVal > 62) bear++;
+  if (trendIsStrong) {
+    if (trend === 'BULLISH' && rsiVal > 50) bull++;
+    else if (trend === 'BEARISH' && rsiVal < 50) bear++;
+    // Only count exhaustion reversal at extremes in a trend
+    else if (trend === 'BULLISH' && rsiVal < 30) bear++;
+    else if (trend === 'BEARISH' && rsiVal > 70) bull++;
+  } else {
+    // Neutral/ranging: mean reversion
+    if (rsiVal < 38) bull++; else if (rsiVal > 62) bear++;
+  }
 
-  // Vote 2: Stochastic %K
+  // Vote 2: Stochastic %K — trend-aware (same logic as RSI)
   const stochK = data.stochastic?.k ?? 50;
-  if (stochK < 28) bull++; else if (stochK > 72) bear++;
+  if (trendIsStrong) {
+    if (trend === 'BULLISH' && stochK > 50) bull++;
+    else if (trend === 'BEARISH' && stochK < 50) bear++;
+    // Extreme exhaustion only
+    else if (trend === 'BULLISH' && stochK < 20) bear++;
+    else if (trend === 'BEARISH' && stochK > 80) bull++;
+  } else {
+    if (stochK < 28) bull++; else if (stochK > 72) bear++;
+  }
 
-  // Vote 3: MACD histogram (now properly computed)
+  // Vote 3: MACD histogram — directional (no change, always trend-aware by nature)
   const macdHist = data.macd?.histogram ?? 0;
   if (macdHist > 0) bull++; else if (macdHist < 0) bear++;
 
-  // Vote 4: ADX trend direction
-  const adxVal = data.adx?.adx ?? data.adx?.value ?? 0;
-  const trend = data.trend ?? 'NEUTRAL';
+  // Vote 4: ADX trend direction (unchanged)
   if (adxVal > 22 && trend === 'BULLISH') bull++;
   else if (adxVal > 22 && trend === 'BEARISH') bear++;
 
-  // Vote 5: OBV trend
+  // Vote 5: OBV trend (unchanged — volume direction is always directional)
   const obvTrend = data.obv?.trend ?? '';
   if (obvTrend === 'up') bull++; else if (obvTrend === 'down') bear++;
 
-  // Vote 6: VWAP price relation (priceRelation is 'ABOVE' | 'BELOW' | 'AT')
+  // Vote 6: VWAP price relation — trend-aware
+  // In a trend: price position vs VWAP CONFIRMS trend (price above VWAP = bullish, below = bearish)
+  // In neutral: price below VWAP = potential mean-reversion buy, above = potential fade
   const vwapRelation = (data.vwap?.priceRelation ?? '').toUpperCase();
-  if (vwapRelation === 'BELOW') bull++; else if (vwapRelation === 'ABOVE') bear++;
+  if (trendIsStrong) {
+    if (trend === 'BULLISH' && vwapRelation === 'ABOVE') bull++;
+    else if (trend === 'BEARISH' && vwapRelation === 'BELOW') bear++;
+  } else {
+    if (vwapRelation === 'BELOW') bull++; else if (vwapRelation === 'ABOVE') bear++;
+  }
 
   return { bull, bear };
 }
@@ -2001,6 +2058,13 @@ ${(!config.trailMethod || config.trailMethod === 'staged_volume') ? `- TRAILING 
 - CLOSE LOSERS EARLY: If a trade is stagnant for 30+ minutes or price action invalidates the setup, CLOSE it immediately. Don't hope.
 - SCALE OUT: If volatility spikes against you, exit 50% early to reduce exposure.
 - MAXIMIZE VELOCITY: If you see a better setup on another pair but are at max trades, close the weakest performer to take the high-conviction one.
+
+TREND-DIRECTION RULES (critical — do not violate these):
+- NEVER output a BUY signal on a pair where the M15 or H1 trend shows BEARISH with ADX > 22. "Oversold" RSI or Stochastic in a downtrend means continuation, NOT reversal. Wait for trend to neutralize first.
+- NEVER output a SELL signal on a pair where the M15 or H1 trend shows BULLISH with ADX > 22. "Overbought" readings in an uptrend mean continuation.
+- If a pair shows M15 BEARISH + H1 BEARISH simultaneously, the ONLY valid trade is SELL. Any BUY on that pair requires ALL of: 85%+ confidence, clear bullish BOS on M15, strong bullish engulfing candle, RSI divergence. If you don't have ALL of these, output NO_ACTION.
+- Counter-trend trades are rare, high-skill setups. Default to trend alignment. When in doubt, skip the BUY and wait for a SELL opportunity instead.
+- In GBP pairs (GBPUSD, GBPJPY, EURGBP): these are highly news-sensitive. If macro context shows USD strength or GBP weakness, only take SELL setups unless you have clear bullish reversal structure.
 
 CONTEXT:
 - Time: ${now.toISOString()} | Session: ${session} | Day: ${day}
@@ -2448,11 +2512,13 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
           message: `📊 HTF bias: ${htfTFLabel} ${htfBias.trend} — aligns with ${signalDir} (+5% confidence → ${adjustedConfidence}%)`,
         });
       } else {
-        if (confidence < 80) {
+        // Raised from 80% to 85% — GBP/JPY losses happened because 80% was too easy to clear
+        // for a counter-trend AI signal. Counter-trend trades need exceptional confluence.
+        if (confidence < 85) {
           addActivity(userId, {
             type: 'info',
             symbol: decision.symbol,
-            message: `📊 HTF CONFLICT: M15 ${signalDir} vs ${htfTFLabel} ${htfBias.trend} — ${confidence}% confidence below 80% threshold. Signal blocked.`,
+            message: `📊 HTF CONFLICT BLOCK: ${signalDir} on ${decision.symbol} vs ${htfTFLabel} ${htfBias.trend} — ${confidence}% < 85% required. Counter-trend trade blocked.`,
           });
           state.signalsGenerated++;
           return;
@@ -2460,7 +2526,29 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
         addActivity(userId, {
           type: 'info',
           symbol: decision.symbol,
-          message: `📊 HTF CONFLICT: M15 ${signalDir} vs ${htfTFLabel} ${htfBias.trend} — confidence ${confidence}% ≥ 80%, allowing counter-trend entry`,
+          message: `📊 HTF CONFLICT: ${signalDir} on ${decision.symbol} vs ${htfTFLabel} ${htfBias.trend} — ${confidence}% ≥ 85% threshold cleared. Allowing high-confidence counter-trend.`,
+        });
+      }
+    }
+
+    // ── M15 Trend Conflict Penalty ──────────────────────────────────────
+    // If the M15 trend itself disagrees with signal direction AND is confirmed (ADX > 22),
+    // apply a confidence penalty. This catches same-timeframe direction conflicts that
+    // HTF bias alone may miss (e.g. both HTF and M15 bearish but engine still outputs BUY).
+    const m15Snap = state.marketSnapshot?.[decision.symbol];
+    if (m15Snap && decision.direction) {
+      const signalDir = decision.direction.toUpperCase();
+      const m15Trend = (m15Snap as any).trend ?? 'NEUTRAL';
+      const m15ADX = (m15Snap as any).adx || 0;
+      const m15TrendStrong = m15ADX > 22 && m15Trend !== 'NEUTRAL';
+      const m15Conflicts = (signalDir === 'BUY' && m15Trend === 'BEARISH') || (signalDir === 'SELL' && m15Trend === 'BULLISH');
+      if (m15TrendStrong && m15Conflicts) {
+        const penalty = 8; // 8% confidence penalty for trading against confirmed M15 trend
+        adjustedConfidence = Math.max(0, adjustedConfidence - penalty);
+        addActivity(userId, {
+          type: 'info',
+          symbol: decision.symbol,
+          message: `⚠️ M15 TREND CONFLICT: ${signalDir} vs M15 ${m15Trend} (ADX ${m15ADX.toFixed(1)}) — confidence penalised by ${penalty}% → ${adjustedConfidence}%`,
         });
       }
     }
