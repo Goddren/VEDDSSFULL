@@ -183,12 +183,14 @@ function useVoice(onTranscript: (text: string, isFinal: boolean) => void) {
       const clean = text.replace(/[*_~`#>]/g, '').replace(/\[.*?\]/g, '').trim().slice(0, 1000);
       if (!clean) { safeSetSpeaking(false); return; }
       const voices = await loadVoices();
-      const preferred = voices.find(v => /google uk english male|daniel|alex|reed|liam/i.test(v.name))
+      // Prioritise deep male voices for ABBA's authoritative street tone
+      const preferred = voices.find(v => /microsoft guy|microsoft david|google uk english male|daniel|alex|reed|liam|james/i.test(v.name))
+                     || voices.find(v => /en-US/i.test(v.lang) && /male/i.test(v.name))
                      || voices.find(v => /male/i.test(v.name))
                      || voices[0];
       const utt    = new SpeechSynthesisUtterance(clean);
-      utt.rate     = 0.95;
-      utt.pitch    = 0.82;
+      utt.rate     = 0.92; // slightly slower = more authoritative delivery
+      utt.pitch    = 0.78; // lower pitch = deeper, more commanding voice
       utt.volume   = 1.0;
       if (preferred) utt.voice = preferred;
       utt.onend    = () => safeSetSpeaking(false);
@@ -806,21 +808,28 @@ export function AbbaAssistant() {
     if (!open) { stopListening(); stopSpeaking(); }
   }, [open, stopListening, stopSpeaking]);
 
-  // Greeting on open
+  // Greeting on open — auto-speaks when ABBA opens
+  const greetingSpokenRef = useRef(false);
   useEffect(() => {
-    if (open && messages.length === 0) {
-      const firstName = user?.username?.split(' ')[0] || 'Trader';
+    if (open && messages.length === 0 && !greetingSpokenRef.current) {
+      greetingSpokenRef.current = true;
+      const firstName = (user?.fullName || user?.username || 'God').split(' ')[0];
+      const greetingContent = `Peace, ${firstName}. ABBA standing in the cipher.\n\nWord is bond — I got your live numbers right here. Balance, weekly goal, every open position. Knowledge (1) is the foundation and yours is locked in.\n\nWhat you building today?`;
       setMessages([{
         id: genId(),
         role: 'abba',
-        content: `Peace, ${firstName}. ABBA online.\n\nWord is bond — I got your live data right here. Weekly goal, open positions, today's P&L, your pair plan. The cipher is open. What you need?`,
+        content: greetingContent,
         timestamp: new Date(),
       }]);
+      // Auto-speak greeting — audio context was unlocked when user tapped the ABBA orb
+      if (voiceEnabled) {
+        setTimeout(() => speak(greetingContent), 150);
+      }
     }
     if (open) {
       setTimeout(() => inputRef.current?.focus(), 200);
     }
-  }, [open]);
+  }, [open, voiceEnabled, speak]);
 
   // Auto-scroll
   useEffect(() => {
@@ -1025,7 +1034,7 @@ export function AbbaAssistant() {
     utt.volume = 1.0;
     // Use async loadVoices() — Chrome/Edge return empty array on first sync call
     const voices = await loadVoices();
-    const best = voices.find(v => /microsoft david|microsoft mark|google uk english male|daniel|alex|reed|liam/i.test(v.name))
+    const best = voices.find(v => /microsoft guy|microsoft david|microsoft mark|google uk english male|daniel|alex|reed|liam|james/i.test(v.name))
               || voices.find(v => v.lang === 'en-US' && /male|man/i.test(v.name))
               || voices.find(v => v.lang === 'en-US')
               || voices[0];
@@ -1231,7 +1240,13 @@ export function AbbaAssistant() {
             <motion.button
               whileHover={{ scale: 1.08 }}
               whileTap={{ scale: 0.94 }}
-              onClick={() => setOpen(true)}
+              onClick={() => {
+                // Unlock audio DURING this tap gesture — required for iOS Safari + Android Chrome
+                // so the greeting auto-plays without being blocked by autoplay policy
+                if (voiceEnabled) unlockAudio();
+                greetingSpokenRef.current = false; // reset so greeting re-speaks on fresh open
+                setOpen(true);
+              }}
               className="flex items-center justify-center rounded-full shadow-2xl"
               style={{
                 width: 54,
