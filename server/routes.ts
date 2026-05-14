@@ -9392,8 +9392,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
     const daysToMon = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
     const weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysToMon);
 
-    // DB trades (all — not filtered by strategy pairs)
-    const allDbTrades = await storage.getAiTradeResults(userId, 1000);
+    // DB trades (all — not filtered by strategy pairs, high limit for all-time stats)
+    const allDbTrades = await storage.getAiTradeResults(userId, 5000);
 
     // Cache trades (MT5 closed trades)
     const cachedTrades: any[] = (global as any).mt5ClosedTrades?.[userId]?.trades || [];
@@ -9451,15 +9451,56 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
     const weekProgressPct = weeklyTarget > 0 ? Math.min(100, Math.round((weekClosedProfit / weeklyTarget) * 100)) : 0;
     const dayProgressPct  = dailyTarget > 0  ? Math.min(100, Math.round((todayClosedProfit / dailyTarget) * 100)) : 0;
 
+    // ── All-time engine scoreboard ─────────────────────────────────────
+    // Only count fully resolved trades (WIN/LOSS/BREAKEVEN), not PENDING
+    const allTimeClosed = allDbTrades.filter((t: any) => t.result && t.result !== 'PENDING');
+    // Supplement with cache trades not already in DB
+    const allTimeDbTickets = new Set(allTimeClosed.map((t: any) => t.mt5Ticket).filter(Boolean));
+    const allTimeCacheExtra = ((global as any).mt5ClosedTrades?.[userId]?.trades || []).filter(
+      (t: any) => !t.ticket || !allTimeDbTickets.has(t.ticket.toString())
+    );
+    const allTimeTrades   = allTimeClosed.length + allTimeCacheExtra.length;
+    const allTimeWins     = allTimeClosed.filter((t: any) => t.result === 'WIN').length
+                          + allTimeCacheExtra.filter((t: any) => (t.profit || 0) > 0).length;
+    const allTimeLosses   = allTimeClosed.filter((t: any) => t.result === 'LOSS').length
+                          + allTimeCacheExtra.filter((t: any) => (t.profit || 0) < 0).length;
+    const allTimeBreakeven = allTimeTrades - allTimeWins - allTimeLosses;
+    const allTimePnL      = allTimeClosed.reduce((s: number, t: any) => s + (t.profitLoss || 0), 0)
+                          + allTimeCacheExtra.reduce((s: number, t: any) => s + (t.profit || 0), 0);
+    const allTimeWinRate  = allTimeTrades > 0 ? Math.round((allTimeWins / allTimeTrades) * 100) : 0;
+
+    // Week wins/losses for breakdown display
+    const weekWinCount  = weekDb.filter((t: any) => t.result === 'WIN').length
+                        + weekCache.filter((t: any) => (t.profit || 0) > 0).length;
+    const weekLossCount = weekDb.filter((t: any) => t.result === 'LOSS').length
+                        + weekCache.filter((t: any) => (t.profit || 0) < 0).length;
+    // Today wins/losses
+    const todayLosses = todayDb.filter((t: any) => t.result === 'LOSS').length
+                      + todayCache.filter((t: any) => (t.profit || 0) < 0).length;
+
+    // Largest single win and loss this week (for context)
+    const weekAllPnL = [
+      ...weekDb.map((t: any) => t.profitLoss || 0),
+      ...weekCache.map((t: any) => t.profit || 0),
+    ];
+    const bestTrade  = weekAllPnL.length > 0 ? Math.max(...weekAllPnL) : 0;
+    const worstTrade = weekAllPnL.length > 0 ? Math.min(...weekAllPnL) : 0;
+
     res.json({
       todayClosedProfit:  Math.round(todayClosedProfit * 100) / 100,
       todayTotalProfit:   Math.round((todayClosedProfit + unrealizedPnL) * 100) / 100,
       todayTrades,
+      todayWins,
+      todayLosses,
       todayWinRate:       todayTrades > 0 ? Math.round((todayWins / todayTrades) * 100) : 0,
       weekClosedProfit:   Math.round(weekClosedProfit * 100) / 100,
       weekTotalProfit:    Math.round((weekClosedProfit + unrealizedPnL) * 100) / 100,
       weekTrades,
+      weekWins:           weekWinCount,
+      weekLosses:         weekLossCount,
       weekWinRate:        weekTrades > 0 ? Math.round((weekWins / weekTrades) * 100) : 0,
+      bestTrade:          Math.round(bestTrade * 100) / 100,
+      worstTrade:         Math.round(worstTrade * 100) / 100,
       unrealizedPnL:      Math.round(unrealizedPnL * 100) / 100,
       openPositions:      openPositions.length,
       weeklyTarget,
@@ -9467,6 +9508,13 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       weekProgressPct,
       dayProgressPct,
       hasStrategy:        !!dbStrat,
+      // ── All-time engine scoreboard (persisted in DB, survives restarts) ──
+      allTimeTrades,
+      allTimeWins,
+      allTimeLosses,
+      allTimeBreakeven,
+      allTimePnL:         Math.round(allTimePnL * 100) / 100,
+      allTimeWinRate,
     });
   });
 

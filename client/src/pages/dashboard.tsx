@@ -387,11 +387,14 @@ const Dashboard: React.FC = () => {
 
   // Daily & weekly P&L summary (works even without a strategy / SS AI)
   const { data: dailySummary } = useQuery<{
-    todayClosedProfit: number; todayTotalProfit: number; todayTrades: number; todayWinRate: number;
-    weekClosedProfit: number; weekTrades: number; weekWinRate: number;
+    todayClosedProfit: number; todayTotalProfit: number; todayTrades: number; todayWins: number; todayLosses: number; todayWinRate: number;
+    weekClosedProfit: number; weekTrades: number; weekWins: number; weekLosses: number; weekWinRate: number;
+    bestTrade: number; worstTrade: number;
     unrealizedPnL: number; openPositions: number;
     weeklyTarget: number; dailyTarget: number; weekProgressPct: number; dayProgressPct: number;
     hasStrategy: boolean;
+    allTimeTrades: number; allTimeWins: number; allTimeLosses: number; allTimeBreakeven: number;
+    allTimePnL: number; allTimeWinRate: number;
   }>({
     queryKey: ['/api/mt5/daily-summary'],
     enabled: !!user,
@@ -702,8 +705,9 @@ const Dashboard: React.FC = () => {
                   }} />
                 </div>
                 <div className="flex gap-3 text-[10px] text-gray-500 mt-1">
-                  <span>{dailySummary?.weekTrades ?? 0} trades</span>
-                  <span>{dailySummary?.weekWinRate ?? 0}% wins</span>
+                  <span className="text-emerald-400/80">{dailySummary?.weekWins ?? 0}W</span>
+                  <span className="text-red-400/80">{dailySummary?.weekLosses ?? 0}L</span>
+                  <span>{dailySummary?.weekWinRate ?? 0}% win rate</span>
                   {weekProgressPct < 100 && <span className="text-amber-400/70 ml-auto">${Math.max(0, weeklyTarget - weekClosedProfit).toFixed(2)} to go</span>}
                 </div>
               </div>
@@ -806,12 +810,91 @@ const Dashboard: React.FC = () => {
                 }} />
               </div>
               <div className="flex gap-3 text-[11px] text-gray-500">
-                <span>{dailySummary?.weekTrades ?? 0} trades this week</span>
+                <span className="text-emerald-400/80">+{dailySummary?.weekWins ?? 0}W</span>
+                <span className="text-red-400/80">-{dailySummary?.weekLosses ?? 0}L</span>
                 <span>{dailySummary?.weekWinRate ?? 0}% win rate</span>
+                {dailySummary?.bestTrade != null && dailySummary.bestTrade > 0 && <span className="text-emerald-400/60 ml-auto">Best: +${dailySummary.bestTrade.toFixed(2)}</span>}
                 {!dailySummary?.hasStrategy && <span className="text-amber-400/70">Set up weekly plan →</span>}
               </div>
             </div>
           </Link>
+
+          {/* ── SS AI Engine All-Time Scoreboard ──────────────────────── */}
+          {(dailySummary?.allTimeTrades ?? 0) > 0 && (
+            <div className="rounded-2xl p-3 mb-4" style={{ background: 'rgba(124,58,237,0.06)', border: '1px solid rgba(124,58,237,0.18)' }}>
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse" />
+                  <p className="text-white text-xs font-semibold">SS AI Engine — All-Time Record</p>
+                </div>
+                <span className={`text-xs font-bold ${(dailySummary?.allTimePnL ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {(dailySummary?.allTimePnL ?? 0) >= 0 ? '+' : ''}${(dailySummary?.allTimePnL ?? 0).toFixed(2)}
+                </span>
+              </div>
+              {/* Win / Loss / Breakeven bar */}
+              <div className="flex h-2 rounded-full overflow-hidden mb-2 gap-0.5">
+                {(dailySummary?.allTimeWins ?? 0) > 0 && (
+                  <div className="rounded-l-full" style={{
+                    width: `${Math.round(((dailySummary?.allTimeWins ?? 0) / (dailySummary?.allTimeTrades ?? 1)) * 100)}%`,
+                    background: 'linear-gradient(90deg,#10b981,#34d399)'
+                  }} />
+                )}
+                {(dailySummary?.allTimeBreakeven ?? 0) > 0 && (
+                  <div style={{
+                    width: `${Math.round(((dailySummary?.allTimeBreakeven ?? 0) / (dailySummary?.allTimeTrades ?? 1)) * 100)}%`,
+                    background: '#6b7280'
+                  }} />
+                )}
+                {(dailySummary?.allTimeLosses ?? 0) > 0 && (
+                  <div className="rounded-r-full" style={{
+                    width: `${Math.round(((dailySummary?.allTimeLosses ?? 0) / (dailySummary?.allTimeTrades ?? 1)) * 100)}%`,
+                    background: 'linear-gradient(90deg,#ef4444,#f87171)'
+                  }} />
+                )}
+              </div>
+              {/* Stats row */}
+              <div className="grid grid-cols-4 gap-2 text-center">
+                <div>
+                  <p className="text-white text-sm font-bold">{dailySummary?.allTimeTrades ?? 0}</p>
+                  <p className="text-[10px] text-gray-500">Trades</p>
+                </div>
+                <div>
+                  <p className="text-emerald-400 text-sm font-bold">{dailySummary?.allTimeWins ?? 0}</p>
+                  <p className="text-[10px] text-gray-500">Wins</p>
+                </div>
+                <div>
+                  <p className="text-red-400 text-sm font-bold">{dailySummary?.allTimeLosses ?? 0}</p>
+                  <p className="text-[10px] text-gray-500">Losses</p>
+                </div>
+                <div>
+                  <p className="text-violet-400 text-sm font-bold">{dailySummary?.allTimeWinRate ?? 0}%</p>
+                  <p className="text-[10px] text-gray-500">Win Rate</p>
+                </div>
+              </div>
+              {/* Today snapshot */}
+              {(dailySummary?.todayTrades ?? 0) > 0 && (
+                <div className="mt-2 pt-2 border-t border-white/5 flex items-center justify-between">
+                  <span className="text-[10px] text-gray-500">Today</span>
+                  <div className="flex gap-3 text-[10px]">
+                    <span className="text-emerald-400">+{dailySummary?.todayWins ?? 0}W</span>
+                    <span className="text-red-400">-{dailySummary?.todayLosses ?? 0}L</span>
+                    <span className={`font-semibold ${(dailySummary?.todayClosedProfit ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {(dailySummary?.todayClosedProfit ?? 0) >= 0 ? '+' : ''}${(dailySummary?.todayClosedProfit ?? 0).toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              )}
+              {/* Unrealized open positions */}
+              {(dailySummary?.unrealizedPnL ?? 0) !== 0 && (
+                <div className="mt-1 flex items-center justify-between">
+                  <span className="text-[10px] text-gray-500">{dailySummary?.openPositions ?? 0} open position{(dailySummary?.openPositions ?? 0) !== 1 ? 's' : ''}</span>
+                  <span className={`text-[10px] font-semibold ${(dailySummary?.unrealizedPnL ?? 0) >= 0 ? 'text-yellow-400' : 'text-orange-400'}`}>
+                    Unrealized: {(dailySummary?.unrealizedPnL ?? 0) >= 0 ? '+' : ''}${(dailySummary?.unrealizedPnL ?? 0).toFixed(2)}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="grid grid-cols-3 gap-3">
             {[
