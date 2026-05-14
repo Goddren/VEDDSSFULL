@@ -339,14 +339,14 @@ function applyBrainEnforcement(
 
   // ── RULE 1: Session block ──────────────────────────────────────────────
   const sessionData = k.topSessions?.find((s: any) => s.session === session);
-  if (sessionData && sessionData.total >= 3 && sessionData.winRate < 40) {
-    const msg = `🧠 Brain block: ${symbol} ${session} session only ${sessionData.winRate}% WR (${sessionData.total} trades) — skipping`;
+  if (sessionData && sessionData.total >= 3 && sessionData.winRate < 45) {
+    const msg = `🧠 Brain block: ${symbol} ${session} session only ${sessionData.winRate}% WR (${sessionData.total} trades) — below 45% threshold, skipping`;
     pushEnforcementLog(userId, { symbol, rule: 'session_block', direction: proposedDirection, reason: msg });
     return { ...passthrough, allowed: false, reason: msg };
   }
 
   // ── RULE 2: Hour block ────────────────────────────────────────────────
-  const worstHourData = k.worstHours?.find((h: any) => h.hour === hour && h.total >= 3 && h.winRate < 35);
+  const worstHourData = k.worstHours?.find((h: any) => h.hour === hour && h.total >= 3 && h.winRate < 40);
   if (worstHourData) {
     const msg = `🧠 Brain block: ${symbol} hour ${hour}:00 UTC only ${worstHourData.winRate}% WR — loss zone`;
     pushEnforcementLog(userId, { symbol, rule: 'hour_block', direction: proposedDirection, reason: msg });
@@ -394,10 +394,10 @@ function applyBrainEnforcement(
   // ── RULE 5: Consecutive loss cooldown ─────────────────────────────────
   if (k.consecutiveLossesToday >= 3 && k.lastLossAt) {
     const msSinceLoss = Date.now() - new Date(k.lastLossAt).getTime();
-    const TWO_HOURS = 2 * 60 * 60 * 1000;
-    if (msSinceLoss < TWO_HOURS) {
-      const minsLeft = Math.ceil((TWO_HOURS - msSinceLoss) / 60000);
-      const msg = `🧠 Cooldown: ${symbol} — 3 consecutive losses, cooling for ${minsLeft} more min`;
+    const THREE_HOURS = 3 * 60 * 60 * 1000;
+    if (msSinceLoss < THREE_HOURS) {
+      const minsLeft = Math.ceil((THREE_HOURS - msSinceLoss) / 60000);
+      const msg = `🧠 Cooldown: ${symbol} — 3 consecutive losses, cooling for ${minsLeft} more min (3-hour lock)`;
       pushEnforcementLog(userId, { symbol, rule: 'loss_cooldown', direction: proposedDirection, reason: msg });
       return { ...passthrough, allowed: false, reason: msg };
     }
@@ -592,7 +592,7 @@ function getDefaultConfig(userId: number): LiveEngineConfig {
     strategyMode: 'aggressive',
     maxOpenTrades: 5,
     riskPerTrade: 1,
-    minConfidence: 65,
+    minConfidence: 70,
     maxLotSize: 0.10,
     enablePositionManagement: true,
     trailingStopEnabled: true,
@@ -661,12 +661,19 @@ function getGoalPhase(tracker: GoalTracker): GoalTracker['currentPhase'] {
 function getCompoundMultiplier(tracker: GoalTracker, enableCompounding: boolean): number {
   if (!enableCompounding) return 1.0;
   let mult = 1.0;
-  if (tracker.consecutiveWins >= 5) mult = 2.0;
+  // ── Win streak: scale up gradually ──────────────────────────────────
+  if (tracker.consecutiveWins >= 7) mult = 2.5;
+  else if (tracker.consecutiveWins >= 5) mult = 2.0;
   else if (tracker.consecutiveWins >= 3) mult = 1.5;
   else if (tracker.consecutiveWins >= 2) mult = 1.25;
-  if (tracker.consecutiveLosses >= 3) mult = 0.5;
+  // ── Loss streak: protect capital more aggressively ───────────────────
+  // Applied AFTER win streak so losses always override
+  if (tracker.consecutiveLosses >= 4) mult = 0.35; // heavy drawdown — near-minimum sizing
+  else if (tracker.consecutiveLosses >= 3) mult = 0.5;
   else if (tracker.consecutiveLosses >= 2) mult = 0.75;
-  if (tracker.progressPercent >= 80) mult *= 0.8;
+  // ── Late-stage goal protection: back off when nearly at target ───────
+  if (tracker.progressPercent >= 90) mult = Math.min(mult, 0.75); // near target — protect gains
+  else if (tracker.progressPercent >= 80) mult *= 0.85;
   return Math.round(mult * 100) / 100;
 }
 
@@ -1522,8 +1529,8 @@ function generateRuleBasedSignals(indicators: Record<string, any>, config: LiveE
   const currentPrice = indicators.currentPrice ?? 0;
   const atr = indicators.atr?.value ?? indicators.atr ?? (currentPrice * 0.0005);
 
-  if (bull < 3 && bear < 3) {
-    return { newTrades: [], positionUpdates: [], marketOverview: `Rule-based (${symbol}): insufficient confluence — bull=${bull} bear=${bear}`, nextScanFocus: 'Waiting for indicator alignment' };
+  if (bull < 4 && bear < 4) {
+    return { newTrades: [], positionUpdates: [], marketOverview: `Rule-based (${symbol}): insufficient confluence — bull=${bull} bear=${bear} (need 4+)`, nextScanFocus: 'Waiting for 4+ indicator alignment' };
   }
 
   const direction = bull >= bear ? 'BUY' : 'SELL';
@@ -1531,8 +1538,12 @@ function generateRuleBasedSignals(indicators: Record<string, any>, config: LiveE
   const confidence = Math.round((winningScore / 7) * 100);
 
   const entry = currentPrice;
-  const sl = direction === 'BUY' ? entry - (atr * 1.5) : entry + (atr * 1.5);
-  const tp = direction === 'BUY' ? entry + (atr * 2.5) : entry - (atr * 2.5);
+  // ── R:R 1:2 minimum — SL=1.6×ATR, TP=3.2×ATR ──────────────────────
+  // Widened from 1.5/2.5 to give trades more room and capture bigger moves
+  const slMult = confidence >= 86 ? 1.8 : 1.6; // premium setups get slightly more room
+  const tpMult = confidence >= 86 ? 3.6 : 3.2; // premium setups target bigger extension
+  const sl = direction === 'BUY' ? entry - (atr * slMult) : entry + (atr * slMult);
+  const tp = direction === 'BUY' ? entry + (atr * tpMult) : entry - (atr * tpMult);
 
   let lotSize = config.baseLotSize;
   if (config.useKellyCriterion) {
@@ -1635,12 +1646,12 @@ async function runAILiveAnalysis(userId: number, marketAnalysis: Record<string, 
     const filteredAnalysis: Record<string, any> = {};
     for (const [sym, data] of Object.entries(marketAnalysis) as [string, any][]) {
       const { bull, bear } = countIndicatorAlignment(data);
-      if (bull >= 3 || bear >= 3) {
+      if (bull >= 4 || bear >= 4) {
         filteredAnalysis[sym] = data;
       }
     }
     if (Object.keys(filteredAnalysis).length === 0) {
-      addActivity(userId, { type: 'info', message: 'Pre-filter: no pairs with sufficient alignment this cycle — AI call skipped entirely' });
+      addActivity(userId, { type: 'info', message: 'Pre-filter: no pairs with 4+ indicator votes this cycle — AI call skipped (higher confluence required)' });
       return;
     }
     // Use filtered set for the AI call
@@ -1988,7 +1999,8 @@ ${(!config.trailMethod || config.trailMethod === 'staged_volume') ? `- TRAILING 
 
 CONTEXT:
 - Time: ${now.toISOString()} | Session: ${session} | Day: ${day}
-- Strategy: ${config.strategyMode.toUpperCase()} | Min Confidence: ${config.minConfidence}%
+- Strategy: ${config.strategyMode.toUpperCase()} | Min Confidence: ${config.minConfidence}% (DO NOT submit signals below this — they will be auto-rejected)
+- R:R Minimum: 1:2 required on all entries. Aim for 1:2.5–1:3 on premium setups (85%+ confidence). NEVER take a trade with R:R below 1:2
 - Risk per trade: ${config.riskPerTrade}% | Trailing stops: ${config.trailingStopEnabled ? 'ON' : 'OFF'}
 - Max trades allowed: ${config.maxOpenTrades} | Currently open: ${currentOpenCount}
 - Position management: ${config.enablePositionManagement ? 'ACTIVE' : 'OFF'}
@@ -2009,13 +2021,14 @@ SMALL ACCOUNT PROTECTION ($${config.accountBalance}):
 
 HFT TRADING STRATEGY ARSENAL - USE ALL SIMULTANEOUSLY TO HIT THE WEEKLY GOAL:
 
-SCALPING (3-8 pip targets, high frequency - PRIMARY for quick profit accumulation):
+SCALPING (6-15 pip targets, high frequency - PRIMARY for quick profit accumulation):
 - Trade micro-moves on 1min/5min momentum bursts - THIS IS YOUR BREAD AND BUTTER
 - Look for RSI divergence + Stochastic crossovers in overbought/oversold zones
 - Quick entries on VWAP bounces - price touching VWAP and reversing with volume confirmation
-- Tight stops (5-10 pips), fast targets (3-8 pips), high win rate focus
+- Stops (5-8 pips), targets (10-15 pips minimum) — MINIMUM 1:2 R:R even on scalps
+- NEVER scalp with a 1:1 or worse R:R — the math kills the account over time
 - Best during high-volume sessions (London, NY overlap)
-- GOAL: Stack small wins rapidly. 5-10+ scalps per session to compound gains
+- GOAL: Stack quality wins. 5-10 scalps/session with ≥1:2 R:R beats chasing volume with poor R:R
 
 MOMENTUM SURFING (15-40 pip rides - SECONDARY for bigger chunks):
 - Catch breakouts from consolidation zones when ADX crosses above 25
@@ -2543,6 +2556,34 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
     const entryPrice = parseNum(decision.entryPrice);
     const stopLoss = parseNum(decision.stopLoss);
     const takeProfit = parseNum(decision.takeProfit);
+
+    // ── Hard R:R gate: reject signals below 1:1.5 minimum ────────────
+    if (entryPrice && stopLoss && takeProfit) {
+      const riskDist = Math.abs(entryPrice - stopLoss);
+      const rewardDist = Math.abs(takeProfit - entryPrice);
+      if (riskDist > 0) {
+        const rr = rewardDist / riskDist;
+        if (rr < 1.5) {
+          addActivity(userId, {
+            type: 'signal',
+            symbol: decision.symbol,
+            direction: decision.direction,
+            confidence: adjustedConfidence,
+            message: `❌ R:R GATE REJECT: ${decision.symbol} ${decision.direction} R:R=${rr.toFixed(2)} < 1.5 minimum. Adjust TP or skip this setup.`,
+          });
+          state.signalsGenerated++;
+          return;
+        }
+        if (rr < 2.0) {
+          addActivity(userId, {
+            type: 'info',
+            symbol: decision.symbol,
+            message: `⚠️ R:R warning: ${decision.symbol} R:R=${rr.toFixed(2)} — below 1:2 target. Proceeding but favour higher R:R setups.`,
+          });
+        }
+      }
+    }
+
     // ── Brain Learning Mode: lock at 0.01 until 65%+ WR (if toggle ON) ──
     let brainLocked = false;
     let brainTotalTrades = 0;
@@ -2559,12 +2600,12 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
         brainTotalTrades = totals.trades;
         brainOverallWinRate = totals.trades >= 5 ? Math.round((totals.wins / totals.trades) * 100) : 0;
       }
-      brainLocked = brainTotalTrades < 10 || brainOverallWinRate < 65;
+      brainLocked = brainTotalTrades < 10 || brainOverallWinRate < 55;
       addActivity(userId, {
         type: 'info',
         symbol: decision.symbol,
         message: brainLocked
-          ? `🧠 Learning Mode: lot locked at 0.01 (${brainTotalTrades}/10 trades, ${brainOverallWinRate}%/65% WR) — full sizing unlocks automatically`
+          ? `🧠 Learning Mode: lot locked at 0.01 (${brainTotalTrades}/10 trades, ${brainOverallWinRate}%/55% WR) — full sizing unlocks automatically`
           : `🧠 Brain unlocked: ${brainTotalTrades} trades @ ${brainOverallWinRate}% WR — full risk sizing active`,
       });
     }
