@@ -1644,14 +1644,19 @@ async function runAILiveAnalysis(userId: number, marketAnalysis: Record<string, 
   // ── Pre-filter gate: skip AI call for pairs with no indicator alignment ──────
   {
     const filteredAnalysis: Record<string, any> = {};
+    const voteSummary: string[] = [];
     for (const [sym, data] of Object.entries(marketAnalysis) as [string, any][]) {
       const { bull, bear } = countIndicatorAlignment(data);
-      if (bull >= 4 || bear >= 4) {
+      const direction = bull >= bear ? `🟢${bull}B` : `🔴${bear}R`;
+      const passed = bull >= 3 || bear >= 3;
+      voteSummary.push(`${sym}:${direction}${passed ? '✓' : '✗'}`);
+      if (passed) {
         filteredAnalysis[sym] = data;
       }
     }
+    addActivity(userId, { type: 'info', message: `Pre-filter votes (need 3+): ${voteSummary.join(' | ')}` });
     if (Object.keys(filteredAnalysis).length === 0) {
-      addActivity(userId, { type: 'info', message: 'Pre-filter: no pairs with 4+ indicator votes this cycle — AI call skipped (higher confluence required)' });
+      addActivity(userId, { type: 'info', message: 'Pre-filter: no pairs with 3+ indicator votes this cycle — AI call skipped (market in full consolidation)' });
       return;
     }
     // Use filtered set for the AI call
