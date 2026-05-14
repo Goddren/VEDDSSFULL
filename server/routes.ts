@@ -59,6 +59,61 @@ import { extractFramesFromVideo, cleanupFrames } from "./video-processor";
 import { getGoldSentiment, getMockGoldSentiment, isTelegramConfigured } from "./telegram-sentiment";
 import { encryptPassword, executeMT5SignalOnTradeLocker, TradeLockerService, decryptPassword } from "./tradelocker";
 import { getPipSize, getPipValue } from "./utils/pipUtils";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SHARED TRADELOCKER SIGNAL GUARD
+// All paths that execute trades directly on TradeLocker (outside the live engine)
+// must call this before firing. Mirrors the gates in processDecision() in
+// live-trading-engine.ts so manual/relay/brain paths can't bypass quality filters.
+// ─────────────────────────────────────────────────────────────────────────────
+function tlSignalGuard(params: {
+  confidence?: number;
+  entryPrice?: number | null;
+  stopLoss?: number | null;
+  takeProfit?: number | null;
+  symbol?: string;
+  direction?: string;
+  minConfidence?: number;
+  requireSLTP?: boolean;
+}): { allow: boolean; reason: string } {
+  const {
+    confidence = 0,
+    entryPrice,
+    stopLoss,
+    takeProfit,
+    minConfidence = 70,
+    requireSLTP = true,
+  } = params;
+
+  // 1. Confidence gate — must meet minimum threshold
+  if (confidence < minConfidence) {
+    return { allow: false, reason: `Confidence ${confidence}% is below the ${minConfidence}% minimum — signal blocked` };
+  }
+
+  // 2. Stop loss required — no SL = undefined risk, never execute
+  if (requireSLTP && (!stopLoss || stopLoss <= 0)) {
+    return { allow: false, reason: `No stop loss provided for ${params.symbol || ''} — trade blocked (undefined risk)` };
+  }
+
+  // 3. Take profit required — forces exit target, prevents open-ended exposure
+  if (requireSLTP && (!takeProfit || takeProfit <= 0)) {
+    return { allow: false, reason: `No take profit provided for ${params.symbol || ''} — trade blocked (no exit target)` };
+  }
+
+  // 4. R:R gate — enforce minimum 1.5:1 reward-to-risk
+  if (entryPrice && stopLoss && takeProfit && entryPrice > 0 && stopLoss > 0 && takeProfit > 0) {
+    const riskDist = Math.abs(entryPrice - stopLoss);
+    const rewardDist = Math.abs(takeProfit - entryPrice);
+    if (riskDist > 0) {
+      const rr = rewardDist / riskDist;
+      if (rr < 1.5) {
+        return { allow: false, reason: `R:R ${rr.toFixed(2)} on ${params.symbol || ''} ${params.direction || ''} is below the 1.5 minimum — trade blocked` };
+      }
+    }
+  }
+
+  return { allow: true, reason: 'Passed all signal quality gates' };
+}
 import veddTokenRouter from "./routes/vedd-token";
 import tradovateRouter from "./routes/tradovate";
 import { veddTokenService } from "./services/vedd-token-service";
@@ -6727,7 +6782,24 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       }
       if (tlConnection && tlConnection.isActive && tlConnection.autoExecute && inAbbaPlan) {
         console.log('[TradeLocker] Executing signal on TradeLocker:', { action, symbol, direction, volume });
-        try {
+        // ── Signal quality gate for relay path ──────────────────────────
+        if (action === 'OPEN') {
+          const guard = tlSignalGuard({
+            confidence: typeof confidence === 'number' ? confidence : (typeof confidence === 'string' ? parseFloat(confidence) : 0),
+            entryPrice: entryPrice ?? null,
+            stopLoss: stopLoss ?? null,
+            takeProfit: takeProfit ?? null,
+            symbol,
+            direction,
+            minConfidence: 65, // slightly lower for MT5 relay since EA has its own filters
+            requireSLTP: true,
+          });
+          if (!guard.allow) {
+            console.log(`[TradeLocker Relay Guard] BLOCKED: ${guard.reason}`);
+            tradelockerResult = { success: false, error: guard.reason };
+          }
+        }
+        if (!tradelockerResult) try {
           tradelockerResult = await executeMT5SignalOnTradeLocker(tlConnection, {
             action,
             symbol,
@@ -8968,18 +9040,18 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         console.log(`[VEDD Goal Intelligence] Plan lot override adjusted (${goalPaceMode}): ${preMult} → ${mt5Volume} lots (×${goalLotMultiplier.toFixed(2)})`);
       }
       
-      if (analysis.signal !== 'NEUTRAL' && 
-          analysis.confidence >= MIN_CONFIDENCE_FOR_AUTO_TRADE && 
+      if (analysis.signal !== 'NEUTRAL' &&
+          analysis.confidence >= MIN_CONFIDENCE_FOR_AUTO_TRADE &&
           analysis.tradePlan) {
-        
+
         const tlConnection = await storage.getUserTradelockerConnection(token.userId);
-        console.log(`[KNOWLEDGE] Signal MANIFESTED for ${sanitizedSymbol}:`, { 
-          signal: analysis.signal, 
+        console.log(`[KNOWLEDGE] Signal MANIFESTED for ${sanitizedSymbol}:`, {
+          signal: analysis.signal,
           confidence: analysis.confidence,
           hasTradeLocker: !!tlConnection,
           autoExecute: tlConnection?.autoExecute
         });
-        
+
         if (tlConnection && tlConnection.isActive && tlConnection.autoExecute) {
           // Check for duplicate/recent trades on same symbol to avoid over-trading
           const recentTradeKey = `last_trade_${token.userId}_${sanitizedSymbol}`;
@@ -8989,26 +9061,42 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           // Use EA setting for cooldown, default to 5 minutes
           const cooldownMinutes = matchingEA?.tradeCooldownMinutes ?? 5;
           const TRADE_COOLDOWN_MS = cooldownMinutes * 60 * 1000;
-          
+
           if (!lastTradeTime || (now - lastTradeTime) > TRADE_COOLDOWN_MS) {
             // SET COOLDOWN FIRST to prevent race conditions from concurrent requests
             (global as any).recentTrades[recentTradeKey] = now;
-            
+
             // Check for existing open positions on this symbol to prevent duplicate entries
             const recentTrades = await storage.getTradelockerTradeLogs(token.userId, 10);
-            const hasOpenPosition = recentTrades.some(t => 
-              t.symbol?.toUpperCase() === sanitizedSymbol.toUpperCase() && 
-              t.action === 'OPEN' && 
+            const hasOpenPosition = recentTrades.some(t =>
+              t.symbol?.toUpperCase() === sanitizedSymbol.toUpperCase() &&
+              t.action === 'OPEN' &&
               t.status === 'executed' &&
               // Only consider trades from last 24 hours as potentially open
               t.createdAt && (now - new Date(t.createdAt).getTime()) < 24 * 60 * 60 * 1000
             );
-            
+
             if (hasOpenPosition) {
               console.log(`[MT5 Chart Data AutoTrade] Skipping trade - existing open position on ${sanitizedSymbol}`);
             } else {
               const tradeVolume = mt5Volume;
-              
+
+              // ── Signal quality gate (same standard as live engine) ──────
+              const analysisGuard = tlSignalGuard({
+                confidence: analysis.confidence,
+                entryPrice: analysis.tradePlan.entry ?? null,
+                stopLoss: analysis.tradePlan.stopLoss ?? null,
+                takeProfit: analysis.tradePlan.takeProfit ?? null,
+                symbol: sanitizedSymbol,
+                direction: analysis.signal,
+                minConfidence: Math.max(MIN_CONFIDENCE_FOR_AUTO_TRADE, 70),
+                requireSLTP: true,
+              });
+              if (!analysisGuard.allow) {
+                console.log(`[MT5 Chart Data AutoTrade Guard] BLOCKED: ${analysisGuard.reason}`);
+                tradelockerResult = null;
+              } else {
+
               console.log('[MT5 Chart Data AutoTrade] Executing trade on TradeLocker:', {
                 action: 'OPEN',
                 symbol: sanitizedSymbol,
@@ -9018,7 +9106,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 stopLoss: analysis.tradePlan.stopLoss,
                 takeProfit: analysis.tradePlan.takeProfit
               });
-              
+
               try {
                 tradelockerResult = await executeMT5SignalOnTradeLocker(tlConnection, {
                   action: 'OPEN',
@@ -9094,6 +9182,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 console.error('[MT5 Chart Data AutoTrade] Error executing trade:', err);
                 tradelockerResult = { success: false, error: err instanceof Error ? err.message : 'Unknown error' };
               }
+              } // end else (analysisGuard.allow)
             }
           } else {
             const cooldownRemaining = Math.round((TRADE_COOLDOWN_MS - (now - lastTradeTime)) / 1000);
@@ -12276,10 +12365,6 @@ Respond with ONLY valid JSON:
             if (!sig.symbol || !sig.direction) continue;
             const sigId = `${sig.symbol}_${sig.direction}_${sigIdx}`;
             const confidence = typeof sig.confidence === 'number' ? sig.confidence : parseFloat(sig.confidence) || 0;
-            if (confidence < 60) {
-              executionResults.push({ sigId, symbol: sig.symbol, direction: sig.direction, status: 'skipped', reason: `Confidence ${confidence}% below 60% threshold` });
-              continue;
-            }
 
             const parseNum = (v: any): number | undefined => {
               if (typeof v === 'number') return v;
@@ -12289,7 +12374,26 @@ Respond with ONLY valid JSON:
             const entryPrice = parseNum(sig.entryZone);
             const stopLoss = parseNum(sig.stopLoss);
             const takeProfit = parseNum(sig.takeProfit);
-            const lotSize = parseNum(sig.lotSize) || 0.01;
+            const lotSize = Math.max(0.01, Math.min(parseNum(sig.lotSize) || 0.01, 1.0)); // cap at 1.0 lot for safety
+
+            // ── Brain AutoExec signal quality gate ──────────────────────
+            // Raised from 60% to 70% and added R:R + SL/TP requirement to
+            // match the same standards as the live engine's processDecision().
+            const brainGuard = tlSignalGuard({
+              confidence,
+              entryPrice: entryPrice ?? null,
+              stopLoss: stopLoss ?? null,
+              takeProfit: takeProfit ?? null,
+              symbol: sig.symbol,
+              direction: sig.direction,
+              minConfidence: 70,
+              requireSLTP: true,
+            });
+            if (!brainGuard.allow) {
+              console.log(`[VEDD Brain AutoExec Guard] BLOCKED ${sig.symbol} ${sig.direction}: ${brainGuard.reason}`);
+              executionResults.push({ sigId, symbol: sig.symbol, direction: sig.direction, status: 'skipped', reason: brainGuard.reason });
+              continue;
+            }
 
             try {
               const signalLog = await storage.createMt5SignalLog({
@@ -12753,13 +12857,18 @@ Respond with ONLY valid JSON:
       }
       
       // Calculate recovery lot size based on actual position data
-      // Recovery multiplier: 1.5x base, scales up with larger losses (max 3x)
-      const lossMultiplier = currentLoss < 0 ? Math.min(1 + (Math.abs(currentLoss) / 50), 3) : 1.5;
+      // Recovery multiplier: capped at 1.5x max — the original 3x was dangerously high
+      // and could blow an account if multiple flips fail in succession.
+      const lossMultiplier = currentLoss < 0 ? Math.min(1 + (Math.abs(currentLoss) / 100), 1.5) : 1.0;
       const recoveryLotSize = Math.min(
-        parseFloat((originalVolume * lossMultiplier).toFixed(2)), 
-        1.0 // Cap at 1.0 lot for safety
+        parseFloat((originalVolume * lossMultiplier).toFixed(2)),
+        0.50 // Halved cap from 1.0 to 0.5 — flip trades have no SL/TP, limit exposure
       );
-      
+
+      // ── Flip trade safety note: no SL/TP guard here (it's a manual action) ──
+      // But enforce a hard lot cap and log the recovery details for audit trail.
+      console.log(`[Flip Trade] Opening recovery ${newDirection} ${symbol} | Original lot: ${originalVolume} | Loss: ${currentLoss} | Multiplier: ${lossMultiplier.toFixed(2)} | Recovery lot: ${recoveryLotSize}`);
+
       // Execute the reverse trade on TradeLocker
       const tradeResult = await executeMT5SignalOnTradeLocker(connection, {
         action: 'OPEN',
