@@ -34,6 +34,7 @@ import InteractiveTooltipShowcase from "@/pages/interactive-tooltip-showcase";
 import BlogPage from "@/pages/blog";
 import StrategyWizard from "@/pages/strategy-wizard";
 import WorkforceAcademyPage from "@/pages/workforce-academy";
+import GrantsFundingPage from "@/pages/grants-funding";
 import { NewsNotificationScheduler } from "@/components/news-notification-scheduler";
 import { SubscriptionUsageHeader } from "@/components/ui/subscription-usage-header";
 import { PageTransition } from "@/components/ui/page-transition";
@@ -92,6 +93,7 @@ function AppLayout() {
             <ProtectedRoute path="/strategy-wizard" component={StrategyWizard} />
             <ProtectedRoute path="/interactive-tooltips" component={InteractiveTooltipShowcase} />
             <ProtectedRoute path="/workforce-academy" component={WorkforceAcademyPage} />
+            <ProtectedRoute path="/grants" component={GrantsFundingPage} />
             
             <Route component={NotFound} />
           </Switch>
