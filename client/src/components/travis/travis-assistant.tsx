@@ -796,6 +796,31 @@ export function AbbaAssistant() {
     if (hasSpeechSynthesis) loadVoices().catch(() => {});
   }, []);
 
+  // ── Pre-fetch greeting TTS in background on mount ─────────────────────────
+  // iOS Safari: audio.play() ONLY works during a synchronous user gesture.
+  // Fetching audio takes 1-3s (network + TTS generation), so by the time we
+  // get the blob the gesture window is gone. Solution: fetch the greeting
+  // silently in the background, store the blob URL, then play it INSTANTLY
+  // (synchronously) when the user taps the orb — no network wait, no block.
+  const greetingAudioUrlRef = useRef<string | null>(null);
+  const greetingAudioFetchedRef = useRef(false);
+  useEffect(() => {
+    if (greetingAudioFetchedRef.current) return;
+    greetingAudioFetchedRef.current = true;
+    const shortGreet = `Peace. ABBA in the cipher — locked in and ready. What you building today?`;
+    fetch('/api/abba/tts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ text: shortGreet }),
+    }).then(async res => {
+      if (res.ok && res.headers.get('content-type')?.includes('audio')) {
+        const blob = await res.blob();
+        if (blob.size > 100) greetingAudioUrlRef.current = URL.createObjectURL(blob);
+      }
+    }).catch(() => {});
+  }, []);
+
   // Listen for external open-ABBA events (e.g., from dashboard card)
   useEffect(() => {
     const handler = () => setOpen(true);
@@ -821,9 +846,11 @@ export function AbbaAssistant() {
         content: greetingContent,
         timestamp: new Date(),
       }]);
-      // Auto-speak greeting — audio context was unlocked when user tapped the ABBA orb
+      // Fallback: speak() attempts server TTS → Web Audio → HTML5 Audio → browser synth.
+      // The pre-fetched path (FAB click handler) is preferred on mobile. This fires
+      // only if pre-fetch wasn't ready — gives a 300ms delay to let context fully set.
       if (voiceEnabled) {
-        setTimeout(() => speak(greetingContent), 150);
+        setTimeout(() => speak(greetingContent), 300);
       }
     }
     if (open) {
@@ -1241,10 +1268,27 @@ export function AbbaAssistant() {
               whileHover={{ scale: 1.08 }}
               whileTap={{ scale: 0.94 }}
               onClick={() => {
-                // Unlock audio DURING this tap gesture — required for iOS Safari + Android Chrome
-                // so the greeting auto-plays without being blocked by autoplay policy
-                if (voiceEnabled) unlockAudio();
-                greetingSpokenRef.current = false; // reset so greeting re-speaks on fresh open
+                // ── iOS/Android audio unlock MUST happen synchronously in this tap ──
+                let playedPreFetch = false;
+                if (voiceEnabled) {
+                  unlockAudio();
+                  // Play pre-fetched greeting audio INSTANTLY inside the gesture window.
+                  // No network latency = iOS autoplay policy satisfied.
+                  // If pre-fetch hasn't completed yet, useEffect greeting fallback fires instead.
+                  if (greetingAudioUrlRef.current) {
+                    const greetAudio = new Audio(greetingAudioUrlRef.current);
+                    greetAudio.volume = 1.0;
+                    greetAudio.play().then(() => {
+                      safeSetSpeaking(true);
+                      greetAudio.onended = () => safeSetSpeaking(false);
+                    }).catch(() => {});
+                    greetingAudioUrlRef.current = null; // consume — refetched next mount
+                    playedPreFetch = true;
+                  }
+                }
+                // If we played the pre-fetch, mark spoken so useEffect doesn't double-speak.
+                // If not, reset so useEffect can attempt the fallback TTS.
+                greetingSpokenRef.current = playedPreFetch;
                 setOpen(true);
               }}
               className="flex items-center justify-center rounded-full shadow-2xl"

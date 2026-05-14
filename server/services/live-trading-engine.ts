@@ -1850,7 +1850,14 @@ async function runAILiveAnalysis(userId: number, marketAnalysis: Record<string, 
       const htf = htfMarketData?.[sym];
       const inlineHTFLabel = ((state.config as any).primaryTimeframe || 'M15') === 'H1' ? 'H4' : 'H1';
       const htfStr = htf ? `, ${inlineHTFLabel}_Bias=${htf.trend}, ${inlineHTFLabel}_BOS=${htf.bosChoch.detected ? `${htf.bosChoch.type}_${htf.bosChoch.direction}` : 'NONE'}, ${inlineHTFLabel}_PD=${htf.premiumDiscount.zone}, ${inlineHTFLabel}_Wyckoff=${htf.wyckoff.detected ? htf.wyckoff.phase : 'NONE'}` : '';
-      return `${sym}: Price=${data.currentPrice}, Trend=${data.trend}, ADX=${data.adx?.adx?.toFixed(1) || 'N/A'}, RSI=${data.rsi?.value?.toFixed(1) || 'N/A'}, Stoch K=${data.stochastic?.k?.toFixed(1) || 'N/A'} D=${data.stochastic?.d?.toFixed(1) || 'N/A'}, VWAP=${vwapVal?.toFixed(5) || 'N/A'} (Dev${vwapDev}%), OBV Trend=${data.obv?.trend || 'N/A'}, Patterns=[${(data.candlePatterns || []).join(',')}], Session=${data.sessionContext?.currentSession || 'N/A'}, Volatility=${vol?.percentile?.toFixed(0) || 'N/A'}%, Support=${sr?.supports?.[0]?.toFixed(5) || 'N/A'}, Resistance=${sr?.resistances?.[0]?.toFixed(5) || 'N/A'}, Fib 38.2%=${fib?.retracementLevels?.['38.2']?.toFixed(5) || 'N/A'}, Volume=${vm ? `RelVol=${vm.relativeVolume}x (${vm.volumeTrend}), Spikes=${vm.volumeSpikes}` : 'N/A'}${asiaRangeStr}${htfStr}`;
+      // ── ADX: the indicator object uses .value not .adx — fix the field name ──
+      const adxNum = (data.adx?.value ?? data.adx?.adx ?? 0) as number;
+      const pDI = (data.plusDI ?? data.adx?.plusDI ?? 0) as number;
+      const mDI = (data.minusDI ?? data.adx?.minusDI ?? 0) as number;
+      const diDir = pDI > 0 || mDI > 0
+        ? (pDI > mDI ? `BULL(+DI ${pDI.toFixed(1)}>-DI ${mDI.toFixed(1)})` : `BEAR(-DI ${mDI.toFixed(1)}>+DI ${pDI.toFixed(1)})`)
+        : 'DI_UNAVAILABLE';
+      return `${sym}: Price=${data.currentPrice}, Trend=${data.trend}, ADX=${adxNum.toFixed(1)}, DI_Direction=${diDir}, RSI=${data.rsi?.value?.toFixed(1) || 'N/A'}, Stoch K=${data.stochastic?.k?.toFixed(1) || 'N/A'} D=${data.stochastic?.d?.toFixed(1) || 'N/A'}, MACD=${data.macd?.macd?.toFixed(5) || 'N/A'}(hist=${data.macd?.histogram?.toFixed(5) || 'N/A'}), VWAP=${vwapVal?.toFixed(5) || 'N/A'} (Dev${vwapDev}%), OBV Trend=${data.obv?.trend || 'N/A'}, Patterns=[${(data.candlePatterns || []).join(',')}], Session=${data.sessionContext?.currentSession || 'N/A'}, Volatility=${vol?.percentile?.toFixed(0) || 'N/A'}%, ATR=${(vol?.currentATR ?? 0).toFixed(5)}, Support=${sr?.supports?.[0]?.toFixed(5) || 'N/A'}, Resistance=${sr?.resistances?.[0]?.toFixed(5) || 'N/A'}, Fib 38.2%=${fib?.retracementLevels?.['38.2']?.toFixed(5) || 'N/A'}, Volume=${vm ? `RelVol=${vm.relativeVolume}x (${vm.volumeTrend}), Spikes=${vm.volumeSpikes}` : 'N/A'}${asiaRangeStr}${htfStr}`;
     }).join('\n');
 
     let htfBiasSection = '';
@@ -2440,7 +2447,7 @@ Respond ONLY with valid JSON. Generate MULTIPLE decisions when opportunities exi
       const pipMove = cachedPrice > 0 ? Math.abs(avgPrice - cachedPrice) / cachedPrice * 10000 : 999;
       const cacheAge = cached ? (Date.now() - cached.ts) : 999999;
 
-      if (cached && cacheAge < 120000 && pipMove < 5) {
+      if (cached && cacheAge < 60000 && pipMove < 3) {
         decisions = cached.response;
         addActivity(userId, { type: 'info', message: `💾 Cache hit: reusing last AI response (${Math.round(cacheAge / 1000)}s old, ${pipMove.toFixed(1)}p move) — API call saved` });
       } else {
@@ -2671,13 +2678,17 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
     (decision as any)._brainLotMultiplier = postEnforcement.adjustedLotMultiplier;
     (decision as any)._brainTrailPips = postEnforcement.recommendedTrailPips;
 
-    if (adjustedConfidence < config.minConfidence) {
+    // Hard floor: never execute below 72% regardless of user config
+    // Below 72%, the statistical edge is not reliable enough to overcome spread + slippage
+    const HARD_CONFIDENCE_FLOOR = 72;
+    const effectiveMinConf2 = Math.max(config.minConfidence, HARD_CONFIDENCE_FLOOR);
+    if (adjustedConfidence < effectiveMinConf2) {
       addActivity(userId, {
         type: 'signal',
         symbol: decision.symbol,
         direction: decision.direction,
         confidence: adjustedConfidence,
-        message: `Signal skipped (${adjustedConfidence}% < ${config.minConfidence}% min): ${decision.reason}`,
+        message: `Signal skipped (${adjustedConfidence}% < ${effectiveMinConf2}% min [hard floor: ${HARD_CONFIDENCE_FLOOR}%]): ${decision.reason}`,
       });
       state.signalsGenerated++;
       return;
