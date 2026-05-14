@@ -261,7 +261,7 @@ interface EngineState {
   activityLog: LiveActivity[];
   openPositionCount: number;
   pnlSession: number;
-  marketSnapshot: Record<string, { price: number; change: number; trend: string; rsi: number; atr: number; updatedAt: string }>;
+  marketSnapshot: Record<string, { price: number; change: number; trend: string; rsi: number; atr: number; updatedAt: string; adx?: number; plusDI?: number; minusDI?: number }>;
   goalTracker: GoalTracker;
   modelLocked: boolean;
   asiaRangeHigh: Record<string, number>;
@@ -1584,12 +1584,20 @@ function generateRuleBasedSignals(indicators: Record<string, any>, config: LiveE
   const confidence = Math.round((winningScore / 7) * 100);
 
   const entry = currentPrice;
-  // ── R:R 1:2 minimum — SL=1.6×ATR, TP=3.2×ATR ──────────────────────
-  // Widened from 1.5/2.5 to give trades more room and capture bigger moves
-  const slMult = confidence >= 86 ? 1.8 : 1.6; // premium setups get slightly more room
-  const tpMult = confidence >= 86 ? 3.6 : 3.2; // premium setups target bigger extension
-  const sl = direction === 'BUY' ? entry - (atr * slMult) : entry + (atr * slMult);
-  const tp = direction === 'BUY' ? entry + (atr * tpMult) : entry - (atr * tpMult);
+  // ── ATR-based SL with minimum pip floor (prevents tight SL stop-outs) ──────
+  // SL = max(1.8×ATR, minPipFloor) — gives trades room to breathe on M15 data
+  const pipSize = getPipSize(symbol);
+  const isJpy = symbol.includes('JPY');
+  const isXau = symbol.includes('XAU');
+  const minSlPips = isXau ? 300 : isJpy ? 22 : 16; // minimum pip floors
+  const minSlDist = minSlPips * pipSize;
+  const slMult = confidence >= 86 ? 2.0 : 1.8; // wider SL for M15 timeframe
+  const tpMult = confidence >= 86 ? 4.0 : 3.6; // scale TP to maintain 2:1 R:R
+  const rawSlDist = atr * slMult;
+  const effectiveSlDist = Math.max(rawSlDist, minSlDist); // enforce minimum
+  const effectiveTpDist = Math.max(atr * tpMult, effectiveSlDist * 2.0); // always at least 2:1
+  const sl = direction === 'BUY' ? entry - effectiveSlDist : entry + effectiveSlDist;
+  const tp = direction === 'BUY' ? entry + effectiveTpDist : entry - effectiveTpDist;
 
   let lotSize = config.baseLotSize;
   if (config.useKellyCriterion) {
@@ -1610,7 +1618,7 @@ function generateRuleBasedSignals(indicators: Record<string, any>, config: LiveE
     stopLoss: sl,
     takeProfit: tp,
     lotSize,
-    holdTime: '15min',
+    holdTime: '30min',
     urgency: 'IMMEDIATE',
   };
 
@@ -2093,11 +2101,36 @@ ${(!config.trailMethod || config.trailMethod === 'staged_volume') ? `- TRAILING 
 - MAXIMIZE VELOCITY: If you see a better setup on another pair but are at max trades, close the weakest performer to take the high-conviction one.
 
 TREND-DIRECTION RULES (critical — do not violate these):
-- NEVER output a BUY signal on a pair where the M15 or H1 trend shows BEARISH with ADX > 22. "Oversold" RSI or Stochastic in a downtrend means continuation, NOT reversal. Wait for trend to neutralize first.
-- NEVER output a SELL signal on a pair where the M15 or H1 trend shows BULLISH with ADX > 22. "Overbought" readings in an uptrend mean continuation.
-- If a pair shows M15 BEARISH + H1 BEARISH simultaneously, the ONLY valid trade is SELL. Any BUY on that pair requires ALL of: 85%+ confidence, clear bullish BOS on M15, strong bullish engulfing candle, RSI divergence. If you don't have ALL of these, output NO_ACTION.
-- Counter-trend trades are rare, high-skill setups. Default to trend alignment. When in doubt, skip the BUY and wait for a SELL opportunity instead.
+- NEVER output a BUY signal on a pair where the M15 or H1 trend shows BEARISH with ADX > 20. "Oversold" RSI or Stochastic in a downtrend means CONTINUATION, NOT reversal. Wait for trend to neutralize first.
+- NEVER output a SELL signal on a pair where the M15 or H1 trend shows BULLISH with ADX > 20. "Overbought" readings in an uptrend mean continuation.
+- DI LINE RULE: If plusDI < minusDI (regardless of ADX level), the market is bearish. Do NOT buy. If plusDI > minusDI, the market is bullish. Do NOT sell unless you have clear reversal structure.
+- If a pair shows M15 BEARISH + H1 BEARISH simultaneously, the ONLY valid trade is SELL. Any BUY requires ALL of: 85%+ confidence, clear bullish BOS on M15, strong bullish engulfing candle, RSI divergence. If you don't have ALL of these, output NO_ACTION.
+- Counter-trend trades are rare, high-skill setups. Default to trend alignment. When in doubt, skip the entry and wait for the trend to play out.
 - In GBP pairs (GBPUSD, GBPJPY, EURGBP): these are highly news-sensitive. If macro context shows USD strength or GBP weakness, only take SELL setups unless you have clear bullish reversal structure.
+- RSI/Stoch in a BEARISH trend: RSI below 50, Stoch below 50 = CONTINUATION signals. RSI below 30 in a downtrend is NOT a buy signal — it means the sell is accelerating.
+
+ENTRY TIMING — WHEN TO BUY, SELL, OR WAIT (include in every signal):
+- PRIME_ENTRY: M15 trend confirmed (ADX > 20 or DI sep > 10), momentum indicator in trend direction (RSI > 55 for bull or < 45 for bear), volume ABOVE_AVERAGE or SURGING, no major news in next 30 min. ENTER NOW.
+- WAIT_PULLBACK: Trend confirmed but price extended from VWAP (Dev > 0.15%) or RSI > 70/< 30. Wait for a pullback to VWAP or 38.2% Fib retracement before entering. Set urgency = WAIT_FOR_PULLBACK.
+- WAIT_STRUCTURE: Good macro setup but M15 hasn't confirmed with BOS yet. Wait for price to break structure and retest. Do NOT front-run structure breaks.
+- AVOID: Any of these present → skip the trade entirely: (1) M15 trend CONFLICTS with H1 trend and confidence < 82%, (2) High impact news within 30 min on that currency, (3) Volume DRY (RelVol < 0.5x), (4) ADX < 12 and DI separation < 6 (market is truly ranging/directionless), (5) Session is 20:00-00:00 UTC and not a JPY/AUD pair.
+
+For EVERY signal, set "urgency" to one of: IMMEDIATE (prime entry, enter now), WAIT_FOR_PULLBACK (good setup but overextended), MONITORING (building but not ready).
+Set "tradingWindow" field = "prime" | "good" | "marginal" | "avoid" based on: session time + volume + trend strength + news proximity.
+If tradingWindow = "avoid", output NO_ACTION instead of a trade signal.
+
+CONFLUENCE REQUIREMENTS BY STRATEGY (minimum number of confirming factors):
+- scalping: MINIMUM 4 confluences (trend direction, RSI>55/<45, Stoch in trend direction, VWAP on correct side, volume ≥ average). Without 4, output NO_ACTION.
+- momentum: MINIMUM 3 confluences (trend confirmed by ADX, momentum indicator, OBV or volume direction).
+- sniper / ict_ote / smc_demand_supply: MINIMUM 5 confluences (HTF bias + structure level + indicator + volume + candle pattern).
+- session_breakout / asia_range_breakout: MINIMUM 3 confluences (range break + volume surge + candle close outside range).
+- All others: MINIMUM 3 confluences. If you cannot list 3 specific confirming factors in the confluences field, do NOT signal.
+
+HOLD TIME ALIGNMENT WITH TIMEFRAME:
+- holdTime "15min"-"30min": This is a scalp. M15 trend MUST be in signal direction (no exceptions). ATR-based SL minimum 1.2× ATR. DO NOT use holdTime < 30min if M15 trend is NEUTRAL.
+- holdTime "1hr": Intraday trade. Both M15 AND H1 should favour the direction. SL minimum 1.5× ATR.
+- holdTime "4hr" or longer: Swing trade. H1 AND H4 must align. SL minimum 2× ATR. Higher TP targets (3:1+ R:R).
+- NEVER assign holdTime "5min" — the engine operates on M15 data and 5-minute trades need M1/M5 analysis we don't have. Minimum holdTime is "30min".
 
 CONTEXT:
 - Time: ${now.toISOString()} | Session: ${session} | Day: ${day}
@@ -2123,14 +2156,14 @@ SMALL ACCOUNT PROTECTION ($${config.accountBalance}):
 
 HFT TRADING STRATEGY ARSENAL - USE ALL SIMULTANEOUSLY TO HIT THE WEEKLY GOAL:
 
-SCALPING (6-15 pip targets, high frequency - PRIMARY for quick profit accumulation):
-- Trade micro-moves on 1min/5min momentum bursts - THIS IS YOUR BREAD AND BUTTER
-- Look for RSI divergence + Stochastic crossovers in overbought/oversold zones
-- Quick entries on VWAP bounces - price touching VWAP and reversing with volume confirmation
-- Stops (5-8 pips), targets (10-15 pips minimum) — MINIMUM 1:2 R:R even on scalps
-- NEVER scalp with a 1:1 or worse R:R — the math kills the account over time
-- Best during high-volume sessions (London, NY overlap)
-- GOAL: Stack quality wins. 5-10 scalps/session with ≥1:2 R:R beats chasing volume with poor R:R
+SCALPING (M15 momentum setups, primary for quick profit accumulation):
+- Trade clear M15 momentum moves that align with the current M15 trend direction — DO NOT scalp counter-trend
+- Look for RSI momentum (>55 in uptrend, <45 in downtrend) + Stochastic %K crossing 50 in trend direction + VWAP on correct side
+- STOP LOSS: Minimum 1.2× current ATR below entry for BUY (above for SELL). For major pairs this is typically 15-25 pips. NEVER less than 15 pips on non-JPY, NEVER less than 20 pips on JPY pairs. Tight SLs get hit by normal candle noise and lose money every time.
+- TAKE PROFIT: Minimum 2× SL distance from entry (2:1 R:R), target 2.5-3:1 for A+ setups
+- Entry timing: Only scalp DURING confirmed momentum candles — not at the start of consolidation. Wait for price to show clear direction first.
+- Best windows: London open 07:00-09:30 UTC, NY open 13:00-15:30 UTC. DO NOT scalp during 20:00-00:00 UTC (low volume, wide spreads, fake moves)
+- GOAL: 3-5 quality scalps with ≥2:1 R:R beats chasing 10 scalps with tight stops that get wiped out
 
 MOMENTUM SURFING (15-40 pip rides - SECONDARY for bigger chunks):
 - Catch breakouts from consolidation zones when ADX crosses above 25
@@ -2318,11 +2351,13 @@ Respond ONLY with valid JSON. Generate MULTIPLE decisions when opportunities exi
       "takeProfit": number,
       "takeProfit2": number,
       "lotSize": 0.01-0.05,
-      "holdTime": "5min|15min|1hr|4hr",
+      "holdTime": "30min|1hr|2hr|4hr|8hr",
       "positionId": "for modify/close actions",
       "modifyAction": "trail_stop|move_sl|partial_close|full_close",
       "newStopLoss": number,
       "urgency": "IMMEDIATE" | "WAIT_FOR_PULLBACK" | "MONITORING",
+      "tradingWindow": "prime|good|marginal|avoid",
+      "entryTiming": "PRIME_ENTRY|WAIT_PULLBACK|WAIT_STRUCTURE|AVOID",
       "pyramidOf": "signal ID if adding to existing winning trade"
     }
   ],
@@ -2564,9 +2599,11 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       }
     }
 
-    // ── M15 Trend Conflict Penalty ──────────────────────────────────────
-    // Uses DI lines from the snapshot (now stored alongside trend) so mild GBP/JPY
-    // downtrends at ADX 15–22 are caught correctly, not just strong ADX > 25 trends.
+    // ── M15 Trend Conflict Gate ──────────────────────────────────────────
+    // Uses DI lines from the snapshot so mild GBP/JPY downtrends at ADX 15–22
+    // are caught, not just strong ADX > 25 trends.
+    // STRONG conflict (ADX > 20 or DI sep > 12): HARD BLOCK unless 82%+ confidence
+    // MILD conflict (ADX 12-20 or DI sep 8-12): 12% confidence penalty
     const m15Snap = state.marketSnapshot?.[decision.symbol];
     if (m15Snap && decision.direction) {
       const signalDir = decision.direction.toUpperCase();
@@ -2581,17 +2618,38 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
         effectiveTrend = m15PlusDI > m15MinusDI ? 'BULLISH' : 'BEARISH';
       }
 
-      const trendDetected = (m15ADX > 15 || diSep > 8) && effectiveTrend !== 'NEUTRAL';
+      const trendDetected = (m15ADX > 12 || diSep > 8) && effectiveTrend !== 'NEUTRAL';
       const m15Conflicts = (signalDir === 'BUY' && effectiveTrend === 'BEARISH') || (signalDir === 'SELL' && effectiveTrend === 'BULLISH');
 
       if (trendDetected && m15Conflicts) {
-        const penalty = 10; // raised from 8% to 10% — trend conflict is a serious warning
-        adjustedConfidence = Math.max(0, adjustedConfidence - penalty);
-        addActivity(userId, {
-          type: 'info',
-          symbol: decision.symbol,
-          message: `⚠️ M15 TREND CONFLICT: ${signalDir} vs M15 ${effectiveTrend} (ADX ${m15ADX.toFixed(1)}, +DI ${m15PlusDI.toFixed(1)} / -DI ${m15MinusDI.toFixed(1)}) — confidence penalised by ${penalty}% → ${adjustedConfidence}%`,
-        });
+        const isStrongTrend = m15ADX > 20 || diSep > 12;
+
+        if (isStrongTrend) {
+          // HARD BLOCK for strong counter-trend entries — these lose money consistently
+          if (adjustedConfidence < 82) {
+            addActivity(userId, {
+              type: 'info',
+              symbol: decision.symbol,
+              message: `🚫 M15 TREND BLOCK: ${signalDir} vs strong M15 ${effectiveTrend} (ADX ${m15ADX.toFixed(1)}, +DI ${m15PlusDI.toFixed(1)} / -DI ${m15MinusDI.toFixed(1)}, diSep ${diSep.toFixed(1)}) — ${adjustedConfidence}% < 82% required for counter-trend. BLOCKED.`,
+            });
+            state.signalsGenerated++;
+            return;
+          }
+          addActivity(userId, {
+            type: 'info',
+            symbol: decision.symbol,
+            message: `⚠️ M15 STRONG CONFLICT: ${signalDir} vs M15 ${effectiveTrend} — ${adjustedConfidence}% ≥ 82% cleared. Allowing high-confidence counter-trend (use caution).`,
+          });
+        } else {
+          // Mild conflict: 12% penalty + warning
+          const penalty = 12;
+          adjustedConfidence = Math.max(0, adjustedConfidence - penalty);
+          addActivity(userId, {
+            type: 'info',
+            symbol: decision.symbol,
+            message: `⚠️ M15 TREND CONFLICT (mild): ${signalDir} vs M15 ${effectiveTrend} (ADX ${m15ADX.toFixed(1)}, diSep ${diSep.toFixed(1)}) — confidence penalised ${penalty}% → ${adjustedConfidence}%`,
+          });
+        }
       }
     }
 
@@ -2688,9 +2746,101 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       return;
     }
 
-    const entryPrice = parseNum(decision.entryPrice);
-    const stopLoss = parseNum(decision.stopLoss);
-    const takeProfit = parseNum(decision.takeProfit);
+    // ── Trading window gate: block "avoid" window signals ─────────────────────
+    const tradingWindow = (decision.tradingWindow || '').toLowerCase();
+    if (tradingWindow === 'avoid') {
+      addActivity(userId, {
+        type: 'info',
+        symbol: decision.symbol,
+        message: `🕐 TIMING BLOCK: ${decision.symbol} ${decision.direction} — AI flagged tradingWindow=avoid (poor session/volume/news conditions). Signal skipped.`,
+      });
+      return;
+    }
+
+    // ── Hold time gate: reject < 30-min scalps (engine runs on M15 data) ──────
+    const holdTimeRaw = (decision.holdTime || '').toLowerCase();
+    const isUltraShortScalp = holdTimeRaw === '5min' || holdTimeRaw === '5m' || holdTimeRaw === '10min';
+    if (isUltraShortScalp) {
+      // Silently upgrade to 30min rather than hard-reject
+      decision.holdTime = '30min';
+      addActivity(userId, {
+        type: 'info',
+        symbol: decision.symbol,
+        message: `⏱ HOLD TIME: ${decision.symbol} holdTime upgraded from ${holdTimeRaw} → 30min (M15 engine minimum). SL widened to give trade room.`,
+      });
+    }
+
+    // ── Confluence count gate ─────────────────────────────────────────────────
+    const confluences: string[] = Array.isArray(decision.confluences) ? decision.confluences : [];
+    const strategy = (decision.strategy || '').toLowerCase();
+    const minConf = (strategy === 'scalping') ? 4
+      : (strategy === 'sniper' || strategy === 'ict_ote' || strategy === 'smc_demand_supply' || strategy === 'prop_firm_sniper') ? 5
+      : 3;
+    if (confluences.length < minConf) {
+      addActivity(userId, {
+        type: 'info',
+        symbol: decision.symbol,
+        message: `⚠️ CONFLUENCE GATE: ${decision.symbol} ${strategy} has ${confluences.length}/${minConf} required confluences — signal rejected. Need more confirming factors.`,
+      });
+      state.signalsGenerated++;
+      return;
+    }
+
+    let entryPrice = parseNum(decision.entryPrice);
+    let stopLoss = parseNum(decision.stopLoss);
+    let takeProfit = parseNum(decision.takeProfit);
+
+    // ── ATR-based minimum SL expansion (prevent premature stop-outs) ─────────
+    // Scalps with 5-8 pip SLs on M15 data get wiped by normal candle noise.
+    // Enforce a per-symbol floor so every trade has room to breathe.
+    // Floor = max(minPipFloor, 1.0 × current ATR)
+    if (entryPrice && stopLoss) {
+      const pipSize = getPipSize(decision.symbol || '');
+      const isJpy = (decision.symbol || '').includes('JPY');
+      const isXau = (decision.symbol || '').includes('XAU');
+      const currentATRForSL = (state as any)._lastATR?.[decision.symbol] || 0;
+
+      // Minimum pip floors by instrument type
+      const minPipFloor = isXau ? 300 : isJpy ? 20 : 15; // pips
+      const minPipDist = minPipFloor * pipSize;
+
+      // 1.0× ATR floor — trades need at least 1 full ATR of room
+      const atrFloor = currentATRForSL > 0 ? currentATRForSL * 1.0 : minPipDist;
+      const effectiveMinSL = Math.max(minPipDist, atrFloor);
+
+      const actualSlDist = Math.abs(entryPrice - stopLoss);
+
+      if (actualSlDist < effectiveMinSL) {
+        // Expand SL to the minimum, then scale TP to preserve at least 2:1 R:R
+        const expandedSL = decision.direction === 'BUY'
+          ? entryPrice - effectiveMinSL
+          : entryPrice + effectiveMinSL;
+
+        let expandedTP = takeProfit;
+        if (takeProfit) {
+          const originalRR = Math.abs(takeProfit - entryPrice) / actualSlDist;
+          const newRR = Math.max(originalRR, 2.0); // preserve original R:R or push to 2:1 minimum
+          const newTpDist = effectiveMinSL * newRR;
+          expandedTP = decision.direction === 'BUY'
+            ? entryPrice + newTpDist
+            : entryPrice - newTpDist;
+        }
+
+        const oldSlPips = Math.round(actualSlDist / pipSize);
+        const newSlPips = Math.round(effectiveMinSL / pipSize);
+
+        addActivity(userId, {
+          type: 'info',
+          symbol: decision.symbol,
+          message: `📏 SL EXPANDED: ${decision.symbol} ${decision.direction} — SL was ${oldSlPips} pips (too tight), expanded to ${newSlPips} pips (ATR floor). TP scaled to maintain R:R.`,
+        });
+
+        decision.stopLoss = Math.round(expandedSL * 100000) / 100000;
+        decision.takeProfit = expandedTP ? Math.round(expandedTP * 100000) / 100000 : takeProfit;
+        stopLoss = decision.stopLoss;
+        takeProfit = decision.takeProfit;
+      }
+    }
 
     // ── Hard R:R gate: reject signals below 1:1.5 minimum ────────────
     if (entryPrice && stopLoss && takeProfit) {
