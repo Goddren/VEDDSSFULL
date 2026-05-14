@@ -49,6 +49,7 @@ import {
   Award,
   GraduationCap,
 } from 'lucide-react';
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -468,6 +469,16 @@ const Dashboard: React.FC = () => {
     refetchInterval: 60000,
   });
 
+  // MT5 balance history for chart
+  const { data: balanceHistory } = useQuery<{
+    series: { date: string; balance: number }[];
+    currentBalance: number; totalPnL: number; totalTrades: number;
+  }>({
+    queryKey: ['/api/mt5/balance-history'],
+    enabled: !!user,
+    refetchInterval: 120000,
+  });
+
   // TradeLocker connection + balance
   const { data: tlConnection } = useQuery<any>({
     queryKey: ['/api/tradelocker/connection'],
@@ -668,6 +679,48 @@ const Dashboard: React.FC = () => {
                     </div>
                   </Link>
                 )}
+              </div>
+            )}
+
+            {/* ── MT5 Balance Chart ─────────────────────────────────────── */}
+            {balanceHistory && balanceHistory.series.length >= 2 && (
+              <div className="smart-card px-3 pt-3 pb-2 mb-0">
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-1.5">
+                    <Activity className="h-3.5 w-3.5 text-violet-400" />
+                    <span className="text-xs font-semibold text-white">Account Balance</span>
+                  </div>
+                  <div className="flex items-center gap-3 text-[11px]">
+                    <span className={`font-bold ${(balanceHistory.totalPnL ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {(balanceHistory.totalPnL ?? 0) >= 0 ? '+' : ''}${(balanceHistory.totalPnL ?? 0).toFixed(2)} P&L
+                    </span>
+                    <span className="text-white font-bold">${(balanceHistory.currentBalance ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  </div>
+                </div>
+                <ResponsiveContainer width="100%" height={70}>
+                  <AreaChart data={balanceHistory.series} margin={{ top: 2, right: 2, left: 0, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="balGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor={((balanceHistory.totalPnL ?? 0) >= 0) ? '#10b981' : '#ef4444'} stopOpacity={0.3} />
+                        <stop offset="95%" stopColor={((balanceHistory.totalPnL ?? 0) >= 0) ? '#10b981' : '#ef4444'} stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <XAxis dataKey="date" hide />
+                    <YAxis hide domain={['auto', 'auto']} />
+                    <Tooltip
+                      contentStyle={{ background: '#0d1226', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 11 }}
+                      labelStyle={{ color: '#9ca3af' }}
+                      formatter={(v: number) => [`$${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 'Balance']}
+                      labelFormatter={(l: string) => new Date(l).toLocaleDateString()}
+                    />
+                    <Area type="monotone" dataKey="balance" stroke={(balanceHistory.totalPnL ?? 0) >= 0 ? '#10b981' : '#ef4444'} strokeWidth={2} fill="url(#balGrad)" dot={false} />
+                  </AreaChart>
+                </ResponsiveContainer>
+                <div className="flex justify-between text-[9px] text-gray-600 mt-0.5">
+                  <span>{balanceHistory.series[0]?.date ? new Date(balanceHistory.series[0].date).toLocaleDateString() : ''}</span>
+                  <span>{balanceHistory.totalTrades} trades tracked</span>
+                  <span>Today</span>
+                </div>
               </div>
             )}
 

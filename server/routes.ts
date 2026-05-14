@@ -9518,6 +9518,71 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
     });
   });
 
+  // ── MT5 Balance History — reconstructs balance curve from trade results ──
+  app.get("/api/mt5/balance-history", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+
+    // Get all closed trade results sorted oldest-first
+    const allTrades = await storage.getAiTradeResults(userId, 5000);
+    const closed = allTrades
+      .filter((t: any) => t.result && t.result !== 'PENDING' && (t.closedAt || t.createdAt))
+      .sort((a: any, b: any) => new Date(a.closedAt || a.createdAt).getTime() - new Date(b.closedAt || b.createdAt).getTime());
+
+    // Supplement with cache trades (deduplicated)
+    const cachedAll: any[] = (global as any).mt5ClosedTrades?.[userId]?.trades || [];
+    const dbTickets = new Set(closed.map((t: any) => t.mt5Ticket).filter(Boolean));
+    const cacheExtra = cachedAll
+      .filter((t: any) => !t.ticket || !dbTickets.has(t.ticket.toString()))
+      .map((t: any) => ({ profitLoss: t.profit || 0, closedAt: t.closeTime || t.timestamp }))
+      .filter((t: any) => t.closedAt)
+      .sort((a: any, b: any) => new Date(a.closedAt).getTime() - new Date(b.closedAt).getTime());
+
+    // Get current MT5 account balance as the anchor point
+    const mt5Data = (global as any).mt5AccountData?.[userId] || (global as any).mt5OpenPositions?.[userId];
+    const currentBalance: number = mt5Data?.balance || mt5Data?.accountBalance || 0;
+
+    // Build the history points — work forward from (currentBalance - totalPnL) as start
+    const allPoints = [
+      ...closed.map((t: any) => ({ pnl: t.profitLoss || 0, date: t.closedAt || t.createdAt })),
+      ...cacheExtra.map((t: any) => ({ pnl: t.profitLoss || 0, date: t.closedAt })),
+    ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    const totalPnL = allPoints.reduce((s, p) => s + p.pnl, 0);
+    const startBalance = currentBalance > 0 ? currentBalance - totalPnL : 0;
+
+    // Build cumulative series, group by day (use last value per day)
+    const dailyMap: Record<string, number> = {};
+    let running = startBalance;
+    for (const pt of allPoints) {
+      running += pt.pnl;
+      const day = new Date(pt.date).toISOString().substring(0, 10);
+      dailyMap[day] = Math.round(running * 100) / 100;
+    }
+
+    // Add today's current balance as the final point
+    if (currentBalance > 0) {
+      const today = new Date().toISOString().substring(0, 10);
+      dailyMap[today] = Math.round(currentBalance * 100) / 100;
+    }
+
+    const series = Object.entries(dailyMap)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, balance]) => ({ date, balance }));
+
+    // If we have no history but have a current balance, return a single point
+    if (series.length === 0 && currentBalance > 0) {
+      series.push({ date: new Date().toISOString().substring(0, 10), balance: currentBalance });
+    }
+
+    res.json({
+      series,
+      currentBalance: Math.round(currentBalance * 100) / 100,
+      totalPnL: Math.round(totalPnL * 100) / 100,
+      totalTrades: allPoints.length,
+    });
+  });
+
   // ── Manual Trade Logging — lets users log trades not captured by MT5 sync ──
   app.post("/api/mt5/manual-trade", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });

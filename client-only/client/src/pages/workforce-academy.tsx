@@ -1003,9 +1003,9 @@ function LessonPlayer({
   }
 
   return (
-    <div className="flex flex-col h-full max-h-[85vh] overflow-hidden">
+    <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 flex-shrink-0">
+      <div className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-white/10 flex-shrink-0">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: `${courseColor}22` }}>
             <BookOpen className="w-4 h-4" style={{ color: courseColor }} />
@@ -1025,8 +1025,8 @@ function LessonPlayer({
         </div>
       </div>
 
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto px-6 py-6">
+      {/* Content — scrollable, reduced padding on mobile */}
+      <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 sm:py-6">
         {mode === "lesson" ? (
           <div className="max-w-2xl mx-auto">
             <div className="flex items-center gap-3 mb-6">
@@ -1120,21 +1120,22 @@ function LessonPlayer({
         )}
       </div>
 
-      {/* Footer navigation */}
+      {/* Footer navigation — sticky, safe area aware on mobile */}
       {mode === "lesson" && (
-        <div className="flex items-center justify-between px-6 py-4 border-t border-white/10 flex-shrink-0">
-          <Button variant="outline" className="border-white/10 text-gray-300 hover:text-white"
+        <div className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-t border-white/10 flex-shrink-0 pb-[env(safe-area-inset-bottom,12px)] sm:pb-4">
+          <Button variant="outline" size="sm" className="border-white/10 text-gray-300 hover:text-white text-xs sm:text-sm"
             disabled={currentLesson === 0}
             onClick={() => setCurrentLesson(p => p - 1)}>
-            <ChevronLeft className="w-4 h-4 mr-1" /> Previous
+            <ChevronLeft className="w-4 h-4 sm:mr-1" /> <span className="hidden sm:inline">Previous</span>
           </Button>
+          <span className="text-[11px] text-gray-500">{currentLesson + 1} / {totalLessons}</span>
           {isLastLesson ? (
-            <Button className="font-bold text-white" style={{ background: courseColor }} onClick={() => setMode("assessment")}>
-              Take Assessment <ChevronRight className="w-4 h-4 ml-1" />
+            <Button size="sm" className="font-bold text-white text-xs sm:text-sm" style={{ background: courseColor }} onClick={() => setMode("assessment")}>
+              <span className="hidden sm:inline">Take </span>Assessment <ChevronRight className="w-4 h-4 sm:ml-1" />
             </Button>
           ) : (
-            <Button className="text-white" style={{ background: courseColor }} onClick={() => setCurrentLesson(p => p + 1)}>
-              Next Lesson <ChevronRight className="w-4 h-4 ml-1" />
+            <Button size="sm" className="text-white text-xs sm:text-sm" style={{ background: courseColor }} onClick={() => setCurrentLesson(p => p + 1)}>
+              Next <ChevronRight className="w-4 h-4 sm:ml-1" />
             </Button>
           )}
         </div>
@@ -1755,7 +1756,7 @@ export default function WorkforceAcademyPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
               {filteredCourses.map(course => (
                 <CourseCard key={course.id} course={course}
                   enrolled={enrollments.find(e => e.courseId === course.id)}
@@ -1856,9 +1857,9 @@ export default function WorkforceAcademyPage() {
         </Tabs>
       </div>
 
-      {/* Lesson Player Modal */}
+      {/* Lesson Player Modal — full screen on mobile, dialog on desktop */}
       <Dialog open={!!lessonOpen} onOpenChange={open => !open && setLessonOpen(null)}>
-        <DialogContent className="bg-[#0d1226] border-white/10 max-w-3xl w-full p-0 h-[85vh] flex flex-col">
+        <DialogContent className="bg-[#0d1226] border-white/10 p-0 flex flex-col max-w-3xl w-full sm:w-full sm:max-w-3xl h-[100dvh] sm:h-[88vh] rounded-none sm:rounded-2xl sm:mx-4 [&>button]:top-3 [&>button]:right-3">
           {lessonOpen && (
             <LessonPlayer
               courseId={lessonOpen.courseId}
