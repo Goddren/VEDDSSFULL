@@ -1759,6 +1759,254 @@ function countIndicatorAlignment(data: any): { bull: number; bear: number } {
   return { bull, bear };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PER-PAIR ADAPTIVE STRATEGY SELECTOR
+// Reads current market conditions for a single pair and returns the strategy
+// most likely to be profitable RIGHT NOW, independent of the user's global
+// strategy mode setting.  The selector is deterministic (no AI API call) and
+// runs before the AI prompt is assembled so the AI gets a clear instruction
+// per pair.
+//
+// Priority order (first match wins):
+//  1. News Fade        — post-news spike exhaustion window (5-30 min after event)
+//  2. Asia Range Break — London open (07-08 UTC) + Asia range defined
+//  3. Session Breakout — first 30 min of London or NY open + volume surge
+//  4. ICT OTE          — H1 BOS/CHOCH confirmed + price in 61.8-78.6% Fib zone
+//  5. SMC Demand/Supply— fresh demand/supply zone on H1/H4 + price returning
+//  6. Sniper           — price at key Fib (38.2/61.8%) + S/R confluence + pattern
+//  7. VWAP Reversion   — price > 0.15% from VWAP + RSI at extreme
+//  8. Momentum         — ADX > 25 + strong DI separation + volume surging/above avg
+//  9. Scalping         — ADX 15-28 + moderate trend + active London/NY session
+// 10. Wait             — ADX < 12, DI close together, no clear structure
+// ─────────────────────────────────────────────────────────────────────────────
+interface StrategyRecommendation {
+  strategy: string;
+  reason: string;
+  priority: 'high' | 'medium' | 'low' | 'none';
+  minConfluences: number;
+}
+
+function selectStrategyForPair(
+  symbol: string,
+  data: any,
+  htfBias: HTFBiasData | undefined,
+  asiaHigh: number | undefined,
+  asiaLow: number | undefined,
+  utcHour: number,
+  utcMinute: number,
+  lastHighImpactNewsAt: string | null,
+  globalStrategyMode: string,
+): StrategyRecommendation {
+  const adxVal   = (data.adx?.value ?? data.adx?.adx ?? 0) as number;
+  const trend    = (data.trend ?? 'NEUTRAL') as string;
+  const plusDI   = (data.plusDI ?? data.adx?.plusDI ?? 0) as number;
+  const minusDI  = (data.minusDI ?? data.adx?.minusDI ?? 0) as number;
+  const diSep    = Math.abs(plusDI - minusDI);
+  const rsiVal   = (data.rsi?.value ?? 50) as number;
+  const stochK   = (data.stochastic?.k ?? 50) as number;
+  const vm       = data.volumeMetrics as VolumeMetrics | undefined;
+  const volTrend = vm?.volumeTrend ?? 'average';
+  const relVol   = vm?.relativeVolume ?? 1;
+  const price    = data.currentPrice as number;
+  const vwapVal  = data.vwap?.value as number | undefined;
+  const sr       = data.supportResistance;
+  const fib      = data.fibonacci?.retracementLevels as Record<string, number> | undefined;
+  const patterns = (data.candlePatterns ?? []) as string[];
+  const macdHist = (data.macd?.histogram ?? 0) as number;
+  const obvTrend = (data.obv?.trend ?? '') as string;
+  const isJpy    = symbol.includes('JPY');
+  const isXau    = symbol.includes('XAU');
+
+  // Helpers
+  const pricePct  = (a: number, b: number) => Math.abs(a - b) / Math.max(b, 0.00001) * 100;
+  const hasPattern = (...names: string[]) =>
+    patterns.some(p => names.some(n => p.toLowerCase().includes(n.toLowerCase())));
+
+  // ── 1. NEWS FADE ────────────────────────────────────────────────────────
+  if (lastHighImpactNewsAt) {
+    const msSince = Date.now() - new Date(lastHighImpactNewsAt).getTime();
+    const inFadeWindow = msSince >= 5 * 60000 && msSince <= 30 * 60000;
+    const rsiExtreme = rsiVal > 72 || rsiVal < 28;
+    const volDeclined = relVol < 1.0 && relVol > 0; // volume declining after spike
+    if (inFadeWindow && rsiExtreme && volDeclined) {
+      return {
+        strategy: 'news_fade',
+        reason: `Post-news fade: ${Math.round(msSince / 60000)}min after event, RSI=${rsiVal.toFixed(1)} (extreme), volume declining (${relVol.toFixed(2)}x)`,
+        priority: 'high',
+        minConfluences: 3,
+      };
+    }
+  }
+
+  // ── 2. ASIA RANGE BREAKOUT ──────────────────────────────────────────────
+  // London open window (07:00–08:30 UTC). Asia range must be set.
+  const isLondonOpenWindow = (utcHour === 7) || (utcHour === 8 && utcMinute < 30);
+  if (isLondonOpenWindow && asiaHigh && asiaLow && price) {
+    const asiaRange = asiaHigh - asiaLow;
+    const nearHigh = pricePct(price, asiaHigh) < 0.15;
+    const nearLow  = pricePct(price, asiaLow)  < 0.15;
+    const brokenHigh = price > asiaHigh;
+    const brokenLow  = price < asiaLow;
+    if ((nearHigh || nearLow || brokenHigh || brokenLow) && relVol >= 1.2 && asiaRange > 0) {
+      const side = (brokenHigh || nearHigh) ? 'AsiaHigh breakout' : 'AsiaLow breakdown';
+      return {
+        strategy: 'asia_range_breakout',
+        reason: `London open window (${utcHour}:${utcMinute.toString().padStart(2,'0')} UTC). Asia range defined. ${side}. Vol=${volTrend} (${relVol.toFixed(2)}x)`,
+        priority: 'high',
+        minConfluences: 3,
+      };
+    }
+  }
+
+  // ── 3. SESSION BREAKOUT ─────────────────────────────────────────────────
+  // First 30 min of London (07:00–07:30) or NY (13:00–13:30)
+  const isLondonOpen = utcHour === 7 && utcMinute < 30;
+  const isNYOpen     = utcHour === 13 && utcMinute < 30;
+  if ((isLondonOpen || isNYOpen) && relVol >= 1.4 && adxVal >= 15) {
+    return {
+      strategy: 'session_breakout',
+      reason: `${isLondonOpen ? 'London' : 'NY'} open breakout window (${utcHour}:${utcMinute.toString().padStart(2,'0')} UTC). ADX=${adxVal.toFixed(1)}, Vol=${volTrend} (${relVol.toFixed(2)}x). First-30-min momentum.`,
+      priority: 'high',
+      minConfluences: 3,
+    };
+  }
+
+  // ── 4. ICT OTE ──────────────────────────────────────────────────────────
+  // H1 BOS or CHOCH detected + price inside 61.8–78.6% retracement zone
+  if (htfBias?.bosChoch.detected && fib && price) {
+    const f618 = fib['61.8'];
+    const f786 = fib['78.6'];
+    if (f618 && f786) {
+      const lo = Math.min(f618, f786);
+      const hi = Math.max(f618, f786);
+      const inOTE = price >= lo * 0.9995 && price <= hi * 1.0005;
+      if (inOTE) {
+        return {
+          strategy: 'ict_ote',
+          reason: `H1 ${htfBias.bosChoch.type} (${htfBias.bosChoch.direction}) + price in OTE zone (61.8–78.6% Fib: ${lo.toFixed(5)}–${hi.toFixed(5)}). Institutional precision entry.`,
+          priority: 'high',
+          minConfluences: 5,
+        };
+      }
+    }
+  }
+
+  // ── 5. SMC DEMAND / SUPPLY ──────────────────────────────────────────────
+  // HTF is in premium/discount zone + Wyckoff accumulation/distribution
+  if (htfBias?.premiumDiscount && htfBias.wyckoff.detected) {
+    const phase = htfBias.wyckoff.phase;
+    const zone  = htfBias.premiumDiscount.zone;
+    const isBull = (phase === 'ACCUMULATION' || phase === 'MARKUP') && zone === 'DISCOUNT';
+    const isBear = (phase === 'DISTRIBUTION' || phase === 'MARKDOWN') && zone === 'PREMIUM';
+    if (isBull || isBear) {
+      return {
+        strategy: 'smc_demand_supply',
+        reason: `HTF zone: ${zone} + Wyckoff ${phase}. Price ${isBull ? 'at discount demand zone → BUY' : 'at premium supply zone → SELL'}. Smart money footprint confirmed.`,
+        priority: 'high',
+        minConfluences: 5,
+      };
+    }
+  }
+
+  // ── 6. SNIPER ────────────────────────────────────────────────────────────
+  // Price at Fib 38.2% or 61.8% + nearby S/R + reversal candle pattern
+  const hasReversalPattern = hasPattern(
+    'Engulfing', 'Hammer', 'Morning Star', 'Evening Star', 'Pin Bar', 'Doji', 'Shooting Star', 'Tweezer'
+  );
+  const nearFib = fib && price && (
+    (fib['38.2'] && pricePct(price, fib['38.2']) < 0.12) ||
+    (fib['61.8'] && pricePct(price, fib['61.8']) < 0.12)
+  );
+  const fibLabel = nearFib && fib
+    ? (fib['38.2'] && pricePct(price, fib['38.2']) < 0.12 ? '38.2%' : '61.8%')
+    : null;
+  const nearSRLevel = sr && price && (
+    (sr.supports  || []).some((s: number) => pricePct(price, s) < 0.15) ||
+    (sr.resistances || []).some((r: number) => pricePct(price, r) < 0.15)
+  );
+  if (nearFib && nearSRLevel && hasReversalPattern && adxVal >= 12) {
+    return {
+      strategy: 'sniper',
+      reason: `Price at Fib ${fibLabel} + S/R confluence + ${patterns.find(p => ['Engulfing','Hammer','Star','Pin'].some(n => p.includes(n))) || 'reversal pattern'}. Precision sniper setup.`,
+      priority: 'high',
+      minConfluences: 5,
+    };
+  }
+
+  // ── 7. VWAP MEAN REVERSION ──────────────────────────────────────────────
+  // Price > 0.15% from VWAP + RSI at extreme + volume declining on the push
+  if (vwapVal && price) {
+    const vwapDevPct = Math.abs((price - vwapVal) / vwapVal * 100);
+    const rsiExtreme = rsiVal > 68 || rsiVal < 32;
+    const volDeclining = relVol < 0.85;
+    if (vwapDevPct > 0.15 && rsiExtreme && volDeclining) {
+      const dir = price > vwapVal ? 'above (fade SELL)' : 'below (fade BUY)';
+      return {
+        strategy: 'vwap_mean_reversion',
+        reason: `Price ${vwapDevPct.toFixed(3)}% ${dir} VWAP. RSI=${rsiVal.toFixed(1)} (extreme). Volume declining (${relVol.toFixed(2)}x). Mean reversion toward VWAP.`,
+        priority: 'medium',
+        minConfluences: 3,
+      };
+    }
+  }
+
+  // ── 8. MOMENTUM ─────────────────────────────────────────────────────────
+  // ADX ≥ 25, strong DI separation, volume above average or surging
+  const isVolumeGood = volTrend === 'surging' || volTrend === 'above_average';
+  if (adxVal >= 25 && trend !== 'NEUTRAL' && diSep >= 10 && isVolumeGood) {
+    return {
+      strategy: 'momentum',
+      reason: `Strong trend: ADX=${adxVal.toFixed(1)}, DI_sep=${diSep.toFixed(1)} (${trend}), Vol=${volTrend} (${relVol.toFixed(2)}x). Ride institutional momentum.`,
+      priority: 'high',
+      minConfluences: 3,
+    };
+  }
+  // Moderate momentum (ADX 20-25)
+  if (adxVal >= 20 && trend !== 'NEUTRAL' && diSep >= 8 && relVol >= 0.9) {
+    return {
+      strategy: 'momentum',
+      reason: `Moderate trend: ADX=${adxVal.toFixed(1)}, DI_sep=${diSep.toFixed(1)}, Vol=${volTrend}. Momentum continuation likely.`,
+      priority: 'medium',
+      minConfluences: 3,
+    };
+  }
+
+  // ── 9. SCALPING ──────────────────────────────────────────────────────────
+  // ADX 15-28, mild-moderate trend, active London/NY session, volume ≥ average
+  const isActiveSession = (utcHour >= 7 && utcHour < 12) || (utcHour >= 13 && utcHour < 19);
+  const sym = symbol.toUpperCase();
+  const notLowLiquidityAsian = !(
+    (utcHour >= 0 && utcHour < 7) && (sym.includes('EUR') || sym.includes('GBP') || sym.includes('CHF')) && !isJpy
+  );
+  if (adxVal >= 15 && adxVal < 28 && trend !== 'NEUTRAL' && isActiveSession && relVol >= 0.7 && notLowLiquidityAsian) {
+    const session = (utcHour >= 7 && utcHour < 12) ? 'London' : 'NY';
+    return {
+      strategy: 'scalping',
+      reason: `M15 trend ${trend} (ADX=${adxVal.toFixed(1)}), active ${session} session, Vol=${volTrend} (${relVol.toFixed(2)}x). Momentum scalp in trend direction.`,
+      priority: 'medium',
+      minConfluences: 4,
+    };
+  }
+
+  // ── 10. NO CLEAR SETUP ───────────────────────────────────────────────────
+  if (adxVal < 12 || diSep < 6) {
+    return {
+      strategy: 'wait',
+      reason: `Market ranging/directionless: ADX=${adxVal.toFixed(1)}, DI_sep=${diSep.toFixed(1)}. No strategy has an edge right now. Wait for trend to emerge.`,
+      priority: 'none',
+      minConfluences: 0,
+    };
+  }
+
+  // Mild trend — default to global strategy mode with low priority
+  return {
+    strategy: globalStrategyMode || 'momentum',
+    reason: `Mild conditions (ADX=${adxVal.toFixed(1)}, DI_sep=${diSep.toFixed(1)}). Defaulting to configured strategy: ${globalStrategyMode || 'momentum'}.`,
+    priority: 'low',
+    minConfluences: 3,
+  };
+}
+
 async function runAILiveAnalysis(userId: number, marketAnalysis: Record<string, any>, brain: any, newsContext?: NewsContext, crossAssets?: Record<string, any>, triggerAlerts?: string[], htfMarketData?: Record<string, HTFBiasData>): Promise<void> {
   const state = engineStates[userId];
   if (!state) return;
@@ -1884,6 +2132,41 @@ async function runAILiveAnalysis(userId: number, marketAnalysis: Record<string, 
       state.lastHighImpactNewsAt = new Date().toISOString();
     }
 
+    // ── Per-pair adaptive strategy selection ─────────────────────────────
+    // Run BEFORE the AI prompt is assembled so each pair's recommended strategy
+    // is injected into the market summary the AI reads.
+    const nowForStrategy = new Date();
+    const utcHourForStrategy = nowForStrategy.getUTCHours();
+    const utcMinForStrategy  = nowForStrategy.getUTCMinutes();
+    const pairStrategies: Record<string, StrategyRecommendation> = {};
+    const stratSummaryLines: string[] = [];
+
+    for (const [sym, data] of Object.entries(marketAnalysis) as [string, any][]) {
+      const rec = selectStrategyForPair(
+        sym,
+        data,
+        htfMarketData?.[sym],
+        state.asiaRangeHigh[sym],
+        state.asiaRangeLow[sym],
+        utcHourForStrategy,
+        utcMinForStrategy,
+        state.lastHighImpactNewsAt,
+        state.config.strategyMode,
+      );
+      pairStrategies[sym] = rec;
+      if (rec.priority !== 'none') {
+        stratSummaryLines.push(`${sym}→${rec.strategy.toUpperCase()}(${rec.priority}): ${rec.reason}`);
+      }
+    }
+
+    // Log strategy selections for the activity feed (one combined line)
+    if (stratSummaryLines.length > 0) {
+      addActivity(userId, {
+        type: 'info',
+        message: `📊 Adaptive strategy selection:\n${stratSummaryLines.join('\n')}`,
+      });
+    }
+
     const marketSummary = Object.entries(marketAnalysis).map(([sym, data]: [string, any]) => {
       const sr = data.supportResistance;
       const fib = data.fibonacci;
@@ -1897,14 +2180,18 @@ async function runAILiveAnalysis(userId: number, marketAnalysis: Record<string, 
       const htf = htfMarketData?.[sym];
       const inlineHTFLabel = ((state.config as any).primaryTimeframe || 'M15') === 'H1' ? 'H4' : 'H1';
       const htfStr = htf ? `, ${inlineHTFLabel}_Bias=${htf.trend}, ${inlineHTFLabel}_BOS=${htf.bosChoch.detected ? `${htf.bosChoch.type}_${htf.bosChoch.direction}` : 'NONE'}, ${inlineHTFLabel}_PD=${htf.premiumDiscount.zone}, ${inlineHTFLabel}_Wyckoff=${htf.wyckoff.detected ? htf.wyckoff.phase : 'NONE'}` : '';
-      // ── ADX: the indicator object uses .value not .adx — fix the field name ──
       const adxNum = (data.adx?.value ?? data.adx?.adx ?? 0) as number;
       const pDI = (data.plusDI ?? data.adx?.plusDI ?? 0) as number;
       const mDI = (data.minusDI ?? data.adx?.minusDI ?? 0) as number;
       const diDir = pDI > 0 || mDI > 0
         ? (pDI > mDI ? `BULL(+DI ${pDI.toFixed(1)}>-DI ${mDI.toFixed(1)})` : `BEAR(-DI ${mDI.toFixed(1)}>+DI ${pDI.toFixed(1)})`)
         : 'DI_UNAVAILABLE';
-      return `${sym}: Price=${data.currentPrice}, Trend=${data.trend}, ADX=${adxNum.toFixed(1)}, DI_Direction=${diDir}, RSI=${data.rsi?.value?.toFixed(1) || 'N/A'}, Stoch K=${data.stochastic?.k?.toFixed(1) || 'N/A'} D=${data.stochastic?.d?.toFixed(1) || 'N/A'}, MACD=${data.macd?.macd?.toFixed(5) || 'N/A'}(hist=${data.macd?.histogram?.toFixed(5) || 'N/A'}), VWAP=${vwapVal?.toFixed(5) || 'N/A'} (Dev${vwapDev}%), OBV Trend=${data.obv?.trend || 'N/A'}, Patterns=[${(data.candlePatterns || []).join(',')}], Session=${data.sessionContext?.currentSession || 'N/A'}, Volatility=${vol?.percentile?.toFixed(0) || 'N/A'}%, ATR=${(vol?.currentATR ?? 0).toFixed(5)}, Support=${sr?.supports?.[0]?.toFixed(5) || 'N/A'}, Resistance=${sr?.resistances?.[0]?.toFixed(5) || 'N/A'}, Fib 38.2%=${fib?.retracementLevels?.['38.2']?.toFixed(5) || 'N/A'}, Volume=${vm ? `RelVol=${vm.relativeVolume}x (${vm.volumeTrend}), Spikes=${vm.volumeSpikes}` : 'N/A'}${asiaRangeStr}${htfStr}`;
+      // ── Adaptive strategy recommendation for this pair ──────────────────
+      const rec = pairStrategies[sym];
+      const stratStr = rec && rec.priority !== 'none'
+        ? ` ★STRATEGY=${rec.strategy.toUpperCase()}(priority:${rec.priority},need:${rec.minConfluences}conf)[${rec.reason}]`
+        : ` ★STRATEGY=WAIT[${rec?.reason || 'no clear setup'}]`;
+      return `${sym}: Price=${data.currentPrice}, Trend=${data.trend}, ADX=${adxNum.toFixed(1)}, DI_Direction=${diDir}, RSI=${data.rsi?.value?.toFixed(1) || 'N/A'}, Stoch K=${data.stochastic?.k?.toFixed(1) || 'N/A'} D=${data.stochastic?.d?.toFixed(1) || 'N/A'}, MACD=${data.macd?.macd?.toFixed(5) || 'N/A'}(hist=${data.macd?.histogram?.toFixed(5) || 'N/A'}), VWAP=${vwapVal?.toFixed(5) || 'N/A'} (Dev${vwapDev}%), OBV Trend=${data.obv?.trend || 'N/A'}, Patterns=[${(data.candlePatterns || []).join(',')}], Session=${data.sessionContext?.currentSession || 'N/A'}, Volatility=${vol?.percentile?.toFixed(0) || 'N/A'}%, ATR=${(vol?.currentATR ?? 0).toFixed(5)}, Support=${sr?.supports?.[0]?.toFixed(5) || 'N/A'}, Resistance=${sr?.resistances?.[0]?.toFixed(5) || 'N/A'}, Fib 38.2%=${fib?.retracementLevels?.['38.2']?.toFixed(5) || 'N/A'}, Volume=${vm ? `RelVol=${vm.relativeVolume}x (${vm.volumeTrend}), Spikes=${vm.volumeSpikes}` : 'N/A'}${asiaRangeStr}${htfStr}${stratStr}`;
     }).join('\n');
 
     let htfBiasSection = '';
