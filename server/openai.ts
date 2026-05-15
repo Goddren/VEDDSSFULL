@@ -312,8 +312,15 @@ export function setAiVisionConfirmation(userId: number, enabled: boolean) {
   aiVisionConfirmationEnabled.set(userId, enabled);
 }
 
+export function hydrateAiVisionMap(userId: number, enabled: boolean) {
+  aiVisionConfirmationEnabled.set(userId, enabled);
+}
+
 export function isAiVisionConfirmationEnabled(userId: number): boolean {
-  return aiVisionConfirmationEnabled.get(userId) || false;
+  // Default TRUE — AI Vision Confirmation is ON unless explicitly disabled.
+  // The map is populated from DB on first chart-data call; until then we default to on.
+  const val = aiVisionConfirmationEnabled.get(userId);
+  return val === undefined ? true : val;
 }
 
 export function setAiMinConfidence(userId: number, minConfidence: number) {

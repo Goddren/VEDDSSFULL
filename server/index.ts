@@ -186,6 +186,8 @@ async function withRetry<T>(
         `ALTER TABLE saved_eas ADD COLUMN IF NOT EXISTS min_confidence integer DEFAULT 65`,
         `ALTER TABLE saved_eas ADD COLUMN IF NOT EXISTS trade_cooldown_minutes integer DEFAULT 5`,
         `ALTER TABLE saved_eas ADD COLUMN IF NOT EXISTS live_refresh_enabled boolean DEFAULT false`,
+        // AI Vision Confirmation persistence — default TRUE so all users get 2nd-confirmation AI out of the box
+        `ALTER TABLE users ADD COLUMN IF NOT EXISTS ai_vision_enabled boolean DEFAULT true`,
       ];
       for (const m of migrations) {
         await db.execute(sql.raw(m));

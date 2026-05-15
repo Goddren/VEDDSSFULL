@@ -51,6 +51,7 @@ export const users = pgTable("users", {
   membershipNftMint: text("membership_nft_mint"), // VEDD membership NFT mint address for elite tier
   hasVeddNft: boolean("has_vedd_nft").default(false), // Holds a VEDD membership NFT
   breakoutModeEnabled: boolean("breakout_mode_enabled").default(false), // Breakout Master Mode for 2nd confirmation AI
+  aiVisionEnabled: boolean("ai_vision_enabled").default(true), // AI 2nd-confirmation Vision system — ON by default
   trailingStopEnabled: boolean("trailing_stop_enabled").default(true), // Remove trailing stop from AI recommendations when false
   // faithBasedContent field temporarily removed due to database issues
   // Using localStorage instead of database column for faith-based content preferences

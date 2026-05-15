@@ -8576,11 +8576,16 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
 
             const propFirmCtx = isPropFirmModeEnabled(token.userId) ? getPropFirmContext(token.userId) : null;
 
-            // Hydrate breakout mode from DB on the execution path (covers cold-start / process restart)
+            // Hydrate breakout mode + AI Vision from DB on the execution path (covers cold-start / process restart)
             try {
               const userForBreakout = await storage.getUser(token.userId);
               if (userForBreakout?.breakoutModeEnabled !== undefined) {
                 hydrateBreakoutModeMap(token.userId, userForBreakout.breakoutModeEnabled);
+              }
+              // Hydrate AI Vision setting — if DB has an explicit value use it; otherwise keep the default-true in-memory value
+              if ((userForBreakout as any)?.aiVisionEnabled !== undefined && (userForBreakout as any)?.aiVisionEnabled !== null) {
+                const { hydrateAiVisionMap } = await import('./openai');
+                hydrateAiVisionMap(token.userId, (userForBreakout as any).aiVisionEnabled);
               }
             } catch (_) { /* non-fatal — fall back to in-memory value */ }
 
@@ -8971,6 +8976,26 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   providerUsed: (aiConfirmation as any).providerUsed || undefined,
                 });
               } catch (_dbErr) { /* non-critical — never block the trade */ }
+
+              // ── Back-fill aiConfidence on any PENDING trade records for this symbol/direction ──
+              // Trades opened by the MT5 copier (via openPositions sync or /api/mt5-signal) are
+              // always created with aiConfidence: 0.  Now that we have a real AI score, update them.
+              try {
+                const recentPending = await storage.getAiTradeResults(token.userId, 10);
+                for (const tr of recentPending) {
+                  if (
+                    tr.result === 'PENDING' &&
+                    tr.aiConfidence === 0 &&
+                    (tr.symbol || '').toUpperCase().replace('/', '') === sanitizedSymbol &&
+                    (tr.direction || '').toUpperCase() === (analysis.signal || '').toUpperCase()
+                  ) {
+                    await storage.updateAiTradeResult(tr.id, token.userId, {
+                      aiConfidence: aiConfirmation.aiConfidence,
+                    });
+                    console.log(`[AI Confidence Back-fill] Updated trade #${tr.id} (${sanitizedSymbol} ${analysis.signal}) from 0% → ${aiConfirmation.aiConfidence}%`);
+                  }
+                }
+              } catch (_bfErr) { /* non-critical */ }
             }
           }
         } catch (confirmError) {
@@ -17174,8 +17199,13 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
 
   app.get("/api/ai-vision-confirmation", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
-    const { isAiVisionConfirmationEnabled, getAiMinConfidence } = await import('./openai');
-    res.json({ 
+    const { isAiVisionConfirmationEnabled, hydrateAiVisionMap, getAiMinConfidence } = await import('./openai');
+    // Hydrate from DB so the GET always reflects persisted state after a restart
+    const userForAI = await storage.getUser(req.user!.id);
+    if (userForAI && (userForAI as any).aiVisionEnabled !== undefined && (userForAI as any).aiVisionEnabled !== null) {
+      hydrateAiVisionMap(req.user!.id, (userForAI as any).aiVisionEnabled);
+    }
+    res.json({
       enabled: isAiVisionConfirmationEnabled(req.user!.id),
       aiMinConfidence: getAiMinConfidence(req.user!.id),
     });
@@ -17189,6 +17219,10 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     }
     const { setAiVisionConfirmation, setAiMinConfidence, getAiMinConfidence } = await import('./openai');
     setAiVisionConfirmation(req.user!.id, enabled);
+    // Persist to DB so it survives server restarts
+    try {
+      await storage.updateUser(req.user!.id, { aiVisionEnabled: enabled } as any);
+    } catch (_dbErr) { /* non-critical — in-memory value still set */ }
     if (typeof aiMinConfidence === 'number') {
       setAiMinConfidence(req.user!.id, aiMinConfidence);
     }
