@@ -261,7 +261,7 @@ interface EngineState {
   activityLog: LiveActivity[];
   openPositionCount: number;
   pnlSession: number;
-  marketSnapshot: Record<string, { price: number; change: number; trend: string; rsi: number; atr: number; updatedAt: string; adx?: number; plusDI?: number; minusDI?: number }>;
+  marketSnapshot: Record<string, { price: number; change: number; trend: string; rsi: number; atr: number; updatedAt: string; adx?: number; plusDI?: number; minusDI?: number; volumeTrend?: string; relativeVolume?: number }>;
   goalTracker: GoalTracker;
   modelLocked: boolean;
   asiaRangeHigh: Record<string, number>;
@@ -283,6 +283,9 @@ interface EngineState {
   positionTrailState: Record<string, { highestHigh: number; lowestLow: number; sar: number; ep: number; af: number; bullish: boolean }>;
   aiResponseCache: Record<string, { ts: number; price: number; response: any }>;
   htfBiasCache: Record<string, HTFBiasData>;
+  // Post-loss same-direction lock: { [symbol]: { direction: 'BUY'|'SELL'; lockedUntil: number } }
+  // After a loss on a pair, the same direction is blocked for 45 min unless 85%+ confidence + surging volume
+  pairDirectionLock: Record<string, { direction: string; lockedUntil: number; lossCount: number }>;
 }
 
 const engineStates: Record<number, EngineState> = {};
@@ -842,6 +845,35 @@ export function recordTradeResult(userId: number, result: {
     }
   }
 
+  // ── Post-loss direction lock ────────────────────────────────────────
+  // After a loss on a pair, same direction is locked for 45 min.
+  // This prevents "double-down" re-entries that compound losses.
+  // Override is available for 85%+ confidence + surging volume (checked in processDecision).
+  if (result.profit < 0 && result.symbol && result.direction) {
+    if (!state.pairDirectionLock) state.pairDirectionLock = {};
+    const existingLock = state.pairDirectionLock[result.symbol];
+    const lossCount = existingLock?.direction === result.direction
+      ? (existingLock.lossCount || 0) + 1
+      : 1;
+    // After 2 consecutive same-direction losses, extend lock to 90 minutes
+    const lockMinutes = lossCount >= 2 ? 90 : 45;
+    state.pairDirectionLock[result.symbol] = {
+      direction: result.direction.toUpperCase(),
+      lockedUntil: Date.now() + lockMinutes * 60 * 1000,
+      lossCount,
+    };
+    addActivity(userId, {
+      type: 'info',
+      symbol: result.symbol,
+      message: `🔒 Direction lock: ${result.symbol} ${result.direction} locked for ${lockMinutes} min after loss (loss #${lossCount}). Need 85%+ confidence + surging volume to override.`,
+    });
+  } else if (result.profit > 0 && result.symbol && result.direction) {
+    // Win clears the direction lock for that pair
+    if (state.pairDirectionLock?.[result.symbol]) {
+      delete state.pairDirectionLock[result.symbol];
+    }
+  }
+
   // ── Auto-retrain brain every 5 trade results ───────────────────────
   state.tradesSinceLastLearn = (state.tradesSinceLastLearn || 0) + 1;
   if (state.tradesSinceLastLearn >= 5) {
@@ -969,9 +1001,11 @@ async function scanMarkets(userId: number): Promise<void> {
           trend,
           rsi: Math.round(rsi),
           atr: Math.round(atr * 100000) / 100000,
-          adx: adxStrength,   // stored so processDecision can access it directly
-          plusDI,              // stored for DI-based conflict detection
-          minusDI,             // stored for DI-based conflict detection
+          adx: adxStrength,       // stored so processDecision can access it directly
+          plusDI,                  // stored for DI-based conflict detection
+          minusDI,                 // stored for DI-based conflict detection
+          volumeTrend: volumeMetrics.volumeTrend,    // for volume gate in processDecision
+          relativeVolume: volumeMetrics.relativeVolume, // raw ratio for gate logic
           updatedAt: new Date().toISOString(),
         };
         // Cache ATR per symbol for post-GPT enforcement
@@ -2054,8 +2088,24 @@ INSTRUCTION: This scan was triggered by real-time indicator events above. Priori
 `;
     }
 
+    // ── Build code-gate status section so AI knows what's already protected ──
+    let codeGateSection = '';
+    {
+      if (!state.pairDirectionLock) state.pairDirectionLock = {};
+      const activeLocks = Object.entries(state.pairDirectionLock)
+        .filter(([, v]) => Date.now() < v.lockedUntil)
+        .map(([sym, v]) => `${sym}:${v.direction}(${Math.ceil((v.lockedUntil - Date.now()) / 60000)}min,${v.lossCount}L)`);
+      if (activeLocks.length > 0) {
+        codeGateSection = `
+CODE-LEVEL DIRECTION LOCKS (engine auto-rejects these regardless of your signal):
+${activeLocks.join(', ')}
+These pairs had recent losses. Same-direction entries are code-blocked for 45-90 min. Focus on unlocked pairs or opposite direction if structure supports it.
+`;
+      }
+    }
+
     const prompt = `You are VEDD SS AI LIVE TRADING ENGINE - operating in REAL-TIME autonomous HIGH-FREQUENCY mode. You are directly monitoring live market data and making INSTANT trading decisions to hit a weekly profit goal.
-${triggerSection}${crossAssetSection}
+${triggerSection}${crossAssetSection}${codeGateSection}
 LIVE MARKET DATA (just fetched):
 ${marketSummary}
 
@@ -2182,6 +2232,8 @@ SCALPING (M15 momentum setups, primary for quick profit accumulation):
 - STOP LOSS: Minimum 1.2× current ATR below entry for BUY (above for SELL). For major pairs this is typically 15-25 pips. NEVER less than 15 pips on non-JPY, NEVER less than 20 pips on JPY pairs. Tight SLs get hit by normal candle noise and lose money every time.
 - TAKE PROFIT: Minimum 2× SL distance from entry (2:1 R:R), target 2.5-3:1 for A+ setups
 - Entry timing: Only scalp DURING confirmed momentum candles — not at the start of consolidation. Wait for price to show clear direction first.
+- VOLUME REQUIREMENT (CODE-ENFORCED): The engine will HARD BLOCK scalping signals if volume is below_average or dry (RelVol < 0.7x). Do NOT output scalping signals when volume is low — they will be rejected automatically. Only scalp when RelVol ≥ 0.7x and preferably SURGING or ABOVE_AVERAGE.
+- SESSION REQUIREMENT (CODE-ENFORCED): EUR/GBP/CHF scalping is HARD BLOCKED during Asian hours (00:00-07:00 UTC). Do NOT output scalps on these pairs during Asian session — they will be rejected. Instead output momentum or sniper strategy if structure warrants it.
 - Best windows: London open 07:00-09:30 UTC, NY open 13:00-15:30 UTC. DO NOT scalp during 20:00-00:00 UTC (low volume, wide spreads, fake moves)
 - GOAL: 3-5 quality scalps with ≥2:1 R:R beats chasing 10 scalps with tight stops that get wiped out
 
@@ -2810,6 +2862,121 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       return;
     }
 
+    // ═══════════════════════════════════════════════════════════════════════════
+    // LOSS-PREVENTION GATES — added after analysis of yesterday's losing trades
+    // These are CODE-LEVEL blocks. The AI prompt advisory was insufficient alone.
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    const snap = state.marketSnapshot?.[decision.symbol];
+    const signalDirection = (decision.direction || '').toUpperCase();
+
+    // ── GATE 1: Hard news blackout (< 15 min before high-impact event) ───────
+    // High-impact events (NFP, CPI, FOMC, rate decisions) spike price violently,
+    // hitting even ATR-expanded SLs. No edge exists in the last 15 minutes.
+    // The AI prompt says "avoid 30 min before" but this was advisory only.
+    // Now code-enforced: no new entries within 15 min of high-impact news.
+    if (newsCtx?.highImpactSoon === true) {
+      addActivity(userId, {
+        type: 'info',
+        symbol: decision.symbol,
+        message: `📰 NEWS BLACKOUT: ${decision.symbol} ${signalDirection} BLOCKED — high-impact economic event imminent. No new entries until event clears. Protects open trades from spike stop-outs.`,
+      });
+      state.signalsGenerated++;
+      return;
+    }
+
+    // ── GATE 2: Post-loss same-direction lock (45–90 min) ────────────────────
+    // After a loss on this pair+direction, same direction is locked.
+    // Yesterday: GBPUSD BUY lost → engine fired another GBPUSD BUY 3 min later.
+    // Same market conditions = same result. Need a structural reset first.
+    // Override ONLY if: 85%+ confidence AND volume is SURGING (≥2x average).
+    if (!state.pairDirectionLock) state.pairDirectionLock = {};
+    const dirLock = state.pairDirectionLock[decision.symbol];
+    if (dirLock && dirLock.direction === signalDirection && Date.now() < dirLock.lockedUntil) {
+      const minsRemaining = Math.ceil((dirLock.lockedUntil - Date.now()) / 60000);
+      const volTrend = snap?.volumeTrend || 'unknown';
+      const relVol = snap?.relativeVolume || 0;
+      const canOverride = adjustedConfidence >= 85 && (volTrend === 'surging' || relVol >= 2.0);
+      if (!canOverride) {
+        addActivity(userId, {
+          type: 'info',
+          symbol: decision.symbol,
+          message: `🔒 DIRECTION LOCK: ${decision.symbol} ${signalDirection} locked for ${minsRemaining} more min (${dirLock.lossCount} loss(es) in this direction). Need 85%+ conf + surging volume to override (have ${adjustedConfidence}% + ${volTrend} vol).`,
+        });
+        state.signalsGenerated++;
+        return;
+      }
+      addActivity(userId, {
+        type: 'info',
+        symbol: decision.symbol,
+        message: `🔓 DIRECTION LOCK OVERRIDE: ${decision.symbol} ${signalDirection} — ${adjustedConfidence}% conf + ${volTrend} volume clears the lock. High-conviction entry allowed.`,
+      });
+    }
+
+    // ── GATE 3: Volume hard block for scalping ────────────────────────────────
+    // Scalping on below_average/dry volume = wide spreads, fake-outs, poor fills.
+    // Yesterday: scalps fired during Asian session with dry EUR/GBP volume.
+    // Advisory in the AI prompt was not sufficient — this must be code-enforced.
+    if (strategy === 'scalping') {
+      const volTrend = snap?.volumeTrend || 'unknown';
+      const relVol = snap?.relativeVolume || 1;
+      if (volTrend === 'dry' || volTrend === 'below_average' || relVol < 0.7) {
+        addActivity(userId, {
+          type: 'info',
+          symbol: decision.symbol,
+          message: `📉 SCALP VOLUME BLOCK: ${decision.symbol} scalp rejected — volume is ${volTrend} (${relVol.toFixed(2)}x avg). Scalping in low volume = wide spreads + fake-outs. Wait for volume ≥ 0.7x average or switch to sniper/momentum strategy.`,
+        });
+        state.signalsGenerated++;
+        return;
+      }
+    }
+
+    // ── GATE 4: Session block for scalping (EUR/GBP pairs in Asian session) ───
+    // EUR/GBP pairs have thin liquidity 00:00–07:00 UTC (Asian hours).
+    // Scalping these pairs during Asian hours was a primary source of losses.
+    // Hard block: no scalping EUR/GBP/CHF during Asian session.
+    if (strategy === 'scalping') {
+      const nowUtcHour = new Date().getUTCHours();
+      const isAsianHours = nowUtcHour >= 0 && nowUtcHour < 7;
+      const sym = (decision.symbol || '').toUpperCase();
+      const isLowLiquidityPairInAsia = (
+        sym.includes('EUR') || sym.includes('GBP') || sym.includes('CHF')
+      ) && !sym.includes('JPY'); // JPY pairs are liquid in Asia
+      if (isAsianHours && isLowLiquidityPairInAsia) {
+        addActivity(userId, {
+          type: 'info',
+          symbol: decision.symbol,
+          message: `🌙 ASIAN SESSION SCALP BLOCK: ${decision.symbol} scalp rejected — Asian hours (${nowUtcHour}:00 UTC) have thin liquidity for EUR/GBP/CHF pairs. These pairs need London session (07:00+ UTC) for reliable scalp entries. Holding for prime window.`,
+        });
+        state.signalsGenerated++;
+        return;
+      }
+    }
+
+    // ── GATE 5: Consecutive pair loss escalation ──────────────────────────────
+    // If this pair has 2+ consecutive losses in the brain today, raise the
+    // confidence threshold to 85%. The brain-level 3-loss cooldown kicks in at 3+
+    // but we need an intermediate raise at 2 losses before that triggers.
+    {
+      const brainForGate = (global as any).veddAIBrain?.[userId];
+      const pk = brainForGate?.pairKnowledge?.[decision.symbol];
+      const consecLosses = pk?.consecutiveLossesToday || 0;
+      if (consecLosses >= 2) {
+        const requiredForPairLoss = 85;
+        if (adjustedConfidence < requiredForPairLoss) {
+          addActivity(userId, {
+            type: 'info',
+            symbol: decision.symbol,
+            message: `⚡ PAIR LOSS ESCALATION: ${decision.symbol} has ${consecLosses} consecutive losses today — confidence threshold raised to ${requiredForPairLoss}%. Signal at ${adjustedConfidence}% rejected. Market conditions may have structurally changed.`,
+          });
+          state.signalsGenerated++;
+          return;
+        }
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+
     let entryPrice = parseNum(decision.entryPrice);
     let stopLoss = parseNum(decision.stopLoss);
     let takeProfit = parseNum(decision.takeProfit);
@@ -3361,6 +3528,7 @@ export function startLiveEngine(userId: number, config?: Partial<LiveEngineConfi
     positionTrailState: {},
     aiResponseCache: {},
     htfBiasCache: {},
+    pairDirectionLock: {},
   };
 
   const adaptiveInterval = getAdaptiveScanInterval(fullConfig);
