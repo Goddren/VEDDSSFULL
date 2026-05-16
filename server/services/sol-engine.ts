@@ -2175,18 +2175,37 @@ export async function clearServerWallet(userId: number): Promise<void> {
     .where(eq(solEngineSettings.userId, userId));
 }
 
-export async function getServerWalletStatus(userId: number): Promise<{ hasServerWallet: boolean; walletAddress?: string }> {
+export async function getServerWalletStatus(userId: number): Promise<{
+  hasServerWallet: boolean;
+  walletAddress?: string;
+  balanceSol?: number;
+  balanceLamports?: number;
+}> {
   try {
     const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey })
       .from(solEngineSettings).where(eq(solEngineSettings.userId, userId));
     if (!settings?.serverWalletKey) return { hasServerWallet: false };
 
     const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
-    const { Keypair } = await import('@solana/web3.js');
+    const { Keypair, Connection } = await import('@solana/web3.js');
     const bs58 = (await import('bs58')).default;
     const secretKey = bs58.decode(privateKeyBase58);
     const keypair = Keypair.fromSecretKey(secretKey);
-    return { hasServerWallet: true, walletAddress: keypair.publicKey.toBase58() };
+    const walletAddress = keypair.publicKey.toBase58();
+
+    // Fetch live on-chain SOL balance
+    let balanceLamports = 0;
+    let balanceSol = 0;
+    try {
+      const rpcUrl = process.env.SOLANA_RPC_URL || 'https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92';
+      const connection = new Connection(rpcUrl, { commitment: 'confirmed' });
+      balanceLamports = await connection.getBalance(keypair.publicKey);
+      balanceSol = Math.round((balanceLamports / 1e9) * 10000) / 10000;
+    } catch {
+      // RPC fetch failed — return wallet info without balance
+    }
+
+    return { hasServerWallet: true, walletAddress, balanceLamports, balanceSol };
   } catch {
     return { hasServerWallet: false };
   }

@@ -358,10 +358,32 @@ const Dashboard: React.FC = () => {
     refetchInterval: 15000,
   });
 
-  const { data: solEngineStatus } = useQuery<{ running: boolean; autoTradeMode: string; autoTradeEnabled: boolean; liveTradeEnabled: boolean }>({
+  const { data: solEngineStatus } = useQuery<{
+    running: boolean; autoTradeMode: string; autoTradeEnabled: boolean; liveTradeEnabled: boolean;
+    weeklyGoal?: { currentProfitSol: number; targetSol: number; phase: string; winStreak: number };
+    paperPortfolioValue?: number; paperBaseCapital?: number; currentPortfolioValue?: number;
+  }>({
     queryKey: ['/api/sol-engine/status'],
     enabled: !!user,
     refetchInterval: 15000,
+  });
+
+  const { data: solAutoPositions } = useQuery<{
+    autoTradeStats: { totalTrades: number; wins: number; losses: number; totalPnlPct: number; bestTradePct: number; worstTradePct: number };
+    livePositions: Array<{ symbol: string; status: string; strategyId: string }>;
+    paperPositions: Array<{ symbol: string; status: string }>;
+  }>({
+    queryKey: ['/api/sol-engine/auto-positions'],
+    enabled: !!user,
+    refetchInterval: 15000,
+  });
+
+  const { data: solWalletStatus } = useQuery<{
+    hasServerWallet: boolean; walletAddress?: string; balanceSol?: number;
+  }>({
+    queryKey: ['/api/sol-engine/server-wallet-status'],
+    enabled: !!user,
+    refetchInterval: 30000,
   });
 
   const { data: brainStatus } = useQuery<{ learned: boolean; totalTradesAnalyzed?: number; pairsLearned?: number }>({
@@ -1202,18 +1224,116 @@ const Dashboard: React.FC = () => {
 
           <SectionHeader title="AI & Data" open={showAIData} onToggle={toggleAIData} icon={Brain} iconClass="icon-box-cyan" />
           {showAIData && <div className="grid grid-cols-2 gap-3 mb-5">
-            <Link href="/solana-scanner" className="device-tile device-tile-cyan">
-              <div className="flex items-center justify-between">
-                <div className="icon-box icon-box-cyan">
-                  <SiSolana className="h-5 w-5" />
+
+            {/* ── SOL Bot Wallet Live Monitor (full-width) ── */}
+            <div className="col-span-2">
+              <Link href="/solana-scanner">
+                <div className={`rounded-2xl border p-3 cursor-pointer transition-all hover:scale-[1.01] ${
+                  solWalletStatus?.hasServerWallet
+                    ? 'bg-emerald-500/8 border-emerald-500/35'
+                    : 'bg-cyan-500/8 border-cyan-500/25'
+                }`}>
+                  {/* Header row */}
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <div className="icon-box icon-box-cyan" style={{ width: 30, height: 30 }}>
+                        <SiSolana className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <p className="text-white font-semibold text-sm leading-tight">SOL Bot Monitor</p>
+                        {solWalletStatus?.hasServerWallet && solWalletStatus.walletAddress ? (
+                          <p className="text-[10px] font-mono text-emerald-400/80 leading-tight">
+                            {solWalletStatus.walletAddress.slice(0, 6)}…{solWalletStatus.walletAddress.slice(-5)}
+                          </p>
+                        ) : (
+                          <p className="text-[10px] text-gray-500 leading-tight">No bot wallet connected</p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {solWalletStatus?.hasServerWallet && typeof solWalletStatus.balanceSol === 'number' && (
+                        <div className="text-right">
+                          <p className="text-emerald-400 font-bold text-sm leading-tight">{solWalletStatus.balanceSol.toFixed(4)} SOL</p>
+                          <p className="text-[9px] text-gray-500 leading-tight">wallet balance</p>
+                        </div>
+                      )}
+                      <span className={`status-pill ${solEngineRunning && solLiveActive ? 'status-online' : solEngineRunning ? 'bg-amber-500/20 text-amber-400 border-amber-500/30' : 'status-offline'}`}
+                        style={{ fontSize: '10px', padding: '2px 7px' }}>
+                        {solEngineRunning && solLiveActive ? '● Live' : solEngineRunning ? '◐ Paper' : '○ Idle'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Stats grid */}
+                  {solAutoPositions?.autoTradeStats ? (() => {
+                    const stats = solAutoPositions.autoTradeStats;
+                    const winRate = stats.totalTrades > 0 ? Math.round((stats.wins / stats.totalTrades) * 100) : 0;
+                    const weeklyProfit = solEngineStatus?.weeklyGoal?.currentProfitSol ?? 0;
+                    const openLive = (solAutoPositions.livePositions || []).filter(p => p.status === 'open').length;
+                    const openPaper = (solAutoPositions.paperPositions || []).filter(p => p.status === 'open').length;
+                    const totalPnl = stats.totalPnlPct;
+                    return (
+                      <div>
+                        <div className="grid grid-cols-4 gap-2 mb-2">
+                          <div className="rounded-lg bg-white/5 p-2 text-center">
+                            <p className="text-white font-bold text-sm">{stats.totalTrades}</p>
+                            <p className="text-gray-500 text-[9px]">Trades</p>
+                          </div>
+                          <div className="rounded-lg bg-white/5 p-2 text-center">
+                            <p className={`font-bold text-sm ${winRate >= 60 ? 'text-emerald-400' : winRate >= 40 ? 'text-amber-400' : 'text-red-400'}`}>{winRate}%</p>
+                            <p className="text-gray-500 text-[9px]">Win Rate</p>
+                          </div>
+                          <div className="rounded-lg bg-white/5 p-2 text-center">
+                            <p className={`font-bold text-sm ${totalPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                              {totalPnl >= 0 ? '+' : ''}{totalPnl.toFixed(1)}%
+                            </p>
+                            <p className="text-gray-500 text-[9px]">Total P&L</p>
+                          </div>
+                          <div className="rounded-lg bg-white/5 p-2 text-center">
+                            <p className={`font-bold text-sm ${weeklyProfit >= 0 ? 'text-cyan-400' : 'text-red-400'}`}>
+                              {weeklyProfit >= 0 ? '+' : ''}{weeklyProfit.toFixed(3)}
+                            </p>
+                            <p className="text-gray-500 text-[9px]">Wk SOL</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <span className="text-[10px] text-gray-400">
+                              <span className="text-emerald-400 font-semibold">{stats.wins}W</span>
+                              {' / '}
+                              <span className="text-red-400 font-semibold">{stats.losses}L</span>
+                            </span>
+                            {openLive > 0 && (
+                              <span className="text-[10px] text-amber-400">● {openLive} live open</span>
+                            )}
+                            {openPaper > 0 && (
+                              <span className="text-[10px] text-cyan-400/70">◐ {openPaper} paper open</span>
+                            )}
+                            {stats.bestTradePct > 0 && (
+                              <span className="text-[10px] text-gray-500">best +{stats.bestTradePct.toFixed(1)}%</span>
+                            )}
+                          </div>
+                          <span className="text-[10px] text-cyan-400/60 flex items-center gap-1">
+                            Open <ChevronRight className="h-3 w-3" />
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })() : (
+                    <div className="flex items-center justify-between">
+                      <p className="text-gray-500 text-xs">
+                        {solWalletStatus?.hasServerWallet
+                          ? 'Start the engine to begin auto-trading'
+                          : 'Add your bot wallet in SOL Scanner to enable auto-trading'}
+                      </p>
+                      <span className="text-[10px] text-cyan-400/60 flex items-center gap-1">
+                        Open <ChevronRight className="h-3 w-3" />
+                      </span>
+                    </div>
+                  )}
                 </div>
-                <span className={`status-pill ${solEngineRunning ? 'status-online' : 'status-offline'}`} style={{ fontSize: '10px', padding: '2px 7px' }}>{solEngineRunning ? 'Live' : 'Idle'}</span>
-              </div>
-              <div>
-                <p className="text-white font-semibold text-sm">SOL Scanner</p>
-                <p className="text-gray-500 text-xs mt-0.5">Solana signals</p>
-              </div>
-            </Link>
+              </Link>
+            </div>
             <Link href="/mt5-chart-data" className="device-tile device-tile-cyan">
               <div className="flex items-center justify-between">
                 <div className="icon-box icon-box-cyan">
