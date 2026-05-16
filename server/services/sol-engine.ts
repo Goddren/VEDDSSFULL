@@ -169,6 +169,7 @@ interface SolEngineState {
     worstTradePct: number;
   };
   aiReviewCache: Record<string, { ts: number; result: any[] }>;
+  _adaptiveStrategy?: string; // current auto-selected strategy when in adaptive mode
 }
 
 const DEX_NAMES = ['raydium', 'orca', 'meteora', 'pumpfun', 'jupiter'];
@@ -262,6 +263,17 @@ export const SOL_STRATEGIES: SolStrategy[] = [
     baseFraction: 0.03,
     minSignal: 'BUY',
     holdTarget: '10–30min',
+  },
+  {
+    id: 'adaptive',
+    name: 'Adaptive (Auto)',
+    icon: '🤖',
+    description: 'Auto-selects the best strategy each scan based on current market conditions — whale activity, breakouts, dips, macro bias',
+    minConfidence: 68,
+    maxRisk: 'MEDIUM',
+    baseFraction: 0.03,
+    minSignal: 'BUY',
+    holdTarget: 'varies',
   },
 ];
 
@@ -609,6 +621,139 @@ async function executeServerSideBuy(
   }
 }
 
+// ── Strategy-specific entry filters ─────────────────────────────────────────
+// Each strategy has UNIQUE entry criteria beyond the shared confidence/risk gates.
+// This is what actually differentiates whale accumulation from momentum, dip from bounce, etc.
+function passesStrategyFilter(analysis: TokenAnalysis, strategy: SolStrategy): boolean {
+  const token = analysis.token;
+  const totalTxns = token.txns24h.buys + token.txns24h.sells;
+  const buyRatio  = totalTxns > 0 ? token.txns24h.buys / totalTxns : 0.5;
+  const avgTxSize = totalTxns > 0 ? token.volume24h / totalTxns : 0;
+  const priceChg  = token.priceChange24h;
+
+  switch (strategy.id) {
+    case 'whale_follower':
+      // Real whale signal = FEW wallets making BIG individual transactions
+      // avgTxSize > $1000 means whale-sized positions (not retail $50 buys)
+      // makers < 150 = concentrated wallets (not scattered retail)
+      // whaleScore >= 65 = algorithm confirms unusual buy pressure
+      return avgTxSize > 1000 && token.makers24h < 150 && buyRatio > 0.58 && analysis.whaleScore >= 65;
+
+    case 'momentum_surfer':
+      // Riding an existing price move — token already going up, volume confirming
+      return priceChg >= 5 && priceChg <= 80 && buyRatio > 0.55 && token.volume24h >= 30000;
+
+    case 'breakout_hunter':
+      // Strong price move, not overextended, volume confirming the breakout
+      return priceChg >= 12 && priceChg <= 70 && token.volume24h >= 80000 && buyRatio > 0.58;
+
+    case 'dip_sniper':
+      // Price dropped BUT smart money is quietly accumulating at the low
+      // Negative price change + STRONG buy ratio = accumulation, not panic selling
+      return priceChg >= -40 && priceChg <= -4 && buyRatio > 0.62;
+
+    case 'meme_velocity':
+      // Extreme velocity pump — move fast, exit fast
+      return priceChg >= 20 && token.volume24h >= 15000;
+
+    case 'volume_explosion':
+      // Massive volume surge — institutional attention or viral event
+      return token.volume24h >= 250000 && buyRatio > 0.52;
+
+    case 'smart_money_flow':
+      // Institutional grade only: LOW risk, distributed wallets, STRONG_BUY
+      // High makers24h = many wallets holding = not a pump-and-dump concentration
+      return analysis.riskLevel === 'LOW' && token.makers24h >= 150 && analysis.signal === 'STRONG_BUY';
+
+    case 'liquidity_sweep':
+      // Price bounced off a key level — recent dip/recovery with strong buying
+      return priceChg >= -15 && priceChg <= 10 && buyRatio > 0.62 && analysis.sentimentScore >= 55;
+
+    case 'adaptive':
+      // Adaptive mode delegates to the auto-selected strategy — always passes here
+      return true;
+
+    default:
+      return true;
+  }
+}
+
+// ── Adaptive strategy auto-selector ─────────────────────────────────────────
+// Runs at the START of each scan cycle. Reads current market conditions from
+// scan results + macro bias and picks the most appropriate strategy for this moment.
+function selectAdaptiveSolStrategy(
+  macro: CryptoMacroContext | null,
+  scanResult: TokenAnalysis[],
+): { strategyId: string; reason: string } {
+  if (scanResult.length === 0) {
+    return { strategyId: 'momentum_surfer', reason: 'No scan data — defaulting to momentum' };
+  }
+
+  // Measure market conditions from the current scan batch
+  const counts = { whale: 0, dip: 0, breakout: 0, volExplosion: 0, meme: 0, smartMoney: 0 };
+  for (const t of scanResult) {
+    const tt = t.token.txns24h.buys + t.token.txns24h.sells;
+    const br = tt > 0 ? t.token.txns24h.buys / tt : 0.5;
+    const avgTx = tt > 0 ? t.token.volume24h / tt : 0;
+    const chg = t.token.priceChange24h;
+    if (avgTx > 1000 && t.token.makers24h < 150 && t.whaleScore >= 65) counts.whale++;
+    if (chg >= -40 && chg <= -4 && br > 0.62) counts.dip++;
+    if (chg >= 12 && chg <= 70 && t.token.volume24h >= 80000) counts.breakout++;
+    if (t.token.volume24h >= 250000) counts.volExplosion++;
+    if (chg >= 20 && ((t.token.dexSource === 'pumpfun') || (t.token.dexId || '').toLowerCase().includes('pump'))) counts.meme++;
+    if (t.riskLevel === 'LOW' && t.signal === 'STRONG_BUY' && t.token.makers24h >= 150) counts.smartMoney++;
+  }
+
+  // RISK_OFF macro = be conservative
+  if (macro?.bias === 'RISK_OFF') {
+    if (counts.smartMoney >= 1) return { strategyId: 'smart_money_flow', reason: `RISK_OFF macro — ${counts.smartMoney} LOW-risk STRONG_BUY token(s). Institutional-grade entries only` };
+    if (counts.dip >= 1)        return { strategyId: 'dip_sniper',       reason: `RISK_OFF macro — ${counts.dip} accumulation dip(s) with strong buy pressure. Cautious entries only` };
+    return { strategyId: 'smart_money_flow', reason: 'RISK_OFF macro — conservative mode, waiting for institutional quality setups' };
+  }
+
+  // Abundance-based priority (pick the setup with the most confirmations)
+  if (counts.volExplosion >= 2) return { strategyId: 'volume_explosion',  reason: `${counts.volExplosion} tokens with explosive volume (>$250K) — institutional attention confirmed` };
+  if (counts.whale >= 2)        return { strategyId: 'whale_follower',    reason: `${counts.whale} tokens with real whale accumulation (large avg tx + concentrated wallets)` };
+  if (counts.breakout >= 2)     return { strategyId: 'breakout_hunter',   reason: `${counts.breakout} confirmed breakout setups (12–70% move + volume >$80K)` };
+  if (counts.meme >= 2)         return { strategyId: 'meme_velocity',     reason: `${counts.meme} meme tokens pumping on Pump.fun — velocity play` };
+  if (counts.dip >= 2)          return { strategyId: 'dip_sniper',        reason: `${counts.dip} tokens dipping with smart-money accumulation` };
+  if (counts.whale >= 1)        return { strategyId: 'whale_follower',    reason: `${counts.whale} whale accumulation token detected — follow the smart money` };
+  if (counts.volExplosion >= 1) return { strategyId: 'volume_explosion',  reason: `${counts.volExplosion} explosive volume token — institutional move in progress` };
+
+  // RISK_ON = ride the wave
+  if (macro?.bias === 'RISK_ON') return { strategyId: 'momentum_surfer', reason: `RISK_ON macro — BTC/ETH/SOL all positive. Ride the momentum` };
+
+  return { strategyId: 'momentum_surfer', reason: 'Mixed market — default momentum scan' };
+}
+
+// ── Strategy entry criteria descriptions (for AI prompt context) ─────────────
+// Tells the AI reviewer exactly what each strategy is hunting for so it gives
+// relevant, not generic, trade analysis in the confirm/skip reasoning.
+function getStrategyEntryContext(strategyId: string): string {
+  switch (strategyId) {
+    case 'whale_follower':
+      return 'ENTRY FILTER: avg transaction size >$1K (whale-sized, not retail), <150 unique wallets (concentrated accumulation), whale score ≥65, buy/sell ratio >58%. SKIP tokens with many small retail txns or scattered wallets.';
+    case 'momentum_surfer':
+      return 'ENTRY FILTER: price up 5–80%, buy ratio >55%, volume >$30K. Riding an existing uptrend. Skip flat or down tokens.';
+    case 'breakout_hunter':
+      return 'ENTRY FILTER: price up 12–70% (not overextended), volume >$80K, buy ratio >58%. STRONG_BUY preferred. Skip micro-cap low-volume setups.';
+    case 'dip_sniper':
+      return 'ENTRY FILTER: price DOWN 4–40% in 24h BUT buy ratio >62% (smart accumulation against the trend). Counter-trend entry — requires clear accumulation signal in the dip.';
+    case 'meme_velocity':
+      return 'ENTRY FILTER: price up >20%, Pump.fun preferred, high velocity short-lived pump. Quick in-out (10–15 min). Accept HIGH risk. Prioritise momentum and exit speed.';
+    case 'volume_explosion':
+      return 'ENTRY FILTER: 24h volume >$250K (institutional or viral event), buy ratio >52%. Volume is the primary signal — price direction secondary.';
+    case 'smart_money_flow':
+      return 'ENTRY FILTER: LOW risk ONLY, STRONG_BUY only, ≥150 unique wallets (distributed, not pumped), multi-day hold target. SKIP HIGH/EXTREME risk tokens.';
+    case 'liquidity_sweep':
+      return 'ENTRY FILTER: recent dip then bounce (price -15% to +10%), buy ratio >62%, sentiment ≥55. Quick scalp on a liquidity sweep bounce. Small size, fast exit.';
+    case 'adaptive':
+      return 'ENTRY FILTER: adaptive mode — strategy selected each scan based on current conditions. Evaluate against the actual strategy in use this cycle.';
+    default:
+      return '';
+  }
+}
+
 function createInitialState(config: SolEngineConfig): SolEngineState {
   return {
     isRunning: false,
@@ -829,7 +974,11 @@ async function runSolAIReview(
       openai = await getUniversalAIClientForUser(userId);
     }
 
-    const strategy = SOL_STRATEGIES.find(s => s.id === state.activeStrategy) || SOL_STRATEGIES[0];
+    // When adaptive mode is running, use the auto-selected sub-strategy for the prompt
+    const effectiveStrategyId = (state.activeStrategy === 'adaptive' || state.activeStrategies.includes('adaptive'))
+      ? (state._adaptiveStrategy || 'momentum_surfer')
+      : state.activeStrategy;
+    const strategy = SOL_STRATEGIES.find(s => s.id === effectiveStrategyId) || SOL_STRATEGIES[0];
     const macro = state.lastMacro;
     const goal = state.weeklyGoal;
 
@@ -841,9 +990,12 @@ async function runSolAIReview(
       ? `WEEKLY GOAL: ${goal.currentProfitSol.toFixed(3)} / ${goal.targetSol.toFixed(3)} SOL (${((goal.currentProfitSol / Math.max(goal.targetSol, 0.001)) * 100).toFixed(1)}%) — Phase: ${goal.phase.replace(/_/g, ' ').toUpperCase()}`
       : 'WEEKLY GOAL: None set';
 
+    const entryContext = getStrategyEntryContext(effectiveStrategyId);
+
     const systemPrompt = `You are VEDD Sol AI — an autonomous Solana token trading mind operating within the Supreme Mathematics framework.
 ACTIVE STRATEGY: ${strategy.icon} ${strategy.name} — ${strategy.description}
 Hold target: ${strategy.holdTarget} | Min confidence: ${strategy.minConfidence}% | Risk: ${strategy.maxRisk}
+${entryContext ? `\n${entryContext}\n` : ''}
 ${goalLine}
 WIN STREAK: ${goal.winStreak}
 DRAWDOWN SHIELD: ${state.shieldActive ? 'ACTIVE — conservative mode only' : 'OFF'}
@@ -866,8 +1018,11 @@ Use terms like: "Peace", "The science of it is...", "Word is bond", "Build on th
 Keep it natural — not every sentence. Weave it in where it fits. ALL numbers, prices, and percentages stay precise and clean. The lingo lives in the explanatory text only.
 
 Review the signals and open positions below. Output a JSON array of decisions.
-- For signals: type="signal", action=CONFIRM_BUY|SKIP|WATCH, reason (max 80 chars, use the lingo naturally)
+- For signals: type="signal", action=CONFIRM_BUY|SKIP|WATCH|WAIT, reason (max 80 chars, use the lingo naturally)
+  CONFIRM_BUY = token meets THIS strategy's entry criteria exactly. SKIP = does not fit. WATCH = borderline, monitor. WAIT = macro/conditions not right — no buys now.
 - For positions: type="position", action=HOLD|TRAIL|PARTIAL_CLOSE|CLOSE, trailPct=integer (only for TRAIL), reason (max 80 chars, use the lingo naturally)
+  HOLD = conditions still valid. TRAIL = lock in gains. PARTIAL_CLOSE = take 50% off. CLOSE = exit now.
+CRITICAL: Only CONFIRM_BUY if the token genuinely fits the active strategy entry criteria above. Do NOT CONFIRM_BUY just because confidence is high — if the token doesn't match the strategy filter, SKIP it.
 Return ONLY the JSON array, no markdown, no explanation.`;
 
     const signalsText = buySignals.length > 0
@@ -944,7 +1099,7 @@ Return ONLY the JSON array, no markdown, no explanation.`;
           addActivity(state, { type: 'signal', message: consensusMsg });
         }
 
-        const icon = d.action === 'CONFIRM_BUY' ? '🤖✅' : d.action === 'SKIP' ? '🤖❌' : '🤖👁️';
+        const icon = d.action === 'CONFIRM_BUY' ? '🤖✅' : d.action === 'SKIP' ? '🤖❌' : d.action === 'WAIT' ? '🤖⏸️' : '🤖👁️';
         addActivity(state, {
           type: 'signal',
           message: `${icon} ${modelLabel} ${d.action}: ${d.symbol} — ${d.reason || ''}`,
@@ -1239,8 +1394,22 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
       if ((analysis.signal === 'STRONG_BUY' || analysis.signal === 'BUY') && state.currentPortfolioValue > 0) {
         const dexKey = (analysis.token.dexId || '').toLowerCase().split('_')[0];
 
-        // Multi-strategy: find all confirming strategies
-        const activeStrats = state.activeStrategies.length > 0 ? state.activeStrategies : [state.activeStrategy];
+        // ── Adaptive mode: auto-select strategy from current scan results ──
+        let activeStrats = state.activeStrategies.length > 0 ? state.activeStrategies : [state.activeStrategy];
+        const isAdaptiveMode = activeStrats.includes('adaptive') || state.activeStrategy === 'adaptive';
+        if (isAdaptiveMode) {
+          const autoRec = selectAdaptiveSolStrategy(state.lastMacro, scanResult);
+          if (!state._adaptiveStrategy || state._adaptiveStrategy !== autoRec.strategyId) {
+            state._adaptiveStrategy = autoRec.strategyId;
+            addActivity(state, {
+              type: 'strategy',
+              message: `🤖 Adaptive selected: ${SOL_STRATEGIES.find(s => s.id === autoRec.strategyId)?.icon || ''}${autoRec.strategyId.replace(/_/g, ' ').toUpperCase()} — ${autoRec.reason}`,
+            });
+          }
+          activeStrats = [autoRec.strategyId];
+        }
+
+        // Multi-strategy: find all confirming strategies (standard gates + strategy-specific filter)
         const confirmingStrats = activeStrats
           .map(id => SOL_STRATEGIES.find(s => s.id === id))
           .filter((s): s is SolStrategy => !!s)
@@ -1248,6 +1417,8 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
             if (analysis.confidence < s.minConfidence) return false;
             if (s.minSignal === 'STRONG_BUY' && analysis.signal !== 'STRONG_BUY') return false;
             if (s.maxRisk === 'LOW' && (analysis.riskLevel === 'HIGH' || analysis.riskLevel === 'EXTREME')) return false;
+            // Strategy-specific entry criteria — each strategy has unique conditions
+            if (!passesStrategyFilter(analysis, s)) return false;
             return true;
           });
 

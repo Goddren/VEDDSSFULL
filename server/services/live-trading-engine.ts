@@ -1816,11 +1816,45 @@ function selectStrategyForPair(
   const obvTrend = (data.obv?.trend ?? '') as string;
   const isJpy    = symbol.includes('JPY');
   const isXau    = symbol.includes('XAU');
+  const symUpper  = symbol.toUpperCase();
+  const isCrypto = symUpper.includes('BTC') || symUpper.includes('XBT') || symUpper.includes('ETH') ||
+                   symUpper.includes('LTC') || symUpper.includes('XRP') || symUpper.includes('ADA') ||
+                   symUpper.includes('SOL') || symUpper.includes('BNB') || symUpper.includes('DOT');
+  const utcDay   = new Date().getUTCDay(); // 0=Sun, 6=Sat
+  const isWeekend = utcDay === 0 || utcDay === 6;
 
   // Helpers
   const pricePct  = (a: number, b: number) => Math.abs(a - b) / Math.max(b, 0.00001) * 100;
   const hasPattern = (...names: string[]) =>
     patterns.some(p => names.some(n => p.toLowerCase().includes(n.toLowerCase())));
+
+  // ── 0. BTC / CRYPTO WEEKEND ─────────────────────────────────────────────
+  // Crypto trades 24/7 but weekends = institutional players absent, retail-driven,
+  // wider spreads, lower liquidity — needs a distinct approach.
+  //   Trending  (ADX ≥ 22): ride momentum continuation, smaller size (no institution to reverse on)
+  //   Ranging   (ADX < 22): mean-revert between weekly range extremes, fade overextended moves
+  if (isCrypto && isWeekend) {
+    const isVolumeOk = volTrend === 'surging' || volTrend === 'above_average' || volTrend === 'average';
+    const dayLabel = utcDay === 6 ? 'Saturday' : 'Sunday';
+    if (adxVal >= 22 && trend !== 'NEUTRAL' && diSep >= 8 && isVolumeOk) {
+      return {
+        strategy: 'btc_weekend_momentum',
+        reason: `Crypto ${dayLabel} — trending market (ADX=${adxVal.toFixed(1)}, ${trend}, DI_sep=${diSep.toFixed(1)}). Vol=${volTrend}. Institutions absent = cleaner trends. Ride direction with 50% reduced size. Tight trailing stop — weekend gaps can snap.`,
+        priority: 'high',
+        minConfluences: 4,
+      };
+    }
+    // Ranging weekend — fade extremes, trade S/R bounces near weekly open
+    const vwapNote = vwapVal && price
+      ? ` Price ${((price - vwapVal) / vwapVal * 100).toFixed(2)}% from VWAP.`
+      : '';
+    return {
+      strategy: 'btc_weekend_range',
+      reason: `Crypto ${dayLabel} — ranging market (ADX=${adxVal.toFixed(1)}, no clear trend). Low institutional liquidity. Fade extremes, buy support, sell resistance. Mean-revert to VWAP.${vwapNote} Reduce size 50%. Avoid Sunday 20:00–21:00 UTC (CME gap zone).`,
+      priority: 'medium',
+      minConfluences: 4,
+    };
+  }
 
   // ── 1. NEWS FADE ────────────────────────────────────────────────────────
   if (lastHighImpactNewsAt) {
