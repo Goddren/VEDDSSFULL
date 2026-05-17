@@ -1794,6 +1794,38 @@ export const insertWearToEarnClaimSchema = createInsertSchema(wearToEarnClaims).
 export type WearToEarnClaim = typeof wearToEarnClaims.$inferSelect;
 export type InsertWearToEarnClaim = z.infer<typeof insertWearToEarnClaimSchema>;
 
+// ─── NFC Garment System — Wear Daily, Earn Daily ─────────────────────────────
+// Each physical garment has an NFC chip with a unique UID.
+// First tap activates the chip (links it to the user's account) and pays a
+// one-time 50 VEDD activation bonus. Every subsequent tap on a new calendar
+// day pays 15 VEDD directly to veddBalance (no admin approval needed — the
+// chip hardware UID is the proof of ownership).
+
+export const nfcActivations = pgTable("nfc_activations", {
+  id: serial("id").primaryKey(),
+  chipUid: text("chip_uid").notNull().unique(),    // NFC chip UID or VEDD-XXXXXX code
+  userId: integer("user_id").notNull().references(() => users.id),
+  garmentName: text("garment_name").notNull(),     // e.g. "VEDD Classic Tee"
+  activatedAt: timestamp("activated_at").defaultNow().notNull(),
+  totalTaps: integer("total_taps").notNull().default(0),
+  totalEarned: real("total_earned").notNull().default(0),
+  lastTapAt: timestamp("last_tap_at"),
+  currentStreak: integer("current_streak").notNull().default(0),
+  bestStreak: integer("best_streak").notNull().default(0),
+});
+
+export const nfcDailyTaps = pgTable("nfc_daily_taps", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  chipUid: text("chip_uid").notNull(),
+  rewardAmount: real("reward_amount").notNull().default(15),
+  tappedAt: timestamp("tapped_at").defaultNow().notNull(),
+  dayString: text("day_string").notNull(),         // 'YYYY-MM-DD' — dedup key
+});
+
+export type NfcActivation = typeof nfcActivations.$inferSelect;
+export type NfcDailyTap = typeof nfcDailyTaps.$inferSelect;
+
 // ─── Paper Trades — AI Training Journal ──────────────────────────────────────
 export const paperTrades = pgTable("paper_trades", {
   id: serial("id").primaryKey(),

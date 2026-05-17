@@ -691,6 +691,33 @@ async function withRetry<T>(
       console.error('[startup] Account Growth Plan tables migration (non-fatal):', (err as Error).message);
     }
 
+    try {
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS nfc_activations (
+        id serial PRIMARY KEY,
+        chip_uid text NOT NULL UNIQUE,
+        user_id integer REFERENCES users(id) NOT NULL,
+        garment_name text NOT NULL DEFAULT 'VEDD Garment',
+        activated_at timestamp DEFAULT now() NOT NULL,
+        total_taps integer NOT NULL DEFAULT 0,
+        total_earned real NOT NULL DEFAULT 0,
+        last_tap_at timestamp,
+        current_streak integer NOT NULL DEFAULT 0,
+        best_streak integer NOT NULL DEFAULT 0
+      )`);
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS nfc_daily_taps (
+        id serial PRIMARY KEY,
+        user_id integer REFERENCES users(id) NOT NULL,
+        chip_uid text NOT NULL,
+        reward_amount real NOT NULL DEFAULT 15,
+        tapped_at timestamp DEFAULT now() NOT NULL,
+        day_string text NOT NULL
+      )`);
+      await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS nfc_daily_taps_dedup ON nfc_daily_taps(user_id, chip_uid, day_string)`);
+      console.log('[startup] NFC Garment tables created/verified.');
+    } catch (err) {
+      console.error('[startup] NFC Garment tables migration (non-fatal):', (err as Error).message);
+    }
+
     await withRetry(() => seedSubscriptionPlans(), 'seedSubscriptionPlans');
     await withRetry(() => seedAchievements(), 'seedAchievements');
 

@@ -17530,6 +17530,161 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     });
   }
 
+  // ============= NFC GARMENT DAILY REWARDS =============
+  {
+    const { nfcActivations, nfcDailyTaps } = await import('../shared/schema');
+    const { eq, and, sql: drizzleSql } = await import('drizzle-orm');
+    const { db } = await import('./db');
+
+    const ACTIVATION_BONUS = 50;   // VEDD on first tap (one-time)
+    const DAILY_REWARD     = 15;   // VEDD per day
+    const STREAK_7_BONUS   = 5;    // extra VEDD at 7-day streak
+    const STREAK_30_BONUS  = 10;   // extra VEDD at 30-day streak
+
+    // Normalise UID: uppercase, strip colons/spaces
+    const normaliseUid = (raw: string) =>
+      raw.trim().toUpperCase().replace(/[:\s-]/g, '').slice(0, 64);
+
+    // ── GET /api/nfc/chip/:uid — public chip info (deep-link landing)
+    app.get("/api/nfc/chip/:uid", async (req: Request, res: Response) => {
+      const uid = normaliseUid(req.params.uid || '');
+      if (!uid) return res.status(400).json({ error: 'Invalid UID' });
+      const [row] = await db.select({
+        chipUid: nfcActivations.chipUid,
+        garmentName: nfcActivations.garmentName,
+        activatedAt: nfcActivations.activatedAt,
+        ownedByMe: drizzleSql<boolean>`false`,
+      }).from(nfcActivations).where(eq(nfcActivations.chipUid, uid)).limit(1);
+      if (!row) return res.json({ status: 'unclaimed', chipUid: uid });
+      return res.json({ status: 'claimed', garmentName: row.garmentName, activatedAt: row.activatedAt });
+    });
+
+    // ── GET /api/nfc/my-garments — user's registered garments
+    app.get("/api/nfc/my-garments", async (req: Request, res: Response) => {
+      if (!req.isAuthenticated()) return res.status(401).json({ error: 'Auth required' });
+      const userId = (req.user as User).id;
+      const garments = await db.select().from(nfcActivations)
+        .where(eq(nfcActivations.userId, userId))
+        .orderBy(drizzleSql`${nfcActivations.activatedAt} DESC`);
+      // For each garment, check if already tapped today
+      const today = new Date().toISOString().slice(0, 10);
+      const tappedToday = await db.select({ chipUid: nfcDailyTaps.chipUid })
+        .from(nfcDailyTaps)
+        .where(and(eq(nfcDailyTaps.userId, userId), eq(nfcDailyTaps.dayString, today)));
+      const tappedSet = new Set(tappedToday.map(t => t.chipUid));
+      res.json(garments.map(g => ({ ...g, tappedToday: tappedSet.has(g.chipUid) })));
+    });
+
+    // ── POST /api/nfc/activate — first-time chip ownership claim
+    app.post("/api/nfc/activate", async (req: Request, res: Response) => {
+      if (!req.isAuthenticated()) return res.status(401).json({ error: 'Auth required' });
+      const userId = (req.user as User).id;
+      const rawUid = req.body?.chipUid || req.body?.uid || '';
+      const garmentName = (req.body?.garmentName || 'VEDD Garment').toString().trim().slice(0, 80);
+      const uid = normaliseUid(rawUid);
+      if (uid.length < 4) return res.status(400).json({ error: 'Invalid chip UID' });
+
+      // Already activated by someone?
+      const [existing] = await db.select().from(nfcActivations)
+        .where(eq(nfcActivations.chipUid, uid)).limit(1);
+      if (existing) {
+        if (existing.userId === userId) {
+          return res.status(409).json({ error: 'You already own this garment', alreadyOwned: true, garment: existing });
+        }
+        return res.status(409).json({ error: 'This chip has already been claimed by another user' });
+      }
+
+      // Register ownership
+      const [activation] = await db.insert(nfcActivations).values({
+        chipUid: uid,
+        userId,
+        garmentName,
+        totalTaps: 1,
+        totalEarned: ACTIVATION_BONUS,
+        lastTapAt: new Date(),
+        currentStreak: 1,
+        bestStreak: 1,
+      }).returning();
+
+      // Log today's first tap
+      const today = new Date().toISOString().slice(0, 10);
+      await db.insert(nfcDailyTaps).values({
+        userId, chipUid: uid, rewardAmount: ACTIVATION_BONUS, dayString: today,
+      }).onConflictDoNothing();
+
+      // Credit VEDD directly to spendable balance (no admin approval — chip is the proof)
+      await storage.addToWalletBalance(userId, ACTIVATION_BONUS, false);
+
+      res.json({ success: true, activation, rewardAmount: ACTIVATION_BONUS, isFirstActivation: true });
+    });
+
+    // ── POST /api/nfc/daily-tap — daily reward (15 VEDD/tap, once per chip per day)
+    app.post("/api/nfc/daily-tap", async (req: Request, res: Response) => {
+      if (!req.isAuthenticated()) return res.status(401).json({ error: 'Auth required' });
+      const userId = (req.user as User).id;
+      const rawUid = req.body?.chipUid || req.body?.uid || '';
+      const uid = normaliseUid(rawUid);
+      if (uid.length < 4) return res.status(400).json({ error: 'Invalid chip UID' });
+
+      // Must own the chip
+      const [activation] = await db.select().from(nfcActivations)
+        .where(and(eq(nfcActivations.chipUid, uid), eq(nfcActivations.userId, userId))).limit(1);
+      if (!activation) return res.status(403).json({ error: 'Chip not registered to your account. Activate it first.' });
+
+      // One tap per day
+      const today = new Date().toISOString().slice(0, 10);
+      const [alreadyTapped] = await db.select().from(nfcDailyTaps)
+        .where(and(
+          eq(nfcDailyTaps.userId, userId),
+          eq(nfcDailyTaps.chipUid, uid),
+          eq(nfcDailyTaps.dayString, today),
+        )).limit(1);
+      if (alreadyTapped) {
+        return res.status(429).json({ error: "Already tapped today — come back tomorrow!", alreadyTapped: true });
+      }
+
+      // Streak calculation
+      const lastTap = activation.lastTapAt;
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const lastTapDay = lastTap ? lastTap.toISOString().slice(0, 10) : null;
+      const wasYesterday = lastTapDay === yesterday.toISOString().slice(0, 10);
+      const newStreak = wasYesterday ? (activation.currentStreak + 1) : 1;
+      const newBest = Math.max(newStreak, activation.bestStreak);
+
+      // Bonus reward for streaks
+      let reward = DAILY_REWARD;
+      if (newStreak >= 30) reward += STREAK_30_BONUS;
+      else if (newStreak >= 7) reward += STREAK_7_BONUS;
+
+      // Insert tap record
+      await db.insert(nfcDailyTaps).values({
+        userId, chipUid: uid, rewardAmount: reward, dayString: today,
+      });
+
+      // Update activation stats
+      await db.update(nfcActivations).set({
+        totalTaps: activation.totalTaps + 1,
+        totalEarned: activation.totalEarned + reward,
+        lastTapAt: new Date(),
+        currentStreak: newStreak,
+        bestStreak: newBest,
+      }).where(eq(nfcActivations.id, activation.id));
+
+      // Credit VEDD to spendable balance
+      await storage.addToWalletBalance(userId, reward, false);
+
+      res.json({
+        success: true,
+        rewardAmount: reward,
+        newStreak,
+        bestStreak: newBest,
+        streakBonus: reward - DAILY_REWARD,
+        garmentName: activation.garmentName,
+      });
+    });
+  }
+
   // ─── GRANTS & FUNDING ─────────────────────────────────────────────────────
 
   // Auth guard helper for grants (ambassadors + admins)
