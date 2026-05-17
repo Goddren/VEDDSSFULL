@@ -39,7 +39,7 @@ import {
   BookOpen, GraduationCap, FileText, Lightbulb, ChevronDown, MoreHorizontal,
   BarChart3, Webhook, Wallet, Scan, Coins, KeyRound, Rocket, Brain, Shirt,
   Radio, Star, CheckCircle2, AlertTriangle, Loader2, ExternalLink, TrendingUp, Code2, Activity,
-  DollarSign, Globe, Search, Shield
+  DollarSign, Globe, Search, Shield, Flame
 } from 'lucide-react';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 
@@ -134,6 +134,7 @@ const Header: React.FC = () => {
 
   // Primary nav items shown directly in header
   const primaryNavItems = [
+    { name: 'Activity Hub', path: '/activity', active: location === '/activity', icon: <Flame className="h-4 w-4 mr-2" /> },
     { name: 'Dashboard', path: '/dashboard', active: location === '/dashboard', icon: <Settings className="h-4 w-4 mr-2" /> },
     { name: 'Analysis', path: '/analysis', active: location === '/analysis', icon: <LineChart className="h-4 w-4 mr-2" /> },
     { name: 'Multi-TF EA', path: '/multi-timeframe', active: location === '/multi-timeframe', icon: <Clock className="h-4 w-4 mr-2" /> },
