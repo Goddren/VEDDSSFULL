@@ -2,7 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ─── VEDD Activity / Sweatcoin-Style Animations ─────────────────────────── */
+/* ─── VEDD Activity Animations ─────────────────────────────────────────────── */
 
 /* Reward burst: scale in + hold */
 @keyframes vedd-burst-in {
