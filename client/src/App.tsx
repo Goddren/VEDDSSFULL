@@ -93,6 +93,7 @@ import AmbassadorLandingPage from "@/pages/ambassador-landing-page";
 import AmbassadorFreePathPage from "@/pages/ambassador-free-path";
 import TokenInvestmentsPage from "@/pages/token-investments";
 import AccountGrowthPlan from "@/pages/account-growth-plan";
+import ActivityHubPage from "@/pages/activity-hub";
 import StreakBanner from "@/components/StreakBanner";
 import { OnboardingTutorial } from "@/components/onboarding-tutorial";
 import { MobileFAB } from "@/components/mobile-fab";
@@ -250,7 +251,8 @@ function AppLayout() {
             <ProtectedRoute path="/futures-ea-generator" component={FuturesEaGeneratorPage} />
             <ProtectedRoute path="/futures-live-feed" component={FuturesLiveFeedPage} />
             <ProtectedRoute path="/orb-breakout" component={ORBBreakoutPage} />
-            
+            <ProtectedRoute path="/activity" component={ActivityHubPage} />
+
             <Route component={NotFound} />
           </Switch>
         </PageTransition>

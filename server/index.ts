@@ -718,6 +718,21 @@ async function withRetry<T>(
       console.error('[startup] NFC Garment tables migration (non-fatal):', (err as Error).message);
     }
 
+    try {
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS daily_checkins (
+        id serial PRIMARY KEY,
+        user_id integer REFERENCES users(id) NOT NULL,
+        day_string text NOT NULL,
+        reward_amount real NOT NULL DEFAULT 10,
+        streak_day integer NOT NULL DEFAULT 1,
+        checked_in_at timestamp DEFAULT now() NOT NULL,
+        UNIQUE(user_id, day_string)
+      )`);
+      console.log('[startup] Daily check-in table created/verified.');
+    } catch (err) {
+      console.error('[startup] Daily check-in table migration (non-fatal):', (err as Error).message);
+    }
+
     await withRetry(() => seedSubscriptionPlans(), 'seedSubscriptionPlans');
     await withRetry(() => seedAchievements(), 'seedAchievements');
 

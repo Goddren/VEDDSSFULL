@@ -1,6 +1,6 @@
 import { Link, useLocation } from 'wouter';
 import {
-  Home, TrendingUp, Zap, Users, Grid3X3, ChevronLeft, LogOut,
+  Home, TrendingUp, Zap, Users, Grid3X3, ChevronLeft, LogOut, Flame,
   Settings, History, CreditCard, Award, Newspaper, Clock,
   Briefcase, HelpCircle, BookOpen, GraduationCap, Lightbulb,
   Coins, Webhook, Wallet, DollarSign, Globe, Search, BarChart3,
@@ -32,6 +32,7 @@ const aiToolItems = [
 ];
 
 const communityItems = [
+  { name: 'Activity Hub', path: '/activity',                              icon: Flame,       color: '#ef4444' },
   { name: 'Community',    path: '/community',                             icon: Users,       color: '#8b5cf6' },
   { name: 'Free to Pro',  path: '/ambassador/free-path',                  icon: Rocket,      color: '#22c55e' },
   { name: 'Training',     path: '/ambassador-training',                   icon: GraduationCap, color: '#f59e0b' },
@@ -176,8 +177,8 @@ export function MobileBottomNav() {
   const tabs = [
     { name: 'Home',    path: '/dashboard',            Icon: Home       },
     { name: 'Trading', path: '/weekly-strategy',       Icon: TrendingUp },
+    { name: 'Earn',    path: '/activity',              Icon: Flame      },
     { name: 'MT5',     path: '/mt5-chart-data',        Icon: BarChart3  },
-    { name: 'AI',      path: '/analysis',              Icon: Zap        },
     { name: 'Grow',    path: '/ambassador/recruitment', Icon: Users      },
   ];
 

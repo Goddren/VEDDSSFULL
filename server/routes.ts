@@ -17530,6 +17530,124 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     });
   }
 
+  // ============= ACTIVITY HUB — DAILY CHECK-IN =============
+  {
+    const { db } = await import('./db');
+    const { sql: drizzleSql, eq, and, desc } = await import('drizzle-orm');
+
+    const CHECKIN_REWARD     = 10;   // VEDD per day
+    const CHECKIN_STREAK_7   = 5;    // bonus at 7-day streak
+    const CHECKIN_STREAK_30  = 15;   // bonus at 30-day streak
+    const CHECKIN_STREAK_100 = 30;   // bonus at 100-day streak
+
+    // GET /api/activity/daily-checkin-status
+    app.get('/api/activity/daily-checkin-status', async (req: Request, res: Response) => {
+      if (!req.isAuthenticated()) return res.status(401).json({ error: 'Auth required' });
+      const userId = (req.user as User).id;
+      const today = new Date().toISOString().slice(0, 10);
+
+      const rows = await db.execute(drizzleSql`
+        SELECT id, day_string, reward_amount, streak_day, checked_in_at
+        FROM daily_checkins
+        WHERE user_id = ${userId}
+        ORDER BY checked_in_at DESC
+        LIMIT 7
+      `);
+      const checkins = (rows.rows ?? rows) as any[];
+      const todayRow = checkins.find((r: any) => r.day_string === today);
+      const latest = checkins[0];
+      const currentStreak = latest ? (latest.streak_day as number) : 0;
+
+      // Next reward calculation (with streak bonus)
+      let nextReward = CHECKIN_REWARD;
+      if (currentStreak + 1 >= 100) nextReward += CHECKIN_STREAK_100;
+      else if (currentStreak + 1 >= 30) nextReward += CHECKIN_STREAK_30;
+      else if (currentStreak + 1 >= 7)  nextReward += CHECKIN_STREAK_7;
+
+      res.json({
+        claimed: !!todayRow,
+        todayReward: todayRow?.reward_amount ?? nextReward,
+        currentStreak,
+        nextReward,
+        recentDays: checkins.slice(0, 7).map((r: any) => r.day_string),
+      });
+    });
+
+    // POST /api/activity/daily-checkin
+    app.post('/api/activity/daily-checkin', async (req: Request, res: Response) => {
+      if (!req.isAuthenticated()) return res.status(401).json({ error: 'Auth required' });
+      const userId = (req.user as User).id;
+      const today = new Date().toISOString().slice(0, 10);
+
+      // Already claimed today?
+      const existing = await db.execute(drizzleSql`
+        SELECT id FROM daily_checkins WHERE user_id = ${userId} AND day_string = ${today} LIMIT 1
+      `);
+      if ((existing.rows ?? existing as any[]).length > 0) {
+        return res.status(429).json({ error: 'Already checked in today', alreadyClaimed: true });
+      }
+
+      // Get yesterday's check-in to determine streak
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yStr = yesterday.toISOString().slice(0, 10);
+      const yRow = await db.execute(drizzleSql`
+        SELECT streak_day FROM daily_checkins WHERE user_id = ${userId} AND day_string = ${yStr} LIMIT 1
+      `);
+      const yRows = (yRow.rows ?? yRow) as any[];
+      const prevStreak = yRows.length > 0 ? (yRows[0].streak_day as number) : 0;
+      const newStreak = prevStreak + 1;
+
+      // Reward with streak bonuses
+      let reward = CHECKIN_REWARD;
+      if (newStreak >= 100) reward += CHECKIN_STREAK_100;
+      else if (newStreak >= 30) reward += CHECKIN_STREAK_30;
+      else if (newStreak >= 7)  reward += CHECKIN_STREAK_7;
+
+      await db.execute(drizzleSql`
+        INSERT INTO daily_checkins (user_id, day_string, reward_amount, streak_day)
+        VALUES (${userId}, ${today}, ${reward}, ${newStreak})
+        ON CONFLICT (user_id, day_string) DO NOTHING
+      `);
+
+      // Credit directly to spendable VEDD balance
+      await storage.addToWalletBalance(userId, reward, false);
+
+      res.json({ success: true, reward, newStreak, streakBonus: reward - CHECKIN_REWARD });
+    });
+
+    // GET /api/activity/leaderboard — top earners this week
+    app.get('/api/activity/leaderboard', async (req: Request, res: Response) => {
+      if (!req.isAuthenticated()) return res.status(401).json({ error: 'Auth required' });
+      const weekAgo = new Date();
+      weekAgo.setDate(weekAgo.getDate() - 7);
+      const weekStart = weekAgo.toISOString().slice(0, 10);
+
+      const rows = await db.execute(drizzleSql`
+        SELECT
+          u.id,
+          u.username,
+          u.full_name,
+          u.avatar_url,
+          COALESCE(SUM(dc.reward_amount), 0) AS checkin_vedd,
+          COALESCE(nfc.nfc_vedd, 0)           AS nfc_vedd,
+          COALESCE(SUM(dc.reward_amount), 0) + COALESCE(nfc.nfc_vedd, 0) AS total_vedd
+        FROM users u
+        LEFT JOIN daily_checkins dc ON dc.user_id = u.id AND dc.day_string >= ${weekStart}
+        LEFT JOIN (
+          SELECT user_id, SUM(reward_amount) AS nfc_vedd
+          FROM nfc_daily_taps
+          WHERE tapped_at >= ${weekAgo.toISOString()}
+          GROUP BY user_id
+        ) nfc ON nfc.user_id = u.id
+        GROUP BY u.id, u.username, u.full_name, u.avatar_url, nfc.nfc_vedd
+        ORDER BY total_vedd DESC
+        LIMIT 20
+      `);
+      res.json({ leaderboard: (rows.rows ?? rows) });
+    });
+  }
+
   // ============= NFC GARMENT DAILY REWARDS =============
   {
     const { nfcActivations, nfcDailyTaps } = await import('../shared/schema');
