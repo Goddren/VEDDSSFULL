@@ -107,7 +107,7 @@ function useVoice(onTranscript: (text: string, isFinal: boolean) => void) {
   // ── Audio unlock — MUST be called directly inside a user gesture (tap/click) ─
   // On iOS Safari and Android Chrome, audio is blocked until the AudioContext
   // is resumed AND a buffer is played while the gesture is still active.
-  // Calling this in handleSubmit/handleMicClick unblocks all subsequent audio.play() calls.
+  // Called on EVERY gesture (not just first) so the primed element stays fresh.
   const unlockAudio = useCallback(() => {
     // ── 1. Web Audio API unlock (synchronous silent buffer during gesture) ──
     try {
@@ -115,6 +115,7 @@ function useVoice(onTranscript: (text: string, isFinal: boolean) => void) {
       if (AC) {
         if (!audioCtxRef.current) audioCtxRef.current = new AC();
         const ctx = audioCtxRef.current;
+        if (!ctx) return;
         if (ctx.state === 'suspended') ctx.resume();
         const buf = ctx.createBuffer(1, 1, 22050);
         const src = ctx.createBufferSource();
@@ -123,18 +124,18 @@ function useVoice(onTranscript: (text: string, isFinal: boolean) => void) {
         src.start(0);
       }
     } catch { /* ignore */ }
-    // ── 2. HTML5 Audio element unlock (primes element for async src swaps) ──
+    // ── 2. HTML5 Audio element unlock — re-primed on EVERY gesture ──
     // iOS Safari allows future audio.src = url; audio.play() on an element
-    // that was already .play()'d during a user gesture, even after the src changes.
+    // that was .play()'d during a user gesture. We refresh on every tap so the
+    // element stays authorised for the CURRENT message, not just the first one.
     try {
-      if (!primedAudioRef.current) {
-        // Shortest valid silent WAV as a data URI — no network request needed
-        const silent = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAA=';
-        const a = new Audio(silent);
-        a.volume = 0.001;
-        a.play().then(() => { a.pause(); a.volume = 1.0; }).catch(() => {});
-        primedAudioRef.current = a;
-      }
+      const silent = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAA=';
+      // Reuse existing element if idle, otherwise create a fresh one
+      const a = (primedAudioRef.current && !audioRef.current) ? primedAudioRef.current : new Audio(silent);
+      a.src = silent;
+      a.volume = 0.001;
+      a.play().then(() => { a.pause(); a.volume = 1.0; }).catch(() => {});
+      primedAudioRef.current = a;
     } catch { /* ignore */ }
   }, []);
 
@@ -263,8 +264,8 @@ function useVoice(onTranscript: (text: string, isFinal: boolean) => void) {
       // ── Fallback: HTML5 Audio — reuse the primed element if available ──
       // The primed element was .play()'d during a user gesture so iOS allows
       // subsequent src-swap + play() calls without a new gesture.
+      // Do NOT null it out — keep the reference alive for the next message.
       const audio = primedAudioRef.current || new Audio();
-      primedAudioRef.current = null; // consume it — will be re-primed on next gesture
       audio.src = url;
       audio.volume = 1.0;
       audioRef.current = audio;
@@ -313,7 +314,7 @@ function useVoice(onTranscript: (text: string, isFinal: boolean) => void) {
     });
   }, [safeSetSpeaking]);
 
-  return { isListening, isSpeaking, voiceEnabled, startListening, stopListening, speak, stopSpeaking, toggleVoice, playStoredAudio, unlockAudio, audioRef, audioCtxRef, safeSetSpeaking };
+  return { isListening, isSpeaking, voiceEnabled, startListening, stopListening, speak, stopSpeaking, toggleVoice, playStoredAudio, unlockAudio, audioRef, audioCtxRef, safeSetSpeaking, primedAudioRef, browserSpeak };
 }
 
 // ── Arc Reactor icon (JARVIS-style) ──────────────────────────────────────────
@@ -776,7 +777,7 @@ export function AbbaAssistant() {
   const { toast } = useToast();
 
   // Voice hook — STT + TTS
-  const { isListening, isSpeaking, voiceEnabled, startListening, stopListening, speak, stopSpeaking, toggleVoice, playStoredAudio, unlockAudio, audioRef, audioCtxRef, safeSetSpeaking } = useVoice(
+  const { isListening, isSpeaking, voiceEnabled, startListening, stopListening, speak, stopSpeaking, toggleVoice, playStoredAudio, unlockAudio, audioRef, audioCtxRef, safeSetSpeaking, primedAudioRef, browserSpeak } = useVoice(
     useCallback((transcript: string, isFinal: boolean) => {
       setInput(transcript);
       setInterimText(isFinal ? '' : transcript);
@@ -816,7 +817,18 @@ export function AbbaAssistant() {
     }).then(async res => {
       if (res.ok && res.headers.get('content-type')?.includes('audio')) {
         const blob = await res.blob();
-        if (blob.size > 100) greetingAudioUrlRef.current = URL.createObjectURL(blob);
+        if (blob.size > 100) {
+          greetingAudioUrlRef.current = URL.createObjectURL(blob);
+          // If the panel is already open and no audio is playing yet,
+          // try playing immediately via the primed element (works if user
+          // tapped the orb and the context is already unlocked)
+          if (primedAudioRef.current && !audioRef.current) {
+            const a = primedAudioRef.current;
+            a.src = greetingAudioUrlRef.current;
+            a.volume = 1.0;
+            a.play().catch(() => {});
+          }
+        }
       }
     }).catch(() => {});
   }, []);
@@ -920,18 +932,26 @@ export function AbbaAssistant() {
         audioUrl: inlineAudioUrl,
       }]);
 
-      // Try autoplay immediately with inline audio (no extra fetch)
+      // Try autoplay immediately with inline audio — use primed element on mobile
+      // (new Audio().play() is always blocked async on iOS; primed element bypasses this)
       if (inlineAudioUrl) {
-        const audio = new Audio(inlineAudioUrl);
+        const audio = primedAudioRef.current || new Audio();
+        audio.src = inlineAudioUrl;
         audio.volume = 1.0;
         audioRef.current = audio;
         safeSetSpeaking(true);
         audio.onended = () => { safeSetSpeaking(false); audioRef.current = null; };
-        audio.onerror = () => { safeSetSpeaking(false); audioRef.current = null; };
-        audio.play().catch(() => {
-          // Autoplay blocked — Hear button is visible on the message
+        audio.onerror = () => {
           safeSetSpeaking(false);
           audioRef.current = null;
+          // Browser speech fallback so mobile always gets SOME audio
+          if (data.response) browserSpeak(data.response);
+        };
+        audio.play().catch(() => {
+          safeSetSpeaking(false);
+          audioRef.current = null;
+          // Autoplay still blocked — try browser speech synthesis as last resort
+          if (data.response && voiceEnabled) browserSpeak(data.response);
         });
       } else if (data.response && voiceEnabled) {
         // Fallback: fetch TTS separately (Edge TTS may have timed out inline)
@@ -1021,7 +1041,9 @@ export function AbbaAssistant() {
     if (audioPlayingRef.current || audioQueueRef.current.length === 0) return;
     audioPlayingRef.current = true;
     const url = audioQueueRef.current.shift()!;
-    const audio = new Audio(url);
+    // Reuse the primed element so iOS doesn't block the play() call
+    const audio = primedAudioRef.current || new Audio();
+    audio.src = url;
     audio.volume = 1.0;
     audioRef.current = audio;
     safeSetSpeaking(true);
