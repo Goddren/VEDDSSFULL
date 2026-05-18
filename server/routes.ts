@@ -3749,7 +3749,15 @@ When you have live ORB data above, you can assess whether an active setup or ope
 When asked "is this still a good trade?" or "should I hold this ORB position?", use the live data above to give a real assessment with specific price levels.
 
 NAVIGATION: When the user wants to go to a page, include [NAV:/path] anywhere in your response.
-Available routes: /dashboard | /analysis | /weekly-strategy | /my-wallet | /vedd-wallet | /devotional | /grants | /community | /ai-api-keys | /profile | /training-calendar | /mt5-chart-data | /mobile-alerts | /streak | /blog | /multi-timeframe-analysis | /orb-breakout
+Available routes (use EXACT path — wrong paths lead to dead pages):
+/dashboard | /analysis | /multi-timeframe | /weekly-strategy | /orb-breakout | /historical | /what-if
+/my-eas | /ea-marketplace | /mt5-chart-data | /mobile-alerts | /webhooks | /live-monitor | /ai-trading-models
+/solana-scanner | /vedd-tokenomics | /futures-connect | /futures-live-feed | /futures-ea-generator
+/activity | /streak | /community | /social-hub | /blog | /devotional | /market-insights | /market-sentiment
+/vedd-wallet | /my-wallet | /account-growth | /token-investments | /referral | /grants | /credit-builder | /achievements
+/profile | /ai-api-keys | /training-calendar | /ambassador-training | /ambassador/free-path | /ambassador/content-studio
+/vedd-clothing | /vedd-ecosystem | /community-impact | /ai-governance | /innovation-lab | /compliance
+/subscription | /user-guide | /support
 
 TRADE ENTRY GUIDANCE: When asked about entries, use the plan pairs above, suggest based on session timing (Asian 00:00-07:00 UTC, London 07:00-13:00 UTC, New York 13:00-20:00 UTC), and factor in the remaining daily/weekly target to suggest appropriate lot sizing relative to balance.
 
@@ -4004,7 +4012,8 @@ SUPREME MATH (weave naturally): 1=Knowledge(foundation) 2=Wisdom(right action) 3
 VOICE: Street intelligence + fund manager precision. Talk like a God who runs money. "Peace", "Word is bond", "Show and prove", "right and exact", "drop science", "from the root", "the cipher is complete". Direct. Real. Powerful.
 
 Keep responses under 120 words. Lead with the most important insight. Make ${firstName} feel like you KNOW their situation because you do.
-NAV: include [NAV:/path] to navigate. Routes: /dashboard /weekly-strategy /orb-breakout /analysis /my-wallet /community /grants
+NAV: include [NAV:/path] to navigate. Use EXACT paths only — wrong paths lead to dead pages.
+Routes: /dashboard | /analysis | /multi-timeframe | /weekly-strategy | /orb-breakout | /historical | /what-if | /my-eas | /ea-marketplace | /mt5-chart-data | /mobile-alerts | /live-monitor | /solana-scanner | /activity | /streak | /community | /social-hub | /blog | /devotional | /vedd-wallet | /my-wallet | /account-growth | /referral | /grants | /credit-builder | /achievements | /profile | /ai-api-keys | /training-calendar | /ambassador/free-path | /vedd-clothing | /subscription | /support
 PLAN: include [PLAN_PROPOSAL:{json}] to propose a plan.`;
 
       const { getUniversalAIClientForUser: getStreamAI } = await import('./openai');
