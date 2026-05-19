@@ -50,6 +50,7 @@ input bool    ENABLE_CHART_DATA  = true;                             // Send cha
 input int     CHART_DATA_SECONDS = 60;                               // How often to send chart data (s)
 input int     CANDLES_TO_SEND    = 50;                               // Candles per timeframe
 input bool    INCLUDE_INDICATORS = true;                             // Include RSI/MACD/BB/ATR/EMA
+input string  SYMBOLS_LIST      = "";                                // Pairs to monitor, comma-separated (blank = current chart only)
 
 //====================================================================
 //  TRADE COPIER
@@ -73,6 +74,13 @@ string g_confirmUrl;
 string g_chartDataUrl;
 string g_tradeSignalUrl;
 string g_heartbeatUrl;
+
+//====================================================================
+//  Globals — Multi-symbol list
+//====================================================================
+#define VEDD_MAX_SYM 20
+int    g_symCount = 0;
+string g_symList[VEDD_MAX_SYM];
 
 //====================================================================
 //  Globals — Auto-detected account info (populated in OnInit)
@@ -438,9 +446,8 @@ void ConfirmSignal(string sigId, bool executed)
 //+------------------------------------------------------------------+
 //| ── CHART DATA SENDER (MQL4 indicator API) ─────────────────────── |
 //+------------------------------------------------------------------+
-void SendChartData()
+void SendChartData(string sym)
 {
-   string          sym = Symbol();
    ENUM_TIMEFRAMES tf  = Period();
 
    string tfStr;
@@ -668,7 +675,8 @@ void OnTimer()
    if(ENABLE_CHART_DATA && now - g_lastChartData >= CHART_DATA_SECONDS)
    {
       g_lastChartData = now;
-      SendChartData();
+      for(int i = 0; i < g_symCount; i++)
+         SendChartData(g_symList[i]);
    }
    if(now - g_lastHeartbeat >= HEARTBEAT_SECONDS)
    {
@@ -706,6 +714,25 @@ int OnInit()
    {
       Alert("[VEDD] ACCOUNT_ALIAS is empty! Enter a unique alias in EA settings.");
       return INIT_PARAMETERS_INCORRECT;
+   }
+
+   // Build symbol list — blank SYMBOLS_LIST means current chart only
+   if(StringLen(SYMBOLS_LIST) == 0)
+   {
+      g_symList[0] = Symbol();
+      g_symCount   = 1;
+   }
+   else
+   {
+      string parts[];
+      int cnt = StringSplit(SYMBOLS_LIST, ',', parts);
+      g_symCount = 0;
+      for(int k = 0; k < cnt && g_symCount < VEDD_MAX_SYM; k++)
+      {
+         StringTrimLeft(parts[k]); StringTrimRight(parts[k]);
+         if(StringLen(parts[k]) > 0) { g_symList[g_symCount] = parts[k]; g_symCount++; }
+      }
+      if(g_symCount == 0) { g_symList[0] = Symbol(); g_symCount = 1; }
    }
 
    // Auto-read account info from terminal

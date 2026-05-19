@@ -49,6 +49,7 @@ input bool    ENABLE_CHART_DATA  = true;                             // Send cha
 input int     CHART_DATA_SECONDS = 60;                               // How often to send chart data (s)
 input int     CANDLES_TO_SEND    = 50;                               // Candles per timeframe
 input bool    INCLUDE_INDICATORS = true;                             // Include RSI/MACD/BB/ATR/EMA
+input string  SYMBOLS_LIST      = "";                                // Pairs to monitor, comma-separated (blank = current chart only)
 
 //====================================================================
 //  TRADE COPIER  (manual trade relay)
@@ -90,15 +91,19 @@ datetime g_lastChartData  = 0;
 datetime g_lastHeartbeat  = 0;
 
 //====================================================================
-//  Globals — Indicator handles  (created in OnInit, released OnDeinit)
+//  Globals — Multi-symbol list & per-symbol indicator handles
 //====================================================================
-int g_rsiH    = INVALID_HANDLE;
-int g_macdH   = INVALID_HANDLE;
-int g_bbH     = INVALID_HANDLE;
-int g_atrH    = INVALID_HANDLE;
-int g_ema20H  = INVALID_HANDLE;
-int g_ema50H  = INVALID_HANDLE;
-int g_ema200H = INVALID_HANDLE;
+#define VEDD_MAX_SYM 20
+int    g_symCount = 0;
+string g_symList[VEDD_MAX_SYM];
+
+int g_rsiH_a   [VEDD_MAX_SYM];
+int g_macdH_a  [VEDD_MAX_SYM];
+int g_bbH_a    [VEDD_MAX_SYM];
+int g_atrH_a   [VEDD_MAX_SYM];
+int g_ema20H_a [VEDD_MAX_SYM];
+int g_ema50H_a [VEDD_MAX_SYM];
+int g_ema200H_a[VEDD_MAX_SYM];
 
 //====================================================================
 //  Globals — Signal / Trade dedup
@@ -496,9 +501,9 @@ double IndVal(int handle, int bufIdx = 0)
 //+------------------------------------------------------------------+
 //| ── CHART DATA SENDER ──────────────────────────────────────────── |
 //+------------------------------------------------------------------+
-void SendChartData()
+void SendChartData(int symIdx)
 {
-   string          sym = Symbol();
+   string          sym = g_symList[symIdx];
    ENUM_TIMEFRAMES tf  = Period();
 
    string tfStr;
@@ -544,16 +549,16 @@ void SendChartData()
    {
       // Re-create handles if chart symbol/TF changed since OnInit
       // (handles are symbol+TF specific; OnInit creates them once)
-      double rsiVal   = IndVal(g_rsiH,    0);   // RSI main
-      double macdMain = IndVal(g_macdH,   0);   // MACD main line
-      double macdSig  = IndVal(g_macdH,   1);   // MACD signal line
-      double bbUpper  = IndVal(g_bbH,     1);   // Bands upper
-      double bbMid    = IndVal(g_bbH,     0);   // Bands middle
-      double bbLower  = IndVal(g_bbH,     2);   // Bands lower
-      double atrVal   = IndVal(g_atrH,    0);   // ATR
-      double ema20    = IndVal(g_ema20H,  0);
-      double ema50    = IndVal(g_ema50H,  0);
-      double ema200   = IndVal(g_ema200H, 0);
+      double rsiVal   = IndVal(g_rsiH_a   [symIdx], 0);   // RSI main
+      double macdMain = IndVal(g_macdH_a  [symIdx], 0);   // MACD main line
+      double macdSig  = IndVal(g_macdH_a  [symIdx], 1);   // MACD signal line
+      double bbUpper  = IndVal(g_bbH_a    [symIdx], 1);   // Bands upper
+      double bbMid    = IndVal(g_bbH_a    [symIdx], 0);   // Bands middle
+      double bbLower  = IndVal(g_bbH_a    [symIdx], 2);   // Bands lower
+      double atrVal   = IndVal(g_atrH_a   [symIdx], 0);   // ATR
+      double ema20    = IndVal(g_ema20H_a [symIdx], 0);
+      double ema50    = IndVal(g_ema50H_a [symIdx], 0);
+      double ema200   = IndVal(g_ema200H_a[symIdx], 0);
 
       indJson = StringFormat(
          "{\"rsi\":%.4f,\"macd\":{\"main\":%.6f,\"signal\":%.6f},"
@@ -745,7 +750,8 @@ void OnTimer()
    if(ENABLE_CHART_DATA && now - g_lastChartData >= CHART_DATA_SECONDS)
    {
       g_lastChartData = now;
-      SendChartData();
+      for(int i = 0; i < g_symCount; i++)
+         SendChartData(i);
    }
    if(now - g_lastHeartbeat >= HEARTBEAT_SECONDS)
    {
@@ -790,19 +796,40 @@ int OnInit()
    g_serverName    = AccountInfoString(ACCOUNT_SERVER);
    g_effectiveLabel = (StringLen(ACCOUNT_LABEL) > 0) ? ACCOUNT_LABEL : g_accountName;
 
-   // Create indicator handles for the current chart symbol/timeframe
-   // These are reused every time SendChartData() runs (every 60s)
+   // Build symbol list — blank SYMBOLS_LIST means current chart only
+   if(StringLen(SYMBOLS_LIST) == 0)
+   {
+      g_symList[0] = Symbol();
+      g_symCount   = 1;
+   }
+   else
+   {
+      string parts[];
+      int cnt = StringSplit(SYMBOLS_LIST, ',', parts);
+      g_symCount = 0;
+      for(int k = 0; k < cnt && g_symCount < VEDD_MAX_SYM; k++)
+      {
+         StringTrimLeft(parts[k]); StringTrimRight(parts[k]);
+         if(StringLen(parts[k]) > 0) { g_symList[g_symCount] = parts[k]; g_symCount++; }
+      }
+      if(g_symCount == 0) { g_symList[0] = Symbol(); g_symCount = 1; }
+   }
+
+   // Create indicator handles for each monitored symbol
    if(INCLUDE_INDICATORS)
    {
-      string s = Symbol();
       ENUM_TIMEFRAMES tf = Period();
-      g_rsiH    = iRSI(s, tf, 14, PRICE_CLOSE);
-      g_macdH   = iMACD(s, tf, 12, 26, 9, PRICE_CLOSE);
-      g_bbH     = iBands(s, tf, 20, 0, 2.0, PRICE_CLOSE);
-      g_atrH    = iATR(s, tf, 14);
-      g_ema20H  = iMA(s, tf, 20,  0, MODE_EMA, PRICE_CLOSE);
-      g_ema50H  = iMA(s, tf, 50,  0, MODE_EMA, PRICE_CLOSE);
-      g_ema200H = iMA(s, tf, 200, 0, MODE_EMA, PRICE_CLOSE);
+      for(int i = 0; i < g_symCount; i++)
+      {
+         string s        = g_symList[i];
+         g_rsiH_a   [i] = iRSI  (s, tf, 14, PRICE_CLOSE);
+         g_macdH_a  [i] = iMACD (s, tf, 12, 26, 9, PRICE_CLOSE);
+         g_bbH_a    [i] = iBands(s, tf, 20, 0, 2.0, PRICE_CLOSE);
+         g_atrH_a   [i] = iATR  (s, tf, 14);
+         g_ema20H_a [i] = iMA   (s, tf, 20,  0, MODE_EMA, PRICE_CLOSE);
+         g_ema50H_a [i] = iMA   (s, tf, 50,  0, MODE_EMA, PRICE_CLOSE);
+         g_ema200H_a[i] = iMA   (s, tf, 200, 0, MODE_EMA, PRICE_CLOSE);
+      }
    }
 
    g_trade.SetExpertMagicNumber(MAGIC_NUMBER);
@@ -826,14 +853,17 @@ void OnDeinit(const int reason)
    EventKillTimer();
    Comment("");
 
-   // Release indicator handles
-   if(g_rsiH    != INVALID_HANDLE) IndicatorRelease(g_rsiH);
-   if(g_macdH   != INVALID_HANDLE) IndicatorRelease(g_macdH);
-   if(g_bbH     != INVALID_HANDLE) IndicatorRelease(g_bbH);
-   if(g_atrH    != INVALID_HANDLE) IndicatorRelease(g_atrH);
-   if(g_ema20H  != INVALID_HANDLE) IndicatorRelease(g_ema20H);
-   if(g_ema50H  != INVALID_HANDLE) IndicatorRelease(g_ema50H);
-   if(g_ema200H != INVALID_HANDLE) IndicatorRelease(g_ema200H);
+   // Release all per-symbol indicator handles
+   for(int i = 0; i < g_symCount; i++)
+   {
+      if(g_rsiH_a   [i] != INVALID_HANDLE) IndicatorRelease(g_rsiH_a   [i]);
+      if(g_macdH_a  [i] != INVALID_HANDLE) IndicatorRelease(g_macdH_a  [i]);
+      if(g_bbH_a    [i] != INVALID_HANDLE) IndicatorRelease(g_bbH_a    [i]);
+      if(g_atrH_a   [i] != INVALID_HANDLE) IndicatorRelease(g_atrH_a   [i]);
+      if(g_ema20H_a [i] != INVALID_HANDLE) IndicatorRelease(g_ema20H_a [i]);
+      if(g_ema50H_a [i] != INVALID_HANDLE) IndicatorRelease(g_ema50H_a [i]);
+      if(g_ema200H_a[i] != INVALID_HANDLE) IndicatorRelease(g_ema200H_a[i]);
+   }
 
    Print("[VEDD] MT5 Combined EA stopped. Reason=", reason);
 }
