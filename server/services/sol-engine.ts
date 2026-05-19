@@ -411,6 +411,29 @@ async function loadEngineStateFromDb(userId: number, state: SolEngineState): Pro
       if (settings.autoTradeStats && typeof settings.autoTradeStats === 'object') {
         state.autoTradeStats = { ...state.autoTradeStats, ...(settings.autoTradeStats as any) };
       }
+
+      // ── Auto-populate portfolio value from server wallet balance ─────────
+      // currentPortfolioValue = 0 silently blocks ALL trades (sizeSOL = 0).
+      // If a server wallet is configured, fetch its live balance so the
+      // engine can size positions correctly without manual portfolio entry.
+      if (settings.serverWalletKey && state.currentPortfolioValue <= 0) {
+        try {
+          const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
+          const { Keypair, Connection } = await import('@solana/web3.js');
+          const bs58 = (await import('bs58')).default;
+          const keypair = Keypair.fromSecretKey(bs58.decode(privateKeyBase58));
+          const rpcUrl = process.env.SOLANA_RPC_URL || 'https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92';
+          const connection = new Connection(rpcUrl, { commitment: 'confirmed' });
+          const lamports = await connection.getBalance(keypair.publicKey);
+          const solBalance = lamports / 1e9;
+          if (solBalance > 0) {
+            state.currentPortfolioValue = solBalance;
+            console.log(`[SolEngine] Auto-set portfolio value from server wallet: ${solBalance.toFixed(4)} SOL`);
+          }
+        } catch (walletErr) {
+          console.warn('[SolEngine] Could not fetch server wallet balance for portfolio init:', walletErr);
+        }
+      }
     }
 
     const positions = await db.select().from(solEnginePositions).where(eq(solEnginePositions.userId, userId));
@@ -1631,8 +1654,33 @@ export async function startSolEngine(userId: number, config: Partial<SolEngineCo
     state.autoTradeTP = existing.autoTradeTP;
     state.autoTradeSL = existing.autoTradeSL;
   } else {
-    // Cold start — load from database
+    // Cold start — load from database (also auto-fetches wallet balance)
     await loadEngineStateFromDb(userId, state);
+  }
+
+  // ── Final safety check: if portfolio value still 0, try wallet balance now ─
+  // Covers the case where the engine was previously running but portfolio
+  // value was never set and the wallet balance fetch above didn't fire.
+  if (state.currentPortfolioValue <= 0) {
+    try {
+      const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey, liveTradeEnabled: solEngineSettings.liveTradeEnabled })
+        .from(solEngineSettings).where(eq(solEngineSettings.userId, userId));
+      if (settings?.serverWalletKey) {
+        const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
+        const { Keypair, Connection } = await import('@solana/web3.js');
+        const bs58 = (await import('bs58')).default;
+        const keypair = Keypair.fromSecretKey(bs58.decode(privateKeyBase58));
+        const rpcUrl = process.env.SOLANA_RPC_URL || 'https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92';
+        const connection = new Connection(rpcUrl, { commitment: 'confirmed' });
+        const lamports = await connection.getBalance(keypair.publicKey);
+        const solBalance = lamports / 1e9;
+        if (solBalance > 0) {
+          state.currentPortfolioValue = solBalance;
+          state.liveTradeEnabled = true;
+          console.log(`[SolEngine] Portfolio auto-set from wallet on start: ${solBalance.toFixed(4)} SOL`);
+        }
+      }
+    } catch { /* non-fatal */ }
   }
 
   state.isRunning = true;
@@ -2152,7 +2200,7 @@ export async function saveServerWallet(userId: number, privateKeyBase58: string)
       activeStrategy: 'momentum_surfer',
       activeStrategies: [] as any,
       autoTradeEnabled: false,
-      liveTradeEnabled: false,
+      liveTradeEnabled: true,   // auto-enable live trade when wallet is connected
       autoTradeTP: 8,
       autoTradeSL: 4,
       weeklyGoal: {} as any,
@@ -2160,8 +2208,31 @@ export async function saveServerWallet(userId: number, privateKeyBase58: string)
       updatedAt: new Date(),
     }).onConflictDoUpdate({
       target: solEngineSettings.userId,
-      set: { serverWalletKey: encrypted, updatedAt: new Date() },
+      set: { serverWalletKey: encrypted, liveTradeEnabled: true, updatedAt: new Date() },
     });
+
+    // ── Fetch live SOL balance and update in-memory engine state ─────────────
+    // This ensures currentPortfolioValue is set immediately so trades can size
+    // correctly without requiring a manual "Update Portfolio" step.
+    try {
+      const { Connection } = await import('@solana/web3.js');
+      const rpcUrl = process.env.SOLANA_RPC_URL || 'https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92';
+      const connection = new Connection(rpcUrl, { commitment: 'confirmed' });
+      const lamports = await connection.getBalance(keypair.publicKey);
+      const solBalance = lamports / 1e9;
+      if (solBalance > 0) {
+        // Update existing engine state if running
+        const existing = engineStates.get(userId);
+        if (existing) {
+          existing.currentPortfolioValue = solBalance;
+          existing.liveTradeEnabled = true;
+          addActivity(existing, {
+            type: 'info',
+            message: `🔑 Server wallet connected: ${walletAddress.slice(0,8)}... | Balance: ${solBalance.toFixed(4)} SOL | Live trading ENABLED — ready to execute`,
+          });
+        }
+      }
+    } catch { /* non-fatal — balance fetch fails gracefully */ }
 
     return { success: true, walletAddress };
   } catch (err: any) {
