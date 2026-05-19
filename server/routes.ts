@@ -17031,7 +17031,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
     try {
       const { provider, apiKey, label } = req.body;
-      const validProviders = ['openai', 'anthropic', 'google', 'groq', 'mistral'];
+      const validProviders = ['openai', 'anthropic', 'google', 'groq', 'mistral', 'elevenlabs'];
       if (!validProviders.includes(provider)) {
         return res.status(400).json({ message: "Invalid provider. Must be one of: " + validProviders.join(', ') });
       }
@@ -17077,6 +17077,9 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
           isValid = resp.ok;
         } else if (provider === 'mistral') {
           const resp = await fetch('https://api.mistral.ai/v1/models', { headers: { 'Authorization': `Bearer ${trimmedKey}` } });
+          isValid = resp.ok;
+        } else if (provider === 'elevenlabs') {
+          const resp = await fetch('https://api.elevenlabs.io/v1/user', { headers: { 'xi-api-key': trimmedKey } });
           isValid = resp.ok;
         }
         await db.update(userApiKeys)
@@ -17126,6 +17129,11 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         } else if (provider === 'mistral') {
           const resp = await fetch('https://api.mistral.ai/v1/models', {
             headers: { 'Authorization': `Bearer ${decryptedKey}` },
+          });
+          isValid = resp.ok;
+        } else if (provider === 'elevenlabs') {
+          const resp = await fetch('https://api.elevenlabs.io/v1/user', {
+            headers: { 'xi-api-key': decryptedKey },
           });
           isValid = resp.ok;
         }

@@ -44,11 +44,12 @@ import {
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 
 const AI_PROVIDERS = [
-  { id: 'openai',    name: 'OpenAI',      placeholder: 'sk-...',       icon: '🤖' },
-  { id: 'anthropic', name: 'Anthropic',   placeholder: 'sk-ant-...',   icon: '🧠' },
-  { id: 'google',    name: 'Google AI',   placeholder: 'AIza...',      icon: '💎' },
-  { id: 'groq',      name: 'Groq',        placeholder: 'gsk_...',      icon: '⚡' },
-  { id: 'mistral',   name: 'Mistral',     placeholder: 'your-mistral-api-key', icon: '🌊' },
+  { id: 'openai',      name: 'OpenAI',      placeholder: 'sk-...',              icon: '🤖' },
+  { id: 'anthropic',   name: 'Anthropic',   placeholder: 'sk-ant-...',          icon: '🧠' },
+  { id: 'google',      name: 'Google AI',   placeholder: 'AIza...',             icon: '💎' },
+  { id: 'groq',        name: 'Groq',        placeholder: 'gsk_...',             icon: '⚡' },
+  { id: 'mistral',     name: 'Mistral',     placeholder: 'your-mistral-api-key', icon: '🌊' },
+  { id: 'elevenlabs',  name: 'ElevenLabs',  placeholder: 'sk_...',              icon: '🎙️' },
 ];
 
 interface UserApiKey {
