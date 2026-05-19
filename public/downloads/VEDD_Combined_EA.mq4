@@ -28,7 +28,7 @@ input string  _h0           = "========== CONNECTION ==========";   // *** CONNE
 input string  SERVER_URL    = "https://veddbuild.com";               // Server Base URL (no trailing slash)
 input string  API_KEY       = "";                                    // API Key from VEDD Dashboard
 input string  ACCOUNT_ALIAS = "mt4_main";                           // Unique alias for this terminal
-input string  ACCOUNT_LABEL = "MT4 Main Account";                   // Display label (shown in dashboard)
+input string  ACCOUNT_LABEL = "";                                    // Display label — leave blank to auto-read from terminal
 input int     TIMEOUT_MS    = 15000;                                 // HTTP Request Timeout (ms)
 
 //====================================================================
@@ -73,6 +73,15 @@ string g_confirmUrl;
 string g_chartDataUrl;
 string g_tradeSignalUrl;
 string g_heartbeatUrl;
+
+//====================================================================
+//  Globals — Auto-detected account info (populated in OnInit)
+//====================================================================
+string g_effectiveLabel  = "";   // ACCOUNT_LABEL or auto-read AccountName
+string g_accountName     = "";   // terminal account owner name
+string g_accountNumber   = "";   // login number
+string g_brokerName      = "";   // broker company
+string g_serverName      = "";   // trading server
 
 //====================================================================
 //  Globals — Timers
@@ -528,11 +537,17 @@ void SendChartData()
 void SendHeartbeat()
 {
    string body = StringFormat(
-      "{\"accountAlias\":\"%s\",\"accountLabel\":\"%s\",\"accountNumber\":\"%d\","
+      "{\"accountAlias\":\"%s\",\"accountLabel\":\"%s\",\"accountNumber\":\"%s\","
+      "\"accountName\":\"%s\",\"broker\":\"%s\",\"server\":\"%s\","
+      "\"balance\":%.2f,\"equity\":%.2f,"
       "\"receiveSignals\":%s,\"platform\":\"MT4\",\"symbol\":\"%s\"}",
       JsonEscape(ACCOUNT_ALIAS),
-      JsonEscape(ACCOUNT_LABEL),
-      AccountNumber(),
+      JsonEscape(g_effectiveLabel),
+      JsonEscape(g_accountNumber),
+      JsonEscape(g_accountName),
+      JsonEscape(g_brokerName),
+      JsonEscape(g_serverName),
+      AccountBalance(), AccountEquity(),
       RECEIVE_SIGNALS_FLAG ? "true" : "false",
       JsonEscape(Symbol())
    );
@@ -612,14 +627,28 @@ void ReportOrderToServer(int ticket, string action)
 void UpdateChartComment()
 {
    if(!SHOW_CHART_COMMENT) { Comment(""); return; }
+   string cur = AccountCurrency();
+   double bal = AccountBalance();
+   double eq  = AccountEquity();
    string s = "";
-   s += "╔═══ VEDD Combined EA v1.01 (MT4) ═══╗\n";
-   s += "║ Alias  : " + ACCOUNT_ALIAS + "\n";
-   s += "║ Label  : " + ACCOUNT_LABEL + "\n";
-   s += "║ Signals: " + (ENABLE_SIGNALS    ? "ON " : "OFF") + "\n";
-   s += "║ Chart  : " + (ENABLE_CHART_DATA ? "ON " : "OFF") + "\n";
-   s += "║ Copy   : " + (ENABLE_TRADE_COPY ? "ON " : "OFF") + "\n";
-   s += "║ Symbol : " + Symbol() + "\n";
+   s += "╔══════════════════════════════════════╗\n";
+   s += "║   VEDD Combined EA v1.01 — MT4       ║\n";
+   s += "╠══════════════════════════════════════╣\n";
+   s += "║ Account : " + g_accountName + "\n";
+   s += "║ Number  : #" + g_accountNumber + "\n";
+   s += "║ Broker  : " + g_brokerName + "\n";
+   s += "║ Server  : " + g_serverName + "\n";
+   s += "║ Balance : " + DoubleToString(bal, 2) + " " + cur + "\n";
+   s += "║ Equity  : " + DoubleToString(eq,  2) + " " + cur + "\n";
+   s += "╠══════════════════════════════════════╣\n";
+   s += "║ Alias   : " + ACCOUNT_ALIAS + "\n";
+   s += "║ Signals : " + (ENABLE_SIGNALS    ? "ON " : "OFF") + "\n";
+   s += "║ Chart   : " + (ENABLE_CHART_DATA ? "ON " : "OFF") + "\n";
+   s += "║ Copy    : " + (ENABLE_TRADE_COPY ? "ON " : "OFF") + "\n";
+   s += "║ Symbol  : " + Symbol() + "\n";
+   s += "╠══════════════════════════════════════╣\n";
+   s += "║ ★ ONE CHART ONLY — signals execute   ║\n";
+   s += "║   on all pairs automatically.        ║\n";
    s += "╚══════════════════════════════════════╝\n";
    Comment(s);
 }
@@ -678,6 +707,13 @@ int OnInit()
       Alert("[VEDD] ACCOUNT_ALIAS is empty! Enter a unique alias in EA settings.");
       return INIT_PARAMETERS_INCORRECT;
    }
+
+   // Auto-read account info from terminal
+   g_accountName    = AccountName();
+   g_accountNumber  = IntegerToString(AccountNumber());
+   g_brokerName     = AccountCompany();
+   g_serverName     = AccountServer();
+   g_effectiveLabel = (StringLen(ACCOUNT_LABEL) > 0) ? ACCOUNT_LABEL : g_accountName;
 
    EventSetTimer(1);
    SendHeartbeat();

@@ -27,7 +27,7 @@ input string  _h0           = "========== CONNECTION ==========";   // *** CONNE
 input string  SERVER_URL    = "https://veddbuild.com";               // Server Base URL (no trailing slash)
 input string  API_KEY       = "";                                    // API Key from VEDD Dashboard
 input string  ACCOUNT_ALIAS = "mt5_main";                           // Unique alias for this terminal
-input string  ACCOUNT_LABEL = "MT5 Main Account";                   // Display label (shown in dashboard)
+input string  ACCOUNT_LABEL = "";                                    // Display label — leave blank to auto-read from terminal
 input int     TIMEOUT_MS    = 15000;                                 // HTTP Request Timeout (ms)
 
 //====================================================================
@@ -72,6 +72,15 @@ string g_confirmUrl;
 string g_chartDataUrl;
 string g_tradeSignalUrl;
 string g_heartbeatUrl;
+
+//====================================================================
+//  Globals — Auto-detected account info (populated in OnInit)
+//====================================================================
+string g_effectiveLabel  = "";   // ACCOUNT_LABEL or auto-read AccountName
+string g_accountName     = "";   // terminal account owner name
+string g_accountNumber   = "";   // login number
+string g_brokerName      = "";   // broker company
+string g_serverName      = "";   // trading server
 
 //====================================================================
 //  Globals — Timers
@@ -587,12 +596,20 @@ void SendChartData()
 //+------------------------------------------------------------------+
 void SendHeartbeat()
 {
+   double bal = AccountInfoDouble(ACCOUNT_BALANCE);
+   double eq  = AccountInfoDouble(ACCOUNT_EQUITY);
    string body = StringFormat(
       "{\"accountAlias\":\"%s\",\"accountLabel\":\"%s\",\"accountNumber\":\"%s\","
+      "\"accountName\":\"%s\",\"broker\":\"%s\",\"server\":\"%s\","
+      "\"balance\":%.2f,\"equity\":%.2f,"
       "\"receiveSignals\":%s,\"platform\":\"MT5\",\"symbol\":\"%s\"}",
       JsonEscape(ACCOUNT_ALIAS),
-      JsonEscape(ACCOUNT_LABEL),
-      JsonEscape(IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN))),
+      JsonEscape(g_effectiveLabel),
+      JsonEscape(g_accountNumber),
+      JsonEscape(g_accountName),
+      JsonEscape(g_brokerName),
+      JsonEscape(g_serverName),
+      bal, eq,
       RECEIVE_SIGNALS_FLAG ? "true" : "false",
       JsonEscape(Symbol())
    );
@@ -674,14 +691,41 @@ void OnTrade()
 void UpdateChartComment()
 {
    if(!SHOW_CHART_COMMENT) { Comment(""); return; }
+
+   double bal = AccountInfoDouble(ACCOUNT_BALANCE);
+   double eq  = AccountInfoDouble(ACCOUNT_EQUITY);
+   string cur = AccountInfoString(ACCOUNT_CURRENCY);
+   string tfStr;
+   switch(Period())
+   {
+      case PERIOD_M1:  tfStr="M1";  break; case PERIOD_M5:  tfStr="M5";  break;
+      case PERIOD_M15: tfStr="M15"; break; case PERIOD_M30: tfStr="M30"; break;
+      case PERIOD_H1:  tfStr="H1";  break; case PERIOD_H4:  tfStr="H4";  break;
+      case PERIOD_D1:  tfStr="D1";  break; case PERIOD_W1:  tfStr="W1";  break;
+      default:         tfStr="H1";  break;
+   }
+
    string s = "";
-   s += "╔═══ VEDD Combined EA v1.01 (MT5) ═══╗\n";
-   s += "║ Alias  : " + ACCOUNT_ALIAS + "\n";
-   s += "║ Label  : " + ACCOUNT_LABEL + "\n";
-   s += "║ Signals: " + (ENABLE_SIGNALS    ? "ON " : "OFF") + "\n";
-   s += "║ Chart  : " + (ENABLE_CHART_DATA ? "ON " : "OFF") + "\n";
-   s += "║ Copy   : " + (ENABLE_TRADE_COPY ? "ON " : "OFF") + "\n";
-   s += "║ Symbol : " + Symbol() + "\n";
+   s += "╔══════════════════════════════════════╗\n";
+   s += "║   VEDD Combined EA v1.01 — MT5       ║\n";
+   s += "╠══════════════════════════════════════╣\n";
+   s += "║ Account : " + g_accountName                                + "\n";
+   s += "║ Number  : #" + g_accountNumber                             + "\n";
+   s += "║ Broker  : " + g_brokerName                                 + "\n";
+   s += "║ Server  : " + g_serverName                                 + "\n";
+   s += "║ Balance : " + DoubleToString(bal, 2) + " " + cur           + "\n";
+   s += "║ Equity  : " + DoubleToString(eq,  2) + " " + cur           + "\n";
+   s += "╠══════════════════════════════════════╣\n";
+   s += "║ Alias   : " + ACCOUNT_ALIAS                                + "\n";
+   s += "║ Chart   : " + Symbol() + " (" + tfStr + ")"                + "\n";
+   s += "║ Signals : " + (ENABLE_SIGNALS    ? "ON " : "OFF")
+      + "  |  Chart Data: " + (ENABLE_CHART_DATA ? "ON " : "OFF")    + "\n";
+   s += "║ Copy    : " + (ENABLE_TRADE_COPY ? "ON " : "OFF")
+      + "  |  Heartbeat : " + IntegerToString(HEARTBEAT_SECONDS) + "s" + "\n";
+   s += "╠══════════════════════════════════════╣\n";
+   s += "║ ★ ONE CHART ONLY — attach to any one ║\n";
+   s += "║   chart. Signals execute on all      ║\n";
+   s += "║   pairs automatically.               ║\n";
    s += "╚══════════════════════════════════════╝\n";
    Comment(s);
 }
@@ -738,6 +782,13 @@ int OnInit()
       Alert("[VEDD] ACCOUNT_ALIAS is empty! Enter a unique alias in EA settings.");
       return INIT_PARAMETERS_INCORRECT;
    }
+
+   // Auto-read account info from terminal
+   g_accountName   = AccountInfoString(ACCOUNT_NAME);
+   g_accountNumber = IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN));
+   g_brokerName    = AccountInfoString(ACCOUNT_COMPANY);
+   g_serverName    = AccountInfoString(ACCOUNT_SERVER);
+   g_effectiveLabel = (StringLen(ACCOUNT_LABEL) > 0) ? ACCOUNT_LABEL : g_accountName;
 
    // Create indicator handles for the current chart symbol/timeframe
    // These are reused every time SendChartData() runs (every 60s)
