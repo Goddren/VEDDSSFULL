@@ -538,6 +538,33 @@ async function executeServerSideSell(userId: number, pos: SolAutoPosition, reaso
       if (gainPct < state.autoTradeStats.worstTradePct) state.autoTradeStats.worstTradePct = gainPct;
     }
 
+    // Update DEX/strategy weights and Kelly stats from this live auto-close
+    const dexKeyLive = (pos.strategyId || 'unknown').toLowerCase().replace(/[^a-z]/g, '') || 'unknown';
+    if (!state.signalWeights[dexKeyLive]) state.signalWeights[dexKeyLive] = 1.0;
+    if (!state.kellyStats[dexKeyLive]) state.kellyStats[dexKeyLive] = { wins: 0, losses: 0, totalGainPct: 0 };
+    if (isWin) {
+      state.signalWeights[dexKeyLive] = Math.min(2.0, state.signalWeights[dexKeyLive] + 0.05);
+      state.kellyStats[dexKeyLive].wins++;
+      state.kellyStats[dexKeyLive].totalGainPct += Math.abs(gainPct);
+      state.weeklyGoal.winStreak = (state.weeklyGoal.winStreak || 0) + 1;
+    } else {
+      state.signalWeights[dexKeyLive] = Math.max(0.2, state.signalWeights[dexKeyLive] - 0.08);
+      state.kellyStats[dexKeyLive].losses++;
+      state.weeklyGoal.winStreak = 0;
+    }
+    if (state.weeklyGoal.phase !== 'idle') {
+      state.weeklyGoal.currentProfitSol += pos.size * (gainPct / 100);
+      state.weeklyGoal.tradeHistory.unshift({
+        timestamp: new Date().toISOString(),
+        symbol: pos.symbol,
+        sol: pos.size,
+        gainPct,
+        outcome: isWin ? 'WIN' : 'LOSS',
+        strategy: pos.strategyId || state.activeStrategy,
+      });
+      if (state.weeklyGoal.tradeHistory.length > 100) state.weeklyGoal.tradeHistory = state.weeklyGoal.tradeHistory.slice(0, 100);
+    }
+
     addActivity(state, {
       type: 'live_sell',
       message: `🤖 Server auto-sold ${pos.symbol} [${label}] ${gainPct >= 0 ? '+' : ''}${gainPct.toFixed(2)}% — TX: ${signature.slice(0, 16)}...`,
@@ -1199,17 +1226,19 @@ function monitorPaperPositions(state: SolEngineState) {
     // ── Staged volume-momentum trailing stop ─────────────────────────────
     // Stage 1 (<8% gain): SL-only, no floor movement
     // Stage 2 (8–19% gain): Breakeven floor — trail floor locks at entry price
-    // Stage 3 (≥20% gain): Active trail with volume-adjusted distance (10–15%)
+    // Stage 3 (≥trailActivationPct gain): Active trail with volume-adjusted distance
+    // trailActivationPct is sourced from the position (user-configured), default 20
+    const trailActivation = (pos.trailActivationPct && pos.trailActivationPct > 0) ? pos.trailActivationPct : 20;
     let isTrailHit = false;
 
-    if (gainPct >= 20) {
+    if (gainPct >= trailActivation) {
       // Stage 3 — activate real trail
       if (!pos.trailingActive) {
         pos.trailingActive = true;
         const dist = computeServerTrailDist(gainPct, volStatus);
         addActivity(state, {
           type: 'info',
-          message: `🔒 Trail LOCKED: ${pos.symbol} hit +${gainPct.toFixed(1)}% — staged trail active | vol: ${volStatus} | dist: ${dist}% from peak`,
+          message: `🔒 Trail LOCKED: ${pos.symbol} hit +${gainPct.toFixed(1)}% (activation: ${trailActivation}%) — staged trail active | vol: ${volStatus} | dist: ${dist}% from peak`,
         });
       }
       const dist = computeServerTrailDist(gainPct, volStatus);
@@ -1276,6 +1305,34 @@ function monitorPaperPositions(state: SolEngineState) {
         type: 'paper_sell',
         message: `${emoji} Paper ${label}: ${pos.symbol} closed @ $${currentPrice.toFixed(6)} — ${gainPct >= 0 ? '+' : ''}${gainPct.toFixed(2)}% | ${pos.size.toFixed(3)} SOL ${isTrailHit ? '(trailing stop hit)' : isWin ? 'profit sealed' : 'lesson built'}`,
       });
+
+      // Update DEX signal weights and Kelly stats from auto-closes
+      const dexKeyClose = (pos.strategyId || 'unknown').toLowerCase().replace(/[^a-z]/g, '') || 'unknown';
+      if (!state.signalWeights[dexKeyClose]) state.signalWeights[dexKeyClose] = 1.0;
+      if (!state.kellyStats[dexKeyClose]) state.kellyStats[dexKeyClose] = { wins: 0, losses: 0, totalGainPct: 0 };
+      if (isProfit) {
+        state.signalWeights[dexKeyClose] = Math.min(2.0, state.signalWeights[dexKeyClose] + 0.05);
+        state.kellyStats[dexKeyClose].wins++;
+        state.kellyStats[dexKeyClose].totalGainPct += Math.abs(gainPct);
+        state.weeklyGoal.winStreak = (state.weeklyGoal.winStreak || 0) + 1;
+      } else {
+        state.signalWeights[dexKeyClose] = Math.max(0.2, state.signalWeights[dexKeyClose] - 0.08);
+        state.kellyStats[dexKeyClose].losses++;
+        state.weeklyGoal.winStreak = 0;
+      }
+      // Update weekly goal P&L with actual gain
+      if (state.weeklyGoal.phase !== 'idle') {
+        state.weeklyGoal.currentProfitSol += pos.size * (gainPct / 100);
+        state.weeklyGoal.tradeHistory.unshift({
+          timestamp: new Date().toISOString(),
+          symbol: pos.symbol,
+          sol: pos.size,
+          gainPct,
+          outcome: isProfit ? 'WIN' : 'LOSS',
+          strategy: pos.strategyId || state.activeStrategy,
+        });
+        if (state.weeklyGoal.tradeHistory.length > 100) state.weeklyGoal.tradeHistory = state.weeklyGoal.tradeHistory.slice(0, 100);
+      }
     }
   }
 
@@ -1312,13 +1369,14 @@ async function monitorLivePositions(userId: number, state: SolEngineState) {
     const alreadyQueued = state.pendingExits.some(e => e.positionId === pos.id);
     if (alreadyQueued) continue;
 
-    // Staged trail check (mirrors paper logic)
+    // Staged trail check (mirrors paper logic) — uses position's stored trailActivationPct
+    const liveTrailActivation = (pos.trailActivationPct && pos.trailActivationPct > 0) ? pos.trailActivationPct : 20;
     const volStatus = getVolStatus(pos.entryVolume24h || 0, volumeMap[pos.symbol] || 0);
     let trailHit = false;
-    if (gainPct >= 20 && pos.peakPrice) {
+    if (gainPct >= liveTrailActivation && pos.peakPrice) {
       if (!pos.trailingActive) {
         pos.trailingActive = true;
-        addActivity(state, { type: 'info', message: `🔒 Live Trail LOCKED: ${pos.symbol} hit +${gainPct.toFixed(1)}% — staged trail active (${volStatus} vol)` });
+        addActivity(state, { type: 'info', message: `🔒 Live Trail LOCKED: ${pos.symbol} hit +${gainPct.toFixed(1)}% (activation: ${liveTrailActivation}%) — staged trail active (${volStatus} vol)` });
       }
       const dist = computeServerTrailDist(gainPct, volStatus);
       const effectiveFloor = Math.max(pos.peakPrice * (1 - dist / 100), pos.entryPrice);
@@ -1415,6 +1473,38 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
       };
 
       if ((analysis.signal === 'STRONG_BUY' || analysis.signal === 'BUY') && state.currentPortfolioValue > 0) {
+
+        // ── Overextension filter: skip tokens already up >80% in 24h ───────────
+        // Chasing a token after an 80%+ pump dramatically increases the chance of
+        // buying the top. These are almost always exits not entries.
+        if (analysis.token.priceChange24h > 80) {
+          addActivity(state, {
+            type: 'info',
+            message: `⛔ Overextended: ${analysis.token.symbol} skipped — already +${analysis.token.priceChange24h.toFixed(0)}% in 24h (>80% = likely top)`,
+          });
+          continue;
+        }
+
+        // ── AI/Quant consensus gate: STRONG_SKIP from prior review blocks entry ─
+        // runSolAIReview fires after each scan and stores results in lastAgentConsensus.
+        // If both the AI and quant rules said SKIP on this symbol, don't trade it.
+        const priorConsensus = state.lastAgentConsensus?.find(c => c.symbol === analysis.token.symbol);
+        if (priorConsensus && priorConsensus.consensus === 'STRONG_SKIP') {
+          addActivity(state, {
+            type: 'info',
+            message: `🤖❌ Consensus BLOCK: ${analysis.token.symbol} — both AI and quant said SKIP (quant score: ${priorConsensus.quantScore}). That's the mathematics.`,
+          });
+          continue;
+        }
+        // Also block if quant alone gives a hard SKIP with a very low score (<10)
+        if (priorConsensus && priorConsensus.quantVerdict === 'SKIP' && priorConsensus.quantScore < 10) {
+          addActivity(state, {
+            type: 'info',
+            message: `📐❌ Quant BLOCK: ${analysis.token.symbol} — quant score ${priorConsensus.quantScore} too low. Knowledge yourself.`,
+          });
+          continue;
+        }
+
         const dexKey = (analysis.token.dexId || '').toLowerCase().split('_')[0];
 
         // ── Adaptive mode: auto-select strategy from current scan results ──
@@ -1878,14 +1968,16 @@ export function recordSolSignalResult(
 
   if (state.weeklyGoal.phase !== 'idle') {
     const solAmount = params.sol || 0;
-    const gainSol = params.outcome === 'WIN' ? solAmount * (params.gainPct / 100) : -(solAmount * 0.05);
+    // Use the actual gain/loss percentage — not a hardcoded -5% for losses
+    const actualGainPct = params.gainPct;
+    const gainSol = solAmount * (actualGainPct / 100);
 
     state.weeklyGoal.currentProfitSol += gainSol;
     state.weeklyGoal.tradeHistory.unshift({
       timestamp: new Date().toISOString(),
       symbol: params.symbol || dex,
       sol: solAmount,
-      gainPct: params.outcome === 'WIN' ? params.gainPct : -5,
+      gainPct: actualGainPct,
       outcome: params.outcome,
       strategy: state.activeStrategy,
     });
