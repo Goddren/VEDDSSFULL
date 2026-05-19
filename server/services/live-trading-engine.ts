@@ -2307,10 +2307,24 @@ INSTRUCTION: Signals that ALIGN with ${promptHTFLabel} bias are high-quality ins
           const ticketId = p.ticket ?? p.id ?? 'unknown';
           const slInfo = p.sl > 0 ? p.sl : 'none';
           const tpInfo = p.tp > 0 ? p.tp : 'none';
-          const beThreshold = p.symbol.includes('JPY') ? 15 : 15;
-          const trailThreshold = p.symbol.includes('JPY') ? 40 : 40;
-          const mgmtHint = pips >= trailThreshold ? '→ TRAIL STOP (staged: 25-pip trail if vol surging/above_avg, 20-pip if avg, 15-pip if below_avg/dry)' : pips >= beThreshold ? '→ MOVE TO BREAKEVEN ONLY — not ready to trail yet' : pips < -5 ? '→ REVIEW SL' : '';
-          return `${p.symbol} (ticket:${ticketId}): ${p.direction} @ ${p.openPrice} | Curr: ${p.currentPrice} | Pips: ${pips.toFixed(1)} | PnL: $${p.profit} | SL: ${slInfo} | TP: ${tpInfo} | Vol: ${p.volume} ${mgmtHint}`;
+          // Include trade age so the AI can accurately judge "30 min stagnant" —
+          // previously it had no time context and closed trades within minutes of opening.
+          const openTimeSec = p.openTime ? Math.round((Date.now() / 1000) - Number(p.openTime)) : null;
+          const ageMin = openTimeSec != null ? Math.floor(openTimeSec / 60) : null;
+          const ageStr = ageMin != null ? ` | Age: ${ageMin}min` : '';
+          const beThreshold = 15;
+          const trailThreshold = 40;
+          // CHANGED: pips < -5 no longer shows "REVIEW SL" which was nudging
+          // the AI to close trades that were barely negative. Now it explicitly
+          // tells the AI to hold and trust the SL — preventing premature closure.
+          const mgmtHint = pips >= trailThreshold
+            ? '→ TRAIL STOP (staged: 25-pip trail if vol surging/above_avg, 20-pip if avg, 15-pip if below_avg/dry)'
+            : pips >= beThreshold
+            ? '→ MOVE TO BREAKEVEN ONLY — not ready to trail yet'
+            : pips < -5
+            ? `→ HOLD — SL provides protection. Do NOT close early (${ageMin != null ? `open ${ageMin}min` : 'age unknown'}). Only close if original setup structure breaks on H1.`
+            : '';
+          return `${p.symbol} (ticket:${ticketId}): ${p.direction} @ ${p.openPrice} | Curr: ${p.currentPrice} | Pips: ${pips.toFixed(1)} | PnL: $${p.profit} | SL: ${slInfo} | TP: ${tpInfo} | Vol: ${p.volume}${ageStr} ${mgmtHint}`;
         }).join('\n')
       : 'None';
 
@@ -2501,7 +2515,7 @@ ${newsContext && newsContext.economicEvents.length > 0 ? newsContext.economicEve
 ${newsContext?.highImpactSoon ? `\n*** WARNING: ${newsContext.tradingWindowWarning} ***` : ''}
 
 NEWS-AWARE TRADING RULES:
-- BEFORE high-impact news (NFP, CPI, FOMC, rate decisions): AVOID opening new positions on affected currency pairs within 30 min of the event. Widen stops on existing positions or close them
+- BEFORE high-impact news (NFP, CPI, FOMC, rate decisions): AVOID opening new positions on affected currency pairs within 30 min of the event. For existing open positions — widen the SL if needed (MODIFY_POSITION + move_sl), but do NOT close them pre-emptively; news often accelerates the position's intended direction.
 - AFTER high-impact news: Wait for the initial spike to settle (5-10 min), then trade the follow-through direction with momentum strategy
 - If market sentiment is BULLISH: favor BUY setups on correlated pairs, tighten risk on SELL trades
 - If market sentiment is BEARISH: favor SELL setups, tighten risk on BUY trades
@@ -2539,9 +2553,11 @@ ${(!config.trailMethod || config.trailMethod === 'staged_volume') ? `- TRAILING 
         - Volume BELOW_AVERAGE or DRY: 8-pip trail
 - NEVER use trail distance less than 8 pips — anything tighter gets hit by normal spread and noise.` : (config.trailMethod === 'none' ? '' : '- Trail SL management is handled server-side. Focus on: partial close at TP1, close if setup invalidated.')}
 - PARTIAL CLOSE: Take 50% at TP1, then let the runner continue with the active trail method.
-- CLOSE LOSERS EARLY: If a trade is stagnant for 30+ minutes or price action invalidates the setup, CLOSE it immediately. Don't hope.
-- SCALE OUT: If volatility spikes against you, exit 50% early to reduce exposure.
-- MAXIMIZE VELOCITY: If you see a better setup on another pair but are at max trades, close the weakest performer to take the high-conviction one.
+- RESPECT THE SL: A trade in drawdown is NOT a failed trade. Price oscillates — the stop loss exists precisely to protect against real failure. Do NOT close a position just because it is temporarily negative.
+- STRUCTURAL INVALIDATION ONLY: Only close a losing trade if the ORIGINAL SETUP THESIS has been broken — e.g., a BOS/CHOCH against the trade on H1, or price closing THROUGH a key structure level that the setup depended on. Temporary pullbacks, noise, and short-term retracements do NOT invalidate a setup.
+- MINIMUM HOLD TIME: Never request CLOSE_POSITION on a position that shows Age < 45min in the position data above unless it is approaching its SL. Give the trade time to develop.
+- SCALE OUT: Only exit 50% early if price has CONFIRMED reversal (strong opposing candle + volume), not just a drawdown spike.
+- NEVER close one position to open another: Each position lives and dies on its own merit. Never sacrifice a live trade to fund a new entry.
 
 TREND-DIRECTION RULES (critical — do not violate these):
 - NEVER output a BUY signal on a pair where the M15 or H1 trend shows BEARISH with ADX > 20. "Oversold" RSI or Stochastic in a downtrend means CONTINUATION, NOT reversal. Wait for trend to neutralize first.
@@ -3734,6 +3750,37 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
   }
 
   if (decision.action === 'MODIFY_POSITION' || decision.action === 'CLOSE_POSITION') {
+    // ── PREMATURE CLOSE GATE ─────────────────────────────────────────────────
+    // Blocks the AI from closing a losing position before it has had enough
+    // time to develop. Previously the AI was closing negative trades within
+    // minutes of opening — then the same trade continued to profit in
+    // TradeLocker because the close either failed or wasn't synced.
+    //
+    // Rule: if the AI wants to FULL_CLOSE a position AND the position is
+    // currently in a loss (profit < 0) AND it has been open < 45 minutes,
+    // override the action to a MODIFY (SL review only) and log the block.
+    if (decision.action === 'CLOSE_POSITION') {
+      const openPositions: any[] = (global as any).mt5OpenPositions?.[userId]?.positions || [];
+      const pos = openPositions.find((p: any) =>
+        String(p.ticket ?? p.id) === String(decision.positionId) ||
+        (p.symbol || '').toUpperCase().replace('/', '') === decision.symbol?.toUpperCase().replace('/', '')
+      );
+      if (pos) {
+        const isInLoss = (pos.profit ?? 0) < 0;
+        const openTimeSec = pos.openTime ? Math.round(Date.now() / 1000 - Number(pos.openTime)) : null;
+        const ageMin = openTimeSec != null ? Math.floor(openTimeSec / 60) : null;
+        const MIN_HOLD_BEFORE_FORCE_CLOSE = 45; // minutes
+        if (isInLoss && ageMin != null && ageMin < MIN_HOLD_BEFORE_FORCE_CLOSE) {
+          addActivity(userId, {
+            type: 'info',
+            symbol: decision.symbol,
+            message: `🛡️ PREMATURE CLOSE BLOCKED: ${decision.symbol} in loss but only ${ageMin}min old — minimum ${MIN_HOLD_BEFORE_FORCE_CLOSE}min required before force-close. SL provides protection. Trade left open to recover.`,
+          });
+          return; // Reject this close entirely — let the SL do its job
+        }
+      }
+    }
+
     state.positionsManaged++;
 
     const modifyAction = decision.modifyAction || (decision.action === 'CLOSE_POSITION' ? 'full_close' : 'trail_stop');
