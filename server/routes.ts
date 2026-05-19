@@ -17079,8 +17079,18 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
           const resp = await fetch('https://api.mistral.ai/v1/models', { headers: { 'Authorization': `Bearer ${trimmedKey}` } });
           isValid = resp.ok;
         } else if (provider === 'elevenlabs') {
-          const resp = await fetch('https://api.elevenlabs.io/v1/user', { headers: { 'xi-api-key': trimmedKey } });
-          isValid = resp.ok;
+          // Try /v1/user first; fall back to /v1/voices (works for both legacy and new keys)
+          try {
+            const r1 = await fetch('https://api.elevenlabs.io/v1/user', { headers: { 'xi-api-key': trimmedKey } });
+            if (r1.ok || r1.status === 401 || r1.status === 403) {
+              isValid = r1.ok;
+            } else {
+              const r2 = await fetch('https://api.elevenlabs.io/v1/voices', { headers: { 'xi-api-key': trimmedKey } });
+              isValid = r2.ok;
+            }
+          } catch {
+            isValid = false;
+          }
         }
         await db.update(userApiKeys)
           .set({ isValid, lastValidated: new Date() })
@@ -17132,10 +17142,17 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
           });
           isValid = resp.ok;
         } else if (provider === 'elevenlabs') {
-          const resp = await fetch('https://api.elevenlabs.io/v1/user', {
-            headers: { 'xi-api-key': decryptedKey },
-          });
-          isValid = resp.ok;
+          try {
+            const r1 = await fetch('https://api.elevenlabs.io/v1/user', { headers: { 'xi-api-key': decryptedKey } });
+            if (r1.ok || r1.status === 401 || r1.status === 403) {
+              isValid = r1.ok;
+            } else {
+              const r2 = await fetch('https://api.elevenlabs.io/v1/voices', { headers: { 'xi-api-key': decryptedKey } });
+              isValid = r2.ok;
+            }
+          } catch {
+            isValid = false;
+          }
         }
       } catch (e) {
         isValid = false;
