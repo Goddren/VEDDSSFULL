@@ -211,7 +211,76 @@ export interface PendingMT5Signal {
   positionId?: string | null;
 }
 
-const pendingMT5Signals: Record<number, PendingMT5Signal[]> = {};
+// Legacy flat queue kept for backwards-compat reads (alias = 'default')
+// All writes go through broadcastMT5Signal() which fans out to per-alias queues.
+const mt5AccountQueues: Record<number, Record<string, PendingMT5Signal[]>> = {};
+
+// Registry of connected MT5 terminals: mt5AccountRegistry[userId][alias]
+export interface MT5AccountInfo {
+  alias: string;
+  label: string;
+  accountNumber: string;
+  lastSeen: number;        // Date.now() ms
+  receiveSignals: boolean; // whether this terminal should receive AI signals
+}
+const mt5AccountRegistry: Record<number, Record<string, MT5AccountInfo>> = {};
+
+/** Push a signal to all registered alias queues (or 'default' if none registered). */
+function broadcastMT5Signal(userId: number, signal: PendingMT5Signal): void {
+  if (!mt5AccountQueues[userId]) mt5AccountQueues[userId] = {};
+  const registry = mt5AccountRegistry[userId] || {};
+  const activeAliases = Object.entries(registry)
+    .filter(([, info]) => info.receiveSignals)
+    .map(([alias]) => alias);
+  const targets = activeAliases.length > 0 ? activeAliases : ['default'];
+  for (const alias of targets) {
+    if (!mt5AccountQueues[userId][alias]) mt5AccountQueues[userId][alias] = [];
+    mt5AccountQueues[userId][alias].push({ ...signal });
+    if (mt5AccountQueues[userId][alias].length > 200) {
+      mt5AccountQueues[userId][alias] = mt5AccountQueues[userId][alias].slice(-100);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// MT5 Account registry helpers (exported for routes.ts)
+// ---------------------------------------------------------------------------
+export function registerMT5Account(
+  userId: number,
+  alias: string,
+  info: { label?: string; accountNumber?: string; receiveSignals?: boolean }
+): MT5AccountInfo {
+  if (!mt5AccountRegistry[userId]) mt5AccountRegistry[userId] = {};
+  const existing = mt5AccountRegistry[userId][alias];
+  const updated: MT5AccountInfo = {
+    alias,
+    label: info.label ?? existing?.label ?? alias,
+    accountNumber: info.accountNumber ?? existing?.accountNumber ?? '',
+    lastSeen: Date.now(),
+    receiveSignals: info.receiveSignals ?? existing?.receiveSignals ?? true,
+  };
+  mt5AccountRegistry[userId][alias] = updated;
+  return updated;
+}
+
+export function heartbeatMT5Account(userId: number, alias: string): boolean {
+  if (!mt5AccountRegistry[userId]?.[alias]) return false;
+  mt5AccountRegistry[userId][alias].lastSeen = Date.now();
+  return true;
+}
+
+export function getMT5Accounts(userId: number): MT5AccountInfo[] {
+  const registry = mt5AccountRegistry[userId] || {};
+  const now = Date.now();
+  // Mark stale (> 3 min since last heartbeat)
+  return Object.values(registry).map(a => ({ ...a, online: now - a.lastSeen < 3 * 60 * 1000 }));
+}
+
+export function setMT5AccountReceiveSignals(userId: number, alias: string, receive: boolean): boolean {
+  if (!mt5AccountRegistry[userId]?.[alias]) return false;
+  mt5AccountRegistry[userId][alias].receiveSignals = receive;
+  return true;
+}
 
 interface GoalTracker {
   weeklyTarget: number;
@@ -1543,8 +1612,7 @@ async function applyServerSideTrails(
     const improved = isBuy ? newSL > currentSL : (currentSL === 0 || newSL < currentSL);
     if (!improved) continue;
 
-    if (!pendingMT5Signals[userId]) pendingMT5Signals[userId] = [];
-    pendingMT5Signals[userId].push({
+    broadcastMT5Signal(userId, {
       id: `trail_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       timestamp: new Date().toISOString(),
       symbol: pos.symbol,
@@ -3173,7 +3241,9 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       return;
     }
 
-    const existingSignals = pendingMT5Signals[userId] || [];
+    const existingSignals = mt5AccountQueues[userId]
+      ? Object.values(mt5AccountQueues[userId]).flat()
+      : [];
     const cooldownMs = Math.max(config.scanIntervalMs * 3, 3 * 60 * 1000);
     const hasRecentForPair = existingSignals.some(
       s => s.symbol === decision.symbol && (Date.now() - new Date(s.timestamp).getTime()) < cooldownMs
@@ -3555,7 +3625,6 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
     if (state.drawdownShieldActive && config.accountBalance > 0) {
       const shieldLot = Math.max(0.01, Math.round(config.accountBalance * 0.0025 / 1000 * 100) / 100);
       const shieldFinal = Math.min(shieldLot, safeMaxLot);
-      if (!pendingMT5Signals[userId]) pendingMT5Signals[userId] = [];
       const mt5SigShield: PendingMT5Signal = {
         id: `sig_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         timestamp: new Date().toISOString(),
@@ -3573,7 +3642,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
         confluences: decision.confluences || [],
         status: 'pending',
       };
-      pendingMT5Signals[userId].push(mt5SigShield);
+      broadcastMT5Signal(userId, mt5SigShield);
       state.signalsGenerated++;
       addActivity(userId, {
         type: 'signal',
@@ -3652,7 +3721,6 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       : baseLotForCalc;
     const lotSize = Math.max(0.01, Math.min(compoundedLot, safeMaxLot));
 
-    if (!pendingMT5Signals[userId]) pendingMT5Signals[userId] = [];
     const mt5Signal: PendingMT5Signal = {
       id: `sig_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       timestamp: new Date().toISOString(),
@@ -3670,10 +3738,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       confluences: decision.confluences || [],
       status: 'pending',
     };
-    pendingMT5Signals[userId].push(mt5Signal);
-    if (pendingMT5Signals[userId].length > 200) {
-      pendingMT5Signals[userId] = pendingMT5Signals[userId].slice(-100);
-    }
+    broadcastMT5Signal(userId, mt5Signal);
 
     const tlConnection = await storage.getUserTradelockerConnection(userId);
     if (!tlConnection || !tlConnection.isActive) {
@@ -3797,8 +3862,6 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
     });
 
     // Send to MT5 first by adding to pending signals
-    if (!pendingMT5Signals[userId]) pendingMT5Signals[userId] = [];
-
     const signalAction = decision.action === 'CLOSE_POSITION' ? 'CLOSE' as const : 'MODIFY' as const;
     const mgmtSignal: PendingMT5Signal = {
       id: `mgmt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -3819,7 +3882,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       modifyAction,
       positionId: decision.positionId || null,
     };
-    pendingMT5Signals[userId].push(mgmtSignal);
+    broadcastMT5Signal(userId, mgmtSignal);
 
     // Then try TradeLocker if connected
     const tlConnection = await storage.getUserTradelockerConnection(userId);
@@ -4077,8 +4140,7 @@ export function startLiveEngine(userId: number, config?: Partial<LiveEngineConfi
 }
 
 function queueCloseAllSignal(userId: number, reason: string): void {
-  if (!pendingMT5Signals[userId]) pendingMT5Signals[userId] = [];
-  const signal: PendingMT5Signal = {
+  broadcastMT5Signal(userId, {
     id: `close_all_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     timestamp: new Date().toISOString(),
     symbol: 'ALL',
@@ -4094,8 +4156,7 @@ function queueCloseAllSignal(userId: number, reason: string): void {
     strategy: 'emergency_stop',
     confluences: [],
     status: 'pending',
-  };
-  pendingMT5Signals[userId].push(signal);
+  });
 }
 
 export function emergencyStopEngine(userId: number): EngineState | null {
@@ -4199,29 +4260,59 @@ export function updateLiveEngineConfig(userId: number, updates: Partial<LiveEngi
   return state;
 }
 
-export function getPendingMT5Signals(userId: number): PendingMT5Signal[] {
-  if (!pendingMT5Signals[userId]) return [];
+export function getPendingMT5Signals(userId: number, accountAlias: string = 'default'): PendingMT5Signal[] {
+  const queues = mt5AccountQueues[userId];
+  if (!queues) return [];
+  // If the requested alias doesn't exist but 'default' does (legacy), fall back
+  const alias = queues[accountAlias] ? accountAlias : (queues['default'] ? 'default' : null);
+  if (!alias) return [];
   const now = Date.now();
-  pendingMT5Signals[userId].forEach(s => {
+  queues[alias].forEach(s => {
     if (s.status === 'pending' && now - new Date(s.timestamp).getTime() > 5 * 60 * 1000) {
       s.status = 'expired';
     }
   });
-  return pendingMT5Signals[userId].filter(s => s.status === 'pending');
+  return queues[alias].filter(s => s.status === 'pending');
 }
 
-export function confirmMT5Signal(userId: number, signalId: string, executed: boolean): PendingMT5Signal | null {
-  if (!pendingMT5Signals[userId]) return null;
-  const signal = pendingMT5Signals[userId].find(s => s.id === signalId);
-  if (!signal) return null;
+export function confirmMT5Signal(
+  userId: number,
+  signalId: string,
+  executed: boolean,
+  accountAlias: string = 'default'
+): PendingMT5Signal | null {
+  const queues = mt5AccountQueues[userId];
+  if (!queues) return null;
+  // Search in the provided alias first, then fall back across all aliases
+  const alias = queues[accountAlias] ? accountAlias : 'default';
+  const queue = queues[alias];
+  if (!queue) return null;
+  const signal = queue.find(s => s.id === signalId);
+  if (!signal) {
+    // Cross-alias fallback (signal id may not include alias suffix)
+    for (const q of Object.values(queues)) {
+      const found = q.find(s => s.id === signalId);
+      if (found) {
+        found.status = executed ? 'executed' : 'rejected';
+        _postConfirmActivity(userId, found, executed);
+        return found;
+      }
+    }
+    return null;
+  }
   signal.status = executed ? 'executed' : 'rejected';
+  _postConfirmActivity(userId, signal, executed);
+  return signal;
+}
+
+function _postConfirmActivity(userId: number, signal: PendingMT5Signal, executed: boolean): void {
   addActivity(userId, {
     type: executed ? 'trade_open' : 'info',
     symbol: signal.symbol,
     direction: signal.direction,
     confidence: signal.confidence,
     message: executed
-      ? `MT5 EXECUTED: ${signal.direction} ${signal.symbol} via Signal Receiver EA`
+      ? `MT5 EXECUTED: ${signal.direction} ${signal.symbol} via Combined EA`
       : `MT5 signal rejected by EA: ${signal.symbol}`,
   });
   if (executed) {
@@ -4231,12 +4322,24 @@ export function confirmMT5Signal(userId: number, signalId: string, executed: boo
       state.openPositionCount++;
     }
   }
-  return signal;
 }
 
 export function getAllMT5Signals(userId: number, limit: number = 50): PendingMT5Signal[] {
-  if (!pendingMT5Signals[userId]) return [];
-  return pendingMT5Signals[userId].slice(-limit).reverse();
+  const queues = mt5AccountQueues[userId];
+  if (!queues) return [];
+  // Merge all alias queues, deduplicate by id, sort by timestamp desc
+  const all: PendingMT5Signal[] = [];
+  const seen = new Set<string>();
+  for (const q of Object.values(queues)) {
+    for (const s of q) {
+      if (!seen.has(s.id)) {
+        seen.add(s.id);
+        all.push(s);
+      }
+    }
+  }
+  all.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  return all.slice(0, limit);
 }
 
 export function setModelLock(userId: number, locked: boolean): boolean {

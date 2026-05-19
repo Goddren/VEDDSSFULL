@@ -1321,22 +1321,22 @@ export default function WebhooksPage() {
               <div>
                 <CardTitle className="text-white text-xl flex items-center gap-3">
                   <Activity className="w-6 h-6 text-green-400" />
-                  MT5 Chart Data EA
-                  <Badge className="bg-green-500/20 text-green-400 text-xs">NEW</Badge>
+                  MT5 Combined EA
+                  <Badge className="bg-green-500/20 text-green-400 text-xs">v1.00</Badge>
                 </CardTitle>
                 <CardDescription className="mt-1">
-                  Send live chart data from MT5 to AI Trading Vault for real-time AI refresh analysis
+                  All-in-one EA: chart data sender + AI signal receiver + trade copier + account heartbeat
                 </CardDescription>
               </div>
               <div className="flex items-center gap-2">
                 <a
-                  href="/downloads/VEDD_ChartData_EA.mq5"
+                  href="/downloads/VEDD_Combined_EA.mq5"
                   download
                   className="inline-flex"
                 >
                   <Button className="bg-gradient-to-r from-green-600 to-teal-600">
                     <Download className="w-4 h-4 mr-2" />
-                    Download Chart Data EA
+                    Download Combined EA
                   </Button>
                 </a>
                 <button onClick={toggleMt5ChartEa} className="text-gray-500 hover:text-white transition-colors">
@@ -1362,11 +1362,11 @@ export default function WebhooksPage() {
                   <h5 className="text-white font-semibold">Download & Install</h5>
                 </div>
                 <ol className="text-sm text-gray-400 list-decimal list-inside space-y-1">
-                  <li>Download the Chart Data EA using the button above</li>
+                  <li>Download the Combined EA using the button above</li>
                   <li>In MT5, go to File → Open Data Folder → MQL5 → Experts</li>
-                  <li>Copy the .mq5 file there</li>
+                  <li>Copy <code className="text-green-400">VEDD_Combined_EA.mq5</code> there</li>
                   <li>In MT5, open Navigator (Ctrl+N) → Right-click Experts → Refresh</li>
-                  <li>Double-click to compile the EA</li>
+                  <li>Drag onto any chart — enter Server URL, API Key &amp; Account Alias in settings</li>
                 </ol>
               </div>
 

@@ -1303,6 +1303,106 @@ function BreakoutLiveStatus() {
   );
 }
 
+// ── MT5 Connected Terminals card ─────────────────────────────────────────────
+interface MT5Account {
+  alias: string;
+  label: string;
+  accountNumber: string;
+  lastSeen: number;
+  receiveSignals: boolean;
+  online?: boolean;
+}
+
+function MT5AccountsCard() {
+  const { toast } = useToast();
+
+  const { data, isLoading, refetch } = useQuery<{ accounts: MT5Account[] }>({
+    queryKey: ["/api/mt5-accounts"],
+    refetchInterval: 30000,
+  });
+
+  const toggleMutation = useMutation({
+    mutationFn: async ({ alias, receiveSignals }: { alias: string; receiveSignals: boolean }) => {
+      const res = await apiRequest("PATCH", `/api/mt5-accounts/${encodeURIComponent(alias)}`, { receiveSignals });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/mt5-accounts"] });
+    },
+    onError: () => toast({ title: "Failed to update account", variant: "destructive" }),
+  });
+
+  const accounts = data?.accounts || [];
+
+  return (
+    <Card className="bg-gradient-to-r from-gray-900/60 to-gray-800/40 border-gray-700/50">
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="text-white text-xl flex items-center gap-3">
+              <Radio className="w-6 h-6 text-blue-400" />
+              Connected MT5 Terminals
+            </CardTitle>
+            <CardDescription>Each terminal running the Combined EA appears here automatically</CardDescription>
+          </div>
+          <Button variant="outline" size="sm" className="border-gray-600 text-gray-300 hover:bg-gray-800" onClick={() => refetch()}>
+            <RefreshCw className="w-4 h-4 mr-1" />
+            Refresh
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="text-center py-8 text-gray-500">Loading terminals…</div>
+        ) : accounts.length === 0 ? (
+          <div className="rounded-xl bg-gray-900/50 border border-gray-700/30 p-8 text-center">
+            <Radio className="w-8 h-8 text-gray-600 mx-auto mb-3" />
+            <p className="text-gray-400 font-medium">No MT5 terminals connected yet</p>
+            <p className="text-gray-500 text-sm mt-1">Install the Combined EA and it will appear here within 30 seconds</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {accounts.map((acc) => (
+              <div
+                key={acc.alias}
+                className="flex items-center justify-between p-4 rounded-xl bg-gray-900/50 border border-gray-700/30 hover:border-gray-600/50 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <div className={`w-2.5 h-2.5 rounded-full ${acc.online ? "bg-green-400 shadow-[0_0_6px_rgba(74,222,128,0.6)]" : "bg-gray-600"}`} />
+                  <div>
+                    <p className="text-white font-semibold text-sm">{acc.label || acc.alias}</p>
+                    <p className="text-gray-500 text-xs">
+                      Alias: <code className="text-gray-400">{acc.alias}</code>
+                      {acc.accountNumber ? ` · Account #${acc.accountNumber}` : ""}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="text-right">
+                    <p className="text-xs text-gray-500">
+                      {acc.online
+                        ? <span className="text-green-400">● Online</span>
+                        : <span className="text-gray-500">Last seen {new Date(acc.lastSeen).toLocaleTimeString()}</span>
+                      }
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-gray-400">Receive Signals</span>
+                    <Switch
+                      checked={acc.receiveSignals}
+                      onCheckedChange={(val) => toggleMutation.mutate({ alias: acc.alias, receiveSignals: val })}
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function MT5ChartDataPage() {
   const { toast } = useToast();
   const [newTokenName, setNewTokenName] = useState("");
@@ -2631,25 +2731,82 @@ export default function MT5ChartDataPage() {
           </Card>
         </div>
 
+        {/* ── Combined EA Download ── */}
         <Card className="bg-gradient-to-r from-green-900/30 to-teal-900/30 border-green-700/50">
           <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className="text-white text-xl flex items-center gap-3">
-                  <Download className="w-6 h-6 text-green-400" />
-                  Step 3: Download & Install EA
-                </CardTitle>
-                <CardDescription>Get the Chart Data EA for your MetaTrader 5</CardDescription>
-              </div>
-              <a href="/downloads/VEDD_ChartData_EA.mq5" download className="inline-flex">
-                <Button className="bg-gradient-to-r from-green-600 to-teal-600 hover:from-green-500 hover:to-teal-500">
-                  <Download className="w-4 h-4 mr-2" />
-                  Download VEDD_ChartData_EA.mq5
-                </Button>
-              </a>
+            <div>
+              <CardTitle className="text-white text-xl flex items-center gap-3">
+                <Download className="w-6 h-6 text-green-400" />
+                Step 3: Download &amp; Install the Combined EA
+              </CardTitle>
+              <CardDescription>One single EA replaces all three legacy EAs — Chart Data + Signal Receiver + Trade Copier</CardDescription>
             </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-6">
+            {/* Combined EA hero card */}
+            <div className="p-5 bg-gray-900/60 rounded-xl border border-green-600/50">
+              <div className="flex items-start gap-4 mb-4">
+                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-green-600 to-teal-600 flex items-center justify-center flex-shrink-0">
+                  <Zap className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <h4 className="text-white font-bold text-lg">VEDD Combined EA</h4>
+                  <p className="text-gray-400 text-sm mt-0.5">All-in-one: chart data • AI signal execution • trade copying • account heartbeat</p>
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    <Badge className="bg-green-900/50 text-green-300 border-green-700/50 text-xs">Chart Data</Badge>
+                    <Badge className="bg-blue-900/50 text-blue-300 border-blue-700/50 text-xs">Signal Receiver</Badge>
+                    <Badge className="bg-purple-900/50 text-purple-300 border-purple-700/50 text-xs">Trade Copier</Badge>
+                    <Badge className="bg-amber-900/50 text-amber-300 border-amber-700/50 text-xs">Multi-Account</Badge>
+                  </div>
+                </div>
+              </div>
+              <a href="/downloads/VEDD_Combined_EA.mq5" download className="inline-flex w-full">
+                <Button className="w-full bg-gradient-to-r from-green-600 to-teal-600 hover:from-green-500 hover:to-teal-500 text-base py-5">
+                  <Download className="w-5 h-5 mr-2" />
+                  Download VEDD_Combined_EA.mq5
+                </Button>
+              </a>
+              <p className="text-xs text-gray-500 mt-2 text-center">
+                Drag onto <strong className="text-gray-300">one chart</strong> — set Server URL, API Key &amp; Account Alias in EA settings. That's it.
+              </p>
+            </div>
+
+            {/* Legacy EAs (collapsed) */}
+            <Accordion type="single" collapsible>
+              <AccordionItem value="legacy" className="border-gray-700/50">
+                <AccordionTrigger className="text-gray-400 text-sm hover:text-gray-300">
+                  Legacy individual EAs (for advanced users only)
+                </AccordionTrigger>
+                <AccordionContent>
+                  <div className="grid md:grid-cols-2 gap-4 pt-2">
+                    <div className="p-4 bg-gray-900/40 rounded-lg border border-gray-700/40">
+                      <h5 className="text-gray-300 font-semibold text-sm mb-2 flex items-center gap-2">
+                        <span className="text-green-400">EA 1</span> Chart Data EA
+                      </h5>
+                      <a href="/downloads/VEDD_ChartData_EA.mq5" download className="inline-flex w-full">
+                        <Button variant="outline" size="sm" className="w-full border-gray-600 text-gray-300 hover:bg-gray-800">
+                          <Download className="w-3 h-3 mr-2" />
+                          VEDD_ChartData_EA.mq5
+                        </Button>
+                      </a>
+                    </div>
+                    <div className="p-4 bg-gray-900/40 rounded-lg border border-gray-700/40">
+                      <h5 className="text-gray-300 font-semibold text-sm mb-2 flex items-center gap-2">
+                        <span className="text-blue-400">EA 2</span> Signal Receiver EA
+                      </h5>
+                      <a href="/downloads/VEDD_Signal_Receiver_EA.mq5" download className="inline-flex w-full">
+                        <Button variant="outline" size="sm" className="w-full border-gray-600 text-gray-300 hover:bg-gray-800">
+                          <Download className="w-3 h-3 mr-2" />
+                          VEDD_Signal_Receiver_EA.mq5
+                        </Button>
+                      </a>
+                    </div>
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
+
+            {/* Installation + WebRequest */}
             <div className="grid md:grid-cols-2 gap-6">
               <div>
                 <h4 className="text-white font-semibold mb-3 flex items-center gap-2">
@@ -2657,29 +2814,34 @@ export default function MT5ChartDataPage() {
                   Installation Steps
                 </h4>
                 <ol className="text-sm text-gray-400 space-y-2 list-decimal list-inside">
-                  <li>Download the EA file using the button above</li>
-                  <li>In MT5, go to File → Open Data Folder</li>
-                  <li>Navigate to MQL5 → Experts</li>
-                  <li>Copy the .mq5 file into this folder</li>
+                  <li>Download the Combined EA file above</li>
+                  <li>In MT5, go to <strong className="text-gray-300">File → Open Data Folder</strong></li>
+                  <li>Navigate to <strong className="text-gray-300">MQL5 → Experts</strong></li>
+                  <li>Copy <code className="text-green-400 bg-gray-900 px-1 rounded">VEDD_Combined_EA.mq5</code> into that folder</li>
                   <li>Restart MT5 or right-click Navigator → Refresh</li>
-                  <li>Drag the EA onto your chart</li>
+                  <li>Drag the EA onto any chart</li>
+                  <li>Enter your <strong className="text-green-400">Server URL</strong>, <strong className="text-green-400">API Key</strong>, and a unique <strong className="text-amber-400">Account Alias</strong></li>
                 </ol>
               </div>
               <div>
                 <h4 className="text-white font-semibold mb-3 flex items-center gap-2">
                   <Shield className="w-4 h-4 text-amber-400" />
-                  Enable WebRequest
+                  Enable WebRequest (required)
                 </h4>
                 <ol className="text-sm text-gray-400 space-y-2 list-decimal list-inside">
-                  <li>In MT5, go to Tools → Options → Expert Advisors</li>
-                  <li>Check "Allow WebRequest for listed URL"</li>
+                  <li>In MT5, go to <strong className="text-gray-300">Tools → Options → Expert Advisors</strong></li>
+                  <li>Check <em>"Allow WebRequest for listed URL"</em></li>
                   <li>Click "Add" and paste: <code className="text-green-400 bg-gray-900 px-1 rounded">{baseUrl}</code></li>
                   <li>Click OK to save settings</li>
+                  <li>Ensure "Allow Algo Trading" is enabled (green play button in toolbar)</li>
                 </ol>
               </div>
             </div>
           </CardContent>
         </Card>
+
+        {/* ── MT5 Connected Terminals ── */}
+        <MT5AccountsCard />
 
         <Card className="bg-gray-800/50 border-gray-700">
           <CardHeader>

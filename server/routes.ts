@@ -6781,6 +6781,23 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           .catch(err => console.error('Error relaying MT5 signal to webhooks:', err));
       }
       
+      // ── Magic Number Filter: skip TL relay for AI-generated trades ──────────
+      // AI trades use magic 202500 (already executed on TL directly by the engine).
+      // Manual trades (magic = 0 or anything else) should be copied to TradeLocker.
+      const AI_MAGIC_NUMBER = 202500;
+      const trademagic = Number(magic) || 0;
+      const isAiTrade = trademagic === AI_MAGIC_NUMBER;
+      if (isAiTrade) {
+        console.log(`[TradeLocker Relay] Skipping TL relay — AI trade (magic ${trademagic}) already executed by engine`);
+        return res.json({
+          success: true,
+          message: "AI signal received (TL relay skipped — handled by engine)",
+          signalId: signalLog.id,
+          webhooksTriggered: webhooks.length,
+          tradelocker: null,
+        });
+      }
+
       // Execute on ALL active TradeLocker connections that have auto-execute enabled
       const tlConnections = await storage.getUserTradelockerConnections(token.userId);
       console.log('[TradeLocker] Checking connections for user:', token.userId, '| found:', tlConnections.length);
@@ -12685,7 +12702,7 @@ Respond with ONLY valid JSON:
   });
 
   // ==================== VEDD AI LIVE TRADING ENGINE ====================
-  const { startLiveEngine, stopLiveEngine, emergencyStopEngine, getLiveEngineState, getLiveEngineActivity, updateLiveEngineConfig, getPendingMT5Signals, confirmMT5Signal, getAllMT5Signals, recordTradeResult } = await import('./services/live-trading-engine');
+  const { startLiveEngine, stopLiveEngine, emergencyStopEngine, getLiveEngineState, getLiveEngineActivity, updateLiveEngineConfig, getPendingMT5Signals, confirmMT5Signal, getAllMT5Signals, recordTradeResult, registerMT5Account, heartbeatMT5Account, getMT5Accounts, setMT5AccountReceiveSignals } = await import('./services/live-trading-engine');
 
   app.post("/api/vedd-live-engine/start", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
@@ -12771,15 +12788,21 @@ Respond with ONLY valid JSON:
 
   app.get("/api/vedd-live-engine/mt5-signals", async (req: Request, res: Response) => {
     const apiKey = req.headers['x-api-key'] as string || req.query.apiKey as string;
+    const accountAlias = (req.query.accountAlias as string) || 'default';
     if (!apiKey) {
       if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
       const userId = (req.user as User).id;
-      const signals = getPendingMT5Signals(userId);
+      const signals = getPendingMT5Signals(userId, accountAlias);
       return res.json({ signals });
     }
     const token = await storage.getMt5ApiTokenByToken(apiKey);
     if (!token) return res.status(401).json({ error: "Invalid API key" });
-    const signals = getPendingMT5Signals(token.userId);
+    // Auto-register the account on first poll if not already known
+    if (accountAlias !== 'default') {
+      const alias = accountAlias;
+      registerMT5Account(token.userId, alias, { receiveSignals: true });
+    }
+    const signals = getPendingMT5Signals(token.userId, accountAlias);
     res.json({ signals });
   });
 
@@ -12788,17 +12811,61 @@ Respond with ONLY valid JSON:
     if (!apiKey) {
       if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
       const userId = (req.user as User).id;
-      const { signalId, executed } = req.body;
-      const result = confirmMT5Signal(userId, signalId, executed !== false);
+      const { signalId, executed, accountAlias } = req.body;
+      const result = confirmMT5Signal(userId, signalId, executed !== false, accountAlias || 'default');
       if (!result) return res.status(404).json({ error: "Signal not found" });
       return res.json({ success: true, signal: result });
     }
     const token = await storage.getMt5ApiTokenByToken(apiKey);
     if (!token) return res.status(401).json({ error: "Invalid API key" });
-    const { signalId, executed } = req.body;
-    const result = confirmMT5Signal(token.userId, signalId, executed !== false);
+    const { signalId, executed, accountAlias } = req.body;
+    const result = confirmMT5Signal(token.userId, signalId, executed !== false, accountAlias || 'default');
     if (!result) return res.status(404).json({ error: "Signal not found" });
     res.json({ success: true, signal: result });
+  });
+
+  // ── MT5 Account Registry endpoints ─────────────────────────────────────────
+  // EA calls this on startup + every 30 s to register itself and report heartbeat
+  app.post("/api/mt5-accounts/heartbeat", async (req: Request, res: Response) => {
+    const apiKey = req.headers['x-api-key'] as string || req.body.apiKey;
+    if (!apiKey) return res.status(401).json({ error: "API key required" });
+    const token = await storage.getMt5ApiTokenByToken(apiKey);
+    if (!token) return res.status(401).json({ error: "Invalid API key" });
+    const { accountAlias, accountLabel, accountNumber, receiveSignals } = req.body;
+    if (!accountAlias) return res.status(400).json({ error: "accountAlias required" });
+    const info = registerMT5Account(token.userId, accountAlias, {
+      label: accountLabel || accountAlias,
+      accountNumber: accountNumber || '',
+      receiveSignals: receiveSignals !== false,
+    });
+    res.json({ success: true, account: info });
+  });
+
+  app.get("/api/mt5-accounts", async (req: Request, res: Response) => {
+    const apiKey = req.headers['x-api-key'] as string || req.query.apiKey as string;
+    if (!apiKey) {
+      if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+      const userId = (req.user as User).id;
+      return res.json({ accounts: getMT5Accounts(userId) });
+    }
+    const token = await storage.getMt5ApiTokenByToken(apiKey);
+    if (!token) return res.status(401).json({ error: "Invalid API key" });
+    res.json({ accounts: getMT5Accounts(token.userId) });
+  });
+
+  app.patch("/api/mt5-accounts/:alias", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const alias = req.params.alias;
+    const { receiveSignals, label } = req.body;
+    if (receiveSignals !== undefined) {
+      const ok = setMT5AccountReceiveSignals(userId, alias, Boolean(receiveSignals));
+      if (!ok) return res.status(404).json({ error: "Account alias not found" });
+    }
+    if (label !== undefined) {
+      registerMT5Account(userId, alias, { label });
+    }
+    res.json({ success: true, accounts: getMT5Accounts(userId) });
   });
 
   app.get("/api/vedd-live-engine/mt5-signal-history", async (req: Request, res: Response) => {
