@@ -830,8 +830,21 @@ export function recordTradeResult(userId: number, result: {
   }
 
   // ── Daily P&L tracking for loss limit ─────────────────────────────
+  // Reset pnlToday on calendar day change (prevent yesterday's losses counting toward today's limit)
+  const todayDate = new Date().toISOString().split('T')[0];
+  if ((state as any)._pnlTodayDate !== todayDate) {
+    (state as any)._pnlTodayDate = todayDate;
+    state.pnlToday = 0;
+  }
   state.pnlToday = Math.round((state.pnlToday + result.profit) * 100) / 100;
   checkDailyLossLimit(userId);
+
+  // ── Decrement open position count on every trade close ────────────
+  // openPositionCount was being incremented on open but never decremented —
+  // causing it to accumulate and permanently block new trades after a few closes.
+  if (state.openPositionCount > 0) {
+    state.openPositionCount = Math.max(0, state.openPositionCount - 1);
+  }
 
   // ── T003: Update per-pair consecutive loss tracking in brain ──────
   const brainForUser = (global as any).veddAIBrain?.[userId];
@@ -3234,43 +3247,71 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       });
     }
 
-    // ── GATE 3: Volume hard block for scalping ────────────────────────────────
+    // ── GATE 3: Volume block ──────────────────────────────────────────────────
     // Scalping on below_average/dry volume = wide spreads, fake-outs, poor fills.
-    // Yesterday: scalps fired during Asian session with dry EUR/GBP volume.
-    // Advisory in the AI prompt was not sufficient — this must be code-enforced.
-    if (strategy === 'scalping') {
+    // Extended: all strategies blocked at extreme-dry volume (< 0.3x avg).
+    // Scalping additionally blocked at below_average (< 0.7x avg).
+    {
       const volTrend = snap?.volumeTrend || 'unknown';
       const relVol = snap?.relativeVolume || 1;
-      if (volTrend === 'dry' || volTrend === 'below_average' || relVol < 0.7) {
+      const isScalp = strategy === 'scalping';
+      const extremeDry = volTrend === 'dry' || relVol < 0.3;
+      const belowAvg = volTrend === 'below_average' || relVol < 0.7;
+      if (extremeDry) {
+        // Block ALL strategies — extreme dry volume means market is dead/pre-news
         addActivity(userId, {
           type: 'info',
           symbol: decision.symbol,
-          message: `📉 SCALP VOLUME BLOCK: ${decision.symbol} scalp rejected — volume is ${volTrend} (${relVol.toFixed(2)}x avg). Scalping in low volume = wide spreads + fake-outs. Wait for volume ≥ 0.7x average or switch to sniper/momentum strategy.`,
+          message: `📉 EXTREME DRY VOLUME BLOCK [${strategy}]: ${decision.symbol} rejected — volume is ${volTrend} (${relVol.toFixed(2)}x avg). Dead market conditions apply to all strategies. No valid liquidity for any entry.`,
+        });
+        state.signalsGenerated++;
+        return;
+      }
+      if (isScalp && belowAvg) {
+        addActivity(userId, {
+          type: 'info',
+          symbol: decision.symbol,
+          message: `📉 SCALP VOLUME BLOCK: ${decision.symbol} scalp rejected — volume is ${volTrend} (${relVol.toFixed(2)}x avg). Scalping requires ≥ 0.7x average volume. Wait for volume or switch to sniper/swing strategy.`,
         });
         state.signalsGenerated++;
         return;
       }
     }
 
-    // ── GATE 4: Session block for scalping (EUR/GBP pairs in Asian session) ───
+    // ── GATE 4: Session block for EUR/GBP/CHF pairs in Asian session ─────────
     // EUR/GBP pairs have thin liquidity 00:00–07:00 UTC (Asian hours).
-    // Scalping these pairs during Asian hours was a primary source of losses.
-    // Hard block: no scalping EUR/GBP/CHF during Asian session.
-    if (strategy === 'scalping') {
+    // Extended: all strategies blocked for these pairs during Asian session when
+    // volume is also below average (double penalty = guaranteed bad fill).
+    {
       const nowUtcHour = new Date().getUTCHours();
       const isAsianHours = nowUtcHour >= 0 && nowUtcHour < 7;
       const sym = (decision.symbol || '').toUpperCase();
       const isLowLiquidityPairInAsia = (
         sym.includes('EUR') || sym.includes('GBP') || sym.includes('CHF')
       ) && !sym.includes('JPY'); // JPY pairs are liquid in Asia
+      const isScalp = strategy === 'scalping';
+      const relVol = snap?.relativeVolume || 1;
       if (isAsianHours && isLowLiquidityPairInAsia) {
-        addActivity(userId, {
-          type: 'info',
-          symbol: decision.symbol,
-          message: `🌙 ASIAN SESSION SCALP BLOCK: ${decision.symbol} scalp rejected — Asian hours (${nowUtcHour}:00 UTC) have thin liquidity for EUR/GBP/CHF pairs. These pairs need London session (07:00+ UTC) for reliable scalp entries. Holding for prime window.`,
-        });
-        state.signalsGenerated++;
-        return;
+        if (isScalp) {
+          // Always block scalping on these pairs during Asian hours
+          addActivity(userId, {
+            type: 'info',
+            symbol: decision.symbol,
+            message: `🌙 ASIAN SESSION SCALP BLOCK: ${decision.symbol} scalp rejected — Asian hours (${nowUtcHour}:00 UTC). EUR/GBP/CHF need London session (07:00+ UTC) for scalp entries.`,
+          });
+          state.signalsGenerated++;
+          return;
+        }
+        if (relVol < 0.5) {
+          // Block all strategies on these pairs during Asian hours with very low volume
+          addActivity(userId, {
+            type: 'info',
+            symbol: decision.symbol,
+            message: `🌙 ASIAN LOW-VOL BLOCK [${strategy}]: ${decision.symbol} rejected — Asian hours (${nowUtcHour}:00 UTC) + low volume (${relVol.toFixed(2)}x). EUR/GBP/CHF at < 0.5x volume during Asia = guaranteed slippage. Waiting for London.`,
+          });
+          state.signalsGenerated++;
+          return;
+        }
       }
     }
 
@@ -3301,6 +3342,33 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
     let entryPrice = parseNum(decision.entryPrice);
     let stopLoss = parseNum(decision.stopLoss);
     let takeProfit = parseNum(decision.takeProfit);
+
+    // ── HARD BLOCK: SL or TP missing = trade rejected (undefined risk) ────────
+    // The R:R gate and ATR expansion both skip when SL/TP are null — meaning a
+    // trade with no SL or TP would execute completely unprotected. This is the
+    // highest-severity gap: reject categorically before any further processing.
+    if (!stopLoss || stopLoss <= 0) {
+      addActivity(userId, {
+        type: 'signal',
+        symbol: decision.symbol,
+        direction: decision.direction,
+        confidence: adjustedConfidence,
+        message: `🚫 NO SL BLOCK: ${decision.symbol} ${decision.direction} rejected — AI returned no stop loss. Trade with undefined risk is never allowed. AI prompt must include SL.`,
+      });
+      state.signalsGenerated++;
+      return;
+    }
+    if (!takeProfit || takeProfit <= 0) {
+      addActivity(userId, {
+        type: 'signal',
+        symbol: decision.symbol,
+        direction: decision.direction,
+        confidence: adjustedConfidence,
+        message: `🚫 NO TP BLOCK: ${decision.symbol} ${decision.direction} rejected — AI returned no take profit. Trade with no exit target is never allowed. AI prompt must include TP.`,
+      });
+      state.signalsGenerated++;
+      return;
+    }
 
     // ── ATR-based minimum SL expansion (prevent premature stop-outs) ─────────
     // Scalps with 5-8 pip SLs on M15 data get wiped by normal candle noise.
@@ -3371,11 +3439,23 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
           state.signalsGenerated++;
           return;
         }
+        // Enforce 2.0 R:R minimum — only allow below 2.0 on very high-confidence setups (88%+)
+        if (rr < 2.0 && adjustedConfidence < 88) {
+          addActivity(userId, {
+            type: 'signal',
+            symbol: decision.symbol,
+            direction: decision.direction,
+            confidence: adjustedConfidence,
+            message: `❌ R:R GATE REJECT: ${decision.symbol} ${decision.direction} R:R=${rr.toFixed(2)} — below 1:2 minimum. Requires 88%+ confidence to allow sub-2:1 setups (current: ${adjustedConfidence}%).`,
+          });
+          state.signalsGenerated++;
+          return;
+        }
         if (rr < 2.0) {
           addActivity(userId, {
             type: 'info',
             symbol: decision.symbol,
-            message: `⚠️ R:R warning: ${decision.symbol} R:R=${rr.toFixed(2)} — below 1:2 target. Proceeding but favour higher R:R setups.`,
+            message: `⚠️ R:R note: ${decision.symbol} R:R=${rr.toFixed(2)} allowed on ${adjustedConfidence}% confidence (88%+ exception). Monitor closely.`,
           });
         }
       }
