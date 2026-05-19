@@ -2802,7 +2802,8 @@ export default function SolanaScanner() {
 
   const { data: solEngineStatus, refetch: refetchEngineStatus } = useQuery<any>({
     queryKey: ['/api/sol-engine/status'],
-    refetchInterval: (data: any) => (data?.running ? 10000 : false),
+    // React Query v5: callback receives the Query object, not the data directly
+    refetchInterval: (query: any) => (query.state?.data?.running ? 10000 : false),
     staleTime: 5000,
   });
 
@@ -3540,10 +3541,10 @@ export default function SolanaScanner() {
                       {selectedStrategies.length > 1 && <span className="ml-1 text-purple-400">• 🎯 Multi-Strategy</span>}
                     </p>
                   )}
-                  {macro && (
+                  {macro && macro.btcChange != null && macro.ethChange != null && macro.solChange != null && (
                     <p className="text-[10px] text-gray-400 mt-0.5">
-                      BTC {macro.btcChange >= 0 ? '+' : ''}{macro.btcChange.toFixed(1)}% • ETH {macro.ethChange >= 0 ? '+' : ''}{macro.ethChange.toFixed(1)}% • SOL {macro.solChange >= 0 ? '+' : ''}{macro.solChange.toFixed(1)}%
-                      <span className={`ml-1 font-semibold ${macro.bias === 'RISK_ON' ? 'text-emerald-400' : macro.bias === 'RISK_OFF' ? 'text-red-400' : 'text-yellow-400'}`}>→ {macro.bias.replace('_', '-')}</span>
+                      BTC {Number(macro.btcChange) >= 0 ? '+' : ''}{Number(macro.btcChange).toFixed(1)}% • ETH {Number(macro.ethChange) >= 0 ? '+' : ''}{Number(macro.ethChange).toFixed(1)}% • SOL {Number(macro.solChange) >= 0 ? '+' : ''}{Number(macro.solChange).toFixed(1)}%
+                      <span className={`ml-1 font-semibold ${macro.bias === 'RISK_ON' ? 'text-emerald-400' : macro.bias === 'RISK_OFF' ? 'text-red-400' : 'text-yellow-400'}`}>→ {(macro.bias || '').replace('_', '-')}</span>
                     </p>
                   )}
                 </div>
@@ -3751,11 +3752,11 @@ export default function SolanaScanner() {
                     <div className="grid grid-cols-4 gap-2">
                       <div className="text-center">
                         <p className="text-[9px] text-gray-500">Profit</p>
-                        <p className={`text-xs font-bold ${weeklyGoal.currentProfitSol >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{weeklyGoal.currentProfitSol >= 0 ? '+' : ''}{weeklyGoal.currentProfitSol.toFixed(3)} SOL</p>
+                        <p className={`text-xs font-bold ${Number(weeklyGoal.currentProfitSol || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{Number(weeklyGoal.currentProfitSol || 0) >= 0 ? '+' : ''}{Number(weeklyGoal.currentProfitSol || 0).toFixed(3)} SOL</p>
                       </div>
                       <div className="text-center">
                         <p className="text-[9px] text-gray-500">Target</p>
-                        <p className="text-xs font-bold text-white">{weeklyGoal.targetSol.toFixed(3)} SOL</p>
+                        <p className="text-xs font-bold text-white">{Number(weeklyGoal.targetSol || 0).toFixed(3)} SOL</p>
                       </div>
                       <div className="text-center">
                         <p className="text-[9px] text-gray-500">Trades</p>
