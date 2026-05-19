@@ -4519,18 +4519,25 @@ IMPORTANT:
 
       if (elKey) {
         try {
-          const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || 'pNInz6obpgDQGcFmaJgB'; // Adam
+          // Rachel (21m00Tcm4TlvDq8ikWAM) — warm, natural, clear American female voice.
+          // Widely regarded as ElevenLabs' most realistic voice for conversational AI.
+          // Use eleven_turbo_v2_5 — low latency + highest naturalness for interactive use.
+          // Stability 0.5 + style 0 = most natural, least robotic delivery.
+          const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || '21m00Tcm4TlvDq8ikWAM'; // Rachel
           const elRes = await fetch(
-            `https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}/stream`,
+            `https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`,
             {
               method: 'POST',
               headers: { 'xi-api-key': elKey, 'Content-Type': 'application/json', 'Accept': 'audio/mpeg' },
               body: JSON.stringify({
                 text: clean,
-                model_id: 'eleven_multilingual_v2',
-                // Higher style + lower stability = more expressive, emotional delivery
-                // Boosted similarity keeps the voice consistent while adding character
-                voice_settings: { stability: 0.32, similarity_boost: 0.82, style: 0.60, use_speaker_boost: true },
+                model_id: 'eleven_turbo_v2_5',
+                voice_settings: {
+                  stability: 0.50,
+                  similarity_boost: 0.80,
+                  style: 0.10,
+                  use_speaker_boost: true,
+                },
               }),
             }
           );
@@ -4538,6 +4545,9 @@ IMPORTANT:
             const buffer = Buffer.from(await elRes.arrayBuffer());
             res.set({ 'Content-Type': 'audio/mpeg', 'Content-Length': String(buffer.length), 'Cache-Control': 'no-cache', 'X-TTS-Provider': 'elevenlabs' });
             return res.send(buffer);
+          } else {
+            const errText = await elRes.text().catch(() => '');
+            console.warn(`[ABBA TTS] ElevenLabs ${elRes.status}:`, errText.slice(0, 200));
           }
         } catch (elErr: any) {
           console.warn('[ABBA TTS] ElevenLabs error:', elErr?.message);
@@ -17197,12 +17207,13 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
           const resp = await fetch('https://api.mistral.ai/v1/models', { headers: { 'Authorization': `Bearer ${trimmedKey}` } });
           isValid = resp.ok;
         } else if (provider === 'elevenlabs') {
-          // Try /v1/user first; fall back to /v1/voices (works for both legacy and new keys)
+          // /v1/models is the most reliable auth check — returns 200 for any valid key,
+          // 401 for invalid. Avoids the 422/plan-tier issues that /v1/user can return.
           try {
-            const r1 = await fetch('https://api.elevenlabs.io/v1/user', { headers: { 'xi-api-key': trimmedKey } });
-            if (r1.ok || r1.status === 401 || r1.status === 403) {
-              isValid = r1.ok;
-            } else {
+            const r = await fetch('https://api.elevenlabs.io/v1/models', { headers: { 'xi-api-key': trimmedKey } });
+            isValid = r.ok;
+            if (!r.ok && r.status !== 401 && r.status !== 403) {
+              // Non-auth error (network, 500, etc.) — fall back to voices list
               const r2 = await fetch('https://api.elevenlabs.io/v1/voices', { headers: { 'xi-api-key': trimmedKey } });
               isValid = r2.ok;
             }
@@ -17261,10 +17272,9 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
           isValid = resp.ok;
         } else if (provider === 'elevenlabs') {
           try {
-            const r1 = await fetch('https://api.elevenlabs.io/v1/user', { headers: { 'xi-api-key': decryptedKey } });
-            if (r1.ok || r1.status === 401 || r1.status === 403) {
-              isValid = r1.ok;
-            } else {
+            const r = await fetch('https://api.elevenlabs.io/v1/models', { headers: { 'xi-api-key': decryptedKey } });
+            isValid = r.ok;
+            if (!r.ok && r.status !== 401 && r.status !== 403) {
               const r2 = await fetch('https://api.elevenlabs.io/v1/voices', { headers: { 'xi-api-key': decryptedKey } });
               isValid = r2.ok;
             }

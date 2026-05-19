@@ -1513,52 +1513,64 @@ function AutoTradingPanel() {
         )}
         
         {!connected ? (
-          <div className="flex flex-col gap-2">
-            <div className="flex gap-2 items-center flex-wrap">
-              {connecting ? (
-                <Badge variant="outline" className="text-cyan-400 border-cyan-500/30 animate-pulse">
-                  <RefreshCw className="h-3 w-3 mr-1 animate-spin" />
-                  Detecting wallet...
-                </Badge>
-              ) : (
-                <Badge variant="outline" className="text-yellow-400 border-yellow-500/30">
-                  <AlertTriangle className="h-3 w-3 mr-1" />
-                  Wallet Not Connected
-                </Badge>
-              )}
-              {!connecting && (
-                <>
-                  <Button onClick={() => connect('phantom')} variant="outline" size="sm">
-                    <LinkIcon className="h-4 w-4 mr-1" />
+          <div className="rounded-xl border border-purple-500/20 bg-purple-950/20 p-4 mt-1">
+            {connecting ? (
+              <div className="flex items-center gap-2 text-cyan-400">
+                <RefreshCw className="h-4 w-4 animate-spin flex-shrink-0" />
+                <span className="text-sm font-medium">Detecting wallet…</span>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 text-yellow-400 flex-shrink-0" />
+                  <span className="text-sm font-semibold text-yellow-300">Wallet Not Connected</span>
+                </div>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  {/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+                    ? 'Open this page inside the Phantom app browser to connect automatically, or tap below.'
+                    : 'Connect your Phantom wallet to enable auto-trading and portfolio tracking.'}
+                </p>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <Button
+                    onClick={() => connect('phantom')}
+                    size="sm"
+                    className="w-full sm:w-auto bg-purple-600 hover:bg-purple-700 text-white border-0"
+                  >
+                    <LinkIcon className="h-4 w-4 mr-2" />
                     Connect Phantom
                   </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-                      if (isMobile) {
+                  {/iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full sm:w-auto border-purple-500/40 text-purple-300 hover:bg-purple-900/30"
+                      onClick={() => {
                         const currentUrl = encodeURIComponent(window.location.href);
                         window.location.href = `https://phantom.app/ul/browse/${currentUrl}`;
-                      } else {
-                        window.open('https://phantom.app/', '_blank');
-                      }
-                    }}
-                    className="text-xs text-muted-foreground"
-                  >
-                    <ExternalLink className="h-3 w-3 mr-1" />
-                    {/iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ? 'Open in Phantom App' : 'Install Phantom'}
-                  </Button>
-                </>
-              )}
-            </div>
-            {error && (
-              <p className="text-xs text-red-400">{error}</p>
-            )}
-            {!connecting && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) && (
-              <p className="text-xs text-muted-foreground">
-                On mobile, open this page in the Phantom app browser to connect your wallet automatically
-              </p>
+                      }}
+                    >
+                      <ExternalLink className="h-4 w-4 mr-2" />
+                      Open in Phantom App
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full sm:w-auto border-purple-500/40 text-purple-300 hover:bg-purple-900/30"
+                      onClick={() => window.open('https://phantom.app/', '_blank')}
+                    >
+                      <ExternalLink className="h-4 w-4 mr-2" />
+                      Install Phantom
+                    </Button>
+                  )}
+                </div>
+                {error && (
+                  <p className="text-xs text-red-400 flex items-start gap-1">
+                    <XCircle className="h-3 w-3 mt-0.5 flex-shrink-0" />
+                    {error}
+                  </p>
+                )}
+              </div>
             )}
           </div>
         ) : (
