@@ -508,6 +508,14 @@ const Dashboard: React.FC = () => {
     refetchInterval: 60000,
   });
 
+  // TradeLocker recent trade results
+  const { data: tlTrades } = useQuery<any[]>({
+    queryKey: ['/api/tradelocker/trades'],
+    enabled: !!user,
+    refetchInterval: 30000,
+    select: (data) => (Array.isArray(data) ? data.slice(0, 20) : []),
+  });
+
   // Derive account balances for header display
   const mt5Accounts: Array<{ label: string; balance: number; equity?: number }> = React.useMemo(() => {
     if (!mt5AccountData) return [];
@@ -742,6 +750,56 @@ const Dashboard: React.FC = () => {
                   <span>{balanceHistory.series[0]?.date ? new Date(balanceHistory.series[0].date).toLocaleDateString() : ''}</span>
                   <span>{balanceHistory.totalTrades} trades tracked</span>
                   <span>Today</span>
+                </div>
+              </div>
+            )}
+
+            {/* ── TradeLocker Recent Trade Results ────────────────────── */}
+            {tlTrades && tlTrades.length > 0 && (
+              <div className="smart-card px-3 pt-3 pb-2">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-1.5">
+                    <Wallet className="h-3.5 w-3.5 text-red-400" />
+                    <span className="text-xs font-semibold text-white">TradeLocker Results</span>
+                    <span className="text-[10px] text-gray-500">({tlTrades.length} recent)</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-[10px]">
+                    <span className="text-emerald-400 font-semibold">
+                      {tlTrades.filter(t => t.status === 'executed').length} executed
+                    </span>
+                    {tlTrades.filter(t => t.status === 'failed' || t.status === 'rejected').length > 0 && (
+                      <span className="text-red-400 font-semibold">
+                        {tlTrades.filter(t => t.status === 'failed' || t.status === 'rejected').length} failed
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="space-y-1 max-h-48 overflow-y-auto pr-0.5">
+                  {tlTrades.map((trade: any) => {
+                    const isOk = trade.status === 'executed';
+                    const isFail = trade.status === 'failed' || trade.status === 'rejected';
+                    const statusColor = isOk ? 'text-emerald-400' : isFail ? 'text-red-400' : 'text-yellow-400';
+                    const dirColor = trade.direction === 'BUY' ? 'text-emerald-400' : 'text-red-400';
+                    return (
+                      <div key={trade.id} className={`flex items-center justify-between px-2 py-1.5 rounded-lg text-[10px] ${isOk ? 'bg-emerald-500/5 border border-emerald-500/15' : isFail ? 'bg-red-500/5 border border-red-500/15' : 'bg-gray-800/40 border border-gray-700/30'}`}>
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className={`font-bold shrink-0 ${dirColor}`}>{trade.direction}</span>
+                          <span className="font-semibold text-white truncate">{trade.symbol}</span>
+                          <span className="text-gray-500 shrink-0">{Number(trade.volume || 0).toFixed(2)} lot</span>
+                          {trade.entryPrice && (
+                            <span className="text-gray-400 shrink-0">@ {Number(trade.entryPrice).toFixed(trade.entryPrice < 10 ? 5 : 2)}</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0 ml-2">
+                          <span className={`font-semibold capitalize ${statusColor}`}>{trade.status}</span>
+                          {trade.errorMessage && (
+                            <span className="text-red-300 truncate max-w-[80px]" title={trade.errorMessage}>⚠ {trade.errorMessage.slice(0, 20)}</span>
+                          )}
+                          <span className="text-gray-600">{new Date(trade.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
