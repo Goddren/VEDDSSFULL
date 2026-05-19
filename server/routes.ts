@@ -6781,14 +6781,10 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           .catch(err => console.error('Error relaying MT5 signal to webhooks:', err));
       }
       
-      // Execute on TradeLocker if auto-execute is enabled
-      let tradelockerResult = null;
-      const tlConnection = await storage.getUserTradelockerConnection(token.userId);
-      console.log('[TradeLocker] Checking connection for user:', token.userId);
-      console.log('[TradeLocker] Connection found:', tlConnection ? 'yes' : 'no');
-      if (tlConnection) {
-        console.log('[TradeLocker] Connection status - isActive:', tlConnection.isActive, 'autoExecute:', tlConnection.autoExecute);
-      }
+      // Execute on ALL active TradeLocker connections that have auto-execute enabled
+      const tlConnections = await storage.getUserTradelockerConnections(token.userId);
+      console.log('[TradeLocker] Checking connections for user:', token.userId, '| found:', tlConnections.length);
+
       // ── ABBA Plan Filter: if a plan is synced, only auto-execute plan pairs ──
       const abbaPlanSync = (global as any).veddPlatformSync?.[token.userId];
       let inAbbaPlan = true; // default: allow if no plan synced
@@ -6801,8 +6797,13 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           console.log(`[ABBA Plan Filter] ${symbol} not in active plan (${abbaPlanSync.pairs.join(', ')}) — TradeLocker auto-execute skipped`);
         }
       }
-      if (tlConnection && tlConnection.isActive && tlConnection.autoExecute && inAbbaPlan) {
-        console.log('[TradeLocker] Executing signal on TradeLocker:', { action, symbol, direction, volume });
+
+      const tradelockerResults: any[] = [];
+      for (const tlConn of tlConnections) {
+        if (!tlConn.isActive || !tlConn.autoExecute || !inAbbaPlan) continue;
+        console.log(`[TradeLocker] Executing on account ${tlConn.accountId} (id=${tlConn.id}):`, { action, symbol, direction, volume });
+
+        let connResult: any = null;
         // ── Signal quality gate for relay path ──────────────────────────
         if (action === 'OPEN') {
           const guard = tlSignalGuard({
@@ -6812,16 +6813,16 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             takeProfit: takeProfit ?? null,
             symbol,
             direction,
-            minConfidence: 65, // slightly lower for MT5 relay since EA has its own filters
+            minConfidence: 65,
             requireSLTP: true,
           });
           if (!guard.allow) {
-            console.log(`[TradeLocker Relay Guard] BLOCKED: ${guard.reason}`);
-            tradelockerResult = { success: false, error: guard.reason };
+            console.log(`[TradeLocker Relay Guard] BLOCKED (account ${tlConn.accountId}): ${guard.reason}`);
+            connResult = { success: false, error: guard.reason };
           }
         }
-        if (!tradelockerResult) try {
-          tradelockerResult = await executeMT5SignalOnTradeLocker(tlConnection, {
+        if (!connResult) try {
+          connResult = await executeMT5SignalOnTradeLocker(tlConn, {
             action,
             symbol,
             direction,
@@ -6830,10 +6831,9 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             stopLoss,
             takeProfit,
           });
-          
-          // Log the trade attempt
+
           await storage.createTradelockerTradeLog({
-            connectionId: tlConnection.id,
+            connectionId: tlConn.id,
             userId: token.userId,
             sourceSignalId: signalLog.id,
             action,
@@ -6843,31 +6843,32 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             entryPrice,
             stopLoss,
             takeProfit,
-            tradelockerOrderId: tradelockerResult.orderId || null,
-            status: tradelockerResult.success ? 'executed' : 'failed',
-            errorMessage: tradelockerResult.error || null,
+            tradelockerOrderId: connResult.orderId || null,
+            status: connResult.success ? 'executed' : 'failed',
+            errorMessage: connResult.error || null,
           });
-          
-          // Update connection trade count if successful
-          if (tradelockerResult.success) {
-            await storage.updateTradelockerConnection(tlConnection.id, {
-              tradeCount: tlConnection.tradeCount + 1,
+
+          if (connResult.success) {
+            await storage.updateTradelockerConnection(tlConn.id, {
+              tradeCount: tlConn.tradeCount + 1,
               lastConnectedAt: new Date(),
               lastError: null,
             });
           } else {
-            await storage.updateTradelockerConnection(tlConnection.id, {
-              lastError: tradelockerResult.error,
-            });
+            await storage.updateTradelockerConnection(tlConn.id, { lastError: connResult.error });
           }
         } catch (err) {
-          console.error('Error executing on TradeLocker:', err);
-          tradelockerResult = { success: false, error: err instanceof Error ? err.message : 'Unknown error' };
+          console.error(`Error executing on TradeLocker account ${tlConn.accountId}:`, err);
+          connResult = { success: false, error: err instanceof Error ? err.message : 'Unknown error' };
         }
+        tradelockerResults.push({ accountId: tlConn.accountId, ...connResult });
       }
-      
-      res.json({ 
-        success: true, 
+
+      // For backward-compat response shape: surface first result
+      const tradelockerResult = tradelockerResults[0] || null;
+
+      res.json({
+        success: true,
         message: "Signal received and queued for relay",
         signalId: signalLog.id,
         webhooksTriggered: webhooks.length,
@@ -6875,6 +6876,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           executed: tradelockerResult.success,
           orderId: tradelockerResult.orderId,
           error: tradelockerResult.error,
+          accounts: tradelockerResults,
         } : null,
       });
     } catch (error) {
@@ -11348,6 +11350,19 @@ Rules:
   }
 
   // TradeLocker Connection Routes
+
+  // GET all connections (plural) — used by multi-account UI
+  app.get("/api/tradelocker/connections", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const userId = (req.user as User).id;
+    const connections = await storage.getUserTradelockerConnections(userId);
+    const safe = connections.map(({ encryptedPassword, accessToken, refreshToken, ...c }) => c);
+    res.json(safe);
+  });
+
+  // GET single connection (legacy / backward-compat — returns first active)
   app.get("/api/tradelocker/connection", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) {
       return res.status(401).json({ error: "Authentication required" });
@@ -11367,19 +11382,13 @@ Rules:
       return res.status(401).json({ error: "Authentication required" });
     }
     const userId = (req.user as User).id;
-    
+
     const { email, password, serverId, accountId, accountType, autoExecute } = req.body;
-    
+
     if (!email || !password || !serverId || !accountId) {
       return res.status(400).json({ error: "Missing required fields: email, password, serverId, accountId" });
     }
-    
-    // Check if user already has a connection
-    const existing = await storage.getUserTradelockerConnection(userId);
-    if (existing) {
-      return res.status(400).json({ error: "Connection already exists. Delete it first or update it." });
-    }
-    
+
     // Encrypt password
     const encryptedPw = encryptPassword(password);
     
@@ -11419,38 +11428,80 @@ Rules:
     res.json({ ...safeConnection, accNum: resolvedAccNum || null });
   });
 
+  // PATCH by ID — update a specific connection (multi-account)
+  app.patch("/api/tradelocker/connection/:id", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const userId = (req.user as User).id;
+    const connId = parseInt(req.params.id, 10);
+
+    const connection = await storage.getTradelockerConnection(connId);
+    if (!connection || connection.userId !== userId) {
+      return res.status(404).json({ error: "No connection found" });
+    }
+
+    const { isActive, autoExecute } = req.body;
+    const updated = await storage.updateTradelockerConnection(connId, { isActive, autoExecute });
+    if (!updated) {
+      return res.status(500).json({ error: "Failed to update connection" });
+    }
+
+    const { encryptedPassword: _, accessToken, refreshToken, ...safeConnection } = updated;
+    res.json(safeConnection);
+  });
+
+  // PATCH legacy (no ID) — updates first connection for backward compat
   app.patch("/api/tradelocker/connection", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) {
       return res.status(401).json({ error: "Authentication required" });
     }
     const userId = (req.user as User).id;
-    
+
     const connection = await storage.getUserTradelockerConnection(userId);
     if (!connection) {
       return res.status(404).json({ error: "No connection found" });
     }
-    
+
     const { isActive, autoExecute } = req.body;
     const updated = await storage.updateTradelockerConnection(connection.id, { isActive, autoExecute });
     if (!updated) {
       return res.status(500).json({ error: "Failed to update connection" });
     }
-    
+
     const { encryptedPassword: _, accessToken, refreshToken, ...safeConnection } = updated;
     res.json(safeConnection);
   });
 
+  // DELETE by ID — remove a specific connection
+  app.delete("/api/tradelocker/connection/:id", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const userId = (req.user as User).id;
+    const connId = parseInt(req.params.id, 10);
+
+    const connection = await storage.getTradelockerConnection(connId);
+    if (!connection || connection.userId !== userId) {
+      return res.status(404).json({ error: "No connection found" });
+    }
+
+    await storage.deleteTradelockerConnection(connId);
+    res.json({ success: true });
+  });
+
+  // DELETE legacy (no ID) — removes first connection for backward compat
   app.delete("/api/tradelocker/connection", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) {
       return res.status(401).json({ error: "Authentication required" });
     }
     const userId = (req.user as User).id;
-    
+
     const connection = await storage.getUserTradelockerConnection(userId);
     if (!connection) {
       return res.status(404).json({ error: "No connection found" });
     }
-    
+
     await storage.deleteTradelockerConnection(connection.id);
     res.json({ success: true });
   });

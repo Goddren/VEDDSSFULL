@@ -188,6 +188,8 @@ async function withRetry<T>(
         `ALTER TABLE saved_eas ADD COLUMN IF NOT EXISTS live_refresh_enabled boolean DEFAULT false`,
         // AI Vision Confirmation persistence — default TRUE so all users get 2nd-confirmation AI out of the box
         `ALTER TABLE users ADD COLUMN IF NOT EXISTS ai_vision_enabled boolean DEFAULT true`,
+        // Multi-TradeLocker: drop the unique constraint so multiple accounts per user are allowed
+        `ALTER TABLE tradelocker_connections DROP CONSTRAINT IF EXISTS tradelocker_connections_user_id_unique`,
       ];
       for (const m of migrations) {
         await db.execute(sql.raw(m));

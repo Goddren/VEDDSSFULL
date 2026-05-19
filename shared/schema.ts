@@ -693,7 +693,7 @@ export type InsertMt5SignalLog = z.infer<typeof insertMt5SignalLogSchema>;
 // TradeLocker Connections for direct trade execution
 export const tradelockerConnections = pgTable("tradelocker_connections", {
   id: serial("id").primaryKey(),
-  userId: integer("user_id").references(() => users.id).notNull().unique(),
+  userId: integer("user_id").references(() => users.id).notNull(),
   email: text("email").notNull(),
   encryptedPassword: text("encrypted_password").notNull(), // Encrypted password
   serverId: text("server_id").notNull(), // e.g., "FE2024"

@@ -314,6 +314,7 @@ export interface IStorage {
   createTradelockerConnection(connection: InsertTradelockerConnection): Promise<TradelockerConnection>;
   getTradelockerConnection(id: number): Promise<TradelockerConnection | undefined>;
   getUserTradelockerConnection(userId: number): Promise<TradelockerConnection | undefined>;
+  getUserTradelockerConnections(userId: number): Promise<TradelockerConnection[]>;
   updateTradelockerConnection(id: number, data: Partial<TradelockerConnection>): Promise<TradelockerConnection | undefined>;
   deleteTradelockerConnection(id: number): Promise<boolean>;
   
@@ -1779,6 +1780,10 @@ export class DatabaseStorage implements IStorage {
   async getUserTradelockerConnection(userId: number): Promise<TradelockerConnection | undefined> {
     const [result] = await db.select().from(tradelockerConnections).where(eq(tradelockerConnections.userId, userId));
     return result;
+  }
+
+  async getUserTradelockerConnections(userId: number): Promise<TradelockerConnection[]> {
+    return db.select().from(tradelockerConnections).where(eq(tradelockerConnections.userId, userId));
   }
 
   async updateTradelockerConnection(id: number, data: Partial<TradelockerConnection>): Promise<TradelockerConnection | undefined> {

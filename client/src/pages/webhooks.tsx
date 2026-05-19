@@ -407,7 +407,9 @@ export default function WebhooksPage() {
 
   // TradeLocker Direct Connection state
   const [showTLPassword, setShowTLPassword] = useState(false);
+  const [showAddForm, setShowAddForm] = useState(false);
   const [showInstrumentsDialog, setShowInstrumentsDialog] = useState(false);
+  const [instrumentsConnId, setInstrumentsConnId] = useState<number | null>(null);
   const [tlConnectionForm, setTLConnectionForm] = useState({
     email: '',
     password: '',
@@ -417,10 +419,13 @@ export default function WebhooksPage() {
     autoExecute: false,
   });
 
-  // TradeLocker queries and mutations
-  const { data: tlConnection, isLoading: tlLoading } = useQuery<TradelockerConnection | null>({
-    queryKey: ['/api/tradelocker/connection'],
+  // TradeLocker queries and mutations — multi-account
+  const { data: tlConnections = [], isLoading: tlLoading } = useQuery<TradelockerConnection[]>({
+    queryKey: ['/api/tradelocker/connections'],
   });
+
+  // Legacy single-connection alias for instruments dialog (uses first connected)
+  const tlConnection = tlConnections[0] ?? null;
 
   const { data: instrumentsData, isLoading: instrumentsLoading, refetch: refetchInstruments, isError: instrumentsError } = useQuery<{ instruments: { name: string; description: string }[]; count: number }>({
     queryKey: ['/api/tradelocker/instruments'],
@@ -437,16 +442,11 @@ export default function WebhooksPage() {
       return res.json();
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/tradelocker/connections'] });
       queryClient.invalidateQueries({ queryKey: ['/api/tradelocker/connection'] });
-      setTLConnectionForm({
-        email: '',
-        password: '',
-        serverId: '',
-        accountId: '',
-        accountType: 'demo',
-        autoExecute: false,
-      });
-      toast({ title: "TradeLocker connected", description: "Your account is now linked for trade execution." });
+      setTLConnectionForm({ email: '', password: '', serverId: '', accountId: '', accountType: 'demo', autoExecute: false });
+      setShowAddForm(false);
+      toast({ title: "TradeLocker connected", description: "Account linked for trade execution." });
     },
     onError: (error) => {
       toast({ title: "Connection failed", description: error.message, variant: "destructive" });
@@ -454,11 +454,12 @@ export default function WebhooksPage() {
   });
 
   const updateTLConnectionMutation = useMutation({
-    mutationFn: async (data: { isActive?: boolean; autoExecute?: boolean }) => {
-      const res = await apiRequest('PATCH', '/api/tradelocker/connection', data);
+    mutationFn: async ({ id, data }: { id: number; data: { isActive?: boolean; autoExecute?: boolean } }) => {
+      const res = await apiRequest('PATCH', `/api/tradelocker/connection/${id}`, data);
       return res.json();
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/tradelocker/connections'] });
       queryClient.invalidateQueries({ queryKey: ['/api/tradelocker/connection'] });
       toast({ title: "Settings updated" });
     },
@@ -468,11 +469,12 @@ export default function WebhooksPage() {
   });
 
   const deleteTLConnectionMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest('DELETE', '/api/tradelocker/connection');
+    mutationFn: async (id: number) => {
+      const res = await apiRequest('DELETE', `/api/tradelocker/connection/${id}`);
       return res.json();
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/tradelocker/connections'] });
       queryClient.invalidateQueries({ queryKey: ['/api/tradelocker/connection'] });
       toast({ title: "Connection removed" });
     },
@@ -487,6 +489,7 @@ export default function WebhooksPage() {
       return res.json();
     },
     onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/tradelocker/connections'] });
       queryClient.invalidateQueries({ queryKey: ['/api/tradelocker/connection'] });
       if (data.success) {
         toast({ title: "Connection verified", description: `Account balance: ${data.account?.balance || 'N/A'}` });
@@ -1496,7 +1499,7 @@ export default function WebhooksPage() {
                   TradeLocker Direct Execution
                 </CardTitle>
                 <CardDescription className="mt-1">
-                  Execute MT5 trades directly on TradeLocker - no webhook setup needed
+                  Connect multiple TradeLocker accounts — signals execute on all active accounts simultaneously
                 </CardDescription>
               </div>
               <button onClick={toggleTradelocker} className="text-gray-500 hover:text-white transition-colors">
@@ -1509,72 +1512,91 @@ export default function WebhooksPage() {
               <div className="flex items-center justify-center py-8">
                 <RefreshCw className="w-6 h-6 animate-spin text-gray-400" />
               </div>
-            ) : tlConnection ? (
+            ) : (
               <div className="space-y-4">
-                {/* Prominent last-error alert */}
-                {tlConnection.lastError && (
-                  <Alert className="border-red-500/50 bg-red-950/30">
-                    <XCircle className="h-4 w-4 text-red-400" />
-                    <AlertDescription className="text-red-300">
-                      <span className="font-semibold">Last execution error: </span>
-                      {tlConnection.lastError}
-                      {tlConnection.lastError.includes('Instrument not found') && (
-                        <span className="block mt-1 text-gray-400 text-xs">
-                          Click <strong>Instruments</strong> below to see the exact symbol names your broker uses, then make sure your MT5 chart uses the same name.
-                        </span>
-                      )}
-                    </AlertDescription>
-                  </Alert>
+                {/* ── Connected accounts list ── */}
+                {tlConnections.length > 0 && (
+                  <div className="space-y-3">
+                    <h4 className="text-white font-semibold flex items-center gap-2">
+                      <Activity className="w-4 h-4 text-cyan-400" />
+                      Connected Accounts ({tlConnections.length})
+                    </h4>
+                    {tlConnections.map((conn) => (
+                      <div key={conn.id} className="space-y-2">
+                        {conn.lastError && (
+                          <Alert className="border-red-500/50 bg-red-950/30">
+                            <XCircle className="h-4 w-4 text-red-400" />
+                            <AlertDescription className="text-red-300 text-xs">
+                              <span className="font-semibold">Error on {conn.accountId}: </span>
+                              {conn.lastError}
+                            </AlertDescription>
+                          </Alert>
+                        )}
+                        <div className="p-4 bg-gray-800/50 rounded-lg border border-cyan-700/30">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="space-y-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-white font-medium text-sm truncate">{conn.email}</span>
+                                {conn.isActive ? (
+                                  <Badge className="bg-green-500/20 text-green-400 text-xs shrink-0">Active</Badge>
+                                ) : (
+                                  <Badge className="bg-gray-500/20 text-gray-400 text-xs shrink-0">Inactive</Badge>
+                                )}
+                                {conn.autoExecute && (
+                                  <Badge className="bg-cyan-500/20 text-cyan-400 text-xs shrink-0">Auto-Execute</Badge>
+                                )}
+                              </div>
+                              <div className="text-xs text-gray-400 flex flex-wrap gap-x-3 gap-y-0.5">
+                                <span>Account: {conn.accountId}</span>
+                                <span className="capitalize">{conn.accountType}</span>
+                                <span>Server: {conn.serverId}</span>
+                                <span>{conn.tradeCount} trades</span>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => { setInstrumentsConnId(conn.id); setShowInstrumentsDialog(true); refetchInstruments(); }}
+                                disabled={instrumentsLoading}
+                                title="View broker instruments"
+                                className="h-7 px-2"
+                              >
+                                <List className="w-3.5 h-3.5" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => deleteTLConnectionMutation.mutate(conn.id)}
+                                disabled={deleteTLConnectionMutation.isPending}
+                                className="text-red-400 hover:text-red-300 h-7 px-2"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </Button>
+                            </div>
+                          </div>
+                          {/* Per-account toggles */}
+                          <div className="grid grid-cols-2 gap-2 mt-3">
+                            <div className="flex items-center justify-between p-2 bg-gray-900/50 rounded text-xs">
+                              <span className="text-gray-300">Auto-Execute</span>
+                              <Switch
+                                checked={conn.autoExecute}
+                                onCheckedChange={(checked) => updateTLConnectionMutation.mutate({ id: conn.id, data: { autoExecute: checked } })}
+                              />
+                            </div>
+                            <div className="flex items-center justify-between p-2 bg-gray-900/50 rounded text-xs">
+                              <span className="text-gray-300">Active</span>
+                              <Switch
+                                checked={conn.isActive}
+                                onCheckedChange={(checked) => updateTLConnectionMutation.mutate({ id: conn.id, data: { isActive: checked } })}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 )}
-
-                <div className="flex items-center justify-between p-4 bg-gray-800/50 rounded-lg border border-cyan-700/30">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-white font-medium">{tlConnection.email}</span>
-                      {tlConnection.isActive ? (
-                        <Badge className="bg-green-500/20 text-green-400 text-xs">Connected</Badge>
-                      ) : (
-                        <Badge className="bg-gray-500/20 text-gray-400 text-xs">Inactive</Badge>
-                      )}
-                    </div>
-                    <div className="text-sm text-gray-400 flex items-center flex-wrap gap-x-4 gap-y-1">
-                      <span>Account: {tlConnection.accountId}</span>
-                      <span className="capitalize">{tlConnection.accountType}</span>
-                      <span>{tlConnection.tradeCount} trades executed</span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => { setShowInstrumentsDialog(true); refetchInstruments(); }}
-                      disabled={instrumentsLoading}
-                      title="View broker instrument list"
-                    >
-                      {instrumentsLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <List className="w-4 h-4" />}
-                      <span className="ml-1 hidden sm:inline">Instruments</span>
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => testTLConnectionMutation.mutate()}
-                      disabled={testTLConnectionMutation.isPending}
-                      data-testid="button-test-tl-connection"
-                    >
-                      {testTLConnectionMutation.isPending ? <RefreshCw className="w-4 h-4 animate-spin" /> : 'Test'}
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => deleteTLConnectionMutation.mutate()}
-                      disabled={deleteTLConnectionMutation.isPending}
-                      className="text-red-400 hover:text-red-300"
-                      data-testid="button-delete-tl-connection"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </div>
 
                 {/* Instruments dialog */}
                 <Dialog open={showInstrumentsDialog} onOpenChange={setShowInstrumentsDialog}>
@@ -1582,7 +1604,12 @@ export default function WebhooksPage() {
                     <DialogHeader>
                       <DialogTitle className="text-white flex items-center gap-2">
                         <List className="w-5 h-5 text-cyan-400" />
-                        Available Instruments on {tlConnection.serverId}
+                        Available Instruments
+                        {instrumentsConnId && tlConnections.find(c => c.id === instrumentsConnId) && (
+                          <span className="text-sm text-gray-400 font-normal ml-1">
+                            on {tlConnections.find(c => c.id === instrumentsConnId)!.serverId}
+                          </span>
+                        )}
                       </DialogTitle>
                       <DialogDescription>
                         {instrumentsData
@@ -1624,34 +1651,10 @@ export default function WebhooksPage() {
                   </DialogContent>
                 </Dialog>
 
-                <div className="grid md:grid-cols-2 gap-4">
-                  <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg">
-                    <div>
-                      <p className="text-white font-medium">Auto-Execute Trades</p>
-                      <p className="text-xs text-gray-400">Automatically copy MT5 trades to TradeLocker</p>
-                    </div>
-                    <Switch
-                      checked={tlConnection.autoExecute}
-                      onCheckedChange={(checked) => updateTLConnectionMutation.mutate({ autoExecute: checked })}
-                      data-testid="switch-tl-auto-execute"
-                    />
-                  </div>
-                  <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg">
-                    <div>
-                      <p className="text-white font-medium">Connection Active</p>
-                      <p className="text-xs text-gray-400">Enable or disable the connection</p>
-                    </div>
-                    <Switch
-                      checked={tlConnection.isActive}
-                      onCheckedChange={(checked) => updateTLConnectionMutation.mutate({ isActive: checked })}
-                      data-testid="switch-tl-active"
-                    />
-                  </div>
-                </div>
-
+                {/* Recent executions */}
                 {tlTrades.length > 0 && (
-                  <div className="space-y-2 pt-4 border-t border-gray-700">
-                    <h4 className="text-white font-semibold flex items-center gap-2">
+                  <div className="space-y-2 pt-2 border-t border-gray-700">
+                    <h4 className="text-white font-semibold flex items-center gap-2 text-sm">
                       <Activity className="w-4 h-4" />
                       Recent Executions
                     </h4>
@@ -1681,115 +1684,133 @@ export default function WebhooksPage() {
                     </ScrollArea>
                   </div>
                 )}
-              </div>
-            ) : (
-              <div className="space-y-4">
-                <div className="p-4 bg-cyan-900/20 border border-cyan-700/30 rounded-lg">
-                  <h4 className="text-cyan-400 font-semibold mb-2 flex items-center gap-2">
-                    <AlertCircle className="w-4 h-4" />
-                    Connect Your TradeLocker Account
-                  </h4>
-                  <p className="text-sm text-gray-400">
-                    Link your TradeLocker account to automatically execute trades when MT5 signals are received.
-                    Your password is encrypted and stored securely.
-                  </p>
-                </div>
 
-                <div className="grid md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label className="text-gray-300">Email</Label>
-                    <Input
-                      type="email"
-                      placeholder="your@email.com"
-                      value={tlConnectionForm.email}
-                      onChange={(e) => setTLConnectionForm(prev => ({ ...prev, email: e.target.value }))}
-                      className="bg-gray-900 border-gray-700"
-                      data-testid="input-tl-email"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-gray-300">Password</Label>
-                    <div className="relative">
-                      <Input
-                        type={showTLPassword ? "text" : "password"}
-                        placeholder="Your TradeLocker password"
-                        value={tlConnectionForm.password}
-                        onChange={(e) => setTLConnectionForm(prev => ({ ...prev, password: e.target.value }))}
-                        className="bg-gray-900 border-gray-700 pr-10"
-                        data-testid="input-tl-password"
-                      />
+                {/* ── Add account form (toggle) ── */}
+                {!showAddForm ? (
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowAddForm(true)}
+                    className="w-full border-cyan-700/50 text-cyan-400 hover:bg-cyan-900/20"
+                    data-testid="button-add-tradelocker"
+                  >
+                    <Zap className="w-4 h-4 mr-2" />
+                    {tlConnections.length === 0 ? 'Connect TradeLocker Account' : 'Add Another Account'}
+                  </Button>
+                ) : (
+                  <div className="space-y-4 p-4 bg-cyan-900/10 border border-cyan-700/30 rounded-lg">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-cyan-400 font-semibold flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4" />
+                        {tlConnections.length === 0 ? 'Connect Your TradeLocker Account' : 'Add Another Account'}
+                      </h4>
+                      <Button variant="ghost" size="sm" onClick={() => setShowAddForm(false)} className="text-gray-500 h-7 px-2">✕</Button>
+                    </div>
+                    <p className="text-xs text-gray-400">
+                      Your password is encrypted and stored securely. Signals execute on all accounts with Auto-Execute enabled.
+                    </p>
+
+                    <div className="grid md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label className="text-gray-300">Email</Label>
+                        <Input
+                          type="email"
+                          placeholder="your@email.com"
+                          value={tlConnectionForm.email}
+                          onChange={(e) => setTLConnectionForm(prev => ({ ...prev, email: e.target.value }))}
+                          className="bg-gray-900 border-gray-700"
+                          data-testid="input-tl-email"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-gray-300">Password</Label>
+                        <div className="relative">
+                          <Input
+                            type={showTLPassword ? "text" : "password"}
+                            placeholder="Your TradeLocker password"
+                            value={tlConnectionForm.password}
+                            onChange={(e) => setTLConnectionForm(prev => ({ ...prev, password: e.target.value }))}
+                            className="bg-gray-900 border-gray-700 pr-10"
+                            data-testid="input-tl-password"
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="absolute right-0 top-0 h-full px-3"
+                            onClick={() => setShowTLPassword(!showTLPassword)}
+                          >
+                            {showTLPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-gray-300">Server ID</Label>
+                        <Input
+                          placeholder="e.g., ABN-DEMO"
+                          value={tlConnectionForm.serverId}
+                          onChange={(e) => setTLConnectionForm(prev => ({ ...prev, serverId: e.target.value }))}
+                          className="bg-gray-900 border-gray-700"
+                          data-testid="input-tl-server"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-gray-300">Account ID</Label>
+                        <Input
+                          placeholder="e.g., 123456"
+                          value={tlConnectionForm.accountId}
+                          onChange={(e) => setTLConnectionForm(prev => ({ ...prev, accountId: e.target.value }))}
+                          className="bg-gray-900 border-gray-700"
+                          data-testid="input-tl-account"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-4 flex-wrap">
+                      <div className="flex items-center gap-2">
+                        <Label className="text-gray-300">Account Type:</Label>
+                        <Select
+                          value={tlConnectionForm.accountType}
+                          onValueChange={(v: 'demo' | 'live') => setTLConnectionForm(prev => ({ ...prev, accountType: v }))}
+                        >
+                          <SelectTrigger className="w-32 bg-gray-900 border-gray-700" data-testid="select-tl-type">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="demo">Demo</SelectItem>
+                            <SelectItem value="live">Live</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Checkbox
+                          id="autoExecute"
+                          checked={tlConnectionForm.autoExecute}
+                          onCheckedChange={(checked) => setTLConnectionForm(prev => ({ ...prev, autoExecute: checked === true }))}
+                          data-testid="checkbox-tl-auto-execute"
+                        />
+                        <Label htmlFor="autoExecute" className="text-gray-300">Enable auto-execute</Label>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-2">
                       <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="absolute right-0 top-0 h-full px-3"
-                        onClick={() => setShowTLPassword(!showTLPassword)}
+                        onClick={() => createTLConnectionMutation.mutate(tlConnectionForm)}
+                        disabled={!tlConnectionForm.email || !tlConnectionForm.password || !tlConnectionForm.serverId || !tlConnectionForm.accountId || createTLConnectionMutation.isPending}
+                        className="flex-1 bg-gradient-to-r from-cyan-600 to-blue-600"
+                        data-testid="button-connect-tradelocker"
                       >
-                        {showTLPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        {createTLConnectionMutation.isPending ? (
+                          <><RefreshCw className="w-4 h-4 mr-2 animate-spin" />Connecting...</>
+                        ) : (
+                          <><Zap className="w-4 h-4 mr-2" />Connect Account</>
+                        )}
+                      </Button>
+                      <Button variant="outline" onClick={() => setShowAddForm(false)} className="border-gray-600">
+                        Cancel
                       </Button>
                     </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label className="text-gray-300">Server ID</Label>
-                    <Input
-                      placeholder="e.g., ABN-DEMO"
-                      value={tlConnectionForm.serverId}
-                      onChange={(e) => setTLConnectionForm(prev => ({ ...prev, serverId: e.target.value }))}
-                      className="bg-gray-900 border-gray-700"
-                      data-testid="input-tl-server"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-gray-300">Account ID</Label>
-                    <Input
-                      placeholder="e.g., 123456"
-                      value={tlConnectionForm.accountId}
-                      onChange={(e) => setTLConnectionForm(prev => ({ ...prev, accountId: e.target.value }))}
-                      className="bg-gray-900 border-gray-700"
-                      data-testid="input-tl-account"
-                    />
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-4">
-                  <div className="flex items-center gap-2">
-                    <Label className="text-gray-300">Account Type:</Label>
-                    <Select
-                      value={tlConnectionForm.accountType}
-                      onValueChange={(v: 'demo' | 'live') => setTLConnectionForm(prev => ({ ...prev, accountType: v }))}
-                    >
-                      <SelectTrigger className="w-32 bg-gray-900 border-gray-700" data-testid="select-tl-type">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="demo">Demo</SelectItem>
-                        <SelectItem value="live">Live</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Checkbox
-                      id="autoExecute"
-                      checked={tlConnectionForm.autoExecute}
-                      onCheckedChange={(checked) => setTLConnectionForm(prev => ({ ...prev, autoExecute: checked === true }))}
-                      data-testid="checkbox-tl-auto-execute"
-                    />
-                    <Label htmlFor="autoExecute" className="text-gray-300">Enable auto-execute</Label>
-                  </div>
-                </div>
-
-                <Button
-                  onClick={() => createTLConnectionMutation.mutate(tlConnectionForm)}
-                  disabled={!tlConnectionForm.email || !tlConnectionForm.password || !tlConnectionForm.serverId || !tlConnectionForm.accountId || createTLConnectionMutation.isPending}
-                  className="w-full bg-gradient-to-r from-cyan-600 to-blue-600"
-                  data-testid="button-connect-tradelocker"
-                >
-                  {createTLConnectionMutation.isPending ? (
-                    <><RefreshCw className="w-4 h-4 mr-2 animate-spin" />Connecting...</>
-                  ) : (
-                    <><Zap className="w-4 h-4 mr-2" />Connect TradeLocker</>
-                  )}
-                </Button>
+                )}
               </div>
             )}
 
@@ -1799,10 +1820,10 @@ export default function WebhooksPage() {
                 How It Works
               </h4>
               <ol className="text-sm text-gray-300 space-y-1 list-decimal list-inside">
-                <li>Connect your TradeLocker account above</li>
+                <li>Connect one or more TradeLocker accounts above</li>
+                <li>Enable "Auto-Execute" on each account you want to receive signals</li>
                 <li>Set up MT5 Trade Copier with the EA from above</li>
-                <li>Enable "Auto-Execute" to copy trades automatically</li>
-                <li>When you open a trade in MT5, it's copied to TradeLocker instantly</li>
+                <li>When MT5 opens a trade, it executes on all active auto-execute accounts simultaneously</li>
               </ol>
             </div>
           </CardContent>}
