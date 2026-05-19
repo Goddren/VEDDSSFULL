@@ -1,24 +1,25 @@
 //+------------------------------------------------------------------+
-//|                                            VEDD_Combined_EA.mq5 |
+//|                                            VEDD_Combined_EA.mq4 |
 //|                              VEDD Trading AI                     |
 //|         Combined: Signal Receiver + Chart Data + Trade Copier   |
 //+------------------------------------------------------------------+
-//  v1.01  2026-05-19  — Fix: replaced MQL4-style indicator calls
-//                        with proper MQL5 handle/CopyBuffer API
+//  v1.01  2026-05-19
 //
-//  Single EA that replaces all three legacy EAs:
-//    • VEDD_Signal_Receiver_EA   — poll + execute AI signals
-//    • VEDD_ChartData_EA         — send live OHLCV + indicators to AI
-//    • VEDD_TradeCopier_EA       — report manual trades to TradeLocker
+//  MT4 port of the VEDD Combined EA. Identical features to the MT5
+//  version but uses MQL4 trade / history / indicator APIs.
 //
-//  FOR MT4: download VEDD_Combined_EA.mq4 instead
+//    • Signal Receiver  — polls AI signals every 5 s, executes trades
+//    • Chart Data Sender — sends OHLCV + indicators every 60 s
+//    • Trade Copier      — detects manual trades, relays to TradeLocker
+//    • Heartbeat         — pings dashboard every 30 s (online indicator)
+//
+//  FOR MT5: download VEDD_Combined_EA.mq5 instead
 //+------------------------------------------------------------------+
 #property copyright "VEDD Trading AI"
 #property link      "https://veddbuild.com"
 #property version   "1.01"
-#property description "Combined EA: Signal Receiver + Chart Data + Trade Copier + Account Heartbeat"
-
-#include <Trade\Trade.mqh>
+#property description "Combined EA (MT4): Signal Receiver + Chart Data + Trade Copier"
+#property strict
 
 //====================================================================
 //  CONNECTION
@@ -26,20 +27,20 @@
 input string  _h0           = "========== CONNECTION ==========";   // *** CONNECTION ***
 input string  SERVER_URL    = "https://veddbuild.com";               // Server Base URL (no trailing slash)
 input string  API_KEY       = "";                                    // API Key from VEDD Dashboard
-input string  ACCOUNT_ALIAS = "mt5_main";                           // Unique alias for this terminal
-input string  ACCOUNT_LABEL = "MT5 Main Account";                   // Display label (shown in dashboard)
+input string  ACCOUNT_ALIAS = "mt4_main";                           // Unique alias for this terminal
+input string  ACCOUNT_LABEL = "MT4 Main Account";                   // Display label (shown in dashboard)
 input int     TIMEOUT_MS    = 15000;                                 // HTTP Request Timeout (ms)
 
 //====================================================================
 //  SIGNAL RECEIVER
 //====================================================================
-input string  _h1              = "========== SIGNAL RECEIVER =========="; // *** SIGNALS ***
-input bool    ENABLE_SIGNALS   = true;                               // Enable AI signal execution
-input int     SIGNAL_POLL_SECONDS = 5;                               // How often to poll for signals (s)
-input int     RETRY_ATTEMPTS   = 3;                                  // Order send retries on failure
-input int     RETRY_DELAY_MS   = 500;                                // Delay between retries (ms)
-input int     MAGIC_NUMBER     = 202500;                             // Magic for AI trades (do NOT change)
-input int     SLIPPAGE_POINTS  = 30;                                 // Max slippage (points)
+input string  _h1               = "========== SIGNAL RECEIVER =========="; // *** SIGNALS ***
+input bool    ENABLE_SIGNALS    = true;                              // Enable AI signal execution
+input int     SIGNAL_POLL_SECONDS = 5;                              // How often to poll for signals (s)
+input int     RETRY_ATTEMPTS    = 3;                                 // Order send retries on failure
+input int     RETRY_DELAY_MS    = 500;                               // Delay between retries (ms)
+input int     MAGIC_NUMBER      = 202500;                            // Magic for AI trades (do NOT change)
+input int     SLIPPAGE_POINTS   = 30;                                // Max slippage (points)
 
 //====================================================================
 //  CHART DATA SENDER
@@ -51,7 +52,7 @@ input int     CANDLES_TO_SEND    = 50;                               // Candles 
 input bool    INCLUDE_INDICATORS = true;                             // Include RSI/MACD/BB/ATR/EMA
 
 //====================================================================
-//  TRADE COPIER  (manual trade relay)
+//  TRADE COPIER
 //====================================================================
 input string  _h3                = "========== TRADE COPIER =========="; // *** TRADE COPIER ***
 input bool    ENABLE_TRADE_COPY  = true;                             // Relay manual trades to TradeLocker
@@ -81,30 +82,19 @@ datetime g_lastChartData  = 0;
 datetime g_lastHeartbeat  = 0;
 
 //====================================================================
-//  Globals — Indicator handles  (created in OnInit, released OnDeinit)
+//  Globals — Signal dedup
 //====================================================================
-int g_rsiH    = INVALID_HANDLE;
-int g_macdH   = INVALID_HANDLE;
-int g_bbH     = INVALID_HANDLE;
-int g_atrH    = INVALID_HANDLE;
-int g_ema20H  = INVALID_HANDLE;
-int g_ema50H  = INVALID_HANDLE;
-int g_ema200H = INVALID_HANDLE;
+string g_processedIds[500];
+int    g_processedCount = 0;
 
 //====================================================================
-//  Globals — Signal / Trade dedup
+//  Globals — Trade copier dedup (ticket → int in MT4)
 //====================================================================
-struct ProcessedSignal { string id; datetime ts; };
-ProcessedSignal g_processed[500];
-int g_processedCount = 0;
-
-ulong g_reportedTickets[200];
-int   g_reportedCount = 0;
-
-CTrade g_trade;
+int  g_reportedTickets[500];
+int  g_reportedCount = 0;
 
 //+------------------------------------------------------------------+
-//| Utility: JSON escape                                              |
+//| JSON escape                                                       |
 //+------------------------------------------------------------------+
 string JsonEscape(string s)
 {
@@ -125,11 +115,12 @@ string JsonEscape(string s)
 }
 
 //+------------------------------------------------------------------+
-//| Utility: safe double for JSON                                     |
+//| Safe double for JSON                                              |
 //+------------------------------------------------------------------+
 double SafeDouble(double v)
 {
-   if(!MathIsValidNumber(v) || v == EMPTY_VALUE || v == DBL_MAX || v == -DBL_MAX) return 0.0;
+   if(v == EMPTY_VALUE || v == DBL_MAX || v == -DBL_MAX) return 0.0;
+   if(!MathIsValidNumber(v)) return 0.0;
    if(v > 1e15 || v < -1e15) return 0.0;
    string t = DoubleToString(v, 8);
    if(StringFind(t, "nan") >= 0 || StringFind(t, "inf") >= 0 || StringFind(t, "#") >= 0) return 0.0;
@@ -137,7 +128,7 @@ double SafeDouble(double v)
 }
 
 //+------------------------------------------------------------------+
-//| Utility: HTTP POST                                                |
+//| HTTP POST  (MT4 WebRequest — requires Tools → Options → Allow)   |
 //+------------------------------------------------------------------+
 string HttpPost(string url, string jsonBody)
 {
@@ -154,7 +145,7 @@ string HttpPost(string url, string jsonBody)
 }
 
 //+------------------------------------------------------------------+
-//| Utility: HTTP GET                                                 |
+//| HTTP GET                                                          |
 //+------------------------------------------------------------------+
 string HttpGet(string url)
 {
@@ -173,7 +164,7 @@ string HttpGet(string url)
 bool IsProcessed(string id)
 {
    for(int i = 0; i < g_processedCount; i++)
-      if(g_processed[i].id == id) return true;
+      if(g_processedIds[i] == id) return true;
    return false;
 }
 
@@ -181,12 +172,30 @@ void MarkProcessed(string id)
 {
    if(g_processedCount >= 499)
    {
-      for(int i = 0; i < 498; i++) g_processed[i] = g_processed[i+1];
+      for(int i = 0; i < 498; i++) g_processedIds[i] = g_processedIds[i+1];
       g_processedCount = 498;
    }
-   g_processed[g_processedCount].id = id;
-   g_processed[g_processedCount].ts = TimeCurrent();
-   g_processedCount++;
+   g_processedIds[g_processedCount++] = id;
+}
+
+//+------------------------------------------------------------------+
+//| Trade copier dedup helpers                                        |
+//+------------------------------------------------------------------+
+bool IsAlreadyReported(int ticket)
+{
+   for(int i = 0; i < g_reportedCount; i++)
+      if(g_reportedTickets[i] == ticket) return true;
+   return false;
+}
+
+void MarkReported(int ticket)
+{
+   if(g_reportedCount >= 499)
+   {
+      for(int i = 0; i < 498; i++) g_reportedTickets[i] = g_reportedTickets[i+1];
+      g_reportedCount = 498;
+   }
+   g_reportedTickets[g_reportedCount++] = ticket;
 }
 
 //+------------------------------------------------------------------+
@@ -199,18 +208,7 @@ string NormalizeSymbol(string sym)
 }
 
 //+------------------------------------------------------------------+
-//| Dynamic filling mode detection                                    |
-//+------------------------------------------------------------------+
-ENUM_ORDER_TYPE_FILLING GetFillMode(string sym)
-{
-   long f = SymbolInfoInteger(sym, SYMBOL_FILLING_MODE);
-   if((f & SYMBOL_FILLING_FOK) != 0) return ORDER_FILLING_FOK;
-   if((f & SYMBOL_FILLING_IOC) != 0) return ORDER_FILLING_IOC;
-   return ORDER_FILLING_RETURN;
-}
-
-//+------------------------------------------------------------------+
-//| Lightweight JSON field extractors                                 |
+//| JSON field extractors                                             |
 //+------------------------------------------------------------------+
 string ExtractString(string json, string key, int startPos, int endPos)
 {
@@ -281,26 +279,27 @@ void PollAndExecuteSignals()
       double tp      = StringToDouble(tpStr);
 
       bool ok = false;
-      if(action == "OPEN")          ok = ExecuteOpen(symbol, direction, lotSize, entry, sl, tp, id);
-      else if(action == "CLOSE")    ok = ExecuteClose(symbol, posId, id);
-      else if(action == "MODIFY")   ok = ExecuteModify(symbol, posId, sl, tp, modAct, id);
-      else if(action == "CLOSE_ALL"){ CloseAllPositions(id); ok = true; }
+      if(action == "OPEN")           ok = ExecuteOpen(symbol, direction, lotSize, entry, sl, tp, id);
+      else if(action == "CLOSE")     ok = ExecuteClose(symbol, posId, id);
+      else if(action == "MODIFY")    ok = ExecuteModify(symbol, posId, sl, tp, modAct, id);
+      else if(action == "CLOSE_ALL") { CloseAllPositions(id); ok = true; }
 
       MarkProcessed(id);
       ConfirmSignal(id, ok);
    }
 }
 
-bool ExecuteOpen(string rawSym, string direction, double lotSize, double entry,
-                 double sl, double tp, string sigId)
+//+------------------------------------------------------------------+
+//| Execute Open (MT4 OrderSend)                                      |
+//+------------------------------------------------------------------+
+bool ExecuteOpen(string rawSym, string direction, double lotSize,
+                 double entry, double sl, double tp, string sigId)
 {
-   string sym = NormalizeSymbol(rawSym);
-   if(!SymbolSelect(sym, true)) { Print("[VEDD] Symbol not found: ", sym); return false; }
-
-   int    digits = (int)SymbolInfoInteger(sym, SYMBOL_DIGITS);
-   ENUM_ORDER_TYPE orderType = (direction == "BUY") ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
-   double price = (direction == "BUY") ? SymbolInfoDouble(sym, SYMBOL_ASK)
-                                       : SymbolInfoDouble(sym, SYMBOL_BID);
+   string sym    = NormalizeSymbol(rawSym);
+   int    cmd    = (direction == "BUY") ? OP_BUY : OP_SELL;
+   int    digits = (int)MarketInfo(sym, MODE_DIGITS);
+   double price  = (direction == "BUY") ? MarketInfo(sym, MODE_ASK)
+                                        : MarketInfo(sym, MODE_BID);
    if(entry > 0) price = entry;
 
    price = NormalizeDouble(price, digits);
@@ -308,139 +307,94 @@ bool ExecuteOpen(string rawSym, string direction, double lotSize, double entry,
    if(tp > 0) tp = NormalizeDouble(tp, digits);
    if(lotSize <= 0) lotSize = 0.01;
 
-   ENUM_ORDER_TYPE_FILLING fill = GetFillMode(sym);
-
-   MqlTradeRequest req = {};
-   MqlTradeResult  res = {};
-
-   req.action       = TRADE_ACTION_DEAL;
-   req.symbol       = sym;
-   req.volume       = lotSize;
-   req.type         = orderType;
-   req.price        = price;
-   req.sl           = sl;
-   req.tp           = tp;
-   req.magic        = MAGIC_NUMBER;
-   req.deviation    = SLIPPAGE_POINTS;
-   req.type_filling = fill;
-   req.comment      = "VEDD_AI_" + sigId;
-
    for(int attempt = 1; attempt <= RETRY_ATTEMPTS; attempt++)
    {
-      ZeroMemory(res);
-      if(OrderSend(req, res) &&
-         (res.retcode == TRADE_RETCODE_DONE || res.retcode == TRADE_RETCODE_DONE_PARTIAL))
+      int ticket = OrderSend(sym, cmd, lotSize, price, SLIPPAGE_POINTS,
+                             sl, tp, "VEDD_AI_" + sigId, MAGIC_NUMBER, 0, clrNONE);
+      if(ticket > 0)
       {
-         Print("[VEDD] OPEN: ", direction, " ", sym, " lot=", lotSize, " ticket=", res.deal);
+         Print("[VEDD] OPEN: ", direction, " ", sym, " lot=", lotSize, " ticket=", ticket);
          return true;
       }
       if(attempt < RETRY_ATTEMPTS) Sleep(RETRY_DELAY_MS);
    }
-   Print("[VEDD] OPEN FAILED: ", sym, " retcode=", res.retcode, " (", res.comment, ")");
+   Print("[VEDD] OPEN FAILED: ", sym, " error=", GetLastError());
    return false;
 }
 
+//+------------------------------------------------------------------+
+//| Execute Close (MT4 OrderClose)                                    |
+//+------------------------------------------------------------------+
 bool ExecuteClose(string rawSym, string posId, string sigId)
 {
-   string sym           = NormalizeSymbol(rawSym);
-   ulong  targetTicket  = (ulong)StringToInteger(posId);
+   string sym          = NormalizeSymbol(rawSym);
+   int    targetTicket = (int)StringToInteger(posId);
 
-   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
    {
-      ulong ticket = PositionGetTicket(i);
-      if(ticket == 0) continue;
-      if(!PositionSelectByTicket(ticket)) continue;
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+      if(OrderType() != OP_BUY && OrderType() != OP_SELL) continue;
 
-      bool matchTicket = (targetTicket > 0 && ticket == targetTicket);
-      bool matchSymbol = (PositionGetString(POSITION_SYMBOL) == sym &&
-                          PositionGetInteger(POSITION_MAGIC) == MAGIC_NUMBER &&
+      bool matchTicket = (targetTicket > 0 && OrderTicket() == targetTicket);
+      bool matchSymbol = (OrderSymbol() == sym &&
+                          OrderMagicNumber() == MAGIC_NUMBER &&
                           targetTicket == 0);
       if(!matchTicket && !matchSymbol) continue;
 
-      string posSym  = PositionGetString(POSITION_SYMBOL);
-      int    digits  = (int)SymbolInfoInteger(posSym, SYMBOL_DIGITS);
-      ENUM_POSITION_TYPE ptype = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
-
-      MqlTradeRequest req = {};
-      MqlTradeResult  res = {};
-      req.action      = TRADE_ACTION_DEAL;
-      req.position    = ticket;
-      req.symbol      = posSym;
-      req.volume      = PositionGetDouble(POSITION_VOLUME);
-      req.magic       = MAGIC_NUMBER;
-      req.deviation   = SLIPPAGE_POINTS;
-      req.type_filling = GetFillMode(posSym);
-      req.comment     = "VEDD_CLOSE_" + sigId;
-
-      if(ptype == POSITION_TYPE_BUY) {
-         req.type  = ORDER_TYPE_SELL;
-         req.price = NormalizeDouble(SymbolInfoDouble(posSym, SYMBOL_BID), digits);
-      } else {
-         req.type  = ORDER_TYPE_BUY;
-         req.price = NormalizeDouble(SymbolInfoDouble(posSym, SYMBOL_ASK), digits);
-      }
+      double closePrice = (OrderType() == OP_BUY)
+                          ? MarketInfo(OrderSymbol(), MODE_BID)
+                          : MarketInfo(OrderSymbol(), MODE_ASK);
 
       for(int attempt = 1; attempt <= RETRY_ATTEMPTS; attempt++)
       {
-         ZeroMemory(res);
-         if(OrderSend(req, res) &&
-            (res.retcode == TRADE_RETCODE_DONE || res.retcode == TRADE_RETCODE_DONE_PARTIAL))
+         if(OrderClose(OrderTicket(), OrderLots(), closePrice, SLIPPAGE_POINTS, clrNONE))
          {
-            Print("[VEDD] CLOSE: ticket=", ticket);
+            Print("[VEDD] CLOSE: ticket=", OrderTicket());
             return true;
          }
          if(attempt < RETRY_ATTEMPTS) Sleep(RETRY_DELAY_MS);
       }
-      Print("[VEDD] CLOSE FAILED: ticket=", ticket, " retcode=", res.retcode);
+      Print("[VEDD] CLOSE FAILED: ticket=", OrderTicket(), " error=", GetLastError());
       return false;
    }
    Print("[VEDD] CLOSE: no matching position. sym=", sym, " posId=", posId);
    return false;
 }
 
+//+------------------------------------------------------------------+
+//| Execute Modify (MT4 OrderModify)                                  |
+//+------------------------------------------------------------------+
 bool ExecuteModify(string rawSym, string posId, double newSL, double newTP,
                    string modAct, string sigId)
 {
    string sym          = NormalizeSymbol(rawSym);
-   ulong  targetTicket = (ulong)StringToInteger(posId);
+   int    targetTicket = (int)StringToInteger(posId);
 
-   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
    {
-      ulong ticket = PositionGetTicket(i);
-      if(ticket == 0) continue;
-      if(!PositionSelectByTicket(ticket)) continue;
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+      if(OrderType() != OP_BUY && OrderType() != OP_SELL) continue;
 
-      bool matchTicket = (targetTicket > 0 && ticket == targetTicket);
-      bool matchSymbol = (PositionGetString(POSITION_SYMBOL) == sym &&
-                          PositionGetInteger(POSITION_MAGIC) == MAGIC_NUMBER &&
+      bool matchTicket = (targetTicket > 0 && OrderTicket() == targetTicket);
+      bool matchSymbol = (OrderSymbol() == sym &&
+                          OrderMagicNumber() == MAGIC_NUMBER &&
                           targetTicket == 0);
       if(!matchTicket && !matchSymbol) continue;
 
-      string posSym = PositionGetString(POSITION_SYMBOL);
-      int    digits = (int)SymbolInfoInteger(posSym, SYMBOL_DIGITS);
-      double useSL  = (newSL > 0) ? NormalizeDouble(newSL, digits) : PositionGetDouble(POSITION_SL);
-      double useTP  = (newTP > 0) ? NormalizeDouble(newTP, digits) : PositionGetDouble(POSITION_TP);
-
-      MqlTradeRequest req = {};
-      MqlTradeResult  res = {};
-      req.action   = TRADE_ACTION_SLTP;
-      req.position = ticket;
-      req.symbol   = posSym;
-      req.sl       = useSL;
-      req.tp       = useTP;
-      req.magic    = MAGIC_NUMBER;
+      int    digits = (int)MarketInfo(OrderSymbol(), MODE_DIGITS);
+      double useSL  = (newSL > 0) ? NormalizeDouble(newSL, digits) : OrderStopLoss();
+      double useTP  = (newTP > 0) ? NormalizeDouble(newTP, digits) : OrderTakeProfit();
 
       for(int attempt = 1; attempt <= RETRY_ATTEMPTS; attempt++)
       {
-         ZeroMemory(res);
-         if(OrderSend(req, res) && res.retcode == TRADE_RETCODE_DONE)
+         if(OrderModify(OrderTicket(), OrderOpenPrice(), useSL, useTP, 0, clrNONE))
          {
-            Print("[VEDD] MODIFY: ticket=", ticket, " SL=", useSL, " TP=", useTP);
+            Print("[VEDD] MODIFY: ticket=", OrderTicket(), " SL=", useSL, " TP=", useTP);
             return true;
          }
          if(attempt < RETRY_ATTEMPTS) Sleep(RETRY_DELAY_MS);
       }
-      Print("[VEDD] MODIFY FAILED: ticket=", ticket, " retcode=", res.retcode);
+      Print("[VEDD] MODIFY FAILED: ticket=", OrderTicket(), " error=", GetLastError());
       return false;
    }
    return false;
@@ -448,14 +402,14 @@ bool ExecuteModify(string rawSym, string posId, double newSL, double newTP,
 
 void CloseAllPositions(string sigId)
 {
-   ulong tickets[];
-   int total = PositionsTotal();
-   ArrayResize(tickets, total);
+   int tickets[];
    int count = 0;
-   for(int i = 0; i < total; i++)
+   ArrayResize(tickets, OrdersTotal());
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
    {
-      ulong t = PositionGetTicket(i);
-      if(t > 0) { tickets[count] = t; count++; }
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+      if(OrderType() != OP_BUY && OrderType() != OP_SELL) continue;
+      tickets[count++] = OrderTicket();
    }
    for(int i = 0; i < count; i++)
       ExecuteClose("", IntegerToString(tickets[i]), sigId + "_" + IntegerToString(i));
@@ -473,19 +427,7 @@ void ConfirmSignal(string sigId, bool executed)
 }
 
 //+------------------------------------------------------------------+
-//| Indicator helpers — read one value from a handle safely          |
-//+------------------------------------------------------------------+
-double IndVal(int handle, int bufIdx = 0)
-{
-   if(handle == INVALID_HANDLE) return 0.0;
-   double buf[];
-   ArraySetAsSeries(buf, true);
-   if(CopyBuffer(handle, bufIdx, 0, 1, buf) <= 0) return 0.0;
-   return SafeDouble(buf[0]);
-}
-
-//+------------------------------------------------------------------+
-//| ── CHART DATA SENDER ──────────────────────────────────────────── |
+//| ── CHART DATA SENDER (MQL4 indicator API) ─────────────────────── |
 //+------------------------------------------------------------------+
 void SendChartData()
 {
@@ -512,7 +454,7 @@ void SendChartData()
    int copied = CopyRates(sym, tf, 0, n, rates);
    if(copied <= 0) return;
 
-   // ── Candles JSON ────────────────────────────────────────────────
+   // ── Candles ───────────────────────────────────────────────────
    string candlesJson = "[";
    for(int i = copied - 1; i >= 0; i--)
    {
@@ -529,22 +471,20 @@ void SendChartData()
    }
    candlesJson += "]";
 
-   // ── Indicators JSON (MQL5 handle/CopyBuffer API) ─────────────────
+   // ── Indicators (MQL4 — direct value return) ───────────────────
    string indJson = "{}";
    if(INCLUDE_INDICATORS)
    {
-      // Re-create handles if chart symbol/TF changed since OnInit
-      // (handles are symbol+TF specific; OnInit creates them once)
-      double rsiVal   = IndVal(g_rsiH,    0);   // RSI main
-      double macdMain = IndVal(g_macdH,   0);   // MACD main line
-      double macdSig  = IndVal(g_macdH,   1);   // MACD signal line
-      double bbUpper  = IndVal(g_bbH,     1);   // Bands upper
-      double bbMid    = IndVal(g_bbH,     0);   // Bands middle
-      double bbLower  = IndVal(g_bbH,     2);   // Bands lower
-      double atrVal   = IndVal(g_atrH,    0);   // ATR
-      double ema20    = IndVal(g_ema20H,  0);
-      double ema50    = IndVal(g_ema50H,  0);
-      double ema200   = IndVal(g_ema200H, 0);
+      double rsiVal   = iRSI (sym, tf, 14, PRICE_CLOSE, 0);
+      double macdMain = iMACD(sym, tf, 12, 26, 9, PRICE_CLOSE, MODE_MAIN,   0);
+      double macdSig  = iMACD(sym, tf, 12, 26, 9, PRICE_CLOSE, MODE_SIGNAL, 0);
+      double bbUpper  = iBands(sym, tf, 20, 2.0, 0, PRICE_CLOSE, MODE_UPPER, 0);
+      double bbMid    = iBands(sym, tf, 20, 2.0, 0, PRICE_CLOSE, MODE_MAIN,  0);
+      double bbLower  = iBands(sym, tf, 20, 2.0, 0, PRICE_CLOSE, MODE_LOWER, 0);
+      double atrVal   = iATR (sym, tf, 14, 0);
+      double ema20    = iMA  (sym, tf, 20,  0, MODE_EMA, PRICE_CLOSE, 0);
+      double ema50    = iMA  (sym, tf, 50,  0, MODE_EMA, PRICE_CLOSE, 0);
+      double ema200   = iMA  (sym, tf, 200, 0, MODE_EMA, PRICE_CLOSE, 0);
 
       indJson = StringFormat(
          "{\"rsi\":%.4f,\"macd\":{\"main\":%.6f,\"signal\":%.6f},"
@@ -558,18 +498,18 @@ void SendChartData()
       );
    }
 
-   double balance = AccountInfoDouble(ACCOUNT_BALANCE);
-   double equity  = AccountInfoDouble(ACCOUNT_EQUITY);
-   double spread  = (double)SymbolInfoInteger(sym, SYMBOL_SPREAD) * SymbolInfoDouble(sym, SYMBOL_POINT);
-   double ask     = SymbolInfoDouble(sym, SYMBOL_ASK);
-   double bid     = SymbolInfoDouble(sym, SYMBOL_BID);
+   double balance = AccountBalance();
+   double equity  = AccountEquity();
+   double spread  = MarketInfo(sym, MODE_SPREAD) * MarketInfo(sym, MODE_POINT);
+   double ask     = MarketInfo(sym, MODE_ASK);
+   double bid     = MarketInfo(sym, MODE_BID);
 
    string body = StringFormat(
       "{\"symbol\":\"%s\",\"timeframe\":\"%s\",\"candles\":%s,"
       "\"indicators\":%s,"
       "\"account\":{\"balance\":%.2f,\"equity\":%.2f},"
       "\"market\":{\"ask\":%.5f,\"bid\":%.5f,\"spread\":%.5f},"
-      "\"accountAlias\":\"%s\",\"platform\":\"MT5\"}",
+      "\"accountAlias\":\"%s\",\"platform\":\"MT4\"}",
       JsonEscape(sym), tfStr, candlesJson,
       indJson,
       balance, equity,
@@ -578,8 +518,8 @@ void SendChartData()
    );
 
    string resp = HttpPost(g_chartDataUrl, body);
-   Print("[VEDD] Chart data ", StringLen(resp) > 0 ? "sent" : "FAILED", ": ", sym, "/", tfStr,
-         " (", copied, " candles)");
+   Print("[VEDD] Chart data ", StringLen(resp) > 0 ? "sent" : "FAILED", ": ",
+         sym, "/", tfStr, " (", copied, " candles)");
 }
 
 //+------------------------------------------------------------------+
@@ -588,11 +528,11 @@ void SendChartData()
 void SendHeartbeat()
 {
    string body = StringFormat(
-      "{\"accountAlias\":\"%s\",\"accountLabel\":\"%s\",\"accountNumber\":\"%s\","
-      "\"receiveSignals\":%s,\"platform\":\"MT5\",\"symbol\":\"%s\"}",
+      "{\"accountAlias\":\"%s\",\"accountLabel\":\"%s\",\"accountNumber\":\"%d\","
+      "\"receiveSignals\":%s,\"platform\":\"MT4\",\"symbol\":\"%s\"}",
       JsonEscape(ACCOUNT_ALIAS),
       JsonEscape(ACCOUNT_LABEL),
-      JsonEscape(IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN))),
+      AccountNumber(),
       RECEIVE_SIGNALS_FLAG ? "true" : "false",
       JsonEscape(Symbol())
    );
@@ -600,72 +540,70 @@ void SendHeartbeat()
 }
 
 //+------------------------------------------------------------------+
-//| ── TRADE COPIER (OnTrade relay) ───────────────────────────────── |
+//| ── TRADE COPIER (timer-based history scan, no OnTrade in MT4) ── |
 //+------------------------------------------------------------------+
-bool IsAlreadyReported(ulong ticket)
+void CheckAndReportNewTrades()
 {
-   for(int i = 0; i < g_reportedCount; i++)
-      if(g_reportedTickets[i] == ticket) return true;
-   return false;
-}
+   if(!ENABLE_TRADE_COPY) return;
 
-void MarkReported(ulong ticket)
-{
-   if(g_reportedCount >= 199)
+   datetime from = TimeCurrent() - 300; // last 5 minutes window
+
+   // ── Report newly opened market positions ──────────────────────
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
    {
-      for(int i = 0; i < 198; i++) g_reportedTickets[i] = g_reportedTickets[i+1];
-      g_reportedCount = 198;
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+      if(OrderType() != OP_BUY && OrderType() != OP_SELL) continue;
+      if(OrderMagicNumber() == MAGIC_NUMBER) continue;  // skip AI trades
+      int ticket = OrderTicket();
+      if(IsAlreadyReported(ticket)) continue;
+      if(OrderOpenTime() < from) continue;               // too old — already reported previously
+      ReportOrderToServer(ticket, "OPEN");
    }
-   g_reportedTickets[g_reportedCount++] = ticket;
+
+   // ── Report recently closed positions ──────────────────────────
+   int histTotal = OrdersHistoryTotal();
+   for(int i = histTotal - 1; i >= MathMax(0, histTotal - 30); i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY)) continue;
+      if(OrderType() != OP_BUY && OrderType() != OP_SELL) continue;
+      if(OrderMagicNumber() == MAGIC_NUMBER) continue;
+      int ticket = OrderTicket();
+      if(IsAlreadyReported(ticket)) continue;
+      if(OrderCloseTime() < from) continue;
+      ReportOrderToServer(ticket, "CLOSE");
+   }
 }
 
-void ReportDealToServer(ulong ticket, string action)
+void ReportOrderToServer(int ticket, string action)
 {
-   if(!HistoryDealSelect(ticket)) return;
-   long magic = HistoryDealGetInteger(ticket, DEAL_MAGIC);
-   if(magic == MAGIC_NUMBER) return; // skip AI trades
+   if(!OrderSelect(ticket, SELECT_BY_TICKET)) return;
 
-   string sym       = HistoryDealGetString (ticket, DEAL_SYMBOL);
-   double volume    = HistoryDealGetDouble (ticket, DEAL_VOLUME);
-   double price     = HistoryDealGetDouble (ticket, DEAL_PRICE);
-   double sl        = HistoryDealGetDouble (ticket, DEAL_SL);
-   double tp        = HistoryDealGetDouble (ticket, DEAL_TP);
-   long   dealType  = HistoryDealGetInteger(ticket, DEAL_TYPE);
-   string direction = (dealType == DEAL_TYPE_BUY) ? "BUY" : "SELL";
-   long   openTime  = HistoryDealGetInteger(ticket, DEAL_TIME);
-   string comment   = HistoryDealGetString (ticket, DEAL_COMMENT);
+   string sym       = OrderSymbol();
+   double volume    = OrderLots();
+   double price     = (action == "OPEN") ? OrderOpenPrice()  : OrderClosePrice();
+   double sl        = OrderStopLoss();
+   double tp        = OrderTakeProfit();
+   string direction = (OrderType() == OP_BUY) ? "BUY" : "SELL";
+   int    magic     = OrderMagicNumber();
+   string comment   = OrderComment();
+   long   openTime  = (long)OrderOpenTime();
 
    string body = StringFormat(
       "{\"action\":\"%s\",\"symbol\":\"%s\",\"direction\":\"%s\","
       "\"volume\":%.2f,\"entryPrice\":%.5f,\"stopLoss\":%.5f,\"takeProfit\":%.5f,"
-      "\"ticket\":%I64u,\"magic\":%I64d,\"comment\":\"%s\","
-      "\"openTime\":%I64d,\"platform\":\"MT5\",\"accountAlias\":\"%s\"}",
+      "\"ticket\":%d,\"magic\":%d,\"comment\":\"%s\","
+      "\"openTime\":%d,\"platform\":\"MT4\",\"accountAlias\":\"%s\"}",
       JsonEscape(action),
       JsonEscape(sym),
       direction,
       volume, price, sl, tp,
       ticket, magic,
       JsonEscape(comment),
-      openTime,
+      (int)openTime,
       JsonEscape(ACCOUNT_ALIAS)
    );
    HttpPost(g_tradeSignalUrl, body);
    MarkReported(ticket);
-}
-
-void OnTrade()
-{
-   if(!ENABLE_TRADE_COPY) return;
-   datetime from = TimeCurrent() - 300;
-   HistorySelect(from, TimeCurrent());
-   int total = HistoryDealsTotal();
-   for(int i = total - 1; i >= MathMax(0, total - 10); i--)
-   {
-      ulong ticket = HistoryDealGetTicket(i);
-      if(ticket == 0 || IsAlreadyReported(ticket)) continue;
-      long entry = HistoryDealGetInteger(ticket, DEAL_ENTRY);
-      ReportDealToServer(ticket, (entry == DEAL_ENTRY_IN) ? "OPEN" : "CLOSE");
-   }
 }
 
 //+------------------------------------------------------------------+
@@ -675,7 +613,7 @@ void UpdateChartComment()
 {
    if(!SHOW_CHART_COMMENT) { Comment(""); return; }
    string s = "";
-   s += "╔═══ VEDD Combined EA v1.01 (MT5) ═══╗\n";
+   s += "╔═══ VEDD Combined EA v1.01 (MT4) ═══╗\n";
    s += "║ Alias  : " + ACCOUNT_ALIAS + "\n";
    s += "║ Label  : " + ACCOUNT_LABEL + "\n";
    s += "║ Signals: " + (ENABLE_SIGNALS    ? "ON " : "OFF") + "\n";
@@ -709,6 +647,9 @@ void OnTimer()
       SendHeartbeat();
    }
 
+   // MT4 has no OnTrade() — poll history each timer tick
+   CheckAndReportNewTrades();
+
    UpdateChartComment();
 }
 
@@ -717,7 +658,6 @@ void OnTimer()
 //+------------------------------------------------------------------+
 int OnInit()
 {
-   // Build endpoint URLs
    string base = SERVER_URL;
    while(StringLen(base) > 0 && StringGetCharacter(base, StringLen(base)-1) == '/')
       base = StringSubstr(base, 0, StringLen(base)-1);
@@ -739,28 +679,10 @@ int OnInit()
       return INIT_PARAMETERS_INCORRECT;
    }
 
-   // Create indicator handles for the current chart symbol/timeframe
-   // These are reused every time SendChartData() runs (every 60s)
-   if(INCLUDE_INDICATORS)
-   {
-      string s = Symbol();
-      ENUM_TIMEFRAMES tf = Period();
-      g_rsiH    = iRSI(s, tf, 14, PRICE_CLOSE);
-      g_macdH   = iMACD(s, tf, 12, 26, 9, PRICE_CLOSE);
-      g_bbH     = iBands(s, tf, 20, 0, 2.0, PRICE_CLOSE);
-      g_atrH    = iATR(s, tf, 14);
-      g_ema20H  = iMA(s, tf, 20,  0, MODE_EMA, PRICE_CLOSE);
-      g_ema50H  = iMA(s, tf, 50,  0, MODE_EMA, PRICE_CLOSE);
-      g_ema200H = iMA(s, tf, 200, 0, MODE_EMA, PRICE_CLOSE);
-   }
-
-   g_trade.SetExpertMagicNumber(MAGIC_NUMBER);
-   g_trade.SetDeviationInPoints(SLIPPAGE_POINTS);
-
    EventSetTimer(1);
    SendHeartbeat();
 
-   Print("[VEDD] MT5 Combined EA v1.01 initialized. Alias=", ACCOUNT_ALIAS,
+   Print("[VEDD] MT4 Combined EA v1.01 initialized. Alias=", ACCOUNT_ALIAS,
          " Signals=", ENABLE_SIGNALS, " ChartData=", ENABLE_CHART_DATA,
          " TradeCopy=", ENABLE_TRADE_COPY);
    UpdateChartComment();
@@ -774,15 +696,5 @@ void OnDeinit(const int reason)
 {
    EventKillTimer();
    Comment("");
-
-   // Release indicator handles
-   if(g_rsiH    != INVALID_HANDLE) IndicatorRelease(g_rsiH);
-   if(g_macdH   != INVALID_HANDLE) IndicatorRelease(g_macdH);
-   if(g_bbH     != INVALID_HANDLE) IndicatorRelease(g_bbH);
-   if(g_atrH    != INVALID_HANDLE) IndicatorRelease(g_atrH);
-   if(g_ema20H  != INVALID_HANDLE) IndicatorRelease(g_ema20H);
-   if(g_ema50H  != INVALID_HANDLE) IndicatorRelease(g_ema50H);
-   if(g_ema200H != INVALID_HANDLE) IndicatorRelease(g_ema200H);
-
-   Print("[VEDD] MT5 Combined EA stopped. Reason=", reason);
+   Print("[VEDD] MT4 Combined EA stopped. Reason=", reason);
 }

@@ -2760,12 +2760,20 @@ export default function MT5ChartDataPage() {
                   </div>
                 </div>
               </div>
-              <a href="/downloads/VEDD_Combined_EA.mq5" download className="inline-flex w-full">
-                <Button className="w-full bg-gradient-to-r from-green-600 to-teal-600 hover:from-green-500 hover:to-teal-500 text-base py-5">
-                  <Download className="w-5 h-5 mr-2" />
-                  Download VEDD_Combined_EA.mq5
-                </Button>
-              </a>
+              <div className="flex flex-col sm:flex-row gap-3">
+                <a href="/downloads/VEDD_Combined_EA.mq5" download className="inline-flex flex-1">
+                  <Button className="w-full bg-gradient-to-r from-green-600 to-teal-600 hover:from-green-500 hover:to-teal-500 text-base py-5">
+                    <Download className="w-5 h-5 mr-2" />
+                    MT5 — .mq5
+                  </Button>
+                </a>
+                <a href="/downloads/VEDD_Combined_EA.mq4" download className="inline-flex flex-1">
+                  <Button className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-base py-5">
+                    <Download className="w-5 h-5 mr-2" />
+                    MT4 — .mq4
+                  </Button>
+                </a>
+              </div>
               <p className="text-xs text-gray-500 mt-2 text-center">
                 Drag onto <strong className="text-gray-300">one chart</strong> — set Server URL, API Key &amp; Account Alias in EA settings. That's it.
               </p>

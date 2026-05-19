@@ -1321,22 +1321,24 @@ export default function WebhooksPage() {
               <div>
                 <CardTitle className="text-white text-xl flex items-center gap-3">
                   <Activity className="w-6 h-6 text-green-400" />
-                  MT5 Combined EA
-                  <Badge className="bg-green-500/20 text-green-400 text-xs">v1.00</Badge>
+                  Combined EA — MT5 &amp; MT4
+                  <Badge className="bg-green-500/20 text-green-400 text-xs">v1.01</Badge>
                 </CardTitle>
                 <CardDescription className="mt-1">
                   All-in-one EA: chart data sender + AI signal receiver + trade copier + account heartbeat
                 </CardDescription>
               </div>
-              <div className="flex items-center gap-2">
-                <a
-                  href="/downloads/VEDD_Combined_EA.mq5"
-                  download
-                  className="inline-flex"
-                >
-                  <Button className="bg-gradient-to-r from-green-600 to-teal-600">
+              <div className="flex items-center gap-2 flex-wrap">
+                <a href="/downloads/VEDD_Combined_EA.mq5" download className="inline-flex">
+                  <Button className="bg-gradient-to-r from-green-600 to-teal-600 hover:from-green-500 hover:to-teal-500" size="sm">
                     <Download className="w-4 h-4 mr-2" />
-                    Download Combined EA
+                    MT5 .mq5
+                  </Button>
+                </a>
+                <a href="/downloads/VEDD_Combined_EA.mq4" download className="inline-flex">
+                  <Button className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500" size="sm">
+                    <Download className="w-4 h-4 mr-2" />
+                    MT4 .mq4
                   </Button>
                 </a>
                 <button onClick={toggleMt5ChartEa} className="text-gray-500 hover:text-white transition-colors">
