@@ -33950,32 +33950,6 @@ IMPORTANT:
     if (!clean) return res.status(400).json({ error: "No speakable text" });
     try {
       const allKeys = await storage.getUserApiKeys(userId);
-      try {
-        const { MsEdgeTTS, OUTPUT_FORMAT } = await import("msedge-tts");
-        const tts = new MsEdgeTTS();
-        const voice = process.env.EDGE_TTS_VOICE || "en-US-TonyNeural";
-        await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3);
-        const { audioStream } = tts.toStream(clean);
-        const chunks = [];
-        await new Promise((resolve, reject) => {
-          audioStream.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
-          audioStream.on("end", resolve);
-          audioStream.on("error", reject);
-          setTimeout(() => reject(new Error("Edge TTS timeout")), 12e3);
-        });
-        const buffer2 = Buffer.concat(chunks);
-        if (buffer2.length < 100) throw new Error("Edge TTS returned empty audio");
-        console.log(`[ABBA TTS] Edge TTS OK \u2014 ${buffer2.length} bytes, voice: ${voice}`);
-        res.set({
-          "Content-Type": "audio/mpeg",
-          "Content-Length": String(buffer2.length),
-          "Cache-Control": "no-cache",
-          "X-TTS-Provider": "edge"
-        });
-        return res.send(buffer2);
-      } catch (edgeErr) {
-        console.warn("[ABBA TTS] Edge TTS failed:", edgeErr?.message, "\u2014 trying next provider");
-      }
       const elKey = allKeys.find((k) => k.provider === "elevenlabs" && k.isActive && k.isValid !== false)?.apiKey || process.env.ELEVENLABS_API_KEY;
       if (elKey) {
         try {
@@ -33998,27 +33972,54 @@ IMPORTANT:
             }
           );
           if (elRes.ok) {
-            const buffer2 = Buffer.from(await elRes.arrayBuffer());
-            res.set({ "Content-Type": "audio/mpeg", "Content-Length": String(buffer2.length), "Cache-Control": "no-cache", "X-TTS-Provider": "elevenlabs" });
-            return res.send(buffer2);
+            const buffer = Buffer.from(await elRes.arrayBuffer());
+            console.log(`[ABBA TTS] ElevenLabs OK \u2014 ${buffer.length} bytes`);
+            res.set({ "Content-Type": "audio/mpeg", "Content-Length": String(buffer.length), "Cache-Control": "no-cache", "X-TTS-Provider": "elevenlabs" });
+            return res.send(buffer);
           } else {
             const errText = await elRes.text().catch(() => "");
-            console.warn(`[ABBA TTS] ElevenLabs ${elRes.status}:`, errText.slice(0, 200));
+            console.warn(`[ABBA TTS] ElevenLabs ${elRes.status}:`, errText.slice(0, 200), "\u2014 falling back");
           }
         } catch (elErr) {
-          console.warn("[ABBA TTS] ElevenLabs error:", elErr?.message);
+          console.warn("[ABBA TTS] ElevenLabs error:", elErr?.message, "\u2014 falling back");
         }
       }
       const OpenAILib = (await import("openai")).default;
       const openaiKey = allKeys.find((k) => k.provider === "openai" && k.isActive && k.isValid !== false)?.apiKey || process.env.OPENAI_API_KEY;
-      if (!openaiKey) {
-        return res.status(503).json({ error: "No TTS available. Add an OpenAI key in Settings \u2192 AI API Keys.", fallback: true });
+      if (openaiKey) {
+        try {
+          const ttsClient = new OpenAILib({ apiKey: openaiKey });
+          const mp3 = await ttsClient.audio.speech.create({ model: "tts-1-hd", voice: "nova", input: clean, speed: 1 });
+          const buffer = Buffer.from(await mp3.arrayBuffer());
+          console.log(`[ABBA TTS] OpenAI OK \u2014 ${buffer.length} bytes`);
+          res.set({ "Content-Type": "audio/mpeg", "Content-Length": String(buffer.length), "Cache-Control": "no-cache", "X-TTS-Provider": "openai" });
+          return res.send(buffer);
+        } catch (oaiErr) {
+          console.warn("[ABBA TTS] OpenAI error:", oaiErr?.message, "\u2014 falling back to Edge TTS");
+        }
       }
-      const ttsClient = new OpenAILib({ apiKey: openaiKey });
-      const mp3 = await ttsClient.audio.speech.create({ model: "tts-1-hd", voice: "onyx", input: clean, speed: 1 });
-      const buffer = Buffer.from(await mp3.arrayBuffer());
-      res.set({ "Content-Type": "audio/mpeg", "Content-Length": String(buffer.length), "Cache-Control": "no-cache", "X-TTS-Provider": "openai" });
-      res.send(buffer);
+      try {
+        const { MsEdgeTTS, OUTPUT_FORMAT } = await import("msedge-tts");
+        const tts = new MsEdgeTTS();
+        const voice = process.env.EDGE_TTS_VOICE || "en-US-JennyNeural";
+        await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3);
+        const { audioStream } = tts.toStream(clean);
+        const chunks = [];
+        await new Promise((resolve, reject) => {
+          audioStream.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+          audioStream.on("end", resolve);
+          audioStream.on("error", reject);
+          setTimeout(() => reject(new Error("Edge TTS timeout")), 12e3);
+        });
+        const buffer = Buffer.concat(chunks);
+        if (buffer.length < 100) throw new Error("Edge TTS returned empty audio");
+        console.log(`[ABBA TTS] Edge TTS fallback \u2014 ${buffer.length} bytes, voice: ${voice}`);
+        res.set({ "Content-Type": "audio/mpeg", "Content-Length": String(buffer.length), "Cache-Control": "no-cache", "X-TTS-Provider": "edge" });
+        return res.send(buffer);
+      } catch (edgeErr) {
+        console.warn("[ABBA TTS] Edge TTS failed:", edgeErr?.message);
+      }
+      return res.status(503).json({ error: "No TTS available. Add an ElevenLabs or OpenAI key in Settings \u2192 AI API Keys.", fallback: true });
     } catch (err) {
       console.error("[ABBA TTS] Error:", err?.message);
       res.status(500).json({ error: "TTS unavailable", fallback: true });
