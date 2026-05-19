@@ -2798,7 +2798,7 @@ export default function SolanaScanner() {
   const [weeklyGoalTargetSol, setWeeklyGoalTargetSol] = useState('');
   const [weeklyGoalTargetPct, setWeeklyGoalTargetPct] = useState('');
   const { toast } = useToast();
-  const { connected, walletData, signAndSendTransaction, getPublicKey, refreshWalletData } = useSolanaWallet();
+  const { connected, connecting, walletData, connect, signAndSendTransaction, getPublicKey, refreshWalletData } = useSolanaWallet();
 
   const { data: solEngineStatus, refetch: refetchEngineStatus } = useQuery<any>({
     queryKey: ['/api/sol-engine/status'],
@@ -3240,66 +3240,28 @@ export default function SolanaScanner() {
   const holdSignals = tokens.filter(t => t.signal === 'HOLD');
   const sellSignals = tokens.filter(t => t.signal === 'SELL' || t.signal === 'STRONG_SELL');
   
-  // ── Wallet-connect gate: show connect prompt before anything else ──────────
-  const { connect: connectWallet, connecting: walletConnecting } = useSolanaWallet();
-  if (!connected) {
-    return (
-      <div className="container mx-auto px-4 py-16 flex flex-col items-center justify-center min-h-[60vh] space-y-8">
-        <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-purple-600 to-blue-600 flex items-center justify-center shadow-2xl shadow-purple-500/30">
-          <SiSolana className="h-10 w-10 text-white" />
-        </div>
-        <div className="text-center space-y-3 max-w-md">
-          <h1 className="text-3xl font-bold bg-gradient-to-r from-purple-400 to-blue-400 bg-clip-text text-transparent">
-            VEDD AI SOL Platform
-          </h1>
-          <p className="text-gray-400 text-sm leading-relaxed">
-            Connect your Phantom wallet to unlock the AI token scanner, auto trade engine,
-            strategy picker, social scanner, and daily gain tracker — all powered by a
-            single connected wallet.
-          </p>
-        </div>
-
-        <div className="flex flex-col items-center gap-4 w-full max-w-xs">
-          <Button
-            size="lg"
-            className="w-full h-12 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white font-semibold rounded-2xl shadow-lg shadow-purple-500/20 gap-2"
-            onClick={() => connectWallet('phantom')}
-            disabled={walletConnecting}
-          >
-            {walletConnecting ? (
-              <><Loader2 className="h-5 w-5 animate-spin" /> Connecting…</>
-            ) : (
-              <><Wallet className="h-5 w-5" /> Connect Phantom Wallet</>
-            )}
-          </Button>
-          <p className="text-xs text-gray-600 text-center">
-            Phantom wallet required. Solflare also supported via browser extension.
-          </p>
-        </div>
-
-        {/* Feature preview tiles */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 w-full max-w-xl mt-4">
-          {[
-            { icon: '🤖', label: 'AI Token Scanner', desc: 'Real-time signals' },
-            { icon: '⚡', label: 'Auto Trade Engine', desc: 'Jupiter-powered' },
-            { icon: '📊', label: 'Daily Gain Meter', desc: 'Goal tracking' },
-            { icon: '🎯', label: 'Strategy Picker', desc: '6 proven strategies' },
-            { icon: '📱', label: 'Social Scanner', desc: 'Twitter + Reddit' },
-            { icon: '🛡️', label: 'Risk Shield', desc: 'Loss limit engine' },
-          ].map(f => (
-            <div key={f.label} className="flex flex-col items-center gap-1.5 p-3 rounded-xl bg-gray-800/40 border border-gray-700/40 text-center">
-              <span className="text-xl">{f.icon}</span>
-              <span className="text-xs font-semibold text-gray-200">{f.label}</span>
-              <span className="text-[10px] text-gray-500">{f.desc}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="container mx-auto px-4 py-8 space-y-8">
+      {/* ── Wallet connect banner (shown when disconnected, doesn't block page) ── */}
+      {!connected && (
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 rounded-xl bg-purple-950/40 border border-purple-500/30">
+          <div className="flex items-center gap-3">
+            <SiSolana className="h-5 w-5 text-purple-400 shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-purple-200">Connect Phantom wallet to enable trading</p>
+              <p className="text-[11px] text-gray-400">SOL Engine monitor is available without a wallet · Trading features require Phantom</p>
+            </div>
+          </div>
+          <Button
+            size="sm"
+            className="shrink-0 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white rounded-xl gap-2"
+            onClick={() => connect('phantom')}
+            disabled={connecting}
+          >
+            {connecting ? <><Loader2 className="h-4 w-4 animate-spin" /> Connecting…</> : <><Wallet className="h-4 w-4" /> Connect Wallet</>}
+          </Button>
+        </div>
+      )}
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-600 to-blue-600 flex items-center justify-center">
@@ -3673,10 +3635,10 @@ export default function SolanaScanner() {
                       <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => { const v = parseFloat(solPortfolioValue); if (!isNaN(v) && v > 0) updatePortfolioMutation.mutate(v); }} disabled={updatePortfolioMutation.isPending}>Update</Button>
                     </div>
                   </div>
-                  {solEngineStatus?.sessionHighWatermark > 0 && (
+                  {(solEngineStatus?.sessionHighWatermark || 0) > 0 && (
                     <div className="text-right text-[10px] text-gray-400">
-                      <div>Peak: {solEngineStatus.sessionHighWatermark.toFixed(3)} SOL</div>
-                      <div>Current: {solEngineStatus.currentPortfolioValue?.toFixed(3) || '—'} SOL</div>
+                      <div>Peak: {Number(solEngineStatus.sessionHighWatermark || 0).toFixed(3)} SOL</div>
+                      <div>Current: {solEngineStatus.currentPortfolioValue != null ? Number(solEngineStatus.currentPortfolioValue).toFixed(3) : '—'} SOL</div>
                     </div>
                   )}
                 </div>
@@ -4382,8 +4344,8 @@ export default function SolanaScanner() {
                 {[
                   { label: 'Trades', value: stats.totalTrades },
                   { label: 'Win Rate', value: `${winRate}%`, color: winRate >= 60 ? 'text-emerald-400' : winRate >= 40 ? 'text-yellow-400' : 'text-red-400' },
-                  { label: 'Total P&L', value: `${stats.totalPnlPct >= 0 ? '+' : ''}${stats.totalPnlPct.toFixed(1)}%`, color: stats.totalPnlPct >= 0 ? 'text-emerald-400' : 'text-red-400' },
-                  { label: 'Best Trade', value: `+${stats.bestTradePct.toFixed(1)}%`, color: 'text-emerald-400' },
+                  { label: 'Total P&L', value: `${(stats.totalPnlPct || 0) >= 0 ? '+' : ''}${(stats.totalPnlPct || 0).toFixed(1)}%`, color: (stats.totalPnlPct || 0) >= 0 ? 'text-emerald-400' : 'text-red-400' },
+                  { label: 'Best Trade', value: `+${(stats.bestTradePct || 0).toFixed(1)}%`, color: 'text-emerald-400' },
                 ].map(s => (
                   <div key={s.label} className="text-center p-2 rounded-lg bg-gray-800/50 border border-gray-700/30">
                     <p className={`text-xs font-bold ${(s as any).color || 'text-gray-200'}`}>{s.value}</p>
@@ -4399,7 +4361,7 @@ export default function SolanaScanner() {
                 <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Open Positions ({allOpen.length})</p>
                 <div className="space-y-1">
                   {allOpen.map((pos: any) => {
-                    const gainPct = pos.entryPrice > 0 ? ((pos.currentPrice - pos.entryPrice) / pos.entryPrice) * 100 : 0;
+                    const gainPct = (pos.entryPrice > 0 && pos.currentPrice != null) ? ((pos.currentPrice - pos.entryPrice) / pos.entryPrice) * 100 : 0;
                     const STRAT_MAP: Record<string, { icon: string; name: string }> = {
                       momentum_surfer:  { icon: '🏄', name: 'Momentum' },
                       breakout_hunter:  { icon: '🚀', name: 'Breakout' },

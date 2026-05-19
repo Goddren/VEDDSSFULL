@@ -176,6 +176,36 @@ export function SolanaWalletProvider({ children }: { children: ReactNode }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Re-connect when the page becomes visible again (e.g. user returns to Phantom's in-app browser
+  // after the app was backgrounded and the wallet session dropped).
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (connected) return; // already connected — nothing to do
+      const provider = getPhantomProvider();
+      if (!provider || !isInsidePhantomBrowser()) return;
+      provider.connect({ onlyIfTrusted: true }).then(async (response) => {
+        const address = response.publicKey.toString();
+        const balances = await fetchTokenBalances(address);
+        setWalletData({
+          address,
+          solBalance: balances.solBalance || 0,
+          veddBalance: balances.veddBalance || 0,
+          isAmbassador: balances.isAmbassador || false,
+          ambassadorNftMint: balances.ambassadorNftMint || null,
+          membershipTier: balances.membershipTier || 'none',
+          hasVeddNft: balances.hasVeddNft || false,
+          membershipNftMint: balances.membershipNftMint || null,
+        });
+        setWalletType('phantom');
+        setConnected(true);
+      }).catch(() => { /* not yet trusted, ignore */ });
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connected]);
+
   const fetchTokenBalances = useCallback(async (address: string): Promise<Partial<WalletData>> => {
     let solBalance = 0;
     let veddBalance = 0;
