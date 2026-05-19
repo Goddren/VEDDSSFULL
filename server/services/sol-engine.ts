@@ -1488,8 +1488,15 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
         // ── AI/Quant consensus gate: STRONG_SKIP from prior review blocks entry ─
         // runSolAIReview fires after each scan and stores results in lastAgentConsensus.
         // If both the AI and quant rules said SKIP on this symbol, don't trade it.
+        // BUG 5 FIX: Added 10-minute TTL — stale SKIP verdicts from hours ago
+        // were permanently blocking tokens even after market structure changed.
+        const CONSENSUS_TTL_MS = 10 * 60 * 1000; // 10 minutes
         const priorConsensus = state.lastAgentConsensus?.find(c => c.symbol === analysis.token.symbol);
-        if (priorConsensus && priorConsensus.consensus === 'STRONG_SKIP') {
+        const consensusAge = priorConsensus?.timestamp
+          ? Date.now() - new Date(priorConsensus.timestamp).getTime()
+          : Infinity;
+        const consensusStale = consensusAge > CONSENSUS_TTL_MS;
+        if (priorConsensus && !consensusStale && priorConsensus.consensus === 'STRONG_SKIP') {
           addActivity(state, {
             type: 'info',
             message: `🤖❌ Consensus BLOCK: ${analysis.token.symbol} — both AI and quant said SKIP (quant score: ${priorConsensus.quantScore}). That's the mathematics.`,
@@ -1497,7 +1504,7 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
           continue;
         }
         // Also block if quant alone gives a hard SKIP with a very low score (<10)
-        if (priorConsensus && priorConsensus.quantVerdict === 'SKIP' && priorConsensus.quantScore < 10) {
+        if (priorConsensus && !consensusStale && priorConsensus.quantVerdict === 'SKIP' && priorConsensus.quantScore < 10) {
           addActivity(state, {
             type: 'info',
             message: `📐❌ Quant BLOCK: ${analysis.token.symbol} — quant score ${priorConsensus.quantScore} too low. Knowledge yourself.`,
@@ -1651,11 +1658,15 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
       }
     }
 
+    // BUG 1 FIX: Assign lastResults BEFORE running monitors so both
+    // monitorPaperPositions and monitorLivePositions price-map against
+    // the current scan cycle's prices, not the previous cycle's stale prices.
+    // Previously SL/TP could fire a full scan cycle late (minutes of lag).
+    state.lastResults = scanResult;
+
     // Monitor paper and live positions for SL/TP
     monitorPaperPositions(state);
     await monitorLivePositions(userId, state);
-
-    state.lastResults = scanResult;
 
     const label = triggerToken ? ` (trigger: ${triggerToken})` : '';
     const intervalSec = getAdaptiveScanInterval(state.config) / 1000;
@@ -2141,18 +2152,29 @@ export function confirmLiveTrade(
   const symbol = parts.slice(2).join('_');
   if (!symbol) return false;
 
+  // BUG 12 FIX: size was hardcoded to 0, so when confirmLiveExit later
+  // calculated P&L as `pos.size * gainPct / 100` the weekly goal always
+  // received 0 SOL regardless of actual trade size — goal progress never moved.
+  // Now we look up the original pending signal to recover the sizeSOL value.
+  const signal = state.pendingSignals.find(s => s.id === signalId);
+  const sizeSOL = signal?.sizeSOL || 0;
+  // Remove signal from pending list — it's been confirmed as a live position
+  if (signal) {
+    state.pendingSignals = state.pendingSignals.filter(s => s.id !== signalId);
+  }
+
   const pos: SolAutoPosition = {
     id: `live_pos_${Date.now()}_${symbol}`,
     symbol,
-    mint: tradeData?.mint || '',
+    mint: tradeData?.mint || signal?.mint || '',
     entryPrice: tradeData?.entryPrice || 0,
     currentPrice: tradeData?.entryPrice || 0,
     targetPct: state.autoTradeTP,
     slPct: state.autoTradeSL,
-    size: 0,
+    size: sizeSOL,
     tokenAmount: tradeData?.tokenAmount || 0,
     decimals: tradeData?.decimals || 9,
-    strategyId: state.activeStrategy,
+    strategyId: signal?.strategyId || state.activeStrategy,
     mode: 'live',
     txHash,
     openedAt: new Date().toISOString(),
@@ -2172,7 +2194,12 @@ export function getPendingExits(userId: number): SolPendingExit[] {
   if (!state) return [];
   const now = Date.now();
   const valid = state.pendingExits.filter(e => new Date(e.expiresAt).getTime() > now);
-  state.pendingExits = [];
+  // BUG 13 FIX: Previously the entire array was wiped on read (`state.pendingExits = []`).
+  // Any exit queued between the frontend poll and Phantom confirmation was silently
+  // dropped — position stayed open forever, no SL/TP ever fired again.
+  // Now we only remove the expired ones; returned (valid) exits stay in the array
+  // until confirmLiveExit() or a subsequent expiry sweep removes them.
+  state.pendingExits = state.pendingExits.filter(e => new Date(e.expiresAt).getTime() > now);
   return valid;
 }
 

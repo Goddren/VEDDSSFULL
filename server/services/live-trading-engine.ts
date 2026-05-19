@@ -699,6 +699,10 @@ export function recordTradeResult(userId: number, result: {
   profit: number;
   strategy: string;
   session: string;
+  // BUG 9 FIX: direction was missing from the interface — post-loss direction
+  // lock (pairDirectionLock) and win-clear logic both read result.direction,
+  // which was always undefined, making Gate 5 permanently non-functional.
+  direction?: string;
 }) {
   const state = engineStates[userId];
   if (!state) return;
@@ -810,6 +814,20 @@ export function recordTradeResult(userId: number, result: {
 
   // ── Drawdown Shield ─────────────────────────────────────────────────
   if (!state.sessionHighWatermark) state.sessionHighWatermark = 0;
+  // BUG 4 FIX: sessionHighWatermark was never reset between trading days,
+  // so yesterday's peak permanently tripped today's shield from the first
+  // trade. Reset both the watermark and shield at each calendar day boundary.
+  {
+    const shieldDate = new Date().toISOString().split('T')[0];
+    if ((state as any)._shieldResetDate !== shieldDate) {
+      (state as any)._shieldResetDate = shieldDate;
+      state.sessionHighWatermark = 0;
+      if (state.drawdownShieldActive) {
+        state.drawdownShieldActive = false;
+        addActivity(userId, { type: 'info', message: '🌅 New trading day — drawdown shield reset, watermark cleared.' });
+      }
+    }
+  }
   if (state.pnlSession > state.sessionHighWatermark) {
     state.sessionHighWatermark = state.pnlSession;
   }
@@ -844,6 +862,19 @@ export function recordTradeResult(userId: number, result: {
   // causing it to accumulate and permanently block new trades after a few closes.
   if (state.openPositionCount > 0) {
     state.openPositionCount = Math.max(0, state.openPositionCount - 1);
+  }
+
+  // ── BUG 1 FIX: Clean up stale positionTrailState for closed pair ──
+  // When a position on this symbol closes, remove its trail state so
+  // that if the same symbol is re-entered the new position gets a clean
+  // SAR/peak — not the values from the old trade which could be completely
+  // wrong (e.g. a peak from +40% run applied to a fresh entry at current price).
+  if (state.positionTrailState && result.symbol) {
+    Object.keys(state.positionTrailState).forEach(key => {
+      if (key === result.symbol || key.toUpperCase().includes(result.symbol.toUpperCase())) {
+        delete state.positionTrailState[key];
+      }
+    });
   }
 
   // ── T003: Update per-pair consecutive loss tracking in brain ──────
@@ -951,7 +982,11 @@ async function scanMarkets(userId: number): Promise<void> {
     const marketAnalysis: Record<string, any> = {};
     const htfPendingPromises: Promise<void>[] = [];
     const htfMarketData: Record<string, HTFBiasData> = {};
-    state.htfBiasCache = {};
+    // BUG 3 FIX: Do NOT clear state.htfBiasCache here. If all HTF fetches
+    // fail this cycle the cache would be empty and the counter-trend gate
+    // would be bypassed for every pair. We accumulate fresh data into the
+    // local htfMarketData temp object and only replace the live cache once
+    // we confirm at least one pair came back successfully (line ~1143 below).
 
     for (const symbol of pairsToScan) {
       try {
@@ -1180,8 +1215,12 @@ async function scanMarkets(userId: number): Promise<void> {
         relVol: (data.volumeMetrics as VolumeMetrics | undefined)?.relativeVolume || 1,
       }])
     );
-    // Schedule an extra triggered scan in 12 seconds if triggers fired
-    if (triggerPairs.length > 0 && !state.currentlyScanning) {
+    // Schedule an extra triggered scan in 12 seconds if triggers fired.
+    // BUG 16 FIX: removed !state.currentlyScanning guard — it was always
+    // true here (we're still inside the scan), silently killing every
+    // triggered follow-up scan. scanMarkets() already has its own guard
+    // at the top, so the setTimeout is safe to schedule unconditionally.
+    if (triggerPairs.length > 0) {
       setTimeout(() => scanMarkets(userId), 12000);
     }
 
@@ -3669,6 +3708,9 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       if (tradeResult.success) {
         state.tradesExecuted++;
         state.openPositionCount++;
+        // BUG 6 FIX: Mark the queued MT5 signal as already executed so the
+        // MT5 EA does NOT pick it up and fire the same trade a second time.
+        mt5Signal.status = 'executed';
         addActivity(userId, {
           type: 'trade_open',
           symbol: decision.symbol,
