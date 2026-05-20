@@ -474,13 +474,16 @@ export async function analyzeToken(token: SolanaToken, options: AnalyzeTokenOpti
   }
 
   // Apply macro bias adjustment
+  // RISK_ON: +5% confidence bonus (bullish macro confirms signals)
+  // RISK_OFF: -8% confidence penalty (bearish macro reduces conviction)
+  // Previously RISK_OFF hard-blocked ALL trades at < 80% confidence — this was
+  // too aggressive because STRONG_BUY only reaches ~75-80% confidence by design.
+  // The penalty approach keeps the engine trading while staying selective.
   if (macro) {
     if (macro.bias === 'RISK_ON' && (signal === 'STRONG_BUY' || signal === 'BUY')) {
       confidence = Math.min(98, confidence + 5);
     } else if (macro.bias === 'RISK_OFF' && (signal === 'STRONG_BUY' || signal === 'BUY')) {
-      if (confidence < 80) {
-        signal = 'HOLD';
-      }
+      confidence = Math.max(10, confidence - 8); // penalty — still allows high-confidence signals
     }
   }
 

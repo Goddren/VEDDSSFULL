@@ -25244,7 +25244,12 @@ function computeGoalPhase(goal) {
 }
 function computeAutoSolSize(state, dex, overrideStrategy, mode = "live") {
   if (mode === "paper" && state.paperTradeSize > 0) return state.paperTradeSize;
-  const portfolio = mode === "paper" && state.compoundMode && state.paperPortfolioValue > 0 ? state.paperPortfolioValue : state.currentPortfolioValue;
+  let portfolio;
+  if (mode === "paper") {
+    portfolio = state.compoundMode && state.paperPortfolioValue > 0 ? state.paperPortfolioValue : state.currentPortfolioValue > 0 ? state.currentPortfolioValue : PAPER_DEFAULT_PORTFOLIO_SOL;
+  } else {
+    portfolio = state.currentPortfolioValue;
+  }
   if (portfolio <= 0) return 0;
   const strategy = overrideStrategy || SOL_STRATEGIES.find((s) => s.id === state.activeStrategy) || SOL_STRATEGIES[0];
   const phaseMultiplier = getPhaseMultiplier(state.weeklyGoal.phase, state.weeklyGoal.winStreak);
@@ -25685,7 +25690,18 @@ async function runScan(userId, state, triggerToken) {
         signal: analysis.signal,
         confidence: analysis.confidence
       };
-      if ((analysis.signal === "STRONG_BUY" || analysis.signal === "BUY") && state.currentPortfolioValue > 0) {
+      const hasPaperCapital = state.autoTradeEnabled;
+      const hasLiveCapital = state.liveTradeEnabled && state.currentPortfolioValue > 0;
+      const canEnterTrade = hasPaperCapital || hasLiveCapital || state.currentPortfolioValue > 0;
+      if ((analysis.signal === "STRONG_BUY" || analysis.signal === "BUY") && !canEnterTrade) {
+        if (state.liveTradeEnabled && state.currentPortfolioValue <= 0) {
+          addActivity3(state, {
+            type: "info",
+            message: `\u26A0\uFE0F Live signal skipped: ${analysis.token.symbol} \u2014 Live Trade is ON but portfolio SOL value is 0. Set it in engine settings \u2192 Portfolio Value.`
+          });
+        }
+      }
+      if ((analysis.signal === "STRONG_BUY" || analysis.signal === "BUY") && canEnterTrade) {
         if (analysis.token.priceChange24h > 80) {
           addActivity3(state, {
             type: "info",
@@ -26455,7 +26471,7 @@ async function getServerWalletStatus(userId) {
     return { hasServerWallet: false };
   }
 }
-var DEX_NAMES, SOL_STRATEGIES, DEFAULT_CONFIG, DEFAULT_WEEKLY_GOAL, engineStates2;
+var DEX_NAMES, SOL_STRATEGIES, DEFAULT_CONFIG, DEFAULT_WEEKLY_GOAL, engineStates2, PAPER_DEFAULT_PORTFOLIO_SOL;
 var init_sol_engine = __esm({
   "server/services/sol-engine.ts"() {
     "use strict";
@@ -26586,6 +26602,7 @@ var init_sol_engine = __esm({
       tradeHistory: []
     };
     engineStates2 = /* @__PURE__ */ new Map();
+    PAPER_DEFAULT_PORTFOLIO_SOL = 10;
   }
 });
 

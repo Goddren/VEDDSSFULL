@@ -2829,6 +2829,12 @@ export default function SolanaScanner() {
   const stopSolEngineMutation = useMutation({
     mutationFn: () => apiRequest('POST', '/api/sol-engine/stop', {}),
     onSuccess: () => { toast({ title: '🛑 Sol Engine stopped' }); refetchEngineStatus(); },
+    onError: (err: any) => {
+      const msg = err?.message || '';
+      const description = msg.includes('401') ? 'Session expired — please refresh and sign in again' : 'Could not stop engine — try refreshing the page';
+      toast({ title: 'Failed to stop engine', description, variant: 'destructive' });
+      refetchEngineStatus();
+    },
   });
 
   const recordResultMutation = useMutation({
@@ -3548,6 +3554,28 @@ export default function SolanaScanner() {
               </div>
             )}
 
+            {/* ── Macro RISK_OFF warning banner ── */}
+            {solEngineRunning && solEngineStatus?.lastMacro?.bias === 'RISK_OFF' && (
+              <div className="mx-4 mb-2 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-red-950/40 border border-red-500/30">
+                <AlertTriangle className="w-3 h-3 text-red-400 shrink-0" />
+                <p className="text-[10px] text-red-300">
+                  <span className="font-semibold">RISK_OFF market</span> — BTC/ETH/SOL all down. Signal confidence reduced by 8%, engine still trading — lower your Min Confidence if you want more signals.
+                </p>
+              </div>
+            )}
+            {solEngineRunning && solEngineStatus?.lastMacro?.bias === 'NEUTRAL' && (
+              <div className="mx-4 mb-2 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gray-800/30 border border-gray-600/20">
+                <div className="h-1.5 w-1.5 rounded-full bg-gray-500 shrink-0" />
+                <p className="text-[10px] text-gray-400">Macro NEUTRAL — mixed signals, engine scanning normally.</p>
+              </div>
+            )}
+            {solEngineRunning && solEngineStatus?.lastMacro?.bias === 'RISK_ON' && (
+              <div className="mx-4 mb-2 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-950/30 border border-emerald-500/20">
+                <div className="h-1.5 w-1.5 rounded-full bg-emerald-400 shrink-0 animate-pulse" />
+                <p className="text-[10px] text-emerald-400">Macro RISK_ON — BTC/ETH/SOL all up. +5% confidence bonus on all signals.</p>
+              </div>
+            )}
+
             {/* ── Settings panel ── */}
             {solEngineSettingsOpen && (
               <div className="border-t border-gray-700/50 p-4 space-y-5">
@@ -3630,10 +3658,18 @@ export default function SolanaScanner() {
                 <div className="flex items-center gap-2">
                   <div className="flex-1">
                     <label className="text-xs text-gray-400 block mb-1">Portfolio Value (SOL) — for auto-sizing &amp; shield</label>
-                    <div className="flex gap-2">
-                      <input type="number" min="0" step="0.1" value={solPortfolioValue} onChange={e => setSolPortfolioValue(e.target.value)} placeholder="e.g. 12.5" className="flex-1 h-8 bg-gray-800 border border-gray-600 text-white text-xs px-2 rounded" />
-                      <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => { const v = parseFloat(solPortfolioValue); if (!isNaN(v) && v > 0) updatePortfolioMutation.mutate(v); }} disabled={updatePortfolioMutation.isPending}>Update</Button>
-                    </div>
+                    {(solEngineStatus as any)?.serverWalletBalance > 0 ? (
+                      <div className="flex items-center gap-2 px-2 py-1.5 rounded bg-emerald-950/40 border border-emerald-600/30">
+                        <span className="text-[10px] text-emerald-400 font-medium">🔗 Live wallet:</span>
+                        <span className="text-xs text-white font-bold">{Number((solEngineStatus as any).serverWalletBalance).toFixed(4)} SOL</span>
+                        <span className="text-[9px] text-gray-400 ml-auto">auto-synced each scan</span>
+                      </div>
+                    ) : (
+                      <div className="flex gap-2">
+                        <input type="number" min="0" step="0.1" value={solPortfolioValue} onChange={e => setSolPortfolioValue(e.target.value)} placeholder="e.g. 12.5" className="flex-1 h-8 bg-gray-800 border border-gray-600 text-white text-xs px-2 rounded" />
+                        <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => { const v = parseFloat(solPortfolioValue); if (!isNaN(v) && v > 0) updatePortfolioMutation.mutate(v); }} disabled={updatePortfolioMutation.isPending}>Update</Button>
+                      </div>
+                    )}
                   </div>
                   {(solEngineStatus?.sessionHighWatermark || 0) > 0 && (
                     <div className="text-right text-[10px] text-gray-400">

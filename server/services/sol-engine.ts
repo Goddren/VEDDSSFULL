@@ -170,6 +170,8 @@ interface SolEngineState {
   };
   aiReviewCache: Record<string, { ts: number; result: any[] }>;
   _adaptiveStrategy?: string; // current auto-selected strategy when in adaptive mode
+  serverWalletBalance: number;   // live on-chain SOL balance (refreshed each scan cycle)
+  lastWalletRefreshAt: number;   // epoch ms — throttle RPC calls to once per minute
 }
 
 const DEX_NAMES = ['raydium', 'orca', 'meteora', 'pumpfun', 'jupiter'];
@@ -572,6 +574,11 @@ async function executeServerSideSell(userId: number, pos: SolAutoPosition, reaso
 
     upsertPosition(userId, pos).catch(() => {});
     saveEngineState(userId, state).catch(() => {});
+
+    // Refresh wallet balance immediately after selling — bypass the 60s throttle
+    state.lastWalletRefreshAt = 0;
+    refreshServerWalletBalance(userId, state).catch(() => {});
+
     return true;
   } catch (err) {
     console.error('[SolEngine] executeServerSideSell error:', err);
@@ -664,6 +671,11 @@ async function executeServerSideBuy(
     });
     upsertPosition(userId, pos).catch(() => {});
     saveEngineState(userId, state).catch(() => {});
+
+    // Refresh wallet balance immediately after buying — bypass the 60s throttle
+    state.lastWalletRefreshAt = 0;
+    refreshServerWalletBalance(userId, state).catch(() => {});
+
     return true;
   } catch (err) {
     console.error('[SolEngine] executeServerSideBuy error:', err);
@@ -845,6 +857,8 @@ function createInitialState(config: SolEngineConfig): SolEngineState {
     paperPortfolioHistory: [],
     autoTradeStats: { totalTrades: 0, wins: 0, losses: 0, totalPnlPct: 0, bestTradePct: 0, worstTradePct: 0 },
     aiReviewCache: {},
+    serverWalletBalance: 0,
+    lastWalletRefreshAt: 0,
   };
 }
 
@@ -1428,11 +1442,59 @@ async function monitorLivePositions(userId: number, state: SolEngineState) {
   }
 }
 
+// ── Server wallet balance refresh ────────────────────────────────────────────
+// Keeps currentPortfolioValue in sync with the real on-chain balance so the
+// engine always sizes live positions from the actual available SOL.
+// Throttled to at most once every 60 s to avoid hammering the RPC node.
+async function refreshServerWalletBalance(userId: number, state: SolEngineState): Promise<void> {
+  if (!state.liveTradeEnabled) return;
+  const now = Date.now();
+  if (now - state.lastWalletRefreshAt < 60_000) return; // already fresh
+  state.lastWalletRefreshAt = now;
+
+  try {
+    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey })
+      .from(solEngineSettings).where(eq(solEngineSettings.userId, userId));
+    if (!settings?.serverWalletKey) return;
+
+    const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
+    const { Keypair, Connection } = await import('@solana/web3.js');
+    const bs58 = (await import('bs58')).default;
+    const keypair = Keypair.fromSecretKey(bs58.decode(privateKeyBase58));
+    const rpcUrl = process.env.SOLANA_RPC_URL || 'https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92';
+    const connection = new Connection(rpcUrl, { commitment: 'confirmed' });
+    const lamports = await connection.getBalance(keypair.publicKey);
+    const solBalance = lamports / 1e9;
+
+    state.serverWalletBalance = solBalance;
+
+    // Always keep currentPortfolioValue in sync with the server wallet for live mode
+    if (Math.abs(state.currentPortfolioValue - solBalance) > 0.001) {
+      console.log(`[SolEngine] Wallet sync: ${state.currentPortfolioValue.toFixed(4)} → ${solBalance.toFixed(4)} SOL (user ${userId})`);
+      state.currentPortfolioValue = solBalance;
+    }
+  } catch (err) {
+    console.warn('[SolEngine] refreshServerWalletBalance failed:', err instanceof Error ? err.message : err);
+  }
+}
+
 async function runScan(userId: number, state: SolEngineState, triggerToken?: string) {
   if (!state.isRunning) return;
   try {
+    // Sync server wallet balance before each scan so position sizing uses live SOL
+    await refreshServerWalletBalance(userId, state).catch(() => {});
+
     const macro = await fetchCryptoMacroContext().catch(() => null);
     state.lastMacro = macro;
+
+    // Warn once per scan cycle when macro is bearish so user understands why
+    // confidence is reduced — previously this silently blocked ALL trades.
+    if (macro && macro.bias === 'RISK_OFF') {
+      addActivity(state, {
+        type: 'info',
+        message: `📉 Macro RISK_OFF: BTC${macro.btcChange >= 0 ? '+' : ''}${macro.btcChange.toFixed(1)}% / ETH${macro.ethChange >= 0 ? '+' : ''}${macro.ethChange.toFixed(1)}% / SOL${macro.solChange >= 0 ? '+' : ''}${macro.solChange.toFixed(1)}% — signal confidence reduced by 8%. Engine still trading at reduced size.`,
+      });
+    }
 
     const shieldFilter = state.config.shieldEnabled && state.shieldActive;
 
@@ -1782,6 +1844,8 @@ export async function startSolEngine(userId: number, config: Partial<SolEngineCo
     state.autoTradeStats = existing.autoTradeStats;
     state.autoTradeTP = existing.autoTradeTP;
     state.autoTradeSL = existing.autoTradeSL;
+    state.serverWalletBalance = existing.serverWalletBalance;
+    state.lastWalletRefreshAt = existing.lastWalletRefreshAt;
   } else {
     // Cold start — load from database (also auto-fetches wallet balance)
     await loadEngineStateFromDb(userId, state);
@@ -1882,6 +1946,7 @@ export function getSolEngineStatus(userId: number) {
     pendingSignalSymbols: state.pendingSignals
       .filter(s => new Date(s.expiresAt).getTime() > Date.now())
       .map(s => s.symbol),
+    serverWalletBalance: state.serverWalletBalance,
   };
 }
 
