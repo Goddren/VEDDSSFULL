@@ -896,13 +896,23 @@ function computeGoalPhase(goal: SolWeeklyGoal): SolWeeklyGoal['phase'] {
   return 'warming_up';
 }
 
+const PAPER_DEFAULT_PORTFOLIO_SOL = 10; // virtual SOL used when no portfolio value is configured
+
 function computeAutoSolSize(state: SolEngineState, dex: string, overrideStrategy?: SolStrategy, mode: 'paper' | 'live' = 'live'): number {
   // Fixed paper trade size overrides all fraction math
   if (mode === 'paper' && state.paperTradeSize > 0) return state.paperTradeSize;
 
-  const portfolio = (mode === 'paper' && state.compoundMode && state.paperPortfolioValue > 0)
-    ? state.paperPortfolioValue
-    : state.currentPortfolioValue;
+  let portfolio: number;
+  if (mode === 'paper') {
+    // Paper: prefer compound pool → live portfolio → default virtual pool
+    portfolio = (state.compoundMode && state.paperPortfolioValue > 0)
+      ? state.paperPortfolioValue
+      : state.currentPortfolioValue > 0
+        ? state.currentPortfolioValue
+        : PAPER_DEFAULT_PORTFOLIO_SOL;
+  } else {
+    portfolio = state.currentPortfolioValue;
+  }
   if (portfolio <= 0) return 0;
 
   const strategy = overrideStrategy || SOL_STRATEGIES.find(s => s.id === state.activeStrategy) || SOL_STRATEGIES[0];
@@ -1472,7 +1482,25 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
         confidence: analysis.confidence,
       };
 
-      if ((analysis.signal === 'STRONG_BUY' || analysis.signal === 'BUY') && state.currentPortfolioValue > 0) {
+      // Allow entry when:
+      //   • Live portfolio value is set (real SOL), OR
+      //   • Paper trade is enabled (will use currentPortfolioValue, paperPortfolioValue, or 10 SOL default)
+      //   • Live trade enabled with server wallet (portfolio still needed for sizing, but warn separately)
+      const hasPaperCapital = state.autoTradeEnabled; // paper always has a fallback default
+      const hasLiveCapital  = state.liveTradeEnabled && state.currentPortfolioValue > 0;
+      const canEnterTrade   = hasPaperCapital || hasLiveCapital || state.currentPortfolioValue > 0;
+
+      if ((analysis.signal === 'STRONG_BUY' || analysis.signal === 'BUY') && !canEnterTrade) {
+        // Signal fired but nothing is enabled or configured — log it clearly
+        if (state.liveTradeEnabled && state.currentPortfolioValue <= 0) {
+          addActivity(state, {
+            type: 'info',
+            message: `⚠️ Live signal skipped: ${analysis.token.symbol} — Live Trade is ON but portfolio SOL value is 0. Set it in engine settings → Portfolio Value.`,
+          });
+        }
+      }
+
+      if ((analysis.signal === 'STRONG_BUY' || analysis.signal === 'BUY') && canEnterTrade) {
 
         // ── Overextension filter: skip tokens already up >80% in 24h ───────────
         // Chasing a token after an 80%+ pump dramatically increases the chance of
