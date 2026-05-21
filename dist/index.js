@@ -17823,26 +17823,21 @@ async function analyzeToken(token, options = {}) {
   const riskLevel = determineRiskLevel(token, tokenomicsScore);
   const holdDuration = estimateHoldDuration(signal, riskLevel);
   let reasoning = "";
-  const isActionableSignal = signal === "STRONG_BUY" || signal === "BUY";
-  if (isActionableSignal) {
-    try {
-      const macroBlock = macro ? ` Macro: BTC${macro.btcChange >= 0 ? "+" : ""}${macro.btcChange.toFixed(1)}%/ETH${macro.ethChange >= 0 ? "+" : ""}${macro.ethChange.toFixed(1)}%/SOL${macro.solChange >= 0 ? "+" : ""}${macro.solChange.toFixed(1)}% (${macro.bias}).` : "";
-      const weightsBlock = signalWeights ? ` DEX weights: ${buildDexWeightsBlock(signalWeights)}.` : "";
-      const prompt = `Solana token: ${token.symbol} | DEX: ${token.dexId || "?"} | Price: $${token.priceUsd} | 24h: ${token.priceChange24h.toFixed(1)}% | Vol: $${(token.volume24h / 1e3).toFixed(0)}K | Liq: $${(token.liquidity / 1e3).toFixed(0)}K | Buys/Sells: ${token.txns24h.buys}/${token.txns24h.sells} | Traders: ${token.makers24h} | Scores: sent=${sentimentScore} tok=${tokenomicsScore} whale=${whaleScore} | Signal: ${signal} ${confidence2}% | Risk: ${riskLevel}.${macroBlock}${weightsBlock} Give a sharp 2-sentence trade analysis. Be direct.`;
-      const openaiClient = openaiOverride || new OpenAI3({ apiKey: process.env.OPENAI_API_KEY });
-      const model = openaiClient.defaultModel || "gpt-4o-mini";
-      const response = await openaiClient.chat.completions.create({
-        model,
-        messages: [{ role: "user", content: prompt }],
-        max_tokens: 100,
-        // 2 sentences ≈ 60-80 tokens; was 180
-        temperature: 0.5
-      });
-      reasoning = response.choices[0]?.message?.content || "";
-    } catch (error) {
-      reasoning = `${signal} signal: sentiment ${sentimentScore}/100, tokenomics ${tokenomicsScore}/100, whale activity ${whaleScore}/100. Risk: ${riskLevel}.`;
-    }
-  } else {
+  try {
+    const macroBlock = macro ? ` Macro: BTC${macro.btcChange >= 0 ? "+" : ""}${macro.btcChange.toFixed(1)}%/ETH${macro.ethChange >= 0 ? "+" : ""}${macro.ethChange.toFixed(1)}%/SOL${macro.solChange >= 0 ? "+" : ""}${macro.solChange.toFixed(1)}% (${macro.bias}).` : "";
+    const weightsBlock = signalWeights ? ` DEX weights: ${buildDexWeightsBlock(signalWeights)}.` : "";
+    const prompt = `Solana token: ${token.symbol} | DEX: ${token.dexId || "?"} | Price: $${token.priceUsd} | 24h: ${token.priceChange24h.toFixed(1)}% | Vol: $${(token.volume24h / 1e3).toFixed(0)}K | Liq: $${(token.liquidity / 1e3).toFixed(0)}K | Buys/Sells: ${token.txns24h.buys}/${token.txns24h.sells} | Traders: ${token.makers24h} | Scores: sent=${sentimentScore} tok=${tokenomicsScore} whale=${whaleScore} | Signal: ${signal} ${confidence2}% | Risk: ${riskLevel}.${macroBlock}${weightsBlock} Give a sharp 2-sentence trade analysis. Be direct.`;
+    const openaiClient = openaiOverride || new OpenAI3({ apiKey: process.env.OPENAI_API_KEY });
+    const model = openaiClient.defaultModel || "gpt-4o-mini";
+    const response = await openaiClient.chat.completions.create({
+      model,
+      messages: [{ role: "user", content: prompt }],
+      max_tokens: 100,
+      // 2 sentences ≈ 60-80 tokens; was 180
+      temperature: 0.5
+    });
+    reasoning = response.choices[0]?.message?.content || "";
+  } catch (error) {
     reasoning = `${signal} signal: sentiment ${sentimentScore}/100, tokenomics ${tokenomicsScore}/100, whale activity ${whaleScore}/100. Risk: ${riskLevel}.`;
   }
   const price = parseFloat(token.priceUsd) || 0;

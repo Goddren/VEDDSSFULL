@@ -490,44 +490,37 @@ export async function analyzeToken(token: SolanaToken, options: AnalyzeTokenOpti
   const riskLevel = determineRiskLevel(token, tokenomicsScore);
   const holdDuration = estimateHoldDuration(signal, riskLevel);
 
-  // ── AI reasoning: ONLY call for actionable signals (BUY / STRONG_BUY) ────────
-  // HOLD/SELL tokens never trigger trades — skipping the AI call for them cuts
-  // ~60-70% of per-scan token usage. Uses the caller-supplied client (Groq in
-  // economy mode, user key in full mode) or gpt-4o-mini as the platform fallback
-  // (NOT gpt-4o — there's no need for a premium model for a 2-sentence blurb).
+  // ── AI reasoning: fire for ALL signals so SELL/HOLD tokens display useful ────
+  // analysis in the scanner UI. Savings come from: compact prompt (~50% fewer
+  // input tokens), gpt-4o-mini platform fallback (not gpt-4o), and max_tokens
+  // cut from 180→100. Groq Llama routes here automatically in economy mode.
   let reasoning = '';
-  const isActionableSignal = signal === 'STRONG_BUY' || signal === 'BUY';
-  if (isActionableSignal) {
-    try {
-      const macroBlock = macro
-        ? ` Macro: BTC${macro.btcChange >= 0 ? '+' : ''}${macro.btcChange.toFixed(1)}%/ETH${macro.ethChange >= 0 ? '+' : ''}${macro.ethChange.toFixed(1)}%/SOL${macro.solChange >= 0 ? '+' : ''}${macro.solChange.toFixed(1)}% (${macro.bias}).`
-        : '';
+  try {
+    const macroBlock = macro
+      ? ` Macro: BTC${macro.btcChange >= 0 ? '+' : ''}${macro.btcChange.toFixed(1)}%/ETH${macro.ethChange >= 0 ? '+' : ''}${macro.ethChange.toFixed(1)}%/SOL${macro.solChange >= 0 ? '+' : ''}${macro.solChange.toFixed(1)}% (${macro.bias}).`
+      : '';
 
-      const weightsBlock = signalWeights
-        ? ` DEX weights: ${buildDexWeightsBlock(signalWeights)}.`
-        : '';
+    const weightsBlock = signalWeights
+      ? ` DEX weights: ${buildDexWeightsBlock(signalWeights)}.`
+      : '';
 
-      // Compact prompt — same analytical value, half the input tokens
-      const prompt = `Solana token: ${token.symbol} | DEX: ${token.dexId || '?'} | Price: $${token.priceUsd} | 24h: ${token.priceChange24h.toFixed(1)}% | Vol: $${(token.volume24h / 1000).toFixed(0)}K | Liq: $${(token.liquidity / 1000).toFixed(0)}K | Buys/Sells: ${token.txns24h.buys}/${token.txns24h.sells} | Traders: ${token.makers24h} | Scores: sent=${sentimentScore} tok=${tokenomicsScore} whale=${whaleScore} | Signal: ${signal} ${confidence}% | Risk: ${riskLevel}.${macroBlock}${weightsBlock} Give a sharp 2-sentence trade analysis. Be direct.`;
+    // Compact single-line prompt — same analytical value, ~50% fewer input tokens vs old multi-line version
+    const prompt = `Solana token: ${token.symbol} | DEX: ${token.dexId || '?'} | Price: $${token.priceUsd} | 24h: ${token.priceChange24h.toFixed(1)}% | Vol: $${(token.volume24h / 1000).toFixed(0)}K | Liq: $${(token.liquidity / 1000).toFixed(0)}K | Buys/Sells: ${token.txns24h.buys}/${token.txns24h.sells} | Traders: ${token.makers24h} | Scores: sent=${sentimentScore} tok=${tokenomicsScore} whale=${whaleScore} | Signal: ${signal} ${confidence}% | Risk: ${riskLevel}.${macroBlock}${weightsBlock} Give a sharp 2-sentence trade analysis. Be direct.`;
 
-      // Use caller-supplied client (Groq in economy mode, user's key in full mode).
-      // Fall back to gpt-4o-mini (not gpt-4o) for the platform key — token analysis
-      // is a lightweight task that doesn't need the premium model.
-      const openaiClient = openaiOverride || new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-      const model = (openaiClient as any).defaultModel || 'gpt-4o-mini';
-      const response = await openaiClient.chat.completions.create({
-        model,
-        messages: [{ role: 'user', content: prompt }],
-        max_tokens: 100,   // 2 sentences ≈ 60-80 tokens; was 180
-        temperature: 0.5,
-      });
+    // Use caller-supplied client (Groq in economy mode, user's key in full mode).
+    // Platform fallback uses gpt-4o-mini — NOT gpt-4o. A 2-sentence blurb does
+    // not require the premium model.
+    const openaiClient = openaiOverride || new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const model = (openaiClient as any).defaultModel || 'gpt-4o-mini';
+    const response = await openaiClient.chat.completions.create({
+      model,
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: 100,   // 2 sentences ≈ 60-80 tokens; was 180
+      temperature: 0.5,
+    });
 
-      reasoning = response.choices[0]?.message?.content || '';
-    } catch (error) {
-      reasoning = `${signal} signal: sentiment ${sentimentScore}/100, tokenomics ${tokenomicsScore}/100, whale activity ${whaleScore}/100. Risk: ${riskLevel}.`;
-    }
-  } else {
-    // Non-actionable: build reasoning from scores without any AI call
+    reasoning = response.choices[0]?.message?.content || '';
+  } catch (error) {
     reasoning = `${signal} signal: sentiment ${sentimentScore}/100, tokenomics ${tokenomicsScore}/100, whale activity ${whaleScore}/100. Risk: ${riskLevel}.`;
   }
   
