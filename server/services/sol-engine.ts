@@ -1558,9 +1558,25 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
     // lastAgentConsensus is fully populated before any trade decision is made.
     // The 5-minute cache makes this instant on repeat scans; only the first scan
     // for a new set of signals incurs the AI latency (~3-8s).
+    // Open positions are also passed so the AI can recommend TRAIL/CLOSE actions.
     const hasBuySignals = scanResult.some(t => t.signal === 'STRONG_BUY' || t.signal === 'BUY');
-    if (hasBuySignals) {
-      await runSolAIReview(userId, state, scanResult, []).catch(() => {});
+    const allOpenPositions = [
+      ...state.livePositions.filter(p => p.status === 'open').map(p => {
+        const latestPrice = scanResult.find(r => r.token.symbol === p.symbol);
+        const currentPrice = latestPrice ? parseFloat(latestPrice.token.priceUsd) || p.currentPrice : p.currentPrice;
+        const gainPct = p.entryPrice > 0 ? ((currentPrice - p.entryPrice) / p.entryPrice) * 100 : 0;
+        return { symbol: p.symbol, entryPrice: p.entryPrice, currentPrice, gainPct, volumeStatus: 'average' };
+      }),
+      ...state.paperPositions.filter(p => p.status === 'open').map(p => {
+        const latestPrice = scanResult.find(r => r.token.symbol === p.symbol);
+        const currentPrice = latestPrice ? parseFloat(latestPrice.token.priceUsd) || p.currentPrice : p.currentPrice;
+        const gainPct = p.entryPrice > 0 ? ((currentPrice - p.entryPrice) / p.entryPrice) * 100 : 0;
+        return { symbol: p.symbol, entryPrice: p.entryPrice, currentPrice, gainPct, volumeStatus: 'average' };
+      }),
+    ].slice(0, 5); // cap at 5 to keep prompt compact
+
+    if (hasBuySignals || allOpenPositions.length > 0) {
+      await runSolAIReview(userId, state, scanResult, allOpenPositions).catch(() => {});
     }
 
     for (const dex of DEX_NAMES) {
