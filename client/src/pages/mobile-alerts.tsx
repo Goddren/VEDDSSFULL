@@ -31,7 +31,7 @@ export default function MobileAlerts() {
     queryKey: ['/api/alerts']
   });
 
-  const { data: recentAnalyses = [] } = useQuery({
+  const { data: recentAnalyses = [] } = useQuery<any[]>({
     queryKey: ['/api/analyses/recent'],
     refetchInterval: 30000
   });
@@ -44,10 +44,7 @@ export default function MobileAlerts() {
 
   const createAlertMutation = useMutation({
     mutationFn: async (data: any) => {
-      return apiRequest('/api/alerts', {
-        method: 'POST',
-        body: JSON.stringify(data)
-      });
+      return apiRequest('POST', '/api/alerts', data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/alerts'] });
@@ -69,10 +66,7 @@ export default function MobileAlerts() {
 
   const toggleAlertMutation = useMutation({
     mutationFn: async ({ id, isActive }: { id: number; isActive: boolean }) => {
-      return apiRequest(`/api/alerts/${id}/toggle`, {
-        method: 'PATCH',
-        body: JSON.stringify({ isActive })
-      });
+      return apiRequest('PATCH', `/api/alerts/${id}/toggle`, { isActive });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/alerts'] });
@@ -81,9 +75,7 @@ export default function MobileAlerts() {
 
   const deleteAlertMutation = useMutation({
     mutationFn: async (id: number) => {
-      return apiRequest(`/api/alerts/${id}`, {
-        method: 'DELETE'
-      });
+      return apiRequest('DELETE', `/api/alerts/${id}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/alerts'] });

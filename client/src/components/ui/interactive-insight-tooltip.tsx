@@ -1,9 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  TrendingUp, 
-  TrendingDown, 
-  AlertCircle, 
+import {
+  TrendingUp,
+  TrendingDown,
+  AlertCircle,
   CheckCircle,
   HelpCircle,
   BarChart4,
@@ -11,6 +11,7 @@ import {
   ArrowUp,
   ArrowDown,
   XCircle,
+  Activity,
 } from 'lucide-react';
 
 type PatternType = 
@@ -34,7 +35,7 @@ type PatternType =
 interface InteractiveInsightTooltipProps {
   // Original props
   insight?: string;
-  type?: 'info' | 'warning' | 'success' | 'error';
+  type?: 'info' | 'warning' | 'success' | 'error' | 'bullish' | 'bearish' | 'neutral' | 'volatile';
   patternType?: PatternType;
   marketTrend?: 'bullish' | 'bearish' | 'neutral';
   expandByDefault?: boolean;

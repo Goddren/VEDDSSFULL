@@ -171,6 +171,37 @@ export function createIndicatorTooltip(
   };
 }
 
+// ── Props interfaces expected by the tooltip components ──────────────────────
+
+export interface MarketTrendInsightProps {
+  trend: string;
+  iconSize?: IconSize;
+}
+
+export interface PatternInsightProps {
+  pattern: string;
+  iconSize?: IconSize;
+}
+
+export interface IndicatorInsightProps {
+  indicator: string;
+  signal: 'bullish' | 'bearish' | 'neutral' | 'volatile';
+  iconSize?: IconSize;
+}
+
+// Dictionary map types
+export type PatternDescriptionMap = Record<string, {
+  description: string;
+  visual: string;
+  class: string;
+}>;
+
+export type IndicatorDescriptionMap = Record<string, {
+  description: string;
+  interpretation: string;
+  class: string;
+}>;
+
 // Helper function to convert confidence level to percentage
 function getPercentageFromLevel(level: ConfidenceLevel): number {
   switch (level) {

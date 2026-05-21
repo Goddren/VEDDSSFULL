@@ -69,7 +69,7 @@ export default function MySubscriptionsPage() {
           <Card>
             <CardContent className="pt-12 text-center">
               <p className="text-muted-foreground mb-4">No active subscriptions yet</p>
-              <Button href="/ea-marketplace">Browse EA Marketplace</Button>
+              <a href="/ea-marketplace"><Button>Browse EA Marketplace</Button></a>
             </CardContent>
           </Card>
         ) : (

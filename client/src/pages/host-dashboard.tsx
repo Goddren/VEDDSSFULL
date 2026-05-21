@@ -978,7 +978,7 @@ export default function HostDashboardPage() {
                   size="sm"
                   className="border-purple-500/50 text-purple-400 hover:bg-purple-500/10"
                   onClick={() => {
-                    const shareLink = buildShareLink(presenterEvent.shareSlug);
+                    const shareLink = buildShareLink(presenterEvent.shareSlug ?? '');
                     navigator.clipboard.writeText(shareLink);
                     toast({
                       title: "Event Link Copied!",

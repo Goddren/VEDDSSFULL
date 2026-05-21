@@ -1024,9 +1024,36 @@ async function runSolAIReview(
   const cached = state.aiReviewCache[cacheKey];
   if (cached && Date.now() - cached.ts < REVIEW_CACHE_TTL) {
     const ageS = Math.round((Date.now() - cached.ts) / 1000);
+    // Rebuild consensus from cached decisions so lastAgentConsensus is always
+    // populated every scan cycle — not just on fresh AI calls.
+    const macroBiasCache = state.lastMacro?.bias ?? null;
+    const cacheConsensus: AgentConsensusResult[] = [];
+    let confirms = 0, skips = 0;
+    for (const d of cached.result) {
+      if (!d || !d.symbol || d.type !== 'signal') continue;
+      const tokenData = buySignals.find(t => t.token.symbol === d.symbol);
+      if (!tokenData) continue;
+      const quant = runQuantRulesAgent(tokenData, macroBiasCache);
+      let consensusLabel: AgentConsensusResult['consensus'] = 'WATCH';
+      if (quant.verdict === 'CONFIRM_BUY' && d.action === 'CONFIRM_BUY') { consensusLabel = 'STRONG_CONFIRM'; confirms++; }
+      else if (quant.verdict === 'SKIP' && d.action === 'SKIP') { consensusLabel = 'STRONG_SKIP'; skips++; }
+      else if ((quant.verdict === 'CONFIRM_BUY' && d.action === 'SKIP') || (quant.verdict === 'SKIP' && d.action === 'CONFIRM_BUY')) consensusLabel = 'CAUTION';
+      else if (quant.verdict === 'WATCH' || d.action === 'WATCH') consensusLabel = 'WATCH';
+      cacheConsensus.push({
+        symbol: d.symbol,
+        quantVerdict: quant.verdict,
+        quantScore: quant.score,
+        gptVerdict: d.action,
+        consensus: consensusLabel,
+        timestamp: new Date().toISOString(),
+      });
+    }
+    if (cacheConsensus.length > 0) {
+      state.lastAgentConsensus = [...cacheConsensus, ...state.lastAgentConsensus].slice(0, 20);
+    }
     addActivity(state, {
       type: 'info',
-      message: `💾 Sol AI cache hit — reusing review (${ageS}s old, refreshes at 5min)`,
+      message: `💾 Sol AI cache hit (${ageS}s old) — consensus rebuilt: ${confirms} confirm, ${skips} skip${cacheConsensus.length > 0 ? ` across ${cacheConsensus.length} signals` : ' (no matching signals)'}`,
     });
     return;
   }

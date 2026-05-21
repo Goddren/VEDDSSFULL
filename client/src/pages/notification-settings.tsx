@@ -162,10 +162,10 @@ export default function NotificationSettings() {
         body: 'This is a test notification from VEDD AI Trading Vault',
         icon: '/icons/icon-192x192.png',
         badge: '/icons/icon-96x96.png',
-        vibrate: preferences.vibrationEnabled ? [200, 100, 200] : undefined,
         tag: 'test-notification',
-        data: { url: '/notification-settings' }
-      });
+        data: { url: '/notification-settings' },
+        ...(preferences.vibrationEnabled && { vibrate: [200, 100, 200] }),
+      } as NotificationOptions & { vibrate?: number[] });
       
       triggerHaptic('medium');
       toast({

@@ -3979,6 +3979,18 @@ export default function SolanaScanner() {
 
             {/* Active Strategy indicator */}
             {solEngineRunning && (() => {
+              const serverStrategy = solEngineStatus?.activeStrategy || activeStrategyId;
+              const STRATEGIES = [
+                { id: 'momentum_surfer', name: 'Momentum Surfer', icon: '🏄', hold: '1–4h', conf: 70, risk: 'MEDIUM', base: 3 },
+                { id: 'breakout_hunter', name: 'Breakout Hunter', icon: '🚀', hold: '30m–2h', conf: 75, risk: 'MEDIUM', base: 2.5 },
+                { id: 'dip_sniper', name: 'Dip Sniper', icon: '🎯', hold: '2–8h', conf: 68, risk: 'LOW', base: 2 },
+                { id: 'meme_velocity', name: 'Meme Velocity', icon: '⚡', hold: '10–15m', conf: 65, risk: 'HIGH', base: 4 },
+                { id: 'whale_follower', name: 'Whale Follower', icon: '🐋', hold: '4–24h', conf: 72, risk: 'MEDIUM', base: 2 },
+                { id: 'volume_explosion', name: 'Volume Explosion', icon: '💥', hold: '20–45m', conf: 65, risk: 'MEDIUM', base: 3.5 },
+                { id: 'smart_money_flow', name: 'Smart Money', icon: '🧠', hold: '1–3d', conf: 78, risk: 'LOW', base: 2.5 },
+                { id: 'liquidity_sweep', name: 'Liquidity Sweep', icon: '🌊', hold: '10–30m', conf: 60, risk: 'HIGH', base: 1 },
+                { id: 'adaptive', name: 'Adaptive AI', icon: '🤖', hold: 'varies', conf: 70, risk: 'MEDIUM', base: 3 },
+              ];
               const activeIds: string[] = (solEngineStatus?.activeStrategies?.length > 0
                 ? solEngineStatus.activeStrategies
                 : [solEngineStatus?.activeStrategy || serverStrategy || 'momentum_surfer']);

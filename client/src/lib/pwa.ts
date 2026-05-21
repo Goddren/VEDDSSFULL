@@ -145,9 +145,9 @@ export const sendNotification = async (
     await registration.showNotification(title, {
       icon: '/icons/icon-192x192.png',
       badge: '/icons/icon-96x96.png',
+      ...options,
       vibrate: [200, 100, 200],
-      ...options
-    });
+    } as NotificationOptions & { vibrate?: number[] });
   }
 };
 

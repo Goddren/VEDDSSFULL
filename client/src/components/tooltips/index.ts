@@ -18,15 +18,17 @@ export {
   ConfidenceInsight
 };
 
-// Dummy exports for components we aren't actively using
-export const AnimatedInsightTooltip = 'AnimatedInsightTooltip';
-export const TrendTooltip = 'TrendTooltip';
-export const ConfidenceTooltip = 'ConfidenceTooltip';
-export const PatternTooltip = 'PatternTooltip';
-export const IndicatorTooltip = 'IndicatorTooltip';
-export const SimpleInsight = 'SimpleInsight';
-export const BullishInsight = 'BullishInsight';
-export const BearishInsight = 'BearishInsight';
-export const NeutralInsight = 'NeutralInsight';
-export const VolatileInsight = 'VolatileInsight';
-export const VolatilityInsight = 'VolatilityInsight';
+// Placeholder components for showcase/demo pages
+import React from 'react';
+const _noop = (_props: Record<string, any>) => null as any;
+export const AnimatedInsightTooltip: React.FC<Record<string, any>> = _noop;
+export const TrendTooltip: React.FC<Record<string, any>> = _noop;
+export const ConfidenceTooltip: React.FC<Record<string, any>> = _noop;
+export const PatternTooltip: React.FC<Record<string, any>> = _noop;
+export const IndicatorTooltip: React.FC<Record<string, any>> = _noop;
+export const SimpleInsight: React.FC<Record<string, any>> = _noop;
+export const BullishInsight: React.FC<Record<string, any>> = _noop;
+export const BearishInsight: React.FC<Record<string, any>> = _noop;
+export const NeutralInsight: React.FC<Record<string, any>> = _noop;
+export const VolatileInsight: React.FC<Record<string, any>> = _noop;
+export const VolatilityInsight: React.FC<Record<string, any>> = _noop;

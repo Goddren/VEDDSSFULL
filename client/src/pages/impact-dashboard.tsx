@@ -671,7 +671,7 @@ export default function ImpactDashboardPage() {
         </motion.div>
 
         {/* ── Grant Reporting Periods (admin only) ── */}
-        {user.role === "admin" || user.isAdmin ? (
+        {(user as any).role === "admin" || user.isAdmin ? (
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.6 }}>
             <Card className={grantMode ? "bg-white border-gray-200" : "bg-[#0d1117] border-white/10"}>
               <CardHeader className="pb-2">

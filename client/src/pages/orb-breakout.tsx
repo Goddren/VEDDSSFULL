@@ -697,7 +697,7 @@ function SetupCard({
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <Label className="text-[9px] text-gray-400 mb-1 block">PRE-MARKET BIAS</Label>
-                    <select value={form.preMarketBias} onChange={e => setForm(f => ({ ...f, preMarketBias: e.target.value }))}
+                    <select value={form.preMarketBias} onChange={e => setForm(f => ({ ...f, preMarketBias: e.target.value as 'bullish' | 'bearish' | 'neutral' }))}
                       className="w-full bg-[#0f1525] border border-white/10 text-white rounded-md text-xs h-9 px-2">
                       <option value="bullish">📈 Bullish — Gapped Up pre-market</option>
                       <option value="bearish">📉 Bearish — Gapped Down pre-market</option>
@@ -707,7 +707,7 @@ function SetupCard({
                   </div>
                   <div>
                     <Label className="text-[9px] text-gray-400 mb-1 block">BREAKOUT CANDLE TIMEFRAME</Label>
-                    <select value={form.breakoutCandle} onChange={e => setForm(f => ({ ...f, breakoutCandle: e.target.value }))}
+                    <select value={form.breakoutCandle} onChange={e => setForm(f => ({ ...f, breakoutCandle: e.target.value as '1min' | '6min' }))}
                       className="w-full bg-[#0f1525] border border-white/10 text-white rounded-md text-xs h-9 px-2">
                       <option value="6min">6-Minute ✅ VEDD Standard (recommended)</option>
                       <option value="1min">1-Minute ⚠️ Aggressive (more false signals)</option>

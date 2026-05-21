@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -40,7 +40,7 @@ interface SocialShareButtonProps {
   disabled?: boolean;
 }
 
-const platformConfig: Record<string, { icon: typeof Twitter; name: string; color: string; bgColor: string }> = {
+const platformConfig: Record<string, { icon: React.ComponentType<any>; name: string; color: string; bgColor: string }> = {
   twitter: { icon: SiX, name: 'X (Twitter)', color: 'text-white', bgColor: 'bg-black hover:bg-gray-900' },
   facebook: { icon: Facebook, name: 'Facebook', color: 'text-white', bgColor: 'bg-blue-600 hover:bg-blue-700' },
   instagram: { icon: Instagram, name: 'Instagram', color: 'text-white', bgColor: 'bg-gradient-to-br from-purple-600 via-pink-500 to-orange-400 hover:opacity-90' },

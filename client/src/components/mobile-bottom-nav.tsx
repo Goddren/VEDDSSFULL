@@ -77,7 +77,7 @@ function NavTile({
 }: {
   name: string;
   path: string;
-  icon: React.ComponentType<{ className?: string }>;
+  icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
   color: string;
   isActive: boolean;
   onClose: () => void;

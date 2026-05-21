@@ -741,7 +741,7 @@ async function withRetry<T>(
     // Ensure "Grant Champion" achievement exists (idempotent — skips if already present)
     try {
       const existing = await db.execute(sql`SELECT id FROM achievements WHERE name = 'Grant Champion' LIMIT 1`);
-      if ((existing.rows ?? existing).length === 0) {
+      if (((existing as any).rows ?? existing as any[]).length === 0) {
         await db.execute(sql`
           INSERT INTO achievements (name, description, category, icon, points, threshold, is_secret)
           VALUES ('Grant Champion', 'Successfully secure your first grant award for VEDD', 'special', 'trophy', 100, 1, false)

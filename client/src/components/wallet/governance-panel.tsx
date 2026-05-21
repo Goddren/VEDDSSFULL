@@ -158,14 +158,11 @@ export function GovernancePanel() {
 
   const voteMutation = useMutation({
     mutationFn: async ({ proposalId, vote }: { proposalId: number; vote: 'for' | 'against' }) => {
-      return apiRequest('/api/governance/vote', {
-        method: 'POST',
-        body: JSON.stringify({
-          proposalId,
-          vote,
-          walletAddress: walletData?.address,
-          votingPower: walletData?.veddBalance || 0,
-        }),
+      return apiRequest('POST', '/api/governance/vote', {
+        proposalId,
+        vote,
+        walletAddress: walletData?.address,
+        votingPower: walletData?.veddBalance || 0,
       });
     },
     onSuccess: () => {
@@ -189,16 +186,13 @@ export function GovernancePanel() {
       const endDate = new Date();
       endDate.setDate(endDate.getDate() + data.durationDays);
       
-      return apiRequest('/api/governance/proposals', {
-        method: 'POST',
-        body: JSON.stringify({
-          title: data.title,
-          description: data.description,
-          category: data.category,
-          proposerWallet: walletData?.address,
-          endDate: endDate.toISOString(),
-          quorumRequired: 1000,
-        }),
+      return apiRequest('POST', '/api/governance/proposals', {
+        title: data.title,
+        description: data.description,
+        category: data.category,
+        proposerWallet: walletData?.address,
+        endDate: endDate.toISOString(),
+        quorumRequired: 1000,
       });
     },
     onSuccess: () => {

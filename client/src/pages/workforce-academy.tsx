@@ -931,7 +931,7 @@ const LESSON_CONTENT: Record<number, CourseContent> = {
 
 // ─── Course Data ────────────────────────────────────────────────────────────
 
-const ICON_MAP: Record<string, React.ComponentType<{ size?: number; color?: string; className?: string }>> = {
+const ICON_MAP: Record<string, React.ComponentType<any>> = {
   Brain, Monitor, TrendingUp, DollarSign, Coins, GraduationCap, Shield,
   Briefcase, LineChart, Users, Lock, Rocket,
 };

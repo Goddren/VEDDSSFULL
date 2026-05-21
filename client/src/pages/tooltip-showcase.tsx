@@ -21,7 +21,12 @@ import {
   BullishInsight,
   BearishInsight,
   NeutralInsight,
-  VolatileInsight
+  VolatileInsight,
+  AnimatedInsightTooltip,
+  TrendTooltip,
+  ConfidenceTooltip,
+  PatternTooltip,
+  IndicatorTooltip,
 } from "@/components/tooltips";
 
 // Import types from tooltip-types

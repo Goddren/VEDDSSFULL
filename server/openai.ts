@@ -1,7 +1,8 @@
 import OpenAI from "openai";
 import { ChartAnalysisResponse, TrendCell } from "@shared/types";
 import fs from "fs";
-import { getStrategyContext, formatStrategyContextForPrompt, PerformanceStats } from "./services/github-strategy-context";
+import { getStrategyContext, formatStrategyContextForPrompt } from "./services/github-strategy-context";
+type PerformanceStats = Record<string, unknown>;
 import { getLearnedInsights, getWinningStrategyPatterns } from "./services/confirmation-learning";
 
 // Top-8 industry-proven profitable strategies — injected into 2nd confirmation
@@ -19,7 +20,7 @@ const TOP_PROFITABLE_STRATEGIES = [
 function getRelevantStrategies(symbol: string): string {
   const relevant = TOP_PROFITABLE_STRATEGIES.filter(s =>
     s.pairs.some(p => symbol.toUpperCase().includes(p) || p.includes(symbol.toUpperCase().replace('USD','').replace('PIPS','')))
-    || s.pairs.includes(symbol.toUpperCase() as any)
+    || (s.pairs as unknown as string[]).includes(symbol.toUpperCase())
   ).slice(0, 3);
   if (relevant.length === 0) return TOP_PROFITABLE_STRATEGIES.slice(0, 3).map(s => `• ${s.name}: ${s.winConditions}`).join('\n');
   return relevant.map(s => `• ${s.name}\n  Setup: ${s.description}\n  Win conditions: ${s.winConditions}\n  Risk note: ${s.riskNote}`).join('\n\n');
@@ -32,7 +33,7 @@ export function getAllStrategiesForPairs(pairList: string[]): string {
   for (const pair of pairList) {
     const relevant = TOP_PROFITABLE_STRATEGIES.filter(s =>
       s.pairs.some(p => pair.toUpperCase().replace('/','').includes(p) || p.includes(pair.toUpperCase().replace('/','').replace('USD','').replace('PIPS','')))
-      || s.pairs.includes(pair.toUpperCase().replace('/','') as any)
+      || (s.pairs as unknown as string[]).includes(pair.toUpperCase().replace('/',''))
     );
     for (const s of relevant) {
       if (!seen.has(s.name)) {
@@ -468,6 +469,8 @@ export interface AiVisionConfirmation {
   breakoutGrade?: 'A' | 'B' | 'C' | 'PASS';
   breakoutStrategies?: Array<{ name: string; fired: boolean; direction: string; reason: string; strength: number }>;
   breakoutQuality?: 'ELITE' | 'STRONG' | 'DEVELOPING';
+  modelUsed?: string;
+  providerUsed?: string;
 }
 
 export interface AiConfirmationLogEntry {
@@ -973,7 +976,7 @@ async function buildConfirmationPrompt(
   // Fetch asset-specific strategy rules from GitHub (cached 24h, fallback to defaults)
   // Pass live performance stats so thresholds auto-adjust based on observed win rates
   const strategyCtx = await getStrategyContext(symbol).catch(() => null);
-  const strategySection = strategyCtx ? formatStrategyContextForPrompt(strategyCtx, performanceStats) : '';
+  const strategySection = strategyCtx ? formatStrategyContextForPrompt(strategyCtx) : '';
   const learnedSection = learnedInsights || '';
 
   // Inject user's own winning patterns from brain

@@ -332,7 +332,7 @@ export default function InnovationLabPage() {
       status: "active" as const,
       dataPoints: 0,
       startDate: new Date().toLocaleDateString("en-US", { month: "short", year: "numeric" }),
-      lead: user.fullName || user.username || "Research Team",
+      lead: user?.fullName || user?.username || "Research Team",
       tags: [],
     };
     setProjects(prev => [...prev, proj]);

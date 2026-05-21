@@ -2335,8 +2335,9 @@ export default function AmbassadorTrainingPage() {
   // Initialize local state from saved progress
   useEffect(() => {
     if (trainingProgress) {
-      if (trainingProgress.completedLessons && trainingProgress.completedLessons.length > 0) {
-        setCompletedLessons(new Set(trainingProgress.completedLessons));
+      const completedLessonsArr = trainingProgress.completedLessons as string[] | undefined;
+      if (completedLessonsArr && completedLessonsArr.length > 0) {
+        setCompletedLessons(new Set(completedLessonsArr));
       }
       if (trainingProgress.quizScores) {
         setQuizAnswers(trainingProgress.quizScores as Record<string, number>);
