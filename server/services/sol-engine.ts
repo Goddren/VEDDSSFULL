@@ -2450,6 +2450,19 @@ export function updateSolPortfolioValue(userId: number, solValue: number): { shi
   return { shieldActive: state.shieldActive };
 }
 
+export function setShieldActive(userId: number, active: boolean): { success: boolean; shieldActive: boolean } {
+  const state = engineStates.get(userId);
+  if (!state) return { success: false, shieldActive: false };
+  state.shieldActive = active;
+  addActivity(state, {
+    type: 'shield',
+    message: active
+      ? '🛡️ Shield manually activated — restricting to high-confidence signals only'
+      : '✅ Shield manually deactivated — full cipher resumed',
+  });
+  return { success: true, shieldActive: state.shieldActive };
+}
+
 // ── Server wallet management ──────────────────────────────────────────────────
 export async function saveServerWallet(userId: number, privateKeyBase58: string): Promise<{ success: boolean; walletAddress?: string; error?: string }> {
   try {

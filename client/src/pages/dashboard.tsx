@@ -549,6 +549,7 @@ const Dashboard: React.FC = () => {
   const solPaperActive = solAutoTradeMode === 'paper';
   const brainLearned = brainStatus?.learned ?? false;
   const bothLiveActive = ssEngineRunning && solLiveActive;
+  const breakoutMonitorOn = breakoutStatus?.active ?? false;
 
   // Filter to only upcoming and live registered events
   const upcomingEvents = React.useMemo(() => {
@@ -1199,24 +1200,24 @@ const Dashboard: React.FC = () => {
                 </div>
               </Link>
               <Link href="/news-alerts" className="block">
-                <div className="rounded-2xl border p-3 h-full cursor-pointer transition-all hover:scale-[1.02] bg-rose-500/10 border-rose-500/30">
+                <div className={`rounded-2xl border p-3 h-full cursor-pointer transition-all hover:scale-[1.02] ${ssEngineRunning ? 'bg-rose-500/10 border-rose-500/30' : 'bg-white/[0.02] border-white/08'}`}>
                   <div className="flex items-center justify-between mb-2">
-                    <div className="icon-tile-sm bg-rose-500/20">
-                      <Newspaper className="h-4 w-4 text-rose-400" />
+                    <div className={`icon-tile-sm ${ssEngineRunning ? 'bg-rose-500/20' : 'bg-white/5'}`}>
+                      <Newspaper className={`h-4 w-4 ${ssEngineRunning ? 'text-rose-400' : 'text-gray-500'}`} />
                     </div>
-                    <span className="status-pill status-pill-live">LIVE</span>
+                    <span className={`status-pill ${ssEngineRunning ? 'status-pill-live' : 'status-pill-warning'}`}>{ssEngineRunning ? 'LIVE' : 'IDLE'}</span>
                   </div>
                   <p className="text-white text-xs font-semibold">News & Events</p>
                   <p className="text-gray-500 text-[10px] mt-0.5">Sentiment alerts</p>
                 </div>
               </Link>
               <Link href="/volatility-meter" className="block">
-                <div className="rounded-2xl border p-3 h-full cursor-pointer transition-all hover:scale-[1.02] bg-cyan-500/10 border-cyan-500/30">
+                <div className={`rounded-2xl border p-3 h-full cursor-pointer transition-all hover:scale-[1.02] ${breakoutMonitorOn ? 'bg-cyan-500/10 border-cyan-500/30' : 'bg-white/[0.02] border-white/08'}`}>
                   <div className="flex items-center justify-between mb-2">
-                    <div className="icon-tile-sm bg-cyan-500/20">
-                      <Radio className="h-4 w-4 text-cyan-400" />
+                    <div className={`icon-tile-sm ${breakoutMonitorOn ? 'bg-cyan-500/20' : 'bg-white/5'}`}>
+                      <Radio className={`h-4 w-4 ${breakoutMonitorOn ? 'text-cyan-400' : 'text-gray-500'}`} />
                     </div>
-                    <span className="status-pill status-pill-live">ON</span>
+                    <span className={`status-pill ${breakoutMonitorOn ? 'status-pill-live' : 'status-pill-off'}`}>{breakoutMonitorOn ? 'ON' : 'IDLE'}</span>
                   </div>
                   <p className="text-white text-xs font-semibold">Breakout Monitor</p>
                   <p className="text-gray-500 text-[10px] mt-0.5">Session breakouts</p>

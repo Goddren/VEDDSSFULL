@@ -572,13 +572,15 @@ export default function WeeklyStrategyPage() {
   const [showEaSetup, toggleEaSetup] = useSectionToggle("weekly", "ea_setup", false);
   const [showBrainSection, toggleBrainSection] = useSectionToggle("weekly", "brain", true);
   const [liveEngineTab, setLiveEngineTab] = useState<'activity' | 'market' | 'pairs' | 'combos'>('activity');
-  const [activeTab, setActiveTab] = useState<'plan'|'config'|'brain'|'engine'|'monitor'>('plan');
+  const [activeTab, setActiveTab] = useState<'plan'|'config'|'brain'|'engine'|'monitor'|'pacing'>('plan');
+  const [pacingResult, setPacingResult] = useState<any>(null);
+  const [pacingLoading, setPacingLoading] = useState(false);
 
   // Deep-link support: ?tab=engine, ?tab=monitor, etc.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const tab = params.get('tab');
-    if (tab && ['plan','config','brain','engine','monitor'].includes(tab)) {
+    if (tab && ['plan','config','brain','engine','monitor','pacing'].includes(tab)) {
       setActiveTab(tab as any);
     }
   }, []);
@@ -1254,9 +1256,10 @@ export default function WeeklyStrategyPage() {
           {([
             { id: 'plan',    label: '1. Weekly Plan',    emoji: '📅' },
             { id: 'config',  label: '2. AI Config',      emoji: '⚙️' },
-            { id: 'brain',   label: '3. Brain Dashboard', emoji: '🧠' },
+            { id: 'brain',   label: '3. Brain',          emoji: '🧠' },
             { id: 'engine',  label: '4. Live Engine',    emoji: '⚡' },
-            { id: 'monitor', label: '5. Session Monitor', emoji: '📊' },
+            { id: 'monitor', label: '5. Monitor',        emoji: '📊' },
+            { id: 'pacing',  label: '6. Goal Pacing',    emoji: '🎯' },
           ] as const).map(tab => (
             <button
               key={tab.id}
@@ -3939,6 +3942,308 @@ export default function WeeklyStrategyPage() {
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {/* ─── Tab: Goal Pacing Agent ───────────────────────────── */}
+        {activeTab === 'pacing' && (
+          <div className="space-y-4">
+
+            {/* Header + Run button */}
+            <div className="bg-gradient-to-r from-orange-950/40 to-amber-950/30 border border-orange-500/30 rounded-2xl p-5">
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-xl bg-orange-500/20">
+                    <Target className="w-5 h-5 text-orange-400" />
+                  </div>
+                  <div>
+                    <h2 className="text-white font-bold text-base">Goal Pacing Agent</h2>
+                    <p className="text-gray-400 text-xs mt-0.5">AI analyses all your week's trades — SWOT + exact plan to hit your target</p>
+                  </div>
+                </div>
+                <Button
+                  onClick={async () => {
+                    setPacingLoading(true);
+                    try {
+                      const res = await apiRequest('POST', '/api/goal-pacing/analyze', {});
+                      const data = await res.json();
+                      setPacingResult(data);
+                    } catch (e: any) {
+                      toast({ title: 'Analysis failed', description: e?.message || 'Check your connection', variant: 'destructive' });
+                    } finally {
+                      setPacingLoading(false);
+                    }
+                  }}
+                  disabled={pacingLoading}
+                  className="bg-orange-600 hover:bg-orange-700 text-white gap-2 shrink-0"
+                >
+                  {pacingLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                  {pacingLoading ? 'Analysing…' : pacingResult ? 'Re-Run Analysis' : 'Run Full Analysis'}
+                </Button>
+              </div>
+            </div>
+
+            {!pacingResult && !pacingLoading && (
+              <div className="text-center py-12 text-gray-500">
+                <Target className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                <p className="text-sm">Click <span className="text-orange-400 font-semibold">Run Full Analysis</span> to get your personalised plan</p>
+                <p className="text-xs mt-1 text-gray-600">AI scans every trade this week, calculates pace, and builds 3 paths to your goal</p>
+              </div>
+            )}
+
+            {pacingLoading && (
+              <div className="text-center py-12 text-gray-400">
+                <Brain className="w-10 h-10 mx-auto mb-3 text-orange-400 animate-pulse" />
+                <p className="text-sm">Reading your week's trades and calculating paths to goal…</p>
+              </div>
+            )}
+
+            {pacingResult && !pacingLoading && (() => {
+              const p = pacingResult;
+              const pace = p.pace || {};
+              const metrics = p.metrics || {};
+              const swot = p.swot || {};
+              const plans: any[] = p.plans || [];
+              const tsa = p.tradeSizeAnalysis || {};
+
+              const paceColor = pace.status === 'AHEAD' ? 'text-emerald-400' :
+                                pace.status === 'ON_TRACK' ? 'text-cyan-400' :
+                                pace.status === 'BEHIND' ? 'text-amber-400' : 'text-red-400';
+              const paceBg = pace.status === 'AHEAD' ? 'bg-emerald-500/10 border-emerald-500/30' :
+                              pace.status === 'ON_TRACK' ? 'bg-cyan-500/10 border-cyan-500/30' :
+                              pace.status === 'BEHIND' ? 'bg-amber-500/10 border-amber-500/30' :
+                              'bg-red-500/10 border-red-500/30';
+              const paceEmoji = pace.status === 'AHEAD' ? '🚀' : pace.status === 'ON_TRACK' ? '✅' : pace.status === 'BEHIND' ? '⚠️' : '🔴';
+
+              return (
+                <div className="space-y-4">
+
+                  {/* Pace Summary Bar */}
+                  <div className={`rounded-2xl border p-4 ${paceBg}`}>
+                    <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg">{paceEmoji}</span>
+                        <span className={`font-bold text-sm ${paceColor}`}>{pace.status?.replace('_', ' ')}</span>
+                      </div>
+                      <div className="flex items-center gap-4 text-xs flex-wrap">
+                        <span className="text-gray-400">${(pace.closedProfit || 0).toFixed(2)} earned</span>
+                        <span className="text-gray-400">/ ${pace.weekTarget || 0} goal</span>
+                        <span className={`font-bold ${paceColor}`}>{pace.pacePct || 0}%</span>
+                      </div>
+                    </div>
+                    <div className="h-2.5 bg-gray-800/60 rounded-full overflow-hidden mb-3">
+                      <div className="h-full rounded-full transition-all duration-700"
+                        style={{ width: `${Math.min(100, pace.pacePct || 0)}%`, background: pace.status === 'AHEAD' ? 'linear-gradient(90deg,#10b981,#34d399)' : pace.status === 'ON_TRACK' ? 'linear-gradient(90deg,#06b6d4,#22d3ee)' : pace.status === 'BEHIND' ? 'linear-gradient(90deg,#f59e0b,#fbbf24)' : 'linear-gradient(90deg,#dc2626,#ef4444)' }} />
+                    </div>
+                    <div className="grid grid-cols-4 gap-2 text-center">
+                      {[
+                        { label: 'Remaining', value: `$${(pace.deficit || 0).toFixed(2)}` },
+                        { label: 'Days Left', value: pace.daysLeft || 0 },
+                        { label: 'Need/Day', value: `$${(pace.requiredPerDay || 0).toFixed(2)}` },
+                        { label: 'Trades', value: metrics.totalTrades || 0 },
+                      ].map(stat => (
+                        <div key={stat.label} className="bg-black/20 rounded-lg py-2">
+                          <p className="text-white font-bold text-sm">{stat.value}</p>
+                          <p className="text-gray-500 text-[10px] mt-0.5">{stat.label}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Metrics Row */}
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { label: 'Win Rate', value: `${metrics.winRate || 0}%`, color: (metrics.winRate || 0) >= 55 ? 'text-emerald-400' : 'text-amber-400' },
+                      { label: 'Avg Lot', value: metrics.avgLotSize || '—', color: tsa.isUndersized ? 'text-red-400' : 'text-cyan-400' },
+                      { label: 'Profit Factor', value: (metrics.profitFactor || 0).toFixed(2), color: (metrics.profitFactor || 0) >= 1.5 ? 'text-emerald-400' : (metrics.profitFactor || 0) >= 1 ? 'text-amber-400' : 'text-red-400' },
+                    ].map(m => (
+                      <div key={m.label} className="bg-gray-900/60 border border-gray-800 rounded-xl p-3 text-center">
+                        <p className={`font-bold text-lg ${m.color}`}>{m.value}</p>
+                        <p className="text-gray-500 text-[11px] mt-0.5">{m.label}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Trade Size Analysis */}
+                  {tsa.assessment && (
+                    <div className={`rounded-xl border p-4 ${tsa.isUndersized ? 'bg-red-500/8 border-red-500/30' : 'bg-emerald-500/8 border-emerald-500/30'}`}>
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <Swords className={`w-4 h-4 ${tsa.isUndersized ? 'text-red-400' : 'text-emerald-400'}`} />
+                        <span className="text-white font-semibold text-sm">Trade Size Analysis</span>
+                        {tsa.isUndersized && <Badge className="bg-red-500/20 text-red-300 border-0 text-[10px]">UNDERSIZED</Badge>}
+                      </div>
+                      <p className="text-gray-300 text-xs">{tsa.assessment}</p>
+                      {tsa.recommendation && <p className="text-amber-300 text-xs mt-1.5 font-medium">→ {tsa.recommendation}</p>}
+                    </div>
+                  )}
+
+                  {/* SWOT */}
+                  {swot.strengths && (
+                    <div className="rounded-2xl border border-gray-700/60 bg-gray-900/40 p-4">
+                      <h3 className="text-white font-bold text-sm mb-3 flex items-center gap-2"><BookOpen className="w-4 h-4 text-purple-400" /> SWOT Analysis</h3>
+                      <div className="grid grid-cols-2 gap-2">
+                        {[
+                          { key: 'strengths',    label: 'Strengths',    emoji: '💪', color: 'border-emerald-500/30 bg-emerald-500/8' },
+                          { key: 'weaknesses',   label: 'Weaknesses',   emoji: '⚠️',  color: 'border-red-500/30 bg-red-500/8' },
+                          { key: 'opportunities',label: 'Opportunities', emoji: '🚪', color: 'border-cyan-500/30 bg-cyan-500/8' },
+                          { key: 'threats',      label: 'Threats',      emoji: '🔻', color: 'border-amber-500/30 bg-amber-500/8' },
+                        ].map(q => (
+                          <div key={q.key} className={`rounded-xl border p-3 ${q.color}`}>
+                            <p className="text-xs font-bold text-gray-300 mb-2">{q.emoji} {q.label}</p>
+                            <ul className="space-y-1">
+                              {(swot[q.key] || []).map((item: string, i: number) => (
+                                <li key={i} className="text-[11px] text-gray-400 flex items-start gap-1.5">
+                                  <span className="text-gray-600 mt-0.5 shrink-0">•</span>{item}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 3 Plan Cards */}
+                  {plans.length > 0 && (
+                    <div className="space-y-2">
+                      <h3 className="text-white font-bold text-sm flex items-center gap-2"><Rocket className="w-4 h-4 text-orange-400" /> Paths to Goal — Safest to Riskiest</h3>
+                      <div className="space-y-3">
+                        {plans.map((plan: any, i: number) => {
+                          const planColors: Record<string, { border: string; bg: string; badge: string; lotColor: string }> = {
+                            SAFE:       { border: 'border-emerald-500/40', bg: 'bg-emerald-500/8',  badge: 'bg-emerald-500/20 text-emerald-300', lotColor: 'text-emerald-400' },
+                            MODERATE:   { border: 'border-amber-500/40',   bg: 'bg-amber-500/8',    badge: 'bg-amber-500/20 text-amber-300',   lotColor: 'text-amber-400' },
+                            AGGRESSIVE: { border: 'border-red-500/40',     bg: 'bg-red-500/8',      badge: 'bg-red-500/20 text-red-300',       lotColor: 'text-red-400' },
+                          };
+                          const pc = planColors[plan.type] || planColors.MODERATE;
+                          const planEmojis = ['🛡️', '⚖️', '🔥'];
+                          return (
+                            <div key={i} className={`rounded-2xl border p-4 ${pc.border} ${pc.bg}`}>
+                              <div className="flex items-center justify-between mb-3">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-lg">{planEmojis[i] || '📊'}</span>
+                                  <div>
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-white font-bold text-sm">{plan.label}</span>
+                                      <Badge className={`${pc.badge} border-0 text-[10px]`}>{plan.type}</Badge>
+                                    </div>
+                                    {plan.probability && <p className="text-gray-500 text-[10px] mt-0.5">{plan.probability}</p>}
+                                  </div>
+                                </div>
+                                <div className="text-right">
+                                  <p className={`font-bold text-lg ${pc.lotColor}`}>{plan.lotSize}</p>
+                                  <p className="text-gray-500 text-[10px]">lots</p>
+                                </div>
+                              </div>
+                              <div className="grid grid-cols-3 gap-2 mb-3">
+                                {[
+                                  { label: 'Proj. Profit', value: `$${(plan.projectedProfit || 0).toFixed(2)}` },
+                                  { label: 'Trades/Day', value: plan.tradesPerDay || '—' },
+                                  { label: 'Win Rate Needed', value: `${plan.winRateNeeded || 0}%` },
+                                ].map(s => (
+                                  <div key={s.label} className="bg-black/20 rounded-lg py-2 text-center">
+                                    <p className="text-white font-bold text-sm">{s.value}</p>
+                                    <p className="text-gray-500 text-[10px] mt-0.5">{s.label}</p>
+                                  </div>
+                                ))}
+                              </div>
+                              {plan.pairs && plan.pairs.length > 0 && (
+                                <div className="flex flex-wrap gap-1 mb-2">
+                                  {plan.pairs.map((pair: string) => (
+                                    <Badge key={pair} variant="outline" className="text-[10px] border-gray-700 text-gray-400">{pair}</Badge>
+                                  ))}
+                                </div>
+                              )}
+                              {plan.steps && plan.steps.length > 0 && (
+                                <ul className="space-y-1">
+                                  {plan.steps.map((step: string, si: number) => (
+                                    <li key={si} className="flex items-start gap-2 text-[11px] text-gray-400">
+                                      <span className="text-orange-400 font-bold shrink-0 mt-0.5">{si + 1}.</span>{step}
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Overall recommendation */}
+                  {p.overallRecommendation && (
+                    <div className="rounded-xl border border-purple-500/30 bg-purple-500/8 p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Brain className="w-4 h-4 text-purple-400" />
+                        <span className="text-white font-semibold text-sm">VEDD AI Recommendation</span>
+                      </div>
+                      <p className="text-gray-300 text-sm leading-relaxed">{p.overallRecommendation}</p>
+                    </div>
+                  )}
+
+                  {/* SOL Engine bonus */}
+                  {p.solEngine && (
+                    <div className="rounded-xl border border-violet-500/30 bg-violet-500/8 p-4">
+                      <p className="text-xs font-bold text-violet-300 mb-2">🔮 SOL Engine This Week</p>
+                      <div className="grid grid-cols-3 gap-2 text-center">
+                        {[
+                          { label: 'Trades', value: p.solEngine.trades },
+                          { label: 'SOL Profit', value: `${p.solEngine.currentProfit.toFixed(3)}` },
+                          { label: 'Goal', value: `${p.solEngine.currentProfit.toFixed(2)}/${p.solEngine.target}` },
+                        ].map(s => (
+                          <div key={s.label} className="bg-black/20 rounded-lg py-2">
+                            <p className="text-white font-bold text-sm">{s.value}</p>
+                            <p className="text-gray-500 text-[10px] mt-0.5">{s.label}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Week Trades Table */}
+                  {p.weekTrades && p.weekTrades.length > 0 && (
+                    <div className="rounded-2xl border border-gray-700/60 bg-gray-900/40 overflow-hidden">
+                      <div className="px-4 py-3 border-b border-gray-800 flex items-center gap-2">
+                        <BarChart3 className="w-4 h-4 text-gray-400" />
+                        <span className="text-white font-semibold text-sm">All Trades This Week ({p.weekTrades.length})</span>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="border-b border-gray-800">
+                              {['Symbol','Dir','Lots','Profit','Result'].map(h => (
+                                <th key={h} className="px-3 py-2 text-left text-gray-500 font-medium">{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {p.weekTrades.slice(0, 20).map((t: any, i: number) => (
+                              <tr key={i} className="border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors">
+                                <td className="px-3 py-2 text-white font-medium">{t.symbol}</td>
+                                <td className="px-3 py-2">
+                                  <span className={`font-bold ${t.direction === 'BUY' || t.direction === 'LONG' ? 'text-emerald-400' : t.direction === 'SELL' || t.direction === 'SHORT' ? 'text-red-400' : 'text-gray-400'}`}>{t.direction}</span>
+                                </td>
+                                <td className="px-3 py-2 text-gray-400">{t.lots}</td>
+                                <td className={`px-3 py-2 font-medium ${t.profit > 0 ? 'text-emerald-400' : t.profit < 0 ? 'text-red-400' : 'text-gray-500'}`}>
+                                  {t.profit > 0 ? '+' : ''}${t.profit.toFixed(2)}
+                                </td>
+                                <td className="px-3 py-2">
+                                  <Badge className={`text-[10px] border-0 ${t.outcome === 'WIN' ? 'bg-emerald-500/20 text-emerald-300' : t.outcome === 'LOSS' ? 'bg-red-500/20 text-red-300' : 'bg-gray-700/50 text-gray-400'}`}>{t.outcome}</Badge>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        {p.weekTrades.length > 20 && (
+                          <p className="text-center text-gray-600 text-[11px] py-2">+ {p.weekTrades.length - 20} more trades</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                </div>
+              );
+            })()}
+
           </div>
         )}
 

@@ -10872,6 +10872,252 @@ Respond with ONLY valid JSON:
     });
   });
 
+  // ── Goal Pacing Agent — SWOT + trade-size plan to close the week ──────────────
+  app.post("/api/goal-pacing/analyze", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+
+    // ── Load strategy ──────────────────────────────────────────────────
+    let strategy = (global as any).mt5WeeklyStrategies?.[userId];
+    if (!strategy) {
+      const dbStrat = await storage.getActiveWeeklyStrategy(userId);
+      if (!dbStrat) return res.status(404).json({ error: "No active weekly strategy — generate one first" });
+      strategy = {
+        profitTarget: dbStrat.profitTarget, accountBalance: dbStrat.accountBalance,
+        pairs: dbStrat.pairs, riskLevel: dbStrat.riskLevel, lotSize: dbStrat.lotSize,
+        plan: dbStrat.plan, currentProfit: dbStrat.currentProfit || 0,
+        progressTrades: dbStrat.progressTrades || 0, progressWinRate: dbStrat.progressWinRate || 0,
+        weekStart: dbStrat.weekStart,
+      };
+    }
+
+    // ── Gather week trades ─────────────────────────────────────────────
+    const weekStart = new Date(strategy.weekStart || (() => { const d = new Date(); d.setDate(d.getDate() - d.getDay() + 1); d.setUTCHours(0,0,0,0); return d; })());
+    const dbTrades = await storage.getAiTradeResults(userId, 500);
+    const dbWeekTrades = dbTrades.filter((t: any) => {
+      const d = new Date(t.closedAt || t.createdAt);
+      return d >= weekStart && t.result && t.result !== 'PENDING';
+    });
+    const cachedTrades: any[] = (global as any).mt5ClosedTrades?.[userId]?.trades || [];
+    const dbTickets = new Set(dbWeekTrades.map((t: any) => t.mt5Ticket).filter(Boolean));
+    const cacheWeekTrades = cachedTrades.filter((t: any) => {
+      const d = new Date(t.closeTime || t.timestamp || 0);
+      const ticket = t.ticket?.toString();
+      return d >= weekStart && (!ticket || !dbTickets.has(ticket));
+    });
+
+    // ── Metrics ────────────────────────────────────────────────────────
+    const allWeekTrades = [
+      ...dbWeekTrades.map((t: any) => ({
+        symbol: (t.symbol || '—').toUpperCase().replace('/', ''),
+        direction: t.direction || '—',
+        lots: t.lotSize || t.lots || 0,
+        profit: t.profitLoss || 0,
+        outcome: t.result,
+        closedAt: t.closedAt || t.createdAt,
+      })),
+      ...cacheWeekTrades.map((t: any) => ({
+        symbol: (t.symbol || '—').toUpperCase().replace('/', ''),
+        direction: t.direction || '—',
+        lots: t.lots || t.lotSize || 0,
+        profit: t.profit || 0,
+        outcome: (t.profit || 0) > 0 ? 'WIN' : (t.profit || 0) < 0 ? 'LOSS' : 'BREAKEVEN',
+        closedAt: t.closeTime || t.timestamp,
+      })),
+    ].sort((a, b) => new Date(b.closedAt || 0).getTime() - new Date(a.closedAt || 0).getTime());
+
+    const totalTrades = allWeekTrades.length;
+    const wins = allWeekTrades.filter(t => t.outcome === 'WIN').length;
+    const losses = allWeekTrades.filter(t => t.outcome === 'LOSS').length;
+    const winRate = totalTrades > 0 ? Math.round((wins / totalTrades) * 100) : 0;
+    const closedProfit = allWeekTrades.reduce((s, t) => s + t.profit, 0);
+    const weekTarget = strategy.profitTarget || 0;
+    const deficit = Math.max(0, weekTarget - closedProfit);
+    const daysLeft = getDaysRemainingInWeek();
+    const requiredPerDay = daysLeft > 0 ? Math.round((deficit / daysLeft) * 100) / 100 : deficit;
+    const pacePct = weekTarget > 0 ? Math.round((closedProfit / weekTarget) * 100) : 0;
+
+    // Average lot size in use
+    const tradesWithLots = allWeekTrades.filter(t => t.lots > 0);
+    const avgLotSize = tradesWithLots.length > 0
+      ? Math.round((tradesWithLots.reduce((s, t) => s + t.lots, 0) / tradesWithLots.length) * 1000) / 1000
+      : (strategy.lotSize || 0.01);
+    const avgProfitPerTrade = totalTrades > 0 ? closedProfit / totalTrades : 0;
+    const avgWinProfit = wins > 0 ? allWeekTrades.filter(t => t.outcome === 'WIN').reduce((s, t) => s + t.profit, 0) / wins : 0;
+    const avgLossProfit = losses > 0 ? allWeekTrades.filter(t => t.outcome === 'LOSS').reduce((s, t) => s + t.profit, 0) / losses : 0;
+    const profitFactor = losses > 0 && avgLossProfit < 0 ? Math.abs(avgWinProfit * wins / (avgLossProfit * losses)) : wins > 0 ? 99 : 0;
+
+    // SOL engine trade sizes (bonus context)
+    const solEngineStateRaw = (global as any).solEngineStates?.[userId];
+    const solGoal = solEngineStateRaw?.weeklyGoal;
+    const solTradeSize = solEngineStateRaw?.paperTradeSize || 0;
+    const solCurrentProfit = solGoal?.currentProfitSol || 0;
+    const solTarget = solGoal?.targetSol || 0;
+    const solTradeHistory = solGoal?.tradeHistory || [];
+
+    const paceStatus: 'CRITICAL' | 'BEHIND' | 'ON_TRACK' | 'AHEAD' =
+      pacePct < 25 && daysLeft <= 2 ? 'CRITICAL' :
+      pacePct < (100 - daysLeft * 20) ? 'BEHIND' :
+      pacePct >= 100 ? 'AHEAD' : 'ON_TRACK';
+
+    const balance = strategy.accountBalance || 0;
+    const planPairs = (strategy.pairs || []).map((p: string) => p.toUpperCase().replace('/', ''));
+
+    // ── AI Analysis ────────────────────────────────────────────────────
+    let aiResult: any = null;
+    try {
+      const { getUniversalAIClientForUser } = await import('./openai');
+      let openaiClient: any;
+      try { openaiClient = await getUniversalAIClientForUser(userId); } catch { /* skip AI if no key */ }
+
+      if (openaiClient) {
+        const selectedModel = (openaiClient as any).defaultModel || 'gpt-4o-mini';
+        const tradeLines = allWeekTrades.slice(0, 30).map(t =>
+          `${t.symbol} ${t.direction} ${t.lots}L → $${t.profit.toFixed(2)} (${t.outcome})`
+        ).join('\n');
+        const paceLabel = paceStatus === 'CRITICAL' ? '🔴 CRITICAL — Way behind' :
+                          paceStatus === 'BEHIND' ? '🟡 BEHIND pace' :
+                          paceStatus === 'ON_TRACK' ? '🟢 ON TRACK' : '🚀 AHEAD of goal';
+
+        const prompt = `You are VEDD AI — elite trading coach. Analyze this trader's week and return a JSON goal-pacing report.
+
+WEEK STATS:
+- Goal: $${weekTarget} | Achieved: $${closedProfit.toFixed(2)} (${pacePct}%) | Remaining: $${deficit.toFixed(2)}
+- Days left: ${daysLeft} | Need/day: $${requiredPerDay}
+- Pace: ${paceLabel}
+- Trades: ${totalTrades} (${wins}W / ${losses}L) | Win rate: ${winRate}%
+- Avg lot size: ${avgLotSize} | Avg P/trade: $${avgProfitPerTrade.toFixed(2)}
+- Avg win: $${avgWinProfit.toFixed(2)} | Avg loss: $${avgLossProfit.toFixed(2)} | Profit factor: ${profitFactor.toFixed(2)}
+- Account balance: $${balance} | Pairs: ${planPairs.join(', ')}
+${solTarget > 0 ? `- SOL Engine: ${solTradeHistory.length} trades, ${solCurrentProfit.toFixed(3)}/${solTarget} SOL goal, trade size ${solTradeSize || 'portfolio %'} SOL` : ''}
+
+TRADES THIS WEEK (most recent first):
+${tradeLines || 'No trades recorded yet'}
+
+Return this EXACT JSON (no markdown, no commentary):
+{
+  "swot": {
+    "strengths": ["max 3 short bullets — what is working"],
+    "weaknesses": ["max 3 short bullets — what is hurting"],
+    "opportunities": ["max 3 short bullets — where gains are available"],
+    "threats": ["max 3 short bullets — risks that could derail the week"]
+  },
+  "tradeSizeAnalysis": {
+    "currentAvgLot": ${avgLotSize},
+    "assessment": "one sentence on whether size is adequate",
+    "isUndersized": true|false,
+    "recommendation": "one sentence specific advice"
+  },
+  "plans": [
+    {
+      "type": "SAFE",
+      "label": "short catchy name",
+      "lotSize": number (incremental increase, low risk),
+      "pairs": ["1-2 highest win-rate pairs only"],
+      "tradesPerDay": number,
+      "winRateNeeded": number,
+      "projectedProfit": number,
+      "risk": "LOW",
+      "steps": ["3 specific actionable steps"],
+      "probability": "X% chance of hitting goal"
+    },
+    {
+      "type": "MODERATE",
+      "label": "short catchy name",
+      "lotSize": number (moderate increase),
+      "pairs": ["2-3 pairs"],
+      "tradesPerDay": number,
+      "winRateNeeded": number,
+      "projectedProfit": number,
+      "risk": "MEDIUM",
+      "steps": ["3 specific actionable steps"],
+      "probability": "X% chance of hitting goal"
+    },
+    {
+      "type": "AGGRESSIVE",
+      "label": "short catchy name",
+      "lotSize": number (significant increase — max 3% account risk per trade),
+      "pairs": ["all high-liquidity pairs"],
+      "tradesPerDay": number,
+      "winRateNeeded": number,
+      "projectedProfit": number,
+      "risk": "HIGH",
+      "steps": ["3 specific actionable steps"],
+      "probability": "X% chance of hitting goal"
+    }
+  ],
+  "overallRecommendation": "2-3 sentences: current situation summary + best path forward + mindset anchor"
+}`;
+
+        const completion = await openaiClient.chat.completions.create({
+          model: selectedModel,
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.4,
+          max_tokens: 1400,
+          response_format: { type: 'json_object' },
+        });
+        const raw = completion.choices[0]?.message?.content || '{}';
+        aiResult = JSON.parse(raw);
+      }
+    } catch (aiErr: any) {
+      console.error('[Goal Pacing Agent] AI error:', aiErr?.message);
+    }
+
+    // Fallback if AI unavailable — compute plans mathematically
+    if (!aiResult) {
+      const safeMultiplier = Math.max(1.5, Math.min(3, deficit / Math.max(1, avgWinProfit * wins)));
+      aiResult = {
+        swot: {
+          strengths: wins > 0 ? [`${winRate}% win rate this week`, `${wins} winning trades secured`] : ['Trading activity is recorded'],
+          weaknesses: [`Trade size may be too small to reach $${weekTarget} goal`, losses > wins ? 'Win rate below 50%' : 'Profit per trade is low'],
+          opportunities: [`${daysLeft} trading days remain`, `Increase lot size to accelerate progress`],
+          threats: ['Running out of time if size stays at ' + avgLotSize, 'Overtrading risk if rushing to catch up'],
+        },
+        tradeSizeAnalysis: {
+          currentAvgLot: avgLotSize,
+          assessment: avgLotSize <= 0.02 ? 'Current lot size is very small — unlikely to hit goal without adjustment' : 'Lot size is reasonable but may need scaling',
+          isUndersized: deficit > 0 && totalTrades > 2 && avgProfitPerTrade < deficit / Math.max(5, 5 * daysLeft),
+          recommendation: `Consider scaling to ${Math.round(Math.min(avgLotSize * safeMultiplier, balance * 0.01 / 10) * 1000) / 1000} lots to hit target within ${daysLeft} days`,
+        },
+        plans: [
+          {
+            type: 'SAFE', label: 'Steady Climb',
+            lotSize: Math.round(Math.min(avgLotSize * 1.5, balance * 0.005 / 10) * 1000) / 1000,
+            pairs: planPairs.slice(0, 1), tradesPerDay: 3, winRateNeeded: 65,
+            projectedProfit: Math.round(deficit * 0.7 * 100) / 100, risk: 'LOW',
+            steps: ['Focus on 1 pair only — highest historical win rate', 'Wait for A+ setups only — skip B setups', 'Move SL to breakeven at 1:1 R:R'],
+            probability: pacePct > 50 ? '70% chance' : '45% chance',
+          },
+          {
+            type: 'MODERATE', label: 'Balanced Push',
+            lotSize: Math.round(Math.min(avgLotSize * 2, balance * 0.01 / 10) * 1000) / 1000,
+            pairs: planPairs.slice(0, 2), tradesPerDay: 4, winRateNeeded: 60,
+            projectedProfit: Math.round(deficit * 0.9 * 100) / 100, risk: 'MEDIUM',
+            steps: ['Scale size to 2× your current average', 'Target 4 trades/day across 2 pairs', 'Use ORB breakout entries only — no counter-trend'],
+            probability: '60% chance',
+          },
+          {
+            type: 'AGGRESSIVE', label: 'Max Sprint',
+            lotSize: Math.round(Math.min(avgLotSize * 3.5, balance * 0.02 / 10) * 1000) / 1000,
+            pairs: planPairs, tradesPerDay: 6, winRateNeeded: 55,
+            projectedProfit: Math.round(deficit * 1.1 * 100) / 100, risk: 'HIGH',
+            steps: ['Scale to 3× size — ONLY if win rate is above 55%', 'Cover all plan pairs, watch every session', 'Set hard daily loss limit of 40% of remaining deficit'],
+            probability: '40% chance — high variance',
+          },
+        ],
+        overallRecommendation: `You are ${pacePct}% toward your $${weekTarget} goal with ${daysLeft} trading days left. Your current average lot size (${avgLotSize}) is generating $${avgProfitPerTrade.toFixed(2)} per trade — you need to increase size to realistically close the gap. The safest path is the Steady Climb: focus on your best pair, increase size modestly, and execute only A+ setups.`,
+      };
+    }
+
+    res.json({
+      pace: { status: paceStatus, pacePct, closedProfit: Math.round(closedProfit * 100) / 100, weekTarget, deficit: Math.round(deficit * 100) / 100, daysLeft, requiredPerDay },
+      metrics: { totalTrades, wins, losses, winRate, avgLotSize, avgProfitPerTrade: Math.round(avgProfitPerTrade * 100) / 100, avgWinProfit: Math.round(avgWinProfit * 100) / 100, avgLossProfit: Math.round(avgLossProfit * 100) / 100, profitFactor: Math.round(profitFactor * 100) / 100 },
+      weekTrades: allWeekTrades.slice(0, 50),
+      solEngine: solTarget > 0 ? { currentProfit: Math.round(solCurrentProfit * 1000) / 1000, target: solTarget, trades: solTradeHistory.length, tradeSize: solTradeSize } : null,
+      ...aiResult,
+    });
+  });
+
   // VEDD SS AI Live Mode - toggle live trading guided by the plan
   (global as any).mt5VeddSSAILive = (global as any).mt5VeddSSAILive || {};
 
@@ -12331,6 +12577,15 @@ Format each recommendation as a clear, concise action item.`;
   });
 
   app.get("/api/vedd-brain/status", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const brain = (global as any).veddAIBrain?.[userId];
+    if (!brain) return res.json({ learned: false, message: "Brain has not learned yet. Trigger learning first." });
+    res.json({ learned: true, ...brain });
+  });
+
+  // Alias used by the dashboard — proxies to /api/vedd-brain/status
+  app.get("/api/vedd-live-engine/brain-status", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
     const brain = (global as any).veddAIBrain?.[userId];
@@ -16639,6 +16894,16 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         paperBaseCapital: paperBaseCapital !== undefined ? Number(paperBaseCapital) : undefined,
       });
       res.json({ success: true });
+    });
+
+    app.post("/api/sol-engine/shield", async (req: Request, res: Response) => {
+      if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+      const { setShieldActive } = await import('./services/sol-engine');
+      const { active } = req.body;
+      if (typeof active !== 'boolean') return res.status(400).json({ error: "active (boolean) required" });
+      const result = setShieldActive((req.user as User).id, active);
+      if (!result.success) return res.status(400).json({ error: "Engine not running" });
+      res.json(result);
     });
   }
 

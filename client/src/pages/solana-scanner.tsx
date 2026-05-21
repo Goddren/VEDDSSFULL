@@ -2837,6 +2837,15 @@ export default function SolanaScanner() {
     },
   });
 
+  const toggleShieldMutation = useMutation({
+    mutationFn: (active: boolean) => apiRequest('POST', '/api/sol-engine/shield', { active }),
+    onSuccess: (_data: any, active: boolean) => {
+      toast({ title: active ? '🛡️ Shield manually activated' : '✅ Shield deactivated', description: active ? 'Engine restricted to high-confidence signals only' : 'Full cipher resumed' });
+      refetchEngineStatus();
+    },
+    onError: () => toast({ title: 'Failed to toggle shield', variant: 'destructive' }),
+  });
+
   const recordResultMutation = useMutation({
     mutationFn: (params: { dex: string; outcome: 'WIN' | 'LOSS'; gainPct: number }) =>
       apiRequest('POST', '/api/sol-engine/record-result', params),
@@ -3520,6 +3529,16 @@ export default function SolanaScanner() {
               <div className="flex items-center gap-2">
                 {solEngineAiMode === 'economy' && (
                   <span className="text-[9px] font-bold text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 rounded px-1.5 py-0.5 tracking-wide">COST REDUCED</span>
+                )}
+                {solEngineRunning && (
+                  <button
+                    onClick={() => toggleShieldMutation.mutate(!shieldOn)}
+                    disabled={toggleShieldMutation.isPending}
+                    title={shieldOn ? 'Deactivate shield' : 'Activate shield (restrict to 85%+ confidence)'}
+                    className={`p-1.5 rounded-lg transition-colors ${shieldOn ? 'text-amber-300 bg-amber-500/20 hover:bg-amber-500/30' : 'text-gray-400 hover:text-amber-300 hover:bg-amber-500/10'}`}
+                  >
+                    <Shield className="w-4 h-4" />
+                  </button>
                 )}
                 <button onClick={() => setSolEngineSettingsOpen(o => !o)} className="p-1.5 rounded-lg text-gray-400 hover:text-gray-200 hover:bg-gray-700/50 transition-colors">
                   <Settings className="w-4 h-4" />
