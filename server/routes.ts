@@ -827,6 +827,112 @@ async function pushStrategyToAllPlatforms(
   return result;
 }
 
+// ── SS Engine: Forex Quant Rules Agent ──────────────────────────────────────
+// Mirrors the SOL engine's runQuantRulesAgent — scores a forex signal against
+// hard technical rules without calling an LLM.  Used to build dual-vote consensus.
+interface ForexQuantResult {
+  verdict: 'CONFIRM' | 'WATCH' | 'SKIP';
+  score: number;   // 0-100
+  reasons: string[];
+}
+
+function runForexQuantAgent(
+  signal: string,
+  indicators: any,
+  smcContext: any,
+): ForexQuantResult {
+  const reasons: string[] = [];
+  const isBuy  = signal === 'BUY';
+  const isSell = signal === 'SELL';
+  if (!isBuy && !isSell) return { verdict: 'SKIP', score: 0, reasons: ['No directional signal'] };
+
+  let score = 0;
+
+  // 1. EMA trend alignment — 25 pts
+  const ma = indicators.movingAverages;
+  if (ma) {
+    const ema20  = ma.ema20?.value  ?? ma.ema20;
+    const ema50  = ma.ema50?.value  ?? ma.ema50;
+    const sma200 = ma.sma200?.value ?? ma.sma200;
+    const price  = indicators.price?.bid || 0;
+    if (isBuy) {
+      if (ema20 && ema50 && ema20 > ema50) { score += 10; reasons.push('EMA20 > EMA50 ✓'); }
+      if (ema50 && sma200 && ema50 > sma200) { score += 10; reasons.push('EMA50 > SMA200 ✓'); }
+      if (price && ema20 && price > ema20) { score += 5; reasons.push('Price above EMA20 ✓'); }
+    } else {
+      if (ema20 && ema50 && ema20 < ema50) { score += 10; reasons.push('EMA20 < EMA50 ✓'); }
+      if (ema50 && sma200 && ema50 < sma200) { score += 10; reasons.push('EMA50 < SMA200 ✓'); }
+      if (price && ema20 && price < ema20) { score += 5; reasons.push('Price below EMA20 ✓'); }
+    }
+  }
+
+  // 2. RSI — 20 pts
+  const rsiRaw = indicators.rsi?.value ?? indicators.rsi;
+  if (typeof rsiRaw === 'number') {
+    if (isBuy) {
+      if (rsiRaw >= 40 && rsiRaw <= 65) { score += 20; reasons.push(`RSI ${rsiRaw.toFixed(0)} in buy zone ✓`); }
+      else if (rsiRaw < 30)             { score += 10; reasons.push(`RSI oversold ${rsiRaw.toFixed(0)}`); }
+      else if (rsiRaw > 75)             { score -= 10; reasons.push(`RSI overbought ${rsiRaw.toFixed(0)} ✗`); }
+    } else {
+      if (rsiRaw >= 35 && rsiRaw <= 60) { score += 20; reasons.push(`RSI ${rsiRaw.toFixed(0)} in sell zone ✓`); }
+      else if (rsiRaw > 70)             { score += 10; reasons.push(`RSI overbought ${rsiRaw.toFixed(0)}`); }
+      else if (rsiRaw < 25)             { score -= 10; reasons.push(`RSI oversold ${rsiRaw.toFixed(0)} ✗`); }
+    }
+  }
+
+  // 3. MACD histogram + crossover — 20 pts
+  const macd = indicators.macd;
+  if (macd) {
+    const hist = macd.histogram?.value ?? macd.histogram;
+    const main = macd.main?.value    ?? macd.main;
+    const sig  = macd.signal?.value  ?? macd.signal;
+    if (typeof hist === 'number') {
+      if (isBuy && hist > 0)  { score += 15; reasons.push(`MACD hist +${hist.toFixed(5)} ✓`); }
+      else if (isSell && hist < 0) { score += 15; reasons.push(`MACD hist ${hist.toFixed(5)} ✓`); }
+      else reasons.push('MACD histogram opposes signal ✗');
+    }
+    if (typeof main === 'number' && typeof sig === 'number') {
+      if ((isBuy && main > sig) || (isSell && main < sig)) { score += 5; reasons.push('MACD line crossed ✓'); }
+    }
+  }
+
+  // 4. Volume — 15 pts
+  const volStatus = indicators.sessionContext?.volumeStatus || indicators.volumeProfile?.volumeStatus;
+  if (volStatus) {
+    if (volStatus === 'SURGING')        { score += 15; reasons.push('Volume SURGING ✓'); }
+    else if (volStatus === 'ABOVE_AVERAGE') { score += 10; reasons.push('Volume above avg ✓'); }
+    else if (volStatus === 'DRY')       { score -= 5;  reasons.push('Volume DRY ✗'); }
+  }
+
+  // 5. ADX trend strength — 10 pts
+  const adxVal = indicators.adx?.value ?? (typeof indicators.adx === 'number' ? indicators.adx : null);
+  if (typeof adxVal === 'number') {
+    if (adxVal >= 25) { score += 10; reasons.push(`ADX ${adxVal.toFixed(0)} trending ✓`); }
+    else if (adxVal < 20) reasons.push(`ADX ${adxVal.toFixed(0)} ranging ✗`);
+  }
+
+  // 6. SMC structure — 10 pts
+  if (smcContext) {
+    if (smcContext.bosCHOCH?.detected) {
+      const dir = smcContext.bosCHOCH.direction;
+      if ((isBuy && dir === 'BULLISH') || (isSell && dir === 'BEARISH')) {
+        score += 5; reasons.push(`BOS/CHOCH ${dir} aligned ✓`);
+      }
+    }
+    if (smcContext.fvg?.detected && smcContext.fvg?.inZone) {
+      const dir = smcContext.fvg.direction;
+      if ((isBuy && dir === 'BULLISH') || (isSell && dir === 'BEARISH')) {
+        score += 5; reasons.push(`FVG in zone ${dir} ✓`);
+      }
+    }
+  }
+
+  score = Math.max(0, Math.min(100, score));
+  const verdict: 'CONFIRM' | 'WATCH' | 'SKIP' =
+    score >= 65 ? 'CONFIRM' : score >= 40 ? 'WATCH' : 'SKIP';
+  return { verdict, score, reasons };
+}
+
 export async function registerRoutes(app: Express, existingServer?: Server): Promise<Server> {
   // Initialize Twilio if credentials are available
   setupTwilio();
@@ -8778,10 +8884,42 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               if (aiConfirmation) aiConfirmation.trailRecommendation = 'NONE';
             }
             
+            // ── Quant Rules Agent — dual-vote consensus (mirrors SOL engine) ────────
+            const quantResult = runForexQuantAgent(preConfirmSignal, analysis.indicators, smcContext);
+            const aiVerdict: 'CONFIRM' | 'SKIP' = (() => {
+              if (useBreakoutMode) return aiConfirmation.confirmed ? 'CONFIRM' : 'SKIP';
+              const { getAiMinConfidence: _getMin } = { getAiMinConfidence: (uid: number) => 65 };
+              return aiConfirmation.aiConfidence >= 65 ? 'CONFIRM' : 'SKIP';
+            })();
+            type SSConsensusLabel = 'STRONG_CONFIRM' | 'STRONG_SKIP' | 'CAUTION' | 'WATCH';
+            const consensusLabel: SSConsensusLabel =
+              quantResult.verdict === 'CONFIRM' && aiVerdict === 'CONFIRM' ? 'STRONG_CONFIRM' :
+              quantResult.verdict === 'SKIP'    && aiVerdict === 'SKIP'    ? 'STRONG_SKIP' :
+              (quantResult.verdict === 'CONFIRM' && aiVerdict === 'SKIP') ||
+              (quantResult.verdict === 'SKIP'    && aiVerdict === 'CONFIRM') ? 'CAUTION' : 'WATCH';
+
+            // Store in global consensus feed (last 20 per user, newest first)
+            const ssConsensusEntry = {
+              symbol: sanitizedSymbol, timeframe: sanitizedTimeframe,
+              quantVerdict: quantResult.verdict, quantScore: quantResult.score,
+              quantReasons: quantResult.reasons,
+              aiVerdict, aiConfidence: aiConfirmation.aiConfidence,
+              consensus: consensusLabel,
+              tradeAllowed: consensusLabel !== 'STRONG_SKIP',
+              timestamp: new Date().toISOString(),
+            };
+            (global as any).ssEngineConsensus = (global as any).ssEngineConsensus || {};
+            (global as any).ssEngineConsensus[token.userId] = [
+              ssConsensusEntry,
+              ...((global as any).ssEngineConsensus[token.userId] || []).filter((c: any) => c.symbol !== sanitizedSymbol),
+            ].slice(0, 20);
+
+            console.log(`[SS Consensus] ${sanitizedSymbol} — Quant:${quantResult.verdict}(${quantResult.score}) AI:${aiVerdict}(${aiConfirmation.aiConfidence}%) → ${consensusLabel}`);
+
             // Confidence gate: AI can override low EA confidence if AI is confident enough
             // - Both pass (EA >= 80% AND AI >= threshold) → APPROVED
             // - AI passes but EA doesn't (AI >= threshold) → AI OVERRIDE (trade allowed)
-            // - AI fails (regardless of EA) → BLOCKED
+            // - STRONG_SKIP (both quant + AI reject) → BLOCKED regardless of individual scores
             // In breakout mode: bypass percentage gate — confirmed=true when ≥3 strategies align (set in getBreakoutConfirmation)
             const { getAiMinConfidence } = await import('./openai');
             const AI_MIN_CONFIDENCE = getAiMinConfidence(token.userId);
@@ -8791,16 +8929,19 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               ? aiConfirmation.confirmed
               : aiConfirmation.aiConfidence >= AI_MIN_CONFIDENCE;
             const eaPasses = preConfirmConfidence >= EA_MIN_CONFIDENCE_FOR_AI_GATE;
-            const tradeAllowed = aiPasses; // AI/breakout-grade is the deciding factor
+            // STRONG_SKIP = both agents independently say NO → hard block
+            const tradeAllowed = consensusLabel !== 'STRONG_SKIP' && aiPasses;
 
             if (!tradeAllowed) {
-              const reason = useBreakoutMode
+              const reason = consensusLabel === 'STRONG_SKIP'
+                ? `Dual-agent STRONG_SKIP — Quant:${quantResult.verdict}(${quantResult.score}) + AI:${aiVerdict}(${aiConfirmation.aiConfidence}%) both reject`
+                : useBreakoutMode
                 ? `Breakout grade insufficient (Grade ${breakoutGrade || 'PASS'} — Grade A (≥70%) or B (≥50%) required to CONFIRM)`
                 : (!eaPasses
                   ? `Both below threshold (AI: ${aiConfirmation.aiConfidence}% < ${AI_MIN_CONFIDENCE}%, EA: ${preConfirmConfidence}% < ${EA_MIN_CONFIDENCE_FOR_AI_GATE}%)`
                   : `AI confidence too low (AI: ${aiConfirmation.aiConfidence}% < ${AI_MIN_CONFIDENCE}%, EA: ${preConfirmConfidence}%)`);
               console.log(`[AI Vision Confirmation] BLOCKED trade on ${sanitizedSymbol} - ${reason}: ${aiConfirmation.reasoning}`);
-              analysis.alerts.push(`TRADE BLOCKED: ${reason} - ${aiConfirmation.reasoning}`);
+              analysis.alerts.push(`TRADE BLOCKED [${consensusLabel}]: ${reason} - ${aiConfirmation.reasoning}`);
               aiConfirmation.confirmed = false;
               analysis.tradePlan = null;
               analysis.signal = 'NEUTRAL';
@@ -8822,9 +8963,9 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               });
             } else {
               const isAiOverride = aiPasses && !eaPasses;
-              const approvalLabel = isAiOverride ? 'AI OVERRIDE' : 'APPROVED';
-              console.log(`[AI Vision Confirmation] ${approvalLabel} trade on ${sanitizedSymbol} (EA: ${preConfirmConfidence}% | AI: ${aiConfirmation.aiConfidence}%)${isAiOverride ? ' - AI confidence overriding low EA' : ''}: ${aiConfirmation.reasoning}`);
-              analysis.alerts.push(`TRADE ${approvalLabel} (EA: ${preConfirmConfidence}% | AI: ${aiConfirmation.aiConfidence}%)${isAiOverride ? ' [AI overrode low EA]' : ''} - ${aiConfirmation.reasoning}`);
+              const approvalLabel = consensusLabel === 'STRONG_CONFIRM' ? 'STRONG CONFIRM' : isAiOverride ? 'AI OVERRIDE' : 'APPROVED';
+              console.log(`[AI Vision Confirmation] ${approvalLabel} [${consensusLabel}] trade on ${sanitizedSymbol} (EA: ${preConfirmConfidence}% | AI: ${aiConfirmation.aiConfidence}% | Quant: ${quantResult.score})${isAiOverride ? ' - AI overriding low EA' : ''}: ${aiConfirmation.reasoning}`);
+              analysis.alerts.push(`TRADE ${approvalLabel} [${consensusLabel}] (EA: ${preConfirmConfidence}% | AI: ${aiConfirmation.aiConfidence}% | Quant: ${quantResult.score}/100)${isAiOverride ? ' [AI overrode low EA]' : ''} - ${aiConfirmation.reasoning}`);
               aiConfirmation.confirmed = true;
               // Breakout mode: synchronize analysis.signal to the confirmed breakout direction
               if (useBreakoutMode && aiConfirmation.aiDirection && aiConfirmation.aiDirection !== 'NEUTRAL') {
@@ -13044,6 +13185,20 @@ Respond with ONLY valid JSON:
     const state = updateLiveEngineConfig(userId, req.body);
     if (!state) return res.status(400).json({ error: 'Engine not running' });
     res.json({ success: true, state });
+  });
+
+  // SS Engine dual-vote consensus feed (quant + AI per signal)
+  app.get("/api/ss-engine/consensus", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const consensus = (global as any).ssEngineConsensus?.[userId] || [];
+    const summary = {
+      strongConfirm: consensus.filter((c: any) => c.consensus === 'STRONG_CONFIRM').length,
+      strongSkip:    consensus.filter((c: any) => c.consensus === 'STRONG_SKIP').length,
+      caution:       consensus.filter((c: any) => c.consensus === 'CAUTION').length,
+      watch:         consensus.filter((c: any) => c.consensus === 'WATCH').length,
+    };
+    res.json({ consensus, summary, updatedAt: consensus[0]?.timestamp || null });
   });
 
   app.get("/api/vedd-live-engine/mt5-signals", async (req: Request, res: Response) => {

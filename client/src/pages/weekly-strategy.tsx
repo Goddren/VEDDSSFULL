@@ -605,6 +605,11 @@ export default function WeeklyStrategyPage() {
     refetchInterval: 120000,
   });
 
+  const { data: ssConsensusData } = useQuery<{ consensus: any[]; summary: any; updatedAt: string | null }>({
+    queryKey: ['/api/ss-engine/consensus'],
+    refetchInterval: 15000,
+  });
+
   // Auto-detect connected account balance (MT5 or TradeLocker)
   const { data: mt5AccountData } = useQuery<any>({
     queryKey: ['/api/mt5/account-data'],
@@ -3887,6 +3892,94 @@ export default function WeeklyStrategyPage() {
                 </>
               )}
             </div>
+
+            {/* ── SS Engine Dual-Vote Consensus Panel ── */}
+            <div className="bg-gray-900/60 border border-gray-800 rounded-xl p-5">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 rounded-lg bg-purple-500/20">
+                    <Swords className="w-4 h-4 text-purple-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-white font-bold text-sm">SS Engine Dual-Vote Consensus</h3>
+                    <p className="text-gray-500 text-[11px] mt-0.5">Quant Rules Agent + AI Vision Agent — both must agree to fire a trade</p>
+                  </div>
+                </div>
+                {ssConsensusData?.updatedAt && (
+                  <span className="text-[10px] text-gray-600">Last signal: {new Date(ssConsensusData.updatedAt).toLocaleTimeString()}</span>
+                )}
+              </div>
+
+              {/* Summary chips */}
+              {ssConsensusData?.summary && (
+                <div className="grid grid-cols-4 gap-2 mb-4">
+                  {[
+                    { key: 'strongConfirm', label: 'STRONG CONFIRM', color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/30', emoji: '✅' },
+                    { key: 'caution',       label: 'CAUTION',        color: 'text-amber-400',   bg: 'bg-amber-500/10 border-amber-500/30',   emoji: '⚠️' },
+                    { key: 'watch',         label: 'WATCH',          color: 'text-cyan-400',    bg: 'bg-cyan-500/10 border-cyan-500/30',     emoji: '👁️' },
+                    { key: 'strongSkip',    label: 'STRONG SKIP',    color: 'text-red-400',     bg: 'bg-red-500/10 border-red-500/30',       emoji: '🚫' },
+                  ].map(s => (
+                    <div key={s.key} className={`rounded-xl border p-2.5 text-center ${s.bg}`}>
+                      <p className="text-lg">{s.emoji}</p>
+                      <p className={`font-bold text-lg ${s.color}`}>{(ssConsensusData.summary as any)[s.key] || 0}</p>
+                      <p className="text-[10px] text-gray-500 mt-0.5">{s.label}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {!ssConsensusData?.consensus?.length ? (
+                <div className="text-center py-8 text-gray-600">
+                  <Swords className="w-8 h-8 mx-auto mb-2 opacity-20" />
+                  <p className="text-sm">No signals processed yet — consensus appears as soon as your MT5 EA sends signals</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {ssConsensusData.consensus.slice(0, 10).map((c: any, i: number) => {
+                    const consensusColors: Record<string, { border: string; badge: string }> = {
+                      STRONG_CONFIRM: { border: 'border-emerald-500/30', badge: 'bg-emerald-500/20 text-emerald-300' },
+                      CAUTION:        { border: 'border-amber-500/30',   badge: 'bg-amber-500/20 text-amber-300' },
+                      WATCH:          { border: 'border-cyan-500/30',    badge: 'bg-cyan-500/20 text-cyan-300' },
+                      STRONG_SKIP:    { border: 'border-red-500/30',     badge: 'bg-red-500/20 text-red-300' },
+                    };
+                    const cc = consensusColors[c.consensus] || consensusColors.WATCH;
+                    return (
+                      <div key={i} className={`rounded-xl border p-3 bg-gray-900/60 ${cc.border}`}>
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-white font-bold text-sm">{c.symbol}</span>
+                            <span className="text-gray-500 text-[10px]">{c.timeframe}</span>
+                            <Badge className={`${cc.badge} border-0 text-[10px]`}>{c.consensus.replace('_', ' ')}</Badge>
+                          </div>
+                          <span className="text-gray-600 text-[10px]">{new Date(c.timestamp).toLocaleTimeString()}</span>
+                        </div>
+                        <div className="flex items-center gap-3 text-xs">
+                          <div className={`flex items-center gap-1 ${c.quantVerdict === 'CONFIRM' ? 'text-emerald-400' : c.quantVerdict === 'SKIP' ? 'text-red-400' : 'text-amber-400'}`}>
+                            <BarChart3 className="w-3 h-3" />
+                            <span>Quant: {c.quantVerdict} ({c.quantScore}/100)</span>
+                          </div>
+                          <div className={`flex items-center gap-1 ${c.aiVerdict === 'CONFIRM' ? 'text-emerald-400' : 'text-red-400'}`}>
+                            <Brain className="w-3 h-3" />
+                            <span>AI: {c.aiVerdict} ({c.aiConfidence}%)</span>
+                          </div>
+                          <span className={c.tradeAllowed ? 'text-emerald-400' : 'text-red-400'}>
+                            {c.tradeAllowed ? '✓ Allowed' : '✗ Blocked'}
+                          </span>
+                        </div>
+                        {c.quantReasons?.length > 0 && (
+                          <div className="mt-1.5 flex flex-wrap gap-1">
+                            {c.quantReasons.slice(0, 4).map((r: string, ri: number) => (
+                              <span key={ri} className="text-[10px] text-gray-500 bg-gray-800/60 rounded px-1.5 py-0.5">{r}</span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
           </div>
         )}
 
