@@ -25371,7 +25371,12 @@ ${positionsText}`;
     let decisions = [];
     try {
       decisions = JSON.parse(raw.replace(/```json|```/g, "").trim());
+      if (!Array.isArray(decisions)) decisions = [];
     } catch {
+      addActivity3(state, {
+        type: "info",
+        message: `\u26A0\uFE0F 2nd confirmation AI returned invalid JSON \u2014 consensus skipped this cycle. Raw: ${raw.slice(0, 80)}`
+      });
       return;
     }
     state.aiReviewCache[cacheKey] = { ts: Date.now(), result: decisions };
@@ -25420,7 +25425,11 @@ ${positionsText}`;
     if (newConsensus.length > 0) {
       state.lastAgentConsensus = [...newConsensus, ...state.lastAgentConsensus].slice(0, 20);
     }
-  } catch {
+  } catch (reviewErr) {
+    addActivity3(state, {
+      type: "info",
+      message: `\u26A0\uFE0F 2nd confirmation AI error: ${reviewErr instanceof Error ? reviewErr.message : "unknown"} \u2014 trades will proceed without consensus this cycle`
+    });
   }
 }
 async function triggerSolAIReview(userId, openPositions = []) {
@@ -25671,6 +25680,11 @@ async function runScan(userId, state, triggerToken) {
     );
     const now = Date.now();
     state.lastScanAt = now;
+    const hasBuySignals = scanResult.some((t) => t.signal === "STRONG_BUY" || t.signal === "BUY");
+    if (hasBuySignals) {
+      await runSolAIReview(userId, state, scanResult, []).catch(() => {
+      });
+    }
     for (const dex of DEX_NAMES) {
       state.signalWeights[dex] = Math.round((state.signalWeights[dex] * 0.99 + 1 * 0.01) * 1e3) / 1e3;
     }
@@ -25895,11 +25909,6 @@ async function runScan(userId, state, triggerToken) {
           });
         }
       }
-    }
-    const hasBuySignals = scanResult.some((t) => t.signal === "STRONG_BUY" || t.signal === "BUY");
-    if (hasBuySignals) {
-      runSolAIReview(userId, state, scanResult, []).catch(() => {
-      });
     }
   } catch (err) {
     addActivity3(state, {

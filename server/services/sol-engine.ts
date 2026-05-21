@@ -1122,7 +1122,15 @@ Output a JSON array only (no markdown):
     let decisions: Array<{ symbol: string; type: 'signal' | 'position'; action: string; trailPct?: number; reason: string }> = [];
     try {
       decisions = JSON.parse(raw.replace(/```json|```/g, '').trim());
-    } catch { return; }
+      if (!Array.isArray(decisions)) decisions = [];
+    } catch {
+      // Log to activity feed so the user can see why consensus is empty
+      addActivity(state, {
+        type: 'info',
+        message: `⚠️ 2nd confirmation AI returned invalid JSON — consensus skipped this cycle. Raw: ${raw.slice(0, 80)}`,
+      });
+      return;
+    }
 
     // ── Store result in cache ─────────────────────────────────────────────
     state.aiReviewCache[cacheKey] = { ts: Date.now(), result: decisions };
@@ -1185,8 +1193,12 @@ Output a JSON array only (no markdown):
     if (newConsensus.length > 0) {
       state.lastAgentConsensus = [...newConsensus, ...state.lastAgentConsensus].slice(0, 20);
     }
-  } catch {
-    // Silent fallback — never crash the scan loop if AI review fails
+  } catch (reviewErr) {
+    // Log to activity feed so users can see when the 2nd confirmation fails
+    addActivity(state, {
+      type: 'info',
+      message: `⚠️ 2nd confirmation AI error: ${reviewErr instanceof Error ? reviewErr.message : 'unknown'} — trades will proceed without consensus this cycle`,
+    });
   }
 }
 
@@ -1513,6 +1525,17 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
     const now = Date.now();
     state.lastScanAt = now;
 
+    // ── Run 2nd confirmation AI review BEFORE the trade loop ─────────────────
+    // Previously this was fire-and-forget AFTER all trades — meaning new tokens
+    // always traded on first appearance with zero AI review. Now we await it so
+    // lastAgentConsensus is fully populated before any trade decision is made.
+    // The 5-minute cache makes this instant on repeat scans; only the first scan
+    // for a new set of signals incurs the AI latency (~3-8s).
+    const hasBuySignals = scanResult.some(t => t.signal === 'STRONG_BUY' || t.signal === 'BUY');
+    if (hasBuySignals) {
+      await runSolAIReview(userId, state, scanResult, []).catch(() => {});
+    }
+
     for (const dex of DEX_NAMES) {
       state.signalWeights[dex] = Math.round((state.signalWeights[dex] * 0.99 + 1.0 * 0.01) * 1000) / 1000;
     }
@@ -1788,12 +1811,6 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
           });
         }
       }
-    }
-
-    // Run GPT-4o AI review after each scan (fire-and-forget, never blocks scan loop)
-    const hasBuySignals = scanResult.some(t => t.signal === 'STRONG_BUY' || t.signal === 'BUY');
-    if (hasBuySignals) {
-      runSolAIReview(userId, state, scanResult, []).catch(() => {});
     }
 
   } catch (err) {
