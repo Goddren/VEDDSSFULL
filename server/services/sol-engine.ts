@@ -1016,12 +1016,17 @@ async function runSolAIReview(
     ...buySignals.map(t => t.token.symbol).sort(),
     ...openPositions.map(p => p.symbol).sort(),
   ].join('|');
+  // Cache for 5 minutes (was 90s — expired on almost every scan cycle).
+  // The scan interval is already 30-120s; there's no value in re-asking the AI
+  // about the same set of tokens every other cycle. The symbols in the cache key
+  // change naturally when new signals appear.
+  const REVIEW_CACHE_TTL = 5 * 60_000; // 5 minutes
   const cached = state.aiReviewCache[cacheKey];
-  if (cached && Date.now() - cached.ts < 90_000) {
+  if (cached && Date.now() - cached.ts < REVIEW_CACHE_TTL) {
     const ageS = Math.round((Date.now() - cached.ts) / 1000);
     addActivity(state, {
       type: 'info',
-      message: `💾 Sol AI cache hit — reusing recent review (${ageS}s old)`,
+      message: `💾 Sol AI cache hit — reusing review (${ageS}s old, refreshes at 5min)`,
     });
     return;
   }
@@ -1030,22 +1035,33 @@ async function runSolAIReview(
     const { getUniversalAIClientForUser } = await import('../openai');
 
     // ── Economy mode: route to Groq Llama 3.3-70b (free) ─────────────────
+    // Check BOTH the engine config AND the user's profile aiCostMode so that
+    // users who set economy mode in their profile always get free routing even
+    // if the engine was started with the default 'full' config.
     let openai: any;
     let modelLabel = 'GPT-4o';
-    if (state.config.aiMode === 'economy' && process.env.GROQ_API_KEY) {
-      const OpenAI = (await import('openai')).default;
-      openai = new OpenAI({
-        apiKey: process.env.GROQ_API_KEY,
-        baseURL: 'https://api.groq.com/openai/v1',
-      });
-      (openai as any).defaultModel = 'llama-3.3-70b-versatile';
-      modelLabel = 'Groq Llama';
-      addActivity(state, {
-        type: 'info',
-        message: '💚 Sol Economy mode: routing to Groq Llama 3.3-70b (free)',
-      });
+    const userClient = await getUniversalAIClientForUser(userId);
+    const useEconomy = state.config.aiMode === 'economy'
+      || (userClient as any).provider === 'groq'; // user's profile resolved to Groq
+
+    if (useEconomy) {
+      const groqKey = process.env.GROQ_API_KEY;
+      if (groqKey) {
+        const OpenAI = (await import('openai')).default;
+        openai = new OpenAI({ apiKey: groqKey, baseURL: 'https://api.groq.com/openai/v1' });
+        (openai as any).defaultModel = 'llama-3.3-70b-versatile';
+        modelLabel = 'Groq Llama';
+        addActivity(state, {
+          type: 'info',
+          message: '💚 Sol Economy: Groq Llama 3.3-70b (free) — full analysis, zero cost',
+        });
+      } else {
+        // No platform Groq key — fall back to user's key (may still be Groq if they have one)
+        openai = userClient;
+        modelLabel = (userClient as any).defaultModel || 'User model';
+      }
     } else {
-      openai = await getUniversalAIClientForUser(userId);
+      openai = userClient;
     }
 
     // When adaptive mode is running, use the auto-selected sub-strategy for the prompt
@@ -1066,38 +1082,17 @@ async function runSolAIReview(
 
     const entryContext = getStrategyEntryContext(effectiveStrategyId);
 
-    const systemPrompt = `You are VEDD Sol AI — an autonomous Solana token trading mind operating within the Supreme Mathematics framework.
-ACTIVE STRATEGY: ${strategy.icon} ${strategy.name} — ${strategy.description}
-Hold target: ${strategy.holdTarget} | Min confidence: ${strategy.minConfidence}% | Risk: ${strategy.maxRisk}
-${entryContext ? `\n${entryContext}\n` : ''}
-${goalLine}
-WIN STREAK: ${goal.winStreak}
-DRAWDOWN SHIELD: ${state.shieldActive ? 'ACTIVE — conservative mode only' : 'OFF'}
+    // Compact system prompt — same instructions, ~60% fewer input tokens.
+    // Supreme Mathematics style is preserved via a short reference line.
+    const systemPrompt = `You are VEDD Sol AI — autonomous Solana trading mind. Supreme Mathematics style: use "Peace", "Word is bond", "That's the mathematics", "Stay in the cipher", "dropping science" naturally in reason fields.
+STRATEGY: ${strategy.icon} ${strategy.name} — ${strategy.description} | Hold: ${strategy.holdTarget} | Min conf: ${strategy.minConfidence}% | Max risk: ${strategy.maxRisk}
+${entryContext ? entryContext + '\n' : ''}${goalLine} | Win streak: ${goal.winStreak} | Shield: ${state.shieldActive ? 'ACTIVE' : 'off'}
 ${macroLine}
 
-COMMUNICATION STYLE — SUPREME MATHEMATICS (Gods and Earths framework):
-When writing the "reason" field for each decision, weave in Supreme Mathematics / Gods and Earths language naturally and authentically. Map the framework to Solana trading as follows:
-- Knowledge (1) = Reading the token data, chart signals, and market structure
-- Wisdom (2) = Applying strategy with discipline — the correct action taken from what you know
-- Understanding (3) = The clear picture — seeing the setup fully, knowing exactly what price is doing
-- Culture/Freedom (4) = Your trading rhythm — freedom through mastery of the cipher
-- Power/Refinement (5) = Risk management, sizing, refining the edge — power through control
-- Equality (6) = Balance of R:R — what the market gives, it can take; entries must justify risk
-- God (7) = Full control of the trade — mastering the setup from entry to exit
-- Build/Destroy (8) = Building the account, destroying weak setups before they cost SOL
-- Born (9) = A trade closed — knowledge born into profit, a lesson completed
-- Cipher (0/10) = The full market cycle — complete understanding of all moving parts
-
-Use terms like: "Peace", "The science of it is...", "Word is bond", "Build on that", "That's the mathematics", "Stay in the cipher", "Knowledge yourself", "dropping science", "righteously"
-Keep it natural — not every sentence. Weave it in where it fits. ALL numbers, prices, and percentages stay precise and clean. The lingo lives in the explanatory text only.
-
-Review the signals and open positions below. Output a JSON array of decisions.
-- For signals: type="signal", action=CONFIRM_BUY|SKIP|WATCH|WAIT, reason (max 80 chars, use the lingo naturally)
-  CONFIRM_BUY = token meets THIS strategy's entry criteria exactly. SKIP = does not fit. WATCH = borderline, monitor. WAIT = macro/conditions not right — no buys now.
-- For positions: type="position", action=HOLD|TRAIL|PARTIAL_CLOSE|CLOSE, trailPct=integer (only for TRAIL), reason (max 80 chars, use the lingo naturally)
-  HOLD = conditions still valid. TRAIL = lock in gains. PARTIAL_CLOSE = take 50% off. CLOSE = exit now.
-CRITICAL: Only CONFIRM_BUY if the token genuinely fits the active strategy entry criteria above. Do NOT CONFIRM_BUY just because confidence is high — if the token doesn't match the strategy filter, SKIP it.
-Return ONLY the JSON array, no markdown, no explanation.`;
+Output a JSON array only (no markdown):
+- Signals: {symbol, type:"signal", action:CONFIRM_BUY|SKIP|WATCH|WAIT, reason:<80chars}
+  CONFIRM_BUY only if token matches THIS strategy's entry criteria. SKIP if it doesn't fit regardless of confidence.
+- Positions: {symbol, type:"position", action:HOLD|TRAIL|PARTIAL_CLOSE|CLOSE, trailPct?:int, reason:<80chars}`;
 
     const signalsText = buySignals.length > 0
       ? buySignals.map(t =>

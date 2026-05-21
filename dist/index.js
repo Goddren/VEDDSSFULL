@@ -8073,7 +8073,7 @@ Return a JSON object with this exact structure:
 }`;
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: "gpt-4o-mini",
       messages: [
         {
           role: "system",
@@ -8082,7 +8082,8 @@ Return a JSON object with this exact structure:
         { role: "user", content: prompt }
       ],
       response_format: { type: "json_object" },
-      max_tokens: 4e3,
+      max_tokens: 2e3,
+      // was 4000 — slide outlines don't need that many tokens
       temperature: 0.7
     });
     const content = response.choices[0]?.message?.content;
@@ -17816,45 +17817,32 @@ async function analyzeToken(token, options = {}) {
     if (macro.bias === "RISK_ON" && (signal === "STRONG_BUY" || signal === "BUY")) {
       confidence2 = Math.min(98, confidence2 + 5);
     } else if (macro.bias === "RISK_OFF" && (signal === "STRONG_BUY" || signal === "BUY")) {
-      if (confidence2 < 80) {
-        signal = "HOLD";
-      }
+      confidence2 = Math.max(10, confidence2 - 8);
     }
   }
   const riskLevel = determineRiskLevel(token, tokenomicsScore);
   const holdDuration = estimateHoldDuration(signal, riskLevel);
   let reasoning = "";
-  try {
-    const macroBlock = macro ? `
-CRYPTO MACRO CONTEXT: BTC=${macro.btcChange >= 0 ? "+" : ""}${macro.btcChange.toFixed(1)}%, ETH=${macro.ethChange >= 0 ? "+" : ""}${macro.ethChange.toFixed(1)}%, SOL=${macro.solChange >= 0 ? "+" : ""}${macro.solChange.toFixed(1)}% \u2192 Risk Score: ${macro.riskScore}/3 \u2192 ${macro.bias}. ${macro.implication} Tokens aligned with ${macro.bias === "RISK_ON" ? "bullish" : "cautious"} macro get ${macro.bias === "RISK_ON" ? "+5% confidence bonus" : "\u22125% confidence penalty"}.` : "";
-    const weightsBlock = signalWeights ? `
-DEX PERFORMANCE WEIGHTS: ${buildDexWeightsBlock(signalWeights)}. Prioritise \u{1F525}HOT DEX signals. Be extra sceptical of \u274CCOLD DEX signals.` : "";
-    const prompt = `You are VEDD AI analyzing a Solana token for trading opportunities.${macroBlock}${weightsBlock}
-
-TOKEN DATA:
-Name: ${token.name} (${token.symbol})
-DEX: ${token.dexId || "unknown"}
-Price: $${token.priceUsd}
-24h Change: ${token.priceChange24h.toFixed(2)}%
-24h Volume: $${token.volume24h.toLocaleString()}
-Liquidity: $${token.liquidity.toLocaleString()}
-FDV: $${token.fdv.toLocaleString()}
-24h Buys: ${token.txns24h.buys} | Sells: ${token.txns24h.sells}
-Unique Traders: ${token.makers24h}
-
-SCORES: Sentiment ${sentimentScore}/100, Tokenomics ${tokenomicsScore}/100, Whale Activity ${whaleScore}/100
-SIGNAL: ${signal} (${confidence2}% confidence) | Risk: ${riskLevel}
-
-Provide a sharp 2-3 sentence analysis. Reference macro context and DEX performance if relevant. Be direct and actionable.`;
-    const openaiClient = openaiOverride || new OpenAI3({ apiKey: process.env.OPENAI_API_KEY });
-    const response = await openaiClient.chat.completions.create({
-      model: openaiClient.defaultModel || "gpt-4o",
-      messages: [{ role: "user", content: prompt }],
-      max_tokens: 180,
-      temperature: 0.7
-    });
-    reasoning = response.choices[0]?.message?.content || "";
-  } catch (error) {
+  const isActionableSignal = signal === "STRONG_BUY" || signal === "BUY";
+  if (isActionableSignal) {
+    try {
+      const macroBlock = macro ? ` Macro: BTC${macro.btcChange >= 0 ? "+" : ""}${macro.btcChange.toFixed(1)}%/ETH${macro.ethChange >= 0 ? "+" : ""}${macro.ethChange.toFixed(1)}%/SOL${macro.solChange >= 0 ? "+" : ""}${macro.solChange.toFixed(1)}% (${macro.bias}).` : "";
+      const weightsBlock = signalWeights ? ` DEX weights: ${buildDexWeightsBlock(signalWeights)}.` : "";
+      const prompt = `Solana token: ${token.symbol} | DEX: ${token.dexId || "?"} | Price: $${token.priceUsd} | 24h: ${token.priceChange24h.toFixed(1)}% | Vol: $${(token.volume24h / 1e3).toFixed(0)}K | Liq: $${(token.liquidity / 1e3).toFixed(0)}K | Buys/Sells: ${token.txns24h.buys}/${token.txns24h.sells} | Traders: ${token.makers24h} | Scores: sent=${sentimentScore} tok=${tokenomicsScore} whale=${whaleScore} | Signal: ${signal} ${confidence2}% | Risk: ${riskLevel}.${macroBlock}${weightsBlock} Give a sharp 2-sentence trade analysis. Be direct.`;
+      const openaiClient = openaiOverride || new OpenAI3({ apiKey: process.env.OPENAI_API_KEY });
+      const model = openaiClient.defaultModel || "gpt-4o-mini";
+      const response = await openaiClient.chat.completions.create({
+        model,
+        messages: [{ role: "user", content: prompt }],
+        max_tokens: 100,
+        // 2 sentences ≈ 60-80 tokens; was 180
+        temperature: 0.5
+      });
+      reasoning = response.choices[0]?.message?.content || "";
+    } catch (error) {
+      reasoning = `${signal} signal: sentiment ${sentimentScore}/100, tokenomics ${tokenomicsScore}/100, whale activity ${whaleScore}/100. Risk: ${riskLevel}.`;
+    }
+  } else {
     reasoning = `${signal} signal: sentiment ${sentimentScore}/100, tokenomics ${tokenomicsScore}/100, whale activity ${whaleScore}/100. Risk: ${riskLevel}.`;
   }
   const price = parseFloat(token.priceUsd) || 0;
@@ -24980,6 +24968,9 @@ async function executeServerSideSell(userId, pos, reason, state) {
     });
     saveEngineState(userId, state).catch(() => {
     });
+    state.lastWalletRefreshAt = 0;
+    refreshServerWalletBalance(userId, state).catch(() => {
+    });
     return true;
   } catch (err) {
     console.error("[SolEngine] executeServerSideSell error:", err);
@@ -25057,6 +25048,9 @@ async function executeServerSideBuy(userId, signal, state) {
     upsertPosition(userId, pos).catch(() => {
     });
     saveEngineState(userId, state).catch(() => {
+    });
+    state.lastWalletRefreshAt = 0;
+    refreshServerWalletBalance(userId, state).catch(() => {
     });
     return true;
   } catch (err) {
@@ -25189,7 +25183,9 @@ function createInitialState(config) {
     paperPortfolioValue: 0,
     paperPortfolioHistory: [],
     autoTradeStats: { totalTrades: 0, wins: 0, losses: 0, totalPnlPct: 0, bestTradePct: 0, worstTradePct: 0 },
-    aiReviewCache: {}
+    aiReviewCache: {},
+    serverWalletBalance: 0,
+    lastWalletRefreshAt: 0
   };
 }
 function addActivity3(state, entry) {
@@ -25306,12 +25302,13 @@ async function runSolAIReview(userId, state, scanResult, openPositions) {
     ...buySignals.map((t) => t.token.symbol).sort(),
     ...openPositions.map((p) => p.symbol).sort()
   ].join("|");
+  const REVIEW_CACHE_TTL = 5 * 6e4;
   const cached = state.aiReviewCache[cacheKey];
-  if (cached && Date.now() - cached.ts < 9e4) {
+  if (cached && Date.now() - cached.ts < REVIEW_CACHE_TTL) {
     const ageS = Math.round((Date.now() - cached.ts) / 1e3);
     addActivity3(state, {
       type: "info",
-      message: `\u{1F4BE} Sol AI cache hit \u2014 reusing recent review (${ageS}s old)`
+      message: `\u{1F4BE} Sol AI cache hit \u2014 reusing review (${ageS}s old, refreshes at 5min)`
     });
     return;
   }
@@ -25319,20 +25316,25 @@ async function runSolAIReview(userId, state, scanResult, openPositions) {
     const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
     let openai2;
     let modelLabel = "GPT-4o";
-    if (state.config.aiMode === "economy" && process.env.GROQ_API_KEY) {
-      const OpenAI5 = (await import("openai")).default;
-      openai2 = new OpenAI5({
-        apiKey: process.env.GROQ_API_KEY,
-        baseURL: "https://api.groq.com/openai/v1"
-      });
-      openai2.defaultModel = "llama-3.3-70b-versatile";
-      modelLabel = "Groq Llama";
-      addActivity3(state, {
-        type: "info",
-        message: "\u{1F49A} Sol Economy mode: routing to Groq Llama 3.3-70b (free)"
-      });
+    const userClient = await getUniversalAIClientForUser2(userId);
+    const useEconomy = state.config.aiMode === "economy" || userClient.provider === "groq";
+    if (useEconomy) {
+      const groqKey = process.env.GROQ_API_KEY;
+      if (groqKey) {
+        const OpenAI5 = (await import("openai")).default;
+        openai2 = new OpenAI5({ apiKey: groqKey, baseURL: "https://api.groq.com/openai/v1" });
+        openai2.defaultModel = "llama-3.3-70b-versatile";
+        modelLabel = "Groq Llama";
+        addActivity3(state, {
+          type: "info",
+          message: "\u{1F49A} Sol Economy: Groq Llama 3.3-70b (free) \u2014 full analysis, zero cost"
+        });
+      } else {
+        openai2 = userClient;
+        modelLabel = userClient.defaultModel || "User model";
+      }
     } else {
-      openai2 = await getUniversalAIClientForUser2(userId);
+      openai2 = userClient;
     }
     const effectiveStrategyId = state.activeStrategy === "adaptive" || state.activeStrategies.includes("adaptive") ? state._adaptiveStrategy || "momentum_surfer" : state.activeStrategy;
     const strategy = SOL_STRATEGIES.find((s) => s.id === effectiveStrategyId) || SOL_STRATEGIES[0];
@@ -25341,40 +25343,15 @@ async function runSolAIReview(userId, state, scanResult, openPositions) {
     const macroLine = macro ? `MACRO: BTC ${macro.btcChange >= 0 ? "+" : ""}${macro.btcChange.toFixed(1)}% | ETH ${macro.ethChange >= 0 ? "+" : ""}${macro.ethChange.toFixed(1)}% | SOL ${macro.solChange >= 0 ? "+" : ""}${macro.solChange.toFixed(1)}% \u2014 Bias: ${macro.bias}` : "";
     const goalLine = goal.phase !== "idle" ? `WEEKLY GOAL: ${goal.currentProfitSol.toFixed(3)} / ${goal.targetSol.toFixed(3)} SOL (${(goal.currentProfitSol / Math.max(goal.targetSol, 1e-3) * 100).toFixed(1)}%) \u2014 Phase: ${goal.phase.replace(/_/g, " ").toUpperCase()}` : "WEEKLY GOAL: None set";
     const entryContext = getStrategyEntryContext(effectiveStrategyId);
-    const systemPrompt = `You are VEDD Sol AI \u2014 an autonomous Solana token trading mind operating within the Supreme Mathematics framework.
-ACTIVE STRATEGY: ${strategy.icon} ${strategy.name} \u2014 ${strategy.description}
-Hold target: ${strategy.holdTarget} | Min confidence: ${strategy.minConfidence}% | Risk: ${strategy.maxRisk}
-${entryContext ? `
-${entryContext}
-` : ""}
-${goalLine}
-WIN STREAK: ${goal.winStreak}
-DRAWDOWN SHIELD: ${state.shieldActive ? "ACTIVE \u2014 conservative mode only" : "OFF"}
+    const systemPrompt = `You are VEDD Sol AI \u2014 autonomous Solana trading mind. Supreme Mathematics style: use "Peace", "Word is bond", "That's the mathematics", "Stay in the cipher", "dropping science" naturally in reason fields.
+STRATEGY: ${strategy.icon} ${strategy.name} \u2014 ${strategy.description} | Hold: ${strategy.holdTarget} | Min conf: ${strategy.minConfidence}% | Max risk: ${strategy.maxRisk}
+${entryContext ? entryContext + "\n" : ""}${goalLine} | Win streak: ${goal.winStreak} | Shield: ${state.shieldActive ? "ACTIVE" : "off"}
 ${macroLine}
 
-COMMUNICATION STYLE \u2014 SUPREME MATHEMATICS (Gods and Earths framework):
-When writing the "reason" field for each decision, weave in Supreme Mathematics / Gods and Earths language naturally and authentically. Map the framework to Solana trading as follows:
-- Knowledge (1) = Reading the token data, chart signals, and market structure
-- Wisdom (2) = Applying strategy with discipline \u2014 the correct action taken from what you know
-- Understanding (3) = The clear picture \u2014 seeing the setup fully, knowing exactly what price is doing
-- Culture/Freedom (4) = Your trading rhythm \u2014 freedom through mastery of the cipher
-- Power/Refinement (5) = Risk management, sizing, refining the edge \u2014 power through control
-- Equality (6) = Balance of R:R \u2014 what the market gives, it can take; entries must justify risk
-- God (7) = Full control of the trade \u2014 mastering the setup from entry to exit
-- Build/Destroy (8) = Building the account, destroying weak setups before they cost SOL
-- Born (9) = A trade closed \u2014 knowledge born into profit, a lesson completed
-- Cipher (0/10) = The full market cycle \u2014 complete understanding of all moving parts
-
-Use terms like: "Peace", "The science of it is...", "Word is bond", "Build on that", "That's the mathematics", "Stay in the cipher", "Knowledge yourself", "dropping science", "righteously"
-Keep it natural \u2014 not every sentence. Weave it in where it fits. ALL numbers, prices, and percentages stay precise and clean. The lingo lives in the explanatory text only.
-
-Review the signals and open positions below. Output a JSON array of decisions.
-- For signals: type="signal", action=CONFIRM_BUY|SKIP|WATCH|WAIT, reason (max 80 chars, use the lingo naturally)
-  CONFIRM_BUY = token meets THIS strategy's entry criteria exactly. SKIP = does not fit. WATCH = borderline, monitor. WAIT = macro/conditions not right \u2014 no buys now.
-- For positions: type="position", action=HOLD|TRAIL|PARTIAL_CLOSE|CLOSE, trailPct=integer (only for TRAIL), reason (max 80 chars, use the lingo naturally)
-  HOLD = conditions still valid. TRAIL = lock in gains. PARTIAL_CLOSE = take 50% off. CLOSE = exit now.
-CRITICAL: Only CONFIRM_BUY if the token genuinely fits the active strategy entry criteria above. Do NOT CONFIRM_BUY just because confidence is high \u2014 if the token doesn't match the strategy filter, SKIP it.
-Return ONLY the JSON array, no markdown, no explanation.`;
+Output a JSON array only (no markdown):
+- Signals: {symbol, type:"signal", action:CONFIRM_BUY|SKIP|WATCH|WAIT, reason:<80chars}
+  CONFIRM_BUY only if token matches THIS strategy's entry criteria. SKIP if it doesn't fit regardless of confidence.
+- Positions: {symbol, type:"position", action:HOLD|TRAIL|PARTIAL_CLOSE|CLOSE, trailPct?:int, reason:<80chars}`;
     const signalsText = buySignals.length > 0 ? buySignals.map(
       (t) => `${t.token.symbol}: ${t.signal} | Conf:${t.confidence}% | Sent:${t.sentimentScore} | Tok:${t.tokenomicsScore} | Whale:${t.whaleScore} | Vol:$${(t.token.volume24h / 1e3).toFixed(0)}K | Chg:${t.token.priceChange24h.toFixed(1)}%`
     ).join("\n") : "None";
@@ -25643,11 +25620,44 @@ async function monitorLivePositions(userId, state) {
     }
   }
 }
+async function refreshServerWalletBalance(userId, state) {
+  if (!state.liveTradeEnabled) return;
+  const now = Date.now();
+  if (now - state.lastWalletRefreshAt < 6e4) return;
+  state.lastWalletRefreshAt = now;
+  try {
+    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq7(solEngineSettings.userId, userId));
+    if (!settings?.serverWalletKey) return;
+    const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
+    const { Keypair: Keypair2, Connection: Connection3 } = await import("@solana/web3.js");
+    const bs58 = (await import("bs58")).default;
+    const keypair = Keypair2.fromSecretKey(bs58.decode(privateKeyBase58));
+    const rpcUrl = process.env.SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92";
+    const connection2 = new Connection3(rpcUrl, { commitment: "confirmed" });
+    const lamports = await connection2.getBalance(keypair.publicKey);
+    const solBalance = lamports / 1e9;
+    state.serverWalletBalance = solBalance;
+    if (Math.abs(state.currentPortfolioValue - solBalance) > 1e-3) {
+      console.log(`[SolEngine] Wallet sync: ${state.currentPortfolioValue.toFixed(4)} \u2192 ${solBalance.toFixed(4)} SOL (user ${userId})`);
+      state.currentPortfolioValue = solBalance;
+    }
+  } catch (err) {
+    console.warn("[SolEngine] refreshServerWalletBalance failed:", err instanceof Error ? err.message : err);
+  }
+}
 async function runScan(userId, state, triggerToken) {
   if (!state.isRunning) return;
   try {
+    await refreshServerWalletBalance(userId, state).catch(() => {
+    });
     const macro = await fetchCryptoMacroContext().catch(() => null);
     state.lastMacro = macro;
+    if (macro && macro.bias === "RISK_OFF") {
+      addActivity3(state, {
+        type: "info",
+        message: `\u{1F4C9} Macro RISK_OFF: BTC${macro.btcChange >= 0 ? "+" : ""}${macro.btcChange.toFixed(1)}% / ETH${macro.ethChange >= 0 ? "+" : ""}${macro.ethChange.toFixed(1)}% / SOL${macro.solChange >= 0 ? "+" : ""}${macro.solChange.toFixed(1)}% \u2014 signal confidence reduced by 8%. Engine still trading at reduced size.`
+      });
+    }
     const shieldFilter = state.config.shieldEnabled && state.shieldActive;
     const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
     const userOpenai = await getUniversalAIClientForUser2(userId).catch(() => null);
@@ -25933,6 +25943,8 @@ async function startSolEngine(userId, config = {}) {
     state.autoTradeStats = existing.autoTradeStats;
     state.autoTradeTP = existing.autoTradeTP;
     state.autoTradeSL = existing.autoTradeSL;
+    state.serverWalletBalance = existing.serverWalletBalance;
+    state.lastWalletRefreshAt = existing.lastWalletRefreshAt;
   } else {
     await loadEngineStateFromDb(userId, state);
   }
@@ -26024,7 +26036,8 @@ function getSolEngineStatus(userId) {
     liveTradeEnabled: state.liveTradeEnabled,
     autoTradeMode: state.liveTradeEnabled ? "live" : state.autoTradeEnabled ? "paper" : "off",
     pendingSignalsCount: state.pendingSignals.filter((s) => new Date(s.expiresAt).getTime() > Date.now()).length,
-    pendingSignalSymbols: state.pendingSignals.filter((s) => new Date(s.expiresAt).getTime() > Date.now()).map((s) => s.symbol)
+    pendingSignalSymbols: state.pendingSignals.filter((s) => new Date(s.expiresAt).getTime() > Date.now()).map((s) => s.symbol),
+    serverWalletBalance: state.serverWalletBalance
   };
 }
 function getSolStrategies() {

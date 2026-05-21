@@ -2761,8 +2761,10 @@ Return a JSON object with this exact structure:
 }`;
 
   try {
+    // Use gpt-4o-mini for presentation generation — it's a text-only JSON task,
+    // no need for the premium model. Was hardcoded to gpt-4o.
     const response = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: "gpt-4o-mini",
       messages: [
         {
           role: "system",
@@ -2771,7 +2773,7 @@ Return a JSON object with this exact structure:
         { role: "user", content: prompt }
       ],
       response_format: { type: "json_object" },
-      max_tokens: 4000,
+      max_tokens: 2000,   // was 4000 — slide outlines don't need that many tokens
       temperature: 0.7
     });
 
