@@ -831,6 +831,12 @@ export default function WeeklyStrategyPage() {
   const [engineCompounding, setEngineCompounding] = useState(true);
   const [enginePropFirmMode, setEnginePropFirmMode] = useState(false);
   const [enginePropFirmDrawdown, setEnginePropFirmDrawdown] = useState(4);
+  const [propFirmPreset, setPropFirmPreset] = useState<'FTMO'|'MFF'|'THE5ERS'|'FUNDED_NEXT'|'CUSTOM'>('FTMO');
+  const [propFirmTotalDrawdown, setPropFirmTotalDrawdown] = useState(10);
+  const [propFirmProfitTarget, setPropFirmProfitTarget] = useState(10);
+  const [propFirmMinTradingDays, setPropFirmMinTradingDays] = useState(4);
+  const [propFirmConsistencyRule, setPropFirmConsistencyRule] = useState(true);
+  const [propFirmAllowOvernight, setPropFirmAllowOvernight] = useState(false);
   const [enginePyramiding, setEnginePyramiding] = useState(false);
   const [engineKellyCriterion, setEngineKellyCriterion] = useState(false);
   const [engineBrainLearningMode, setEngineBrainLearningMode] = useState(true);
@@ -974,6 +980,58 @@ export default function WeeklyStrategyPage() {
     onError: (err: any) => {
       toast({ title: "Emergency Stop Failed", description: err.message, variant: "destructive" });
     },
+  });
+
+  // Prop firm presets — known firm rules built-in
+  const PROP_FIRM_PRESETS: Record<string, { daily: number; total: number; target: number; minDays: number; riskPct: number; overnight: boolean; consistency: boolean }> = {
+    FTMO:         { daily: 5,   total: 10, target: 10, minDays: 4, riskPct: 1,   overnight: false, consistency: true  },
+    MFF:          { daily: 5,   total: 10, target: 8,  minDays: 3, riskPct: 0.5, overnight: false, consistency: true  },
+    THE5ERS:      { daily: 4,   total: 8,  target: 6,  minDays: 0, riskPct: 0.5, overnight: true,  consistency: false },
+    FUNDED_NEXT:  { daily: 5,   total: 10, target: 10, minDays: 5, riskPct: 1,   overnight: false, consistency: true  },
+    CUSTOM:       { daily: enginePropFirmDrawdown, total: propFirmTotalDrawdown, target: propFirmProfitTarget, minDays: propFirmMinTradingDays, riskPct: engineRiskPerTrade, overnight: propFirmAllowOvernight, consistency: propFirmConsistencyRule },
+  };
+
+  const applyPropFirmPreset = (preset: keyof typeof PROP_FIRM_PRESETS) => {
+    const p = PROP_FIRM_PRESETS[preset];
+    if (!p) return;
+    setPropFirmPreset(preset as any);
+    setEnginePropFirmDrawdown(p.daily);
+    setPropFirmTotalDrawdown(p.total);
+    setPropFirmProfitTarget(p.target);
+    setPropFirmMinTradingDays(p.minDays);
+    setEngineRiskPerTrade(p.riskPct);
+    setPropFirmAllowOvernight(p.overnight);
+    setPropFirmConsistencyRule(p.consistency);
+    if (preset !== 'CUSTOM') setEngineMode('sniper');
+    // Save to server immediately so the enforcement layer picks it up
+    apiRequest('POST', '/api/prop-firm-context', {
+      enabled: true,
+      firmPreset: preset,
+      maxDailyDrawdownPct: p.daily,
+      maxTotalDrawdownPct: p.total,
+      profitTargetPct: p.target,
+      minTradingDays: p.minDays,
+      riskPerTradePct: p.riskPct,
+      allowOvernightHolds: p.overnight,
+      consistencyRule: p.consistency,
+      currentDailyPnlPct: 0,
+      currentTotalPnlPct: 0,
+    }).catch(() => {});
+  };
+
+  const savePropFirmContextMutation = useMutation({
+    mutationFn: async (ctx: any) => {
+      const res = await apiRequest('POST', '/api/prop-firm-context', ctx);
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: '🛡️ Prop Firm Rules Saved', description: 'Risk guard is now active on all TradeLocker accounts' });
+    },
+  });
+
+  const { data: propFirmContext } = useQuery<any>({
+    queryKey: ['/api/prop-firm-context'],
+    refetchInterval: 30000,
   });
 
   const [shareOpen, setShareOpen] = useState(false);
@@ -1821,40 +1879,146 @@ export default function WeeklyStrategyPage() {
                       </div>
                     )}
                   </div>
-                  <div className={`rounded-xl border p-3 transition-all ${enginePropFirmMode ? 'border-amber-500/60 bg-amber-500/10' : 'border-gray-700 bg-gray-900/30'}`}>
-                    <div className="flex items-center justify-between">
-                      <label className="flex items-center gap-2 cursor-pointer" onClick={() => {
-                        const next = !enginePropFirmMode;
-                        setEnginePropFirmMode(next);
-                        if (next) setEngineMode('sniper');
-                      }}>
-                        <input type="checkbox" checked={enginePropFirmMode} onChange={() => {}} className="accent-amber-500" />
-                        <div>
-                          <span className="text-xs font-semibold text-amber-300">Prop Firm Challenge Mode</span>
-                          {enginePropFirmMode && (
-                            <Badge className="ml-2 bg-amber-500/30 text-amber-300 border-amber-500/50 text-[9px] animate-pulse">CHALLENGE RULES ACTIVE</Badge>
-                          )}
-                        </div>
-                      </label>
+                  {/* ── Prop Firm Challenge Mode — full panel ── */}
+                  <div className={`rounded-xl border transition-all ${enginePropFirmMode ? 'border-amber-500/60 bg-amber-500/8' : 'border-gray-700 bg-gray-900/30'}`}>
+                    <div className="p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <label className="flex items-center gap-2 cursor-pointer" onClick={() => {
+                          const next = !enginePropFirmMode;
+                          setEnginePropFirmMode(next);
+                          if (next) { setEngineMode('sniper'); if (propFirmPreset !== 'CUSTOM') applyPropFirmPreset(propFirmPreset); }
+                          apiRequest('POST', '/api/prop-firm-mode', { enabled: next }).catch(() => {});
+                        }}>
+                          <input type="checkbox" checked={enginePropFirmMode} onChange={() => {}} className="accent-amber-500" />
+                          <div>
+                            <span className="text-xs font-semibold text-amber-300">🛡️ Prop Firm Mode</span>
+                            {enginePropFirmMode && (
+                              <Badge className="ml-2 bg-amber-500/30 text-amber-300 border-amber-500/50 text-[9px] animate-pulse">CHALLENGE RULES ACTIVE</Badge>
+                            )}
+                          </div>
+                        </label>
+                        {propFirmContext?.currentDailyPnlPct !== undefined && enginePropFirmMode && (
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] text-gray-400">Today:</span>
+                            <span className={`text-[11px] font-bold ${(propFirmContext.currentDailyPnlPct ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                              {((propFirmContext.currentDailyPnlPct ?? 0) >= 0 ? '+' : '')}{(propFirmContext.currentDailyPnlPct ?? 0).toFixed(2)}%
+                            </span>
+                            <span className="text-gray-600 text-[10px]">/ -{enginePropFirmDrawdown}% limit</span>
+                          </div>
+                        )}
+                      </div>
+
                       {enginePropFirmMode && (
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[10px] text-gray-400">Daily DD Limit:</span>
-                          <Input
-                            type="number"
-                            value={enginePropFirmDrawdown}
-                            onChange={e => setEnginePropFirmDrawdown(Number(e.target.value))}
-                            min={1} max={10} step={0.5}
-                            className="w-16 h-6 bg-gray-800 border-amber-700 text-amber-300 text-[11px] px-1"
-                          />
-                          <span className="text-[10px] text-gray-400">%</span>
-                        </div>
+                        <>
+                          {/* Firm preset selector */}
+                          <div className="mb-3">
+                            <p className="text-[10px] text-gray-400 mb-1.5 uppercase tracking-wide">Select your firm</p>
+                            <div className="grid grid-cols-5 gap-1">
+                              {(['FTMO','MFF','THE5ERS','FUNDED_NEXT','CUSTOM'] as const).map(f => (
+                                <button
+                                  key={f}
+                                  onClick={() => applyPropFirmPreset(f)}
+                                  className={`text-[9px] font-bold py-1.5 rounded-lg border transition-all ${
+                                    propFirmPreset === f
+                                      ? 'bg-amber-500/30 border-amber-500/70 text-amber-300'
+                                      : 'bg-gray-800/60 border-gray-700 text-gray-400 hover:border-gray-500'
+                                  }`}
+                                >
+                                  {f === 'FUNDED_NEXT' ? 'FN' : f === 'THE5ERS' ? '5ERS' : f}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Rules grid */}
+                          <div className="grid grid-cols-2 gap-2 mb-3">
+                            <div>
+                              <p className="text-[10px] text-gray-500 mb-0.5">Daily DD limit</p>
+                              <div className="flex items-center gap-1">
+                                <Input type="number" value={enginePropFirmDrawdown}
+                                  onChange={e => { setEnginePropFirmDrawdown(Number(e.target.value)); setPropFirmPreset('CUSTOM'); }}
+                                  min={1} max={10} step={0.5}
+                                  className="h-7 bg-gray-800 border-amber-700/40 text-amber-300 text-xs px-2" />
+                                <span className="text-gray-400 text-[10px]">%</span>
+                              </div>
+                            </div>
+                            <div>
+                              <p className="text-[10px] text-gray-500 mb-0.5">Total DD limit</p>
+                              <div className="flex items-center gap-1">
+                                <Input type="number" value={propFirmTotalDrawdown}
+                                  onChange={e => { setPropFirmTotalDrawdown(Number(e.target.value)); setPropFirmPreset('CUSTOM'); }}
+                                  min={1} max={20} step={0.5}
+                                  className="h-7 bg-gray-800 border-amber-700/40 text-amber-300 text-xs px-2" />
+                                <span className="text-gray-400 text-[10px]">%</span>
+                              </div>
+                            </div>
+                            <div>
+                              <p className="text-[10px] text-gray-500 mb-0.5">Profit target</p>
+                              <div className="flex items-center gap-1">
+                                <Input type="number" value={propFirmProfitTarget}
+                                  onChange={e => { setPropFirmProfitTarget(Number(e.target.value)); setPropFirmPreset('CUSTOM'); }}
+                                  min={1} max={20} step={0.5}
+                                  className="h-7 bg-gray-800 border-amber-700/40 text-amber-300 text-xs px-2" />
+                                <span className="text-gray-400 text-[10px]">%</span>
+                              </div>
+                            </div>
+                            <div>
+                              <p className="text-[10px] text-gray-500 mb-0.5">Risk / trade</p>
+                              <div className="flex items-center gap-1">
+                                <Input type="number" value={engineRiskPerTrade}
+                                  onChange={e => { setEngineRiskPerTrade(Number(e.target.value)); setPropFirmPreset('CUSTOM'); }}
+                                  min={0.1} max={3} step={0.1}
+                                  className="h-7 bg-gray-800 border-amber-700/40 text-amber-300 text-xs px-2" />
+                                <span className="text-gray-400 text-[10px]">%</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Toggle rules */}
+                          <div className="flex flex-wrap gap-2 mb-3">
+                            <button onClick={() => { setPropFirmConsistencyRule(v => !v); setPropFirmPreset('CUSTOM'); }}
+                              className={`flex items-center gap-1.5 text-[10px] px-2 py-1 rounded-md border transition-all ${propFirmConsistencyRule ? 'bg-blue-500/20 border-blue-500/50 text-blue-300' : 'bg-gray-800 border-gray-700 text-gray-500'}`}>
+                              <span>{propFirmConsistencyRule ? '✓' : '○'}</span> Consistency rule
+                            </button>
+                            <button onClick={() => { setPropFirmAllowOvernight(v => !v); setPropFirmPreset('CUSTOM'); }}
+                              className={`flex items-center gap-1.5 text-[10px] px-2 py-1 rounded-md border transition-all ${propFirmAllowOvernight ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300' : 'bg-gray-800 border-gray-700 text-gray-500'}`}>
+                              <span>{propFirmAllowOvernight ? '✓' : '○'}</span> Overnight holds
+                            </button>
+                          </div>
+
+                          {/* Rule summary */}
+                          <div className="bg-amber-950/30 border border-amber-700/20 rounded-lg p-2 text-[10px] text-amber-400/80 space-y-0.5">
+                            <p>🛡️ <strong>Active rules:</strong> Daily DD -{enginePropFirmDrawdown}% hard stop · Total DD -{propFirmTotalDrawdown}% · {engineRiskPerTrade}% risk/trade</p>
+                            <p>🎯 <strong>Challenge target:</strong> +{propFirmProfitTarget}% · Min {propFirmMinTradingDays} trading days · Sniper mode only · 1:2+ R:R required</p>
+                            {!propFirmAllowOvernight && <p>🌙 <strong>No overnight holds</strong> — trades auto-blocked after 21:00 UTC</p>}
+                            {propFirmConsistencyRule && <p>📊 <strong>Consistency rule:</strong> No single day &gt;30% of total target profit</p>}
+                          </div>
+
+                          <button
+                            onClick={() => savePropFirmContextMutation.mutate({
+                              enabled: true, firmPreset: propFirmPreset,
+                              maxDailyDrawdownPct: enginePropFirmDrawdown,
+                              maxTotalDrawdownPct: propFirmTotalDrawdown,
+                              profitTargetPct: propFirmProfitTarget,
+                              minTradingDays: propFirmMinTradingDays,
+                              riskPerTradePct: engineRiskPerTrade,
+                              allowOvernightHolds: propFirmAllowOvernight,
+                              consistencyRule: propFirmConsistencyRule,
+                              currentDailyPnlPct: propFirmContext?.currentDailyPnlPct ?? 0,
+                              currentTotalPnlPct: propFirmContext?.currentTotalPnlPct ?? 0,
+                            })}
+                            disabled={savePropFirmContextMutation.isPending}
+                            className="mt-2 w-full text-[11px] font-semibold py-1.5 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 rounded-lg transition-all"
+                          >
+                            {savePropFirmContextMutation.isPending ? 'Saving…' : '💾 Save Prop Firm Rules to Server'}
+                          </button>
+                        </>
+                      )}
+
+                      {!enginePropFirmMode && (
+                        <p className="text-[10px] text-gray-500 mt-1">Enable to load prop firm rules — daily DD limit, risk cap, overnight block, consistency enforcement. Pre-built for FTMO, MFF, The5ers, and Funded Next.</p>
                       )}
                     </div>
-                    {enginePropFirmMode && (
-                      <p className="text-[10px] text-amber-400/80 mt-1.5">
-                        🛡️ 0.5% risk/trade · Max 2 trades · 78%+ confidence · 1:2+ R:R · No scalping · Sniper setups only
-                      </p>
-                    )}
                   </div>
 
                   {/* ── Auto-Pyramid Winners ── */}
@@ -2738,11 +2902,15 @@ export default function WeeklyStrategyPage() {
                     <div className="text-[10px] text-gray-400 mt-0.5">Max trades/day</div>
                     <div className="text-[9px] text-cyan-400 mt-0.5">per pair</div>
                   </div>
-                  {/* Risk per trade */}
-                  <div className="bg-gray-800/60 rounded-lg p-3 text-center">
-                    <div className="text-xl font-black text-emerald-400">1%</div>
+                  {/* Risk per trade — live from engine setting */}
+                  <div className={`rounded-lg p-3 text-center ${enginePropFirmMode ? 'bg-amber-950/40 border border-amber-700/30' : 'bg-gray-800/60'}`}>
+                    <div className={`text-xl font-black ${enginePropFirmMode ? 'text-amber-400' : 'text-emerald-400'}`}>{engineRiskPerTrade}%</div>
                     <div className="text-[10px] text-gray-400 mt-0.5">Risk / trade</div>
-                    <div className="text-[9px] text-gray-500 mt-0.5">{riskPct} tier</div>
+                    <div className="text-[9px] mt-0.5">
+                      {enginePropFirmMode
+                        ? <span className="text-amber-400">🛡️ {propFirmPreset} rules</span>
+                        : <span className="text-gray-500">{riskPct} tier</span>}
+                    </div>
                   </div>
                   {/* Active pairs count */}
                   <div className="bg-gray-800/60 rounded-lg p-3 text-center">
