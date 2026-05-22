@@ -4467,6 +4467,8 @@ IMPORTANT:
         riskLevel: savedStrategy?.riskLevel || riskLevel || 'moderate',
         lotSize: savedStrategy?.lotSize ?? (lotSize ? parseFloat(lotSize) : null),
         plan: savedStrategy?.plan || planData,
+        // Store the chosen strategy mode so AI confirmation uses it at signal time
+        strategyMode: hftMode || savedStrategy?.strategyType || 'aggressive',
         pairStats,
         generatedAt: new Date(),
         weekStart,
@@ -8910,12 +8912,25 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 learnedInsights = await getLearnedInsights(token.userId, sanitizedSymbol);
               } catch (_le) { /* non-critical */ }
 
+              // Resolve the user's chosen strategy mode for the AI second opinion.
+              // Priority: live engine config → weekly strategy plan → 'aggressive' (default).
+              // This is what makes the AI actually look for the strategy the user selected.
+              const { getLiveEngineState: _getStratLES } = await import('./services/live-trading-engine');
+              const _stratEngineState = _getStratLES(token.userId);
+              const _weeklyStrat = (global as any).mt5WeeklyStrategies?.[token.userId];
+              const resolvedStrategyMode: string =
+                _stratEngineState?.config?.strategyMode ||
+                _weeklyStrat?.strategyMode ||
+                _weeklyStrat?.plan?.strategyType ||
+                'aggressive';
+              console.log(`[AI Confirmation] Strategy mode for ${sanitizedSymbol}: ${resolvedStrategyMode}`);
+
               aiConfirmation = await getAiVisionConfirmation(
                 candles, analysis.indicators, analysis.signal, analysis.confidence,
                 analysis.tradePlan, sanitizedSymbol, sanitizedTimeframe,
                 token.userId, newsContextForAI, ictContext, smcContext,
                 htfLevels.length > 0 ? htfLevels : undefined, propFirmCtx,
-                symbolPerfStats, learnedInsights
+                symbolPerfStats, learnedInsights, resolvedStrategyMode
               );
             }
 

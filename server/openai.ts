@@ -961,6 +961,199 @@ function detectWeekendRolloverRisk(): { isFridayPM: boolean; isNearRollover: boo
   return { isFridayPM, isNearRollover, minutesToRollover, warning };
 }
 
+// ── Strategy-mode filter section injected into the AI confirmation prompt ──────────
+// Tells the AI exactly what setup it must verify for the chosen strategy.
+// Without this, the AI runs a generic confluence check regardless of selected strategy.
+function buildStrategyFilterSection(strategyMode?: string): string {
+  if (!strategyMode || strategyMode === 'aggressive') return '';
+
+  const filters: Record<string, string> = {
+    sniper: `
+═══════════════════════════════════════════
+🎯 ACTIVE STRATEGY FILTER: SNIPER MODE
+Your job is to confirm ONLY the highest-quality setups. Apply all of the following as hard requirements:
+1. BOS or CHOCH must be CONFIRMED on the trading timeframe (no confirmation = REJECT)
+2. Entry must be AT or INSIDE an Order Block, Fair Value Gap, or OTE zone (61.8–78.6% retrace)
+3. ICT macro window must be ACTIVE (NY 8:30–11:00 or 13:30–16:00, London 7:00–10:00 UTC)
+4. At least 2 higher timeframes must align with the trade direction
+5. R:R must be >= 1:3. If TP gives less than 3× the SL distance, REJECT.
+6. Minimum 3 independent confluences (OB + FVG + multi-TF counts as 3)
+If ANY of these 6 criteria is missing, your verdict must be REJECT.
+═══════════════════════════════════════════`,
+
+    ict_order_blocks: `
+═══════════════════════════════════════════
+🎯 ACTIVE STRATEGY FILTER: ICT ORDER BLOCKS
+You are ONLY confirming Order Block entries. Apply these rules:
+1. There must be a clear Order Block visible (last bullish candle before bearish displacement for SELL OBs, last bearish candle before bullish displacement for BUY OBs)
+2. Price must currently be RETURNING to the OB zone (retrace/pull-back, not continuation)
+3. The OB must be from a structural move — a BOS or significant displacement
+4. OB must be UNMITIGATED (price has not fully traded through it before)
+5. Look in smcContext for orderBlocks array — if none are detected, confidence should be < 50
+If no valid Order Block is present in the data, REJECT with low confidence.
+═══════════════════════════════════════════`,
+
+    ict_fvg: `
+═══════════════════════════════════════════
+🎯 ACTIVE STRATEGY FILTER: ICT FAIR VALUE GAP (FVG)
+You are ONLY confirming Fair Value Gap entries. Rules:
+1. An active, unfilled FVG must exist in the direction of the trade (bullish FVG for BUY, bearish FVG for SELL)
+2. Price must currently be ENTERING or sitting INSIDE the FVG zone
+3. Check smcContext.fairValueGaps — if none detected, significantly lower confidence
+4. A FVG created after a BOS/CHOCH is the highest quality
+5. FVG entries against the HTF trend are LOW quality — require multi-TF alignment
+6. Partial fills of FVG are allowed if other confluences agree
+If no FVG is present in the candle data or smcContext, REJECT.
+═══════════════════════════════════════════`,
+
+    ict_liquidity_sweep: `
+═══════════════════════════════════════════
+🎯 ACTIVE STRATEGY FILTER: ICT LIQUIDITY SWEEP
+You are confirming stop-hunt / liquidity sweep reversals. Rules:
+1. There MUST be a visible sweep of equal highs (for SELL) or equal lows (for BUY) within the last 10 candles
+2. The sweep candle should show a wick through the level with a close back inside the range (stop hunt anatomy)
+3. After the sweep, look for a reversal confirmation: engulfing candle, BOS on LTF, displacement
+4. Check ictContext for stopHuntData — a sweep without confirmation is a fake-out risk
+5. The swept level should be a resting liquidity pool (prior swing highs/lows, equal highs/lows)
+6. Do NOT confirm if the sweep is WITH the trend (continuation sweeps have lower probability)
+If no liquidity sweep is detectable, REJECT.
+═══════════════════════════════════════════`,
+
+    ict_bos: `
+═══════════════════════════════════════════
+🎯 ACTIVE STRATEGY FILTER: ICT BREAK OF STRUCTURE (BOS)
+You are confirming BOS continuation entries. Rules:
+1. A clear BOS must have occurred recently — price took out a prior swing high (bullish BOS for BUY) or swing low (bearish BOS for SELL)
+2. After the BOS, price should be pulling back (retracing) — entry is on the PULLBACK, not on the initial BOS candle
+3. Ideal entry: pullback to 50% retracement of the BOS leg, OB or FVG within that zone
+4. Check smcContext for bos/choch detection
+5. A CHOCH (Change of Character) without a BOS confirmation = lower quality, reduce confidence
+6. BOS entries aligned with HTF trend = highest quality
+If no BOS is detected in smcContext, confidence must be below 55.
+═══════════════════════════════════════════`,
+
+    ict_ote: `
+═══════════════════════════════════════════
+🎯 ACTIVE STRATEGY FILTER: ICT OPTIMAL TRADE ENTRY (OTE)
+You are confirming OTE zone entries. Rules:
+1. A clear swing structure must exist — identify the recent swing high and swing low
+2. For BUY: price must be in the 61.8–78.6% Fibonacci retracement zone of the most recent bullish swing
+   For SELL: price must be in the 61.8–78.6% zone of the most recent bearish swing
+3. Check indicators.fibonacci — the OTE zone is typically between fib 0.618 and 0.786
+4. ICT macro timing is critical for OTE — confirm the ICT macro window is active
+5. HTF must show the trend direction aligned with the OTE entry
+6. OTE without HTF alignment = WATCH only, not CONFIRM
+If price is NOT in the 61.8–78.6% zone, REJECT.
+═══════════════════════════════════════════`,
+
+    smc_demand_supply: `
+═══════════════════════════════════════════
+🎯 ACTIVE STRATEGY FILTER: SMC DEMAND/SUPPLY ZONES
+You are confirming supply and demand zone entries. Rules:
+1. There must be a clear supply zone (for SELL) or demand zone (for BUY) visible in the chart
+2. Price should be RETURNING to a fresh (unmitigated) zone
+3. A valid supply zone = a sharp departure (displacement) from a consolidation or base
+4. Check smcContext for orderBlocks and supplyDemandZones
+5. Zones that have been tested once are lower quality; fresh zones (first touch) are highest quality
+6. Zone + BOS confirmation on the candle at the zone = highest quality entry
+7. Entering mid-zone or on the far edge of a zone = reduced quality
+If no supply/demand zone is present at the current price, REJECT.
+═══════════════════════════════════════════`,
+
+    session_breakout: `
+═══════════════════════════════════════════
+🎯 ACTIVE STRATEGY FILTER: SESSION BREAKOUT
+You are confirming session open breakout trades only. Rules:
+1. Trade MUST be during or immediately after the London open (06:00–09:00 UTC) or NY open (12:30–15:00 UTC)
+2. A pre-session consolidation range must exist — price was ranging during Asian or pre-London session
+3. Check breakoutDetection data — breakoutDetected must be true or approachingBreakout must be true
+4. Volume confirmation (volumeConfirmed=true) greatly increases quality
+5. The breakout direction must align with the HTF trend for highest quality
+6. Counter-trend breakouts require extra confluence (at minimum 3 factors agreeing)
+7. False breakout risk: if price breaks then immediately retraces 50%+ of breakout move, do NOT confirm
+If breakoutDetection.isBreakoutWindow is false or no session breakout is detected, REJECT.
+═══════════════════════════════════════════`,
+
+    momentum: `
+═══════════════════════════════════════════
+🎯 ACTIVE STRATEGY FILTER: MOMENTUM SURFING
+You are confirming momentum-driven trend entries. Rules:
+1. ADX must be > 25 (trending market). ADX < 20 = ranging = avoid
+2. MACD histogram must be in the signal direction AND trending (growing, not shrinking)
+3. RSI must be 50–70 for BUY momentum, 30–50 for SELL momentum (not overbought/oversold)
+4. Multiple EMAs should be fanned out in the direction of the trade
+5. Price should be making higher highs + higher lows (for BUY) or lower highs + lower lows (for SELL)
+6. Entry on a brief pullback to EMA support/resistance, NOT on a continuation extension
+7. AVOID momentum entries if RSI is > 75 (BUY) or < 25 (SELL) — overextended
+If ADX < 20 or RSI is extreme, REJECT.
+═══════════════════════════════════════════`,
+
+    scalping: `
+═══════════════════════════════════════════
+🎯 ACTIVE STRATEGY FILTER: SCALPING / HFT
+You are confirming short-duration scalp trades. Rules:
+1. Target is 3–10 pips. R:R can be as low as 1:1 if win rate is high
+2. SL must be tight — no wider than 10–15 pips for major pairs
+3. Look for micro-structure: quick LTF (M1/M5) momentum confirmations
+4. RSI reversals from extremes (> 70 or < 30) are valid scalp signals
+5. Avoid scalping during low-liquidity periods (Asian session for major USD pairs) unless there is clear range-bound movement
+6. High-impact news within 30 minutes = DO NOT scalp (spreads widen, stops get hunted)
+7. MACD histogram reversal on the trading timeframe is a valid entry signal
+This is a volume strategy — multiple entries per session are expected.
+═══════════════════════════════════════════`,
+
+    asia_range_breakout: `
+═══════════════════════════════════════════
+🎯 ACTIVE STRATEGY FILTER: ASIA RANGE BREAKOUT
+You are confirming breakouts of the Asian session price range. Rules:
+1. The Asian session (00:00–07:00 UTC) must have established a consolidation range
+2. Price must be breaking OUT of that range (above the Asia high for BUY, below the Asia low for SELL)
+3. Check breakoutDetection.session — should indicate Asian range context
+4. The breakout should occur at or after the London open for maximum liquidity
+5. Volume expansion on the breakout candle = high quality
+6. The Asia range should be at least 10 pips for meaningful breakout
+7. Avoid if the range was very wide (> 50 pips for majors) — larger ranges have higher false-breakout rate
+If no Asian range context is detected, REJECT.
+═══════════════════════════════════════════`,
+
+    vwap_mean_reversion: `
+═══════════════════════════════════════════
+🎯 ACTIVE STRATEGY FILTER: VWAP MEAN REVERSION
+You are confirming mean-reversion entries back toward VWAP. Rules:
+1. Price must be SIGNIFICANTLY extended from VWAP — at least 0.5× ATR away
+2. For BUY: price must be BELOW VWAP, extended, showing reversal signs
+   For SELL: price must be ABOVE VWAP, extended, showing reversal signs
+3. RSI divergence (price makes new extreme but RSI doesn't) = high quality signal
+4. Look for rejection candles at the extended zone before entry
+5. This is a counter-trend strategy — require extra confirmation (engulfing, pin bar at S/R)
+6. Do NOT use VWAP mean reversion in strongly trending markets (ADX > 35) — trend will fight against reversion
+7. Best timeframe: M15–H1. Very short timeframes have too much noise.
+If VWAP data is missing or price is near VWAP (within 0.3× ATR), REJECT.
+═══════════════════════════════════════════`,
+
+    prop_firm_sniper: `
+═══════════════════════════════════════════
+🎯 ACTIVE STRATEGY FILTER: PROP FIRM SNIPER (MAXIMUM PROTECTION)
+You are operating under STRICT prop firm rules. ALL of the following are required:
+1. R:R MINIMUM 1:3 — TP must be 3× the SL distance. Less than 1:3 = immediate REJECT
+2. ICT macro window MUST be active (no off-hours trading)
+3. BOS/CHOCH MUST be confirmed — no ranging market entries
+4. Entry MUST be at OB or FVG — no "middle of nowhere" entries
+5. Multi-TF alignment: at LEAST 2 higher timeframes agree
+6. No high-impact news within 30 minutes — hard rule
+7. Maximum confidence threshold: only CONFIRM if your confidence is > 75%
+8. No counter-trend trades (check HTF bias — must align)
+This is the most conservative filter. Reject anything that isn't a near-perfect setup.
+═══════════════════════════════════════════`,
+  };
+
+  return filters[strategyMode] || `
+═══════════════════════════════════════════
+📋 ACTIVE STRATEGY: ${strategyMode.toUpperCase().replace(/_/g, ' ')}
+Apply the rules appropriate for this strategy when evaluating the trade. Prioritize setups that align with the ${strategyMode} methodology.
+═══════════════════════════════════════════`;
+}
+
 async function buildConfirmationPrompt(
   candleData: any[], indicators: any, proposedSignal: string,
   proposedConfidence: number, tradePlan: any, symbol: string, timeframe: string,
@@ -971,7 +1164,8 @@ async function buildConfirmationPrompt(
   propFirmContext?: PropFirmContext | null,
   performanceStats?: PerformanceStats,
   learnedInsights?: string,
-  userId?: number
+  userId?: number,
+  strategyMode?: string
 ): Promise<{ system: string; user: string }> {
   // Fetch asset-specific strategy rules from GitHub (cached 24h, fallback to defaults)
   // Pass live performance stats so thresholds auto-adjust based on observed win rates
@@ -1281,7 +1475,7 @@ Grade D → avoid. Grade A/A+ → high conviction trade.
   return {
     system: "You are a master trader who speaks with street knowledge and the wisdom of Supreme Mathematics — Gods and Earths style. You build and destroy with the science of trading, dropping jewels and keeping it real. Your analysis is sharp, your reasoning is laced with knowledge of self and mathematical precision. You reference concepts like Knowledge (1), Wisdom (2), Understanding (3), Culture (4), Power (5), Equality (6), God (7), Build/Destroy (8), Born (9), and Cipher (0) naturally when they fit. You say things like 'the chart is showing and proving', 'peace — the math don't lie', 'this is a cipher of accumulation', 'knowledge this pattern God', 'the wisdom here is...', 'we building or we destroying?', etc. Keep it concise, authentic, and never forced — the science comes first, the flavor is the delivery. You provide honest, unbiased second opinions on trade signals using ALL available data including news sentiment and upcoming economic events. Always return valid JSON.",
     user: `You are an elite trading analyst providing a SECOND OPINION on a proposed trade. Use ALL data below for maximum accuracy.
-${htfSection}${newsProximityAlert}${propFirmSection}${confluenceHeader}
+${buildStrategyFilterSection(strategyMode)}${htfSection}${newsProximityAlert}${propFirmSection}${confluenceHeader}
 
 SYMBOL: ${symbol}
 TIMEFRAME: ${timeframe}
@@ -1526,7 +1720,8 @@ export async function getAiVisionConfirmation(
   htfLevels?: Array<{ timeframe: string; candles: Array<{ o: number; h: number; l: number; c: number; v?: number; t?: number }>; role?: string }>,
   propFirmContext?: PropFirmContext | null,
   performanceStats?: PerformanceStats,
-  learnedInsights?: string
+  learnedInsights?: string,
+  strategyMode?: string
 ): Promise<AiVisionConfirmation> {
   try {
     // Always resolve to a vision-capable model — text-only models (Groq Llama 3.3, Mixtral)
@@ -1574,7 +1769,7 @@ export async function getAiVisionConfirmation(
       }
     }
 
-    const prompt = await buildConfirmationPrompt(candleData, indicators, proposedSignal, proposedConfidence, tradePlan, symbol, timeframe, newsContext, ictContext, smcContext, htfLevels, propFirmContext, performanceStats, learnedInsights, userId);
+    const prompt = await buildConfirmationPrompt(candleData, indicators, proposedSignal, proposedConfidence, tradePlan, symbol, timeframe, newsContext, ictContext, smcContext, htfLevels, propFirmContext, performanceStats, learnedInsights, userId, strategyMode);
 
     console.log(`[AI Vision Confirmation] Requesting ${provider}/${selectedModel} confirmation for ${symbol} ${proposedSignal}`);
 
