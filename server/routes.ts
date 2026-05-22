@@ -6975,9 +6975,58 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         } catch (_riskErr) { /* use incoming volume on any error */ }
       }
 
+      // ── Relay-level daily cap + cooldown (runs once before the per-account loop) ──
+      let relayBlocked = !inAbbaPlan;
+      if (!relayBlocked && action === 'OPEN') {
+        // Daily cap: read from weekly plan
+        try {
+          const _relayPlan = (global as any).mt5WeeklyStrategies?.[token.userId];
+          if (_relayPlan?.plan?.weeklyPlan) {
+            const _rDn = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+            const _rDay = _rDn[new Date().getUTCDay()];
+            const _rTodayPlan = _relayPlan.plan.weeklyPlan[_rDay];
+            if (_rTodayPlan?.pairs) {
+              const _rNorm = (symbol || '').toUpperCase().replace('/', '').replace('_','');
+              const _rPair = _rTodayPlan.pairs.find((p: any) =>
+                (p.symbol || '').toUpperCase().replace('/', '').replace('_','') === _rNorm
+              );
+              const _rCap = _rPair?.maxTrades ?? _relayPlan.plan?.maxTradesPerDay ?? _relayPlan.maxTradesPerDay;
+              if (_rCap && _rCap > 0) {
+                const _rDate = new Date().toISOString().slice(0, 10);
+                const _rLogs = await storage.getTradelockerTradeLogs(token.userId, 200);
+                const _rCount = (_rLogs || []).filter((t: any) =>
+                  (t.symbol || '').toUpperCase().replace('/', '') === _rNorm &&
+                  t.action === 'OPEN' && t.status === 'executed' &&
+                  t.createdAt && t.createdAt.toString().startsWith(_rDate)
+                ).length;
+                if (_rCount >= _rCap) {
+                  relayBlocked = true;
+                  console.log(`[Relay Gate] Daily cap: ${_rCount}/${_rCap} trades on ${_rNorm} — relay blocked`);
+                }
+              }
+            }
+          }
+        } catch { /* non-blocking */ }
+
+        // Cooldown: share the same key as chart-data path so they don't double-fire
+        if (!relayBlocked) {
+          const _relayKey = `last_trade_${token.userId}_${(symbol || '').toUpperCase().replace('/', '')}`;
+          (global as any).recentTrades = (global as any).recentTrades || {};
+          const _relayLast = (global as any).recentTrades[_relayKey];
+          const _relayNow = Date.now();
+          const _relayCooldownMs = 5 * 60 * 1000; // 5-min shared cooldown
+          if (_relayLast && (_relayNow - _relayLast) < _relayCooldownMs) {
+            relayBlocked = true;
+            console.log(`[Relay Gate] Cooldown active for ${symbol} — relay blocked (${Math.round((_relayCooldownMs - (_relayNow - _relayLast))/1000)}s remaining)`);
+          } else {
+            (global as any).recentTrades[_relayKey] = _relayNow; // set before loop to prevent race
+          }
+        }
+      }
+
       const tradelockerResults: any[] = [];
       for (const tlConn of tlConnections) {
-        if (!tlConn.isActive || !tlConn.autoExecute || !inAbbaPlan) continue;
+        if (!tlConn.isActive || !tlConn.autoExecute || relayBlocked) continue;
         console.log(`[TradeLocker] Executing on account ${tlConn.accountId} (id=${tlConn.id}):`, { action, symbol, direction, volume: relayVolume });
 
         let connResult: any = null;
@@ -9322,7 +9371,118 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         console.log(`[VEDD Goal Intelligence] Plan lot override adjusted (${goalPaceMode}): ${preMult} → ${mt5Volume} lots (×${goalLotMultiplier.toFixed(2)})`);
       }
       
-      if (analysis.signal !== 'NEUTRAL' &&
+      // ═══════════════════════════════════════════════════════════════════
+      // PRE-TRADELOCKER GATE — evaluated BEFORE execution, applies always
+      // regardless of whether VEDD Live Mode is on or off.
+      // ═══════════════════════════════════════════════════════════════════
+      let tlGateBlocked = false;
+      let tlGateReason = '';
+
+      // Gate 1: Direction enforcement from weekly plan (always, not just when live mode ON)
+      if (analysis.signal !== 'NEUTRAL') {
+        try {
+          const tlGatePlan = (global as any).mt5WeeklyStrategies?.[token.userId];
+          if (tlGatePlan?.plan?.weeklyPlan) {
+            const _dn = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+            const _todayG = _dn[new Date().getUTCDay()];
+            const _todayPlanG = tlGatePlan.plan.weeklyPlan[_todayG];
+            if (_todayPlanG?.pairs) {
+              const _normG = sanitizedSymbol.toUpperCase().replace('/', '');
+              const _pairG = _todayPlanG.pairs.find((p: any) =>
+                (p.symbol || '').toUpperCase().replace('/', '') === _normG
+              );
+              if (_pairG?.direction && _pairG.direction !== 'BOTH' && _pairG.direction !== analysis.signal) {
+                tlGateBlocked = true;
+                tlGateReason = `Direction blocked: plan=${_pairG.direction}, signal=${analysis.signal}`;
+                analysis.signal = 'NEUTRAL'; // neutralise so downstream also stops
+                analysis.alerts = analysis.alerts || [];
+                analysis.alerts.push(`BLOCKED: ${analysis.signal !== 'NEUTRAL' ? analysis.signal : 'Signal'} rejected — plan only allows ${_pairG.direction} on ${_normG} today`);
+                console.log(`[TL Gate] ${tlGateReason}`);
+              }
+            }
+          }
+        } catch { /* non-blocking */ }
+      }
+
+      // Gate 2: Daily trade cap (always, regardless of live mode)
+      if (!tlGateBlocked && analysis.signal !== 'NEUTRAL') {
+        try {
+          const tlCapPlan = (global as any).mt5WeeklyStrategies?.[token.userId];
+          if (tlCapPlan?.plan?.weeklyPlan) {
+            const _dn2 = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+            const _today2 = _dn2[new Date().getUTCDay()];
+            const _todayPlan2 = tlCapPlan.plan.weeklyPlan[_today2];
+            if (_todayPlan2?.pairs) {
+              const _norm2 = sanitizedSymbol.toUpperCase().replace('/', '');
+              const _pair2 = _todayPlan2.pairs.find((p: any) =>
+                (p.symbol || '').toUpperCase().replace('/', '') === _norm2
+              );
+              const _planCap2 = tlCapPlan.plan?.maxTradesPerDay ?? tlCapPlan.maxTradesPerDay;
+              const _cap2 = _pair2?.maxTrades ?? _planCap2;
+              if (_cap2 && _cap2 > 0) {
+                const _dateStr2 = new Date().toISOString().slice(0, 10);
+                const _count2 = await getDailyTradeCountForPair(token.userId, _norm2, _dateStr2);
+                if (_count2 >= _cap2) {
+                  tlGateBlocked = true;
+                  tlGateReason = `Daily cap: ${_count2}/${_cap2} trades on ${_norm2} today`;
+                  analysis.alerts = analysis.alerts || [];
+                  analysis.alerts.push(`BLOCKED: Daily cap reached ${_count2}/${_cap2} for ${_norm2}. Resets midnight UTC.`);
+                  console.log(`[TL Gate] ${tlGateReason}`);
+                }
+              }
+            }
+          }
+        } catch { /* non-blocking */ }
+      }
+
+      // Gate 3: Prop firm drawdown (always)
+      if (!tlGateBlocked && analysis.signal !== 'NEUTRAL') {
+        try {
+          const { getPropFirmContext: _pfG, isPropFirmModeEnabled: _pfE } = await import('./openai');
+          if (_pfE(token.userId)) {
+            const _pfCtxG = _pfG(token.userId);
+            if (_pfCtxG?.maxDailyDrawdownPct) {
+              const _dailyPnl = _pfCtxG.currentDailyPnlPct ?? 0;
+              if (_dailyPnl <= -(_pfCtxG.maxDailyDrawdownPct)) {
+                tlGateBlocked = true;
+                tlGateReason = `Prop firm daily DD limit hit (${_dailyPnl.toFixed(2)}%)`;
+                analysis.alerts = analysis.alerts || [];
+                analysis.alerts.push(`🛡️ PROP FIRM: Daily drawdown limit reached. No more trades today.`);
+                console.log(`[TL Gate] ${tlGateReason}`);
+              }
+              if (!tlGateBlocked && !_pfCtxG.allowOvernightHolds) {
+                const _utcH = new Date().getUTCHours();
+                if (_utcH >= 21 || _utcH < 3) {
+                  tlGateBlocked = true;
+                  tlGateReason = `Prop firm overnight block (${_utcH}:00 UTC)`;
+                  console.log(`[TL Gate] ${tlGateReason}`);
+                }
+              }
+            }
+          }
+        } catch { /* non-blocking */ }
+      }
+
+      // Gate 4: Max open TradeLocker positions (uses matchingEA?.maxOpenTrades)
+      const tlMaxOpen = matchingEA?.maxOpenTrades ?? 0; // 0 = unlimited
+      if (!tlGateBlocked && tlMaxOpen > 0 && analysis.signal !== 'NEUTRAL') {
+        try {
+          const _openLogs = await storage.getTradelockerTradeLogs(token.userId, 50);
+          const _openCount = _openLogs.filter((t: any) =>
+            t.action === 'OPEN' && t.status === 'executed' &&
+            t.createdAt && (Date.now() - new Date(t.createdAt).getTime()) < 24 * 60 * 60 * 1000
+          ).length;
+          if (_openCount >= tlMaxOpen) {
+            tlGateBlocked = true;
+            tlGateReason = `Max open trades reached (${_openCount}/${tlMaxOpen})`;
+            analysis.alerts = analysis.alerts || [];
+            analysis.alerts.push(`BLOCKED: Max open trades ${_openCount}/${tlMaxOpen} on TradeLocker.`);
+            console.log(`[TL Gate] ${tlGateReason}`);
+          }
+        } catch { /* non-blocking */ }
+      }
+
+      if (!tlGateBlocked && analysis.signal !== 'NEUTRAL' &&
           analysis.confidence >= MIN_CONFIDENCE_FOR_AUTO_TRADE &&
           analysis.tradePlan) {
 
