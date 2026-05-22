@@ -2589,15 +2589,15 @@ export default function WeeklyStrategyPage() {
                       {/* Most recent decision */}
                       {(() => {
                         const latest = aiLogs[0];
-                        const isApproved = latest?.decision === 'CONFIRMED' || latest?.decision === 'APPROVED' || latest?.decision === 'AI_OVERRIDE';
-                        const isRejected = latest?.decision === 'REJECTED' || latest?.decision === 'BLOCKED';
+                        const isApproved = latest?.aiDecision === 'APPROVED' || latest?.aiDecision === 'AI_OVERRIDE' || latest?.aiDecision === 'ADJUSTED';
+                        const isRejected = latest?.aiDecision === 'REJECTED';
                         return (
                           <div className={`rounded-xl p-3 border ${isApproved ? 'border-emerald-500/30 bg-emerald-900/20' : isRejected ? 'border-red-500/30 bg-red-900/20' : 'border-gray-700/50 bg-gray-800/40'}`}>
                             <div className="flex items-center justify-between mb-2">
                               <div className="flex items-center gap-2 flex-wrap">
                                 <span className="text-white font-bold text-sm">{latest.symbol}</span>
-                                <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${latest.direction === 'BUY' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>{latest.direction}</span>
-                                <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${isApproved ? 'bg-emerald-500/20 text-emerald-300' : isRejected ? 'bg-red-500/20 text-red-300' : 'bg-gray-700 text-gray-400'}`}>{latest.decision}</span>
+                                <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${latest.proposedSignal === 'BUY' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>{latest.proposedSignal}</span>
+                                <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${isApproved ? 'bg-emerald-500/20 text-emerald-300' : isRejected ? 'bg-red-500/20 text-red-300' : 'bg-gray-700 text-gray-400'}`}>{latest.aiDecision}</span>
                                 {/* Model indicator badge */}
                                 {(latest.modelUsed || latest.providerUsed) && (
                                   <span className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">
@@ -2664,15 +2664,15 @@ export default function WeeklyStrategyPage() {
                           <p className="text-gray-600 text-[10px] uppercase tracking-wide mb-1.5">Recent decisions</p>
                           <div className="space-y-1">
                             {aiLogs.slice(1, 5).map((log: any, i: number) => {
-                              const approved = log.decision === 'CONFIRMED' || log.decision === 'APPROVED' || log.decision === 'AI_OVERRIDE';
-                              const rejected = log.decision === 'REJECTED' || log.decision === 'BLOCKED';
+                              const approved = log.aiDecision === 'APPROVED' || log.aiDecision === 'AI_OVERRIDE' || log.aiDecision === 'ADJUSTED';
+                              const rejected = log.aiDecision === 'REJECTED';
                               return (
                                 <div key={i} className="flex items-center justify-between bg-gray-800/40 rounded-lg px-3 py-1.5 text-xs">
                                   <div className="flex items-center gap-2">
                                     <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${approved ? 'bg-emerald-400' : rejected ? 'bg-red-400' : 'bg-gray-500'}`} />
                                     <span className="text-white font-medium">{log.symbol}</span>
-                                    <span className={log.direction === 'BUY' ? 'text-emerald-400' : 'text-red-400'}>{log.direction}</span>
-                                    <span className="text-gray-500">{log.decision}</span>
+                                    <span className={log.proposedSignal === 'BUY' ? 'text-emerald-400' : 'text-red-400'}>{log.proposedSignal}</span>
+                                    <span className="text-gray-500">{log.aiDecision}</span>
                                   </div>
                                   <div className="flex items-center gap-2 text-gray-500">
                                     {log.confluenceGrade && <span className="font-bold text-gray-400">{log.confluenceGrade}</span>}
@@ -2701,6 +2701,88 @@ export default function WeeklyStrategyPage() {
             </CardContent>
           </Card>
         )}
+
+        {/* ═══════════════════════════════════════════════════════
+            ACTIVE STRATEGY STATUS PANEL
+        ═══════════════════════════════════════════════════════ */}
+        {strategy?.hasStrategy && plan && (() => {
+          // Derive today's active pairs from the plan
+          const todayName = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+          const todayPlanPairs = plan.weeklyPlan?.[todayName]?.pairs || [];
+          const activePairs = todayPlanPairs.length > 0 ? todayPlanPairs : (plan.weeklyPlan?.Monday?.pairs || []);
+          const displayDay = todayPlanPairs.length > 0 ? todayName : 'Monday';
+          const planMaxTrades = (plan as any).maxTradesPerDay ?? null;
+          const pairMaxTrades = activePairs.length > 0 ? (activePairs[0]?.maxTrades ?? planMaxTrades) : planMaxTrades;
+          const effectiveMaxTrades = pairMaxTrades ?? 1;
+          const riskPct = riskLevel === 'conservative' ? '0.5–1%' : riskLevel === 'moderate' ? '1–2%' : '2–3%';
+          const liveModeOn = liveMode?.live ?? false;
+
+          return (
+            <Card className="bg-gray-900/60 border-gray-700/60">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <div className={`w-2 h-2 rounded-full ${liveModeOn ? 'bg-emerald-400 animate-pulse' : 'bg-gray-500'}`} />
+                    <span className="text-white font-semibold text-sm">Active Strategy Status</span>
+                    <Badge className={`text-[10px] ${liveModeOn ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-gray-700/50 text-gray-400 border-gray-600/30'}`}>
+                      {liveModeOn ? 'VEDD LIVE' : 'STANDBY'}
+                    </Badge>
+                  </div>
+                  <span className="text-gray-500 text-xs">{displayDay}</span>
+                </div>
+
+                <div className="grid grid-cols-3 gap-3 mb-3">
+                  {/* Max trades per day */}
+                  <div className="bg-gray-800/60 rounded-lg p-3 text-center">
+                    <div className="text-xl font-black text-white">{effectiveMaxTrades}</div>
+                    <div className="text-[10px] text-gray-400 mt-0.5">Max trades/day</div>
+                    <div className="text-[9px] text-cyan-400 mt-0.5">per pair</div>
+                  </div>
+                  {/* Risk per trade */}
+                  <div className="bg-gray-800/60 rounded-lg p-3 text-center">
+                    <div className="text-xl font-black text-emerald-400">1%</div>
+                    <div className="text-[10px] text-gray-400 mt-0.5">Risk / trade</div>
+                    <div className="text-[9px] text-gray-500 mt-0.5">{riskPct} tier</div>
+                  </div>
+                  {/* Active pairs count */}
+                  <div className="bg-gray-800/60 rounded-lg p-3 text-center">
+                    <div className="text-xl font-black text-purple-400">{activePairs.length}</div>
+                    <div className="text-[10px] text-gray-400 mt-0.5">Pairs today</div>
+                    <div className="text-[9px] text-gray-500 mt-0.5">from plan</div>
+                  </div>
+                </div>
+
+                {/* Per-pair breakdown */}
+                {activePairs.length > 0 && (
+                  <div className="space-y-1.5">
+                    <p className="text-gray-500 text-[10px] uppercase tracking-wide">Today's Pairs ({displayDay})</p>
+                    {activePairs.map((p: any, i: number) => (
+                      <div key={i} className="flex items-center justify-between bg-gray-800/40 rounded-lg px-3 py-2 text-xs">
+                        <div className="flex items-center gap-2">
+                          <span className={`w-1.5 h-1.5 rounded-full ${p.direction === 'BUY' ? 'bg-emerald-400' : p.direction === 'SELL' ? 'bg-red-400' : 'bg-yellow-400'}`} />
+                          <span className="text-white font-semibold">{p.symbol}</span>
+                          <Badge className={`text-[9px] ${p.direction === 'BUY' ? 'bg-emerald-500/20 text-emerald-400' : p.direction === 'SELL' ? 'bg-red-500/20 text-red-400' : 'bg-yellow-500/20 text-yellow-400'}`}>{p.direction}</Badge>
+                          {p.session && <span className="text-gray-500">{p.session}</span>}
+                        </div>
+                        <div className="flex items-center gap-2 text-gray-400">
+                          <span className="text-[10px]">Max {p.maxTrades ?? effectiveMaxTrades} trade{(p.maxTrades ?? effectiveMaxTrades) === 1 ? '' : 's'}</span>
+                          {p.lotSize && <span className="text-cyan-400 font-medium">{p.lotSize}L</span>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {!liveModeOn && (
+                  <div className="mt-3 flex items-center gap-2 bg-yellow-950/30 border border-yellow-700/30 rounded-lg px-3 py-2">
+                    <span className="text-yellow-400 text-xs">⚠️</span>
+                    <span className="text-yellow-400/80 text-xs">VEDD Live Mode is OFF — trade caps are still enforced server-side. Enable live mode to boost plan alignment signals.</span>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          );
+        })()}
 
         {/* ═══════════════════════════════════════════════════════
             WEEKLY STRATEGY PLAN — collapsed by default

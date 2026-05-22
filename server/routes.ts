@@ -9199,7 +9199,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
 
       // Calculate position sizing based on EA risk settings (used for both TradeLocker and MT5 EA)
       const useRiskPercent = matchingEA?.useRiskPercent ?? true;
-      const riskPercentSetting = matchingEA?.riskPercent ?? 0.25;
+      const riskPercentSetting = matchingEA?.riskPercent ?? 1.0;
       const fixedVolumeSetting = matchingEA?.volume ?? 0.01;
       const accountData = (global as any).mt5AccountData?.[token.userId];
       const accountBalance = accountData?.balance || 10000;
@@ -9415,10 +9415,44 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       
       // Check max open trades setting
       const maxOpenTrades = matchingEA?.maxOpenTrades ?? 1;
-      
-      const shouldMT5Execute = !mt5CooldownActive && 
-                                analysis.signal !== 'NEUTRAL' && 
-                                analysis.confidence >= MIN_CONFIDENCE_FOR_AUTO_TRADE && 
+
+      // ── GLOBAL DAILY TRADE CAP — enforced regardless of live mode ──────────
+      // Reads maxTradesPerDay from the weekly plan (or per-pair maxTrades) and
+      // blocks the trade if today's count is already at/above the cap.
+      let globalDailyCapBlocked = false;
+      try {
+        const veddStrategyForCap = (global as any).mt5WeeklyStrategies?.[token.userId];
+        if (veddStrategyForCap?.plan?.weeklyPlan) {
+          const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+          const todayNameCap = dayNames[new Date().getUTCDay()];
+          const todayPlanCap = veddStrategyForCap.plan.weeklyPlan[todayNameCap];
+          if (todayPlanCap?.pairs) {
+            const normSym = sanitizedSymbol.toUpperCase().replace('/', '');
+            const pairPlanCap = todayPlanCap.pairs.find((p: any) =>
+              (p.symbol || '').toUpperCase().replace('/', '') === normSym
+            );
+            const capFromPair = pairPlanCap?.maxTrades;
+            // Also honour plan-level maxTradesPerDay as a per-pair ceiling
+            const capFromPlan = veddStrategyForCap.plan?.maxTradesPerDay ?? veddStrategyForCap.maxTradesPerDay;
+            const effectiveCap = capFromPair ?? capFromPlan;
+            if (effectiveCap && effectiveCap > 0 && analysis.signal !== 'NEUTRAL') {
+              const todayDateStr = new Date().toISOString().slice(0, 10);
+              const todayCount = await getDailyTradeCountForPair(token.userId, normSym, todayDateStr);
+              if (todayCount >= effectiveCap) {
+                globalDailyCapBlocked = true;
+                console.log(`[Global Cap] BLOCKED ${normSym} — ${todayCount}/${effectiveCap} daily trades reached (plan-level enforcement)`);
+                analysis.alerts = analysis.alerts || [];
+                analysis.alerts.push(`Daily trade cap reached for ${normSym}: ${todayCount}/${effectiveCap} trades today. Cap resets at midnight UTC.`);
+              }
+            }
+          }
+        }
+      } catch (_capErr) { /* non-critical — never crash the response */ }
+
+      const shouldMT5Execute = !mt5CooldownActive &&
+                                !globalDailyCapBlocked &&
+                                analysis.signal !== 'NEUTRAL' &&
+                                analysis.confidence >= MIN_CONFIDENCE_FOR_AUTO_TRADE &&
                                 analysis.tradePlan !== null;
       
       // Log with VEDD expert language style
