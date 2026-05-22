@@ -2690,7 +2690,7 @@ export default function WeeklyStrategyPage() {
         {/* ═══════════════════════════════════════════════════════
             VEDD SS AI LIVE MODE (EA Guidance toggle)
         ═══════════════════════════════════════════════════════ */}
-        {strategy?.hasStrategy && plan && (
+        {strategy?.hasStrategy && (
           <Card className={`border transition-all duration-500 ${
             liveMode?.live
               ? 'border-emerald-500/50 bg-gradient-to-r from-emerald-950/30 to-green-950/30'
@@ -3948,7 +3948,7 @@ export default function WeeklyStrategyPage() {
         {/* ═══════════════════════════════════════════════════════
             EA STRATEGY FEED
         ═══════════════════════════════════════════════════════ */}
-        {strategy?.hasStrategy && aiLogs.length > 0 && (
+        {strategy?.hasStrategy && (
           <Card className="bg-gradient-to-br from-gray-800/80 to-gray-900/80 border-purple-500/30">
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
@@ -3963,6 +3963,22 @@ export default function WeeklyStrategyPage() {
               </div>
             </CardHeader>
             <CardContent>
+              {aiLogs.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-6 gap-2 text-center">
+                  <div className="w-8 h-8 rounded-full bg-purple-500/10 border border-purple-500/30 flex items-center justify-center">
+                    <BookOpen className="w-4 h-4 text-purple-400/50" />
+                  </div>
+                  <p className="text-gray-400 text-sm font-medium">Waiting for signals</p>
+                  <p className="text-gray-600 text-xs max-w-xs">
+                    AI 2nd opinion decisions appear here once your MT5 EA sends chart data. Make sure your EA is attached and VEDD Live Mode is on.
+                  </p>
+                  {!liveMode?.live && (
+                    <Badge className="bg-yellow-500/10 text-yellow-400 border-yellow-500/30 text-[10px] mt-1">
+                      ⚠️ Live Mode is OFF — toggle it above to start receiving signals
+                    </Badge>
+                  )}
+                </div>
+              )}
               <div className="space-y-2.5 max-h-[350px] overflow-y-auto">
                 {aiLogs.slice(0, 8).map((log: any) => (
                   <motion.div key={log.id} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}

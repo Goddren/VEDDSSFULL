@@ -39,7 +39,7 @@ import {
   BookOpen, GraduationCap, FileText, Lightbulb, ChevronDown, MoreHorizontal,
   BarChart3, Webhook, Wallet, Scan, Coins, KeyRound, Rocket, Brain, Shirt,
   Radio, Star, CheckCircle2, AlertTriangle, Loader2, ExternalLink, TrendingUp, Code2, Activity,
-  DollarSign, Globe, Search, Shield, Flame
+  DollarSign, Globe, Search, Shield, Flame, Calculator
 } from 'lucide-react';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 
@@ -72,6 +72,36 @@ const Header: React.FC = () => {
   // AI key quick-switch dialog state
   const [keyDialogOpen, setKeyDialogOpen] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState('openai');
+
+  // Position size calculator state
+  const [calcOpen, setCalcOpen] = useState(false);
+  const [calcBalance, setCalcBalance] = useState('10000');
+  const [calcRisk, setCalcRisk] = useState('1');
+  const [calcEntry, setCalcEntry] = useState('');
+  const [calcSL, setCalcSL] = useState('');
+  const [calcPair, setCalcPair] = useState('EURUSD');
+
+  const calcResult = (() => {
+    const balance = parseFloat(calcBalance);
+    const riskPct = parseFloat(calcRisk);
+    const entry   = parseFloat(calcEntry);
+    const sl      = parseFloat(calcSL);
+    if (!balance || !riskPct || !entry || !sl || entry === sl) return null;
+    const dollarRisk = balance * (riskPct / 100);
+    const slDist     = Math.abs(entry - sl);
+    const pair       = calcPair.toUpperCase().replace('/', '');
+    // pip size heuristic
+    const pipSize    = pair.includes('JPY') ? 0.01 : pair === 'XAUUSD' ? 0.10 : 0.0001;
+    const slPips     = slDist / pipSize;
+    // pip value in USD per standard lot (approx)
+    const pipValuePerLot = pair.includes('JPY') ? 9.0 : pair === 'XAUUSD' ? 10.0 : 10.0;
+    const lots = dollarRisk / (slPips * pipValuePerLot);
+    return {
+      dollarRisk: dollarRisk.toFixed(2),
+      slPips: slPips.toFixed(1),
+      lots: Math.max(0.01, Math.round(lots * 100) / 100).toFixed(2),
+    };
+  })();
   const [newKeyValue, setNewKeyValue] = useState('');
   const [newKeyLabel, setNewKeyLabel] = useState('');
 
@@ -217,6 +247,14 @@ const Header: React.FC = () => {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="center" className="w-48">
+                {/* Position Size Calculator — quick access shortcut */}
+                <DropdownMenuItem className="cursor-pointer text-cyan-400" onClick={() => setCalcOpen(true)}>
+                  <div className="flex items-center w-full font-medium">
+                    <Calculator className="h-4 w-4 mr-2" />
+                    <span>Position Calc</span>
+                  </div>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
                 {moreNavItems.map(item => (
                   <DropdownMenuItem key={item.path} asChild className="cursor-pointer">
                     <Link href={item.path}>
@@ -532,6 +570,15 @@ const Header: React.FC = () => {
                     <Wallet className="h-4 w-4 mr-2" />
                     VEDD Wallet
                   </Link>
+                  {/* Position Size Calculator — mobile shortcut */}
+                  <button
+                    onClick={() => { setMobileMenuOpen(false); setCalcOpen(true); }}
+                    className="text-lg font-medium transition-colors flex items-center text-left gap-2 text-cyan-400 hover:text-cyan-300"
+                  >
+                    <Calculator className="h-4 w-4" />
+                    Position Size Calc
+                  </button>
+
                   {/* Mobile AI key quick access — just the dot button */}
                   <button
                     onClick={() => { setMobileMenuOpen(false); setKeyDialogOpen(true); }}
@@ -779,6 +826,77 @@ const Header: React.FC = () => {
                 Manage all keys & switch AI model
               </span>
             </Link>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Position Size Calculator Dialog ─────────────────────────────────── */}
+      <Dialog open={calcOpen} onOpenChange={setCalcOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Calculator className="h-5 w-5 text-cyan-400" />
+              Position Size Calculator
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 pt-1">
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label className="text-xs">Account Balance ($)</Label>
+                <Input value={calcBalance} onChange={e => setCalcBalance(e.target.value)} placeholder="10000" className="h-8 text-sm" type="number" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Risk Per Trade (%)</Label>
+                <Input value={calcRisk} onChange={e => setCalcRisk(e.target.value)} placeholder="1" className="h-8 text-sm" type="number" step="0.1" />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Currency Pair</Label>
+              <select
+                value={calcPair}
+                onChange={e => setCalcPair(e.target.value)}
+                className="w-full h-8 text-sm bg-background border border-input rounded-md px-2 focus:outline-none focus:ring-1 focus:ring-ring"
+              >
+                {['EURUSD','GBPUSD','USDJPY','USDCHF','AUDUSD','NZDUSD','USDCAD','GBPJPY','EURJPY','XAUUSD','US30','NAS100','BTCUSD'].map(p => (
+                  <option key={p} value={p}>{p}</option>
+                ))}
+              </select>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label className="text-xs">Entry Price</Label>
+                <Input value={calcEntry} onChange={e => setCalcEntry(e.target.value)} placeholder="1.08500" className="h-8 text-sm font-mono" type="number" step="any" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Stop Loss Price</Label>
+                <Input value={calcSL} onChange={e => setCalcSL(e.target.value)} placeholder="1.08200" className="h-8 text-sm font-mono" type="number" step="any" />
+              </div>
+            </div>
+
+            {/* Result */}
+            {calcResult ? (
+              <div className="rounded-xl border border-cyan-500/30 bg-cyan-950/20 p-3 space-y-2">
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div>
+                    <div className="text-xl font-black text-cyan-400">{calcResult.lots}</div>
+                    <div className="text-[10px] text-gray-400">Lots</div>
+                  </div>
+                  <div>
+                    <div className="text-xl font-black text-red-400">${calcResult.dollarRisk}</div>
+                    <div className="text-[10px] text-gray-400">$ at Risk</div>
+                  </div>
+                  <div>
+                    <div className="text-xl font-black text-amber-400">{calcResult.slPips}</div>
+                    <div className="text-[10px] text-gray-400">SL Pips</div>
+                  </div>
+                </div>
+                <p className="text-[10px] text-gray-500 text-center">Approx. for USD-quoted pairs. Adjust for cross-currency pip values.</p>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-gray-700 bg-gray-900/30 p-3 text-center">
+                <p className="text-gray-500 text-sm">Enter entry + stop loss to calculate</p>
+              </div>
+            )}
           </div>
         </DialogContent>
       </Dialog>

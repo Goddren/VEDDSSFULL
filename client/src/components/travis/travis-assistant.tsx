@@ -91,6 +91,15 @@ function loadVoices(): Promise<SpeechSynthesisVoice[]> {
 let pendingTTSBlob: Blob | null = null;
 
 // ── Voice hook — STT + TTS (OpenAI Onyx + browser fallback) ──────────────────
+// ── Voice style presets ───────────────────────────────────────────────────────
+export const ABBA_VOICE_PRESETS = [
+  { id: 'urban_male',   label: 'Urban Male',   openaiVoice: 'onyx',    elevenLabsId: 'pNInz6obpgDQGcFmaJgB', description: 'Deep, authoritative — ABBA default' },
+  { id: 'street_male',  label: 'Street Male',  openaiVoice: 'fable',   elevenLabsId: 'TxGEqnHWrfWFTfGW9XjX', description: 'Younger, casual male energy' },
+  { id: 'deep_male',    label: 'Deep Male',    openaiVoice: 'echo',    elevenLabsId: '2EiwWnXFnvU5JabPnv8n', description: 'Mature, warm, commanding' },
+  { id: 'female',       label: 'Female',       openaiVoice: 'nova',    elevenLabsId: '21m00Tcm4TlvDq8ikWAM', description: 'Clear, intelligent female voice' },
+] as const;
+export type AbbaVoicePresetId = typeof ABBA_VOICE_PRESETS[number]['id'];
+
 function useVoice(onTranscript: (text: string, isFinal: boolean) => void) {
   const recognitionRef    = useRef<any>(null);
   const audioRef          = useRef<HTMLAudioElement | null>(null);
@@ -103,6 +112,14 @@ function useVoice(onTranscript: (text: string, isFinal: boolean) => void) {
   const [voiceEnabled, setVoiceEnabled] = useState(() => {
     try { return localStorage.getItem('abba_voice') !== 'off'; } catch { return true; }
   });
+  const [voicePreset, setVoicePresetState] = useState<AbbaVoicePresetId>(() => {
+    try { return (localStorage.getItem('abba_voice_preset') as AbbaVoicePresetId) || 'urban_male'; } catch { return 'urban_male'; }
+  });
+
+  const setVoicePreset = useCallback((preset: AbbaVoicePresetId) => {
+    setVoicePresetState(preset);
+    try { localStorage.setItem('abba_voice_preset', preset); } catch {}
+  }, []);
 
   // ── Audio unlock — MUST be called directly inside a user gesture (tap/click) ─
   // On iOS Safari and Android Chrome, audio is blocked until the AudioContext
@@ -220,11 +237,12 @@ function useVoice(onTranscript: (text: string, isFinal: boolean) => void) {
     safeSetSpeaking(true);
 
     try {
+      const activePreset = ABBA_VOICE_PRESETS.find(p => p.id === voicePreset) || ABBA_VOICE_PRESETS[0];
       const res = await fetch('/api/abba/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ text: trimmed }),
+        body: JSON.stringify({ text: trimmed, voiceId: activePreset.elevenLabsId, openaiVoice: activePreset.openaiVoice }),
       });
 
       if (!res.ok) throw new Error('TTS unavailable');
@@ -314,7 +332,7 @@ function useVoice(onTranscript: (text: string, isFinal: boolean) => void) {
     });
   }, [safeSetSpeaking]);
 
-  return { isListening, isSpeaking, voiceEnabled, startListening, stopListening, speak, stopSpeaking, toggleVoice, playStoredAudio, unlockAudio, audioRef, audioCtxRef, audioSourceRef, safeSetSpeaking, primedAudioRef, browserSpeak };
+  return { isListening, isSpeaking, voiceEnabled, voicePreset, setVoicePreset, startListening, stopListening, speak, stopSpeaking, toggleVoice, playStoredAudio, unlockAudio, audioRef, audioCtxRef, audioSourceRef, safeSetSpeaking, primedAudioRef, browserSpeak };
 }
 
 // ── Arc Reactor icon (JARVIS-style) ──────────────────────────────────────────
@@ -777,7 +795,7 @@ export function AbbaAssistant() {
   const { toast } = useToast();
 
   // Voice hook — STT + TTS
-  const { isListening, isSpeaking, voiceEnabled, startListening, stopListening, speak, stopSpeaking, toggleVoice, playStoredAudio, unlockAudio, audioRef, audioCtxRef, audioSourceRef, safeSetSpeaking, primedAudioRef, browserSpeak } = useVoice(
+  const { isListening, isSpeaking, voiceEnabled, voicePreset, setVoicePreset, startListening, stopListening, speak, stopSpeaking, toggleVoice, playStoredAudio, unlockAudio, audioRef, audioCtxRef, audioSourceRef, safeSetSpeaking, primedAudioRef, browserSpeak } = useVoice(
     useCallback((transcript: string, isFinal: boolean) => {
       setInput(transcript);
       setInterimText(isFinal ? '' : transcript);
@@ -1438,7 +1456,7 @@ export function AbbaAssistant() {
                   </p>
                 </div>
                 <div className="flex items-center gap-1">
-                  {/* Voice output toggle — always visible */}
+                  {/* Voice output toggle + voice preset selector */}
                   <button
                     onClick={toggleVoice}
                     className="p-1.5 rounded-lg hover:bg-white/5 transition-colors"
@@ -1447,6 +1465,18 @@ export function AbbaAssistant() {
                   >
                     {voiceEnabled ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
                   </button>
+                  {voiceEnabled && (
+                    <select
+                      value={voicePreset}
+                      onChange={e => setVoicePreset(e.target.value as AbbaVoicePresetId)}
+                      className="text-[9px] bg-black/40 border border-purple-500/30 text-purple-300 rounded px-1 py-0.5 focus:outline-none focus:border-purple-500 max-w-[80px]"
+                      title="ABBA voice style"
+                    >
+                      {ABBA_VOICE_PRESETS.map(p => (
+                        <option key={p.id} value={p.id}>{p.label}</option>
+                      ))}
+                    </select>
+                  )}
                   <button
                     onClick={() => { refetchContext(); }}
                     className="p-1.5 rounded-lg text-gray-500 hover:text-gray-300 hover:bg-white/5 transition-colors"

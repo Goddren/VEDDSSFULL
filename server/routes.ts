@@ -3964,7 +3964,7 @@ VEDD CONTEXT: VEDD is a faith-based AI trading platform with a community of trad
           const { MsEdgeTTS, OUTPUT_FORMAT } = await import('msedge-tts');
           const tts = new MsEdgeTTS();
           await tts.setMetadata(
-            process.env.EDGE_TTS_VOICE || 'en-US-DavisNeural',
+            process.env.EDGE_TTS_VOICE || 'en-US-GuyNeural',   // Guy = deep urban male, free Edge TTS
             OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3
           );
           // toStream() returns { audioStream, metadataStream, requestId } — must destructure
@@ -4594,10 +4594,11 @@ IMPORTANT:
 
       if (elKey) {
         try {
-          // Rachel (21m00Tcm4TlvDq8ikWAM) — warm, natural, clear American voice.
+          // Adam (pNInz6obpgDQGcFmaJgB) — deep, natural American male. Perfect for ABBA's urban authority.
           // eleven_turbo_v2_5 = lowest latency + highest naturalness of any current model.
-          // stability 0.5 + style 0.10 = natural conversational delivery, not robotic.
-          const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || '21m00Tcm4TlvDq8ikWAM'; // Rachel
+          // stability 0.5 + style 0.15 = natural, street-intelligent delivery without sounding robotic.
+          const requestedVoiceId = req.body.voiceId as string | undefined;
+          const ELEVENLABS_VOICE_ID = requestedVoiceId || process.env.ELEVENLABS_VOICE_ID || 'pNInz6obpgDQGcFmaJgB'; // Adam (male)
           const elRes = await fetch(
             `https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`,
             {
@@ -4607,9 +4608,9 @@ IMPORTANT:
                 text: clean,
                 model_id: 'eleven_turbo_v2_5',
                 voice_settings: {
-                  stability: 0.50,
-                  similarity_boost: 0.80,
-                  style: 0.10,
+                  stability: 0.48,       // slight variation for natural cadence
+                  similarity_boost: 0.82,
+                  style: 0.18,           // more personality/expressiveness for urban tone
                   use_speaker_boost: true,
                 },
               }),
@@ -4637,7 +4638,9 @@ IMPORTANT:
       if (openaiKey) {
         try {
           const ttsClient = new OpenAILib({ apiKey: openaiKey });
-          const mp3 = await ttsClient.audio.speech.create({ model: 'tts-1-hd', voice: 'nova', input: clean, speed: 1.0 });
+          // 'onyx' = deep, authoritative male voice — matches ABBA's urban street-intelligence persona
+          const ttsVoice = (req.body.voiceId as string) || 'onyx';
+          const mp3 = await ttsClient.audio.speech.create({ model: 'tts-1-hd', voice: ttsVoice as any, input: clean, speed: 1.0 });
           const buffer = Buffer.from(await mp3.arrayBuffer());
           console.log(`[ABBA TTS] OpenAI OK — ${buffer.length} bytes`);
           res.set({ 'Content-Type': 'audio/mpeg', 'Content-Length': String(buffer.length), 'Cache-Control': 'no-cache', 'X-TTS-Provider': 'openai' });
