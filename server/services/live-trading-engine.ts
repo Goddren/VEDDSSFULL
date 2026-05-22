@@ -3746,6 +3746,47 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       return;
     }
 
+    // ── Live Engine TL Cooldown Gate ─────────────────────────────────────
+    // Prevents the live engine from firing the same pair more than once per 4 hours.
+    // Shares the same recentTrades map used by the chart-data handler so both
+    // paths respect the same cooldown.
+    {
+      const _leCooldownKey = `last_trade_${userId}_${decision.symbol.toUpperCase().replace('/', '')}`;
+      (global as any).recentTrades = (global as any).recentTrades || {};
+      const _leLastTime = (global as any).recentTrades[_leCooldownKey];
+      const _leNow = Date.now();
+      const _leCooldownMs = 240 * 60 * 1000; // 4 hours — matches chart-data default
+      if (_leLastTime && (_leNow - _leLastTime) < _leCooldownMs) {
+        const _leWaitMin = Math.ceil((_leCooldownMs - (_leNow - _leLastTime)) / 60000);
+        addActivity(userId, {
+          type: 'info',
+          symbol: decision.symbol,
+          message: `[Live Engine] TL cooldown active on ${decision.symbol} — ${_leWaitMin}min remaining. Signal skipped.`,
+        });
+        return;
+      }
+      // Check daily trade count against maxOpenTrades as a hard daily cap
+      const _leDate = new Date().toISOString().slice(0, 10);
+      const _leDailyLogs = await storage.getTradelockerTradeLogs(userId, 200);
+      const _leDailyCount = _leDailyLogs.filter((t: any) =>
+        t.symbol?.toUpperCase().replace('/', '') === decision.symbol.toUpperCase().replace('/', '') &&
+        t.action === 'OPEN' &&
+        t.status === 'executed' &&
+        t.createdAt && new Date(t.createdAt).toISOString().slice(0, 10) === _leDate
+      ).length;
+      const _leMaxDaily = config.maxOpenTrades ?? 3;
+      if (_leDailyCount >= _leMaxDaily) {
+        addActivity(userId, {
+          type: 'info',
+          symbol: decision.symbol,
+          message: `[Live Engine] Daily cap reached for ${decision.symbol}: ${_leDailyCount}/${_leMaxDaily}. No more trades today.`,
+        });
+        return;
+      }
+      // Reserve the cooldown slot before executing (prevents race conditions)
+      (global as any).recentTrades[_leCooldownKey] = _leNow;
+    }
+
     try {
       const signalLog = await storage.createMt5SignalLog({
         userId,

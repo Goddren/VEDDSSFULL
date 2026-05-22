@@ -9463,8 +9463,31 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         } catch { /* non-blocking */ }
       }
 
-      // Gate 4: Max open TradeLocker positions (uses matchingEA?.maxOpenTrades)
-      const tlMaxOpen = matchingEA?.maxOpenTrades ?? 0; // 0 = unlimited
+      // Gate 2b: Hard daily cap fallback — fires even when no weekly plan exists.
+      // Uses live engine config maxOpenTrades as the max trades per user per day.
+      if (!tlGateBlocked && analysis.signal !== 'NEUTRAL') {
+        try {
+          const tlCapPlan2b = (global as any).mt5WeeklyStrategies?.[token.userId];
+          const hasPlan2b = !!(tlCapPlan2b?.plan?.weeklyPlan);
+          if (!hasPlan2b) {
+            // No weekly plan — use live engine maxOpenTrades as a hard daily per-user cap
+            const _liveMaxDaily: number = _liveState?.config?.maxOpenTrades ?? 3;
+            const _dateStr2b = new Date().toISOString().slice(0, 10);
+            const _norm2b = sanitizedSymbol.toUpperCase().replace('/', '');
+            const _count2b = await getDailyTradeCountForPair(token.userId, _norm2b, _dateStr2b);
+            if (_count2b >= _liveMaxDaily) {
+              tlGateBlocked = true;
+              tlGateReason = `Hard daily cap (no plan): ${_count2b}/${_liveMaxDaily} trades on ${_norm2b} today`;
+              analysis.alerts = analysis.alerts || [];
+              analysis.alerts.push(`BLOCKED: Daily cap reached ${_count2b}/${_liveMaxDaily} for ${_norm2b} (from engine config). Resets midnight UTC.`);
+              console.log(`[TL Gate 2b] ${tlGateReason}`);
+            }
+          }
+        } catch { /* non-blocking */ }
+      }
+
+      // Gate 4: Max open TradeLocker positions — falls back to live engine config when no EA configured
+      const tlMaxOpen = matchingEA?.maxOpenTrades ?? _liveState?.config?.maxOpenTrades ?? 3;
       if (!tlGateBlocked && tlMaxOpen > 0 && analysis.signal !== 'NEUTRAL') {
         try {
           const _openLogs = await storage.getTradelockerTradeLogs(token.userId, 50);
@@ -9500,8 +9523,10 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           (global as any).recentTrades = (global as any).recentTrades || {};
           const lastTradeTime = (global as any).recentTrades[recentTradeKey];
           const now = Date.now();
-          // Use EA setting for cooldown, default to 5 minutes
-          const cooldownMinutes = matchingEA?.tradeCooldownMinutes ?? 5;
+          // Use EA setting for cooldown, default 4 hours.
+          // 4-hour minimum prevents a persistent signal from hammering the same pair every few minutes.
+          // EA management page lets you lower this for strategies that require faster re-entries.
+          const cooldownMinutes = matchingEA?.tradeCooldownMinutes ?? 240;
           const TRADE_COOLDOWN_MS = cooldownMinutes * 60 * 1000;
 
           if (!lastTradeTime || (now - lastTradeTime) > TRADE_COOLDOWN_MS) {
