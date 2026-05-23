@@ -10897,7 +10897,25 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         moderate: 'MODERATE RISK: 1–1.5% risk per trade, 2.5% max daily loss, standard lot sizing. Balance growth with protection.',
         aggressive: 'AGGRESSIVE RISK: 2–3% risk per trade, 5% max daily loss, full Kelly sizing. Maximum growth focus — user acknowledges compounding loss risk.',
       };
-      const selectedRisk = riskLevel && riskInstructions[riskLevel] ? riskLevel : 'moderate';
+
+      // 🌱 Growth plan pre-fill: if caller didn't pass a riskLevel, fall back to their growth plan
+      let _gpPrefillNote = '';
+      let selectedRisk = riskLevel && riskInstructions[riskLevel] ? riskLevel : '';
+      if (!selectedRisk) {
+        try {
+          const [_gpRow] = await db.execute(sql`SELECT risk_profile, current_phase, current_balance FROM account_growth_plans WHERE user_id = ${userId} LIMIT 1`);
+          if (_gpRow && (_gpRow as any).risk_profile) {
+            const _gpProfile = ((_gpRow as any).risk_profile as string).toLowerCase();
+            if (riskInstructions[_gpProfile]) {
+              selectedRisk = _gpProfile;
+              const _gpPhase = (_gpRow as any).current_phase ?? 1;
+              const _gpBal = (_gpRow as any).current_balance ?? accountBalance;
+              _gpPrefillNote = `\nGROWTH PLAN SYNC: User is on Phase ${_gpPhase} (balance $${_gpBal}) — risk profile "${_gpProfile}" loaded from their Account Growth Plan.`;
+            }
+          }
+        } catch (_) { /* ignore — use fallback below */ }
+        if (!selectedRisk) selectedRisk = 'moderate';
+      }
 
       const provenStrategies = getAllStrategiesForPairs(pairs)
         .split('\n\n')
@@ -10905,7 +10923,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         .join('\n')
         .substring(0, 800);
 
-      const prompt = `You are VEDD SS AI - a SELF-LEARNING autonomous trading engine with FULL CONTROL. You have studied this trader's entire history and evolved your strategy.
+      const prompt = `You are VEDD SS AI - a SELF-LEARNING autonomous trading engine with FULL CONTROL. You have studied this trader's entire history and evolved your strategy.${_gpPrefillNote}
 
 STRATEGY MODE: ${hftMode.toUpperCase()}
 ${hftDescriptions[hftMode] || hftDescriptions.aggressive}
@@ -20448,18 +20466,46 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     }
   });
 
+  // ── Shared phase helper (mirrors client PHASES array) ────────────────────────
+  const _gpPhaseFromBal = (bal: number) =>
+    bal < 500 ? 1 : bal < 1500 ? 2 : bal < 5000 ? 3 : bal < 15000 ? 4 : bal < 50000 ? 5 : 6;
+
+  // Risk % per phase per profile — mirrors client PHASES array
+  const _gpPhaseRisk: Record<number, Record<string, number>> = {
+    1: { conservative: 0.5,  moderate: 0.75, aggressive: 1.0 },
+    2: { conservative: 0.75, moderate: 1.0,  aggressive: 1.5 },
+    3: { conservative: 1.0,  moderate: 1.25, aggressive: 1.75 },
+    4: { conservative: 1.25, moderate: 1.5,  aggressive: 2.0 },
+    5: { conservative: 1.5,  moderate: 2.0,  aggressive: 2.5 },
+    6: { conservative: 1.5,  moderate: 2.0,  aggressive: 2.5 },
+  };
+  const _gpPhaseMaxTrades: Record<number, number> = { 1: 1, 2: 2, 3: 2, 4: 3, 5: 4, 6: 5 };
+
+  // Sync growth-plan phase rules → live engine (only if engine is currently running)
+  async function _syncGrowthPlanToEngine(userId: number, phase: number, riskProfile: string) {
+    try {
+      const { getLiveEngineState: _lgpES, updateLiveEngineConfig: _ugpEC } = await import('./services/live-trading-engine');
+      const liveState = _lgpES(userId);
+      if (!liveState) return; // engine not running — no sync needed
+      const riskPct = _gpPhaseRisk[phase]?.[riskProfile] ?? 1.0;
+      const maxTrades = _gpPhaseMaxTrades[phase] ?? 3;
+      _ugpEC(userId, { riskPerTrade: riskPct, maxOpenTrades: maxTrades });
+      console.log(`[Growth Plan] Synced phase ${phase} to live engine: risk=${riskPct}%, maxTrades=${maxTrades}`);
+    } catch { /* non-blocking */ }
+  }
+
   app.post("/api/growth-plan", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
     const { startingBalance, goalBalance, riskProfile, tradingStyle, weeklyTargetPct } = req.body;
     if (!startingBalance || !goalBalance) return res.status(400).json({ error: "startingBalance and goalBalance required" });
     try {
-      // Determine starting phase from balance
       const bal = Number(startingBalance);
-      const phase = bal < 500 ? 1 : bal < 1500 ? 2 : bal < 5000 ? 3 : bal < 15000 ? 4 : bal < 50000 ? 5 : 6;
+      const phase = _gpPhaseFromBal(bal);
+      const profile = riskProfile || 'conservative';
       await db.execute(sql`
         INSERT INTO account_growth_plans (user_id, starting_balance, current_balance, goal_balance, risk_profile, trading_style, current_phase, weekly_target_pct)
-        VALUES (${userId}, ${Number(startingBalance)}, ${Number(startingBalance)}, ${Number(goalBalance)}, ${riskProfile || 'conservative'}, ${tradingStyle || 'day'}, ${phase}, ${Number(weeklyTargetPct) || 3})
+        VALUES (${userId}, ${bal}, ${bal}, ${Number(goalBalance)}, ${profile}, ${tradingStyle || 'day'}, ${phase}, ${Number(weeklyTargetPct) || 3})
         ON CONFLICT (user_id) DO UPDATE SET
           starting_balance = EXCLUDED.starting_balance,
           current_balance = EXCLUDED.current_balance,
@@ -20472,7 +20518,9 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       `);
       const [updated] = await db.execute(sql`SELECT * FROM account_growth_plans WHERE user_id = ${userId} LIMIT 1`);
       const rows = (updated as any).rows ?? updated;
-      res.json({ success: true, plan: rows[0] });
+      // ── Sync phase rules → live engine (non-blocking) ──
+      await _syncGrowthPlanToEngine(userId, phase, profile);
+      res.json({ success: true, plan: rows[0], currentPhase: phase });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -20484,13 +20532,24 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     const { currentBalance } = req.body;
     if (currentBalance === undefined) return res.status(400).json({ error: "currentBalance required" });
     try {
+      // Fetch old phase BEFORE update so we can detect promotion
+      const [before] = await db.execute(sql`SELECT current_phase, risk_profile FROM account_growth_plans WHERE user_id = ${userId} LIMIT 1`);
+      const beforeRows = (before as any).rows ?? before;
+      const oldPhase    = beforeRows[0]?.current_phase ?? 1;
+      const riskProfile = beforeRows[0]?.risk_profile  ?? 'conservative';
+
       const bal = Number(currentBalance);
-      const phase = bal < 500 ? 1 : bal < 1500 ? 2 : bal < 5000 ? 3 : bal < 15000 ? 4 : bal < 50000 ? 5 : 6;
+      const newPhase = _gpPhaseFromBal(bal);
       await db.execute(sql`
-        UPDATE account_growth_plans SET current_balance = ${bal}, current_phase = ${phase}, updated_at = now()
+        UPDATE account_growth_plans SET current_balance = ${bal}, current_phase = ${newPhase}, updated_at = now()
         WHERE user_id = ${userId}
       `);
-      res.json({ success: true, currentBalance: bal, currentPhase: phase });
+
+      const phaseChanged = newPhase !== oldPhase && newPhase > oldPhase;
+      if (phaseChanged) {
+        await _syncGrowthPlanToEngine(userId, newPhase, riskProfile);
+      }
+      res.json({ success: true, currentBalance: bal, currentPhase: newPhase, oldPhase, phaseChanged, riskProfile });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -20502,21 +20561,47 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     const { symbol, direction, entryPrice, exitPrice, stopLoss, lotSize, pnlUsd, pnlPct, riskUsd, phaseAtEntry, notes } = req.body;
     if (!symbol) return res.status(400).json({ error: "symbol required" });
     try {
-      const [planResult] = await db.execute(sql`SELECT id FROM account_growth_plans WHERE user_id = ${userId} LIMIT 1`);
+      // Fetch current plan state before trade
+      const [planResult] = await db.execute(sql`SELECT id, current_phase, risk_profile FROM account_growth_plans WHERE user_id = ${userId} LIMIT 1`);
       const planRows = (planResult as any).rows ?? planResult;
-      const planId = planRows[0]?.id || null;
+      const planId      = planRows[0]?.id           || null;
+      const oldPhase    = planRows[0]?.current_phase || 1;
+      const riskProfile = planRows[0]?.risk_profile  || 'conservative';
+
       await db.execute(sql`
         INSERT INTO growth_plan_trades (user_id, plan_id, symbol, direction, entry_price, exit_price, stop_loss, lot_size, pnl_usd, pnl_pct, risk_usd, phase_at_entry, notes, status, closed_at)
-        VALUES (${userId}, ${planId}, ${symbol}, ${direction || 'long'}, ${entryPrice || null}, ${exitPrice || null}, ${stopLoss || null}, ${lotSize || null}, ${pnlUsd || null}, ${pnlPct || null}, ${riskUsd || null}, ${phaseAtEntry || 1}, ${notes || null}, ${exitPrice ? 'closed' : 'open'}, ${exitPrice ? new Date() : null})
+        VALUES (${userId}, ${planId}, ${symbol}, ${direction || 'long'}, ${entryPrice || null}, ${exitPrice || null}, ${stopLoss || null}, ${lotSize || null}, ${pnlUsd || null}, ${pnlPct || null}, ${riskUsd || null}, ${phaseAtEntry || oldPhase}, ${notes || null}, ${exitPrice ? 'closed' : 'open'}, ${exitPrice ? new Date() : null})
       `);
-      // Auto-update balance if pnlUsd provided
+
+      let phaseChanged = false;
+      let newPhase = oldPhase;
+
+      // Auto-update balance + recalculate phase when P&L is logged
       if (pnlUsd) {
-        await db.execute(sql`
-          UPDATE account_growth_plans SET current_balance = current_balance + ${Number(pnlUsd)}, updated_at = now()
+        const [afterUpdate] = await db.execute(sql`
+          UPDATE account_growth_plans
+          SET current_balance = current_balance + ${Number(pnlUsd)}, updated_at = now()
           WHERE user_id = ${userId}
+          RETURNING current_balance
         `);
+        const afterRows = (afterUpdate as any).rows ?? afterUpdate;
+        const newBal = afterRows[0]?.current_balance ?? null;
+        if (newBal !== null) {
+          newPhase = _gpPhaseFromBal(Number(newBal));
+          if (newPhase !== oldPhase && newPhase > oldPhase) {
+            // Phase has been crossed — update it in DB
+            await db.execute(sql`
+              UPDATE account_growth_plans SET current_phase = ${newPhase}, updated_at = now()
+              WHERE user_id = ${userId}
+            `);
+            phaseChanged = true;
+            await _syncGrowthPlanToEngine(userId, newPhase, riskProfile);
+            console.log(`[Growth Plan] AUTO PHASE PROMOTION: user ${userId} → Phase ${newPhase}`);
+          }
+        }
       }
-      res.json({ success: true });
+
+      res.json({ success: true, phaseChanged, newPhase, oldPhase, riskProfile });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

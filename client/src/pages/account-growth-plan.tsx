@@ -159,6 +159,14 @@ export default function AccountGrowthPlan() {
   const { toast } = useToast();
   const qc = useQueryClient();
 
+  // Phase promotion celebration
+  const [promotionModal, setPromotionModal] = useState<{
+    newPhase: typeof PHASES[0];
+    oldPhase: typeof PHASES[0];
+    riskPct: number;
+    maxTrades: number;
+  } | null>(null);
+
   // Setup wizard state
   const [setupMode, setSetupMode] = useState(false);
   const [setupBalance, setSetupBalance] = useState("500");
@@ -207,6 +215,15 @@ export default function AccountGrowthPlan() {
       qc.invalidateQueries({ queryKey: ["/api/growth-plan"] });
       setShowBalanceEdit(false);
       setNewBalance("");
+      if (d.phaseChanged && d.currentPhase && d.oldPhase) {
+        const newP = PHASES.find(p => p.id === d.currentPhase);
+        const oldP = PHASES.find(p => p.id === d.oldPhase);
+        const rp = (d.riskProfile || "conservative") as "conservative" | "moderate" | "aggressive";
+        if (newP && oldP) {
+          setPromotionModal({ newPhase: newP, oldPhase: oldP, riskPct: newP.riskPct[rp], maxTrades: newP.maxTrades });
+          return;
+        }
+      }
       const phase = PHASES.find(p => p.id === d.currentPhase);
       toast({ title: `Balance updated ${phase ? `— ${phase.emoji} ${phase.name} phase` : ""}` });
     },
@@ -215,10 +232,19 @@ export default function AccountGrowthPlan() {
 
   const logTradeMutation = useMutation({
     mutationFn: (body: any) => apiRequest("POST", "/api/growth-plan/trades", body).then(r => r.json()),
-    onSuccess: () => {
+    onSuccess: (d: any) => {
       qc.invalidateQueries({ queryKey: ["/api/growth-plan"] });
       setShowTradeForm(false);
       setTradeForm({ symbol: "EURUSD", direction: "long", entryPrice: "", exitPrice: "", stopLoss: "", lotSize: "", pnlUsd: "", notes: "" });
+      if (d.phaseChanged && d.newPhase && d.oldPhase) {
+        const newP = PHASES.find(p => p.id === d.newPhase);
+        const oldP = PHASES.find(p => p.id === d.oldPhase);
+        const rp = (d.riskProfile || "conservative") as "conservative" | "moderate" | "aggressive";
+        if (newP && oldP) {
+          setPromotionModal({ newPhase: newP, oldPhase: oldP, riskPct: newP.riskPct[rp], maxTrades: newP.maxTrades });
+          return;
+        }
+      }
       toast({ title: "Trade logged ✅" });
     },
     onError: () => toast({ title: "Error logging trade", variant: "destructive" }),
@@ -378,6 +404,7 @@ export default function AccountGrowthPlan() {
 
   // ─── MAIN DASHBOARD ──────────────────────────────────────────────────────────
   return (
+    <>
     <div className="min-h-screen bg-gray-950 text-white p-4 pb-24">
       <div className="max-w-2xl mx-auto pt-4 space-y-4">
 
@@ -810,5 +837,72 @@ export default function AccountGrowthPlan() {
         </p>
       </div>
     </div>
+
+    {/* ── Phase Promotion Celebration Modal ── */}
+    {promotionModal && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        {/* Backdrop */}
+        <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setPromotionModal(null)} />
+
+        {/* Card */}
+        <div className="relative z-10 w-full max-w-sm bg-gray-900 border border-gray-700/60 rounded-3xl overflow-hidden shadow-2xl">
+          {/* Confetti header strip */}
+          <div className={`h-2 w-full bg-gradient-to-r ${
+            promotionModal.newPhase.color === 'emerald' ? 'from-emerald-500 to-teal-400' :
+            promotionModal.newPhase.color === 'teal'    ? 'from-teal-500 to-cyan-400' :
+            promotionModal.newPhase.color === 'cyan'    ? 'from-cyan-500 to-blue-400' :
+            promotionModal.newPhase.color === 'blue'    ? 'from-blue-500 to-indigo-400' :
+            promotionModal.newPhase.color === 'purple'  ? 'from-purple-500 to-pink-400' :
+                                                          'from-amber-500 to-yellow-400'
+          }`} />
+
+          <div className="p-6 text-center">
+            {/* Big emoji */}
+            <div className="text-6xl mb-3 animate-bounce">{promotionModal.newPhase.emoji}</div>
+
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-1">
+              Phase Unlocked
+            </p>
+            <h2 className="text-2xl font-black text-white mb-0.5">
+              Phase {promotionModal.newPhase.id} — {promotionModal.newPhase.name}
+            </h2>
+            <p className="text-xs text-gray-400 mb-5">
+              You leveled up from {promotionModal.oldPhase.emoji} {promotionModal.oldPhase.name}
+            </p>
+
+            {/* New rules grid */}
+            <div className="grid grid-cols-2 gap-3 mb-5">
+              <div className={`p-3 rounded-2xl border ${phaseColor[promotionModal.newPhase.color]}`}>
+                <p className="text-[10px] opacity-60 mb-1">New Risk / Trade</p>
+                <p className="text-2xl font-black">{promotionModal.riskPct}%</p>
+                <p className="text-[10px] opacity-50">per position</p>
+              </div>
+              <div className={`p-3 rounded-2xl border ${phaseColor[promotionModal.newPhase.color]}`}>
+                <p className="text-[10px] opacity-60 mb-1">Max Open Trades</p>
+                <p className="text-2xl font-black">{promotionModal.maxTrades}</p>
+                <p className="text-[10px] opacity-50">simultaneous</p>
+              </div>
+            </div>
+
+            {/* Motivational tip */}
+            <div className="flex items-start gap-2 p-3 rounded-xl bg-white/5 border border-white/10 text-left mb-5">
+              <Zap className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+              <p className="text-xs text-gray-300 italic">"{promotionModal.newPhase.tip}"</p>
+            </div>
+
+            {/* Phase description */}
+            <p className="text-xs text-gray-400 mb-6">{promotionModal.newPhase.description}</p>
+
+            <Button
+              className="w-full h-11 font-bold text-sm bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white border-0"
+              onClick={() => setPromotionModal(null)}
+            >
+              Let's Go {promotionModal.newPhase.emoji}
+            </Button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }
