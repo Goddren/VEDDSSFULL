@@ -403,19 +403,53 @@ export default function AccountGrowthPlan() {
   }
 
   // ─── MAIN DASHBOARD ──────────────────────────────────────────────────────────
+  // Guided workflow steps
+  const workflowSteps = [
+    {
+      num: 1, label: "Plan Created", desc: "Starting balance, goal & risk set",
+      done: true, icon: "✅",
+    },
+    {
+      num: 2, label: "Know Your Phase", desc: `Phase ${currentPhase.id} — ${currentPhase.name} active`,
+      done: true, icon: currentPhase.emoji,
+    },
+    {
+      num: 3, label: "Size Your Trade", desc: "Calculate lot size before every entry",
+      done: slPips > 0, icon: "🎯", anchor: "sizer",
+    },
+    {
+      num: 4, label: "Get Your Signal", desc: "Weekly Strategy or AI Analysis",
+      done: false, icon: "📡", link: "/weekly-strategy",
+    },
+    {
+      num: 5, label: "Execute & Log", desc: "Log the trade, update balance after close",
+      done: trades.length > 0, icon: "📒", anchor: "tradelog",
+    },
+    {
+      num: 6, label: "Check the Meters", desc: "Volatility, Sentiment & Market Mood",
+      done: false, icon: "📊", link: "/market-mood",
+    },
+    {
+      num: 7, label: "Update Balance", desc: "Lock in gains, trigger phase check",
+      done: currentBalance > startingBalance, icon: "💰", anchor: "balance",
+    },
+  ];
+
+  const nextStep = workflowSteps.find(s => !s.done);
+
   return (
     <>
     <div className="min-h-screen bg-gray-950 text-white p-4 pb-24">
       <div className="max-w-2xl mx-auto pt-4 space-y-4">
 
-        {/* Page header */}
+        {/* ── Page header ── */}
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold text-white flex items-center gap-2">
               <TrendingUp className="w-5 h-5 text-emerald-400" />
               Account Growth Plan
             </h1>
-            <p className="text-xs text-gray-400 mt-0.5">Phase-based sizing • Milestone tracking • Full trade log</p>
+            <p className="text-xs text-gray-400 mt-0.5">Phase-based sizing • Step-by-step guidance • Full trade log</p>
           </div>
           <Button size="sm" variant="outline" className="h-8 text-xs border-gray-600"
             onClick={() => { setSetupBalance(String(currentBalance)); setSetupGoal(String(goalBalance)); setSetupMode(true); }}>
@@ -423,108 +457,230 @@ export default function AccountGrowthPlan() {
           </Button>
         </div>
 
-        {/* ── Phase badge + progress ── */}
-        <div className={`rounded-2xl border p-4 ${pc}`}>
-          <div className="flex items-start justify-between mb-3">
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-2xl">{currentPhase.emoji}</span>
-                <div>
-                  <p className="font-bold text-base">Phase {currentPhase.id} — {currentPhase.name}</p>
-                  <p className="text-[11px] opacity-70">{currentPhase.description}</p>
-                </div>
+        {/* ═══════════════════════════════════════════════════════════════════
+            SECTION 1 — PERFORMANCE HERO
+            Shows gains at a glance. First thing a trader wants to see.
+        ═══════════════════════════════════════════════════════════════════ */}
+        <div className={`rounded-2xl border p-4 relative overflow-hidden ${pc}`}>
+          {/* Phase colour glow */}
+          <div className="absolute inset-0 opacity-5 bg-current pointer-events-none" />
+
+          <div className="relative flex items-start justify-between mb-3">
+            <div className="flex items-center gap-3">
+              <span className="text-4xl">{currentPhase.emoji}</span>
+              <div>
+                <p className="text-[10px] opacity-60 uppercase tracking-widest font-semibold">Current Phase</p>
+                <p className="font-black text-lg leading-tight">Phase {currentPhase.id} — {currentPhase.name}</p>
+                <p className="text-[11px] opacity-60 mt-0.5">{currentPhase.description}</p>
               </div>
             </div>
-            <div className="text-right shrink-0">
-              <p className="text-[10px] opacity-60">Risk/trade</p>
-              <p className="text-lg font-bold">{currentRiskPct}%</p>
-              <p className="text-[10px] opacity-60">${riskAmountUsd.toFixed(2)}</p>
+            <div className="text-right shrink-0 pl-3">
+              <p className="text-[10px] opacity-50">Risk/trade</p>
+              <p className="text-2xl font-black">{currentRiskPct}%</p>
+              <p className="text-[10px] opacity-50">${riskAmountUsd.toFixed(2)} USD</p>
+            </div>
+          </div>
+
+          {/* Gains row */}
+          <div className="grid grid-cols-3 gap-2 mb-3">
+            <div className="bg-black/20 rounded-xl p-2.5 text-center">
+              <p className="text-[9px] opacity-50 mb-0.5">Balance</p>
+              <p className="text-base font-black">${currentBalance.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
+            </div>
+            <div className={`rounded-xl p-2.5 text-center ${(currentBalance - startingBalance) >= 0 ? 'bg-emerald-500/20' : 'bg-red-500/20'}`}>
+              <p className="text-[9px] opacity-50 mb-0.5">Total Gain</p>
+              <p className={`text-base font-black ${(currentBalance - startingBalance) >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
+                {(currentBalance - startingBalance) >= 0 ? '+' : ''}${(currentBalance - startingBalance).toFixed(0)}
+              </p>
+            </div>
+            <div className={`rounded-xl p-2.5 text-center ${totalPnl >= 0 ? 'bg-emerald-500/20' : 'bg-red-500/20'}`}>
+              <p className="text-[9px] opacity-50 mb-0.5">Net P&L</p>
+              <p className={`text-base font-black ${totalPnl >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
+                {totalPnl >= 0 ? '+' : ''}${totalPnl.toFixed(0)}
+              </p>
             </div>
           </div>
 
           {/* Phase tip */}
-          <div className="flex items-start gap-2 p-2 rounded-lg bg-black/20 mb-3">
+          <div className="flex items-start gap-2 p-2 rounded-lg bg-black/20">
             <Info className="w-3.5 h-3.5 shrink-0 mt-0.5 opacity-60" />
             <p className="text-[11px] opacity-80 italic">"{currentPhase.tip}"</p>
           </div>
-
-          {/* Progress to next phase */}
-          {currentPhase.id < 6 && (
-            <div>
-              <div className="flex justify-between text-[10px] opacity-70 mb-1">
-                <span>Progress to Phase {currentPhase.id + 1}</span>
-                <span>${currentBalance.toLocaleString(undefined, { maximumFractionDigits: 0 })} / ${currentPhase.maxBalance.toLocaleString()}</span>
-              </div>
-              <div className="h-2 rounded-full bg-black/30 overflow-hidden">
-                <div className="h-full rounded-full bg-current transition-all duration-500"
-                  style={{ width: `${Math.round(progressToNextPhase * 100)}%`, opacity: 0.8 }} />
-              </div>
-              <p className="text-[10px] opacity-60 mt-1 text-right">
-                ${Math.max(0, currentPhase.maxBalance - currentBalance + 1).toLocaleString(undefined, { maximumFractionDigits: 0 })} to next phase
-              </p>
-            </div>
-          )}
         </div>
 
-        {/* ── Account stats row ── */}
-        <div className="grid grid-cols-4 gap-2">
-          {[
-            { label: "Balance", value: `$${currentBalance.toLocaleString(undefined, { maximumFractionDigits: 0 })}`, sub: `+$${(currentBalance - startingBalance).toFixed(0)} gain` },
-            { label: "Goal", value: `$${goalBalance.toLocaleString(undefined, { maximumFractionDigits: 0 })}`, sub: `${Math.round(progressToGoal * 100)}% there` },
-            { label: "Trades", value: String(closedTrades.length), sub: `${winRate}% win rate` },
-            { label: "Net P&L", value: `${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(0)}`, sub: rr > 0 ? `${rr.toFixed(1)}:1 R:R` : "—" },
-          ].map(stat => (
-            <div key={stat.label} className="bg-gray-900/50 border border-gray-700/40 rounded-xl p-2.5 text-center">
-              <p className="text-[10px] text-gray-500 mb-0.5">{stat.label}</p>
-              <p className="text-sm font-bold text-white">{stat.value}</p>
-              <p className="text-[10px] text-gray-500">{stat.sub}</p>
-            </div>
-          ))}
-        </div>
-
-        {/* ── Goal progress bar ── */}
+        {/* ═══════════════════════════════════════════════════════════════════
+            SECTION 2 — GUIDED WORKFLOW
+            Step-by-step trading flow, always showing next action.
+        ═══════════════════════════════════════════════════════════════════ */}
         <div className="bg-gray-900/50 border border-gray-700/40 rounded-2xl p-4">
-          <div className="flex justify-between items-center mb-2">
-            <p className="text-sm font-semibold text-gray-300">Goal Progress</p>
+          <div className="flex items-center gap-2 mb-3">
+            <Zap className="w-4 h-4 text-amber-400" />
+            <p className="font-semibold text-sm text-gray-200">Your Trading Workflow</p>
+            {nextStep && (
+              <span className="ml-auto text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full font-semibold">
+                Next: Step {nextStep.num}
+              </span>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            {workflowSteps.map((step, i) => {
+              const isNext = step === nextStep;
+              return (
+                <div key={step.num}
+                  className={`flex items-start gap-3 p-3 rounded-xl border transition-all ${
+                    step.done ? 'border-emerald-500/20 bg-emerald-500/5' :
+                    isNext    ? 'border-amber-500/40 bg-amber-500/8 ring-1 ring-amber-500/20' :
+                                'border-gray-700/30 bg-gray-800/20 opacity-50'
+                  }`}>
+                  {/* Step number / check */}
+                  <div className={`w-7 h-7 rounded-full flex items-center justify-center text-sm shrink-0 font-black ${
+                    step.done ? 'bg-emerald-500/20 text-emerald-400' :
+                    isNext    ? 'bg-amber-500/20 text-amber-300' :
+                                'bg-gray-700/40 text-gray-600'
+                  }`}>
+                    {step.done ? '✓' : step.num}
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className={`text-xs font-bold ${step.done ? 'text-emerald-300' : isNext ? 'text-amber-200' : 'text-gray-600'}`}>
+                        {step.icon} {step.label}
+                      </p>
+                      {isNext && <span className="text-[9px] bg-amber-500/30 text-amber-300 px-1.5 py-0.5 rounded-full font-bold">DO THIS NOW</span>}
+                      {step.done && <span className="text-[9px] text-emerald-500 font-semibold">Done</span>}
+                    </div>
+                    <p className={`text-[10px] mt-0.5 ${step.done ? 'text-gray-500' : isNext ? 'text-gray-300' : 'text-gray-700'}`}>
+                      {step.desc}
+                    </p>
+                  </div>
+
+                  {/* CTA links */}
+                  {isNext && step.link && (
+                    <a href={step.link}
+                      className="shrink-0 text-[10px] bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 px-2 py-1 rounded-lg font-semibold transition-colors whitespace-nowrap">
+                      Go →
+                    </a>
+                  )}
+                  {isNext && step.anchor && (
+                    <button
+                      onClick={() => document.getElementById(step.anchor!)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                      className="shrink-0 text-[10px] bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 px-2 py-1 rounded-lg font-semibold transition-colors whitespace-nowrap">
+                      Go ↓
+                    </button>
+                  )}
+                  {step.done && step.link && (
+                    <a href={step.link}
+                      className="shrink-0 text-[10px] text-gray-600 hover:text-gray-400 transition-colors whitespace-nowrap">
+                      Open
+                    </a>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* ═══════════════════════════════════════════════════════════════════
+            SECTION 3 — GOAL PROGRESS + QUICK BALANCE UPDATE
+            Always visible — traders update balance after closing trades.
+        ═══════════════════════════════════════════════════════════════════ */}
+        <div id="balance" className="bg-gray-900/50 border border-gray-700/40 rounded-2xl p-4 scroll-mt-20">
+          <div className="flex justify-between items-center mb-3">
+            <div className="flex items-center gap-2">
+              <DollarSign className="w-4 h-4 text-emerald-400" />
+              <p className="font-semibold text-sm text-gray-200">Goal Progress</p>
+            </div>
             <button onClick={() => setShowBalanceEdit(!showBalanceEdit)}
-              className="text-[11px] text-blue-400 hover:text-blue-300 flex items-center gap-1">
+              className="flex items-center gap-1 text-[11px] bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 px-2.5 py-1 rounded-lg font-semibold transition-colors">
               <RefreshCw className="w-3 h-3" /> Update Balance
             </button>
           </div>
-          <div className="h-3 rounded-full bg-gray-700/60 overflow-hidden mb-1">
-            <div className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-500"
-              style={{ width: `${Math.round(progressToGoal * 100)}%` }} />
-          </div>
-          <div className="flex justify-between text-[10px] text-gray-500">
-            <span>${startingBalance.toLocaleString()}</span>
-            <span className="text-emerald-400 font-semibold">{Math.round(progressToGoal * 100)}% complete</span>
-            <span>${goalBalance.toLocaleString()}</span>
+
+          {/* Phase + goal progress dual bars */}
+          <div className="space-y-2 mb-3">
+            <div>
+              <div className="flex justify-between text-[10px] text-gray-500 mb-1">
+                <span>To Phase {Math.min(currentPhase.id + 1, 6)} unlock</span>
+                <span className="font-semibold text-gray-300">
+                  ${currentBalance.toLocaleString(undefined, { maximumFractionDigits: 0 })} / ${currentPhase.maxBalance < Infinity ? currentPhase.maxBalance.toLocaleString() : '∞'}
+                </span>
+              </div>
+              <div className="h-2 rounded-full bg-gray-700/60 overflow-hidden">
+                <div className={`h-full rounded-full transition-all duration-700 bg-gradient-to-r ${
+                  currentPhase.color === 'emerald' ? 'from-emerald-500 to-teal-400' :
+                  currentPhase.color === 'teal'    ? 'from-teal-500 to-cyan-400' :
+                  currentPhase.color === 'cyan'    ? 'from-cyan-500 to-blue-400' :
+                  currentPhase.color === 'blue'    ? 'from-blue-500 to-indigo-400' :
+                  currentPhase.color === 'purple'  ? 'from-purple-500 to-pink-400' :
+                                                     'from-amber-500 to-yellow-400'
+                }`} style={{ width: `${Math.round(progressToNextPhase * 100)}%` }} />
+              </div>
+              <p className="text-[9px] text-right text-gray-600 mt-0.5">
+                ${Math.max(0, currentPhase.maxBalance - currentBalance + 1).toLocaleString(undefined, { maximumFractionDigits: 0 })} to unlock next phase
+              </p>
+            </div>
+            <div>
+              <div className="flex justify-between text-[10px] text-gray-500 mb-1">
+                <span>Overall goal</span>
+                <span className="font-semibold text-emerald-400">{Math.round(progressToGoal * 100)}% complete</span>
+              </div>
+              <div className="h-2.5 rounded-full bg-gray-700/60 overflow-hidden">
+                <div className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-700"
+                  style={{ width: `${Math.round(progressToGoal * 100)}%` }} />
+              </div>
+              <div className="flex justify-between text-[9px] text-gray-600 mt-0.5">
+                <span>${startingBalance.toLocaleString()} start</span>
+                <span>${goalBalance.toLocaleString()} goal</span>
+              </div>
+            </div>
           </div>
 
+          {/* Quick stat pills */}
+          <div className="grid grid-cols-4 gap-1.5 mb-3">
+            {[
+              { label: "Trades", value: String(closedTrades.length) },
+              { label: "Win Rate", value: `${winRate}%` },
+              { label: "R:R", value: rr > 0 ? `${rr.toFixed(1)}:1` : "—" },
+              { label: "Weeks Active", value: String(weeksActive || 1) },
+            ].map(s => (
+              <div key={s.label} className="bg-gray-800/50 rounded-lg p-2 text-center">
+                <p className="text-[9px] text-gray-500">{s.label}</p>
+                <p className="text-xs font-bold text-gray-200">{s.value}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Balance update form */}
           {showBalanceEdit && (
-            <div className="mt-3 flex gap-2">
+            <div className="mt-1 flex gap-2 p-3 rounded-xl bg-emerald-500/5 border border-emerald-500/20">
               <div className="relative flex-1">
                 <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500" />
                 <Input value={newBalance} onChange={e => setNewBalance(e.target.value)}
-                  type="number" placeholder={`Current balance (e.g. ${Math.round(currentBalance * 1.05)})`}
+                  type="number" placeholder={`New balance (e.g. ${Math.round(currentBalance * 1.05)})`}
                   className="bg-gray-800 border-gray-600 text-white text-sm h-9 pl-7" />
               </div>
-              <Button size="sm" className="h-9 bg-emerald-600 hover:bg-emerald-500"
+              <Button size="sm" className="h-9 bg-emerald-600 hover:bg-emerald-500 font-semibold"
                 onClick={() => updateBalanceMutation.mutate({ currentBalance: parseFloat(newBalance) })}
                 disabled={!newBalance || updateBalanceMutation.isPending}>
-                Save
+                {updateBalanceMutation.isPending ? "..." : "Save"}
               </Button>
             </div>
           )}
         </div>
 
-        {/* ── Smart Position Sizer ── */}
-        <div className="bg-gray-900/50 border border-gray-700/40 rounded-2xl p-4">
-          <div className="flex items-center gap-2 mb-3">
+        {/* ═══════════════════════════════════════════════════════════════════
+            SECTION 4 — SMART POSITION SIZER
+            Pre-trade — calculate size BEFORE entering any position.
+        ═══════════════════════════════════════════════════════════════════ */}
+        <div id="sizer" className="bg-gray-900/50 border border-blue-500/20 rounded-2xl p-4 scroll-mt-20">
+          <div className="flex items-center gap-2 mb-1">
             <Calculator className="w-4 h-4 text-blue-400" />
-            <p className="font-semibold text-sm text-gray-200">Smart Position Sizer</p>
-            <span className="text-[10px] text-gray-500">— for your current phase & risk profile</span>
+            <p className="font-semibold text-sm text-gray-200">Step 3 — Size Your Position</p>
           </div>
+          <p className="text-[11px] text-gray-500 mb-3">
+            Do this <span className="text-blue-300 font-semibold">before every trade.</span> Enter your pair and stop loss to get the exact lot size for your phase.
+          </p>
 
           <div className="grid grid-cols-2 gap-3 mb-3">
             <div>
@@ -540,38 +696,53 @@ export default function AccountGrowthPlan() {
             </div>
           </div>
 
-          {/* Result box */}
-          {recommendedLots > 0 && slPips > 0 && (
-            <div className="grid grid-cols-3 gap-2 p-3 rounded-xl bg-blue-500/10 border border-blue-500/25">
+          {recommendedLots > 0 && slPips > 0 ? (
+            <div className="grid grid-cols-3 gap-2 p-3 rounded-xl bg-blue-500/10 border border-blue-500/25 mb-3">
               <div className="text-center">
                 <p className="text-[10px] text-gray-400 mb-0.5">Lot Size</p>
-                <p className="text-xl font-bold text-blue-300">{recommendedLots.toFixed(2)}</p>
+                <p className="text-2xl font-black text-blue-300">{recommendedLots.toFixed(2)}</p>
                 <p className="text-[9px] text-gray-500">lots</p>
               </div>
               <div className="text-center">
-                <p className="text-[10px] text-gray-400 mb-0.5">Risk Amount</p>
-                <p className="text-xl font-bold text-amber-300">${riskAmountUsd.toFixed(2)}</p>
+                <p className="text-[10px] text-gray-400 mb-0.5">$ at Risk</p>
+                <p className="text-2xl font-black text-amber-300">${riskAmountUsd.toFixed(2)}</p>
                 <p className="text-[9px] text-gray-500">{currentRiskPct}% of balance</p>
               </div>
               <div className="text-center">
-                <p className="text-[10px] text-gray-400 mb-0.5">Max for Phase</p>
-                <p className="text-xl font-bold text-gray-300">{currentPhase.maxTrades}</p>
-                <p className="text-[9px] text-gray-500">open trades</p>
+                <p className="text-[10px] text-gray-400 mb-0.5">Max Trades</p>
+                <p className="text-2xl font-black text-gray-300">{currentPhase.maxTrades}</p>
+                <p className="text-[9px] text-gray-500">this phase</p>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 p-3 rounded-xl bg-gray-800/50 border border-gray-700/30 mb-3">
+              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+              <p className="text-xs text-gray-400">Enter your stop loss in pips to get your lot size recommendation.</p>
+            </div>
+          )}
+
+          {/* After sizing — go get your signal */}
+          {recommendedLots > 0 && slPips > 0 && (
+            <div className="flex items-center gap-2 p-2.5 rounded-xl bg-amber-500/8 border border-amber-500/20">
+              <span className="text-base">📡</span>
+              <p className="text-[11px] text-amber-200 flex-1">Now get your signal — use Weekly Strategy or Analysis</p>
+              <div className="flex gap-1.5 shrink-0">
+                <a href="/weekly-strategy"
+                  className="text-[10px] bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 px-2 py-1 rounded-lg font-semibold transition-colors">
+                  Strategy
+                </a>
+                <a href="/analysis"
+                  className="text-[10px] bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30 px-2 py-1 rounded-lg font-semibold transition-colors">
+                  Analysis
+                </a>
               </div>
             </div>
           )}
 
-          {slPips === 0 && (
-            <div className="flex items-center gap-2 p-3 rounded-xl bg-gray-800/50 border border-gray-700/30">
-              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
-              <p className="text-xs text-gray-400">Enter your stop loss in pips to calculate your lot size.</p>
-            </div>
-          )}
-
-          {/* Phase risk table */}
+          {/* Phase risk table (collapsed) */}
           <details className="mt-3">
             <summary className="text-[11px] text-gray-500 cursor-pointer hover:text-gray-300 flex items-center gap-1">
-              <ChevronDown className="w-3 h-3" /> Show all phase risk levels
+              <ChevronDown className="w-3 h-3" /> All phase risk levels
             </summary>
             <div className="mt-2 overflow-x-auto">
               <table className="w-full text-[10px]">
@@ -596,8 +767,7 @@ export default function AccountGrowthPlan() {
                           {isActive && <span className="ml-1 text-emerald-400 font-bold">← you</span>}
                         </td>
                         <td className={`text-right px-2 ${isUnlocked ? 'text-gray-300' : 'text-gray-600'}`}>
-                          ${p.minBalance.toLocaleString()}
-                          {p.maxBalance < Infinity ? `–$${p.maxBalance.toLocaleString()}` : '+'}
+                          ${p.minBalance.toLocaleString()}{p.maxBalance < Infinity ? `–$${p.maxBalance.toLocaleString()}` : '+'}
                         </td>
                         <td className={`text-right px-2 font-semibold ${isActive ? 'text-emerald-400' : isUnlocked ? 'text-gray-300' : 'text-gray-600'}`}>
                           {isUnlocked ? `${risk}%` : <Lock className="w-3 h-3 inline" />}
@@ -614,82 +784,67 @@ export default function AccountGrowthPlan() {
           </details>
         </div>
 
-        {/* ── Projected Growth Chart ── */}
+        {/* ═══════════════════════════════════════════════════════════════════
+            SECTION 5 — MARKET METERS (quick links)
+            Direct links to the meters already on the platform.
+        ═══════════════════════════════════════════════════════════════════ */}
         <div className="bg-gray-900/50 border border-gray-700/40 rounded-2xl p-4">
           <div className="flex items-center gap-2 mb-3">
             <BarChart3 className="w-4 h-4 text-purple-400" />
-            <p className="font-semibold text-sm text-gray-200">Projected Growth Curve</p>
-            <span className="text-[10px] text-gray-500">@ {plan?.weekly_target_pct || 3}%/week compounded</span>
+            <p className="font-semibold text-sm text-gray-200">Step 6 — Check the Meters</p>
           </div>
-          <ResponsiveContainer width="100%" height={180}>
-            <AreaChart data={projectionData} margin={{ top: 4, right: 8, left: -10, bottom: 0 }}>
-              <defs>
-                <linearGradient id="growthGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
-              <XAxis dataKey="week" tick={{ fontSize: 9, fill: '#6b7280' }} interval={7}
-                tickFormatter={v => `W${v}`} />
-              <YAxis tick={{ fontSize: 9, fill: '#6b7280' }}
-                tickFormatter={v => `$${v >= 1000 ? (v/1000).toFixed(0)+'k' : v}`} />
-              <Tooltip
-                contentStyle={{ background: '#111827', border: '1px solid #374151', borderRadius: 8, fontSize: 11 }}
-                formatter={(val: any) => [`$${Number(val).toLocaleString(undefined, { maximumFractionDigits: 0 })}`, 'Projected']}
-                labelFormatter={l => `Week ${l}`} />
-              {goalBalance > 0 && (
-                <ReferenceLine y={goalBalance} stroke="#f59e0b" strokeDasharray="4 2"
-                  label={{ value: 'Goal', fill: '#f59e0b', fontSize: 9 }} />
-              )}
-              <ReferenceLine y={currentBalance} stroke="#10b981" strokeDasharray="4 2"
-                label={{ value: 'Now', fill: '#10b981', fontSize: 9 }} />
-              <Area type="monotone" dataKey="projected" stroke="#8b5cf6" fill="url(#growthGrad)"
-                strokeWidth={2} dot={false} />
-            </AreaChart>
-          </ResponsiveContainer>
-          <p className="text-[10px] text-gray-500 text-center mt-1">
-            At {plan?.weekly_target_pct || 3}%/week, goal reached around week&nbsp;
-            {projectionData.findIndex(d => d.projected >= goalBalance) > -1
-              ? projectionData.findIndex(d => d.projected >= goalBalance)
-              : "52+"
-            }
+          <p className="text-[11px] text-gray-500 mb-3">
+            Before and after each trade, check these live readings to confirm conditions are right for your phase strategy.
           </p>
-        </div>
-
-        {/* ── Milestones ── */}
-        <div className="bg-gray-900/50 border border-gray-700/40 rounded-2xl p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <Trophy className="w-4 h-4 text-amber-400" />
-            <p className="font-semibold text-sm text-gray-200">Milestones</p>
-            <span className="text-[10px] text-gray-500">{earnedMilestones.length}/{ACCOUNT_MILESTONES.length} earned</span>
-          </div>
           <div className="grid grid-cols-2 gap-2">
-            {ACCOUNT_MILESTONES.map(m => {
-              const earned = m.check(plan, trades);
-              return (
-                <div key={m.id} className={`flex items-center gap-2 p-2.5 rounded-xl border transition-all ${earned ? 'border-amber-500/40 bg-amber-500/10' : 'border-gray-700/30 bg-gray-800/20 opacity-50'}`}>
-                  <span className="text-base shrink-0">{earned ? m.emoji : '🔒'}</span>
-                  <p className={`text-[11px] font-medium leading-tight ${earned ? 'text-amber-200' : 'text-gray-500'}`}>{m.label}</p>
+            {[
+              { label: "Market Mood",      sub: "Bull / Bear reading",        emoji: "🌡️", link: "/market-mood",      color: "from-rose-500/20 to-pink-500/10     border-rose-500/20"    },
+              { label: "Market Sentiment", sub: "Long vs short pressure",      emoji: "⚖️", link: "/market-sentiment", color: "from-blue-500/20 to-cyan-500/10     border-blue-500/20"    },
+              { label: "Volatility Meter", sub: "Expansion/contraction",       emoji: "📈", link: "/volatility-meter", color: "from-amber-500/20 to-yellow-500/10  border-amber-500/20"   },
+              { label: "Market Insights",  sub: "AI-powered pair analysis",    emoji: "🤖", link: "/market-insights",  color: "from-emerald-500/20 to-teal-500/10  border-emerald-500/20" },
+              { label: "Weekly Strategy",  sub: "Your AI trade plan",          emoji: "🗓️", link: "/weekly-strategy",  color: "from-indigo-500/20 to-purple-500/10 border-indigo-500/20"  },
+              { label: "Analysis",         sub: "Multi-timeframe + AI 2nd Op", emoji: "🔍", link: "/analysis",         color: "from-teal-500/20 to-cyan-500/10     border-teal-500/20"    },
+            ].map(m => (
+              <a key={m.label} href={m.link}
+                className={`flex items-center gap-2.5 p-3 rounded-xl border bg-gradient-to-br ${m.color} hover:opacity-80 transition-opacity`}>
+                <span className="text-xl shrink-0">{m.emoji}</span>
+                <div>
+                  <p className="text-xs font-bold text-gray-200">{m.label}</p>
+                  <p className="text-[9px] text-gray-500">{m.sub}</p>
                 </div>
-              );
-            })}
+                <ArrowRight className="w-3 h-3 text-gray-600 ml-auto shrink-0" />
+              </a>
+            ))}
           </div>
         </div>
 
-        {/* ── Trade Log ── */}
-        <div className="bg-gray-900/50 border border-gray-700/40 rounded-2xl p-4">
+        {/* ═══════════════════════════════════════════════════════════════════
+            SECTION 6 — TRADE LOG
+            Log trades immediately after closing. Feeds balance update prompt.
+        ═══════════════════════════════════════════════════════════════════ */}
+        <div id="tradelog" className="bg-gray-900/50 border border-gray-700/40 rounded-2xl p-4 scroll-mt-20">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <BookOpen className="w-4 h-4 text-teal-400" />
-              <p className="font-semibold text-sm text-gray-200">Trade Log</p>
-              <span className="text-[10px] text-gray-500">{trades.length} trades</span>
+              <p className="font-semibold text-sm text-gray-200">Step 5 — Trade Log</p>
+              <span className="text-[10px] text-gray-500">{trades.length} trade{trades.length !== 1 ? 's' : ''}</span>
             </div>
-            <Button size="sm" className="h-7 text-xs bg-teal-600 hover:bg-teal-500"
+            <Button size="sm" className="h-7 text-xs bg-teal-600 hover:bg-teal-500 font-semibold"
               onClick={() => setShowTradeForm(!showTradeForm)}>
               <Plus className="w-3 h-3 mr-1" /> Log Trade
             </Button>
           </div>
+
+          {/* Inline guidance tip */}
+          {trades.length === 0 && !showTradeForm && (
+            <div className="flex items-start gap-2 p-3 rounded-xl bg-teal-500/8 border border-teal-500/20 mb-3">
+              <span className="text-base">📒</span>
+              <div>
+                <p className="text-xs font-semibold text-teal-300 mb-0.5">Log every trade you take</p>
+                <p className="text-[10px] text-gray-400">After your trade closes, tap "Log Trade" above. Your balance automatically updates, the phase engine checks for a promotion, and your stats build over time.</p>
+              </div>
+            </div>
+          )}
 
           {/* Trade form */}
           {showTradeForm && (
@@ -749,19 +904,14 @@ export default function AccountGrowthPlan() {
                 phaseAtEntry: currentPhase.id,
                 notes: tradeForm.notes || undefined,
               })} disabled={logTradeMutation.isPending || !tradeForm.symbol}
-                className="w-full h-8 bg-teal-600 hover:bg-teal-500 text-xs">
+                className="w-full h-8 bg-teal-600 hover:bg-teal-500 text-xs font-semibold">
                 {logTradeMutation.isPending ? "Saving..." : "Log This Trade"}
               </Button>
             </div>
           )}
 
           {/* Trade list */}
-          {trades.length === 0 ? (
-            <div className="text-center py-6 text-gray-500">
-              <BookOpen className="w-8 h-8 mx-auto mb-2 opacity-30" />
-              <p className="text-xs">No trades logged yet. Every trade you log helps the plan track your real progress.</p>
-            </div>
-          ) : (
+          {trades.length > 0 && (
             <div className="space-y-1.5 max-h-72 overflow-y-auto">
               {trades.slice(0, 50).map((t: any) => {
                 const pnl = t.pnl_usd || 0;
@@ -792,16 +942,97 @@ export default function AccountGrowthPlan() {
               })}
             </div>
           )}
+
+          {/* After logging, prompt balance update */}
+          {trades.length > 0 && (
+            <div className="mt-3 flex items-center gap-2 p-2.5 rounded-xl bg-emerald-500/5 border border-emerald-500/15">
+              <span className="text-base">💰</span>
+              <p className="text-[11px] text-gray-400 flex-1">Trade logged? Scroll up to <span className="text-emerald-400 font-semibold">update your balance</span> so the phase engine can check for promotion.</p>
+              <button
+                onClick={() => { setShowBalanceEdit(true); document.getElementById('balance')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}
+                className="shrink-0 text-[10px] bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 border border-emerald-500/30 px-2 py-1 rounded-lg font-semibold transition-colors whitespace-nowrap">
+                Update ↑
+              </button>
+            </div>
+          )}
         </div>
 
-        {/* ── Phase roadmap ── */}
+        {/* ═══════════════════════════════════════════════════════════════════
+            SECTION 7 — GROWTH CHART
+            Visual proof of compounding. Below the action items.
+        ═══════════════════════════════════════════════════════════════════ */}
+        <div className="bg-gray-900/50 border border-gray-700/40 rounded-2xl p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <BarChart3 className="w-4 h-4 text-purple-400" />
+            <p className="font-semibold text-sm text-gray-200">Projected Growth Curve</p>
+            <span className="text-[10px] text-gray-500">@ {plan?.weekly_target_pct || 3}%/week compounded</span>
+          </div>
+          <ResponsiveContainer width="100%" height={180}>
+            <AreaChart data={projectionData} margin={{ top: 4, right: 8, left: -10, bottom: 0 }}>
+              <defs>
+                <linearGradient id="growthGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.3} />
+                  <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+              <XAxis dataKey="week" tick={{ fontSize: 9, fill: '#6b7280' }} interval={7} tickFormatter={v => `W${v}`} />
+              <YAxis tick={{ fontSize: 9, fill: '#6b7280' }} tickFormatter={v => `$${v >= 1000 ? (v/1000).toFixed(0)+'k' : v}`} />
+              <Tooltip
+                contentStyle={{ background: '#111827', border: '1px solid #374151', borderRadius: 8, fontSize: 11 }}
+                formatter={(val: any) => [`$${Number(val).toLocaleString(undefined, { maximumFractionDigits: 0 })}`, 'Projected']}
+                labelFormatter={l => `Week ${l}`} />
+              {goalBalance > 0 && (
+                <ReferenceLine y={goalBalance} stroke="#f59e0b" strokeDasharray="4 2"
+                  label={{ value: 'Goal', fill: '#f59e0b', fontSize: 9 }} />
+              )}
+              <ReferenceLine y={currentBalance} stroke="#10b981" strokeDasharray="4 2"
+                label={{ value: 'Now', fill: '#10b981', fontSize: 9 }} />
+              <Area type="monotone" dataKey="projected" stroke="#8b5cf6" fill="url(#growthGrad)" strokeWidth={2} dot={false} />
+            </AreaChart>
+          </ResponsiveContainer>
+          <p className="text-[10px] text-gray-500 text-center mt-1">
+            At {plan?.weekly_target_pct || 3}%/week, goal reached around week&nbsp;
+            {projectionData.findIndex(d => d.projected >= goalBalance) > -1
+              ? projectionData.findIndex(d => d.projected >= goalBalance)
+              : "52+"}
+          </p>
+        </div>
+
+        {/* ═══════════════════════════════════════════════════════════════════
+            SECTION 8 — MILESTONES
+        ═══════════════════════════════════════════════════════════════════ */}
+        <div className="bg-gray-900/50 border border-gray-700/40 rounded-2xl p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <Trophy className="w-4 h-4 text-amber-400" />
+            <p className="font-semibold text-sm text-gray-200">Milestones</p>
+            <span className="text-[10px] text-gray-500">{earnedMilestones.length}/{ACCOUNT_MILESTONES.length} earned</span>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {ACCOUNT_MILESTONES.map(m => {
+              const earned = m.check(plan, trades);
+              return (
+                <div key={m.id} className={`flex items-center gap-2 p-2.5 rounded-xl border transition-all ${earned ? 'border-amber-500/40 bg-amber-500/10' : 'border-gray-700/30 bg-gray-800/20 opacity-50'}`}>
+                  <span className="text-base shrink-0">{earned ? m.emoji : '🔒'}</span>
+                  <p className={`text-[11px] font-medium leading-tight ${earned ? 'text-amber-200' : 'text-gray-500'}`}>{m.label}</p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* ═══════════════════════════════════════════════════════════════════
+            SECTION 9 — PHASE ROADMAP
+            Full roadmap — last section, for reference not daily action.
+        ═══════════════════════════════════════════════════════════════════ */}
         <div className="bg-gray-900/50 border border-gray-700/40 rounded-2xl p-4">
           <div className="flex items-center gap-2 mb-3">
             <ArrowRight className="w-4 h-4 text-gray-400" />
             <p className="font-semibold text-sm text-gray-200">Growth Roadmap</p>
+            <span className="text-[10px] text-gray-500">— your full journey</span>
           </div>
           <div className="space-y-2">
-            {PHASES.map((p, i) => {
+            {PHASES.map(p => {
               const isActive = p.id === currentPhase.id;
               const isPast = currentBalance >= p.minBalance && p.id < currentPhase.id;
               const isLocked = currentBalance < p.minBalance;
@@ -841,12 +1072,8 @@ export default function AccountGrowthPlan() {
     {/* ── Phase Promotion Celebration Modal ── */}
     {promotionModal && (
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-        {/* Backdrop */}
         <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setPromotionModal(null)} />
-
-        {/* Card */}
         <div className="relative z-10 w-full max-w-sm bg-gray-900 border border-gray-700/60 rounded-3xl overflow-hidden shadow-2xl">
-          {/* Confetti header strip */}
           <div className={`h-2 w-full bg-gradient-to-r ${
             promotionModal.newPhase.color === 'emerald' ? 'from-emerald-500 to-teal-400' :
             promotionModal.newPhase.color === 'teal'    ? 'from-teal-500 to-cyan-400' :
@@ -855,22 +1082,11 @@ export default function AccountGrowthPlan() {
             promotionModal.newPhase.color === 'purple'  ? 'from-purple-500 to-pink-400' :
                                                           'from-amber-500 to-yellow-400'
           }`} />
-
           <div className="p-6 text-center">
-            {/* Big emoji */}
             <div className="text-6xl mb-3 animate-bounce">{promotionModal.newPhase.emoji}</div>
-
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-1">
-              Phase Unlocked
-            </p>
-            <h2 className="text-2xl font-black text-white mb-0.5">
-              Phase {promotionModal.newPhase.id} — {promotionModal.newPhase.name}
-            </h2>
-            <p className="text-xs text-gray-400 mb-5">
-              You leveled up from {promotionModal.oldPhase.emoji} {promotionModal.oldPhase.name}
-            </p>
-
-            {/* New rules grid */}
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-1">Phase Unlocked</p>
+            <h2 className="text-2xl font-black text-white mb-0.5">Phase {promotionModal.newPhase.id} — {promotionModal.newPhase.name}</h2>
+            <p className="text-xs text-gray-400 mb-5">You leveled up from {promotionModal.oldPhase.emoji} {promotionModal.oldPhase.name}</p>
             <div className="grid grid-cols-2 gap-3 mb-5">
               <div className={`p-3 rounded-2xl border ${phaseColor[promotionModal.newPhase.color]}`}>
                 <p className="text-[10px] opacity-60 mb-1">New Risk / Trade</p>
@@ -883,20 +1099,14 @@ export default function AccountGrowthPlan() {
                 <p className="text-[10px] opacity-50">simultaneous</p>
               </div>
             </div>
-
-            {/* Motivational tip */}
             <div className="flex items-start gap-2 p-3 rounded-xl bg-white/5 border border-white/10 text-left mb-5">
               <Zap className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
               <p className="text-xs text-gray-300 italic">"{promotionModal.newPhase.tip}"</p>
             </div>
-
-            {/* Phase description */}
             <p className="text-xs text-gray-400 mb-6">{promotionModal.newPhase.description}</p>
-
             <Button
               className="w-full h-11 font-bold text-sm bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white border-0"
-              onClick={() => setPromotionModal(null)}
-            >
+              onClick={() => setPromotionModal(null)}>
               Let's Go {promotionModal.newPhase.emoji}
             </Button>
           </div>
