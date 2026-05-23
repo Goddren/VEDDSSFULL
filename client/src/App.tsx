@@ -103,6 +103,7 @@ import { NewsNotificationScheduler } from "@/components/news-notification-schedu
 import { SubscriptionUsageHeader } from "@/components/ui/subscription-usage-header";
 import { PageTransition } from "@/components/ui/page-transition";
 import { AbbaAssistant } from "@/components/travis/travis-assistant";
+import { AmbassadorTodoPopup } from "@/components/ambassador-todo-popup";
 
 import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
@@ -261,6 +262,7 @@ function AppLayout() {
       <OnboardingTutorial />
       <MobileBottomNav />
       <AbbaAssistant />
+      <AmbassadorTodoPopup />
       <NetworkStatus />
       <Toaster />
       <div className="pb-16 md:pb-0" />
