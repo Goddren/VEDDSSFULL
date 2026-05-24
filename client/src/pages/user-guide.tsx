@@ -23,7 +23,15 @@ import {
   Settings,
   Star,
   Code2,
-  ShieldCheck
+  ShieldCheck,
+  Bot,
+  Wallet,
+  Coins,
+  Heart,
+  Globe,
+  Layers,
+  Target,
+  ArrowRight
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -559,6 +567,654 @@ const guideSections: GuideSection[] = [
     ]
   },
   {
+    id: 'account-growth-plan',
+    title: 'Account Growth Plan',
+    icon: TrendingUp,
+    description: '6-phase capital scaling system with automated position sizing and trade logging',
+    content: [
+      {
+        heading: 'The 6-Phase Growth System',
+        steps: [
+          'Navigate to Account Growth Plan from the main menu',
+          'Phase 1 — Seedling: $0–$499 | 0.5% risk per trade | max 2 concurrent trades',
+          'Phase 2 — Sprout: $500–$1,999 | 1% risk per trade | max 3 concurrent trades',
+          'Phase 3 — Growth: $2,000–$4,999 | 1.5% risk per trade | max 4 concurrent trades',
+          'Phase 4 — Momentum: $5,000–$14,999 | 2% risk per trade | max 5 concurrent trades',
+          'Phase 5 — Acceleration: $15,000–$49,999 | 2.5% risk per trade | max 6 concurrent trades',
+          'Phase 6 — Peak: $50,000+ | 3% risk per trade | max 8 concurrent trades',
+          'Your current phase is determined by your live account balance — connect a broker account to sync automatically',
+          'A Phase Promotion modal appears with an animated celebration when your balance crosses into a new phase'
+        ],
+        tips: [
+          'Connect your MT5 or TradeLocker account via the Connected Account Picker to keep your balance in sync automatically',
+          'Each phase has its own lot multiplier built in — you never need to manually recalculate as you grow',
+          'Phase milestones are content goldmines for your ambassador posts — "I just hit Phase 3!" performs extremely well'
+        ]
+      },
+      {
+        heading: 'Setup Wizard',
+        steps: [
+          'First-time visitors see a 7-step guided setup wizard',
+          'Step 1: Enter your starting balance (or tap "Use Live Balance" to pull it from your connected account)',
+          'Step 2: Enter your goal balance (e.g., $50,000)',
+          'Step 3: Select your risk profile — Conservative / Moderate / Aggressive',
+          'Step 4: Choose your trading style — Scalping / Day Trading / Swing / Position',
+          'Step 5: Set your weekly profit target percentage',
+          'Step 6: Review the projected growth curve (area chart showing compound growth to goal)',
+          'Step 7: Confirm and activate your plan',
+          'You can update your balance or plan settings at any time from the Plan Monitor panel'
+        ],
+        tips: [
+          'The projected growth curve shows both optimistic and conservative compounding paths based on your win rate',
+          'Risk profile affects the lot multiplier within each phase — aggressive profile trades larger within the phase limits'
+        ]
+      },
+      {
+        heading: 'Smart Position Sizer',
+        steps: [
+          'The Position Sizer is embedded in the Account Growth Plan page',
+          'Select your trading pair (e.g., XAUUSD, GBPUSD)',
+          'Enter your stop loss in pips',
+          'The calculator outputs: exact lot size, dollar risk amount, and max concurrent trades for your current phase',
+          'All calculations are based on your live account balance and current phase risk percentage',
+          'No manual math required — risk rules are enforced automatically'
+        ],
+        tips: [
+          'Gold (XAUUSD) uses a different pip value than forex pairs — the sizer handles this automatically',
+          'Re-run the sizer before every trade to account for balance changes after wins/losses',
+          'The "Max Trades" output tells you when to stop opening new positions for the session'
+        ]
+      },
+      {
+        heading: 'Trade Log',
+        steps: [
+          'Log every trade directly inside the Account Growth Plan',
+          'Required fields: pair, direction (Buy/Sell), entry price, exit price, lot size',
+          'Optional fields: stop loss, take profit, notes',
+          'P&L is calculated automatically from entry/exit prices and lot size',
+          'The log tracks: total trades, win rate, average R:R, average win, average loss, total P&L',
+          'Per-pair stats show your performance broken down by instrument',
+          'Phase-tagged entries show which phase each trade was taken in'
+        ],
+        tips: [
+          'Log every trade — even losses. The win rate and R:R stats become your personal edge data over time',
+          'Notes field is great for logging what the AI said, what you saw on the chart, and why you entered'
+        ]
+      },
+      {
+        heading: 'Plan Monitor & Live Status',
+        steps: [
+          'The Plan Monitor panel shows a live circular progress ring for your current weekly target',
+          'Phase progression bar shows your position between current and next phase threshold',
+          'Links directly to your Weekly Strategy to show "Strategy Active" or "No Active Strategy"',
+          'SS AI Engine status shows On/Off and current mode',
+          'Milestones panel shows 10 achievement badges: First Trade, 5 Trades, First Win, 3 Win Streak, Reach Phase 2–6, Doubled Account',
+          'The "DO THIS NOW" badge highlights the next incomplete step in your workflow',
+          'Guided steps link directly to Weekly Strategy, Analysis, and Market Mood pages'
+        ],
+        tips: [
+          'Treat the Plan Monitor as your daily trading dashboard — check it before every session',
+          'Milestone badges unlock VEDD tokens as rewards — completing the milestones also earns bonus credits'
+        ]
+      }
+    ]
+  },
+  {
+    id: 'weekly-strategy',
+    title: 'Weekly Strategy & SS AI Engine',
+    icon: Bot,
+    description: 'AI weekly trading plans, the autonomous SS AI Engine, and ORB breakout tracking',
+    content: [
+      {
+        heading: 'Generating Your Weekly AI Plan',
+        steps: [
+          'Navigate to Weekly Strategy from the main menu',
+          'Select your trading pairs (XAUUSD, GBPUSD, EURUSD, etc.)',
+          'Enter your account balance (or use the Connected Account Picker to auto-fill from your live account)',
+          'Select risk level: Conservative / Moderate / Aggressive',
+          'Click "Generate Weekly Plan" — GPT-4o produces a full trading plan',
+          'The plan includes: market direction, key pairs to watch, specific entry conditions, risk parameters, and recommended HFT mode',
+          'Plans include weekly profit target, optimal trading days, and session-specific guidance',
+          'Share your plan to X (Twitter), Facebook, or LinkedIn using the share icons'
+        ],
+        tips: [
+          'Regenerate your plan every Monday to stay aligned with the week\'s market conditions',
+          'Use the "What-If" tool to stress-test your plan\'s entry assumptions before committing'
+        ]
+      },
+      {
+        heading: 'SS AI Engine — Engine Configuration',
+        steps: [
+          'The SS AI Engine is the autonomous HFT engine that runs 18 strategies simultaneously',
+          'Select your execution account using the Connected Account Picker at the top of the page',
+          'The engine reads your live account balance and loads your saved per-account settings automatically',
+          'Available engine modes: Scalping | Momentum Surfing | Session Breakout | Sniper | Aggressive Compound',
+          'Set your weekly profit target — the engine\'s intensity scales based on distance to goal',
+          'Set Direction Filter: Buy Only / Sell Only / Both',
+          'Set Risk Per Trade %: default 1% of account balance',
+          'Set Max Daily Trades: hard limit on trades per 24-hour window',
+          'Set Stop-Order Price Levels: price thresholds that trigger or pause trading',
+          'Click Start to activate — the engine scans every 60 seconds'
+        ],
+        tips: [
+          'Start with paper mode to test the engine before connecting a live account',
+          'Each connected account stores its own engine settings — switching accounts loads the correct settings automatically',
+          'The Brain Enforcer pre-filters every trade using per-pair learned knowledge — losing-streak pairs are skipped automatically'
+        ]
+      },
+      {
+        heading: 'SS AI Engine — Phase System',
+        steps: [
+          'The engine operates through 6 goal phases that adjust lot sizes automatically:',
+          'warming_up: conservative lots, building baseline confidence (start of week)',
+          'building: slight increase as early wins confirm strategy is working',
+          'accelerating: larger lots as the profit curve climbs toward target',
+          'cruising: maintains pace when near target — no unnecessary risk',
+          'pushing: final sprint to reach target by end of week',
+          'target_reached: engine scales back to hold profit, avoids giving back gains',
+          'The current phase and weekly progress are visible in real time on the engine panel'
+        ],
+        tips: [
+          'The phase system prevents the common mistake of over-trading early, then revenge-trading to catch up',
+          'Use the 5 trail stop methods (Parabolic SAR, Fixed Pip, Profit Lock %, Stepped Fixed, None) to protect open positions server-side'
+        ]
+      },
+      {
+        heading: 'Engine Backtest',
+        steps: [
+          'Click the "Backtest" button inside the Engine Configuration panel',
+          'Select the pair to backtest (e.g., XAUUSD)',
+          'Choose a lookback period: 30, 60, or 90 days of historical price data',
+          'Click Run — VEDD replays price history through your current strategy settings',
+          'Results show: simulated win rate, profit factor, max drawdown, total P&L',
+          'Use backtest results to validate your configuration before switching from paper to live mode'
+        ],
+        tips: [
+          'Always backtest before going live on a new pair or after changing strategy mode',
+          'A profit factor above 1.5 with max drawdown below 15% is a healthy baseline to look for'
+        ]
+      },
+      {
+        heading: 'ORB (Opening Range Breakout) Panel',
+        steps: [
+          'The ORB panel tracks price relative to the opening range for your selected strategy pairs',
+          'Each pair shows its current ORB phase: Pre-Market → Building → Range Set → Breakout Long / Short → Retest → Trade Taken → Window Closed',
+          'Pre-Market Bias shows the AI\'s directional lean before the session opens',
+          'The AI Score (via SS AI Bot) rates each pair\'s breakout setup quality in real time',
+          'MT5 live price polling updates the phase automatically when your EA is connected',
+          'Candlestick patterns (e.g., Bullish Engulfing, Doji) detected on the opening range are flagged per pair',
+          'Use the ORB panel alongside Stop Orders to pre-set breakout entries before the session'
+        ],
+        tips: [
+          'ORB setups are strongest on Monday and Tuesday when weekly ranges are being established',
+          'A "Trade Taken" status on the ORB means a signal has been sent to the engine — no manual entry needed'
+        ]
+      }
+    ]
+  },
+  {
+    id: 'stop-orders',
+    title: 'Stop Orders',
+    icon: Target,
+    description: 'Set pending breakout orders that trigger automatically when price reaches your level',
+    content: [
+      {
+        heading: 'What Are Stop Orders?',
+        steps: [
+          'Stop Orders let you pre-set trades that execute automatically when price hits a specific level',
+          'BUY STOP: triggers when price rises above your set level (used for bullish breakouts)',
+          'SELL STOP: triggers when price falls below your set level (used for bearish breakouts)',
+          'Orders remain pending until: (a) price hits the trigger level, (b) you cancel manually, or (c) the session closes',
+          'The MT5 Chart Data EA sends live price ticks to VEDD — when a tick crosses your trigger, the order fires',
+          'Perfect for session breakout trading without watching the charts'
+        ],
+        tips: [
+          'Combine Stop Orders with the ORB panel: identify the opening range, then set your BUY STOP just above the high and SELL STOP just below the low',
+          'Stop Orders work while you sleep — set them before the London open and let the system execute'
+        ]
+      },
+      {
+        heading: 'Creating a Stop Order',
+        steps: [
+          'Navigate to Stop Orders from the navigation menu',
+          'Click "New Stop Order"',
+          'Select Symbol (e.g., XAUUSD, GBPUSD)',
+          'Select Direction: BUY STOP or SELL STOP',
+          'Enter Trigger Price: the price level at which the order fires',
+          'Enter Current Price: used for validation — prevents invalid orders (e.g., BUY STOP below current price)',
+          'Set Lot Size',
+          'Set Stop Loss price and Take Profit price',
+          'Optionally add a Breakout Level Reference and Notes',
+          'Click "Create Order" — the order enters PENDING status and monitoring begins'
+        ],
+        tips: [
+          'Set your BUY STOP at least 5–10 pips above resistance to avoid being triggered by a fake breakout',
+          'Always include a Stop Loss on every stop order — if the breakout fails, you need protection'
+        ]
+      },
+      {
+        heading: 'Managing and Tracking Orders',
+        steps: [
+          'The Stop Orders page shows tabs: All / Pending / Triggered / Cancelled — each with a count badge',
+          'Pending orders show: symbol, direction, trigger price, distance to trigger (in pips), lot size, SL, TP',
+          'The page auto-refreshes every 15 seconds — triggered orders surface quickly',
+          'When an order triggers, its status changes to TRIGGERED and a timestamp is recorded',
+          'Cancel any pending order with one click from the order card',
+          'Triggered orders remain in history — review them to measure breakout effectiveness'
+        ],
+        tips: [
+          'Review triggered orders weekly as part of your trading review — did the breakout follow through to TP, or did it reverse?',
+          'Use the Notes field to log your reasoning: "London session range high was 2350 — setting BUY STOP at 2360 with volume confirmation"'
+        ]
+      }
+    ]
+  },
+  {
+    id: 'solana-scanner',
+    title: 'Solana Token Scanner',
+    icon: Zap,
+    description: 'AI-powered crypto scanner with live Phantom wallet integration and autonomous trading',
+    content: [
+      {
+        heading: 'Understanding the Scanner',
+        steps: [
+          'Navigate to Solana Scanner from the main menu',
+          'The scanner monitors tokens across 5 major Solana DEXes: Raydium, Orca, Meteora, Pump.fun, Jupiter',
+          'For each token, AI scores: social sentiment, tokenomics quality, whale wallet activity, volume trends, price momentum',
+          'Signal ratings: STRONG_BUY / BUY / HOLD / SELL / STRONG_SELL with a confidence percentage',
+          'Each token card shows: entry price, price target, stop loss, recommended hold duration, and risk level',
+          'Filter tokens by DEX source: All / Raydium / Orca / Meteora / Pumpfun / Jupiter',
+          'Enable the bell icon on any token to receive browser notifications for signal changes'
+        ],
+        tips: [
+          'Start with Paper Trading mode — all real-time data, zero risk. Build confidence before going live',
+          'Risk Level indicators (Low / Medium / High / Extreme) are the fastest way to filter out tokens that don\'t match your tolerance'
+        ]
+      },
+      {
+        heading: 'Connecting Phantom Wallet',
+        steps: [
+          'Desktop: install the Phantom browser extension from phantom.app, then click "Connect Phantom" on the scanner',
+          'Mobile: open the Solana Scanner page inside the Phantom app\'s built-in browser',
+          'Once connected, your real SOL balance is displayed in the header',
+          'Connecting your wallet enables one-click buying of tokens via Jupiter DEX at best available swap rates',
+          'Your portfolio value auto-fills the scanner\'s position sizer for risk calculations'
+        ],
+        tips: [
+          'NEVER share your seed phrase or private key with anyone — VEDD never asks for them',
+          'Use a separate trading wallet (funded with only what you are willing to risk) rather than your main wallet'
+        ]
+      },
+      {
+        heading: 'Sol Engine Risk Controls',
+        steps: [
+          'Open the Settings tab inside the Solana Scanner to access the 4 risk controls:',
+          'Direction Filter: Buy Only — only enter LONG positions on BUY signals | Sell Only — only enter on SELL signals | Both — trade both directions',
+          'Risk Per Trade %: cap the SOL amount per trade as a percentage of your portfolio (e.g., 5% = 0.05 SOL per trade on a 1 SOL portfolio)',
+          'Max Daily Trades: hard limit on positions the scanner can open per 24-hour window — prevents FOMO over-trading',
+          'Stop-Order Price Floor: if SOL price drops below this level, the engine pauses all new entries (acts as a portfolio circuit breaker)',
+          'All four controls work independently and stack together for layered protection'
+        ],
+        tips: [
+          'In a confirmed bull market, set Direction Filter to "Buy Only" to ignore SELL signals that fight the trend',
+          'Max Daily Trades of 3–5 is a good starting point — forces selectivity rather than trading every signal',
+          'The Stop-Order Price Floor is your emergency brake — set it at a level where you would want to reassess the market'
+        ]
+      },
+      {
+        heading: 'Auto-Trade & Auto-Rebalance',
+        steps: [
+          'Auto-Trade mode automatically buys tokens when strong buy signals appear',
+          'Configure: trade amount in SOL, take profit %, and stop loss % per trade',
+          'Auto-Rebalance sells underperforming tokens and replaces them with higher-confidence signals',
+          'Set a Rebalance Threshold (e.g., -10%) — any token below this is eligible for replacement',
+          'Pump/Dump Protection monitors for rapid price drops and auto-exits before major losses',
+          'All auto-trade activity appears in the My Trades tab with full AI reasoning'
+        ],
+        tips: [
+          'Start with small trade amounts (0.05–0.1 SOL) to test Auto-Trade behavior before scaling up',
+          'Auto-Rebalance is powerful but aggressive — start with a wide threshold (-20%) until you understand the pace'
+        ]
+      },
+      {
+        heading: 'Wallet Monitoring & Sell Signals',
+        steps: [
+          'The scanner monitors ALL tokens in your connected Phantom wallet — not just AI-purchased ones',
+          'AI analyzes each wallet token for sell signals every 60 seconds when monitoring is enabled',
+          'Color-coded badges appear next to each token showing BUY/SELL signal with confidence %',
+          'SELL signals pulse red with animation to immediately draw attention',
+          'Browser notifications fire when sell signals are detected for your holdings',
+          'The "My Trades" tab shows AI reasoning, sparkline price charts, entry price, current price, and P&L % for every position'
+        ],
+        tips: [
+          'Enable wallet monitoring even if you don\'t use Auto-Trade — the AI sell signals on your existing holdings are extremely valuable',
+          'Sparkline charts in My Trades show price movement since your entry — a downward slope after a sell signal is your confirmation to exit'
+        ]
+      },
+      {
+        heading: 'Trade Performance & Social Sharing',
+        steps: [
+          'Each trade in the My Trades tab shows: live P&L %, entry vs current price, hold time, exit reason',
+          'Exit reasons logged: take_profit / stop_loss / pump_detected / manual_sell',
+          'Generate branded VEDD share cards for any trade — includes entry price, current price, P&L, and confidence score',
+          'Share directly to Twitter or copy the link for other platforms',
+          'AI reasoning is visible for every trade — see which factors (sentiment, whale activity, tokenomics) drove each decision'
+        ],
+        tips: [
+          'Share winning trades with AI reasoning attached — it builds credibility by showing the logic, not just the result',
+          'A "pump_detected" exit reason means the AI flagged suspicious price action and exited to protect profit'
+        ]
+      }
+    ]
+  },
+  {
+    id: 'webhooks',
+    title: 'Webhooks & Automation',
+    icon: Globe,
+    description: 'Connect VEDD signals to any platform — TradeLocker, Telegram, Discord, or custom endpoints',
+    content: [
+      {
+        heading: 'Setting Up a Webhook',
+        steps: [
+          'Navigate to Webhooks from the navigation menu (or /webhooks)',
+          'Click "Create Webhook"',
+          'Enter your endpoint URL (e.g., your TradeLocker webhook URL, a Telegram bot URL, or any HTTPS endpoint)',
+          'Select the platform: TradeLocker / TradingView / Custom',
+          'Choose trigger events: Chart Analysis Complete | AI Signal Generated | MT5 Trade Copied | Weekly Strategy Published | SS Engine Trade Opened | SS Engine Trade Closed',
+          'Optionally add a Secret Key for payload signature verification',
+          'Click "Activate Webhook"',
+          'Use the "Test" button to send a sample payload to your endpoint immediately — verify the connection before a real trade fires'
+        ],
+        tips: [
+          'Use webhook.site (free) to inspect and debug webhook payloads before connecting your real endpoint',
+          'The Secret Key adds HMAC-SHA256 signature verification — verify it on your server for security'
+        ]
+      },
+      {
+        heading: 'MT5 Trade Copier',
+        steps: [
+          'The MT5 Trade Copier relays every MT5 trade (open, modify, close) to any webhook endpoint in real-time',
+          'Go to the MT5 Chart Data page (/mt5-chart-data) and download the Trade Copier EA',
+          'Install in MT5: File → Open Data Folder → MQL5 → Experts → paste .mq5 file → compile in MetaEditor',
+          'In MT5 EA inputs: paste your VEDD API URL and API Token',
+          'Attach the EA to any chart — it monitors ALL trades on your account, not just the chart\'s pair',
+          'Each trade event (open/close/modify) is sent to your configured webhook endpoint within seconds',
+          'Your TradeLocker or custom server receives the trade and can mirror it automatically'
+        ],
+        tips: [
+          'One API token works for both the Chart Data EA and the Trade Copier EA',
+          'The copier sends: symbol, direction, lot size, entry price, SL, TP, ticket number, and event type (open/close/modify)'
+        ]
+      },
+      {
+        heading: 'Webhook Payload Format & Delivery History',
+        steps: [
+          'All VEDD webhooks send JSON payloads via HTTP POST to your endpoint',
+          'Typical payload includes: event_type, symbol, direction, entry_price, stop_loss, take_profit, confidence, timestamp',
+          'The Webhooks page shows a full delivery history for each webhook: timestamp, HTTP status code, response time',
+          'Failed deliveries show the error message in plain English with troubleshooting suggestions',
+          'VEDD retries failed deliveries up to 3 times with exponential backoff',
+          'Each webhook has a delivery success rate displayed as a percentage'
+        ],
+        tips: [
+          'A 200 status in the delivery history means your endpoint received and accepted the payload',
+          'If you see 4xx errors, check your endpoint URL and authentication settings',
+          'Set up a Telegram bot webhook to receive formatted signal messages directly in your trading group — takes under 5 minutes'
+        ]
+      }
+    ]
+  },
+  {
+    id: 'live-monitor',
+    title: 'Live Monitor',
+    icon: Layers,
+    description: 'Unified real-time cockpit showing your Forex engine, Sol engine, and all active positions',
+    content: [
+      {
+        heading: 'What the Live Monitor Shows',
+        steps: [
+          'Navigate to Live Monitor from the menu (or /live-monitor)',
+          'The page auto-refreshes every 5 seconds — no manual reload needed',
+          'SOL ENGINE panel: running/stopped status, activity feed of recent AI decisions, weekly SOL goal progress bar, active strategies list, last agent consensus recommendation',
+          'VEDD EA / FOREX panel: current engine phase, weekly profit progress vs target, open trades count, today\'s P&L, active pairs list',
+          'PAPER POSITIONS: all open paper trades with entry price, current price, and gain % calculated live',
+          'LIVE POSITIONS: all active broker positions with floating P&L',
+          'Combined view of both Forex and Solana engines without switching pages'
+        ],
+        tips: [
+          'Use the Live Monitor as your main "cockpit" during active trading sessions — everything you need is on one screen',
+          'The activity feed on the Sol Engine panel shows exactly what the AI evaluated and why it passed or skipped each token'
+        ]
+      }
+    ]
+  },
+  {
+    id: 'paper-trades',
+    title: 'Paper Trades & What-If Analysis',
+    icon: Shield,
+    description: 'Track AI-generated paper signals and model trade scenarios before risking real capital',
+    content: [
+      {
+        heading: 'Paper Trades',
+        steps: [
+          'Navigate to Paper Trades from the menu (or /paper-trades)',
+          'Paper trades are AI-generated signals tracked against real market prices — no real capital at risk',
+          'Each paper trade shows: symbol, direction, entry price, SL/TP, AI model used, AI provider, confidence score, and confluence grade',
+          'The Confluence Score (A/B/C/D grade) reflects how many technical factors aligned for the signal',
+          'Statistics panel shows: total trades, win rate, total P&L in pips, average win, average loss',
+          'Per-symbol stats and per-model stats let you compare which AI models perform best on which pairs',
+          'Mark outcomes manually: Win / Loss / Breakeven — these feed back into the VEDD Brain\'s learning cycle'
+        ],
+        tips: [
+          'Paper trades with A-grade confluence and 80%+ confidence are the highest quality signals — track these closely',
+          'Run paper trades for at least 2 weeks before using the same settings for a live SS Engine account'
+        ]
+      },
+      {
+        heading: 'What-If Scenario Analysis',
+        steps: [
+          'Navigate to What-If Analysis from the menu (or /what-if-analysis)',
+          'Enter: symbol, current price, proposed entry, stop loss, take profit, and position size',
+          'Select a scenario type: Price Target / News Event / Volatility Spike / Session Breakout',
+          'Click "Analyze" — the AI models three outcomes with probability weights:',
+          '  Best Case: price reaches TP, win % probability',
+          '  Most Likely: expected outcome based on current conditions',
+          '  Worst Case: price hits SL, loss % probability',
+          'Risk Assessment shows: dollar risk, dollar reward, risk-reward ratio, and a risk warning if the setup is unfavorable',
+          'Link any saved analysis to a What-If to compare AI recommendations vs your proposed setup'
+        ],
+        tips: [
+          'Use What-If before moving your stop loss — model "what happens if I move SL to breakeven" vs "what happens if I keep the original SL"',
+          'A Most Likely outcome that still shows positive expectancy (EV > 0) is a good signal to proceed with the trade'
+        ]
+      }
+    ]
+  },
+  {
+    id: 'vedd-tokens',
+    title: 'VEDD Tokens & Wallet',
+    icon: Coins,
+    description: 'Earn, track, and withdraw VEDD tokens — the platform\'s native reward currency',
+    content: [
+      {
+        heading: 'How to Earn VEDD Tokens',
+        steps: [
+          'Every action on the platform earns VEDD tokens — here are the primary earn events:',
+          'Chart Analysis: earn tokens for each completed AI analysis',
+          'Daily Devotional: complete each day\'s devotional to earn the daily token reward',
+          'Referrals: earn tokens when someone signs up using your referral link and subscribes',
+          'Ambassador Activity: content creation, training completions, and milestone days all award tokens',
+          'Trading Milestones: Phase promotions, win streaks, and Growth Plan milestones award bonus tokens',
+          'Ambassador Training Days: each day in the 58-day curriculum awards 10–50 tokens, with bonus tokens for quizzes',
+          'Streak Bonuses: maintaining a daily analysis or devotional streak multiplies your token earnings'
+        ],
+        tips: [
+          'Daily devotionals are the most consistent token earner — completing one every day for 58 days earns significant accumulated rewards',
+          'Referral tokens are the highest single-event earn — one Premium subscriber referral can award hundreds of tokens'
+        ]
+      },
+      {
+        heading: 'My Wallet',
+        steps: [
+          'Navigate to My Wallet from the profile menu (or /my-wallet)',
+          'View: VEDD token balance, pending balance (tokens awaiting confirmation), total earned all-time, total withdrawn',
+          'To withdraw tokens: enter your Solana wallet address (e.g., your Phantom wallet address)',
+          'Enter the amount to withdraw (minimum withdrawal may apply)',
+          'Click "Request Withdrawal" — the request is queued for processing',
+          'Withdrawal history shows: amount, Solana transaction signature, status (pending/complete/failed)',
+          'Click the transaction signature to view it on Solscan (Solana block explorer)'
+        ],
+        tips: [
+          'Make sure your Solana wallet address is correct before submitting — withdrawals cannot be reversed',
+          'Pending balance represents tokens you have earned that are still in the confirmation period (typically 24–48 hours)'
+        ]
+      },
+      {
+        heading: 'VEDD Tokenomics',
+        steps: [
+          'Navigate to /vedd-tokenomics to see the full token allocation breakdown',
+          'Token allocation: 30% Community Rewards, 20% Development, 20% Liquidity, 15% Team (vested), 15% Treasury',
+          'Community Rewards (30%) are distributed as: trading activity, referrals, ambassador earnings, devotional completions, and milestone rewards',
+          'VEDD tokens are tradeable on Pump.fun — link to the token page is in the Wallet section',
+          'Token supply is fixed — no additional minting after the initial distribution'
+        ],
+        tips: [
+          'The more actively you use the platform, the larger your share of the community rewards pool',
+          'Ambassador program participants consistently earn the most tokens due to combined training + referral + content rewards'
+        ]
+      }
+    ]
+  },
+  {
+    id: 'devotional',
+    title: 'Devotional & Streak Tracker',
+    icon: Heart,
+    description: 'Daily scripture devotions, faith-based trading insights, and streak-based reward progression',
+    content: [
+      {
+        heading: 'Daily Devotional',
+        steps: [
+          'Navigate to Devotional from the menu (or /devotional)',
+          'Each day features: a scripture reference, full scripture text, a devotional reflection, prayer points, an affirmation, and a trading tie-in',
+          'The devotional is tied to the 58-day ambassador curriculum — each day\'s theme connects faith and trading discipline',
+          'Spend the minimum required reading time (shown as a timer) before the completion button activates',
+          'Click "Mark Complete" to log the devotional and earn the day\'s VEDD token reward',
+          'Group completion stats show how many other VEDD community members completed today\'s devotional'
+        ],
+        tips: [
+          'Read the devotional while your chart analysis is processing — the multi-timeframe analysis page even prompts you to do this',
+          'The trading tie-in section applies each day\'s scripture directly to a trading concept — this is where mindset meets strategy'
+        ]
+      },
+      {
+        heading: 'Streak Tracker',
+        steps: [
+          'Navigate to Streak Tracker from the menu (or /streak-tracker)',
+          'The streak tracks your consecutive days of activity on the platform (analyses, devotionals, or logins)',
+          'Tier progression based on streak days: YG (0–6 days) → Rising (7–13) → Pro (14–29) → Elite (30–59) → OG (60+ days)',
+          'Each tier unlocks bonus token multipliers on all earnings',
+          'Milestone streak days (7, 14, 30, 60) award special one-time VEDD token bonuses',
+          'The leaderboard shows top streaks across the community — compete for the top spot',
+          'Missing one day resets your streak — the timer shows how many hours remain before the streak expires'
+        ],
+        tips: [
+          'Set a daily alarm for your trading session time — consistency is more valuable than intensity in the streak system',
+          'OG tier (60+ day streak) gives the highest token multiplier — dedicated ambassadors who maintain this earn significantly more'
+        ]
+      }
+    ]
+  },
+  {
+    id: 'referral-hub',
+    title: 'Referral Hub',
+    icon: Users,
+    description: 'Your referral link, earnings dashboard, QR code, and community leaderboard',
+    content: [
+      {
+        heading: 'Your Referral Link & QR Code',
+        steps: [
+          'Navigate to Referral Hub from the menu (or /referral-hub)',
+          'Your unique referral link is displayed at the top — copy it with one click',
+          'A QR code is generated automatically — download it for print materials, slides, or story posts',
+          'Anyone who signs up through your link is tracked as your referral',
+          'Referrals who subscribe to a paid plan earn you both VEDD tokens AND ambassador commission (if enrolled in the Ambassador program)',
+          'Your referral link works on all platforms — embed it in YouTube descriptions, TikTok bios, Instagram profiles, and Linktree'
+        ],
+        tips: [
+          'Put your referral link in the bio of every social platform you use — this is passive income that works while you sleep',
+          'Use the QR code in live streams — show it on screen while you demo the platform'
+        ]
+      },
+      {
+        heading: 'Referral Stats Dashboard',
+        steps: [
+          'Stats panel shows: Total Referred, Subscribed, Pending (signed up but not yet subscribed), Total Earnings, VEDD Tokens Earned from Referrals',
+          '"Send Reminder" feature: select non-subscribed referrals and send them a follow-up email to convert them',
+          'Referral Leaderboard shows top ambassadors ranked by referral count — compete for top ambassador status',
+          'Each referred user card shows: join date, status (free/subscribed), and their chosen plan',
+          'Earnings history shows a breakdown of commission per referral by month'
+        ],
+        tips: [
+          'The "Pending" count is your conversion opportunity — these people already signed up. A personal DM or reminder often converts them to paid',
+          'Top leaderboard ambassadors receive spotlight features in VEDD official content — great for growing your own following'
+        ]
+      }
+    ]
+  },
+  {
+    id: 'social-hub',
+    title: 'Social Hub',
+    icon: Share2,
+    description: 'Community trading feed, swipeable signal cards, following traders, and one-tap sharing',
+    content: [
+      {
+        heading: 'The Tinder-Style Signal Feed',
+        steps: [
+          'Navigate to Social Hub from the menu (or /social-hub)',
+          'Signal cards appear as swipeable cards — each shows a trade setup from the community or AI engine',
+          'Each card displays: pair, direction, timeframe, entry/TP/SL levels, AI confidence score, and a live SVG price chart generated from the trade data',
+          'Swipe RIGHT (or tap the heart) to like and save the setup to your watchlist',
+          'Swipe LEFT (or tap X) to skip and see the next card',
+          'Long-press or tap "View Details" to open the full analysis breakdown in a modal',
+          'The full detail view shows: complete AI reasoning, all technical factors considered, timeframe analysis, and the analyst\'s commentary'
+        ],
+        tips: [
+          'Liked setups are saved to "Your Feed" tab — review them before each session to see if conditions still hold',
+          'The SVG price charts are generated from real entry/TP/SL data — they always render correctly even offline'
+        ]
+      },
+      {
+        heading: 'Your Feed & Following Traders',
+        steps: [
+          'The "Your Feed" tab shows analyses from traders you follow, filtered by your preferred assets',
+          'Follow any trader by tapping their avatar or username and clicking Follow',
+          'The platform surfaces top-performing analysts automatically based on win rate and community engagement',
+          'Filter your feed by: asset type (Forex / Crypto / Futures) or timeframe',
+          'Like, comment, and save analyses from traders you follow',
+          'Your own published analyses appear in your profile for others to follow'
+        ],
+        tips: [
+          'Follow 5–10 active traders whose pairs you trade — your feed becomes a curated signal source for your specific instruments',
+          'Traders with a green "Verified" badge have been accuracy-vetted by the platform'
+        ]
+      },
+      {
+        heading: 'Sharing Signal Cards',
+        steps: [
+          'Every signal card has a Share button (arrow icon) that opens the share sheet',
+          'Share options: Twitter (pre-formatted tweet with trade details) | Copy to Clipboard | Native device share sheet',
+          'Share cards are automatically branded with the VEDD logo and include: pair, direction, entry, TP, SL, confidence score',
+          'In the full detail modal, the DialogFooter has a QuickShareButtons panel for multi-platform sharing in one tap',
+          'Your Feed cards also have share buttons in the CardFooter — share any saved setup from your watchlist instantly'
+        ],
+        tips: [
+          'Sharing high-confidence setups before they hit TP builds your credibility as an analyst — when the trade wins, your audience remembers',
+          'Use the native share sheet on mobile to post directly to Instagram Stories as an image'
+        ]
+      }
+    ]
+  },
+  {
     id: 'mobile-features',
     title: 'Mobile Features',
     icon: Bell,
@@ -663,8 +1319,32 @@ const faqs = [
     answer: 'Create successful trading strategies, publish them to the marketplace with a subscription price, and earn revenue when other traders subscribe. Your earnings are tracked in your profile.'
   },
   {
+    question: 'What is the Account Growth Plan and how does it work?',
+    answer: 'The Account Growth Plan is a 6-phase capital scaling system. Your account progresses through Seedling → Sprout → Growth → Momentum → Acceleration → Peak phases, each with increasing risk allowances and lot sizes. Connect your MT5 or TradeLocker account to sync your live balance automatically — the plan always knows your current phase and calculates the correct position size for every trade. A built-in Position Sizer handles the math: enter your pair and stop loss distance, and it outputs the exact lot size to risk your phase-appropriate percentage.'
+  },
+  {
+    question: 'How does the SS AI Engine work?',
+    answer: 'The SS AI Engine is VEDD\'s autonomous Forex trading system. It runs 18 HFT strategies simultaneously on pairs like XAUUSD, GBPUSD, and EURUSD via TradeLocker. Every 60 seconds it fetches live market data, runs 12+ indicators, checks news sentiment, and queries GPT-4o for a final trade decision. Weekly profit goals keep it goal-oriented — it phases through warming_up → building → accelerating → cruising → pushing → target_reached, adjusting lot sizes at each phase. The Brain Enforcer pre-filters every proposed trade using per-pair learned knowledge. Use the Connected Account Picker to assign any MT5 or TradeLocker account to the engine — each account has its own saved risk settings.'
+  },
+  {
+    question: 'How do Stop Orders work?',
+    answer: 'Stop Orders are pending breakout orders that trigger automatically when price reaches your set level. BUY STOP fires when price rises above the trigger (bullish breakout). SELL STOP fires when price falls below the trigger (bearish breakout). Orders stay pending until triggered, cancelled, or the session closes. The MT5 Chart Data EA sends live price ticks to VEDD — when a tick crosses your trigger level, the order fires. Perfect for session breakout trading: set your orders before the London or New York open and let the system execute while you sleep.'
+  },
+  {
+    question: 'What is the Solana Scanner and how do I use it safely?',
+    answer: 'The Solana Scanner uses AI to analyze trending tokens across Raydium, Orca, Meteora, Pump.fun, and Jupiter. It scores each token on sentiment, tokenomics, whale activity, and momentum — producing STRONG_BUY through STRONG_SELL signals with confidence percentages. Always start with Paper Trading mode (Settings tab → enable Paper Mode) to test without real capital. When you\'re ready to trade live, connect your Phantom wallet. Use the 4 risk controls in the Settings tab: Direction Filter, Risk Per Trade %, Max Daily Trades, and Stop-Order Price Floor to manage your exposure.'
+  },
+  {
+    question: 'How do I connect VEDD to my Telegram group or Discord server?',
+    answer: 'Use the Webhooks feature (navigate to /webhooks). Create a new webhook, paste your Telegram bot webhook URL or Discord webhook URL, select the trigger events you want (e.g., "AI Signal Generated"), and activate it. VEDD will POST a formatted JSON payload to your URL every time the trigger fires. Test it with the built-in Test button before your first real signal. A Telegram bot webhook can be set up in under 5 minutes using the BotFather — your community receives live formatted signals automatically.'
+  },
+  {
+    question: 'What are VEDD Tokens and how do I withdraw them?',
+    answer: 'VEDD Tokens are the platform\'s native reward currency earned through trading activity, daily devotionals, referrals, ambassador milestones, and streak bonuses. View your balance in My Wallet (/my-wallet). To withdraw, enter your Solana wallet address (e.g., your Phantom wallet) and the amount you want to withdraw. Withdrawals process to the Solana blockchain — track them via the transaction signature link in your withdrawal history. VEDD Tokens are also tradeable on Pump.fun.'
+  },
+  {
     question: 'Is my data secure?',
-    answer: 'Yes, we use end-to-end encryption and follow industry best practices for data security. Your trading data and personal information are protected. Read more on our Security page.'
+    answer: 'Yes, we use end-to-end encryption and follow industry best practices for data security. Broker passwords (TradeLocker, Tradovate) are encrypted with AES-256 before storage and never stored in plain text. Your chart screenshots are analyzed by the AI and not stored permanently. Your trading data and personal information are protected at all times.'
   }
 ];
 
@@ -699,6 +1379,10 @@ export default function UserGuidePage() {
             <span className="bg-purple-500/20 text-purple-300 border border-purple-500/30 text-xs px-3 py-1 rounded-full">Futures / NinjaTrader 8</span>
             <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs px-3 py-1 rounded-full">MT5 / TradeLocker</span>
             <span className="bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs px-3 py-1 rounded-full">Prop Firm Rules</span>
+            <span className="bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-xs px-3 py-1 rounded-full">SS AI Engine</span>
+            <span className="bg-violet-500/20 text-violet-300 border border-violet-500/30 text-xs px-3 py-1 rounded-full">Solana Scanner</span>
+            <span className="bg-rose-500/20 text-rose-300 border border-rose-500/30 text-xs px-3 py-1 rounded-full">Webhooks & Automation</span>
+            <span className="bg-green-500/20 text-green-300 border border-green-500/30 text-xs px-3 py-1 rounded-full">Account Growth Plan</span>
           </div>
         </div>
 
