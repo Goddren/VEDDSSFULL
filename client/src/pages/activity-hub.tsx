@@ -10,6 +10,7 @@ import { RewardBurst } from '@/components/vedd-activity/RewardBurst';
 import {
   Flame, Zap, Trophy, Shirt, CheckCircle,
   Crown, ChevronRight, Coins, Calendar,
+  Rocket, Star, BookOpen, TrendingUp,
 } from 'lucide-react';
 import { SiSolana } from 'react-icons/si';
 
@@ -388,10 +389,113 @@ export default function ActivityHubPage() {
               </>
             )}
 
+            {/* ── Featured Journeys ── */}
+            <div className="pt-3">
+              <div className="flex items-center justify-between px-1 mb-2">
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Featured Journeys</p>
+                <span className="text-[10px] text-gray-600">Earn big VEDD</span>
+              </div>
+              <div className="space-y-2">
+
+                {/* VEDD Push List */}
+                <Link href="/ambassador/free-path">
+                  <div
+                    className="rounded-2xl p-4 flex items-center gap-3 active:scale-[0.98] transition-all cursor-pointer"
+                    style={{ background: 'linear-gradient(135deg, rgba(239,68,68,0.12) 0%, rgba(249,115,22,0.08) 100%)', border: '1px solid rgba(239,68,68,0.3)' }}
+                  >
+                    <div
+                      className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0"
+                      style={{ background: 'rgba(239,68,68,0.15)' }}
+                    >
+                      <Zap className="w-6 h-6 text-red-400" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold text-white leading-tight">VEDD Push List</p>
+                      <p className="text-xs text-gray-500 mt-0.5">High-priority actions that stack the most VEDD, fast</p>
+                    </div>
+                    <div className="flex flex-col items-end shrink-0 gap-1">
+                      <span className="text-xs font-black text-red-400">+500 VEDD</span>
+                      <ChevronRight className="w-4 h-4 text-gray-600" />
+                    </div>
+                  </div>
+                </Link>
+
+                {/* Free to Pro Path */}
+                <Link href="/ambassador/free-path">
+                  <div
+                    className="rounded-2xl p-4 flex items-center gap-3 active:scale-[0.98] transition-all cursor-pointer"
+                    style={{ background: 'linear-gradient(135deg, rgba(139,92,246,0.12) 0%, rgba(59,130,246,0.08) 100%)', border: '1px solid rgba(139,92,246,0.3)' }}
+                  >
+                    <div
+                      className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0"
+                      style={{ background: 'rgba(139,92,246,0.15)' }}
+                    >
+                      <Rocket className="w-6 h-6 text-purple-400" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold text-white leading-tight">Free → Pro Path</p>
+                      <p className="text-xs text-gray-500 mt-0.5">30-day structured journey to unlock Pro tier</p>
+                    </div>
+                    <div className="flex flex-col items-end shrink-0 gap-1">
+                      <span className="text-xs font-black text-purple-400">30 days</span>
+                      <ChevronRight className="w-4 h-4 text-gray-600" />
+                    </div>
+                  </div>
+                </Link>
+
+                {/* 44-Day Content Journey */}
+                <Link href="/ambassador/content-studio">
+                  <div
+                    className="rounded-2xl p-4 flex items-center gap-3 active:scale-[0.98] transition-all cursor-pointer"
+                    style={{ background: 'linear-gradient(135deg, rgba(245,158,11,0.12) 0%, rgba(234,179,8,0.08) 100%)', border: '1px solid rgba(245,158,11,0.3)' }}
+                  >
+                    <div
+                      className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0"
+                      style={{ background: 'rgba(245,158,11,0.15)' }}
+                    >
+                      <Star className="w-6 h-6 text-amber-400" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold text-white leading-tight">44-Day Content Challenge</p>
+                      <p className="text-xs text-gray-500 mt-0.5">Daily prompts for TikTok, Reels & Twitter. Complete all 44 for Ambassador badge</p>
+                    </div>
+                    <div className="flex flex-col items-end shrink-0 gap-1">
+                      <span className="text-xs font-black text-amber-400">44 days</span>
+                      <ChevronRight className="w-4 h-4 text-gray-600" />
+                    </div>
+                  </div>
+                </Link>
+
+                {/* Account Growth Plan CTA */}
+                <Link href="/account-growth">
+                  <div
+                    className="rounded-2xl p-4 flex items-center gap-3 active:scale-[0.98] transition-all cursor-pointer"
+                    style={{ background: 'linear-gradient(135deg, rgba(16,185,129,0.10) 0%, rgba(6,182,212,0.06) 100%)', border: '1px solid rgba(16,185,129,0.25)' }}
+                  >
+                    <div
+                      className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0"
+                      style={{ background: 'rgba(16,185,129,0.15)' }}
+                    >
+                      <TrendingUp className="w-6 h-6 text-emerald-400" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold text-white leading-tight">Account Growth Plan</p>
+                      <p className="text-xs text-gray-500 mt-0.5">Phase-by-phase blueprint from Seed to Freedom ($50K+)</p>
+                    </div>
+                    <div className="flex flex-col items-end shrink-0 gap-1">
+                      <span className="text-xs font-black text-emerald-400">5 phases</span>
+                      <ChevronRight className="w-4 h-4 text-gray-600" />
+                    </div>
+                  </div>
+                </Link>
+
+              </div>
+            </div>
+
             {/* Quick-access more earn routes */}
             <div className="pt-2 grid grid-cols-3 gap-2">
               {[
-                { icon: Shirt, label: 'NFC Wear', path: '/clothing', color: '#f59e0b', bg: 'rgba(245,158,11,0.1)' },
+                { icon: Shirt, label: 'NFC Wear', path: '/vedd-clothing', color: '#f59e0b', bg: 'rgba(245,158,11,0.1)' },
                 { icon: SiSolana, label: 'SOL Bot', path: '/solana-scanner', color: '#06b6d4', bg: 'rgba(6,182,212,0.1)' },
                 { icon: Trophy, label: 'Streak', path: '/streak', color: '#ef4444', bg: 'rgba(239,68,68,0.1)' },
               ].map(item => (

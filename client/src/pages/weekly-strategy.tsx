@@ -659,6 +659,194 @@ function StopOrderFormInline({ pair, onClose, toast }: { pair: ORBPairState; onC
   );
 }
 
+// ─── Setup Checklist Component ────────────────────────────────────────────────
+
+interface SetupChecklistProps {
+  growthPlan: any;
+  profitTarget: string;
+  selectedPairs: string[];
+  liveEngineStatus: any;
+  strategy: any;
+  liveMode: any;
+}
+
+function SetupChecklist({ growthPlan, profitTarget, selectedPairs, liveEngineStatus, strategy, liveMode }: SetupChecklistProps) {
+  const steps = [
+    {
+      num: 1,
+      title: "Account Growth Plan",
+      desc: "Link your growth plan to auto-set risk & trade limits",
+      done: !!growthPlan?.plan,
+      link: "/account-growth",
+      linkLabel: "Set Up",
+    },
+    {
+      num: 2,
+      title: "Set Weekly Target",
+      desc: "Enter your weekly profit goal ($)",
+      done: parseFloat(profitTarget) > 0,
+      scrollTo: "profit-target-section",
+      linkLabel: "Set Target",
+    },
+    {
+      num: 3,
+      title: "Select Pairs",
+      desc: "Choose which pairs to trade this week",
+      done: selectedPairs.length > 0,
+      scrollTo: "pairs-section",
+      linkLabel: "Select Pairs",
+    },
+    {
+      num: 4,
+      title: "Engine Settings",
+      desc: "Configure risk per trade, max trades, strategy mode",
+      done: liveEngineStatus?.status === 'running' || liveEngineStatus?.status === 'idle',
+      scrollTo: "engine-settings-section",
+      linkLabel: "Configure",
+    },
+    {
+      num: 5,
+      title: "Generate Strategy",
+      desc: "Run the SS AI to build this week's plan",
+      done: !!strategy?.hasStrategy,
+      scrollTo: "generate-section",
+      linkLabel: "Generate",
+    },
+    {
+      num: 6,
+      title: "Activate SS AI Live",
+      desc: "Turn on the AI confirmation bot",
+      done: !!liveMode?.live,
+      scrollTo: "live-mode-section",
+      linkLabel: "Activate",
+    },
+  ];
+
+  const completedCount = steps.filter(s => s.done).length;
+  const allDone = completedCount === steps.length;
+
+  const [collapsed, setCollapsed] = useState(() => {
+    const saved = localStorage.getItem('setup_checklist_collapsed');
+    if (saved !== null) return saved === 'true';
+    return allDone;
+  });
+
+  const toggleCollapsed = () => {
+    const next = !collapsed;
+    setCollapsed(next);
+    localStorage.setItem('setup_checklist_collapsed', String(next));
+  };
+
+  // Determine step state: done, next (first incomplete), locked
+  const firstIncompleteIndex = steps.findIndex(s => !s.done);
+
+  return (
+    <div className="rounded-2xl border border-amber-500/20 bg-[rgba(255,255,255,0.03)] overflow-hidden mb-4">
+      {/* Header / Progress bar */}
+      <button
+        onClick={toggleCollapsed}
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/5 transition-colors"
+      >
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          <span className="text-sm font-bold text-white whitespace-nowrap">
+            {allDone ? "✅ Setup Complete" : `⚡ Setup Guide — ${completedCount}/6 complete`}
+          </span>
+          {/* Progress bar */}
+          <div className="flex-1 min-w-0 max-w-48">
+            <div className="h-1.5 rounded-full bg-gray-700/60 overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-700 ${allDone ? 'bg-emerald-500' : 'bg-amber-500'}`}
+                style={{ width: `${(completedCount / 6) * 100}%` }}
+              />
+            </div>
+          </div>
+          <span className={`text-xs font-semibold ${allDone ? 'text-emerald-400' : 'text-amber-400'}`}>
+            {Math.round((completedCount / 6) * 100)}%
+          </span>
+        </div>
+        <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ml-3 shrink-0 ${collapsed ? '' : 'rotate-180'}`} />
+      </button>
+
+      {/* Steps list */}
+      {!collapsed && (
+        <div className="px-4 pb-4 space-y-2">
+          {steps.map((step, i) => {
+            const isDone = step.done;
+            const isNext = !isDone && i === firstIncompleteIndex;
+            const isLocked = !isDone && !isNext;
+
+            return (
+              <div
+                key={step.num}
+                className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${
+                  isDone
+                    ? 'border-emerald-500/20 bg-emerald-500/5'
+                    : isNext
+                    ? 'border-amber-500/40 bg-amber-500/8 ring-1 ring-amber-500/20'
+                    : 'border-gray-700/30 bg-gray-800/15 opacity-50'
+                }`}
+              >
+                {/* Number badge */}
+                <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-black shrink-0 ${
+                  isDone
+                    ? 'bg-emerald-500/20 text-emerald-400'
+                    : isNext
+                    ? 'bg-amber-500/20 text-amber-300'
+                    : 'bg-gray-700/40 text-gray-600'
+                }`}>
+                  {isDone ? '✓' : step.num}
+                </div>
+
+                {/* Text */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className={`text-xs font-bold truncate ${
+                      isDone ? 'text-emerald-300' : isNext ? 'text-amber-200' : 'text-gray-600'
+                    }`}>
+                      {step.title}
+                    </p>
+                    {isDone && <span className="text-[9px] text-emerald-500 font-semibold shrink-0">Done</span>}
+                    {isNext && <span className="text-[9px] bg-amber-500/30 text-amber-300 px-1.5 py-0.5 rounded-full font-bold shrink-0">DO THIS NOW</span>}
+                    {isLocked && <span className="text-[9px] text-gray-600 shrink-0">🔒</span>}
+                  </div>
+                  <p className={`text-[10px] mt-0.5 truncate ${
+                    isDone ? 'text-gray-500' : isNext ? 'text-gray-300' : 'text-gray-700'
+                  }`}>
+                    {step.desc}
+                  </p>
+                </div>
+
+                {/* Action button */}
+                {isNext && step.link && (
+                  <a
+                    href={step.link}
+                    className="shrink-0 text-[10px] bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 px-2 py-1 rounded-lg font-semibold transition-colors whitespace-nowrap"
+                  >
+                    {step.linkLabel} →
+                  </a>
+                )}
+                {isNext && step.scrollTo && (
+                  <button
+                    onClick={() => document.getElementById(step.scrollTo!)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                    className="shrink-0 text-[10px] bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 px-2 py-1 rounded-lg font-semibold transition-colors whitespace-nowrap"
+                  >
+                    {step.linkLabel} ↓
+                  </button>
+                )}
+                {isDone && step.link && (
+                  <a href={step.link} className="shrink-0 text-[10px] text-gray-600 hover:text-gray-400 transition-colors whitespace-nowrap">
+                    Open
+                  </a>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function WeeklyStrategyPage() {
@@ -703,6 +891,8 @@ export default function WeeklyStrategyPage() {
       setActiveTab(tab as any);
     }
   }, []);
+
+  const { data: growthPlan } = useQuery<any>({ queryKey: ['/api/growth-plan'] });
 
   const { data: strategy, isLoading } = useQuery<WeeklyStrategy>({
     queryKey: ['/api/weekly-strategy'],
@@ -750,6 +940,20 @@ export default function WeeklyStrategyPage() {
       setAutoBalanceSource('TradeLocker');
     }
   }, [mt5AccountData, tlConnection]);
+
+  // Sync engine account balance when execution source changes
+  useEffect(() => {
+    const mt5Balance = mt5AccountData?.accounts?.[0]?.balance ?? (mt5AccountData?.connected ? mt5AccountData?.balance : null);
+    const tlBalance = (tlConnection as any)?.accountBalance ?? (tlConnection as any)?.balance ?? null;
+    if (engineExecutionSource === 'mt5' && mt5Balance && mt5Balance > 0) {
+      setEngineAccountBalance(Math.round(mt5Balance * 100) / 100);
+    } else if (engineExecutionSource === 'tradelocker' && tlBalance && tlBalance > 0) {
+      setEngineAccountBalance(Math.round(tlBalance * 100) / 100);
+    } else if (engineExecutionSource === 'auto') {
+      const best = mt5Balance || tlBalance;
+      if (best && best > 0) setEngineAccountBalance(Math.round(best * 100) / 100);
+    }
+  }, [engineExecutionSource, mt5AccountData, tlConnection]);
 
   const toggleLiveMutation = useMutation({
     mutationFn: async (enabled: boolean) => {
@@ -946,6 +1150,7 @@ export default function WeeklyStrategyPage() {
   const [engineInterval, setEngineInterval] = useState(60);
   const [engineWeeklyTarget, setEngineWeeklyTarget] = useState(100);
   const [engineAccountBalance, setEngineAccountBalance] = useState(1000);
+  const [engineExecutionSource, setEngineExecutionSource] = useState<'auto' | 'mt5' | 'tradelocker'>('auto');
   const [engineBaseLotSize, setEngineBaseLotSize] = useState(0.01);
   const [engineCompounding, setEngineCompounding] = useState(true);
   const [enginePropFirmMode, setEnginePropFirmMode] = useState(false);
@@ -973,6 +1178,16 @@ export default function WeeklyStrategyPage() {
   const [engineRiskPerTrade, setEngineRiskPerTrade] = useState(1);
   const [engineBreakevenBufferPips, setEngineBreakevenBufferPips] = useState(5);
   const [trailCalcOpen, setTrailCalcOpen] = useState(false);
+
+  // Backtest state
+  const [backtestOpen, setBacktestOpen] = useState(false);
+  const [backtestPair, setBacktestPair] = useState('XAUUSD');
+  const [backtestPeriod, setBacktestPeriod] = useState(90);
+  const [backtestTP, setBacktestTP] = useState(2.5);
+  const [backtestSL, setBacktestSL] = useState(1.2);
+  const [backtestResult, setBacktestResult] = useState<any>(null);
+  const [backtestLoading, setBacktestLoading] = useState(false);
+  const [backtestTradeLogOpen, setBacktestTradeLogOpen] = useState(false);
 
   const [engineAiMode, setEngineAiMode] = useState<'full' | 'economy' | 'rule_based'>('full');
 
@@ -1058,6 +1273,7 @@ export default function WeeklyStrategyPage() {
         trailSarInitialAF: engineTrailSarInitialAF,
         trailSarMaxAF: engineTrailSarMaxAF,
         aiMode: engineAiMode,
+        executionBroker: engineExecutionSource,
       });
       return res.json();
     },
@@ -1174,6 +1390,28 @@ export default function WeeklyStrategyPage() {
     },
     onSuccess: (data) => { setSharePost(data.post); toast({ title: "AI post generated!" }); },
     onError: () => { toast({ title: "Post generation failed", variant: "destructive" }); },
+  });
+
+  const runBacktestMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest('POST', '/api/vedd-live-engine/backtest', {
+        pair: backtestPair,
+        strategyMode: engineMode,
+        periodDays: backtestPeriod,
+        accountBalance: engineAccountBalance,
+        riskPerTrade: engineRiskPerTrade,
+        tpPct: backtestTP,
+        slPct: backtestSL,
+        minConfidence: engineMinConf,
+      });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setBacktestResult(data);
+      if (data.error) toast({ title: 'Backtest failed', description: data.error, variant: 'destructive' });
+      else toast({ title: '✅ Backtest complete', description: `${data.stats?.totalTrades} trades · ${data.stats?.winRate?.toFixed(1)}% win rate · ${data.stats?.totalPnlPct >= 0 ? '+' : ''}${data.stats?.totalPnlPct?.toFixed(2)}%` });
+    },
+    onError: () => toast({ title: 'Backtest failed', variant: 'destructive' }),
   });
 
   const openShareDialog = () => {
@@ -1462,6 +1700,16 @@ export default function WeeklyStrategyPage() {
         {activeTab === 'plan' && (
           <>
 
+        {/* ─── Setup Checklist ─────────────────────────────── */}
+        <SetupChecklist
+          growthPlan={growthPlan}
+          profitTarget={profitTarget}
+          selectedPairs={selectedPairs}
+          liveEngineStatus={liveEngineStatus}
+          strategy={strategy}
+          liveMode={liveMode}
+        />
+
         {/* ═══════════════════════════════════════════════════════
             HERO ENGINE TOGGLE — ALWAYS FRONT AND CENTER
         ═══════════════════════════════════════════════════════ */}
@@ -1680,7 +1928,34 @@ export default function WeeklyStrategyPage() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <div>
+                    <div className="col-span-2 md:col-span-4">
+                      <Label className="text-gray-400 text-xs mb-1 block">Execution Account Source</Label>
+                      <div className="flex gap-2">
+                        {(['auto', 'mt5', 'tradelocker'] as const).map(src => {
+                          const label = src === 'auto' ? '⚡ Auto-detect' : src === 'mt5' ? '📡 MT5 (EA)' : '🔗 TradeLocker';
+                          const bal = src === 'mt5'
+                            ? (mt5AccountData?.accounts?.[0]?.balance ?? mt5AccountData?.balance)
+                            : src === 'tradelocker'
+                              ? ((tlConnection as any)?.accountBalance ?? (tlConnection as any)?.balance)
+                              : null;
+                          return (
+                            <button
+                              key={src}
+                              onClick={() => setEngineExecutionSource(src)}
+                              className={`flex-1 text-xs py-1.5 px-2 rounded-lg border transition-all ${engineExecutionSource === src ? 'border-cyan-500/60 bg-cyan-500/15 text-cyan-300' : 'border-gray-700 bg-gray-800/50 text-gray-400 hover:border-gray-600'}`}
+                            >
+                              <span className="block font-semibold">{label}</span>
+                              {bal != null && bal > 0 && <span className="block text-[10px] mt-0.5 opacity-70">${Number(bal).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>}
+                              {bal == null && src !== 'auto' && <span className="block text-[10px] mt-0.5 opacity-40">Not connected</span>}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <p className="text-[10px] text-gray-600 mt-1">
+                        {engineExecutionSource === 'mt5' ? 'Engine will size trades using MT5 balance. Signals sent to MT5 EA for execution.' : engineExecutionSource === 'tradelocker' ? 'Engine will size trades using TradeLocker balance. Trades execute directly via TradeLocker API.' : 'Auto-selects best available account. MT5 preferred when connected.'}
+                      </p>
+                    </div>
+                  <div>
                       <Label className="text-gray-400 text-xs">Account Balance ($)</Label>
                       <Input type="number" value={engineAccountBalance} onChange={e => setEngineAccountBalance(Number(e.target.value))}
                         min={10} step={10} className="mt-1 bg-gray-800 border-gray-700 text-white h-8 text-sm" />
@@ -4371,6 +4646,176 @@ export default function WeeklyStrategyPage() {
         {/* ─── Tab: Live Engine ────────────────────────────── */}
         {activeTab === 'engine' && (
           <div className="space-y-4">
+
+            {/* ── Backtest Engine ───────────────────────────────── */}
+            <div className="bg-gray-900/80 border border-violet-500/20 rounded-xl overflow-hidden">
+              {/* Header */}
+              <button
+                className="w-full flex items-center justify-between px-4 py-3 hover:bg-violet-900/10 transition-colors"
+                onClick={() => setBacktestOpen(o => !o)}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-white font-semibold text-sm">🧪 Backtest Engine</span>
+                  <span className="text-[10px] font-bold bg-violet-600/40 text-violet-300 border border-violet-500/30 rounded px-1.5 py-0.5">BETA</span>
+                </div>
+                {backtestOpen ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+              </button>
+
+              {backtestOpen && (
+                <div className="px-4 pb-4 space-y-4 border-t border-violet-500/10">
+                  {/* Inputs */}
+                  <div className="grid grid-cols-2 gap-3 mt-3">
+                    <div>
+                      <Label className="text-xs text-gray-400 mb-1 block">Pair</Label>
+                      <Input
+                        type="text"
+                        value={backtestPair}
+                        onChange={e => setBacktestPair(e.target.value.toUpperCase())}
+                        className="bg-gray-800 border-gray-700 text-white text-sm h-8"
+                        placeholder="XAUUSD"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs text-gray-400 mb-1 block">Look-back</Label>
+                      <select
+                        value={backtestPeriod}
+                        onChange={e => setBacktestPeriod(Number(e.target.value))}
+                        className="w-full bg-gray-800 border border-gray-700 text-white text-sm h-8 rounded-md px-2"
+                      >
+                        <option value={30}>30 days</option>
+                        <option value={60}>60 days</option>
+                        <option value={90}>90 days</option>
+                        <option value={180}>180 days</option>
+                      </select>
+                    </div>
+                    <div>
+                      <Label className="text-xs text-gray-400 mb-1 block">Take Profit %</Label>
+                      <Input
+                        type="number"
+                        value={backtestTP}
+                        onChange={e => setBacktestTP(Number(e.target.value))}
+                        min={0.5} max={20} step={0.5}
+                        className="bg-gray-800 border-gray-700 text-white text-sm h-8"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs text-gray-400 mb-1 block">Stop Loss %</Label>
+                      <Input
+                        type="number"
+                        value={backtestSL}
+                        onChange={e => setBacktestSL(Number(e.target.value))}
+                        min={0.5} max={10} step={0.5}
+                        className="bg-gray-800 border-gray-700 text-white text-sm h-8"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-gray-500">
+                    Using: Strategy={engineMode}, Risk={engineRiskPerTrade}%, Balance=${engineAccountBalance}, Min Conf={engineMinConf}%
+                  </p>
+                  <Button
+                    className="w-full bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold"
+                    onClick={() => runBacktestMutation.mutate()}
+                    disabled={runBacktestMutation.isPending}
+                  >
+                    {runBacktestMutation.isPending ? (
+                      <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Running Backtest…</>
+                    ) : '▶ Run Backtest'}
+                  </Button>
+
+                  {/* Results */}
+                  {backtestResult && !backtestResult.error && backtestResult.stats && (() => {
+                    const s = backtestResult.stats;
+                    return (
+                      <div className="space-y-3">
+                        {/* Stats grid */}
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                          {[
+                            { label: 'Win Rate', value: `${s.winRate.toFixed(1)}%`, good: s.winRate > 50 },
+                            { label: 'Total P&L', value: `${s.totalPnlPct >= 0 ? '+' : ''}${s.totalPnlPct.toFixed(2)}%`, good: s.totalPnlPct >= 0 },
+                            { label: 'Total Trades', value: `${s.totalTrades}`, neutral: true },
+                            { label: 'Max Drawdown', value: `-${s.maxDrawdownPct.toFixed(2)}%`, bad: true },
+                            { label: 'Profit Factor', value: s.profitFactor.toFixed(2), good: s.profitFactor > 1 },
+                            { label: 'Sharpe Ratio', value: s.sharpeRatio.toFixed(2), good: s.sharpeRatio > 1 },
+                            { label: 'Avg Win', value: `+${s.avgWinPct.toFixed(2)}%`, good: true },
+                            { label: 'Avg Loss', value: `-${s.avgLossPct.toFixed(2)}%`, bad: true },
+                          ].map((item: any, idx: number) => (
+                            <div key={idx} className="bg-gray-800/60 rounded-lg p-2 text-center">
+                              <div className={`text-sm font-bold ${item.neutral ? 'text-white' : item.bad ? 'text-red-400' : item.good ? 'text-emerald-400' : 'text-white'}`}>
+                                {item.value}
+                              </div>
+                              <div className="text-[10px] text-gray-500 mt-0.5">{item.label}</div>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Verdict banner */}
+                        {s.winRate >= 55 && s.totalPnlPct >= 0 ? (
+                          <div className="rounded-lg bg-emerald-900/30 border border-emerald-500/30 px-3 py-2 text-emerald-300 text-xs font-medium">
+                            ✅ Strategy profitable on {backtestResult.pair} over {backtestResult.periodDays}d — confidence in live deployment: High
+                          </div>
+                        ) : s.winRate >= 45 && s.totalPnlPct >= -5 ? (
+                          <div className="rounded-lg bg-amber-900/30 border border-amber-500/30 px-3 py-2 text-amber-300 text-xs font-medium">
+                            ⚠️ Marginally profitable — test longer period before going live
+                          </div>
+                        ) : (
+                          <div className="rounded-lg bg-red-900/30 border border-red-500/30 px-3 py-2 text-red-300 text-xs font-medium">
+                            ❌ Strategy underperformed on {backtestResult.pair} — adjust TP/SL or strategy mode before live trading
+                          </div>
+                        )}
+
+                        {/* Trade log */}
+                        {backtestResult.tradeLog?.length > 0 && (
+                          <div>
+                            <button
+                              className="text-xs text-gray-400 hover:text-white flex items-center gap-1 mb-2"
+                              onClick={() => setBacktestTradeLogOpen(o => !o)}
+                            >
+                              {backtestTradeLogOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                              Trade Log (last {Math.min(20, backtestResult.tradeLog.length)} trades)
+                            </button>
+                            {backtestTradeLogOpen && (
+                              <div className="overflow-x-auto rounded-lg border border-gray-700">
+                                <table className="w-full text-xs">
+                                  <thead>
+                                    <tr className="bg-gray-800 text-gray-400">
+                                      <th className="px-2 py-1.5 text-left">Date</th>
+                                      <th className="px-2 py-1.5 text-left">Dir</th>
+                                      <th className="px-2 py-1.5 text-right">Entry</th>
+                                      <th className="px-2 py-1.5 text-right">Exit</th>
+                                      <th className="px-2 py-1.5 text-right">P&L%</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {backtestResult.tradeLog.slice(-20).map((t: any, idx: number) => (
+                                      <tr key={idx} className={t.result === 'WIN' ? 'bg-emerald-900/20' : 'bg-red-900/20'}>
+                                        <td className="px-2 py-1 text-gray-300">{t.exitDate?.slice(0, 10)}</td>
+                                        <td className={`px-2 py-1 font-semibold ${t.direction === 'BUY' ? 'text-emerald-400' : 'text-red-400'}`}>{t.direction}</td>
+                                        <td className="px-2 py-1 text-right text-gray-300">{t.entryPrice?.toFixed(4)}</td>
+                                        <td className="px-2 py-1 text-right text-gray-300">{t.exitPrice?.toFixed(4)}</td>
+                                        <td className={`px-2 py-1 text-right font-semibold ${t.pnlPct >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                          {t.pnlPct >= 0 ? '+' : ''}{t.pnlPct?.toFixed(2)}%
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+
+                  {backtestResult?.error && (
+                    <div className="rounded-lg bg-red-900/30 border border-red-500/30 px-3 py-2 text-red-300 text-xs">
+                      {backtestResult.error}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             <div className="bg-amber-900/20 border border-amber-500/30 rounded-xl p-4 mb-4">
               <p className="text-amber-300 text-sm font-medium">💡 The Live Engine tab has moved here from the separate page. All your engine settings are connected to your weekly plan — profit target and pairs are pre-filled from Step 1.</p>
               <a href="/live-monitor" className="text-amber-400 underline text-xs mt-1 inline-block">→ Still accessible at the dedicated Live Monitor page</a>

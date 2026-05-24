@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -6,7 +6,7 @@ import { useAuth } from "@/hooks/use-auth";
 import {
   TrendingUp, Target, Zap, Trophy, ArrowRight, ChevronDown, ChevronUp,
   Calculator, BookOpen, BarChart3, Plus, Trash2, Edit3, CheckCircle2,
-  AlertTriangle, Lock, Star, RefreshCw, DollarSign, Info
+  AlertTriangle, Lock, Star, RefreshCw, DollarSign, Info, Loader2, X
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -167,6 +167,10 @@ export default function AccountGrowthPlan() {
     maxTrades: number;
   } | null>(null);
 
+  // Plan just saved success banner
+  const [planJustSaved, setSetupJustSaved] = useState(false);
+  const [planSaveBannerSeconds, setPlanSaveBannerSeconds] = useState(5);
+
   // Setup wizard state
   const [setupMode, setSetupMode] = useState(false);
   const [setupBalance, setSetupBalance] = useState("500");
@@ -196,6 +200,13 @@ export default function AccountGrowthPlan() {
     queryFn: () => apiRequest("GET", "/api/growth-plan").then(r => r.json()),
   });
 
+  const { data: weeklyStrategy } = useQuery<any>({ queryKey: ["/api/weekly-strategy"] });
+  const { data: liveEngineStatus } = useQuery<any>({
+    queryKey: ["/api/vedd-live-engine/status"],
+    refetchInterval: 10000,
+  });
+  const { data: weeklyData } = useQuery<any>({ queryKey: ["/api/weekly-strategy"] });
+
   const plan = data?.plan;
   const trades: any[] = data?.trades || [];
 
@@ -204,10 +215,28 @@ export default function AccountGrowthPlan() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/growth-plan"] });
       setSetupMode(false);
+      setSetupJustSaved(true);
+      setPlanSaveBannerSeconds(5);
       toast({ title: "✅ Growth plan saved!" });
     },
     onError: () => toast({ title: "Error saving plan", variant: "destructive" }),
   });
+
+  // Auto-dismiss planJustSaved banner with countdown
+  useEffect(() => {
+    if (!planJustSaved) return;
+    const interval = setInterval(() => {
+      setPlanSaveBannerSeconds(prev => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          setSetupJustSaved(false);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [planJustSaved]);
 
   const updateBalanceMutation = useMutation({
     mutationFn: (body: any) => apiRequest("PATCH", "/api/growth-plan/balance", body).then(r => r.json()),
@@ -393,8 +422,17 @@ export default function AccountGrowthPlan() {
               tradingStyle: setupStyle,
               weeklyTargetPct: parseFloat(setupWeekly),
             })} disabled={savePlanMutation.isPending || !setupBalance || !setupGoal}
-              className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold h-12">
-              {savePlanMutation.isPending ? "Saving..." : "Build My Growth Plan →"}
+              className={`w-full text-white font-bold h-12 flex items-center justify-center gap-2 transition-colors ${
+                savePlanMutation.isPending
+                  ? 'bg-emerald-700 hover:bg-emerald-700'
+                  : 'bg-emerald-600 hover:bg-emerald-500'
+              }`}>
+              {savePlanMutation.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Saving...
+                </>
+              ) : "Build My Growth Plan →"}
             </Button>
           </div>
         </div>
@@ -456,6 +494,48 @@ export default function AccountGrowthPlan() {
             <Edit3 className="w-3 h-3 mr-1" /> Edit Plan
           </Button>
         </div>
+
+        {/* ── Plan Just Saved Success Banner ── */}
+        {planJustSaved && (
+          <div className="relative rounded-2xl border border-emerald-500/40 bg-emerald-950/40 p-4 overflow-hidden">
+            {/* Countdown progress bar at bottom */}
+            <div className="absolute bottom-0 left-0 h-1 bg-emerald-500/30 rounded-b-2xl" style={{ width: '100%' }}>
+              <div
+                className="h-full bg-emerald-400 rounded-b-2xl transition-all duration-1000"
+                style={{ width: `${(planSaveBannerSeconds / 5) * 100}%` }}
+              />
+            </div>
+            {/* Close button */}
+            <button
+              onClick={() => setSetupJustSaved(false)}
+              className="absolute top-3 right-3 text-gray-500 hover:text-white transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+            <div className="flex items-start gap-3">
+              <span className="text-2xl">🎉</span>
+              <div className="flex-1 min-w-0">
+                <p className="font-bold text-emerald-300 text-sm mb-1">Growth Plan Activated!</p>
+                <p className="text-xs text-gray-400 mb-2">
+                  Your Phase {currentPhase.id} — {currentPhase.name} plan is live. Here's what's set for you:
+                </p>
+                <div className="space-y-1 text-xs">
+                  <p className="text-gray-300">✅ Risk per trade: <span className="font-bold text-white">{currentRiskPct}%</span> <span className="text-gray-500">(${riskAmountUsd.toFixed(2)} USD)</span></p>
+                  <p className="text-gray-300">✅ Max trades: <span className="font-bold text-white">{currentPhase.maxTrades} per session</span></p>
+                  <p className="text-gray-300">✅ Weekly target: <span className="font-bold text-white">{plan?.weekly_target_pct || 3}%</span></p>
+                  <p className="text-gray-300">✅ Phase: <span className="font-bold text-white">{currentPhase.id} — {currentPhase.name}</span></p>
+                </div>
+                <a
+                  href="/weekly-strategy"
+                  className="inline-flex items-center gap-1 mt-3 text-[11px] bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 px-3 py-1.5 rounded-lg font-semibold transition-colors"
+                >
+                  <ArrowRight className="w-3 h-3" /> Go to Weekly Strategy to build your first plan
+                </a>
+              </div>
+            </div>
+            <p className="text-[10px] text-gray-600 mt-2">Auto-dismissing in {planSaveBannerSeconds}s</p>
+          </div>
+        )}
 
         {/* ═══════════════════════════════════════════════════════════════════
             SECTION 1 — PERFORMANCE HERO
@@ -578,6 +658,158 @@ export default function AccountGrowthPlan() {
                 </div>
               );
             })}
+          </div>
+        </div>
+
+        {/* ═══════════════════════════════════════════════════════════════════
+            SECTION 2b — PLAN STATUS MONITOR
+            Live connection status to weekly strategy and engine.
+        ═══════════════════════════════════════════════════════════════════ */}
+        <div className="bg-gray-900/50 border border-gray-700/40 rounded-2xl p-4">
+          {/* Card header */}
+          <div className="flex items-center gap-2 mb-4">
+            <span className="text-base">📡</span>
+            <p className="font-semibold text-sm text-gray-200">Plan Monitor — Live Status</p>
+            {liveEngineStatus?.status === 'running' && (
+              <span className="flex items-center gap-1 ml-auto text-[10px] text-emerald-400 font-semibold">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse inline-block" />
+                Engine Live
+              </span>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Left: Animated ring + phase progression */}
+            <div className="flex flex-col items-center gap-3">
+              {/* Circular SVG progress ring */}
+              <div className="relative w-28 h-28">
+                <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
+                  <circle cx="50" cy="50" r="42" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="10" />
+                  <circle
+                    cx="50" cy="50" r="42" fill="none"
+                    stroke={
+                      currentPhase.color === 'emerald' ? '#10b981' :
+                      currentPhase.color === 'teal'    ? '#14b8a6' :
+                      currentPhase.color === 'cyan'    ? '#06b6d4' :
+                      currentPhase.color === 'blue'    ? '#3b82f6' :
+                      currentPhase.color === 'purple'  ? '#a855f7' :
+                                                         '#f59e0b'
+                    }
+                    strokeWidth="10"
+                    strokeLinecap="round"
+                    strokeDasharray={`${2 * Math.PI * 42}`}
+                    strokeDashoffset={`${2 * Math.PI * 42 * (1 - progressToNextPhase)}`}
+                    className="transition-all duration-700"
+                  />
+                </svg>
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <span className="text-2xl">{currentPhase.emoji}</span>
+                  <span className="text-[10px] text-gray-400 font-semibold">{Math.round(progressToNextPhase * 100)}%</span>
+                </div>
+              </div>
+              <p className="text-xs text-gray-400 text-center">Phase {currentPhase.id} of 6 — to next phase</p>
+
+              {/* Phase progression bar */}
+              <div className="w-full">
+                <div className="flex items-center gap-1">
+                  {PHASES.map(ph => (
+                    <div
+                      key={ph.id}
+                      className={`flex-1 h-1.5 rounded-full transition-all ${
+                        ph.id < currentPhase.id
+                          ? 'bg-emerald-500'
+                          : ph.id === currentPhase.id
+                          ? 'bg-amber-400'
+                          : 'bg-gray-700'
+                      }`}
+                      title={`${ph.emoji} ${ph.name}`}
+                    />
+                  ))}
+                </div>
+                <div className="flex justify-between text-[9px] text-gray-600 mt-0.5">
+                  <span>Phase 1</span>
+                  <span>Phase 6</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Right: Status badges */}
+            <div className="space-y-3">
+              {/* Weekly Strategy connection */}
+              <div className="rounded-xl p-3 bg-gray-800/40 border border-gray-700/30">
+                <p className="text-[10px] text-gray-500 uppercase font-semibold mb-1.5 tracking-wide">Weekly Strategy</p>
+                {weeklyStrategy?.hasStrategy ? (
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" />
+                    <span className="text-xs text-emerald-300 font-semibold">Strategy Active</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-gray-600 inline-block" />
+                      <span className="text-xs text-gray-500">No strategy yet</span>
+                    </div>
+                    <a href="/weekly-strategy" className="text-[10px] text-amber-400 hover:text-amber-300 font-semibold transition-colors">
+                      Build one →
+                    </a>
+                  </div>
+                )}
+              </div>
+
+              {/* Engine status */}
+              <div className="rounded-xl p-3 bg-gray-800/40 border border-gray-700/30">
+                <p className="text-[10px] text-gray-500 uppercase font-semibold mb-1.5 tracking-wide">SS AI Engine</p>
+                {liveEngineStatus?.status === 'running' ? (
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse inline-block" />
+                    <span className="text-xs text-emerald-300 font-semibold">Engine Running</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-gray-600 inline-block" />
+                      <span className="text-xs text-gray-500">Engine Off</span>
+                    </div>
+                    <a href="/weekly-strategy?tab=engine" className="text-[10px] text-amber-400 hover:text-amber-300 font-semibold transition-colors">
+                      Start engine →
+                    </a>
+                  </div>
+                )}
+              </div>
+
+              {/* Weekly profit progress */}
+              <div className="rounded-xl p-3 bg-gray-800/40 border border-gray-700/30">
+                <p className="text-[10px] text-gray-500 uppercase font-semibold mb-1.5 tracking-wide">Weekly Progress</p>
+                {(() => {
+                  const currentProfit = weeklyData?.currentProfit || 0;
+                  const profitTarget = weeklyData?.plan?.profitTarget || weeklyData?.profitTarget || 0;
+                  const pct = profitTarget > 0 ? Math.min(100, Math.round((currentProfit / profitTarget) * 100)) : 0;
+                  return (
+                    <>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className={`text-sm font-black ${currentProfit >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
+                          {currentProfit >= 0 ? '+' : ''}${currentProfit.toFixed(2)}
+                        </span>
+                        {profitTarget > 0 && (
+                          <span className="text-[10px] text-gray-500">/ ${profitTarget.toFixed(0)} target</span>
+                        )}
+                      </div>
+                      {profitTarget > 0 && (
+                        <div className="h-1.5 rounded-full bg-gray-700/60 overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-700"
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                      )}
+                      {!profitTarget && (
+                        <p className="text-[10px] text-gray-600">No weekly plan — go to <a href="/weekly-strategy" className="text-amber-400 hover:text-amber-300">Weekly Strategy</a></p>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
+            </div>
           </div>
         </div>
 

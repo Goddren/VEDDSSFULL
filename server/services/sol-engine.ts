@@ -21,6 +21,11 @@ export interface SolEngineConfig {
   shieldThreshold: number;
   adaptiveScan: boolean;
   aiMode: 'full' | 'economy';
+  // Risk controls
+  directionFilter: 'buy_only' | 'sell_only' | 'both';
+  riskPerTradePct: number;   // % of portfolio per trade (e.g. 1.0 = 1%)
+  maxDailyTrades: number;    // 0 = unlimited
+  stopOrdersEnabled: boolean; // use price-level stop orders vs % SL
 }
 
 export interface SolActivityEntry {
@@ -55,6 +60,8 @@ export interface SolAutoPosition {
   trailDistancePct?: number;
   closeReason?: 'tp' | 'sl' | 'trail';
   entryVolume24h?: number;
+  stopLossPrice?: number;    // absolute price-level stop order (when stopOrdersEnabled)
+  takeProfitPrice?: number;  // absolute price-level take profit (when stopOrdersEnabled)
 }
 
 export interface SolPendingSignal {
@@ -68,6 +75,8 @@ export interface SolPendingSignal {
   strategyId: string;
   createdAt: string;
   expiresAt: string;
+  stopLossPrice?: number;    // absolute price stop order
+  takeProfitPrice?: number;  // absolute price TP order
 }
 
 export interface SolPendingExit {
@@ -172,6 +181,9 @@ interface SolEngineState {
   _adaptiveStrategy?: string; // current auto-selected strategy when in adaptive mode
   serverWalletBalance: number;   // live on-chain SOL balance (refreshed each scan cycle)
   lastWalletRefreshAt: number;   // epoch ms — throttle RPC calls to once per minute
+  // Risk controls state
+  dailyTradeCount: number;   // # of trades taken today (resets at UTC midnight)
+  dailyTradeDate: string;    // YYYY-MM-DD of current counting day
 }
 
 const DEX_NAMES = ['raydium', 'orca', 'meteora', 'pumpfun', 'jupiter'];
@@ -288,6 +300,10 @@ const DEFAULT_CONFIG: SolEngineConfig = {
   shieldThreshold: 10,
   adaptiveScan: true,
   aiMode: 'full',
+  directionFilter: 'buy_only',
+  riskPerTradePct: 1.0,
+  maxDailyTrades: 0,
+  stopOrdersEnabled: false,
 };
 
 const DEFAULT_WEEKLY_GOAL: SolWeeklyGoal = {
@@ -855,6 +871,8 @@ function createInitialState(config: SolEngineConfig): SolEngineState {
     aiReviewCache: {},
     serverWalletBalance: 0,
     lastWalletRefreshAt: 0,
+    dailyTradeCount: 0,
+    dailyTradeDate: '',
   };
 }
 
@@ -924,6 +942,15 @@ function computeAutoSolSize(state: SolEngineState, dex: string, overrideStrategy
     portfolio = state.currentPortfolioValue;
   }
   if (portfolio <= 0) return 0;
+
+  // If riskPerTradePct is explicitly set (> 0), it overrides the strategy fraction
+  const riskPct = state.config.riskPerTradePct;
+  if (riskPct > 0) {
+    const phaseMultiplier = getPhaseMultiplier(state.weeklyGoal.phase, state.weeklyGoal.winStreak);
+    const riskFraction = (riskPct / 100) * phaseMultiplier;
+    const capped = Math.max(0.005, Math.min(0.15, riskFraction));
+    return Math.round(portfolio * capped * 1000) / 1000;
+  }
 
   const strategy = overrideStrategy || SOL_STRATEGIES.find(s => s.id === state.activeStrategy) || SOL_STRATEGIES[0];
   const phaseMultiplier = getPhaseMultiplier(state.weeklyGoal.phase, state.weeklyGoal.winStreak);
@@ -1511,6 +1538,13 @@ async function refreshServerWalletBalance(userId: number, state: SolEngineState)
 async function runScan(userId: number, state: SolEngineState, triggerToken?: string) {
   if (!state.isRunning) return;
   try {
+    // ── Reset daily trade counter at UTC midnight ────────────────────────────
+    const todayUTC = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+    if (state.dailyTradeDate !== todayUTC) {
+      state.dailyTradeDate = todayUTC;
+      state.dailyTradeCount = 0;
+    }
+
     // Sync server wallet balance before each scan so position sizing uses live SOL
     await refreshServerWalletBalance(userId, state).catch(() => {});
 
@@ -1624,6 +1658,14 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
         }
       }
 
+      // ── Direction filter ─────────────────────────────────────────────────────
+      const dirFilter = state.config.directionFilter || 'buy_only';
+      const isBuySignal = analysis.signal === 'STRONG_BUY' || analysis.signal === 'BUY';
+      const isSellSignal = analysis.signal === 'SELL' || analysis.signal === 'STRONG_SELL';
+      if (dirFilter === 'buy_only' && !isBuySignal) continue;
+      if (dirFilter === 'sell_only' && !isSellSignal) continue;
+      // 'both' passes all signals through
+
       if ((analysis.signal === 'STRONG_BUY' || analysis.signal === 'BUY') && canEnterTrade) {
 
         // ── Overextension filter: skip tokens already up >80% in 24h ───────────
@@ -1717,6 +1759,24 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
         const tokenMint = analysis.token.address;
         const now2 = new Date().toISOString();
 
+        // ── Max daily trades gate ────────────────────────────────────────────
+        const maxDaily = state.config.maxDailyTrades || 0;
+        if (maxDaily > 0 && state.dailyTradeCount >= maxDaily) {
+          addActivity(state, {
+            type: 'info',
+            message: `🚫 Daily limit reached: ${analysis.token.symbol} skipped — ${state.dailyTradeCount}/${maxDaily} trades taken today. Resets at UTC midnight.`,
+          });
+          continue;
+        }
+
+        // ── Stop order price levels (when stopOrdersEnabled) ─────────────────
+        let stopLossPrice: number | undefined;
+        let takeProfitPrice: number | undefined;
+        if (state.config.stopOrdersEnabled && tokenPrice > 0) {
+          stopLossPrice = tokenPrice * (1 - state.autoTradeSL / 100);
+          takeProfitPrice = tokenPrice * (1 + state.autoTradeTP / 100);
+        }
+
         // Warn if signal fired but auto-trade is off
         if (!state.autoTradeEnabled && !state.liveTradeEnabled) {
           addActivity(state, {
@@ -1750,12 +1810,18 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
               trailActivationPct: state.autoTrailActivationPct,
               trailDistancePct: state.autoTrailDistancePct,
               entryVolume24h: analysis.token.volume24h || 0,
+              stopLossPrice,
+              takeProfitPrice,
             };
             state.paperPositions.push(pos);
+            state.dailyTradeCount++;
             const compoundNote = state.compoundMode ? ` [💹 Compounding ON — ${state.paperPortfolioValue.toFixed(3)} SOL pool]` : '';
+            const stopNote = state.config.stopOrdersEnabled && stopLossPrice
+              ? ` | 🛑 Stop @$${stopLossPrice.toFixed(6)} · 🎯 TP @$${takeProfitPrice?.toFixed(6)}`
+              : ` | TP: +${state.autoTradeTP}% | SL: -${state.autoTradeSL}%`;
             addActivity(state, {
               type: 'paper_buy',
-              message: `📄 Paper BUY: ${analysis.token.symbol} — ${paperSizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}] | TP: +${state.autoTradeTP}% | SL: -${state.autoTradeSL}% | Breakeven @+8% · Trail @+20% (vol-adjusted)${compoundNote}`,
+              message: `📄 Paper BUY: ${analysis.token.symbol} — ${paperSizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}]${stopNote} | Breakeven @+8% · Trail @+20% (vol-adjusted)${compoundNote}`,
             });
           }
         }
@@ -1782,6 +1848,7 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
               createdAt: created.toISOString(),
               expiresAt: expires.toISOString(),
             };
+            state.dailyTradeCount++;
 
             // Attempt fully-automated server-side buy (requires stored private key)
             addActivity(state, {
@@ -1902,6 +1969,8 @@ export async function startSolEngine(userId: number, config: Partial<SolEngineCo
     state.autoTradeSL = existing.autoTradeSL;
     state.serverWalletBalance = existing.serverWalletBalance;
     state.lastWalletRefreshAt = existing.lastWalletRefreshAt;
+    state.dailyTradeCount = existing.dailyTradeCount;
+    state.dailyTradeDate = existing.dailyTradeDate;
   } else {
     // Cold start — load from database (also auto-fetches wallet balance)
     await loadEngineStateFromDb(userId, state);
@@ -2003,6 +2072,8 @@ export function getSolEngineStatus(userId: number) {
       .filter(s => new Date(s.expiresAt).getTime() > Date.now())
       .map(s => s.symbol),
     serverWalletBalance: state.serverWalletBalance,
+    dailyTradeCount: state.dailyTradeCount,
+    dailyTradeDate: state.dailyTradeDate,
   };
 }
 

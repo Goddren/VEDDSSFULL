@@ -57,6 +57,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { cn } from '@/lib/utils';
+import { QuickShareButtons } from '@/components/social-share-button';
 
 // Type definitions for our social features
 interface TraderProfile {
@@ -94,6 +95,156 @@ type AnalysisWithDetails = ChartAnalysis & {
   };
 };
 
+// SVG price chart — replaces dead image placeholders with a generated trade visual
+const PriceChart: React.FC<{
+  entryPoint: string | null | undefined;
+  takeProfit: string | null | undefined;
+  stopLoss: string | null | undefined;
+  direction: string | null | undefined;
+  symbol: string | null | undefined;
+  timeframe?: string | null;
+  className?: string;
+}> = ({ entryPoint, takeProfit, stopLoss, direction, symbol, timeframe, className }) => {
+  const sym = symbol ?? 'UNKNOWN';
+  const dir = direction ?? 'buy';
+  const entry = parseFloat(entryPoint ?? '') || 50;
+  const tp    = parseFloat(takeProfit ?? '') || 55;
+  const sl    = parseFloat(stopLoss   ?? '') || 48;
+  const isBull = dir.toLowerCase() === 'buy';
+
+  const W = 400, H = 220;
+  const PAD = { top: 20, right: 56, bottom: 12, left: 10 };
+  const chartW = W - PAD.left - PAD.right;
+  const chartH = H - PAD.top - PAD.bottom;
+
+  const minP = Math.min(entry, tp, sl) * 0.997;
+  const maxP = Math.max(entry, tp, sl) * 1.003;
+  const range = maxP - minP || 1;
+
+  const toY = (p: number) => PAD.top + ((maxP - p) / range) * chartH;
+  const entryY = toY(entry);
+  const tpY    = toY(tp);
+  const slY    = toY(sl);
+
+  // Deterministic PRNG seeded by symbol so each card looks unique but stable
+  let seed = sym.split('').reduce((a, c, i) => a + c.charCodeAt(0) * (i + 7), 42);
+  const rand = () => {
+    seed = (seed * 1664525 + 1013904223) & 0x7fffffff;
+    return seed / 0x7fffffff;
+  };
+
+  const numCandles = 18;
+  const candleSlot = chartW / (numCandles + 1);
+  const hw = candleSlot * 0.33;
+
+  const candles: Array<{ o: number; c: number; h: number; l: number }> = [];
+  let price = entry + (isBull ? -1 : 1) * range * 0.07 + (rand() - 0.5) * range * 0.02;
+
+  for (let i = 0; i < numCandles; i++) {
+    const t = i / (numCandles - 1);
+    const drift = t > 0.55 ? (entry - price) * 0.38 : (rand() - 0.48) * range * 0.025;
+    const noise = (rand() - 0.5) * range * 0.035;
+    const o = price;
+    const c = Math.max(minP + range * 0.01, Math.min(maxP - range * 0.01, price + drift + noise));
+    const h = Math.min(maxP - range * 0.002, Math.max(o, c) + rand() * range * 0.022);
+    const l = Math.max(minP + range * 0.002, Math.min(o, c) - rand() * range * 0.022);
+    candles.push({ o, c, h, l });
+    price = c;
+  }
+
+  const uid = `pc_${sym.replace(/[^a-zA-Z0-9]/g, '_')}`;
+  const tpColor = isBull ? '#10b981' : '#f43f5e';
+  const slColor = isBull ? '#f43f5e' : '#10b981';
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} xmlns="http://www.w3.org/2000/svg"
+      className={className} style={{ width: '100%', height: '100%', display: 'block' }}>
+      <defs>
+        <linearGradient id={`${uid}-bg`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#1e293b" />
+          <stop offset="100%" stopColor="#0a1628" />
+        </linearGradient>
+        <linearGradient id={`${uid}-tp`} x1="0" y1={isBull ? "0" : "1"} x2="0" y2={isBull ? "1" : "0"}>
+          <stop offset="0%" stopColor={tpColor} stopOpacity="0.28" />
+          <stop offset="100%" stopColor={tpColor} stopOpacity="0.04" />
+        </linearGradient>
+        <linearGradient id={`${uid}-sl`} x1="0" y1={isBull ? "1" : "0"} x2="0" y2={isBull ? "0" : "1"}>
+          <stop offset="0%" stopColor={slColor} stopOpacity="0.28" />
+          <stop offset="100%" stopColor={slColor} stopOpacity="0.04" />
+        </linearGradient>
+      </defs>
+
+      {/* Background */}
+      <rect width={W} height={H} fill={`url(#${uid}-bg)`} rx="6" />
+
+      {/* Subtle grid */}
+      {[0.25, 0.5, 0.75].map((f, i) => (
+        <line key={i} x1={PAD.left} y1={PAD.top + chartH * f}
+          x2={PAD.left + chartW} y2={PAD.top + chartH * f}
+          stroke="#1e3a5f" strokeWidth="0.5" />
+      ))}
+
+      {/* TP zone (entry → TP) */}
+      <rect x={PAD.left} y={Math.min(entryY, tpY)} width={chartW}
+        height={Math.abs(entryY - tpY)} fill={`url(#${uid}-tp)`} />
+
+      {/* SL zone (entry → SL) */}
+      <rect x={PAD.left} y={Math.min(entryY, slY)} width={chartW}
+        height={Math.abs(entryY - slY)} fill={`url(#${uid}-sl)`} />
+
+      {/* Candles */}
+      {candles.map((c, i) => {
+        const cx  = PAD.left + (i + 1) * candleSlot;
+        const oY  = toY(c.o), cY = toY(c.c), hY = toY(c.h), lY = toY(c.l);
+        const bull = c.c >= c.o;
+        const col  = bull ? '#10b981' : '#f43f5e';
+        const bTop = Math.min(oY, cY);
+        const bH   = Math.max(1.5, Math.abs(cY - oY));
+        return (
+          <g key={i}>
+            <line x1={cx} y1={hY} x2={cx} y2={lY} stroke={col} strokeWidth="0.9" strokeOpacity="0.85" />
+            <rect x={cx - hw} y={bTop} width={hw * 2} height={bH} fill={col} fillOpacity="0.9" rx="0.5" />
+          </g>
+        );
+      })}
+
+      {/* Level lines */}
+      <line x1={PAD.left} y1={tpY} x2={PAD.left + chartW} y2={tpY}
+        stroke={tpColor} strokeWidth="1.4" strokeDasharray="5,3" strokeOpacity="0.9" />
+      <line x1={PAD.left} y1={entryY} x2={PAD.left + chartW} y2={entryY}
+        stroke="#94a3b8" strokeWidth="1.5" strokeOpacity="0.85" />
+      <line x1={PAD.left} y1={slY} x2={PAD.left + chartW} y2={slY}
+        stroke={slColor} strokeWidth="1.4" strokeDasharray="5,3" strokeOpacity="0.9" />
+
+      {/* Right-side labels */}
+      <text x={PAD.left + chartW + 5} y={tpY - 2}
+        fill={tpColor} fontSize="8" fontWeight="700" fontFamily="monospace">TP</text>
+      <text x={PAD.left + chartW + 5} y={tpY + 9}
+        fill={tpColor} fontSize="7" fontFamily="monospace">{tp.toFixed(2)}</text>
+
+      <text x={PAD.left + chartW + 5} y={entryY - 2}
+        fill="#94a3b8" fontSize="8" fontWeight="700" fontFamily="monospace">E</text>
+      <text x={PAD.left + chartW + 5} y={entryY + 9}
+        fill="#94a3b8" fontSize="7" fontFamily="monospace">{entry.toFixed(2)}</text>
+
+      <text x={PAD.left + chartW + 5} y={slY - 2}
+        fill={slColor} fontSize="8" fontWeight="700" fontFamily="monospace">SL</text>
+      <text x={PAD.left + chartW + 5} y={slY + 9}
+        fill={slColor} fontSize="7" fontFamily="monospace">{sl.toFixed(2)}</text>
+
+      {/* Symbol badge */}
+      <rect x={PAD.left + 4} y={PAD.top + 2} width={sym.length * 7.5 + (timeframe ? timeframe.length * 5.5 + 12 : 4)}
+        height={16} rx="3" fill="#0f172a" fillOpacity="0.75" />
+      <text x={PAD.left + 9} y={PAD.top + 13}
+        fill="white" fontSize="10" fontWeight="700" fontFamily="monospace">{sym}</text>
+      {timeframe && (
+        <text x={PAD.left + 9 + sym.length * 7.5 + 4} y={PAD.top + 13}
+          fill="#64748b" fontSize="9" fontFamily="monospace">{timeframe}</text>
+      )}
+    </svg>
+  );
+};
+
 const TinderCard: React.FC<{
   analysis: AnalysisWithDetails;
   onLike: () => void;
@@ -122,7 +273,17 @@ const TinderCard: React.FC<{
     x.set(0);
     y.set(0);
   };
-  
+
+  const handleShare = () => {
+    const dir = analysis.direction.toLowerCase() === 'buy' ? 'BUY' : 'SELL';
+    const text = `📊 ${analysis.symbol} ${dir} Setup\n📍 Entry: ${analysis.entryPoint} | 🎯 TP: ${analysis.takeProfit} | 🛑 SL: ${analysis.stopLoss}\nR:R ${analysis.riskRewardRatio}:1 | ${analysis.timeframe}\n\n#VEDD #Trading #${analysis.symbol}`;
+    if (navigator.share) {
+      navigator.share({ title: `${analysis.symbol} Trade Setup`, text }).catch(() => {});
+    } else {
+      navigator.clipboard.writeText(text).catch(() => {});
+    }
+  };
+
   const getInitials = (name: string) => {
     return name.split(' ').map(n => n[0]).join('').toUpperCase();
   };
@@ -148,10 +309,13 @@ const TinderCard: React.FC<{
     >
       <Card className="relative w-full h-full overflow-hidden bg-card border-2 rounded-2xl shadow-xl">
         <div className="absolute inset-0 p-0 overflow-hidden">
-          <img 
-            src={analysis.imageUrl} 
-            alt={`${analysis.symbol} chart`}
-            className="object-cover w-full h-full"
+          <PriceChart
+            entryPoint={analysis.entryPoint}
+            takeProfit={analysis.takeProfit}
+            stopLoss={analysis.stopLoss}
+            direction={analysis.direction}
+            symbol={analysis.symbol}
+            timeframe={analysis.timeframe}
           />
         </div>
         
@@ -279,7 +443,17 @@ const TinderCard: React.FC<{
         >
           <Info className="w-5 h-5" />
         </Button>
-        
+
+        <Button
+          variant="default"
+          size="icon"
+          className="rounded-full w-10 h-10 bg-violet-500 hover:bg-violet-600 shadow-lg"
+          onClick={handleShare}
+          title="Share this trade setup"
+        >
+          <Share2 className="w-5 h-5" />
+        </Button>
+
         <Button
           variant="default"
           size="icon"
@@ -813,11 +987,14 @@ export default function SocialHub() {
                     {currentIndex < analyses.length - 1 && (
                       <div className="absolute w-full h-full -z-10 scale-[0.98] opacity-70">
                         <Card className="relative w-full h-full overflow-hidden bg-card rounded-2xl shadow-lg">
-                          <div className="absolute inset-0 p-0 overflow-hidden">
-                            <img 
-                              src={analyses[currentIndex + 1].imageUrl} 
-                              alt="Next chart"
-                              className="object-cover w-full h-full opacity-70 blur-[2px]"
+                          <div className="absolute inset-0 p-0 overflow-hidden opacity-60 blur-[2px]">
+                            <PriceChart
+                              entryPoint={analyses[currentIndex + 1].entryPoint}
+                              takeProfit={analyses[currentIndex + 1].takeProfit}
+                              stopLoss={analyses[currentIndex + 1].stopLoss}
+                              direction={analyses[currentIndex + 1].direction}
+                              symbol={analyses[currentIndex + 1].symbol}
+                              timeframe={analyses[currentIndex + 1].timeframe}
                             />
                           </div>
                         </Card>
@@ -934,13 +1111,16 @@ export default function SocialHub() {
               })
               .map(analysis => (
                 <Card key={analysis.id} className="overflow-hidden hover:shadow-md transition-all duration-200">
-                  <div className="relative aspect-video">
-                    <img 
-                      src={analysis.imageUrl} 
-                      alt={`${analysis.symbol} chart`}
-                      className="w-full h-full object-cover"
+                  <div className="relative aspect-video overflow-hidden">
+                    <PriceChart
+                      entryPoint={analysis.entryPoint}
+                      takeProfit={analysis.takeProfit}
+                      stopLoss={analysis.stopLoss}
+                      direction={analysis.direction}
+                      symbol={analysis.symbol}
+                      timeframe={analysis.timeframe}
                     />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent" />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent pointer-events-none" />
                     <div className="absolute bottom-3 left-3 right-3 flex justify-between items-end">
                       <div>
                         <Badge className="mb-1">{analysis.symbol}</Badge>
@@ -1025,31 +1205,38 @@ export default function SocialHub() {
                       </div>
                     </div>
                   </CardContent>
-                  <CardFooter className="pt-2 pb-3 flex justify-between text-sm">
-                    <div className="flex space-x-4">
-                      <div className="flex items-center">
-                        <ThumbsUp className={cn(
-                          "w-4 h-4 mr-1",
-                          analysis.userFeedback.hasLiked ? "text-blue-500" : "text-muted-foreground"
-                        )} />
-                        <span>{analysis.feedbackCounts.likes}</span>
+                  <CardFooter className="pt-2 pb-3 flex flex-col gap-2">
+                    <div className="flex justify-between items-center w-full text-sm">
+                      <div className="flex space-x-4">
+                        <div className="flex items-center">
+                          <ThumbsUp className={cn(
+                            "w-4 h-4 mr-1",
+                            analysis.userFeedback.hasLiked ? "text-blue-500" : "text-muted-foreground"
+                          )} />
+                          <span>{analysis.feedbackCounts.likes}</span>
+                        </div>
+                        <div className="flex items-center">
+                          <MessageSquare className="w-4 h-4 mr-1 text-muted-foreground" />
+                          <span>{analysis.feedbackCounts.comments}</span>
+                        </div>
                       </div>
-                      <div className="flex items-center">
-                        <MessageSquare className="w-4 h-4 mr-1 text-muted-foreground" />
-                        <span>{analysis.feedbackCounts.comments}</span>
-                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 px-2"
+                        onClick={() => {
+                          setSelectedAnalysis(analysis);
+                          setIsDetailModalOpen(true);
+                        }}
+                      >
+                        View Details
+                      </Button>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 px-2"
-                      onClick={() => {
-                        setSelectedAnalysis(analysis);
-                        setIsDetailModalOpen(true);
-                      }}
-                    >
-                      View Details
-                    </Button>
+                    <QuickShareButtons
+                      caption={`📊 ${analysis.symbol} ${analysis.direction.toUpperCase()} Setup — Entry: ${analysis.entryPoint} | TP: ${analysis.takeProfit} | SL: ${analysis.stopLoss} | R:R ${analysis.riskRewardRatio}:1`}
+                      hashtags={['#VEDD', '#Trading', `#${analysis.symbol}`]}
+                      className="w-full justify-start flex-wrap"
+                    />
                   </CardFooter>
                 </Card>
               ))}
@@ -1073,11 +1260,14 @@ export default function SocialHub() {
       {selectedAnalysis && (
         <Dialog open={isDetailModalOpen} onOpenChange={setIsDetailModalOpen}>
           <DialogContent className="sm:max-w-[600px] p-0">
-            <div className="relative aspect-video">
-              <img 
-                src={selectedAnalysis.imageUrl} 
-                alt={`${selectedAnalysis.symbol} chart`}
-                className="w-full h-full object-cover"
+            <div className="relative aspect-video overflow-hidden rounded-t-lg">
+              <PriceChart
+                entryPoint={selectedAnalysis.entryPoint}
+                takeProfit={selectedAnalysis.takeProfit}
+                stopLoss={selectedAnalysis.stopLoss}
+                direction={selectedAnalysis.direction}
+                symbol={selectedAnalysis.symbol}
+                timeframe={selectedAnalysis.timeframe}
               />
             </div>
             
@@ -1258,9 +1448,16 @@ export default function SocialHub() {
               </div>
             </div>
             
-            <DialogFooter className="px-6 py-4">
-              <Button 
-                variant="default" 
+            <DialogFooter className="px-6 py-4 flex flex-col gap-3">
+              <div className="w-full">
+                <p className="text-xs text-muted-foreground mb-2">Share this trade setup:</p>
+                <QuickShareButtons
+                  caption={`📊 ${selectedAnalysis.symbol} ${selectedAnalysis.direction.toUpperCase()} Setup\n📍 Entry: ${selectedAnalysis.entryPoint} | 🎯 TP: ${selectedAnalysis.takeProfit} | 🛑 SL: ${selectedAnalysis.stopLoss}\nR:R ${selectedAnalysis.riskRewardRatio}:1 | ${selectedAnalysis.timeframe}`}
+                  hashtags={['#VEDD', '#Trading', `#${selectedAnalysis.symbol}`, '#TradingSignals']}
+                />
+              </div>
+              <Button
+                variant="default"
                 onClick={() => setIsDetailModalOpen(false)}
                 className="w-full"
               >

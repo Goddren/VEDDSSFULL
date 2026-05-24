@@ -785,6 +785,23 @@ function AutoTradingPanel() {
   const [autoTradeLog, setAutoTradeLog] = useState<string[]>([]);
   const [recentlyBought, setRecentlyBought] = useState<Set<string>>(new Set());
   const [failedCooldowns, setFailedCooldowns] = useState<Map<string, number>>(new Map());
+  // Client-side risk management
+  const [autoDirection, setAutoDirection] = useState<'buy_only' | 'sell_only' | 'both'>('buy_only');
+  const [autoRiskPct, setAutoRiskPct] = useState(1.0);
+  const [autoMaxDailyTrades, setAutoMaxDailyTrades] = useState(0);
+  const [autoStopOrders, setAutoStopOrders] = useState(false);
+  const [dailyTradeCount, setDailyTradeCount] = useState<number>(() => {
+    try {
+      const stored = localStorage.getItem('sol_daily_trades');
+      if (stored) {
+        const { count, date } = JSON.parse(stored);
+        const today = new Date().toISOString().slice(0, 10);
+        if (date === today) return count;
+      }
+    } catch {}
+    return 0;
+  });
+  const [dailyTradeDate, setDailyTradeDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
   const { connected, connecting, walletData, connect, disconnect, signAndSendTransaction, getPublicKey, refreshWalletData, error } = useSolanaWallet();
   const { permission, soundEnabled, requestPermission, playSound, notifyTradeSignal, notifyTradeExecuted, notifyTakeProfitHit, notifyStopLossHit, toggleSound } = useNotifications();
   
@@ -972,11 +989,31 @@ function AutoTradingPanel() {
       // T004: Only one swap in flight at a time — prevents double popups
       if (buyingToken) return;
 
+      // ── Reset daily counter at UTC midnight ──────────────────────────────
+      const todayUTC = new Date().toISOString().slice(0, 10);
+      let currentDailyCount = dailyTradeCount;
+      if (dailyTradeDate !== todayUTC) {
+        setDailyTradeDate(todayUTC);
+        setDailyTradeCount(0);
+        currentDailyCount = 0;
+        localStorage.setItem('sol_daily_trades', JSON.stringify({ count: 0, date: todayUTC }));
+      }
+
+      // ── Max daily trades gate ─────────────────────────────────────────────
+      if (autoMaxDailyTrades > 0 && currentDailyCount >= autoMaxDailyTrades) {
+        const timestamp = new Date().toLocaleTimeString();
+        setAutoTradeLog(prev => [...prev.slice(-9), `${timestamp}: 🚫 Daily limit (${autoMaxDailyTrades}) reached — ${currentDailyCount} trades taken today`]);
+        return;
+      }
+
       const minConfidence = wallet.minSignalConfidence || 70;
       const maxPositions = wallet.maxPositions || 3;
-      const tradeAmount = wallet.tradeAmountSol || 0.1;
       const balance = walletData?.solBalance || 0;
-      
+
+      // ── Risk-based trade size: riskPct% of balance ───────────────────────
+      const riskBasedAmount = autoRiskPct > 0 ? balance * (autoRiskPct / 100) : 0;
+      const tradeAmount = riskBasedAmount > 0.01 ? riskBasedAmount : (wallet.tradeAmountSol || 0.1);
+
       // Use actual wallet token count for position tracking
       const openPositionCount = walletTokenMints.size;
       if (openPositionCount >= maxPositions) {
@@ -984,18 +1021,26 @@ function AutoTradingPanel() {
         setAutoTradeLog(prev => [...prev.slice(-9), `${timestamp}: Max positions (${maxPositions}) reached - skipping`]);
         return;
       }
-      
+
       if (balance < tradeAmount) {
         const timestamp = new Date().toLocaleTimeString();
-        setAutoTradeLog(prev => [...prev.slice(-9), `${timestamp}: Insufficient balance (${balance.toFixed(4)} SOL < ${tradeAmount} SOL)`]);
+        setAutoTradeLog(prev => [...prev.slice(-9), `${timestamp}: Insufficient balance (${balance.toFixed(4)} SOL < ${tradeAmount.toFixed(4)} SOL)`]);
         return;
       }
-      
+
       const FAIL_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
       const now = Date.now();
 
+      // ── Direction filter ──────────────────────────────────────────────────
+      const signalFilter = (signal: string) => {
+        if (autoDirection === 'buy_only') return signal === 'STRONG_BUY' || signal === 'BUY';
+        if (autoDirection === 'sell_only') return signal === 'SELL' || signal === 'STRONG_SELL';
+        return true;
+      };
+
       // Find strong buy signals we haven't already bought (check actual wallet tokens)
-      const strongSignals = scanData.tokens.filter(t => 
+      const strongSignals = scanData.tokens.filter(t =>
+        signalFilter(t.signal) &&
         (t.signal === 'STRONG_BUY' || t.signal === 'BUY') &&
         t.confidence >= minConfidence &&
         !walletTokenMints.has(t.token.address) &&
@@ -1003,20 +1048,21 @@ function AutoTradingPanel() {
         // T001: Skip tokens that failed recently (5-minute cooldown)
         !(failedCooldowns.get(t.token.address) && now - (failedCooldowns.get(t.token.address) as number) < FAIL_COOLDOWN_MS)
       );
-      
+
       if (strongSignals.length === 0) return;
-      
+
       // Take the strongest signal
       const bestSignal = strongSignals[0];
       const tokenAddress = bestSignal.token.address;
       const tokenSymbol = bestSignal.token.symbol;
-      
+
       // Add to recently bought to prevent double-buying
       setRecentlyBought(prev => new Set(prev).add(tokenAddress));
       setBuyingToken(tokenAddress);
-      
+
       const timestamp = new Date().toLocaleTimeString();
-      setAutoTradeLog(prev => [...prev.slice(-9), `${timestamp}: Auto-buying ${tokenSymbol} (${bestSignal.confidence}% confidence)`]);
+      const riskNote = autoRiskPct > 0 ? ` [${autoRiskPct}% risk = ${tradeAmount.toFixed(4)} SOL]` : '';
+      setAutoTradeLog(prev => [...prev.slice(-9), `${timestamp}: Auto-buying ${tokenSymbol} (${bestSignal.confidence}% confidence)${riskNote}`]);
       
       // Send notification and play sound for trade signal
       notifyTradeSignal(tokenSymbol, bestSignal.signal, bestSignal.confidence);
@@ -1085,6 +1131,10 @@ function AutoTradingPanel() {
             });
             return next;
           });
+          // ── Increment daily trade counter ─────────────────────────────
+          const newCount = currentDailyCount + 1;
+          setDailyTradeCount(newCount);
+          localStorage.setItem('sol_daily_trades', JSON.stringify({ count: newCount, date: todayUTC }));
           // Notify success
           notifyTradeExecuted(tokenSymbol, 'bought', result.inputAmount);
           const txSig = result.signature || '';
@@ -2744,6 +2794,81 @@ function AutoTradingPanel() {
                 </div>
               </div>
             </div>
+
+            {/* ── Risk Management Section ── */}
+            <div className="p-3 bg-orange-500/10 rounded-lg border border-orange-500/30 space-y-4">
+              <div className="flex items-start gap-2">
+                <Target className="h-4 w-4 text-orange-400 mt-0.5" />
+                <p className="text-sm font-medium text-orange-400">Risk Management</p>
+              </div>
+
+              {/* Direction Filter */}
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">Signal Direction</Label>
+                <div className="flex gap-1">
+                  {(['buy_only', 'both', 'sell_only'] as const).map(d => (
+                    <Button
+                      key={d}
+                      size="sm"
+                      variant={autoDirection === d ? 'default' : 'outline'}
+                      className={`flex-1 text-xs h-7 ${autoDirection === d
+                        ? d === 'buy_only' ? 'bg-green-600 hover:bg-green-700'
+                          : d === 'sell_only' ? 'bg-red-600 hover:bg-red-700'
+                          : 'bg-blue-600 hover:bg-blue-700'
+                        : ''}`}
+                      onClick={() => setAutoDirection(d)}
+                    >
+                      {d === 'buy_only' ? '📈 BUY' : d === 'sell_only' ? '📉 SELL' : '↕️ Both'}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Risk % */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs">Risk Per Trade</Label>
+                  <span className="text-xs font-medium text-orange-400">{autoRiskPct.toFixed(1)}% of balance</span>
+                </div>
+                <Slider
+                  value={[autoRiskPct]}
+                  onValueChange={([v]) => setAutoRiskPct(v)}
+                  min={0.1} max={5} step={0.1}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Each trade = {autoRiskPct.toFixed(1)}% of your SOL balance (~{((walletData?.solBalance || 0) * autoRiskPct / 100).toFixed(4)} SOL at current balance)
+                </p>
+              </div>
+
+              {/* Max Daily Trades */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs">Max Trades Per Day</Label>
+                  <span className="text-xs font-medium text-orange-400">
+                    {autoMaxDailyTrades === 0 ? 'Unlimited' : autoMaxDailyTrades}
+                    {autoMaxDailyTrades > 0 && ` (${dailyTradeCount} taken today)`}
+                  </span>
+                </div>
+                <Slider
+                  value={[autoMaxDailyTrades]}
+                  onValueChange={([v]) => setAutoMaxDailyTrades(v)}
+                  min={0} max={20} step={1}
+                />
+                <p className="text-xs text-muted-foreground">0 = unlimited. Resets at UTC midnight.</p>
+              </div>
+
+              {/* Stop Orders */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label className="text-xs">Stop-Order Price Levels</Label>
+                  <p className="text-xs text-muted-foreground">Use exact price targets instead of % only</p>
+                </div>
+                <Switch
+                  checked={autoStopOrders}
+                  onCheckedChange={setAutoStopOrders}
+                />
+              </div>
+            </div>
           </TabsContent>
         </Tabs>
       </CardContent>
@@ -2797,6 +2922,11 @@ export default function SolanaScanner() {
   const [liveExecMode, setLiveExecMode] = useState<'auto' | 'phantom'>('auto');
   const [weeklyGoalTargetSol, setWeeklyGoalTargetSol] = useState('');
   const [weeklyGoalTargetPct, setWeeklyGoalTargetPct] = useState('');
+  // Risk management controls
+  const [solEngineDirection, setSolEngineDirection] = useState<'buy_only' | 'sell_only' | 'both'>('buy_only');
+  const [solEngineRiskPct, setSolEngineRiskPct] = useState(1.0);
+  const [solEngineMaxDailyTrades, setSolEngineMaxDailyTrades] = useState(0);
+  const [solStopOrdersEnabled, setSolStopOrdersEnabled] = useState(false);
   const { toast } = useToast();
   const { connected, connecting, walletData, connect, signAndSendTransaction, getPublicKey, refreshWalletData } = useSolanaWallet();
 
@@ -2815,6 +2945,10 @@ export default function SolanaScanner() {
       useKelly: solEngineKelly, shieldEnabled: solEngineShield,
       shieldThreshold: solEngineShieldThreshold, adaptiveScan: solEngineAutoScan,
       aiMode: solEngineAiMode,
+      directionFilter: solEngineDirection,
+      riskPerTradePct: solEngineRiskPct,
+      maxDailyTrades: solEngineMaxDailyTrades,
+      stopOrdersEnabled: solStopOrdersEnabled,
     }),
     onSuccess: () => { toast({ title: '🚀 Sol Engine started', description: 'Autonomous scanning active' }); refetchEngineStatus(); },
     onError: (err: any) => {
@@ -3670,6 +3804,87 @@ export default function SolanaScanner() {
                       </div>
                       <p className="text-[10px] text-gray-500 pl-3.5">Routes to Groq Llama 3.3-70b. Free tier, zero cost.</p>
                     </button>
+                  </div>
+                </div>
+
+                {/* ── Risk Management Section ── */}
+                <div className="space-y-4 rounded-xl border border-orange-500/30 bg-orange-950/15 p-4">
+                  <p className="text-xs font-bold text-orange-300 uppercase tracking-wide">⚖️ Risk Management</p>
+
+                  {/* Direction Filter */}
+                  <div>
+                    <p className="text-xs text-gray-400 mb-2">Signal Direction — which signals to trade</p>
+                    <div className="flex gap-2">
+                      {(['buy_only', 'both', 'sell_only'] as const).map(d => (
+                        <button
+                          key={d}
+                          onClick={() => setSolEngineDirection(d)}
+                          className={`flex-1 rounded-lg border px-3 py-2 text-xs font-semibold transition-all ${
+                            solEngineDirection === d
+                              ? d === 'buy_only' ? 'border-green-500/60 bg-green-500/15 text-green-300'
+                                : d === 'sell_only' ? 'border-red-500/60 bg-red-500/15 text-red-300'
+                                : 'border-blue-500/60 bg-blue-500/15 text-blue-300'
+                              : 'border-gray-700 bg-gray-900/30 text-gray-400 hover:border-gray-600'
+                          }`}
+                        >
+                          {d === 'buy_only' ? '📈 BUY Only' : d === 'sell_only' ? '📉 SELL Only' : '↕️ Both'}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-[10px] text-gray-500 mt-1">
+                      {solEngineDirection === 'buy_only' ? 'Only enter on BUY / STRONG_BUY signals (recommended for auto-trading)'
+                        : solEngineDirection === 'sell_only' ? 'Monitor existing positions only — no new entries'
+                        : 'Process all signal types'}
+                    </p>
+                  </div>
+
+                  {/* Risk % Per Trade */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs text-gray-400">Risk Per Trade</span>
+                      <span className="text-xs font-bold text-orange-300">{solEngineRiskPct.toFixed(1)}% of portfolio</span>
+                    </div>
+                    <input
+                      type="range" min={0.1} max={5} step={0.1}
+                      value={solEngineRiskPct}
+                      onChange={e => setSolEngineRiskPct(Number(e.target.value))}
+                      className="w-full accent-orange-500"
+                    />
+                    <p className="text-[10px] text-gray-500 mt-1">
+                      Each trade uses this % of your portfolio SOL — overrides strategy base size. 1% recommended.
+                    </p>
+                  </div>
+
+                  {/* Max Daily Trades */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs text-gray-400">Max Trades Per Day</span>
+                      <span className="text-xs font-bold text-orange-300">
+                        {solEngineMaxDailyTrades === 0 ? 'Unlimited' : `${solEngineMaxDailyTrades} / day`}
+                        {(solEngineStatus as any)?.dailyTradeCount > 0 && ` (${(solEngineStatus as any).dailyTradeCount} taken)`}
+                      </span>
+                    </div>
+                    <input
+                      type="range" min={0} max={20} step={1}
+                      value={solEngineMaxDailyTrades}
+                      onChange={e => setSolEngineMaxDailyTrades(Number(e.target.value))}
+                      className="w-full accent-orange-500"
+                    />
+                    <p className="text-[10px] text-gray-500 mt-1">
+                      0 = no limit. Resets at UTC midnight. Prevents overtrading in volatile markets.
+                    </p>
+                  </div>
+
+                  {/* Stop Orders */}
+                  <div className={`rounded-lg border p-3 ${solStopOrdersEnabled ? 'border-purple-500/50 bg-purple-500/10' : 'border-gray-700 bg-gray-900/30'}`}>
+                    <label className="flex items-center gap-2 cursor-pointer" onClick={() => setSolStopOrdersEnabled(v => !v)}>
+                      <input type="checkbox" checked={solStopOrdersEnabled} onChange={() => {}} className="accent-purple-500" />
+                      <span className="text-xs font-semibold text-purple-300">Stop-Order Price Levels</span>
+                      {solStopOrdersEnabled && <span className="ml-auto text-[9px] font-bold text-purple-300 bg-purple-500/20 border border-purple-500/30 rounded px-1.5 py-0.5">ON</span>}
+                    </label>
+                    <p className="text-[10px] text-gray-400 mt-1">
+                      When ON, each position gets exact price-level stops (entry × SL%) instead of percentage-only. Activity feed shows price levels. Works with Live & Paper modes.
+                    </p>
                   </div>
                 </div>
 

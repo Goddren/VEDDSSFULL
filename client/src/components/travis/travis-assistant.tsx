@@ -302,7 +302,10 @@ function useVoice(onTranscript: (text: string, isFinal: boolean) => void) {
 
   // ── Play a stored audio URL on user tap (bypasses autoplay policy) ───────────
   const playStoredAudio = useCallback((url: string) => {
+    // Stop ALL active audio sources before playing — prevents overlap on double-press
+    if (audioSourceRef.current) { try { audioSourceRef.current.stop(); } catch {} audioSourceRef.current = null; }
     if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+    if (hasSpeechSynthesis) window.speechSynthesis.cancel();
     const audio = new Audio(url);
     audio.volume = 1.0;
     audioRef.current = audio;
@@ -411,7 +414,7 @@ const QUICK_PROMPTS = [
 
 // ── Message bubble ────────────────────────────────────────────────────────────
 const MsgBubble = ({
-  msg, onNavigate, onCreatePlan, creatingPlan, onSuggestion, isLast, onPlayAudio, onFetchAndPlayTTS,
+  msg, onNavigate, onCreatePlan, creatingPlan, onSuggestion, isLast, onPlayAudio, onFetchAndPlayTTS, isSpeaking, onStopSpeaking,
 }: {
   msg: AbbaMessage;
   onNavigate: (path: string) => void;
@@ -421,9 +424,12 @@ const MsgBubble = ({
   isLast: boolean;
   onPlayAudio: (url: string) => void;
   onFetchAndPlayTTS: (text: string, msgId: string) => void;
+  isSpeaking: boolean;
+  onStopSpeaking: () => void;
 }) => {
   const isAbba = msg.role === 'abba';
   const [fetchingAudio, setFetchingAudio] = useState(false);
+  const [thisIsPlaying, setThisIsPlaying] = useState(false);
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
@@ -485,24 +491,37 @@ const MsgBubble = ({
           <span className="text-[10px] text-gray-600">
             {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </span>
-          {/* Hear button — plays stored audio or fetches TTS on demand */}
+          {/* Hear button — plays stored audio or fetches TTS on demand; tap again to stop */}
           {isAbba && msg.content && msg.content.length > 5 && (
             <button
               onClick={() => {
+                // If this message is currently playing — STOP it
+                if (thisIsPlaying && isSpeaking) {
+                  onStopSpeaking();
+                  setThisIsPlaying(false);
+                  return;
+                }
+                // Otherwise start playing (stops any other audio first via playStoredAudio / speak)
+                setThisIsPlaying(true);
                 if (msg.audioUrl) {
                   onPlayAudio(msg.audioUrl);
+                  setTimeout(() => setThisIsPlaying(false), 100); // reset flag after handoff
                 } else {
                   setFetchingAudio(true);
                   onFetchAndPlayTTS(msg.content, msg.id);
-                  setTimeout(() => setFetchingAudio(false), 3000);
+                  setTimeout(() => { setFetchingAudio(false); setThisIsPlaying(false); }, 4000);
                 }
               }}
               disabled={fetchingAudio}
               className="flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full transition-all disabled:opacity-50"
-              style={{ background: 'rgba(168,85,247,0.15)', border: '1px solid rgba(168,85,247,0.4)', color: '#a855f7' }}
-              title="Tap to hear ABBA"
+              style={{
+                background: thisIsPlaying && isSpeaking ? 'rgba(239,68,68,0.2)' : 'rgba(168,85,247,0.15)',
+                border: `1px solid ${thisIsPlaying && isSpeaking ? 'rgba(239,68,68,0.5)' : 'rgba(168,85,247,0.4)'}`,
+                color: thisIsPlaying && isSpeaking ? '#ef4444' : '#a855f7',
+              }}
+              title={thisIsPlaying && isSpeaking ? 'Tap to stop' : 'Tap to hear ABBA'}
             >
-              <Volume2 className="h-2.5 w-2.5" /> {fetchingAudio ? '…' : 'Hear'}
+              <Volume2 className="h-2.5 w-2.5" /> {fetchingAudio ? '…' : thisIsPlaying && isSpeaking ? 'Stop' : 'Hear'}
             </button>
           )}
         </div>
@@ -1528,10 +1547,12 @@ export function AbbaAssistant() {
                       creatingPlan={creatingPlan}
                       onSuggestion={(text) => { if (voiceEnabled) unlockAudio(); sendMessage(text); }}
                       isLast={idx === messages.length - 1 && !isStreaming}
-                      onPlayAudio={playStoredAudio}
+                      onPlayAudio={(url) => { unlockAudio(); playStoredAudio(url); }}
                       onFetchAndPlayTTS={(text, id) => { unlockAudio(); speak(text, id, (url) =>
                         setMessages(prev => prev.map(m => m.id === id ? { ...m, audioUrl: url } : m))
                       ); }}
+                      isSpeaking={isSpeaking}
+                      onStopSpeaking={stopSpeaking}
                     />
                   ))}
                 </AnimatePresence>
