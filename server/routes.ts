@@ -23,6 +23,8 @@ import { checkUserAchievements } from "./achievement-tracker";
 import { generateMT5EACode, generateTradingViewCode, generateTradeLockerCode } from './ea-generators';
 import { tradingCoachHandler, tradingTipsHandler } from "./trading-coach";
 import { marketInsightsHandler, contextualInsightHandler } from "./market-insights";
+import { createStopOrder, checkBreakoutTriggers, cancelStopOrder, getStopOrdersForUser } from "./services/stopOrderService";
+import { insertStopOrderSchema, stopOrders } from "@shared/schema";
 import { 
   getSubscriptionPlans,
   getUserSubscription,
@@ -7578,7 +7580,13 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           const bbLower = indicators.bollingerBands?.lower;
           let atr = indicators.atr;
           const currentPrice = indicators.price?.bid || candles[0]?.c;
-          
+
+          // ── Stop order breakout trigger scan (fire & forget) ──────────────
+          if (currentPrice && currentPrice > 0) {
+            checkBreakoutTriggers(sanitizedSymbol, currentPrice)
+              .catch(err => console.error('[StopOrders] trigger scan error:', err.message));
+          }
+
           // Fallback ATR calculation if not provided by EA
           if (!atr && candles.length >= 14) {
             let atrSum = 0;
@@ -20617,6 +20625,67 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       res.status(500).json({ error: err.message });
     }
   });
+
+  // ─── Stop Orders (Breakout) ──────────────────────────────────────────────────
+
+  // POST /api/stop-orders — create a new pending stop order
+  app.post("/api/stop-orders", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+
+    const parsed = insertStopOrderSchema.safeParse({ ...req.body, userId });
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Validation failed", details: parsed.error.flatten() });
+    }
+
+    try {
+      const order = await createStopOrder({
+        ...parsed.data,
+        symbol: parsed.data.symbol.toUpperCase().replace("/", ""),
+        currentPrice: req.body.currentPrice ? parseFloat(req.body.currentPrice) : undefined,
+      });
+      res.status(201).json(order);
+    } catch (err: any) {
+      const status = err.message?.includes("must be") ? 400 : 500;
+      res.status(status).json({ error: err.message });
+    }
+  });
+
+  // GET /api/stop-orders?symbol=EURUSD&status=PENDING — list orders for user
+  app.get("/api/stop-orders", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+
+    try {
+      const orders = await getStopOrdersForUser(userId, {
+        symbol: req.query.symbol as string | undefined,
+        status: req.query.status as string | undefined,
+      });
+      res.json(orders);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // DELETE /api/stop-orders/:id — cancel a pending stop order
+  app.delete("/api/stop-orders/:id", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const orderId = parseInt(req.params.id, 10);
+
+    if (isNaN(orderId)) return res.status(400).json({ error: "Invalid order id" });
+
+    try {
+      const cancelled = await cancelStopOrder(orderId, userId);
+      res.json(cancelled);
+    } catch (err: any) {
+      const status = err.message?.includes("not found") ? 404
+                   : err.message?.includes("already")   ? 409
+                   : 500;
+      res.status(status).json({ error: err.message });
+    }
+  });
+
   // ─────────────────────────────────────────────────────────────────────────────
 
   // Use the pre-created server if provided (port already bound), otherwise create one

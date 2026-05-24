@@ -2395,3 +2395,37 @@ export type InnovationProject = typeof innovationProjects.$inferSelect;
 export type InsertInnovationProject = z.infer<typeof insertInnovationProjectSchema>;
 export type InsertDevotionalSession = z.infer<typeof insertDevotionalSessionSchema>;
 
+// ============================================================
+// Stop Orders — Breakout Strategy Pending Orders
+// ============================================================
+export const stopOrders = pgTable("stop_orders", {
+  id:            serial("id").primaryKey(),
+  userId:        integer("user_id").references(() => users.id).notNull(),
+  symbol:        text("symbol").notNull(),
+  direction:     text("direction").notNull(),      // 'BUY_STOP' | 'SELL_STOP'
+  triggerPrice:  real("trigger_price").notNull(),  // Price at which order fires
+  lotSize:       real("lot_size").notNull(),
+  stopLoss:      real("stop_loss"),
+  takeProfit:    real("take_profit"),
+  status:        text("status").notNull().default("PENDING"), // 'PENDING'|'TRIGGERED'|'CANCELLED'
+  breakoutLevel: real("breakout_level"),           // Key level that prompted the order
+  notes:         text("notes"),
+  triggeredAt:   timestamp("triggered_at"),
+  cancelledAt:   timestamp("cancelled_at"),
+  createdAt:     timestamp("created_at").defaultNow().notNull(),
+  updatedAt:     timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertStopOrderSchema = createInsertSchema(stopOrders, {
+  direction:    z.enum(["BUY_STOP", "SELL_STOP"]),
+  triggerPrice: z.number().positive("Trigger price must be positive"),
+  lotSize:      z.number().positive("Lot size must be positive"),
+  stopLoss:     z.number().positive().optional(),
+  takeProfit:   z.number().positive().optional(),
+  breakoutLevel:z.number().optional(),
+  notes:        z.string().max(500).optional(),
+}).omit({ id: true, status: true, triggeredAt: true, cancelledAt: true, createdAt: true, updatedAt: true });
+
+export type StopOrder       = typeof stopOrders.$inferSelect;
+export type InsertStopOrder = z.infer<typeof insertStopOrderSchema>;
+

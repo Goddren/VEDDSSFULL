@@ -71,6 +71,8 @@ import {
   ambassadorJourney, ambassadorDailyActions,
   type AmbassadorJourney, type InsertAmbassadorJourney,
   type AmbassadorDailyAction,
+  stopOrders,
+  type StopOrder,
 } from "@shared/schema";
 import { db, pool } from "./db";
 import { eq, and, sql, desc, isNull, gte, lte } from "drizzle-orm";
@@ -3257,6 +3259,41 @@ export class DatabaseStorage implements IStorage {
     await db.update(ambassadorJourney)
       .set({ tokensEarned: sql`tokens_earned + ${tokens}`, updatedAt: new Date() } as any)
       .where(eq(ambassadorJourney.userId, userId));
+  }
+
+  // ── Stop Orders ──────────────────────────────────────────────────────────────
+
+  async getStopOrder(id: number): Promise<StopOrder | undefined> {
+    const [order] = await db.select().from(stopOrders).where(eq(stopOrders.id, id));
+    return order;
+  }
+
+  async getUserStopOrders(
+    userId: number,
+    symbol?: string,
+    status?: string,
+  ): Promise<StopOrder[]> {
+    const conditions: any[] = [eq(stopOrders.userId, userId)];
+    if (symbol) {
+      conditions.push(eq(stopOrders.symbol, symbol.toUpperCase().replace("/", "")));
+    }
+    if (status) {
+      conditions.push(eq(stopOrders.status, status.toUpperCase()));
+    }
+    return db
+      .select()
+      .from(stopOrders)
+      .where(and(...conditions))
+      .orderBy(sql`${stopOrders.createdAt} DESC`);
+  }
+
+  async updateStopOrder(id: number, data: Partial<StopOrder>): Promise<StopOrder | undefined> {
+    const [updated] = await db
+      .update(stopOrders)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(stopOrders.id, id))
+      .returning();
+    return updated;
   }
 }
 

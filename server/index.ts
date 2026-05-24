@@ -199,6 +199,33 @@ async function withRetry<T>(
       console.error('[startup] Schema migration check failed (non-fatal):', (err as Error).message);
     }
 
+    // ── Stop Orders table ──────────────────────────────────────────────────
+    try {
+      await db.execute(sql.raw(`
+        CREATE TABLE IF NOT EXISTS stop_orders (
+          id              SERIAL PRIMARY KEY,
+          user_id         INTEGER NOT NULL REFERENCES users(id),
+          symbol          TEXT    NOT NULL,
+          direction       TEXT    NOT NULL,
+          trigger_price   REAL    NOT NULL,
+          lot_size        REAL    NOT NULL,
+          stop_loss       REAL,
+          take_profit     REAL,
+          status          TEXT    NOT NULL DEFAULT 'PENDING',
+          breakout_level  REAL,
+          notes           TEXT,
+          triggered_at    TIMESTAMP,
+          cancelled_at    TIMESTAMP,
+          created_at      TIMESTAMP NOT NULL DEFAULT NOW(),
+          updated_at      TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+      `));
+      await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS stop_orders_user_symbol_status ON stop_orders(user_id, symbol, status)`));
+      console.log('[startup] stop_orders table ready.');
+    } catch (err) {
+      console.error('[startup] stop_orders table creation failed (non-fatal):', (err as Error).message);
+    }
+
     try {
       console.log('[startup] Running full schema sync (db:push)...');
       execSync('npm run db:push -- --force', { stdio: 'pipe', timeout: 120000, env: { ...process.env } });
