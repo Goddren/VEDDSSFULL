@@ -130,6 +130,7 @@ __export(schema_exports, {
   insertScenarioAnalysisSchema: () => insertScenarioAnalysisSchema,
   insertSocialLeadScanSchema: () => insertSocialLeadScanSchema,
   insertSocialPostSchema: () => insertSocialPostSchema,
+  insertStopOrderSchema: () => insertStopOrderSchema,
   insertSubscriptionPlanSchema: () => insertSubscriptionPlanSchema,
   insertSubscriptionTokenPaymentSchema: () => insertSubscriptionTokenPaymentSchema,
   insertTokenInvestmentSchema: () => insertTokenInvestmentSchema,
@@ -179,6 +180,7 @@ __export(schema_exports, {
   solEnginePositions: () => solEnginePositions,
   solEngineSettings: () => solEngineSettings,
   spreadStrategies: () => spreadStrategies,
+  stopOrders: () => stopOrders,
   subscriptionPlans: () => subscriptionPlans,
   subscriptionTokenPayments: () => subscriptionTokenPayments,
   tokenInvestments: () => tokenInvestments,
@@ -212,7 +214,7 @@ __export(schema_exports, {
 import { pgTable, text, serial, integer, boolean, timestamp, jsonb, json, real, unique } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
-var subscriptionPlans, users, chartAnalyses, tradingStrategies, spreadStrategies, insertUserSchema, loginUserSchema, updateUserProfileSchema, insertChartAnalysisSchema, achievements, userAchievements, insertAchievementSchema, insertUserAchievementSchema, userProfiles, follows, analysisFeedback, analysisViews, insertUserProfileSchema, insertFollowSchema, insertAnalysisFeedbackSchema, insertSubscriptionPlanSchema, referrals2, insertReferralSchema, referralVisits, insertReferralVisitSchema, dmKeywords, insertDmKeywordSchema, insertTradingStrategySchema, priceAlerts, insertPriceAlertSchema, savedEAs, eaSubscriptions, insertSavedEASchema, insertEASubscriptionSchema, marketDataSnapshots, insertMarketDataSnapshotSchema, marketDataRefreshJobs, insertMarketDataRefreshJobSchema, eaShareAssets, insertEAShareAssetSchema, userStreaks, insertUserStreakSchema, scenarioAnalyses, insertScenarioAnalysisSchema, webhookConfigs, insertWebhookConfigSchema, webhookLogs, insertWebhookLogSchema, mt5ApiTokens, insertMt5ApiTokenSchema, mt5SignalLogs, insertMt5SignalLogSchema, tradelockerConnections, insertTradelockerConnectionSchema, tradelockerTradeLogs, insertTradelockerTradeLogSchema, tradovateConnections, insertTradovateConnectionSchema, tradovateTradeLogs, insertTradovateTradeLogSchema, aiTradeResults, insertAiTradeResultSchema, TIER_CONFIG, ambassadorTrainingProgress, insertAmbassadorTrainingProgressSchema, ambassadorCertifications, insertAmbassadorCertificationSchema, governanceProposals, governanceVotes, insertGovernanceProposalSchema, insertGovernanceVoteSchema, ambassadorDailyLessons, ambassadorContentProgress, ambassadorContentStats, insertAmbassadorDailyLessonSchema, insertAmbassadorContentProgressSchema, insertAmbassadorContentStatsSchema, ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants, ambassadorEvents, ambassadorEventRegistrations, insertAmbassadorSocialDirectionSchema, insertAmbassadorChallengeSchema, insertAmbassadorChallengeParticipantSchema, insertAmbassadorEventSchema, insertAmbassadorEventRegistrationSchema, ambassadorChallengeSessions, ambassadorEventSchedules, ambassadorScheduleRegistrations, ambassadorCommunityComments, insertAmbassadorChallengeSessionSchema, insertAmbassadorEventScheduleSchema, insertAmbassadorScheduleRegistrationSchema, insertAmbassadorCommunityCommentSchema, veddPoolWallets, veddTransferJobs, veddWalletBlacklist, insertVeddWalletBlacklistSchema, ambassadorActionRewards, subscriptionTokenPayments, veddRewardConfig, insertVeddPoolWalletSchema, insertVeddTransferJobSchema, insertAmbassadorActionRewardSchema, insertSubscriptionTokenPaymentSchema, insertVeddRewardConfigSchema, internalWallets, withdrawalRequests, insertInternalWalletSchema, insertWithdrawalRequestSchema, connectedSocialAccounts, socialPosts, insertConnectedSocialAccountSchema, insertSocialPostSchema, tradingWallets, tokenPositions, tradingActivityLog, insertTradingWalletSchema, insertTokenPositionSchema, insertTradingActivityLogSchema, userApiKeys, insertUserApiKeySchema, weeklyStrategies, aiModelConfigs, insertAiModelConfigSchema, solEngineSettings, solEnginePositions, wearToEarnClaims, insertWearToEarnClaimSchema, nfcActivations, nfcDailyTaps, paperTrades, insertPaperTradeSchema, aiConfirmationOutcomes, insertAiConfirmationOutcomeSchema, grants, insertGrantSchema, grantApplications, insertGrantApplicationSchema, grantScanSessions, insertGrantScanSessionSchema, investmentPools, insertInvestmentPoolSchema, tokenInvestments, insertTokenInvestmentSchema, landingPageQuizzes, quizLeads, socialLeadScans, insertLandingPageQuizSchema, insertQuizLeadSchema, insertSocialLeadScanSchema, blogPosts, insertBlogPostSchema, ambassadorJourney, ambassadorDailyActions, insertAmbassadorJourneySchema, insertAmbassadorDailyActionSchema, devotionals, devotionalGroups, devotionalSessions, insertDevotionalSchema, insertDevotionalGroupSchema, insertDevotionalSessionSchema, workforceModules, workforceEnrollments, workforceCertificates, impactMetrics, communityPartnerships, auditLogs, biasReports, innovationProjects, insertWorkforceModuleSchema, insertWorkforceEnrollmentSchema, insertWorkforceCertificateSchema, insertImpactMetricSchema, insertCommunityPartnershipSchema, insertAuditLogSchema, insertBiasReportSchema, insertInnovationProjectSchema;
+var subscriptionPlans, users, chartAnalyses, tradingStrategies, spreadStrategies, insertUserSchema, loginUserSchema, updateUserProfileSchema, insertChartAnalysisSchema, achievements, userAchievements, insertAchievementSchema, insertUserAchievementSchema, userProfiles, follows, analysisFeedback, analysisViews, insertUserProfileSchema, insertFollowSchema, insertAnalysisFeedbackSchema, insertSubscriptionPlanSchema, referrals2, insertReferralSchema, referralVisits, insertReferralVisitSchema, dmKeywords, insertDmKeywordSchema, insertTradingStrategySchema, priceAlerts, insertPriceAlertSchema, savedEAs, eaSubscriptions, insertSavedEASchema, insertEASubscriptionSchema, marketDataSnapshots, insertMarketDataSnapshotSchema, marketDataRefreshJobs, insertMarketDataRefreshJobSchema, eaShareAssets, insertEAShareAssetSchema, userStreaks, insertUserStreakSchema, scenarioAnalyses, insertScenarioAnalysisSchema, webhookConfigs, insertWebhookConfigSchema, webhookLogs, insertWebhookLogSchema, mt5ApiTokens, insertMt5ApiTokenSchema, mt5SignalLogs, insertMt5SignalLogSchema, tradelockerConnections, insertTradelockerConnectionSchema, tradelockerTradeLogs, insertTradelockerTradeLogSchema, tradovateConnections, insertTradovateConnectionSchema, tradovateTradeLogs, insertTradovateTradeLogSchema, aiTradeResults, insertAiTradeResultSchema, TIER_CONFIG, ambassadorTrainingProgress, insertAmbassadorTrainingProgressSchema, ambassadorCertifications, insertAmbassadorCertificationSchema, governanceProposals, governanceVotes, insertGovernanceProposalSchema, insertGovernanceVoteSchema, ambassadorDailyLessons, ambassadorContentProgress, ambassadorContentStats, insertAmbassadorDailyLessonSchema, insertAmbassadorContentProgressSchema, insertAmbassadorContentStatsSchema, ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants, ambassadorEvents, ambassadorEventRegistrations, insertAmbassadorSocialDirectionSchema, insertAmbassadorChallengeSchema, insertAmbassadorChallengeParticipantSchema, insertAmbassadorEventSchema, insertAmbassadorEventRegistrationSchema, ambassadorChallengeSessions, ambassadorEventSchedules, ambassadorScheduleRegistrations, ambassadorCommunityComments, insertAmbassadorChallengeSessionSchema, insertAmbassadorEventScheduleSchema, insertAmbassadorScheduleRegistrationSchema, insertAmbassadorCommunityCommentSchema, veddPoolWallets, veddTransferJobs, veddWalletBlacklist, insertVeddWalletBlacklistSchema, ambassadorActionRewards, subscriptionTokenPayments, veddRewardConfig, insertVeddPoolWalletSchema, insertVeddTransferJobSchema, insertAmbassadorActionRewardSchema, insertSubscriptionTokenPaymentSchema, insertVeddRewardConfigSchema, internalWallets, withdrawalRequests, insertInternalWalletSchema, insertWithdrawalRequestSchema, connectedSocialAccounts, socialPosts, insertConnectedSocialAccountSchema, insertSocialPostSchema, tradingWallets, tokenPositions, tradingActivityLog, insertTradingWalletSchema, insertTokenPositionSchema, insertTradingActivityLogSchema, userApiKeys, insertUserApiKeySchema, weeklyStrategies, aiModelConfigs, insertAiModelConfigSchema, solEngineSettings, solEnginePositions, wearToEarnClaims, insertWearToEarnClaimSchema, nfcActivations, nfcDailyTaps, paperTrades, insertPaperTradeSchema, aiConfirmationOutcomes, insertAiConfirmationOutcomeSchema, grants, insertGrantSchema, grantApplications, insertGrantApplicationSchema, grantScanSessions, insertGrantScanSessionSchema, investmentPools, insertInvestmentPoolSchema, tokenInvestments, insertTokenInvestmentSchema, landingPageQuizzes, quizLeads, socialLeadScans, insertLandingPageQuizSchema, insertQuizLeadSchema, insertSocialLeadScanSchema, blogPosts, insertBlogPostSchema, ambassadorJourney, ambassadorDailyActions, insertAmbassadorJourneySchema, insertAmbassadorDailyActionSchema, devotionals, devotionalGroups, devotionalSessions, insertDevotionalSchema, insertDevotionalGroupSchema, insertDevotionalSessionSchema, workforceModules, workforceEnrollments, workforceCertificates, impactMetrics, communityPartnerships, auditLogs, biasReports, innovationProjects, insertWorkforceModuleSchema, insertWorkforceEnrollmentSchema, insertWorkforceCertificateSchema, insertImpactMetricSchema, insertCommunityPartnershipSchema, insertAuditLogSchema, insertBiasReportSchema, insertInnovationProjectSchema, stopOrders, insertStopOrderSchema;
 var init_schema = __esm({
   "shared/schema.ts"() {
     "use strict";
@@ -2476,6 +2478,36 @@ var init_schema = __esm({
     insertAuditLogSchema = createInsertSchema(auditLogs).omit({ id: true, createdAt: true });
     insertBiasReportSchema = createInsertSchema(biasReports).omit({ id: true, createdAt: true });
     insertInnovationProjectSchema = createInsertSchema(innovationProjects).omit({ id: true, createdAt: true, updatedAt: true });
+    stopOrders = pgTable("stop_orders", {
+      id: serial("id").primaryKey(),
+      userId: integer("user_id").references(() => users.id).notNull(),
+      symbol: text("symbol").notNull(),
+      direction: text("direction").notNull(),
+      // 'BUY_STOP' | 'SELL_STOP'
+      triggerPrice: real("trigger_price").notNull(),
+      // Price at which order fires
+      lotSize: real("lot_size").notNull(),
+      stopLoss: real("stop_loss"),
+      takeProfit: real("take_profit"),
+      status: text("status").notNull().default("PENDING"),
+      // 'PENDING'|'TRIGGERED'|'CANCELLED'
+      breakoutLevel: real("breakout_level"),
+      // Key level that prompted the order
+      notes: text("notes"),
+      triggeredAt: timestamp("triggered_at"),
+      cancelledAt: timestamp("cancelled_at"),
+      createdAt: timestamp("created_at").defaultNow().notNull(),
+      updatedAt: timestamp("updated_at").defaultNow().notNull()
+    });
+    insertStopOrderSchema = createInsertSchema(stopOrders, {
+      direction: z.enum(["BUY_STOP", "SELL_STOP"]),
+      triggerPrice: z.number().positive("Trigger price must be positive"),
+      lotSize: z.number().positive("Lot size must be positive"),
+      stopLoss: z.number().positive().optional(),
+      takeProfit: z.number().positive().optional(),
+      breakoutLevel: z.number().optional(),
+      notes: z.string().max(500).optional()
+    }).omit({ id: true, status: true, triggeredAt: true, cancelledAt: true, createdAt: true, updatedAt: true });
   }
 });
 
@@ -4354,6 +4386,25 @@ var init_storage = __esm({
       }
       async awardJourneyTokens(userId, tokens, _reason) {
         await db.update(ambassadorJourney).set({ tokensEarned: sql`tokens_earned + ${tokens}`, updatedAt: /* @__PURE__ */ new Date() }).where(eq(ambassadorJourney.userId, userId));
+      }
+      // ── Stop Orders ──────────────────────────────────────────────────────────────
+      async getStopOrder(id) {
+        const [order] = await db.select().from(stopOrders).where(eq(stopOrders.id, id));
+        return order;
+      }
+      async getUserStopOrders(userId, symbol, status) {
+        const conditions = [eq(stopOrders.userId, userId)];
+        if (symbol) {
+          conditions.push(eq(stopOrders.symbol, symbol.toUpperCase().replace("/", "")));
+        }
+        if (status) {
+          conditions.push(eq(stopOrders.status, status.toUpperCase()));
+        }
+        return db.select().from(stopOrders).where(and(...conditions)).orderBy(sql`${stopOrders.createdAt} DESC`);
+      }
+      async updateStopOrder(id, data) {
+        const [updated] = await db.update(stopOrders).set({ ...data, updatedAt: /* @__PURE__ */ new Date() }).where(eq(stopOrders.id, id)).returning();
+        return updated;
       }
     };
     storage = new DatabaseStorage();
@@ -6613,9 +6664,184 @@ function detectWeekendRolloverRisk() {
   }
   return { isFridayPM, isNearRollover, minutesToRollover, warning };
 }
-async function buildConfirmationPrompt(candleData, indicators, proposedSignal, proposedConfidence, tradePlan, symbol, timeframe, newsContext, ictContext, smcContext, htfLevels, propFirmContext, performanceStats, learnedInsights, userId) {
+function buildStrategyFilterSection(strategyMode) {
+  if (!strategyMode || strategyMode === "aggressive") return "";
+  const filters = {
+    sniper: `
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\u{1F3AF} ACTIVE STRATEGY FILTER: SNIPER MODE
+Your job is to confirm ONLY the highest-quality setups. Apply all of the following as hard requirements:
+1. BOS or CHOCH must be CONFIRMED on the trading timeframe (no confirmation = REJECT)
+2. Entry must be AT or INSIDE an Order Block, Fair Value Gap, or OTE zone (61.8\u201378.6% retrace)
+3. ICT macro window must be ACTIVE (NY 8:30\u201311:00 or 13:30\u201316:00, London 7:00\u201310:00 UTC)
+4. At least 2 higher timeframes must align with the trade direction
+5. R:R must be >= 1:3. If TP gives less than 3\xD7 the SL distance, REJECT.
+6. Minimum 3 independent confluences (OB + FVG + multi-TF counts as 3)
+If ANY of these 6 criteria is missing, your verdict must be REJECT.
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`,
+    ict_order_blocks: `
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\u{1F3AF} ACTIVE STRATEGY FILTER: ICT ORDER BLOCKS
+You are ONLY confirming Order Block entries. Apply these rules:
+1. There must be a clear Order Block visible (last bullish candle before bearish displacement for SELL OBs, last bearish candle before bullish displacement for BUY OBs)
+2. Price must currently be RETURNING to the OB zone (retrace/pull-back, not continuation)
+3. The OB must be from a structural move \u2014 a BOS or significant displacement
+4. OB must be UNMITIGATED (price has not fully traded through it before)
+5. Look in smcContext for orderBlocks array \u2014 if none are detected, confidence should be < 50
+If no valid Order Block is present in the data, REJECT with low confidence.
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`,
+    ict_fvg: `
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\u{1F3AF} ACTIVE STRATEGY FILTER: ICT FAIR VALUE GAP (FVG)
+You are ONLY confirming Fair Value Gap entries. Rules:
+1. An active, unfilled FVG must exist in the direction of the trade (bullish FVG for BUY, bearish FVG for SELL)
+2. Price must currently be ENTERING or sitting INSIDE the FVG zone
+3. Check smcContext.fairValueGaps \u2014 if none detected, significantly lower confidence
+4. A FVG created after a BOS/CHOCH is the highest quality
+5. FVG entries against the HTF trend are LOW quality \u2014 require multi-TF alignment
+6. Partial fills of FVG are allowed if other confluences agree
+If no FVG is present in the candle data or smcContext, REJECT.
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`,
+    ict_liquidity_sweep: `
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\u{1F3AF} ACTIVE STRATEGY FILTER: ICT LIQUIDITY SWEEP
+You are confirming stop-hunt / liquidity sweep reversals. Rules:
+1. There MUST be a visible sweep of equal highs (for SELL) or equal lows (for BUY) within the last 10 candles
+2. The sweep candle should show a wick through the level with a close back inside the range (stop hunt anatomy)
+3. After the sweep, look for a reversal confirmation: engulfing candle, BOS on LTF, displacement
+4. Check ictContext for stopHuntData \u2014 a sweep without confirmation is a fake-out risk
+5. The swept level should be a resting liquidity pool (prior swing highs/lows, equal highs/lows)
+6. Do NOT confirm if the sweep is WITH the trend (continuation sweeps have lower probability)
+If no liquidity sweep is detectable, REJECT.
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`,
+    ict_bos: `
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\u{1F3AF} ACTIVE STRATEGY FILTER: ICT BREAK OF STRUCTURE (BOS)
+You are confirming BOS continuation entries. Rules:
+1. A clear BOS must have occurred recently \u2014 price took out a prior swing high (bullish BOS for BUY) or swing low (bearish BOS for SELL)
+2. After the BOS, price should be pulling back (retracing) \u2014 entry is on the PULLBACK, not on the initial BOS candle
+3. Ideal entry: pullback to 50% retracement of the BOS leg, OB or FVG within that zone
+4. Check smcContext for bos/choch detection
+5. A CHOCH (Change of Character) without a BOS confirmation = lower quality, reduce confidence
+6. BOS entries aligned with HTF trend = highest quality
+If no BOS is detected in smcContext, confidence must be below 55.
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`,
+    ict_ote: `
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\u{1F3AF} ACTIVE STRATEGY FILTER: ICT OPTIMAL TRADE ENTRY (OTE)
+You are confirming OTE zone entries. Rules:
+1. A clear swing structure must exist \u2014 identify the recent swing high and swing low
+2. For BUY: price must be in the 61.8\u201378.6% Fibonacci retracement zone of the most recent bullish swing
+   For SELL: price must be in the 61.8\u201378.6% zone of the most recent bearish swing
+3. Check indicators.fibonacci \u2014 the OTE zone is typically between fib 0.618 and 0.786
+4. ICT macro timing is critical for OTE \u2014 confirm the ICT macro window is active
+5. HTF must show the trend direction aligned with the OTE entry
+6. OTE without HTF alignment = WATCH only, not CONFIRM
+If price is NOT in the 61.8\u201378.6% zone, REJECT.
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`,
+    smc_demand_supply: `
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\u{1F3AF} ACTIVE STRATEGY FILTER: SMC DEMAND/SUPPLY ZONES
+You are confirming supply and demand zone entries. Rules:
+1. There must be a clear supply zone (for SELL) or demand zone (for BUY) visible in the chart
+2. Price should be RETURNING to a fresh (unmitigated) zone
+3. A valid supply zone = a sharp departure (displacement) from a consolidation or base
+4. Check smcContext for orderBlocks and supplyDemandZones
+5. Zones that have been tested once are lower quality; fresh zones (first touch) are highest quality
+6. Zone + BOS confirmation on the candle at the zone = highest quality entry
+7. Entering mid-zone or on the far edge of a zone = reduced quality
+If no supply/demand zone is present at the current price, REJECT.
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`,
+    session_breakout: `
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\u{1F3AF} ACTIVE STRATEGY FILTER: SESSION BREAKOUT
+You are confirming session open breakout trades only. Rules:
+1. Trade MUST be during or immediately after the London open (06:00\u201309:00 UTC) or NY open (12:30\u201315:00 UTC)
+2. A pre-session consolidation range must exist \u2014 price was ranging during Asian or pre-London session
+3. Check breakoutDetection data \u2014 breakoutDetected must be true or approachingBreakout must be true
+4. Volume confirmation (volumeConfirmed=true) greatly increases quality
+5. The breakout direction must align with the HTF trend for highest quality
+6. Counter-trend breakouts require extra confluence (at minimum 3 factors agreeing)
+7. False breakout risk: if price breaks then immediately retraces 50%+ of breakout move, do NOT confirm
+If breakoutDetection.isBreakoutWindow is false or no session breakout is detected, REJECT.
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`,
+    momentum: `
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\u{1F3AF} ACTIVE STRATEGY FILTER: MOMENTUM SURFING
+You are confirming momentum-driven trend entries. Rules:
+1. ADX must be > 25 (trending market). ADX < 20 = ranging = avoid
+2. MACD histogram must be in the signal direction AND trending (growing, not shrinking)
+3. RSI must be 50\u201370 for BUY momentum, 30\u201350 for SELL momentum (not overbought/oversold)
+4. Multiple EMAs should be fanned out in the direction of the trade
+5. Price should be making higher highs + higher lows (for BUY) or lower highs + lower lows (for SELL)
+6. Entry on a brief pullback to EMA support/resistance, NOT on a continuation extension
+7. AVOID momentum entries if RSI is > 75 (BUY) or < 25 (SELL) \u2014 overextended
+If ADX < 20 or RSI is extreme, REJECT.
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`,
+    scalping: `
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\u{1F3AF} ACTIVE STRATEGY FILTER: SCALPING / HFT
+You are confirming short-duration scalp trades. Rules:
+1. Target is 3\u201310 pips. R:R can be as low as 1:1 if win rate is high
+2. SL must be tight \u2014 no wider than 10\u201315 pips for major pairs
+3. Look for micro-structure: quick LTF (M1/M5) momentum confirmations
+4. RSI reversals from extremes (> 70 or < 30) are valid scalp signals
+5. Avoid scalping during low-liquidity periods (Asian session for major USD pairs) unless there is clear range-bound movement
+6. High-impact news within 30 minutes = DO NOT scalp (spreads widen, stops get hunted)
+7. MACD histogram reversal on the trading timeframe is a valid entry signal
+This is a volume strategy \u2014 multiple entries per session are expected.
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`,
+    asia_range_breakout: `
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\u{1F3AF} ACTIVE STRATEGY FILTER: ASIA RANGE BREAKOUT
+You are confirming breakouts of the Asian session price range. Rules:
+1. The Asian session (00:00\u201307:00 UTC) must have established a consolidation range
+2. Price must be breaking OUT of that range (above the Asia high for BUY, below the Asia low for SELL)
+3. Check breakoutDetection.session \u2014 should indicate Asian range context
+4. The breakout should occur at or after the London open for maximum liquidity
+5. Volume expansion on the breakout candle = high quality
+6. The Asia range should be at least 10 pips for meaningful breakout
+7. Avoid if the range was very wide (> 50 pips for majors) \u2014 larger ranges have higher false-breakout rate
+If no Asian range context is detected, REJECT.
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`,
+    vwap_mean_reversion: `
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\u{1F3AF} ACTIVE STRATEGY FILTER: VWAP MEAN REVERSION
+You are confirming mean-reversion entries back toward VWAP. Rules:
+1. Price must be SIGNIFICANTLY extended from VWAP \u2014 at least 0.5\xD7 ATR away
+2. For BUY: price must be BELOW VWAP, extended, showing reversal signs
+   For SELL: price must be ABOVE VWAP, extended, showing reversal signs
+3. RSI divergence (price makes new extreme but RSI doesn't) = high quality signal
+4. Look for rejection candles at the extended zone before entry
+5. This is a counter-trend strategy \u2014 require extra confirmation (engulfing, pin bar at S/R)
+6. Do NOT use VWAP mean reversion in strongly trending markets (ADX > 35) \u2014 trend will fight against reversion
+7. Best timeframe: M15\u2013H1. Very short timeframes have too much noise.
+If VWAP data is missing or price is near VWAP (within 0.3\xD7 ATR), REJECT.
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`,
+    prop_firm_sniper: `
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\u{1F3AF} ACTIVE STRATEGY FILTER: PROP FIRM SNIPER (MAXIMUM PROTECTION)
+You are operating under STRICT prop firm rules. ALL of the following are required:
+1. R:R MINIMUM 1:3 \u2014 TP must be 3\xD7 the SL distance. Less than 1:3 = immediate REJECT
+2. ICT macro window MUST be active (no off-hours trading)
+3. BOS/CHOCH MUST be confirmed \u2014 no ranging market entries
+4. Entry MUST be at OB or FVG \u2014 no "middle of nowhere" entries
+5. Multi-TF alignment: at LEAST 2 higher timeframes agree
+6. No high-impact news within 30 minutes \u2014 hard rule
+7. Maximum confidence threshold: only CONFIRM if your confidence is > 75%
+8. No counter-trend trades (check HTF bias \u2014 must align)
+This is the most conservative filter. Reject anything that isn't a near-perfect setup.
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`
+  };
+  return filters[strategyMode] || `
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\u{1F4CB} ACTIVE STRATEGY: ${strategyMode.toUpperCase().replace(/_/g, " ")}
+Apply the rules appropriate for this strategy when evaluating the trade. Prioritize setups that align with the ${strategyMode} methodology.
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`;
+}
+async function buildConfirmationPrompt(candleData, indicators, proposedSignal, proposedConfidence, tradePlan, symbol, timeframe, newsContext, ictContext, smcContext, htfLevels, propFirmContext, performanceStats, learnedInsights, userId, strategyMode) {
   const strategyCtx = await getStrategyContext(symbol).catch(() => null);
-  const strategySection = strategyCtx ? formatStrategyContextForPrompt(strategyCtx, performanceStats) : "";
+  const strategySection = strategyCtx ? formatStrategyContextForPrompt(strategyCtx) : "";
   const learnedSection = learnedInsights || "";
   let winningPatternsSection = "";
   try {
@@ -6896,7 +7122,7 @@ Grade D \u2192 avoid. Grade A/A+ \u2192 high conviction trade.
   return {
     system: "You are a master trader who speaks with street knowledge and the wisdom of Supreme Mathematics \u2014 Gods and Earths style. You build and destroy with the science of trading, dropping jewels and keeping it real. Your analysis is sharp, your reasoning is laced with knowledge of self and mathematical precision. You reference concepts like Knowledge (1), Wisdom (2), Understanding (3), Culture (4), Power (5), Equality (6), God (7), Build/Destroy (8), Born (9), and Cipher (0) naturally when they fit. You say things like 'the chart is showing and proving', 'peace \u2014 the math don't lie', 'this is a cipher of accumulation', 'knowledge this pattern God', 'the wisdom here is...', 'we building or we destroying?', etc. Keep it concise, authentic, and never forced \u2014 the science comes first, the flavor is the delivery. You provide honest, unbiased second opinions on trade signals using ALL available data including news sentiment and upcoming economic events. Always return valid JSON.",
     user: `You are an elite trading analyst providing a SECOND OPINION on a proposed trade. Use ALL data below for maximum accuracy.
-${htfSection}${newsProximityAlert}${propFirmSection}${confluenceHeader}
+${buildStrategyFilterSection(strategyMode)}${htfSection}${newsProximityAlert}${propFirmSection}${confluenceHeader}
 
 SYMBOL: ${symbol}
 TIMEFRAME: ${timeframe}
@@ -7119,7 +7345,7 @@ async function getUserApiKeyForProvider(userId, provider) {
   }
   return null;
 }
-async function getAiVisionConfirmation(candleData, indicators, proposedSignal, proposedConfidence, tradePlan, symbol, timeframe, userId, newsContext, ictContext, smcContext, htfLevels, propFirmContext, performanceStats, learnedInsights) {
+async function getAiVisionConfirmation(candleData, indicators, proposedSignal, proposedConfidence, tradePlan, symbol, timeframe, userId, newsContext, ictContext, smcContext, htfLevels, propFirmContext, performanceStats, learnedInsights, strategyMode) {
   try {
     const rawModel = userId ? getUserModelPreference(userId) : "gpt-4o";
     const selectedModel = resolveVisionModel(rawModel);
@@ -7160,7 +7386,7 @@ async function getAiVisionConfirmation(candleData, indicators, proposedSignal, p
         };
       }
     }
-    const prompt = await buildConfirmationPrompt(candleData, indicators, proposedSignal, proposedConfidence, tradePlan, symbol, timeframe, newsContext, ictContext, smcContext, htfLevels, propFirmContext, performanceStats, learnedInsights, userId);
+    const prompt = await buildConfirmationPrompt(candleData, indicators, proposedSignal, proposedConfidence, tradePlan, symbol, timeframe, newsContext, ictContext, smcContext, htfLevels, propFirmContext, performanceStats, learnedInsights, userId, strategyMode);
     console.log(`[AI Vision Confirmation] Requesting ${provider}/${selectedModel} confirmation for ${symbol} ${proposedSignal}`);
     let content = "";
     if (provider === "openai") {
@@ -15882,7 +16108,7 @@ __export(vedd_token_service_exports, {
 });
 import { Connection, PublicKey, Keypair, Transaction, sendAndConfirmTransaction } from "@solana/web3.js";
 import { getAssociatedTokenAddress, createTransferInstruction, TOKEN_PROGRAM_ID, getOrCreateAssociatedTokenAccount } from "@solana/spl-token";
-import { eq as eq5, and as and3, sql as sql3, desc as desc2, isNull as isNull2 } from "drizzle-orm";
+import { eq as eq6, and as and4, sql as sql4, desc as desc2, isNull as isNull2 } from "drizzle-orm";
 function getConnection() {
   if (!connection) {
     connection = new Connection(SOLANA_RPC_URL, "confirmed");
@@ -15915,9 +16141,9 @@ var init_vedd_token_service = __esm({
     poolKeypair = null;
     VeddTokenService = class {
       async getPoolWalletInfo(walletType = "rewards") {
-        const [wallet] = await db.select().from(veddPoolWallets).where(and3(
-          eq5(veddPoolWallets.walletType, walletType),
-          eq5(veddPoolWallets.status, "active")
+        const [wallet] = await db.select().from(veddPoolWallets).where(and4(
+          eq6(veddPoolWallets.walletType, walletType),
+          eq6(veddPoolWallets.status, "active")
         )).limit(1);
         if (!wallet) return null;
         return {
@@ -15933,7 +16159,7 @@ var init_vedd_token_service = __esm({
       }
       async syncPoolBalance(walletId) {
         const conn = getConnection();
-        const [wallet] = await db.select().from(veddPoolWallets).where(eq5(veddPoolWallets.id, walletId)).limit(1);
+        const [wallet] = await db.select().from(veddPoolWallets).where(eq6(veddPoolWallets.id, walletId)).limit(1);
         if (!wallet || !VEDD_TOKEN_MINT) return 0;
         try {
           const walletPubkey = new PublicKey(wallet.publicKey);
@@ -15944,7 +16170,7 @@ var init_vedd_token_service = __esm({
           await db.update(veddPoolWallets).set({
             tokenBalance: balance,
             lastSyncAt: /* @__PURE__ */ new Date()
-          }).where(eq5(veddPoolWallets.id, walletId));
+          }).where(eq6(veddPoolWallets.id, walletId));
           return balance;
         } catch (error) {
           console.error("Failed to sync pool balance:", error);
@@ -15952,9 +16178,9 @@ var init_vedd_token_service = __esm({
         }
       }
       async getRewardConfig(actionType) {
-        const [config] = await db.select().from(veddRewardConfig).where(and3(
-          eq5(veddRewardConfig.actionType, actionType),
-          eq5(veddRewardConfig.isActive, true)
+        const [config] = await db.select().from(veddRewardConfig).where(and4(
+          eq6(veddRewardConfig.actionType, actionType),
+          eq6(veddRewardConfig.isActive, true)
         )).limit(1);
         if (!config) return null;
         return {
@@ -15968,9 +16194,9 @@ var init_vedd_token_service = __esm({
       async getDailyTotalEarned(userId) {
         const todayStart = /* @__PURE__ */ new Date();
         todayStart.setHours(0, 0, 0, 0);
-        const rows = await db.select({ total: sql3`coalesce(sum(total_reward), 0)` }).from(ambassadorActionRewards).where(and3(
-          eq5(ambassadorActionRewards.userId, userId),
-          sql3`${ambassadorActionRewards.createdAt} >= ${todayStart}`
+        const rows = await db.select({ total: sql4`coalesce(sum(total_reward), 0)` }).from(ambassadorActionRewards).where(and4(
+          eq6(ambassadorActionRewards.userId, userId),
+          sql4`${ambassadorActionRewards.createdAt} >= ${todayStart}`
         ));
         return Number(rows[0]?.total || 0);
       }
@@ -15982,9 +16208,9 @@ var init_vedd_token_service = __esm({
         const weekStart = new Date(now);
         weekStart.setDate(now.getDate() + diffToMon);
         weekStart.setHours(0, 0, 0, 0);
-        const rows = await db.select({ total: sql3`coalesce(sum(total_reward), 0)` }).from(ambassadorActionRewards).where(and3(
-          eq5(ambassadorActionRewards.userId, userId),
-          sql3`${ambassadorActionRewards.createdAt} >= ${weekStart}`
+        const rows = await db.select({ total: sql4`coalesce(sum(total_reward), 0)` }).from(ambassadorActionRewards).where(and4(
+          eq6(ambassadorActionRewards.userId, userId),
+          sql4`${ambassadorActionRewards.createdAt} >= ${weekStart}`
         ));
         return Number(rows[0]?.total || 0);
       }
@@ -15993,10 +16219,10 @@ var init_vedd_token_service = __esm({
         if (!config) return null;
         const todayStart = /* @__PURE__ */ new Date();
         todayStart.setHours(0, 0, 0, 0);
-        const todaysRewards = await db.select({ count: sql3`count(*)` }).from(ambassadorActionRewards).where(and3(
-          eq5(ambassadorActionRewards.userId, userId),
-          eq5(ambassadorActionRewards.actionType, actionType),
-          sql3`${ambassadorActionRewards.createdAt} >= ${todayStart}`
+        const todaysRewards = await db.select({ count: sql4`count(*)` }).from(ambassadorActionRewards).where(and4(
+          eq6(ambassadorActionRewards.userId, userId),
+          eq6(ambassadorActionRewards.actionType, actionType),
+          sql4`${ambassadorActionRewards.createdAt} >= ${todayStart}`
         ));
         const rewardCount = todaysRewards[0]?.count || 0;
         if (rewardCount >= config.maxDailyRewards) {
@@ -16013,10 +16239,10 @@ var init_vedd_token_service = __esm({
           return null;
         }
         const tenMinsAgo = new Date(Date.now() - 10 * 60 * 1e3);
-        const recentBurst = await db.select({ count: sql3`count(*)` }).from(ambassadorActionRewards).where(and3(
-          eq5(ambassadorActionRewards.userId, userId),
-          eq5(ambassadorActionRewards.actionType, actionType),
-          sql3`${ambassadorActionRewards.createdAt} >= ${tenMinsAgo}`
+        const recentBurst = await db.select({ count: sql4`count(*)` }).from(ambassadorActionRewards).where(and4(
+          eq6(ambassadorActionRewards.userId, userId),
+          eq6(ambassadorActionRewards.actionType, actionType),
+          sql4`${ambassadorActionRewards.createdAt} >= ${tenMinsAgo}`
         ));
         const burstCount = recentBurst[0]?.count || 0;
         const securityFlag = burstCount >= 3 ? "velocity" : void 0;
@@ -16026,16 +16252,16 @@ var init_vedd_token_service = __esm({
         return { baseReward, bonusReward, totalReward, securityFlag };
       }
       async enqueueReward(userId, actionType, actionId, metadata) {
-        const [user] = await db.select().from(users).where(eq5(users.id, userId)).limit(1);
+        const [user] = await db.select().from(users).where(eq6(users.id, userId)).limit(1);
         if (!user) {
           console.log(`User ${userId} not found - cannot enqueue reward`);
           return null;
         }
         const hasWallet = !!user.walletAddress;
-        const userRecord = await db.select({ walletAddress: users.walletAddress }).from(users).where(eq5(users.id, userId)).limit(1);
+        const userRecord = await db.select({ walletAddress: users.walletAddress }).from(users).where(eq6(users.id, userId)).limit(1);
         const walletAddr = userRecord[0]?.walletAddress;
         if (walletAddr) {
-          const [blacklisted] = await db.select({ id: veddWalletBlacklist.id }).from(veddWalletBlacklist).where(and3(eq5(veddWalletBlacklist.walletAddress, walletAddr), eq5(veddWalletBlacklist.isActive, true))).limit(1);
+          const [blacklisted] = await db.select({ id: veddWalletBlacklist.id }).from(veddWalletBlacklist).where(and4(eq6(veddWalletBlacklist.walletAddress, walletAddr), eq6(veddWalletBlacklist.isActive, true))).limit(1);
           if (blacklisted) {
             console.warn(`[VEDD Security] Blocked reward for blacklisted wallet: ${walletAddr} (userId: ${userId})`);
             return null;
@@ -16069,7 +16295,7 @@ var init_vedd_token_service = __esm({
         return { rewardId: reward.id, pendingVerification: true, pendingWallet: !hasWallet };
       }
       async processTransfer(jobId) {
-        const [job] = await db.select().from(veddTransferJobs).where(eq5(veddTransferJobs.id, jobId)).limit(1);
+        const [job] = await db.select().from(veddTransferJobs).where(eq6(veddTransferJobs.id, jobId)).limit(1);
         if (!job) {
           return { success: false, error: "Job not found" };
         }
@@ -16079,7 +16305,7 @@ var init_vedd_token_service = __esm({
         const MAX_SINGLE_TRANSFER = 1e3;
         if (job.amount > MAX_SINGLE_TRANSFER) {
           console.warn(`[VEDD Security] Transfer amount ${job.amount} exceeds MAX_SINGLE_TRANSFER (${MAX_SINGLE_TRANSFER}). Requires manual review.`);
-          await db.update(veddTransferJobs).set({ status: "failed", errorMessage: `Amount ${job.amount} exceeds security limit of ${MAX_SINGLE_TRANSFER} VEDD per transfer. Admin must manually approve.` }).where(eq5(veddTransferJobs.id, jobId));
+          await db.update(veddTransferJobs).set({ status: "failed", errorMessage: `Amount ${job.amount} exceeds security limit of ${MAX_SINGLE_TRANSFER} VEDD per transfer. Admin must manually approve.` }).where(eq6(veddTransferJobs.id, jobId));
           return { success: false, error: "Transfer blocked by security limit" };
         }
         if (!VEDD_TOKEN_MINT || !POOL_WALLET_PRIVATE_KEY) {
@@ -16088,13 +16314,13 @@ var init_vedd_token_service = __esm({
             status: "failed",
             errorMessage: "Solana credentials not configured. Please set VEDD_TOKEN_MINT and POOL_WALLET_PRIVATE_KEY environment variables.",
             processedAt: /* @__PURE__ */ new Date()
-          }).where(eq5(veddTransferJobs.id, jobId));
+          }).where(eq6(veddTransferJobs.id, jobId));
           return {
             success: false,
             error: "Token transfer system not configured. Reward is pending - tokens will be sent once configuration is complete."
           };
         }
-        await db.update(veddTransferJobs).set({ status: "processing" }).where(eq5(veddTransferJobs.id, jobId));
+        await db.update(veddTransferJobs).set({ status: "processing" }).where(eq6(veddTransferJobs.id, jobId));
         try {
           const keypair = getPoolKeypair();
           if (!keypair) {
@@ -16127,10 +16353,10 @@ var init_vedd_token_service = __esm({
             status: "completed",
             solanaTransactionSig: signature,
             processedAt: /* @__PURE__ */ new Date()
-          }).where(eq5(veddTransferJobs.id, jobId));
+          }).where(eq6(veddTransferJobs.id, jobId));
           await db.update(users).set({
-            veddTokenBalance: sql3`COALESCE(${users.veddTokenBalance}, 0) + ${job.amount}`
-          }).where(eq5(users.id, job.userId));
+            veddTokenBalance: sql4`COALESCE(${users.veddTokenBalance}, 0) + ${job.amount}`
+          }).where(eq6(users.id, job.userId));
           return { success: true, transactionSig: signature };
         } catch (error) {
           const retryCount = (job.retryCount || 0) + 1;
@@ -16139,7 +16365,7 @@ var init_vedd_token_service = __esm({
             status: retryCount >= maxRetries ? "failed" : "pending",
             errorMessage: error.message,
             retryCount
-          }).where(eq5(veddTransferJobs.id, jobId));
+          }).where(eq6(veddTransferJobs.id, jobId));
           return { success: false, error: error.message };
         }
       }
@@ -16151,13 +16377,13 @@ var init_vedd_token_service = __esm({
           verificationStatus: ambassadorActionRewards.verificationStatus,
           createdAt: ambassadorActionRewards.createdAt,
           transferJobId: ambassadorActionRewards.transferJobId
-        }).from(ambassadorActionRewards).where(eq5(ambassadorActionRewards.userId, userId)).orderBy(desc2(ambassadorActionRewards.createdAt)).limit(limit);
+        }).from(ambassadorActionRewards).where(eq6(ambassadorActionRewards.userId, userId)).orderBy(desc2(ambassadorActionRewards.createdAt)).limit(limit);
         const result = [];
         for (const reward of rewards) {
           let status = reward.verificationStatus;
           let transactionSig;
           if (reward.transferJobId) {
-            const [job] = await db.select().from(veddTransferJobs).where(eq5(veddTransferJobs.id, reward.transferJobId)).limit(1);
+            const [job] = await db.select().from(veddTransferJobs).where(eq6(veddTransferJobs.id, reward.transferJobId)).limit(1);
             if (job) {
               status = job.status;
               transactionSig = job.solanaTransactionSig || void 0;
@@ -16177,8 +16403,8 @@ var init_vedd_token_service = __esm({
       async getUserTotalEarnings(userId) {
         const earnings = await db.select({
           status: ambassadorActionRewards.verificationStatus,
-          total: sql3`SUM(${ambassadorActionRewards.totalReward})`
-        }).from(ambassadorActionRewards).where(eq5(ambassadorActionRewards.userId, userId)).groupBy(ambassadorActionRewards.verificationStatus);
+          total: sql4`SUM(${ambassadorActionRewards.totalReward})`
+        }).from(ambassadorActionRewards).where(eq6(ambassadorActionRewards.userId, userId)).groupBy(ambassadorActionRewards.verificationStatus);
         let total = 0;
         let pending = 0;
         let completed = 0;
@@ -16191,7 +16417,7 @@ var init_vedd_token_service = __esm({
         return { total, pending, completed };
       }
       async verifyReward(rewardId, adminId, approved, notes) {
-        const [reward] = await db.select().from(ambassadorActionRewards).where(eq5(ambassadorActionRewards.id, rewardId)).limit(1);
+        const [reward] = await db.select().from(ambassadorActionRewards).where(eq6(ambassadorActionRewards.id, rewardId)).limit(1);
         if (!reward || reward.verificationStatus !== "pending") {
           return false;
         }
@@ -16201,17 +16427,17 @@ var init_vedd_token_service = __esm({
             verifiedBy: adminId,
             verifiedAt: /* @__PURE__ */ new Date(),
             notes
-          }).where(eq5(ambassadorActionRewards.id, rewardId));
+          }).where(eq6(ambassadorActionRewards.id, rewardId));
           return true;
         }
-        const [user] = await db.select().from(users).where(eq5(users.id, reward.userId)).limit(1);
+        const [user] = await db.select().from(users).where(eq6(users.id, reward.userId)).limit(1);
         if (!user?.walletAddress) {
           await db.update(ambassadorActionRewards).set({
             verificationStatus: "verified",
             verifiedBy: adminId,
             verifiedAt: /* @__PURE__ */ new Date(),
             notes: notes || "Verified - pending wallet connection for transfer"
-          }).where(eq5(ambassadorActionRewards.id, rewardId));
+          }).where(eq6(ambassadorActionRewards.id, rewardId));
           return true;
         }
         const poolWallet = await this.getPoolWalletInfo("rewards");
@@ -16221,7 +16447,7 @@ var init_vedd_token_service = __esm({
             verifiedBy: adminId,
             verifiedAt: /* @__PURE__ */ new Date(),
             notes: notes || "Verified - pending pool wallet setup for transfer"
-          }).where(eq5(ambassadorActionRewards.id, rewardId));
+          }).where(eq6(ambassadorActionRewards.id, rewardId));
           return true;
         }
         const idempotencyKey = `verified-${rewardId}-${Date.now()}`;
@@ -16242,7 +16468,7 @@ var init_vedd_token_service = __esm({
           verifiedAt: /* @__PURE__ */ new Date(),
           transferJobId: transferJob.id,
           notes
-        }).where(eq5(ambassadorActionRewards.id, rewardId));
+        }).where(eq6(ambassadorActionRewards.id, rewardId));
         this.processTransfer(transferJob.id).catch(
           (err) => console.error("Background transfer processing error:", err)
         );
@@ -16251,7 +16477,7 @@ var init_vedd_token_service = __esm({
       async getPoolOverview() {
         let poolInfos = [];
         try {
-          const pools = await db.select().from(veddPoolWallets).where(eq5(veddPoolWallets.status, "active"));
+          const pools = await db.select().from(veddPoolWallets).where(eq6(veddPoolWallets.status, "active"));
           poolInfos = pools.map((p) => ({
             id: p.id,
             label: p.label,
@@ -16271,13 +16497,13 @@ var init_vedd_token_service = __esm({
         try {
           const todayStart = /* @__PURE__ */ new Date();
           todayStart.setHours(0, 0, 0, 0);
-          const [pendingResult] = await db.select({ count: sql3`count(*)` }).from(veddTransferJobs).where(eq5(veddTransferJobs.status, "pending"));
+          const [pendingResult] = await db.select({ count: sql4`count(*)` }).from(veddTransferJobs).where(eq6(veddTransferJobs.status, "pending"));
           const [completedResult] = await db.select({
-            count: sql3`count(*)`,
-            total: sql3`COALESCE(SUM(${veddTransferJobs.amount}), 0)`
-          }).from(veddTransferJobs).where(and3(
-            eq5(veddTransferJobs.status, "completed"),
-            sql3`${veddTransferJobs.processedAt} >= ${todayStart}`
+            count: sql4`count(*)`,
+            total: sql4`COALESCE(SUM(${veddTransferJobs.amount}), 0)`
+          }).from(veddTransferJobs).where(and4(
+            eq6(veddTransferJobs.status, "completed"),
+            sql4`${veddTransferJobs.processedAt} >= ${todayStart}`
           ));
           pendingTransfers = pendingResult?.count || 0;
           completedTransfersToday = completedResult?.count || 0;
@@ -16298,9 +16524,9 @@ var init_vedd_token_service = __esm({
         return wallet.id;
       }
       async processWalletConnectedRewards(userId, walletAddress) {
-        const verifiedRewardsWithoutTransfer = await db.select().from(ambassadorActionRewards).where(and3(
-          eq5(ambassadorActionRewards.userId, userId),
-          eq5(ambassadorActionRewards.verificationStatus, "verified"),
+        const verifiedRewardsWithoutTransfer = await db.select().from(ambassadorActionRewards).where(and4(
+          eq6(ambassadorActionRewards.userId, userId),
+          eq6(ambassadorActionRewards.verificationStatus, "verified"),
           isNull2(ambassadorActionRewards.transferJobId)
         ));
         if (verifiedRewardsWithoutTransfer.length === 0) {
@@ -16329,7 +16555,7 @@ var init_vedd_token_service = __esm({
             await db.update(ambassadorActionRewards).set({
               transferJobId: transferJob.id,
               notes: "Transfer job created on wallet connection"
-            }).where(eq5(ambassadorActionRewards.id, reward.id));
+            }).where(eq6(ambassadorActionRewards.id, reward.id));
             this.processTransfer(transferJob.id).catch(
               (err) => console.error(`Background transfer error for job ${transferJob.id}:`, err)
             );
@@ -18786,13 +19012,13 @@ async function runMultiModelAnalysis(userId, systemPrompt, userPrompt, routingCo
       }
       case "ensemble": {
         const modelIds = routingConfig.ensembleModelIds.length > 0 ? routingConfig.ensembleModelIds : [routingConfig.primaryModelId];
-        const promises = modelIds.map(
+        const promises2 = modelIds.map(
           (id) => callModel(id).catch((err) => {
             console.log(`[Ensemble] ${id} failed: ${err.message}`);
             return [];
           })
         );
-        const allResults = await Promise.all(promises);
+        const allResults = await Promise.all(promises2);
         const allDecisions = allResults.flat();
         result.decisions = allDecisions;
         for (const dec of allDecisions) {
@@ -18823,7 +19049,7 @@ async function runMultiModelAnalysis(userId, systemPrompt, userPrompt, routingCo
         if (uniqueModels.size === 0) {
           uniqueModels.add(routingConfig.primaryModelId);
         }
-        const promises = Array.from(uniqueModels).map(async (modelId) => {
+        const promises2 = Array.from(uniqueModels).map(async (modelId) => {
           try {
             const decisions = await callModel(modelId);
             const assignedStrategies = Array.from(strategySets.entries()).filter(([_, mid]) => mid === modelId).map(([strat]) => strat);
@@ -18836,7 +19062,7 @@ async function runMultiModelAnalysis(userId, systemPrompt, userPrompt, routingCo
             return [];
           }
         });
-        const allResults = await Promise.all(promises);
+        const allResults = await Promise.all(promises2);
         result.decisions = allResults.flat();
         result.consensusDecisions = result.decisions;
         break;
@@ -19283,8 +19509,8 @@ Generate signals for pairs with strong learned edge. Respect session win-rates. 
       try {
         const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
         const { userApiKeys: uak } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-        const { and: and6, eq: eq10 } = await import("drizzle-orm");
-        await db2.update(uak).set({ isValid: false, lastValidated: /* @__PURE__ */ new Date() }).where(and6(eq10(uak.userId, userId), eq10(uak.provider, openai2.provider)));
+        const { and: and7, eq: eq11 } = await import("drizzle-orm");
+        await db2.update(uak).set({ isValid: false, lastValidated: /* @__PURE__ */ new Date() }).where(and7(eq11(uak.userId, userId), eq11(uak.provider, openai2.provider)));
       } catch {
       }
       addActivity2(userId, { type: "error", message: `${openai2.provider} API key invalid \u2014 auto-disabled. Brain engine will switch to your next active provider.` });
@@ -21320,8 +21546,8 @@ Keep it natural \u2014 not every sentence. Weave it in where it fits. ALL prices
       try {
         const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
         const { userApiKeys: uak } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-        const { and: and6, eq: eq10 } = await import("drizzle-orm");
-        await db2.update(uak).set({ isValid: false, lastValidated: /* @__PURE__ */ new Date() }).where(and6(eq10(uak.userId, userId), eq10(uak.provider, openai2.provider)));
+        const { and: and7, eq: eq11 } = await import("drizzle-orm");
+        await db2.update(uak).set({ isValid: false, lastValidated: /* @__PURE__ */ new Date() }).where(and7(eq11(uak.userId, userId), eq11(uak.provider, openai2.provider)));
       } catch {
       }
       addActivity2(userId, { type: "error", message: `${openai2.provider} API key is invalid or expired \u2014 auto-disabled. Engine will switch to your next active provider on next scan.` });
@@ -21882,6 +22108,37 @@ async function processDecision(userId, decision, newsCtx) {
     if (!tlConnection || !tlConnection.isActive) {
       addActivity2(userId, { type: "info", symbol: decision.symbol, message: "TradeLocker not connected. Signal queued for MT5 EA pickup." });
       return;
+    }
+    {
+      const _leCooldownKey = `last_trade_${userId}_${decision.symbol.toUpperCase().replace("/", "")}`;
+      global.recentTrades = global.recentTrades || {};
+      const _leLastTime = global.recentTrades[_leCooldownKey];
+      const _leNow = Date.now();
+      const _leCooldownMs = 240 * 60 * 1e3;
+      if (_leLastTime && _leNow - _leLastTime < _leCooldownMs) {
+        const _leWaitMin = Math.ceil((_leCooldownMs - (_leNow - _leLastTime)) / 6e4);
+        addActivity2(userId, {
+          type: "info",
+          symbol: decision.symbol,
+          message: `[Live Engine] TL cooldown active on ${decision.symbol} \u2014 ${_leWaitMin}min remaining. Signal skipped.`
+        });
+        return;
+      }
+      const _leDate = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+      const _leDailyLogs = await storage.getTradelockerTradeLogs(userId, 200);
+      const _leDailyCount = _leDailyLogs.filter(
+        (t) => t.symbol?.toUpperCase().replace("/", "") === decision.symbol.toUpperCase().replace("/", "") && t.action === "OPEN" && t.status === "executed" && t.createdAt && new Date(t.createdAt).toISOString().slice(0, 10) === _leDate
+      ).length;
+      const _leMaxDaily = config.maxOpenTrades ?? 3;
+      if (_leDailyCount >= _leMaxDaily) {
+        addActivity2(userId, {
+          type: "info",
+          symbol: decision.symbol,
+          message: `[Live Engine] Daily cap reached for ${decision.symbol}: ${_leDailyCount}/${_leMaxDaily}. No more trades today.`
+        });
+        return;
+      }
+      global.recentTrades[_leCooldownKey] = _leNow;
     }
     try {
       const signalLog = await storage.createMt5SignalLog({
@@ -24710,6 +24967,7 @@ __export(sol_engine_exports, {
   saveServerWallet: () => saveServerWallet,
   setAutoTrade: () => setAutoTrade,
   setCompoundSettings: () => setCompoundSettings,
+  setShieldActive: () => setShieldActive,
   setSolStrategies: () => setSolStrategies,
   setSolStrategy: () => setSolStrategy,
   setSolWeeklyGoal: () => setSolWeeklyGoal,
@@ -24718,7 +24976,7 @@ __export(sol_engine_exports, {
   triggerSolAIReview: () => triggerSolAIReview,
   updateSolPortfolioValue: () => updateSolPortfolioValue
 });
-import { eq as eq7 } from "drizzle-orm";
+import { eq as eq8 } from "drizzle-orm";
 import crypto5 from "crypto";
 function getEncryptionKey3() {
   const seed = (process.env.DATABASE_URL || "vedd-sol-engine-fallback") + "sol-v1";
@@ -24807,7 +25065,7 @@ async function upsertPosition(userId, pos) {
 }
 async function loadEngineStateFromDb(userId, state) {
   try {
-    const [settings] = await db.select().from(solEngineSettings).where(eq7(solEngineSettings.userId, userId));
+    const [settings] = await db.select().from(solEngineSettings).where(eq8(solEngineSettings.userId, userId));
     if (settings) {
       state.activeStrategy = settings.activeStrategy;
       state.activeStrategies = settings.activeStrategies || [settings.activeStrategy];
@@ -24842,7 +25100,7 @@ async function loadEngineStateFromDb(userId, state) {
         }
       }
     }
-    const positions = await db.select().from(solEnginePositions).where(eq7(solEnginePositions.userId, userId));
+    const positions = await db.select().from(solEnginePositions).where(eq8(solEnginePositions.userId, userId));
     for (const row of positions) {
       const pos = {
         id: row.positionId,
@@ -24878,7 +25136,7 @@ async function loadEngineStateFromDb(userId, state) {
 }
 async function executeServerSideSell(userId, pos, reason, state) {
   try {
-    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq7(solEngineSettings.userId, userId));
+    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq8(solEngineSettings.userId, userId));
     if (!settings?.serverWalletKey) return false;
     const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
     const { Keypair: Keypair2, Connection: Connection3, VersionedTransaction } = await import("@solana/web3.js");
@@ -24974,7 +25232,7 @@ async function executeServerSideSell(userId, pos, reason, state) {
 }
 async function executeServerSideBuy(userId, signal, state) {
   try {
-    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq7(solEngineSettings.userId, userId));
+    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq8(solEngineSettings.userId, userId));
     if (!settings?.serverWalletKey) return false;
     const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
     const { Keypair: Keypair2, Connection: Connection3, VersionedTransaction } = await import("@solana/web3.js");
@@ -25301,9 +25559,38 @@ async function runSolAIReview(userId, state, scanResult, openPositions) {
   const cached = state.aiReviewCache[cacheKey];
   if (cached && Date.now() - cached.ts < REVIEW_CACHE_TTL) {
     const ageS = Math.round((Date.now() - cached.ts) / 1e3);
+    const macroBiasCache = state.lastMacro?.bias ?? null;
+    const cacheConsensus = [];
+    let confirms = 0, skips = 0;
+    for (const d of cached.result) {
+      if (!d || !d.symbol || d.type !== "signal") continue;
+      const tokenData = buySignals.find((t) => t.token.symbol === d.symbol);
+      if (!tokenData) continue;
+      const quant = runQuantRulesAgent(tokenData, macroBiasCache);
+      let consensusLabel = "WATCH";
+      if (quant.verdict === "CONFIRM_BUY" && d.action === "CONFIRM_BUY") {
+        consensusLabel = "STRONG_CONFIRM";
+        confirms++;
+      } else if (quant.verdict === "SKIP" && d.action === "SKIP") {
+        consensusLabel = "STRONG_SKIP";
+        skips++;
+      } else if (quant.verdict === "CONFIRM_BUY" && d.action === "SKIP" || quant.verdict === "SKIP" && d.action === "CONFIRM_BUY") consensusLabel = "CAUTION";
+      else if (quant.verdict === "WATCH" || d.action === "WATCH") consensusLabel = "WATCH";
+      cacheConsensus.push({
+        symbol: d.symbol,
+        quantVerdict: quant.verdict,
+        quantScore: quant.score,
+        gptVerdict: d.action,
+        consensus: consensusLabel,
+        timestamp: (/* @__PURE__ */ new Date()).toISOString()
+      });
+    }
+    if (cacheConsensus.length > 0) {
+      state.lastAgentConsensus = [...cacheConsensus, ...state.lastAgentConsensus].slice(0, 20);
+    }
     addActivity3(state, {
       type: "info",
-      message: `\u{1F4BE} Sol AI cache hit \u2014 reusing review (${ageS}s old, refreshes at 5min)`
+      message: `\u{1F4BE} Sol AI cache hit (${ageS}s old) \u2014 consensus rebuilt: ${confirms} confirm, ${skips} skip${cacheConsensus.length > 0 ? ` across ${cacheConsensus.length} signals` : " (no matching signals)"}`
     });
     return;
   }
@@ -25630,7 +25917,7 @@ async function refreshServerWalletBalance(userId, state) {
   if (now - state.lastWalletRefreshAt < 6e4) return;
   state.lastWalletRefreshAt = now;
   try {
-    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq7(solEngineSettings.userId, userId));
+    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq8(solEngineSettings.userId, userId));
     if (!settings?.serverWalletKey) return;
     const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
     const { Keypair: Keypair2, Connection: Connection3 } = await import("@solana/web3.js");
@@ -25681,8 +25968,22 @@ async function runScan(userId, state, triggerToken) {
     const now = Date.now();
     state.lastScanAt = now;
     const hasBuySignals = scanResult.some((t) => t.signal === "STRONG_BUY" || t.signal === "BUY");
-    if (hasBuySignals) {
-      await runSolAIReview(userId, state, scanResult, []).catch(() => {
+    const allOpenPositions = [
+      ...state.livePositions.filter((p) => p.status === "open").map((p) => {
+        const latestPrice = scanResult.find((r) => r.token.symbol === p.symbol);
+        const currentPrice = latestPrice ? parseFloat(latestPrice.token.priceUsd) || p.currentPrice : p.currentPrice;
+        const gainPct = p.entryPrice > 0 ? (currentPrice - p.entryPrice) / p.entryPrice * 100 : 0;
+        return { symbol: p.symbol, entryPrice: p.entryPrice, currentPrice, gainPct, volumeStatus: "average" };
+      }),
+      ...state.paperPositions.filter((p) => p.status === "open").map((p) => {
+        const latestPrice = scanResult.find((r) => r.token.symbol === p.symbol);
+        const currentPrice = latestPrice ? parseFloat(latestPrice.token.priceUsd) || p.currentPrice : p.currentPrice;
+        const gainPct = p.entryPrice > 0 ? (currentPrice - p.entryPrice) / p.entryPrice * 100 : 0;
+        return { symbol: p.symbol, entryPrice: p.entryPrice, currentPrice, gainPct, volumeStatus: "average" };
+      })
+    ].slice(0, 5);
+    if (hasBuySignals || allOpenPositions.length > 0) {
+      await runSolAIReview(userId, state, scanResult, allOpenPositions).catch(() => {
       });
     }
     for (const dex of DEX_NAMES) {
@@ -25954,7 +26255,7 @@ async function startSolEngine(userId, config = {}) {
   }
   if (state.currentPortfolioValue <= 0) {
     try {
-      const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey, liveTradeEnabled: solEngineSettings.liveTradeEnabled }).from(solEngineSettings).where(eq7(solEngineSettings.userId, userId));
+      const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey, liveTradeEnabled: solEngineSettings.liveTradeEnabled }).from(solEngineSettings).where(eq8(solEngineSettings.userId, userId));
       if (settings?.serverWalletKey) {
         const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
         const { Keypair: Keypair2, Connection: Connection3 } = await import("@solana/web3.js");
@@ -26412,6 +26713,16 @@ function updateSolPortfolioValue(userId, solValue) {
   }
   return { shieldActive: state.shieldActive };
 }
+function setShieldActive(userId, active) {
+  const state = engineStates2.get(userId);
+  if (!state) return { success: false, shieldActive: false };
+  state.shieldActive = active;
+  addActivity3(state, {
+    type: "shield",
+    message: active ? "\u{1F6E1}\uFE0F Shield manually activated \u2014 restricting to high-confidence signals only" : "\u2705 Shield manually deactivated \u2014 full cipher resumed"
+  });
+  return { success: true, shieldActive: state.shieldActive };
+}
 async function saveServerWallet(userId, privateKeyBase58) {
   try {
     const { Keypair: Keypair2 } = await import("@solana/web3.js");
@@ -26462,11 +26773,11 @@ async function saveServerWallet(userId, privateKeyBase58) {
   }
 }
 async function clearServerWallet(userId) {
-  await db.update(solEngineSettings).set({ serverWalletKey: null, updatedAt: /* @__PURE__ */ new Date() }).where(eq7(solEngineSettings.userId, userId));
+  await db.update(solEngineSettings).set({ serverWalletKey: null, updatedAt: /* @__PURE__ */ new Date() }).where(eq8(solEngineSettings.userId, userId));
 }
 async function getServerWalletStatus(userId) {
   try {
-    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq7(solEngineSettings.userId, userId));
+    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq8(solEngineSettings.userId, userId));
     if (!settings?.serverWalletKey) return { hasServerWallet: false };
     const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
     const { Keypair: Keypair2, Connection: Connection3 } = await import("@solana/web3.js");
@@ -26633,10 +26944,12 @@ init_schema();
 init_db();
 init_openai();
 import { createServer } from "http";
-import { eq as eq8, and as and5, sql as sql5 } from "drizzle-orm";
+import { eq as eq9, and as and6, sql as sql6 } from "drizzle-orm";
 import { scrypt, randomBytes } from "crypto";
 import { promisify } from "util";
 import { z as z2 } from "zod";
+import * as fs4 from "fs";
+import * as path4 from "path";
 
 // server/twilio.ts
 import twilio from "twilio";
@@ -27131,11 +27444,99 @@ async function marketInsightsHandler(req, res) {
   }
 }
 
+// server/services/stopOrderService.ts
+init_db();
+init_schema();
+import { eq as eq3, and as and3, sql as sql3 } from "drizzle-orm";
+async function createStopOrder(params) {
+  const { currentPrice, ...insertData } = params;
+  if (currentPrice != null && currentPrice > 0) {
+    if (insertData.direction === "BUY_STOP" && insertData.triggerPrice <= currentPrice) {
+      throw new Error(
+        `BUY_STOP trigger price (${insertData.triggerPrice}) must be above current price (${currentPrice})`
+      );
+    }
+    if (insertData.direction === "SELL_STOP" && insertData.triggerPrice >= currentPrice) {
+      throw new Error(
+        `SELL_STOP trigger price (${insertData.triggerPrice}) must be below current price (${currentPrice})`
+      );
+    }
+  }
+  const [order] = await db.insert(stopOrders).values({ ...insertData, status: "PENDING", updatedAt: /* @__PURE__ */ new Date() }).returning();
+  console.log(
+    `[StopOrders] Created ${order.direction} @ ${order.triggerPrice} for ${order.symbol} (id=${order.id})`
+  );
+  return order;
+}
+async function checkBreakoutTriggers(symbol, currentPrice) {
+  if (!currentPrice || currentPrice <= 0) return [];
+  const normalised = symbol.toUpperCase().replace("/", "");
+  let pending;
+  try {
+    pending = await db.select().from(stopOrders).where(
+      and3(
+        eq3(stopOrders.symbol, normalised),
+        eq3(stopOrders.status, "PENDING")
+      )
+    );
+  } catch (err) {
+    console.error("[StopOrders] DB error reading pending orders:", err.message);
+    return [];
+  }
+  if (pending.length === 0) return [];
+  const triggered = [];
+  for (const order of pending) {
+    const shouldFire = order.direction === "BUY_STOP" && currentPrice >= order.triggerPrice || order.direction === "SELL_STOP" && currentPrice <= order.triggerPrice;
+    if (!shouldFire) continue;
+    try {
+      const [updated] = await db.update(stopOrders).set({
+        status: "TRIGGERED",
+        triggeredAt: /* @__PURE__ */ new Date(),
+        updatedAt: /* @__PURE__ */ new Date()
+      }).where(and3(eq3(stopOrders.id, order.id), eq3(stopOrders.status, "PENDING"))).returning();
+      if (updated) {
+        triggered.push(updated);
+        console.log(
+          `[StopOrders] TRIGGERED ${updated.direction} id=${updated.id} symbol=${updated.symbol} trigger=${updated.triggerPrice} current=${currentPrice}`
+        );
+      }
+    } catch (err) {
+      console.error(`[StopOrders] Failed to trigger order id=${order.id}:`, err.message);
+    }
+  }
+  return triggered;
+}
+async function cancelStopOrder(orderId, userId) {
+  const [existing] = await db.select().from(stopOrders).where(and3(eq3(stopOrders.id, orderId), eq3(stopOrders.userId, userId)));
+  if (!existing) {
+    throw new Error(`Stop order id=${orderId} not found for this user`);
+  }
+  if (existing.status !== "PENDING") {
+    throw new Error(`Stop order id=${orderId} is already ${existing.status}`);
+  }
+  const [cancelled] = await db.update(stopOrders).set({ status: "CANCELLED", cancelledAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(and3(eq3(stopOrders.id, orderId), eq3(stopOrders.userId, userId))).returning();
+  console.log(`[StopOrders] Cancelled id=${orderId} userId=${userId}`);
+  return cancelled;
+}
+async function getStopOrdersForUser(userId, filters = {}) {
+  const conditions = [eq3(stopOrders.userId, userId)];
+  if (filters.symbol) {
+    conditions.push(eq3(stopOrders.symbol, filters.symbol.toUpperCase().replace("/", "")));
+  }
+  if (filters.status) {
+    conditions.push(eq3(stopOrders.status, filters.status.toUpperCase()));
+  }
+  return db.select().from(stopOrders).where(and3(...conditions)).orderBy(sql3`${stopOrders.createdAt} DESC`);
+}
+
+// server/routes.ts
+init_schema();
+
 // server/stripe.ts
 init_db();
 init_schema();
 import Stripe2 from "stripe";
-import { eq as eq3 } from "drizzle-orm";
+import { eq as eq4 } from "drizzle-orm";
 
 // server/stripeClient.ts
 import Stripe from "stripe";
@@ -27186,7 +27587,7 @@ async function createStripeCustomer(userId, email, name) {
     });
     await db.update(users).set({
       stripeCustomerId: customer.id
-    }).where(eq3(users.id, userId));
+    }).where(eq4(users.id, userId));
     return customer;
   } catch (error) {
     console.error("Error creating Stripe customer:", error);
@@ -27196,11 +27597,11 @@ async function createStripeCustomer(userId, email, name) {
 async function createSubscription(userId, planId, successUrl, cancelUrl) {
   try {
     const stripeClient = await getStripe();
-    const [user] = await db.select().from(users).where(eq3(users.id, userId));
+    const [user] = await db.select().from(users).where(eq4(users.id, userId));
     if (!user) {
       throw new Error("User not found");
     }
-    const [plan] = await db.select().from(subscriptionPlans).where(eq3(subscriptionPlans.id, planId));
+    const [plan] = await db.select().from(subscriptionPlans).where(eq4(subscriptionPlans.id, planId));
     if (!plan) {
       throw new Error("Subscription plan not found");
     }
@@ -27213,7 +27614,7 @@ async function createSubscription(userId, planId, successUrl, cancelUrl) {
       } catch (e) {
         console.log("Stripe customer not found, creating new one:", e.message);
         user.stripeCustomerId = null;
-        await db.update(users).set({ stripeCustomerId: null }).where(eq3(users.id, user.id));
+        await db.update(users).set({ stripeCustomerId: null }).where(eq4(users.id, user.id));
       }
     }
     if (!user.stripeCustomerId) {
@@ -27245,7 +27646,7 @@ async function createSubscription(userId, planId, successUrl, cancelUrl) {
       await db.update(subscriptionPlans).set({
         stripeProductId: product.id,
         stripePriceId: price.id
-      }).where(eq3(subscriptionPlans.id, plan.id));
+      }).where(eq4(subscriptionPlans.id, plan.id));
       plan.stripeProductId = product.id;
       plan.stripePriceId = price.id;
     }
@@ -27255,7 +27656,7 @@ async function createSubscription(userId, planId, successUrl, cancelUrl) {
         subscriptionStatus: "active",
         subscriptionCurrentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1e3)
         // 30 days
-      }).where(eq3(users.id, userId));
+      }).where(eq4(users.id, userId));
       return {
         status: "active",
         currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1e3),
@@ -27313,7 +27714,7 @@ async function checkUserSubscriptionLimits(userId, actionType) {
       monthlySocialShareCount: users.monthlySocialShareCount,
       lastCountReset: users.lastCountReset,
       membershipTier: users.membershipTier
-    }).from(users).where(eq3(users.id, userId));
+    }).from(users).where(eq4(users.id, userId));
     if (!user) {
       throw new Error("User not found");
     }
@@ -27321,7 +27722,7 @@ async function checkUserSubscriptionLimits(userId, actionType) {
       await db.update(users).set({
         subscriptionPlanId: 1,
         subscriptionStatus: "active"
-      }).where(eq3(users.id, userId));
+      }).where(eq4(users.id, userId));
       user.subscriptionPlanId = 1;
       user.subscriptionStatus = "active";
     }
@@ -27329,14 +27730,14 @@ async function checkUserSubscriptionLimits(userId, actionType) {
     if (user.membershipTier && user.membershipTier !== "none") {
       const equivalentPlanName = MEMBERSHIP_PLAN_MAP[user.membershipTier];
       if (equivalentPlanName) {
-        const [tokenPlan] = await db.select().from(subscriptionPlans).where(eq3(subscriptionPlans.name, equivalentPlanName));
+        const [tokenPlan] = await db.select().from(subscriptionPlans).where(eq4(subscriptionPlans.name, equivalentPlanName));
         if (tokenPlan) {
           plan = tokenPlan;
         }
       }
     }
     if (!plan) {
-      const [dbPlan] = await db.select().from(subscriptionPlans).where(eq3(subscriptionPlans.id, user.subscriptionPlanId));
+      const [dbPlan] = await db.select().from(subscriptionPlans).where(eq4(subscriptionPlans.id, user.subscriptionPlanId));
       plan = dbPlan;
     }
     if (!plan) {
@@ -27350,7 +27751,7 @@ async function checkUserSubscriptionLimits(userId, actionType) {
         monthlyAnalysisCount: 0,
         monthlySocialShareCount: 0,
         lastCountReset: now
-      }).where(eq3(users.id, userId));
+      }).where(eq4(users.id, userId));
       user.monthlyAnalysisCount = 0;
       user.monthlySocialShareCount = 0;
       user.lastCountReset = now;
@@ -27365,7 +27766,7 @@ async function checkUserSubscriptionLimits(userId, actionType) {
       if (allowed) {
         await db.update(users).set({
           monthlyAnalysisCount: (user.monthlyAnalysisCount || 0) + 1
-        }).where(eq3(users.id, userId));
+        }).where(eq4(users.id, userId));
       }
     } else if (actionType === "social_share") {
       currentCount = user.monthlySocialShareCount || 0;
@@ -27374,7 +27775,7 @@ async function checkUserSubscriptionLimits(userId, actionType) {
       if (allowed) {
         await db.update(users).set({
           monthlySocialShareCount: (user.monthlySocialShareCount || 0) + 1
-        }).where(eq3(users.id, userId));
+        }).where(eq4(users.id, userId));
       }
     }
     return {
@@ -27392,7 +27793,7 @@ async function checkUserSubscriptionLimits(userId, actionType) {
 async function cancelSubscription(userId) {
   try {
     const stripeClient = await getStripe();
-    const [user] = await db.select().from(users).where(eq3(users.id, userId));
+    const [user] = await db.select().from(users).where(eq4(users.id, userId));
     if (!user) {
       throw new Error("User not found");
     }
@@ -27402,7 +27803,7 @@ async function cancelSubscription(userId) {
     const subscription = await stripeClient.subscriptions.cancel(user.stripeSubscriptionId);
     await db.update(users).set({
       subscriptionStatus: subscription.status
-    }).where(eq3(users.id, userId));
+    }).where(eq4(users.id, userId));
     return {
       status: subscription.status
     };
@@ -27413,7 +27814,7 @@ async function cancelSubscription(userId) {
 }
 async function getSubscriptionPlans() {
   try {
-    return await db.select().from(subscriptionPlans).where(eq3(subscriptionPlans.isActive, true));
+    return await db.select().from(subscriptionPlans).where(eq4(subscriptionPlans.isActive, true));
   } catch (error) {
     console.error("Error getting subscription plans:", error);
     throw error;
@@ -27421,14 +27822,14 @@ async function getSubscriptionPlans() {
 }
 async function getUserSubscription(userId) {
   try {
-    const [user] = await db.select().from(users).where(eq3(users.id, userId));
+    const [user] = await db.select().from(users).where(eq4(users.id, userId));
     if (!user) {
       throw new Error("User not found");
     }
     if (!user.subscriptionPlanId) {
       return null;
     }
-    const [plan] = await db.select().from(subscriptionPlans).where(eq3(subscriptionPlans.id, user.subscriptionPlanId));
+    const [plan] = await db.select().from(subscriptionPlans).where(eq4(subscriptionPlans.id, user.subscriptionPlanId));
     if (!plan) {
       return null;
     }
@@ -27453,7 +27854,7 @@ async function getUserSubscription(userId) {
 init_db();
 init_schema();
 import crypto2 from "crypto";
-import { eq as eq4 } from "drizzle-orm";
+import { eq as eq5 } from "drizzle-orm";
 var LS_API_KEY = process.env.LEMONSQUEEZY_API_KEY || "";
 var LS_BASE_URL = "https://api.lemonsqueezy.com/v1";
 var LS_STORE_ID = "310446";
@@ -27560,7 +27961,7 @@ async function lsHandleWebhookEvent(event) {
         subscriptionPlanId: planId || void 0,
         subscriptionStatus: status === "active" ? "active" : status,
         subscriptionCurrentPeriodEnd: renewsAt || void 0
-      }).where(eq4(users.id, userId));
+      }).where(eq5(users.id, userId));
       console.log(`[LS] User ${userId} subscribed to plan ${planId}, ls_subscription_id=${lsSubscriptionId}`);
       return { handled: true, action: "subscribed" };
     }
@@ -27571,7 +27972,7 @@ async function lsHandleWebhookEvent(event) {
       await db.update(users).set({
         subscriptionStatus: status,
         subscriptionCurrentPeriodEnd: renewsAt || void 0
-      }).where(eq4(users.id, userId));
+      }).where(eq5(users.id, userId));
       return { handled: true, action: "updated" };
     }
     case "subscription_cancelled":
@@ -27580,7 +27981,7 @@ async function lsHandleWebhookEvent(event) {
         subscriptionStatus: "canceled",
         subscriptionPlanId: 1,
         lsSubscriptionId: null
-      }).where(eq4(users.id, userId));
+      }).where(eq5(users.id, userId));
       return { handled: true, action: "cancelled" };
     }
     case "subscription_payment_success": {
@@ -27589,13 +27990,13 @@ async function lsHandleWebhookEvent(event) {
       await db.update(users).set({
         subscriptionStatus: "active",
         subscriptionCurrentPeriodEnd: renewsAt || void 0
-      }).where(eq4(users.id, userId));
+      }).where(eq5(users.id, userId));
       return { handled: true, action: "payment_success" };
     }
     case "subscription_payment_failed": {
       await db.update(users).set({
         subscriptionStatus: "past_due"
-      }).where(eq4(users.id, userId));
+      }).where(eq5(users.id, userId));
       return { handled: true, action: "payment_failed" };
     }
     default:
@@ -27603,7 +28004,7 @@ async function lsHandleWebhookEvent(event) {
   }
 }
 async function lsSetPlanVariantId(planId, variantId) {
-  await db.update(subscriptionPlans).set({ lsVariantId: variantId }).where(eq4(subscriptionPlans.id, planId));
+  await db.update(subscriptionPlans).set({ lsVariantId: variantId }).where(eq5(subscriptionPlans.id, planId));
 }
 async function lsGetPlanVariants() {
   const plans = await db.select({
@@ -27618,8 +28019,6 @@ init_schema();
 init_image_processor();
 init_news_service();
 import multer from "multer";
-import fs4 from "fs";
-import path4 from "path";
 import { v4 as uuidv42 } from "uuid";
 
 // server/video-processor.ts
@@ -27938,14 +28337,14 @@ init_vedd_token_service();
 init_db();
 init_schema();
 import { Router } from "express";
-import { eq as eq6, desc as desc3, sql as sql4 } from "drizzle-orm";
+import { eq as eq7, desc as desc3, sql as sql5 } from "drizzle-orm";
 var router = Router();
 async function requireAdmin(req, res, next) {
   if (!req.isAuthenticated()) {
     return res.status(401).json({ error: "Not authenticated" });
   }
   const userId = req.user.id;
-  const [user] = await db.select({ isAdmin: users.isAdmin }).from(users).where(eq6(users.id, userId)).limit(1);
+  const [user] = await db.select({ isAdmin: users.isAdmin }).from(users).where(eq7(users.id, userId)).limit(1);
   if (!user?.isAdmin) {
     return res.status(403).json({ error: "Admin access required" });
   }
@@ -27990,7 +28389,7 @@ router.get("/daily-missions", async (req, res) => {
     const weekStart = new Date(now);
     weekStart.setDate(now.getDate() + diffToMon);
     weekStart.setHours(0, 0, 0, 0);
-    const rawToday = await db.execute(sql4`
+    const rawToday = await db.execute(sql5`
       SELECT action_type, COUNT(*) as count, COALESCE(SUM(total_reward),0) as earned
       FROM ambassador_action_rewards
       WHERE user_id = ${userId} AND created_at >= ${todayStart}
@@ -27999,7 +28398,7 @@ router.get("/daily-missions", async (req, res) => {
     const todayRows = Array.isArray(rawToday) ? rawToday : rawToday.rows || [];
     const todayMap = {};
     for (const r of todayRows) todayMap[r.action_type] = { count: Number(r.count), earned: Number(r.earned) };
-    const rawWeek = await db.execute(sql4`
+    const rawWeek = await db.execute(sql5`
       SELECT action_type, COUNT(*) as count, COALESCE(SUM(total_reward),0) as earned
       FROM ambassador_action_rewards
       WHERE user_id = ${userId} AND created_at >= ${weekStart}
@@ -28033,7 +28432,7 @@ router.get("/daily-missions", async (req, res) => {
       const earned = map[t.actionType]?.earned || 0;
       return { ...t, completedCount: done, earnedVedd: earned, completed: done >= t.maxCount };
     });
-    const rawDevDays = await db.execute(sql4`
+    const rawDevDays = await db.execute(sql5`
       SELECT COUNT(DISTINCT DATE(created_at)) as days
       FROM ambassador_action_rewards
       WHERE user_id = ${userId}
@@ -28071,7 +28470,7 @@ router.post("/track", async (req, res) => {
 });
 router.get("/config", async (req, res) => {
   try {
-    const configs = await db.select().from(veddRewardConfig).where(eq6(veddRewardConfig.isActive, true));
+    const configs = await db.select().from(veddRewardConfig).where(eq7(veddRewardConfig.isActive, true));
     res.json(configs.map((c) => ({
       actionType: c.actionType,
       baseAmount: c.baseAmount,
@@ -28146,7 +28545,7 @@ router.post("/admin/pool/:walletId/sync", requireAdmin, async (req, res) => {
 });
 router.get("/admin/pending-rewards", requireAdmin, async (req, res) => {
   try {
-    const pendingRewards = await db.select().from(ambassadorActionRewards).where(eq6(ambassadorActionRewards.verificationStatus, "pending")).orderBy(desc3(ambassadorActionRewards.createdAt)).limit(100);
+    const pendingRewards = await db.select().from(ambassadorActionRewards).where(eq7(ambassadorActionRewards.verificationStatus, "pending")).orderBy(desc3(ambassadorActionRewards.createdAt)).limit(100);
     res.json(pendingRewards);
   } catch (error) {
     console.error("Error fetching pending rewards:", error);
@@ -28177,7 +28576,7 @@ router.get("/admin/transfers", requireAdmin, async (req, res) => {
     const limit = parseInt(req.query.limit) || 50;
     let query = db.select().from(veddTransferJobs).orderBy(desc3(veddTransferJobs.createdAt)).limit(limit);
     if (status) {
-      query = query.where(eq6(veddTransferJobs.status, status));
+      query = query.where(eq7(veddTransferJobs.status, status));
     }
     const transfers = await query;
     res.json(transfers);
@@ -28189,7 +28588,7 @@ router.get("/admin/transfers", requireAdmin, async (req, res) => {
 router.post("/admin/transfers/:jobId/retry", requireAdmin, async (req, res) => {
   try {
     const jobId = parseInt(req.params.jobId);
-    await db.update(veddTransferJobs).set({ status: "pending", retryCount: 0 }).where(eq6(veddTransferJobs.id, jobId));
+    await db.update(veddTransferJobs).set({ status: "pending", retryCount: 0 }).where(eq7(veddTransferJobs.id, jobId));
     const result = await veddTokenService.processTransfer(jobId);
     res.json(result);
   } catch (error) {
@@ -28209,7 +28608,7 @@ router.post("/admin/config/:actionType", requireAdmin, async (req, res) => {
       ...description !== void 0 && { description },
       ...isActive !== void 0 && { isActive },
       updatedAt: /* @__PURE__ */ new Date()
-    }).where(eq6(veddRewardConfig.actionType, actionType));
+    }).where(eq7(veddRewardConfig.actionType, actionType));
     res.json({ success: true });
   } catch (error) {
     console.error("Error updating reward config:", error);
@@ -28243,7 +28642,7 @@ router.post("/admin/blacklist", requireAdmin, async (req, res) => {
 });
 router.delete("/admin/blacklist/:address", requireAdmin, async (req, res) => {
   try {
-    await db.update(veddWalletBlacklist).set({ isActive: false }).where(eq6(veddWalletBlacklist.walletAddress, req.params.address));
+    await db.update(veddWalletBlacklist).set({ isActive: false }).where(eq7(veddWalletBlacklist.walletAddress, req.params.address));
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: "Failed to remove from blacklist" });
@@ -28251,7 +28650,7 @@ router.delete("/admin/blacklist/:address", requireAdmin, async (req, res) => {
 });
 router.get("/admin/security-alerts", requireAdmin, async (req, res) => {
   try {
-    const flagged = await db.select().from(ambassadorActionRewards).where(sql4`${ambassadorActionRewards.securityFlag} IS NOT NULL`).orderBy(desc3(ambassadorActionRewards.createdAt)).limit(100);
+    const flagged = await db.select().from(ambassadorActionRewards).where(sql5`${ambassadorActionRewards.securityFlag} IS NOT NULL`).orderBy(desc3(ambassadorActionRewards.createdAt)).limit(100);
     res.json(flagged);
   } catch (error) {
     res.status(500).json({ error: "Failed to fetch security alerts" });
@@ -28267,7 +28666,7 @@ router.post("/referral/trade-profit", async (req, res) => {
     if (typeof profitAmount !== "number" || profitAmount <= 0) {
       return res.status(400).json({ error: "Valid positive profitAmount required" });
     }
-    const [referral] = await db.select().from(referrals2).where(eq6(referrals2.referredId, traderId)).limit(1);
+    const [referral] = await db.select().from(referrals2).where(eq7(referrals2.referredId, traderId)).limit(1);
     if (!referral) {
       return res.json({ success: false, message: "No referrer found for this user" });
     }
@@ -28304,7 +28703,7 @@ router.post("/referral/signup", async (req, res) => {
       return res.status(401).json({ error: "Not authenticated" });
     }
     const newUserId = req.user.id;
-    const [referral] = await db.select().from(referrals2).where(eq6(referrals2.referredId, newUserId)).limit(1);
+    const [referral] = await db.select().from(referrals2).where(eq7(referrals2.referredId, newUserId)).limit(1);
     if (!referral) {
       return res.json({ success: false, message: "No referrer found for this user" });
     }
@@ -28339,7 +28738,7 @@ router.get("/referral/stats", async (req, res) => {
       return res.status(401).json({ error: "Not authenticated" });
     }
     const userId = req.user.id;
-    const referralRewards = await db.select().from(ambassadorActionRewards).where(eq6(ambassadorActionRewards.userId, userId));
+    const referralRewards = await db.select().from(ambassadorActionRewards).where(eq7(ambassadorActionRewards.userId, userId));
     const referralTypes = ["referral_signup", "referral_profit_share", "referral_first_trade", "referral_ambassador"];
     const referralOnlyRewards = referralRewards.filter((r) => referralTypes.includes(r.actionType));
     const totalReferrals = referralOnlyRewards.filter((r) => r.actionType === "referral_signup").length;
@@ -31005,6 +31404,133 @@ async function pushStrategyToAllPlatforms(userId, strategy, plan) {
   console.log(`[Platform Sync] User ${userId}: MT5=${result.mt5}, TradeLocker=${result.tradelocker}, Tradovate=${result.tradovate}, Webhooks=${result.webhooksTriggered}`);
   return result;
 }
+function runForexQuantAgent(signal, indicators, smcContext) {
+  const reasons = [];
+  const isBuy = signal === "BUY";
+  const isSell = signal === "SELL";
+  if (!isBuy && !isSell) return { verdict: "SKIP", score: 0, reasons: ["No directional signal"] };
+  let score = 0;
+  const ma = indicators.movingAverages;
+  if (ma) {
+    const ema20 = ma.ema20?.value ?? ma.ema20;
+    const ema50 = ma.ema50?.value ?? ma.ema50;
+    const sma200 = ma.sma200?.value ?? ma.sma200;
+    const price = indicators.price?.bid || 0;
+    if (isBuy) {
+      if (ema20 && ema50 && ema20 > ema50) {
+        score += 10;
+        reasons.push("EMA20 > EMA50 \u2713");
+      }
+      if (ema50 && sma200 && ema50 > sma200) {
+        score += 10;
+        reasons.push("EMA50 > SMA200 \u2713");
+      }
+      if (price && ema20 && price > ema20) {
+        score += 5;
+        reasons.push("Price above EMA20 \u2713");
+      }
+    } else {
+      if (ema20 && ema50 && ema20 < ema50) {
+        score += 10;
+        reasons.push("EMA20 < EMA50 \u2713");
+      }
+      if (ema50 && sma200 && ema50 < sma200) {
+        score += 10;
+        reasons.push("EMA50 < SMA200 \u2713");
+      }
+      if (price && ema20 && price < ema20) {
+        score += 5;
+        reasons.push("Price below EMA20 \u2713");
+      }
+    }
+  }
+  const rsiRaw = indicators.rsi?.value ?? indicators.rsi;
+  if (typeof rsiRaw === "number") {
+    if (isBuy) {
+      if (rsiRaw >= 40 && rsiRaw <= 65) {
+        score += 20;
+        reasons.push(`RSI ${rsiRaw.toFixed(0)} in buy zone \u2713`);
+      } else if (rsiRaw < 30) {
+        score += 10;
+        reasons.push(`RSI oversold ${rsiRaw.toFixed(0)}`);
+      } else if (rsiRaw > 75) {
+        score -= 10;
+        reasons.push(`RSI overbought ${rsiRaw.toFixed(0)} \u2717`);
+      }
+    } else {
+      if (rsiRaw >= 35 && rsiRaw <= 60) {
+        score += 20;
+        reasons.push(`RSI ${rsiRaw.toFixed(0)} in sell zone \u2713`);
+      } else if (rsiRaw > 70) {
+        score += 10;
+        reasons.push(`RSI overbought ${rsiRaw.toFixed(0)}`);
+      } else if (rsiRaw < 25) {
+        score -= 10;
+        reasons.push(`RSI oversold ${rsiRaw.toFixed(0)} \u2717`);
+      }
+    }
+  }
+  const macd = indicators.macd;
+  if (macd) {
+    const hist = macd.histogram?.value ?? macd.histogram;
+    const main = macd.main?.value ?? macd.main;
+    const sig = macd.signal?.value ?? macd.signal;
+    if (typeof hist === "number") {
+      if (isBuy && hist > 0) {
+        score += 15;
+        reasons.push(`MACD hist +${hist.toFixed(5)} \u2713`);
+      } else if (isSell && hist < 0) {
+        score += 15;
+        reasons.push(`MACD hist ${hist.toFixed(5)} \u2713`);
+      } else reasons.push("MACD histogram opposes signal \u2717");
+    }
+    if (typeof main === "number" && typeof sig === "number") {
+      if (isBuy && main > sig || isSell && main < sig) {
+        score += 5;
+        reasons.push("MACD line crossed \u2713");
+      }
+    }
+  }
+  const volStatus = indicators.sessionContext?.volumeStatus || indicators.volumeProfile?.volumeStatus;
+  if (volStatus) {
+    if (volStatus === "SURGING") {
+      score += 15;
+      reasons.push("Volume SURGING \u2713");
+    } else if (volStatus === "ABOVE_AVERAGE") {
+      score += 10;
+      reasons.push("Volume above avg \u2713");
+    } else if (volStatus === "DRY") {
+      score -= 5;
+      reasons.push("Volume DRY \u2717");
+    }
+  }
+  const adxVal = indicators.adx?.value ?? (typeof indicators.adx === "number" ? indicators.adx : null);
+  if (typeof adxVal === "number") {
+    if (adxVal >= 25) {
+      score += 10;
+      reasons.push(`ADX ${adxVal.toFixed(0)} trending \u2713`);
+    } else if (adxVal < 20) reasons.push(`ADX ${adxVal.toFixed(0)} ranging \u2717`);
+  }
+  if (smcContext) {
+    if (smcContext.bosCHOCH?.detected) {
+      const dir = smcContext.bosCHOCH.direction;
+      if (isBuy && dir === "BULLISH" || isSell && dir === "BEARISH") {
+        score += 5;
+        reasons.push(`BOS/CHOCH ${dir} aligned \u2713`);
+      }
+    }
+    if (smcContext.fvg?.detected && smcContext.fvg?.inZone) {
+      const dir = smcContext.fvg.direction;
+      if (isBuy && dir === "BULLISH" || isSell && dir === "BEARISH") {
+        score += 5;
+        reasons.push(`FVG in zone ${dir} \u2713`);
+      }
+    }
+  }
+  score = Math.max(0, Math.min(100, score));
+  const verdict = score >= 65 ? "CONFIRM" : score >= 40 ? "WATCH" : "SKIP";
+  return { verdict, score, reasons };
+}
 async function registerRoutes(app2, existingServer) {
   setupTwilio();
   newsService.initialize(process.env.FINNHUB_API_KEY, process.env.OPENAI_API_KEY);
@@ -31895,9 +32421,9 @@ Respond ONLY in valid JSON format with these exact keys:
         const originalImageUrl = analysis.imageUrl;
         console.log("Original image URL:", originalImageUrl);
         const imagePath = originalImageUrl.startsWith("/") ? originalImageUrl.substring(1) : originalImageUrl;
-        const basename = path4.basename(imagePath);
-        console.log("Image basename:", basename);
-        const originalImagePath = path4.join(process.cwd(), "uploads", basename);
+        const basename2 = path4.basename(imagePath);
+        console.log("Image basename:", basename2);
+        const originalImagePath = path4.join(process.cwd(), "uploads", basename2);
         console.log("Full image path:", originalImagePath);
         if (!fs4.existsSync(originalImagePath)) {
           console.error("Original image not found at path:", originalImagePath);
@@ -33409,7 +33935,8 @@ VEDD CONTEXT: VEDD is a faith-based AI trading platform with a community of trad
           const { MsEdgeTTS, OUTPUT_FORMAT } = await import("msedge-tts");
           const tts = new MsEdgeTTS();
           await tts.setMetadata(
-            process.env.EDGE_TTS_VOICE || "en-US-DavisNeural",
+            process.env.EDGE_TTS_VOICE || "en-US-GuyNeural",
+            // Guy = deep urban male, free Edge TTS
             OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3
           );
           const { audioStream } = tts.toStream(ttsText);
@@ -33888,6 +34415,8 @@ IMPORTANT:
         riskLevel: savedStrategy?.riskLevel || riskLevel || "moderate",
         lotSize: savedStrategy?.lotSize ?? (lotSize ? parseFloat(lotSize) : null),
         plan: savedStrategy?.plan || planData,
+        // Store the chosen strategy mode so AI confirmation uses it at signal time
+        strategyMode: hftMode || savedStrategy?.strategyType || "aggressive",
         pairStats,
         generatedAt: /* @__PURE__ */ new Date(),
         weekStart,
@@ -33987,7 +34516,8 @@ IMPORTANT:
       const elKey = allKeys.find((k) => k.provider === "elevenlabs" && k.isActive && k.isValid !== false)?.apiKey || process.env.ELEVENLABS_API_KEY;
       if (elKey) {
         try {
-          const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || "21m00Tcm4TlvDq8ikWAM";
+          const requestedVoiceId = req.body.voiceId;
+          const ELEVENLABS_VOICE_ID = requestedVoiceId || process.env.ELEVENLABS_VOICE_ID || "pNInz6obpgDQGcFmaJgB";
           const elRes = await fetch(
             `https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`,
             {
@@ -33997,9 +34527,11 @@ IMPORTANT:
                 text: clean,
                 model_id: "eleven_turbo_v2_5",
                 voice_settings: {
-                  stability: 0.5,
-                  similarity_boost: 0.8,
-                  style: 0.1,
+                  stability: 0.48,
+                  // slight variation for natural cadence
+                  similarity_boost: 0.82,
+                  style: 0.18,
+                  // more personality/expressiveness for urban tone
                   use_speaker_boost: true
                 }
               })
@@ -34023,7 +34555,8 @@ IMPORTANT:
       if (openaiKey) {
         try {
           const ttsClient = new OpenAILib({ apiKey: openaiKey });
-          const mp3 = await ttsClient.audio.speech.create({ model: "tts-1-hd", voice: "nova", input: clean, speed: 1 });
+          const ttsVoice = req.body.voiceId || "onyx";
+          const mp3 = await ttsClient.audio.speech.create({ model: "tts-1-hd", voice: ttsVoice, input: clean, speed: 1 });
           const buffer = Buffer.from(await mp3.arrayBuffer());
           console.log(`[ABBA TTS] OpenAI OK \u2014 ${buffer.length} bytes`);
           res.set({ "Content-Type": "audio/mpeg", "Content-Length": String(buffer.length), "Cache-Control": "no-cache", "X-TTS-Provider": "openai" });
@@ -35905,19 +36438,105 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       console.log("[TradeLocker] Checking connections for user:", token.userId, "| found:", tlConnections.length);
       const abbaPlanSync = global.veddPlatformSync?.[token.userId];
       let inAbbaPlan = true;
-      if (abbaPlanSync?.pairs?.length > 0 && action === "OPEN") {
-        const normSignal = (symbol || "").toUpperCase().replace("/", "").replace("_", "");
-        inAbbaPlan = abbaPlanSync.pairs.some(
-          (p) => p.toUpperCase().replace("/", "").replace("_", "") === normSignal
-        );
-        if (!inAbbaPlan) {
-          console.log(`[ABBA Plan Filter] ${symbol} not in active plan (${abbaPlanSync.pairs.join(", ")}) \u2014 TradeLocker auto-execute skipped`);
+      if (action === "OPEN") {
+        const relayStrategy = global.mt5WeeklyStrategies?.[token.userId];
+        if (relayStrategy?.plan?.weeklyPlan) {
+          const relayDayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+          const relayToday = relayDayNames[(/* @__PURE__ */ new Date()).getUTCDay()];
+          const relayTodayPlan = relayStrategy.plan.weeklyPlan[relayToday];
+          if (relayTodayPlan?.pairs) {
+            const normRelaySym = (symbol || "").toUpperCase().replace("/", "").replace("_", "");
+            const relayPairPlan = relayTodayPlan.pairs.find(
+              (p) => (p.symbol || "").toUpperCase().replace("/", "").replace("_", "") === normRelaySym
+            );
+            if (relayPairPlan) {
+              const planDir = relayPairPlan.direction;
+              if (planDir && planDir !== "BOTH" && planDir !== (direction || "").toUpperCase()) {
+                inAbbaPlan = false;
+                console.log(`[ABBA Direction Block] ${symbol} relay BLOCKED \u2014 plan=${planDir}, signal=${direction}. Only ${planDir} allowed today.`);
+              }
+            }
+          }
+        }
+        if (inAbbaPlan && abbaPlanSync?.pairs?.length > 0) {
+          const normSignal = (symbol || "").toUpperCase().replace("/", "").replace("_", "");
+          inAbbaPlan = abbaPlanSync.pairs.some(
+            (p) => p.toUpperCase().replace("/", "").replace("_", "") === normSignal
+          );
+          if (!inAbbaPlan) {
+            console.log(`[ABBA Plan Filter] ${symbol} not in active plan (${abbaPlanSync.pairs.join(", ")}) \u2014 TradeLocker auto-execute skipped`);
+          }
+        }
+      }
+      let relayVolume = volume || 0.01;
+      if (action === "OPEN" && stopLoss && entryPrice && stopLoss > 0 && entryPrice > 0) {
+        try {
+          const { getLiveEngineState: _rLES } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+          const _rState = _rLES(token.userId);
+          const relayRiskPct = _rState?.config?.riskPerTrade ?? 1;
+          const relayAcctData = global.mt5AccountData?.[token.userId];
+          const relayBalance = relayAcctData?.balance || 1e4;
+          const relayRiskAmt = relayBalance * (relayRiskPct / 100);
+          const relaySlDist = Math.abs(entryPrice - stopLoss);
+          const relaySym = (symbol || "").toUpperCase().replace("/", "");
+          const relayPipSz = getPipSize(relaySym);
+          const relayPipVal = getPipValue(relaySym);
+          const relaySlPips = relaySlDist / relayPipSz;
+          if (relaySlPips > 0 && relayPipVal > 0) {
+            const calc = relayRiskAmt / (relaySlPips * relayPipVal);
+            relayVolume = Math.max(0.01, Math.min(10, Math.round(calc * 100) / 100));
+            console.log(`[TL Relay] Risk-based lot: balance=$${relayBalance} risk=${relayRiskPct}% SL=${relaySlPips.toFixed(1)}pips \u2192 ${relayVolume} lots`);
+          }
+        } catch (_riskErr) {
+        }
+      }
+      let relayBlocked = !inAbbaPlan;
+      if (!relayBlocked && action === "OPEN") {
+        try {
+          const _relayPlan = global.mt5WeeklyStrategies?.[token.userId];
+          if (_relayPlan?.plan?.weeklyPlan) {
+            const _rDn = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+            const _rDay = _rDn[(/* @__PURE__ */ new Date()).getUTCDay()];
+            const _rTodayPlan = _relayPlan.plan.weeklyPlan[_rDay];
+            if (_rTodayPlan?.pairs) {
+              const _rNorm = (symbol || "").toUpperCase().replace("/", "").replace("_", "");
+              const _rPair = _rTodayPlan.pairs.find(
+                (p) => (p.symbol || "").toUpperCase().replace("/", "").replace("_", "") === _rNorm
+              );
+              const _rCap = _rPair?.maxTrades ?? _relayPlan.plan?.maxTradesPerDay ?? _relayPlan.maxTradesPerDay;
+              if (_rCap && _rCap > 0) {
+                const _rDate = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+                const _rLogs = await storage.getTradelockerTradeLogs(token.userId, 200);
+                const _rCount = (_rLogs || []).filter(
+                  (t) => (t.symbol || "").toUpperCase().replace("/", "") === _rNorm && t.action === "OPEN" && t.status === "executed" && t.createdAt && t.createdAt.toString().startsWith(_rDate)
+                ).length;
+                if (_rCount >= _rCap) {
+                  relayBlocked = true;
+                  console.log(`[Relay Gate] Daily cap: ${_rCount}/${_rCap} trades on ${_rNorm} \u2014 relay blocked`);
+                }
+              }
+            }
+          }
+        } catch {
+        }
+        if (!relayBlocked) {
+          const _relayKey = `last_trade_${token.userId}_${(symbol || "").toUpperCase().replace("/", "")}`;
+          global.recentTrades = global.recentTrades || {};
+          const _relayLast = global.recentTrades[_relayKey];
+          const _relayNow = Date.now();
+          const _relayCooldownMs = 5 * 60 * 1e3;
+          if (_relayLast && _relayNow - _relayLast < _relayCooldownMs) {
+            relayBlocked = true;
+            console.log(`[Relay Gate] Cooldown active for ${symbol} \u2014 relay blocked (${Math.round((_relayCooldownMs - (_relayNow - _relayLast)) / 1e3)}s remaining)`);
+          } else {
+            global.recentTrades[_relayKey] = _relayNow;
+          }
         }
       }
       const tradelockerResults = [];
       for (const tlConn of tlConnections) {
-        if (!tlConn.isActive || !tlConn.autoExecute || !inAbbaPlan) continue;
-        console.log(`[TradeLocker] Executing on account ${tlConn.accountId} (id=${tlConn.id}):`, { action, symbol, direction, volume });
+        if (!tlConn.isActive || !tlConn.autoExecute || relayBlocked) continue;
+        console.log(`[TradeLocker] Executing on account ${tlConn.accountId} (id=${tlConn.id}):`, { action, symbol, direction, volume: relayVolume });
         let connResult = null;
         if (action === "OPEN") {
           const guard = tlSignalGuard({
@@ -35940,7 +36559,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             action,
             symbol,
             direction,
-            volume: volume || 0.01,
+            volume: relayVolume,
             entryPrice,
             stopLoss,
             takeProfit
@@ -35952,7 +36571,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             action,
             symbol,
             direction,
-            volume: volume || 0.01,
+            volume: relayVolume,
             entryPrice,
             stopLoss,
             takeProfit,
@@ -36381,6 +37000,9 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           const bbLower = indicators.bollingerBands?.lower;
           let atr = indicators.atr;
           const currentPrice = indicators.price?.bid || candles[0]?.c;
+          if (currentPrice && currentPrice > 0) {
+            checkBreakoutTriggers(sanitizedSymbol, currentPrice).catch((err) => console.error("[StopOrders] trigger scan error:", err.message));
+          }
           if (!atr && candles.length >= 14) {
             let atrSum = 0;
             for (let i = 0; i < 14 && i < candles.length - 1; i++) {
@@ -37193,9 +37815,11 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 console.log(`[VEDD SS AI] Plan MATCH on ${sanitizedSymbol}: ${analysis.signal} aligns with plan (${planDirection}). Confidence ${analysis.confidence}% \u2192 ${boostedConfidence}% (+${boostAmount})`);
                 analysis.confidence = boostedConfidence;
                 analysis.alerts.push(`VEDD SS AI: Trade matches your weekly plan (${planDirection} ${normalizedSymbol} - ${matchingPairPlan.session}). Confidence boosted +${boostAmount}%`);
-              } else if (planDirection && planDirection !== analysis.signal && analysis.signal !== "NEUTRAL") {
-                console.log(`[VEDD SS AI] Plan CONFLICT on ${sanitizedSymbol}: EA says ${analysis.signal}, Plan says ${planDirection}`);
-                analysis.alerts.push(`VEDD SS AI WARNING: Plan recommends ${planDirection} but EA detected ${analysis.signal}. Proceeding with caution.`);
+              } else if (planDirection && planDirection !== "BOTH" && planDirection !== analysis.signal && analysis.signal !== "NEUTRAL") {
+                console.log(`[VEDD SS AI] Direction BLOCK on ${sanitizedSymbol}: Plan=${planDirection}, EA=${analysis.signal} \u2014 opposite direction rejected`);
+                analysis.signal = "NEUTRAL";
+                analysis.alerts = analysis.alerts || [];
+                analysis.alerts.push(`VEDD SS AI: ${analysis.signal !== "NEUTRAL" ? analysis.signal : "Signal"} BLOCKED \u2014 your plan only allows ${planDirection} on ${normalizedSymbol} today. Wait for a ${planDirection} setup.`);
               }
               if (planLotSize && planLotSize > 0) {
                 global.veddSSAILotOverride = global.veddSSAILotOverride || {};
@@ -37590,6 +38214,11 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 learnedInsights = await getLearnedInsights3(token.userId, sanitizedSymbol);
               } catch (_le) {
               }
+              const { getLiveEngineState: _getStratLES } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+              const _stratEngineState = _getStratLES(token.userId);
+              const _weeklyStrat = global.mt5WeeklyStrategies?.[token.userId];
+              const resolvedStrategyMode = _stratEngineState?.config?.strategyMode || _weeklyStrat?.strategyMode || _weeklyStrat?.plan?.strategyType || "aggressive";
+              console.log(`[AI Confirmation] Strategy mode for ${sanitizedSymbol}: ${resolvedStrategyMode}`);
               aiConfirmation = await getAiVisionConfirmation2(
                 candles,
                 analysis.indicators,
@@ -37605,7 +38234,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 htfLevels.length > 0 ? htfLevels : void 0,
                 propFirmCtx,
                 symbolPerfStats,
-                learnedInsights
+                learnedInsights,
+                resolvedStrategyMode
               );
             }
             {
@@ -37621,17 +38251,42 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               }
               if (aiConfirmation) aiConfirmation.trailRecommendation = "NONE";
             }
+            const quantResult = runForexQuantAgent(preConfirmSignal, analysis.indicators, smcContext);
+            const aiVerdict = (() => {
+              if (useBreakoutMode) return aiConfirmation.confirmed ? "CONFIRM" : "SKIP";
+              const { getAiMinConfidence: _getMin } = { getAiMinConfidence: (uid2) => 65 };
+              return aiConfirmation.aiConfidence >= 65 ? "CONFIRM" : "SKIP";
+            })();
+            const consensusLabel = quantResult.verdict === "CONFIRM" && aiVerdict === "CONFIRM" ? "STRONG_CONFIRM" : quantResult.verdict === "SKIP" && aiVerdict === "SKIP" ? "STRONG_SKIP" : quantResult.verdict === "CONFIRM" && aiVerdict === "SKIP" || quantResult.verdict === "SKIP" && aiVerdict === "CONFIRM" ? "CAUTION" : "WATCH";
+            const ssConsensusEntry = {
+              symbol: sanitizedSymbol,
+              timeframe: sanitizedTimeframe,
+              quantVerdict: quantResult.verdict,
+              quantScore: quantResult.score,
+              quantReasons: quantResult.reasons,
+              aiVerdict,
+              aiConfidence: aiConfirmation.aiConfidence,
+              consensus: consensusLabel,
+              tradeAllowed: consensusLabel !== "STRONG_SKIP",
+              timestamp: (/* @__PURE__ */ new Date()).toISOString()
+            };
+            global.ssEngineConsensus = global.ssEngineConsensus || {};
+            global.ssEngineConsensus[token.userId] = [
+              ssConsensusEntry,
+              ...(global.ssEngineConsensus[token.userId] || []).filter((c) => c.symbol !== sanitizedSymbol)
+            ].slice(0, 20);
+            console.log(`[SS Consensus] ${sanitizedSymbol} \u2014 Quant:${quantResult.verdict}(${quantResult.score}) AI:${aiVerdict}(${aiConfirmation.aiConfidence}%) \u2192 ${consensusLabel}`);
             const { getAiMinConfidence: getAiMinConfidence2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
             const AI_MIN_CONFIDENCE = getAiMinConfidence2(token.userId);
             const EA_MIN_CONFIDENCE_FOR_AI_GATE = 80;
             const breakoutGrade = aiConfirmation.breakoutGrade;
             const aiPasses = useBreakoutMode ? aiConfirmation.confirmed : aiConfirmation.aiConfidence >= AI_MIN_CONFIDENCE;
             const eaPasses = preConfirmConfidence >= EA_MIN_CONFIDENCE_FOR_AI_GATE;
-            const tradeAllowed = aiPasses;
+            const tradeAllowed = consensusLabel !== "STRONG_SKIP" && aiPasses;
             if (!tradeAllowed) {
-              const reason = useBreakoutMode ? `Breakout grade insufficient (Grade ${breakoutGrade || "PASS"} \u2014 Grade A (\u226570%) or B (\u226550%) required to CONFIRM)` : !eaPasses ? `Both below threshold (AI: ${aiConfirmation.aiConfidence}% < ${AI_MIN_CONFIDENCE}%, EA: ${preConfirmConfidence}% < ${EA_MIN_CONFIDENCE_FOR_AI_GATE}%)` : `AI confidence too low (AI: ${aiConfirmation.aiConfidence}% < ${AI_MIN_CONFIDENCE}%, EA: ${preConfirmConfidence}%)`;
+              const reason = consensusLabel === "STRONG_SKIP" ? `Dual-agent STRONG_SKIP \u2014 Quant:${quantResult.verdict}(${quantResult.score}) + AI:${aiVerdict}(${aiConfirmation.aiConfidence}%) both reject` : useBreakoutMode ? `Breakout grade insufficient (Grade ${breakoutGrade || "PASS"} \u2014 Grade A (\u226570%) or B (\u226550%) required to CONFIRM)` : !eaPasses ? `Both below threshold (AI: ${aiConfirmation.aiConfidence}% < ${AI_MIN_CONFIDENCE}%, EA: ${preConfirmConfidence}% < ${EA_MIN_CONFIDENCE_FOR_AI_GATE}%)` : `AI confidence too low (AI: ${aiConfirmation.aiConfidence}% < ${AI_MIN_CONFIDENCE}%, EA: ${preConfirmConfidence}%)`;
               console.log(`[AI Vision Confirmation] BLOCKED trade on ${sanitizedSymbol} - ${reason}: ${aiConfirmation.reasoning}`);
-              analysis.alerts.push(`TRADE BLOCKED: ${reason} - ${aiConfirmation.reasoning}`);
+              analysis.alerts.push(`TRADE BLOCKED [${consensusLabel}]: ${reason} - ${aiConfirmation.reasoning}`);
               aiConfirmation.confirmed = false;
               analysis.tradePlan = null;
               analysis.signal = "NEUTRAL";
@@ -37659,9 +38314,9 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               });
             } else {
               const isAiOverride = aiPasses && !eaPasses;
-              const approvalLabel = isAiOverride ? "AI OVERRIDE" : "APPROVED";
-              console.log(`[AI Vision Confirmation] ${approvalLabel} trade on ${sanitizedSymbol} (EA: ${preConfirmConfidence}% | AI: ${aiConfirmation.aiConfidence}%)${isAiOverride ? " - AI confidence overriding low EA" : ""}: ${aiConfirmation.reasoning}`);
-              analysis.alerts.push(`TRADE ${approvalLabel} (EA: ${preConfirmConfidence}% | AI: ${aiConfirmation.aiConfidence}%)${isAiOverride ? " [AI overrode low EA]" : ""} - ${aiConfirmation.reasoning}`);
+              const approvalLabel = consensusLabel === "STRONG_CONFIRM" ? "STRONG CONFIRM" : isAiOverride ? "AI OVERRIDE" : "APPROVED";
+              console.log(`[AI Vision Confirmation] ${approvalLabel} [${consensusLabel}] trade on ${sanitizedSymbol} (EA: ${preConfirmConfidence}% | AI: ${aiConfirmation.aiConfidence}% | Quant: ${quantResult.score})${isAiOverride ? " - AI overriding low EA" : ""}: ${aiConfirmation.reasoning}`);
+              analysis.alerts.push(`TRADE ${approvalLabel} [${consensusLabel}] (EA: ${preConfirmConfidence}% | AI: ${aiConfirmation.aiConfidence}% | Quant: ${quantResult.score}/100)${isAiOverride ? " [AI overrode low EA]" : ""} - ${aiConfirmation.reasoning}`);
               aiConfirmation.confirmed = true;
               if (useBreakoutMode && aiConfirmation.aiDirection && aiConfirmation.aiDirection !== "NEUTRAL") {
                 analysis.signal = aiConfirmation.aiDirection;
@@ -37880,7 +38535,10 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         }
       }
       const useRiskPercent = matchingEA?.useRiskPercent ?? true;
-      const riskPercentSetting = matchingEA?.riskPercent ?? 0.25;
+      const { getLiveEngineState: _getLES } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+      const _liveState = _getLES(token.userId);
+      const liveEngineRiskPct = _liveState?.config?.riskPerTrade ?? 1;
+      const riskPercentSetting = matchingEA?.riskPercent != null ? matchingEA.riskPercent : liveEngineRiskPct;
       const fixedVolumeSetting = matchingEA?.volume ?? 0.01;
       const accountData = global.mt5AccountData?.[token.userId];
       const accountBalance = accountData?.balance || 1e4;
@@ -37924,7 +38582,128 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         mt5Volume = Math.max(0.01, Math.min(10, Math.round(mt5Volume * goalLotMultiplier * 100) / 100));
         console.log(`[VEDD Goal Intelligence] Plan lot override adjusted (${goalPaceMode}): ${preMult} \u2192 ${mt5Volume} lots (\xD7${goalLotMultiplier.toFixed(2)})`);
       }
-      if (analysis.signal !== "NEUTRAL" && analysis.confidence >= MIN_CONFIDENCE_FOR_AUTO_TRADE && analysis.tradePlan) {
+      let tlGateBlocked = false;
+      let tlGateReason = "";
+      if (analysis.signal !== "NEUTRAL") {
+        try {
+          const tlGatePlan = global.mt5WeeklyStrategies?.[token.userId];
+          if (tlGatePlan?.plan?.weeklyPlan) {
+            const _dn = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+            const _todayG = _dn[(/* @__PURE__ */ new Date()).getUTCDay()];
+            const _todayPlanG = tlGatePlan.plan.weeklyPlan[_todayG];
+            if (_todayPlanG?.pairs) {
+              const _normG = sanitizedSymbol.toUpperCase().replace("/", "");
+              const _pairG = _todayPlanG.pairs.find(
+                (p) => (p.symbol || "").toUpperCase().replace("/", "") === _normG
+              );
+              if (_pairG?.direction && _pairG.direction !== "BOTH" && _pairG.direction !== analysis.signal) {
+                tlGateBlocked = true;
+                tlGateReason = `Direction blocked: plan=${_pairG.direction}, signal=${analysis.signal}`;
+                analysis.signal = "NEUTRAL";
+                analysis.alerts = analysis.alerts || [];
+                analysis.alerts.push(`BLOCKED: ${analysis.signal !== "NEUTRAL" ? analysis.signal : "Signal"} rejected \u2014 plan only allows ${_pairG.direction} on ${_normG} today`);
+                console.log(`[TL Gate] ${tlGateReason}`);
+              }
+            }
+          }
+        } catch {
+        }
+      }
+      if (!tlGateBlocked && analysis.signal !== "NEUTRAL") {
+        try {
+          const tlCapPlan = global.mt5WeeklyStrategies?.[token.userId];
+          if (tlCapPlan?.plan?.weeklyPlan) {
+            const _dn2 = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+            const _today2 = _dn2[(/* @__PURE__ */ new Date()).getUTCDay()];
+            const _todayPlan2 = tlCapPlan.plan.weeklyPlan[_today2];
+            if (_todayPlan2?.pairs) {
+              const _norm2 = sanitizedSymbol.toUpperCase().replace("/", "");
+              const _pair2 = _todayPlan2.pairs.find(
+                (p) => (p.symbol || "").toUpperCase().replace("/", "") === _norm2
+              );
+              const _planCap2 = tlCapPlan.plan?.maxTradesPerDay ?? tlCapPlan.maxTradesPerDay;
+              const _cap2 = _pair2?.maxTrades ?? _planCap2;
+              if (_cap2 && _cap2 > 0) {
+                const _dateStr2 = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+                const _count2 = await getDailyTradeCountForPair(token.userId, _norm2, _dateStr2);
+                if (_count2 >= _cap2) {
+                  tlGateBlocked = true;
+                  tlGateReason = `Daily cap: ${_count2}/${_cap2} trades on ${_norm2} today`;
+                  analysis.alerts = analysis.alerts || [];
+                  analysis.alerts.push(`BLOCKED: Daily cap reached ${_count2}/${_cap2} for ${_norm2}. Resets midnight UTC.`);
+                  console.log(`[TL Gate] ${tlGateReason}`);
+                }
+              }
+            }
+          }
+        } catch {
+        }
+      }
+      if (!tlGateBlocked && analysis.signal !== "NEUTRAL") {
+        try {
+          const { getPropFirmContext: _pfG, isPropFirmModeEnabled: _pfE } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+          if (_pfE(token.userId)) {
+            const _pfCtxG = _pfG(token.userId);
+            if (_pfCtxG?.maxDailyDrawdownPct) {
+              const _dailyPnl = _pfCtxG.currentDailyPnlPct ?? 0;
+              if (_dailyPnl <= -_pfCtxG.maxDailyDrawdownPct) {
+                tlGateBlocked = true;
+                tlGateReason = `Prop firm daily DD limit hit (${_dailyPnl.toFixed(2)}%)`;
+                analysis.alerts = analysis.alerts || [];
+                analysis.alerts.push(`\u{1F6E1}\uFE0F PROP FIRM: Daily drawdown limit reached. No more trades today.`);
+                console.log(`[TL Gate] ${tlGateReason}`);
+              }
+              if (!tlGateBlocked && !_pfCtxG.allowOvernightHolds) {
+                const _utcH = (/* @__PURE__ */ new Date()).getUTCHours();
+                if (_utcH >= 21 || _utcH < 3) {
+                  tlGateBlocked = true;
+                  tlGateReason = `Prop firm overnight block (${_utcH}:00 UTC)`;
+                  console.log(`[TL Gate] ${tlGateReason}`);
+                }
+              }
+            }
+          }
+        } catch {
+        }
+      }
+      if (!tlGateBlocked && analysis.signal !== "NEUTRAL") {
+        try {
+          const tlCapPlan2b = global.mt5WeeklyStrategies?.[token.userId];
+          const hasPlan2b = !!tlCapPlan2b?.plan?.weeklyPlan;
+          if (!hasPlan2b) {
+            const _liveMaxDaily = _liveState?.config?.maxOpenTrades ?? 3;
+            const _dateStr2b = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+            const _norm2b = sanitizedSymbol.toUpperCase().replace("/", "");
+            const _count2b = await getDailyTradeCountForPair(token.userId, _norm2b, _dateStr2b);
+            if (_count2b >= _liveMaxDaily) {
+              tlGateBlocked = true;
+              tlGateReason = `Hard daily cap (no plan): ${_count2b}/${_liveMaxDaily} trades on ${_norm2b} today`;
+              analysis.alerts = analysis.alerts || [];
+              analysis.alerts.push(`BLOCKED: Daily cap reached ${_count2b}/${_liveMaxDaily} for ${_norm2b} (from engine config). Resets midnight UTC.`);
+              console.log(`[TL Gate 2b] ${tlGateReason}`);
+            }
+          }
+        } catch {
+        }
+      }
+      const tlMaxOpen = matchingEA?.maxOpenTrades ?? _liveState?.config?.maxOpenTrades ?? 3;
+      if (!tlGateBlocked && tlMaxOpen > 0 && analysis.signal !== "NEUTRAL") {
+        try {
+          const _openLogs = await storage.getTradelockerTradeLogs(token.userId, 50);
+          const _openCount = _openLogs.filter(
+            (t) => t.action === "OPEN" && t.status === "executed" && t.createdAt && Date.now() - new Date(t.createdAt).getTime() < 24 * 60 * 60 * 1e3
+          ).length;
+          if (_openCount >= tlMaxOpen) {
+            tlGateBlocked = true;
+            tlGateReason = `Max open trades reached (${_openCount}/${tlMaxOpen})`;
+            analysis.alerts = analysis.alerts || [];
+            analysis.alerts.push(`BLOCKED: Max open trades ${_openCount}/${tlMaxOpen} on TradeLocker.`);
+            console.log(`[TL Gate] ${tlGateReason}`);
+          }
+        } catch {
+        }
+      }
+      if (!tlGateBlocked && analysis.signal !== "NEUTRAL" && analysis.confidence >= MIN_CONFIDENCE_FOR_AUTO_TRADE && analysis.tradePlan) {
         const tlConnection = await storage.getUserTradelockerConnection(token.userId);
         console.log(`[KNOWLEDGE] Signal MANIFESTED for ${sanitizedSymbol}:`, {
           signal: analysis.signal,
@@ -37937,7 +38716,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           global.recentTrades = global.recentTrades || {};
           const lastTradeTime = global.recentTrades[recentTradeKey];
           const now = Date.now();
-          const cooldownMinutes = matchingEA?.tradeCooldownMinutes ?? 5;
+          const cooldownMinutes = matchingEA?.tradeCooldownMinutes ?? 240;
           const TRADE_COOLDOWN_MS = cooldownMinutes * 60 * 1e3;
           if (!lastTradeTime || now - lastTradeTime > TRADE_COOLDOWN_MS) {
             global.recentTrades[recentTradeKey] = now;
@@ -38058,7 +38837,69 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       const MT5_TRADE_COOLDOWN_MS = mt5CooldownMinutes * 60 * 1e3;
       const mt5CooldownActive = lastMT5TradeTime && nowForMT5 - lastMT5TradeTime < MT5_TRADE_COOLDOWN_MS;
       const maxOpenTrades = matchingEA?.maxOpenTrades ?? 1;
-      const shouldMT5Execute = !mt5CooldownActive && analysis.signal !== "NEUTRAL" && analysis.confidence >= MIN_CONFIDENCE_FOR_AUTO_TRADE && analysis.tradePlan !== null;
+      let globalDailyCapBlocked = false;
+      try {
+        const veddStrategyForCap = global.mt5WeeklyStrategies?.[token.userId];
+        if (veddStrategyForCap?.plan?.weeklyPlan) {
+          const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+          const todayNameCap = dayNames[(/* @__PURE__ */ new Date()).getUTCDay()];
+          const todayPlanCap = veddStrategyForCap.plan.weeklyPlan[todayNameCap];
+          if (todayPlanCap?.pairs) {
+            const normSym = sanitizedSymbol.toUpperCase().replace("/", "");
+            const pairPlanCap = todayPlanCap.pairs.find(
+              (p) => (p.symbol || "").toUpperCase().replace("/", "") === normSym
+            );
+            const capFromPair = pairPlanCap?.maxTrades;
+            const capFromPlan = veddStrategyForCap.plan?.maxTradesPerDay ?? veddStrategyForCap.maxTradesPerDay;
+            const effectiveCap = capFromPair ?? capFromPlan;
+            if (effectiveCap && effectiveCap > 0 && analysis.signal !== "NEUTRAL") {
+              const todayDateStr = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+              const todayCount = await getDailyTradeCountForPair(token.userId, normSym, todayDateStr);
+              if (todayCount >= effectiveCap) {
+                globalDailyCapBlocked = true;
+                console.log(`[Global Cap] BLOCKED ${normSym} \u2014 ${todayCount}/${effectiveCap} daily trades reached (plan-level enforcement)`);
+                analysis.alerts = analysis.alerts || [];
+                analysis.alerts.push(`Daily trade cap reached for ${normSym}: ${todayCount}/${effectiveCap} trades today. Cap resets at midnight UTC.`);
+              }
+            }
+          }
+        }
+      } catch (_capErr) {
+      }
+      let propFirmDrawdownBlocked = false;
+      try {
+        const { getPropFirmContext: getPropFirmContext2, isPropFirmModeEnabled: isPropFirmModeEnabled2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+        if (isPropFirmModeEnabled2(token.userId)) {
+          const pfCtx = getPropFirmContext2(token.userId);
+          if (pfCtx?.maxDailyDrawdownPct && pfCtx.maxDailyDrawdownPct > 0) {
+            const dailyPnlPct = pfCtx.currentDailyPnlPct ?? 0;
+            if (dailyPnlPct <= -pfCtx.maxDailyDrawdownPct) {
+              propFirmDrawdownBlocked = true;
+              const msg = `Prop firm daily drawdown limit reached (${dailyPnlPct.toFixed(2)}% / max -${pfCtx.maxDailyDrawdownPct}%). No more trades today.`;
+              console.log(`[Prop Firm Guard] BLOCKED ${sanitizedSymbol} \u2014 ${msg}`);
+              analysis.alerts = analysis.alerts || [];
+              analysis.alerts.push(`\u{1F6E1}\uFE0F PROP FIRM: ${msg}`);
+            }
+            if (!propFirmDrawdownBlocked && pfCtx.riskPerTradePct && riskPercentSetting > pfCtx.riskPerTradePct) {
+              console.log(`[Prop Firm Guard] Risk capped: ${riskPercentSetting}% \u2192 ${pfCtx.riskPerTradePct}% (prop firm limit)`);
+              analysis.alerts = analysis.alerts || [];
+              analysis.alerts.push(`\u{1F6E1}\uFE0F PROP FIRM: Risk capped at ${pfCtx.riskPerTradePct}% per trade (firm rule)`);
+            }
+            if (!pfCtx.allowOvernightHolds) {
+              const utcH = (/* @__PURE__ */ new Date()).getUTCHours();
+              if (utcH >= 21 || utcH < 3) {
+                propFirmDrawdownBlocked = true;
+                const msg = `Overnight hold blocked by prop firm rules (${utcH}:00 UTC). Markets re-open 03:00 UTC.`;
+                console.log(`[Prop Firm Guard] BLOCKED ${sanitizedSymbol} \u2014 ${msg}`);
+                analysis.alerts = analysis.alerts || [];
+                analysis.alerts.push(`\u{1F6E1}\uFE0F PROP FIRM: ${msg}`);
+              }
+            }
+          }
+        }
+      } catch (_pfErr) {
+      }
+      const shouldMT5Execute = !mt5CooldownActive && !globalDailyCapBlocked && !propFirmDrawdownBlocked && analysis.signal !== "NEUTRAL" && analysis.confidence >= MIN_CONFIDENCE_FOR_AUTO_TRADE && analysis.tradePlan !== null;
       if (analysis.signal !== "NEUTRAL") {
         if (analysis.confidence < MIN_CONFIDENCE_FOR_AUTO_TRADE) {
           console.log(`[UNDERSTANDING] No rush G - ${sanitizedSymbol} at ${analysis.confidence}% ain't ready. Need ${MIN_CONFIDENCE_FOR_AUTO_TRADE}% to BUILD.`);
@@ -38999,9 +39840,27 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         moderate: "MODERATE RISK: 1\u20131.5% risk per trade, 2.5% max daily loss, standard lot sizing. Balance growth with protection.",
         aggressive: "AGGRESSIVE RISK: 2\u20133% risk per trade, 5% max daily loss, full Kelly sizing. Maximum growth focus \u2014 user acknowledges compounding loss risk."
       };
-      const selectedRisk = riskLevel && riskInstructions[riskLevel] ? riskLevel : "moderate";
+      let _gpPrefillNote = "";
+      let selectedRisk = riskLevel && riskInstructions[riskLevel] ? riskLevel : "";
+      if (!selectedRisk) {
+        try {
+          const [_gpRow] = await db.execute(sql6`SELECT risk_profile, current_phase, current_balance FROM account_growth_plans WHERE user_id = ${userId} LIMIT 1`);
+          if (_gpRow && _gpRow.risk_profile) {
+            const _gpProfile = _gpRow.risk_profile.toLowerCase();
+            if (riskInstructions[_gpProfile]) {
+              selectedRisk = _gpProfile;
+              const _gpPhase = _gpRow.current_phase ?? 1;
+              const _gpBal = _gpRow.current_balance ?? accountBalance;
+              _gpPrefillNote = `
+GROWTH PLAN SYNC: User is on Phase ${_gpPhase} (balance $${_gpBal}) \u2014 risk profile "${_gpProfile}" loaded from their Account Growth Plan.`;
+            }
+          }
+        } catch (_) {
+        }
+        if (!selectedRisk) selectedRisk = "moderate";
+      }
       const provenStrategies = getAllStrategiesForPairs2(pairs).split("\n\n").map((s) => s.split("\n").filter((l) => !l.startsWith("  Setup:")).join("\n")).join("\n").substring(0, 800);
-      const prompt = `You are VEDD SS AI - a SELF-LEARNING autonomous trading engine with FULL CONTROL. You have studied this trader's entire history and evolved your strategy.
+      const prompt = `You are VEDD SS AI - a SELF-LEARNING autonomous trading engine with FULL CONTROL. You have studied this trader's entire history and evolved your strategy.${_gpPrefillNote}
 
 STRATEGY MODE: ${hftMode.toUpperCase()}
 ${hftDescriptions[hftMode] || hftDescriptions.aggressive}
@@ -39382,6 +40241,247 @@ Respond with ONLY valid JSON:
       todayTrades: todayTradesAll,
       todayWins: todayWinsAll,
       todayWinRate: todayWinRateAll
+    });
+  });
+  app2.post("/api/goal-pacing/analyze", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    let strategy = global.mt5WeeklyStrategies?.[userId];
+    if (!strategy) {
+      const dbStrat = await storage.getActiveWeeklyStrategy(userId);
+      if (!dbStrat) return res.status(404).json({ error: "No active weekly strategy \u2014 generate one first" });
+      strategy = {
+        profitTarget: dbStrat.profitTarget,
+        accountBalance: dbStrat.accountBalance,
+        pairs: dbStrat.pairs,
+        riskLevel: dbStrat.riskLevel,
+        lotSize: dbStrat.lotSize,
+        plan: dbStrat.plan,
+        currentProfit: dbStrat.currentProfit || 0,
+        progressTrades: dbStrat.progressTrades || 0,
+        progressWinRate: dbStrat.progressWinRate || 0,
+        weekStart: dbStrat.weekStart
+      };
+    }
+    const weekStart = new Date(strategy.weekStart || (() => {
+      const d = /* @__PURE__ */ new Date();
+      d.setDate(d.getDate() - d.getDay() + 1);
+      d.setUTCHours(0, 0, 0, 0);
+      return d;
+    })());
+    const dbTrades = await storage.getAiTradeResults(userId, 500);
+    const dbWeekTrades = dbTrades.filter((t) => {
+      const d = new Date(t.closedAt || t.createdAt);
+      return d >= weekStart && t.result && t.result !== "PENDING";
+    });
+    const cachedTrades = global.mt5ClosedTrades?.[userId]?.trades || [];
+    const dbTickets = new Set(dbWeekTrades.map((t) => t.mt5Ticket).filter(Boolean));
+    const cacheWeekTrades = cachedTrades.filter((t) => {
+      const d = new Date(t.closeTime || t.timestamp || 0);
+      const ticket = t.ticket?.toString();
+      return d >= weekStart && (!ticket || !dbTickets.has(ticket));
+    });
+    const allWeekTrades = [
+      ...dbWeekTrades.map((t) => ({
+        symbol: (t.symbol || "\u2014").toUpperCase().replace("/", ""),
+        direction: t.direction || "\u2014",
+        lots: t.lotSize || t.lots || 0,
+        profit: t.profitLoss || 0,
+        outcome: t.result,
+        closedAt: t.closedAt || t.createdAt
+      })),
+      ...cacheWeekTrades.map((t) => ({
+        symbol: (t.symbol || "\u2014").toUpperCase().replace("/", ""),
+        direction: t.direction || "\u2014",
+        lots: t.lots || t.lotSize || 0,
+        profit: t.profit || 0,
+        outcome: (t.profit || 0) > 0 ? "WIN" : (t.profit || 0) < 0 ? "LOSS" : "BREAKEVEN",
+        closedAt: t.closeTime || t.timestamp
+      }))
+    ].sort((a, b) => new Date(b.closedAt || 0).getTime() - new Date(a.closedAt || 0).getTime());
+    const totalTrades = allWeekTrades.length;
+    const wins = allWeekTrades.filter((t) => t.outcome === "WIN").length;
+    const losses = allWeekTrades.filter((t) => t.outcome === "LOSS").length;
+    const winRate2 = totalTrades > 0 ? Math.round(wins / totalTrades * 100) : 0;
+    const closedProfit = allWeekTrades.reduce((s, t) => s + t.profit, 0);
+    const weekTarget = strategy.profitTarget || 0;
+    const deficit = Math.max(0, weekTarget - closedProfit);
+    const daysLeft = getDaysRemainingInWeek();
+    const requiredPerDay = daysLeft > 0 ? Math.round(deficit / daysLeft * 100) / 100 : deficit;
+    const pacePct = weekTarget > 0 ? Math.round(closedProfit / weekTarget * 100) : 0;
+    const tradesWithLots = allWeekTrades.filter((t) => t.lots > 0);
+    const avgLotSize = tradesWithLots.length > 0 ? Math.round(tradesWithLots.reduce((s, t) => s + t.lots, 0) / tradesWithLots.length * 1e3) / 1e3 : strategy.lotSize || 0.01;
+    const avgProfitPerTrade = totalTrades > 0 ? closedProfit / totalTrades : 0;
+    const avgWinProfit = wins > 0 ? allWeekTrades.filter((t) => t.outcome === "WIN").reduce((s, t) => s + t.profit, 0) / wins : 0;
+    const avgLossProfit = losses > 0 ? allWeekTrades.filter((t) => t.outcome === "LOSS").reduce((s, t) => s + t.profit, 0) / losses : 0;
+    const profitFactor = losses > 0 && avgLossProfit < 0 ? Math.abs(avgWinProfit * wins / (avgLossProfit * losses)) : wins > 0 ? 99 : 0;
+    const solEngineStateRaw = global.solEngineStates?.[userId];
+    const solGoal = solEngineStateRaw?.weeklyGoal;
+    const solTradeSize = solEngineStateRaw?.paperTradeSize || 0;
+    const solCurrentProfit = solGoal?.currentProfitSol || 0;
+    const solTarget = solGoal?.targetSol || 0;
+    const solTradeHistory = solGoal?.tradeHistory || [];
+    const paceStatus = pacePct < 25 && daysLeft <= 2 ? "CRITICAL" : pacePct < 100 - daysLeft * 20 ? "BEHIND" : pacePct >= 100 ? "AHEAD" : "ON_TRACK";
+    const balance = strategy.accountBalance || 0;
+    const planPairs = (strategy.pairs || []).map((p) => p.toUpperCase().replace("/", ""));
+    let aiResult = null;
+    try {
+      const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+      let openaiClient;
+      try {
+        openaiClient = await getUniversalAIClientForUser2(userId);
+      } catch {
+      }
+      if (openaiClient) {
+        const selectedModel = openaiClient.defaultModel || "gpt-4o-mini";
+        const tradeLines = allWeekTrades.slice(0, 30).map(
+          (t) => `${t.symbol} ${t.direction} ${t.lots}L \u2192 $${t.profit.toFixed(2)} (${t.outcome})`
+        ).join("\n");
+        const paceLabel = paceStatus === "CRITICAL" ? "\u{1F534} CRITICAL \u2014 Way behind" : paceStatus === "BEHIND" ? "\u{1F7E1} BEHIND pace" : paceStatus === "ON_TRACK" ? "\u{1F7E2} ON TRACK" : "\u{1F680} AHEAD of goal";
+        const prompt = `You are VEDD AI \u2014 elite trading coach. Analyze this trader's week and return a JSON goal-pacing report.
+
+WEEK STATS:
+- Goal: $${weekTarget} | Achieved: $${closedProfit.toFixed(2)} (${pacePct}%) | Remaining: $${deficit.toFixed(2)}
+- Days left: ${daysLeft} | Need/day: $${requiredPerDay}
+- Pace: ${paceLabel}
+- Trades: ${totalTrades} (${wins}W / ${losses}L) | Win rate: ${winRate2}%
+- Avg lot size: ${avgLotSize} | Avg P/trade: $${avgProfitPerTrade.toFixed(2)}
+- Avg win: $${avgWinProfit.toFixed(2)} | Avg loss: $${avgLossProfit.toFixed(2)} | Profit factor: ${profitFactor.toFixed(2)}
+- Account balance: $${balance} | Pairs: ${planPairs.join(", ")}
+${solTarget > 0 ? `- SOL Engine: ${solTradeHistory.length} trades, ${solCurrentProfit.toFixed(3)}/${solTarget} SOL goal, trade size ${solTradeSize || "portfolio %"} SOL` : ""}
+
+TRADES THIS WEEK (most recent first):
+${tradeLines || "No trades recorded yet"}
+
+Return this EXACT JSON (no markdown, no commentary):
+{
+  "swot": {
+    "strengths": ["max 3 short bullets \u2014 what is working"],
+    "weaknesses": ["max 3 short bullets \u2014 what is hurting"],
+    "opportunities": ["max 3 short bullets \u2014 where gains are available"],
+    "threats": ["max 3 short bullets \u2014 risks that could derail the week"]
+  },
+  "tradeSizeAnalysis": {
+    "currentAvgLot": ${avgLotSize},
+    "assessment": "one sentence on whether size is adequate",
+    "isUndersized": true|false,
+    "recommendation": "one sentence specific advice"
+  },
+  "plans": [
+    {
+      "type": "SAFE",
+      "label": "short catchy name",
+      "lotSize": number (incremental increase, low risk),
+      "pairs": ["1-2 highest win-rate pairs only"],
+      "tradesPerDay": number,
+      "winRateNeeded": number,
+      "projectedProfit": number,
+      "risk": "LOW",
+      "steps": ["3 specific actionable steps"],
+      "probability": "X% chance of hitting goal"
+    },
+    {
+      "type": "MODERATE",
+      "label": "short catchy name",
+      "lotSize": number (moderate increase),
+      "pairs": ["2-3 pairs"],
+      "tradesPerDay": number,
+      "winRateNeeded": number,
+      "projectedProfit": number,
+      "risk": "MEDIUM",
+      "steps": ["3 specific actionable steps"],
+      "probability": "X% chance of hitting goal"
+    },
+    {
+      "type": "AGGRESSIVE",
+      "label": "short catchy name",
+      "lotSize": number (significant increase \u2014 max 3% account risk per trade),
+      "pairs": ["all high-liquidity pairs"],
+      "tradesPerDay": number,
+      "winRateNeeded": number,
+      "projectedProfit": number,
+      "risk": "HIGH",
+      "steps": ["3 specific actionable steps"],
+      "probability": "X% chance of hitting goal"
+    }
+  ],
+  "overallRecommendation": "2-3 sentences: current situation summary + best path forward + mindset anchor"
+}`;
+        const completion = await openaiClient.chat.completions.create({
+          model: selectedModel,
+          messages: [{ role: "user", content: prompt }],
+          temperature: 0.4,
+          max_tokens: 1400,
+          response_format: { type: "json_object" }
+        });
+        const raw = completion.choices[0]?.message?.content || "{}";
+        aiResult = JSON.parse(raw);
+      }
+    } catch (aiErr) {
+      console.error("[Goal Pacing Agent] AI error:", aiErr?.message);
+    }
+    if (!aiResult) {
+      const safeMultiplier = Math.max(1.5, Math.min(3, deficit / Math.max(1, avgWinProfit * wins)));
+      aiResult = {
+        swot: {
+          strengths: wins > 0 ? [`${winRate2}% win rate this week`, `${wins} winning trades secured`] : ["Trading activity is recorded"],
+          weaknesses: [`Trade size may be too small to reach $${weekTarget} goal`, losses > wins ? "Win rate below 50%" : "Profit per trade is low"],
+          opportunities: [`${daysLeft} trading days remain`, `Increase lot size to accelerate progress`],
+          threats: ["Running out of time if size stays at " + avgLotSize, "Overtrading risk if rushing to catch up"]
+        },
+        tradeSizeAnalysis: {
+          currentAvgLot: avgLotSize,
+          assessment: avgLotSize <= 0.02 ? "Current lot size is very small \u2014 unlikely to hit goal without adjustment" : "Lot size is reasonable but may need scaling",
+          isUndersized: deficit > 0 && totalTrades > 2 && avgProfitPerTrade < deficit / Math.max(5, 5 * daysLeft),
+          recommendation: `Consider scaling to ${Math.round(Math.min(avgLotSize * safeMultiplier, balance * 0.01 / 10) * 1e3) / 1e3} lots to hit target within ${daysLeft} days`
+        },
+        plans: [
+          {
+            type: "SAFE",
+            label: "Steady Climb",
+            lotSize: Math.round(Math.min(avgLotSize * 1.5, balance * 5e-3 / 10) * 1e3) / 1e3,
+            pairs: planPairs.slice(0, 1),
+            tradesPerDay: 3,
+            winRateNeeded: 65,
+            projectedProfit: Math.round(deficit * 0.7 * 100) / 100,
+            risk: "LOW",
+            steps: ["Focus on 1 pair only \u2014 highest historical win rate", "Wait for A+ setups only \u2014 skip B setups", "Move SL to breakeven at 1:1 R:R"],
+            probability: pacePct > 50 ? "70% chance" : "45% chance"
+          },
+          {
+            type: "MODERATE",
+            label: "Balanced Push",
+            lotSize: Math.round(Math.min(avgLotSize * 2, balance * 0.01 / 10) * 1e3) / 1e3,
+            pairs: planPairs.slice(0, 2),
+            tradesPerDay: 4,
+            winRateNeeded: 60,
+            projectedProfit: Math.round(deficit * 0.9 * 100) / 100,
+            risk: "MEDIUM",
+            steps: ["Scale size to 2\xD7 your current average", "Target 4 trades/day across 2 pairs", "Use ORB breakout entries only \u2014 no counter-trend"],
+            probability: "60% chance"
+          },
+          {
+            type: "AGGRESSIVE",
+            label: "Max Sprint",
+            lotSize: Math.round(Math.min(avgLotSize * 3.5, balance * 0.02 / 10) * 1e3) / 1e3,
+            pairs: planPairs,
+            tradesPerDay: 6,
+            winRateNeeded: 55,
+            projectedProfit: Math.round(deficit * 1.1 * 100) / 100,
+            risk: "HIGH",
+            steps: ["Scale to 3\xD7 size \u2014 ONLY if win rate is above 55%", "Cover all plan pairs, watch every session", "Set hard daily loss limit of 40% of remaining deficit"],
+            probability: "40% chance \u2014 high variance"
+          }
+        ],
+        overallRecommendation: `You are ${pacePct}% toward your $${weekTarget} goal with ${daysLeft} trading days left. Your current average lot size (${avgLotSize}) is generating $${avgProfitPerTrade.toFixed(2)} per trade \u2014 you need to increase size to realistically close the gap. The safest path is the Steady Climb: focus on your best pair, increase size modestly, and execute only A+ setups.`
+      };
+    }
+    res.json({
+      pace: { status: paceStatus, pacePct, closedProfit: Math.round(closedProfit * 100) / 100, weekTarget, deficit: Math.round(deficit * 100) / 100, daysLeft, requiredPerDay },
+      metrics: { totalTrades, wins, losses, winRate: winRate2, avgLotSize, avgProfitPerTrade: Math.round(avgProfitPerTrade * 100) / 100, avgWinProfit: Math.round(avgWinProfit * 100) / 100, avgLossProfit: Math.round(avgLossProfit * 100) / 100, profitFactor: Math.round(profitFactor * 100) / 100 },
+      weekTrades: allWeekTrades.slice(0, 50),
+      solEngine: solTarget > 0 ? { currentProfit: Math.round(solCurrentProfit * 1e3) / 1e3, target: solTarget, trades: solTradeHistory.length, tradeSize: solTradeSize } : null,
+      ...aiResult
     });
   });
   global.mt5VeddSSAILive = global.mt5VeddSSAILive || {};
@@ -40700,6 +41800,13 @@ Format each recommendation as a clear, concise action item.`;
     if (!brain) return res.json({ learned: false, message: "Brain has not learned yet. Trigger learning first." });
     res.json({ learned: true, ...brain });
   });
+  app2.get("/api/vedd-live-engine/brain-status", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const brain = global.veddAIBrain?.[userId];
+    if (!brain) return res.json({ learned: false, message: "Brain has not learned yet. Trigger learning first." });
+    res.json({ learned: true, ...brain });
+  });
   app2.post("/api/vedd-brain/autonomous-signals", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
@@ -41120,6 +42227,18 @@ Respond with ONLY valid JSON:
     const state = updateLiveEngineConfig2(userId, req.body);
     if (!state) return res.status(400).json({ error: "Engine not running" });
     res.json({ success: true, state });
+  });
+  app2.get("/api/ss-engine/consensus", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const consensus = global.ssEngineConsensus?.[userId] || [];
+    const summary = {
+      strongConfirm: consensus.filter((c) => c.consensus === "STRONG_CONFIRM").length,
+      strongSkip: consensus.filter((c) => c.consensus === "STRONG_SKIP").length,
+      caution: consensus.filter((c) => c.consensus === "CAUTION").length,
+      watch: consensus.filter((c) => c.consensus === "WATCH").length
+    };
+    res.json({ consensus, summary, updatedAt: consensus[0]?.timestamp || null });
   });
   app2.get("/api/vedd-live-engine/mt5-signals", async (req, res) => {
     const apiKey = req.headers["x-api-key"] || req.query.apiKey;
@@ -44170,6 +45289,15 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       });
       res.json({ success: true });
     });
+    app2.post("/api/sol-engine/shield", async (req, res) => {
+      if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+      const { setShieldActive: setShieldActive2 } = await Promise.resolve().then(() => (init_sol_engine(), sol_engine_exports));
+      const { active } = req.body;
+      if (typeof active !== "boolean") return res.status(400).json({ error: "active (boolean) required" });
+      const result = setShieldActive2(req.user.id, active);
+      if (!result.success) return res.status(400).json({ error: "Engine not running" });
+      res.json(result);
+    });
   }
   app2.get("/api/solana/scan", async (req, res) => {
     try {
@@ -44616,7 +45744,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
             isValid = false;
           }
         }
-        await db.update(userApiKeys).set({ isValid, lastValidated: /* @__PURE__ */ new Date() }).where(and5(eq8(userApiKeys.userId, req.user.id), eq8(userApiKeys.provider, provider)));
+        await db.update(userApiKeys).set({ isValid, lastValidated: /* @__PURE__ */ new Date() }).where(and6(eq9(userApiKeys.userId, req.user.id), eq9(userApiKeys.provider, provider)));
       } catch {
       }
       res.json({ ...sanitizeKeyForResponse(result), isValid, validated: isValid !== null });
@@ -44676,7 +45804,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       } catch (e) {
         isValid = false;
       }
-      await db.update(userApiKeys).set({ isValid, lastValidated: /* @__PURE__ */ new Date() }).where(and5(eq8(userApiKeys.userId, req.user.id), eq8(userApiKeys.provider, provider)));
+      await db.update(userApiKeys).set({ isValid, lastValidated: /* @__PURE__ */ new Date() }).where(and6(eq9(userApiKeys.userId, req.user.id), eq9(userApiKeys.provider, provider)));
       res.json({ valid: isValid, provider });
     } catch (error) {
       res.status(500).json({ message: error.message });
@@ -44688,7 +45816,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const { provider, isActive } = req.body;
       const key = await storage.getUserApiKey(req.user.id, provider);
       if (!key) return res.status(404).json({ message: "Key not found" });
-      await db.update(userApiKeys).set({ isActive: !!isActive }).where(and5(eq8(userApiKeys.userId, req.user.id), eq8(userApiKeys.provider, provider)));
+      await db.update(userApiKeys).set({ isActive: !!isActive }).where(and6(eq9(userApiKeys.userId, req.user.id), eq9(userApiKeys.provider, provider)));
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ message: error.message });
@@ -44977,7 +46105,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   });
   {
     const { wearToEarnClaims: wearToEarnClaims2, internalWallets: internalWallets2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { eq: eq10, and: and6, sql: drizzleSql } = await import("drizzle-orm");
+    const { eq: eq11, and: and7, sql: drizzleSql } = await import("drizzle-orm");
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     app2.post("/api/wear-to-earn/claim", async (req, res) => {
       if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
@@ -44990,7 +46118,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         return res.status(400).json({ error: "Product name required" });
       }
       const code = claimCode.trim().toUpperCase();
-      const existing = await db2.select().from(wearToEarnClaims2).where(and6(eq10(wearToEarnClaims2.userId, userId), eq10(wearToEarnClaims2.claimCode, code))).limit(1);
+      const existing = await db2.select().from(wearToEarnClaims2).where(and7(eq11(wearToEarnClaims2.userId, userId), eq11(wearToEarnClaims2.claimCode, code))).limit(1);
       if (existing.length > 0) {
         return res.status(409).json({ error: "You have already claimed this code" });
       }
@@ -45017,7 +46145,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         rewardAmount: wearToEarnClaims2.rewardAmount,
         submittedAt: wearToEarnClaims2.submittedAt,
         imageUrl: wearToEarnClaims2.imageUrl
-      }).from(wearToEarnClaims2).where(eq10(wearToEarnClaims2.userId, userId)).orderBy(drizzleSql`${wearToEarnClaims2.submittedAt} DESC`);
+      }).from(wearToEarnClaims2).where(eq11(wearToEarnClaims2.userId, userId)).orderBy(drizzleSql`${wearToEarnClaims2.submittedAt} DESC`);
       res.json(claims);
     });
     app2.get("/api/wear-to-earn/stats", async (req, res) => {
@@ -45026,7 +46154,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const claims = await db2.select({
         status: wearToEarnClaims2.status,
         rewardAmount: wearToEarnClaims2.rewardAmount
-      }).from(wearToEarnClaims2).where(eq10(wearToEarnClaims2.userId, userId));
+      }).from(wearToEarnClaims2).where(eq11(wearToEarnClaims2.userId, userId));
       const totalClaims = claims.length;
       const totalVeddEarned = claims.reduce((s, c) => s + (c.rewardAmount || 0), 0);
       const pendingClaims = claims.filter((c) => c.status === "pending").length;
@@ -45035,7 +46163,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   }
   {
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-    const { sql: drizzleSql, eq: eq10, and: and6, desc: desc4 } = await import("drizzle-orm");
+    const { sql: drizzleSql, eq: eq11, and: and7, desc: desc4 } = await import("drizzle-orm");
     const CHECKIN_REWARD = 10;
     const CHECKIN_STREAK_7 = 5;
     const CHECKIN_STREAK_30 = 15;
@@ -45129,7 +46257,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   }
   {
     const { nfcActivations: nfcActivations2, nfcDailyTaps: nfcDailyTaps2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { eq: eq10, and: and6, sql: drizzleSql } = await import("drizzle-orm");
+    const { eq: eq11, and: and7, sql: drizzleSql } = await import("drizzle-orm");
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     const ACTIVATION_BONUS = 50;
     const DAILY_REWARD = 15;
@@ -45144,16 +46272,16 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         garmentName: nfcActivations2.garmentName,
         activatedAt: nfcActivations2.activatedAt,
         ownedByMe: drizzleSql`false`
-      }).from(nfcActivations2).where(eq10(nfcActivations2.chipUid, uid2)).limit(1);
+      }).from(nfcActivations2).where(eq11(nfcActivations2.chipUid, uid2)).limit(1);
       if (!row) return res.json({ status: "unclaimed", chipUid: uid2 });
       return res.json({ status: "claimed", garmentName: row.garmentName, activatedAt: row.activatedAt });
     });
     app2.get("/api/nfc/my-garments", async (req, res) => {
       if (!req.isAuthenticated()) return res.status(401).json({ error: "Auth required" });
       const userId = req.user.id;
-      const garments = await db2.select().from(nfcActivations2).where(eq10(nfcActivations2.userId, userId)).orderBy(drizzleSql`${nfcActivations2.activatedAt} DESC`);
+      const garments = await db2.select().from(nfcActivations2).where(eq11(nfcActivations2.userId, userId)).orderBy(drizzleSql`${nfcActivations2.activatedAt} DESC`);
       const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-      const tappedToday = await db2.select({ chipUid: nfcDailyTaps2.chipUid }).from(nfcDailyTaps2).where(and6(eq10(nfcDailyTaps2.userId, userId), eq10(nfcDailyTaps2.dayString, today)));
+      const tappedToday = await db2.select({ chipUid: nfcDailyTaps2.chipUid }).from(nfcDailyTaps2).where(and7(eq11(nfcDailyTaps2.userId, userId), eq11(nfcDailyTaps2.dayString, today)));
       const tappedSet = new Set(tappedToday.map((t) => t.chipUid));
       res.json(garments.map((g) => ({ ...g, tappedToday: tappedSet.has(g.chipUid) })));
     });
@@ -45164,7 +46292,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const garmentName = (req.body?.garmentName || "VEDD Garment").toString().trim().slice(0, 80);
       const uid2 = normaliseUid(rawUid);
       if (uid2.length < 4) return res.status(400).json({ error: "Invalid chip UID" });
-      const [existing] = await db2.select().from(nfcActivations2).where(eq10(nfcActivations2.chipUid, uid2)).limit(1);
+      const [existing] = await db2.select().from(nfcActivations2).where(eq11(nfcActivations2.chipUid, uid2)).limit(1);
       if (existing) {
         if (existing.userId === userId) {
           return res.status(409).json({ error: "You already own this garment", alreadyOwned: true, garment: existing });
@@ -45197,13 +46325,13 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const rawUid = req.body?.chipUid || req.body?.uid || "";
       const uid2 = normaliseUid(rawUid);
       if (uid2.length < 4) return res.status(400).json({ error: "Invalid chip UID" });
-      const [activation] = await db2.select().from(nfcActivations2).where(and6(eq10(nfcActivations2.chipUid, uid2), eq10(nfcActivations2.userId, userId))).limit(1);
+      const [activation] = await db2.select().from(nfcActivations2).where(and7(eq11(nfcActivations2.chipUid, uid2), eq11(nfcActivations2.userId, userId))).limit(1);
       if (!activation) return res.status(403).json({ error: "Chip not registered to your account. Activate it first." });
       const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-      const [alreadyTapped] = await db2.select().from(nfcDailyTaps2).where(and6(
-        eq10(nfcDailyTaps2.userId, userId),
-        eq10(nfcDailyTaps2.chipUid, uid2),
-        eq10(nfcDailyTaps2.dayString, today)
+      const [alreadyTapped] = await db2.select().from(nfcDailyTaps2).where(and7(
+        eq11(nfcDailyTaps2.userId, userId),
+        eq11(nfcDailyTaps2.chipUid, uid2),
+        eq11(nfcDailyTaps2.dayString, today)
       )).limit(1);
       if (alreadyTapped) {
         return res.status(429).json({ error: "Already tapped today \u2014 come back tomorrow!", alreadyTapped: true });
@@ -45230,7 +46358,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         lastTapAt: /* @__PURE__ */ new Date(),
         currentStreak: newStreak,
         bestStreak: newBest
-      }).where(eq10(nfcActivations2.id, activation.id));
+      }).where(eq11(nfcActivations2.id, activation.id));
       await storage.addToWalletBalance(userId, reward, false);
       res.json({
         success: true,
@@ -46021,10 +47149,10 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   async function insertDevotional(d) {
     const prayerJson = JSON.stringify(d.prayerPoints);
     const result = await db.execute(
-      sql5`INSERT INTO devotionals (date, title, theme, scripture, scripture_text, reflection, prayer_points, affirmation, trading_tie_in, minimum_minutes, ai_generated, is_published)
+      sql6`INSERT INTO devotionals (date, title, theme, scripture, scripture_text, reflection, prayer_points, affirmation, trading_tie_in, minimum_minutes, ai_generated, is_published)
           VALUES (
             ${d.date}, ${d.title}, ${d.theme}, ${d.scripture}, ${d.scriptureText},
-            ${d.reflection}, ${sql5.raw(`'${prayerJson.replace(/'/g, "''")}'::jsonb`)},
+            ${d.reflection}, ${sql6.raw(`'${prayerJson.replace(/'/g, "''")}'::jsonb`)},
             ${d.affirmation}, ${d.tradingTieIn}, 5, true, true
           )
           ON CONFLICT (date) DO UPDATE SET
@@ -46040,7 +47168,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     try {
       const today = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
       const existingRaw = await db.execute(
-        sql5`SELECT * FROM devotionals WHERE date = ${today} AND is_published = true LIMIT 1`
+        sql6`SELECT * FROM devotionals WHERE date = ${today} AND is_published = true LIMIT 1`
       );
       const existing = Array.isArray(existingRaw) ? existingRaw : existingRaw.rows || [];
       if (existing.length > 0) {
@@ -46057,7 +47185,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   app2.get("/api/devotionals", async (req, res) => {
     try {
       const raw = await db.execute(
-        sql5`SELECT * FROM devotionals WHERE is_published = true ORDER BY date DESC LIMIT 30`
+        sql6`SELECT * FROM devotionals WHERE is_published = true ORDER BY date DESC LIMIT 30`
       );
       const rows = Array.isArray(raw) ? raw : raw.rows || [];
       res.json(rows);
@@ -46086,7 +47214,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const { devotionalId, groupId } = req.body;
       if (!devotionalId) return res.status(400).json({ error: "devotionalId required" });
       const existingRaw = await db.execute(
-        sql5`SELECT id FROM devotional_sessions WHERE user_id = ${userId} AND devotional_id = ${devotionalId} AND is_completed = false LIMIT 1`
+        sql6`SELECT id FROM devotional_sessions WHERE user_id = ${userId} AND devotional_id = ${devotionalId} AND is_completed = false LIMIT 1`
       );
       const existing = Array.isArray(existingRaw) ? existingRaw : existingRaw.rows || [];
       if (existing.length > 0) {
@@ -46094,7 +47222,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       }
       const isGroupSession = !!groupId;
       const insertedRaw = await db.execute(
-        sql5`INSERT INTO devotional_sessions (user_id, devotional_id, group_id, is_group_session, started_at)
+        sql6`INSERT INTO devotional_sessions (user_id, devotional_id, group_id, is_group_session, started_at)
             VALUES (${userId}, ${devotionalId}, ${groupId || null}, ${isGroupSession}, NOW())
             RETURNING *`
       );
@@ -46102,7 +47230,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const session3 = inserted[0];
       if (groupId) {
         await db.execute(
-          sql5`UPDATE devotional_groups SET participant_count = participant_count + 1 WHERE id = ${groupId}`
+          sql6`UPDATE devotional_groups SET participant_count = participant_count + 1 WHERE id = ${groupId}`
         );
       }
       res.json({ sessionId: session3.id, resumed: false });
@@ -46119,7 +47247,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const { sessionId } = req.params;
       const { durationSeconds } = req.body;
       const sessionRaw = await db.execute(
-        sql5`SELECT * FROM devotional_sessions WHERE id = ${parseInt(sessionId)} AND user_id = ${userId} LIMIT 1`
+        sql6`SELECT * FROM devotional_sessions WHERE id = ${parseInt(sessionId)} AND user_id = ${userId} LIMIT 1`
       );
       const sessionRows = Array.isArray(sessionRaw) ? sessionRaw : sessionRaw.rows || [];
       if (!sessionRows.length) return res.status(404).json({ error: "Session not found" });
@@ -46146,13 +47274,13 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         }
       }
       await db.execute(
-        sql5`UPDATE devotional_sessions SET is_completed = true, completed_at = NOW(), duration_seconds = ${durationSeconds},
+        sql6`UPDATE devotional_sessions SET is_completed = true, completed_at = NOW(), duration_seconds = ${durationSeconds},
             reward_earned = ${rewardEarned}, reward_amount = ${rewardAmount}
             WHERE id = ${parseInt(sessionId)}`
       );
       if (session3.group_id) {
         await db.execute(
-          sql5`UPDATE devotional_groups SET completed_count = completed_count + 1 WHERE id = ${session3.group_id}`
+          sql6`UPDATE devotional_groups SET completed_count = completed_count + 1 WHERE id = ${session3.group_id}`
         );
       }
       res.json({ completed: true, rewardEarned, rewardAmount, actionType });
@@ -46173,7 +47301,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       let inviteCode = "";
       for (let i = 0; i < 6; i++) inviteCode += chars[Math.floor(Math.random() * chars.length)];
       const insertedRaw = await db.execute(
-        sql5`INSERT INTO devotional_groups (devotional_id, created_by, invite_code, city, is_active, participant_count)
+        sql6`INSERT INTO devotional_groups (devotional_id, created_by, invite_code, city, is_active, participant_count)
             VALUES (${devotionalId}, ${userId}, ${inviteCode}, ${city || null}, true, 1)
             RETURNING *`
       );
@@ -46186,7 +47314,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   app2.get("/api/devotionals/groups/:inviteCode", async (req, res) => {
     try {
       const raw = await db.execute(
-        sql5`SELECT dg.*, d.title as devotional_title, d.theme, d.date, u.username as host_name
+        sql6`SELECT dg.*, d.title as devotional_title, d.theme, d.date, u.username as host_name
             FROM devotional_groups dg
             JOIN devotionals d ON dg.devotional_id = d.id
             JOIN users u ON dg.created_by = u.id
@@ -46205,7 +47333,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     try {
       const userId = req.user.id;
       const statsRaw = await db.execute(
-        sql5`SELECT
+        sql6`SELECT
               COUNT(*) FILTER (WHERE is_completed = true) as total_completed,
               COUNT(*) FILTER (WHERE is_completed = true AND is_group_session = true) as group_completed,
               COALESCE(SUM(reward_amount) FILTER (WHERE is_completed = true), 0) as total_vedd_earned,
@@ -46215,7 +47343,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const statsRows = Array.isArray(statsRaw) ? statsRaw : statsRaw.rows || [];
       const row = statsRows[0] || {};
       const datesRaw = await db.execute(
-        sql5`SELECT DISTINCT DATE(completed_at)::text as d FROM devotional_sessions
+        sql6`SELECT DISTINCT DATE(completed_at)::text as d FROM devotional_sessions
             WHERE user_id = ${userId} AND is_completed = true AND completed_at IS NOT NULL
             ORDER BY d DESC LIMIT 60`
       );
@@ -46232,7 +47360,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       }
       const todayStr = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
       const todaySessionRaw = await db.execute(
-        sql5`SELECT ds.*, dg.invite_code as group_invite_code
+        sql6`SELECT ds.*, dg.invite_code as group_invite_code
             FROM devotional_sessions ds
             LEFT JOIN devotional_groups dg ON ds.group_id = dg.id
             WHERE ds.user_id = ${userId} AND DATE(ds.created_at) = ${todayStr}::date
@@ -46254,7 +47382,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   app2.get("/api/devotionals/leaderboard", async (req, res) => {
     try {
       const raw = await db.execute(
-        sql5`SELECT u.username, u.id as user_id,
+        sql6`SELECT u.username, u.id as user_id,
               COUNT(*) FILTER (WHERE ds.is_completed = true) as completions,
               COALESCE(SUM(ds.reward_amount), 0) as vedd_earned,
               COUNT(*) FILTER (WHERE ds.is_group_session = true AND ds.is_completed = true) as group_completions
@@ -46738,16 +47866,38 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
     try {
-      const [plan] = await db.execute(sql5`SELECT * FROM account_growth_plans WHERE user_id = ${userId} LIMIT 1`);
+      const [plan] = await db.execute(sql6`SELECT * FROM account_growth_plans WHERE user_id = ${userId} LIMIT 1`);
       const rows = plan.rows ?? plan;
       if (!rows || rows.length === 0) return res.json({ plan: null });
-      const trades = await db.execute(sql5`SELECT * FROM growth_plan_trades WHERE user_id = ${userId} ORDER BY opened_at DESC LIMIT 200`);
+      const trades = await db.execute(sql6`SELECT * FROM growth_plan_trades WHERE user_id = ${userId} ORDER BY opened_at DESC LIMIT 200`);
       const tradeRows = trades.rows ?? trades;
       res.json({ plan: rows[0], trades: tradeRows });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
+  const _gpPhaseFromBal = (bal) => bal < 500 ? 1 : bal < 1500 ? 2 : bal < 5e3 ? 3 : bal < 15e3 ? 4 : bal < 5e4 ? 5 : 6;
+  const _gpPhaseRisk = {
+    1: { conservative: 0.5, moderate: 0.75, aggressive: 1 },
+    2: { conservative: 0.75, moderate: 1, aggressive: 1.5 },
+    3: { conservative: 1, moderate: 1.25, aggressive: 1.75 },
+    4: { conservative: 1.25, moderate: 1.5, aggressive: 2 },
+    5: { conservative: 1.5, moderate: 2, aggressive: 2.5 },
+    6: { conservative: 1.5, moderate: 2, aggressive: 2.5 }
+  };
+  const _gpPhaseMaxTrades = { 1: 1, 2: 2, 3: 2, 4: 3, 5: 4, 6: 5 };
+  async function _syncGrowthPlanToEngine(userId, phase, riskProfile) {
+    try {
+      const { getLiveEngineState: _lgpES, updateLiveEngineConfig: _ugpEC } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+      const liveState = _lgpES(userId);
+      if (!liveState) return;
+      const riskPct = _gpPhaseRisk[phase]?.[riskProfile] ?? 1;
+      const maxTrades = _gpPhaseMaxTrades[phase] ?? 3;
+      _ugpEC(userId, { riskPerTrade: riskPct, maxOpenTrades: maxTrades });
+      console.log(`[Growth Plan] Synced phase ${phase} to live engine: risk=${riskPct}%, maxTrades=${maxTrades}`);
+    } catch {
+    }
+  }
   app2.post("/api/growth-plan", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
@@ -46755,10 +47905,11 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     if (!startingBalance || !goalBalance) return res.status(400).json({ error: "startingBalance and goalBalance required" });
     try {
       const bal = Number(startingBalance);
-      const phase = bal < 500 ? 1 : bal < 1500 ? 2 : bal < 5e3 ? 3 : bal < 15e3 ? 4 : bal < 5e4 ? 5 : 6;
-      await db.execute(sql5`
+      const phase = _gpPhaseFromBal(bal);
+      const profile = riskProfile || "conservative";
+      await db.execute(sql6`
         INSERT INTO account_growth_plans (user_id, starting_balance, current_balance, goal_balance, risk_profile, trading_style, current_phase, weekly_target_pct)
-        VALUES (${userId}, ${Number(startingBalance)}, ${Number(startingBalance)}, ${Number(goalBalance)}, ${riskProfile || "conservative"}, ${tradingStyle || "day"}, ${phase}, ${Number(weeklyTargetPct) || 3})
+        VALUES (${userId}, ${bal}, ${bal}, ${Number(goalBalance)}, ${profile}, ${tradingStyle || "day"}, ${phase}, ${Number(weeklyTargetPct) || 3})
         ON CONFLICT (user_id) DO UPDATE SET
           starting_balance = EXCLUDED.starting_balance,
           current_balance = EXCLUDED.current_balance,
@@ -46769,9 +47920,10 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
           weekly_target_pct = EXCLUDED.weekly_target_pct,
           updated_at = now()
       `);
-      const [updated] = await db.execute(sql5`SELECT * FROM account_growth_plans WHERE user_id = ${userId} LIMIT 1`);
+      const [updated] = await db.execute(sql6`SELECT * FROM account_growth_plans WHERE user_id = ${userId} LIMIT 1`);
       const rows = updated.rows ?? updated;
-      res.json({ success: true, plan: rows[0] });
+      await _syncGrowthPlanToEngine(userId, phase, profile);
+      res.json({ success: true, plan: rows[0], currentPhase: phase });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -46782,13 +47934,21 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     const { currentBalance } = req.body;
     if (currentBalance === void 0) return res.status(400).json({ error: "currentBalance required" });
     try {
+      const [before] = await db.execute(sql6`SELECT current_phase, risk_profile FROM account_growth_plans WHERE user_id = ${userId} LIMIT 1`);
+      const beforeRows = before.rows ?? before;
+      const oldPhase = beforeRows[0]?.current_phase ?? 1;
+      const riskProfile = beforeRows[0]?.risk_profile ?? "conservative";
       const bal = Number(currentBalance);
-      const phase = bal < 500 ? 1 : bal < 1500 ? 2 : bal < 5e3 ? 3 : bal < 15e3 ? 4 : bal < 5e4 ? 5 : 6;
-      await db.execute(sql5`
-        UPDATE account_growth_plans SET current_balance = ${bal}, current_phase = ${phase}, updated_at = now()
+      const newPhase = _gpPhaseFromBal(bal);
+      await db.execute(sql6`
+        UPDATE account_growth_plans SET current_balance = ${bal}, current_phase = ${newPhase}, updated_at = now()
         WHERE user_id = ${userId}
       `);
-      res.json({ success: true, currentBalance: bal, currentPhase: phase });
+      const phaseChanged = newPhase !== oldPhase && newPhase > oldPhase;
+      if (phaseChanged) {
+        await _syncGrowthPlanToEngine(userId, newPhase, riskProfile);
+      }
+      res.json({ success: true, currentBalance: bal, currentPhase: newPhase, oldPhase, phaseChanged, riskProfile });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -46799,20 +47959,40 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     const { symbol, direction, entryPrice, exitPrice, stopLoss, lotSize, pnlUsd, pnlPct, riskUsd, phaseAtEntry, notes } = req.body;
     if (!symbol) return res.status(400).json({ error: "symbol required" });
     try {
-      const [planResult] = await db.execute(sql5`SELECT id FROM account_growth_plans WHERE user_id = ${userId} LIMIT 1`);
+      const [planResult] = await db.execute(sql6`SELECT id, current_phase, risk_profile FROM account_growth_plans WHERE user_id = ${userId} LIMIT 1`);
       const planRows = planResult.rows ?? planResult;
       const planId = planRows[0]?.id || null;
-      await db.execute(sql5`
+      const oldPhase = planRows[0]?.current_phase || 1;
+      const riskProfile = planRows[0]?.risk_profile || "conservative";
+      await db.execute(sql6`
         INSERT INTO growth_plan_trades (user_id, plan_id, symbol, direction, entry_price, exit_price, stop_loss, lot_size, pnl_usd, pnl_pct, risk_usd, phase_at_entry, notes, status, closed_at)
-        VALUES (${userId}, ${planId}, ${symbol}, ${direction || "long"}, ${entryPrice || null}, ${exitPrice || null}, ${stopLoss || null}, ${lotSize || null}, ${pnlUsd || null}, ${pnlPct || null}, ${riskUsd || null}, ${phaseAtEntry || 1}, ${notes || null}, ${exitPrice ? "closed" : "open"}, ${exitPrice ? /* @__PURE__ */ new Date() : null})
+        VALUES (${userId}, ${planId}, ${symbol}, ${direction || "long"}, ${entryPrice || null}, ${exitPrice || null}, ${stopLoss || null}, ${lotSize || null}, ${pnlUsd || null}, ${pnlPct || null}, ${riskUsd || null}, ${phaseAtEntry || oldPhase}, ${notes || null}, ${exitPrice ? "closed" : "open"}, ${exitPrice ? /* @__PURE__ */ new Date() : null})
       `);
+      let phaseChanged = false;
+      let newPhase = oldPhase;
       if (pnlUsd) {
-        await db.execute(sql5`
-          UPDATE account_growth_plans SET current_balance = current_balance + ${Number(pnlUsd)}, updated_at = now()
+        const [afterUpdate] = await db.execute(sql6`
+          UPDATE account_growth_plans
+          SET current_balance = current_balance + ${Number(pnlUsd)}, updated_at = now()
           WHERE user_id = ${userId}
+          RETURNING current_balance
         `);
+        const afterRows = afterUpdate.rows ?? afterUpdate;
+        const newBal = afterRows[0]?.current_balance ?? null;
+        if (newBal !== null) {
+          newPhase = _gpPhaseFromBal(Number(newBal));
+          if (newPhase !== oldPhase && newPhase > oldPhase) {
+            await db.execute(sql6`
+              UPDATE account_growth_plans SET current_phase = ${newPhase}, updated_at = now()
+              WHERE user_id = ${userId}
+            `);
+            phaseChanged = true;
+            await _syncGrowthPlanToEngine(userId, newPhase, riskProfile);
+            console.log(`[Growth Plan] AUTO PHASE PROMOTION: user ${userId} \u2192 Phase ${newPhase}`);
+          }
+        }
       }
-      res.json({ success: true });
+      res.json({ success: true, phaseChanged, newPhase, oldPhase, riskProfile });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -46821,10 +48001,55 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
     try {
-      await db.execute(sql5`DELETE FROM growth_plan_trades WHERE id = ${Number(req.params.id)} AND user_id = ${userId}`);
+      await db.execute(sql6`DELETE FROM growth_plan_trades WHERE id = ${Number(req.params.id)} AND user_id = ${userId}`);
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: err.message });
+    }
+  });
+  app2.post("/api/stop-orders", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const parsed = insertStopOrderSchema.safeParse({ ...req.body, userId });
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Validation failed", details: parsed.error.flatten() });
+    }
+    try {
+      const order = await createStopOrder({
+        ...parsed.data,
+        symbol: parsed.data.symbol.toUpperCase().replace("/", ""),
+        currentPrice: req.body.currentPrice ? parseFloat(req.body.currentPrice) : void 0
+      });
+      res.status(201).json(order);
+    } catch (err) {
+      const status = err.message?.includes("must be") ? 400 : 500;
+      res.status(status).json({ error: err.message });
+    }
+  });
+  app2.get("/api/stop-orders", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    try {
+      const orders = await getStopOrdersForUser(userId, {
+        symbol: req.query.symbol,
+        status: req.query.status
+      });
+      res.json(orders);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+  app2.delete("/api/stop-orders/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const orderId = parseInt(req.params.id, 10);
+    if (isNaN(orderId)) return res.status(400).json({ error: "Invalid order id" });
+    try {
+      const cancelled = await cancelStopOrder(orderId, userId);
+      res.json(cancelled);
+    } catch (err) {
+      const status = err.message?.includes("not found") ? 404 : err.message?.includes("already") ? 409 : 500;
+      res.status(status).json({ error: err.message });
     }
   });
   const httpServer2 = existingServer || createServer(app2);
@@ -46932,7 +48157,12 @@ async function setupVite(app2, server) {
         `src="/src/main.tsx?v=${TEMPLATE_VERSION}"`
       );
       const page = await vite.transformIndexHtml(url, template);
-      res.status(200).set({ "Content-Type": "text/html" }).end(page);
+      res.status(200).set({
+        "Content-Type": "text/html",
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0"
+      }).end(page);
     } catch (e) {
       vite.ssrFixStacktrace(e);
       next(e);
@@ -46946,8 +48176,23 @@ function serveStatic(app2) {
       `Could not find the build directory: ${distPath}, make sure to build the client first`
     );
   }
-  app2.use(express.static(distPath));
+  app2.use(express.static(distPath, {
+    setHeaders(res, filePath) {
+      if (filePath.endsWith(".html")) {
+        res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+        res.setHeader("Pragma", "no-cache");
+        res.setHeader("Expires", "0");
+      } else if (/\.[0-9a-f]{8,}\.(js|css|woff2?|ttf|svg|png|jpg|webp)$/i.test(filePath)) {
+        res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+      }
+    }
+  }));
   app2.use("*", (_req, res) => {
+    res.set({
+      "Cache-Control": "no-cache, no-store, must-revalidate",
+      "Pragma": "no-cache",
+      "Expires": "0"
+    });
     res.sendFile(path6.resolve(distPath, "index.html"));
   });
 }
@@ -47372,7 +48617,7 @@ var initialAchievements = [
 // server/seed.ts
 init_db();
 init_schema();
-import { eq as eq9 } from "drizzle-orm";
+import { eq as eq10 } from "drizzle-orm";
 import { scrypt as scrypt3, randomBytes as randomBytes3 } from "crypto";
 import { promisify as promisify3 } from "util";
 var scryptAsync3 = promisify3(scrypt3);
@@ -47506,7 +48751,7 @@ async function seedAchievements() {
 }
 async function seedAdminUser() {
   const adminUsername = "donchismkos@gmail.com";
-  const [yearlyPlan] = await db.select({ id: subscriptionPlans.id }).from(subscriptionPlans).where(eq9(subscriptionPlans.name, "Yearly")).limit(1);
+  const [yearlyPlan] = await db.select({ id: subscriptionPlans.id }).from(subscriptionPlans).where(eq10(subscriptionPlans.name, "Yearly")).limit(1);
   if (!yearlyPlan) {
     console.error("[seed] No Yearly plan found \u2014 skipping admin user seed");
     return;
@@ -47638,7 +48883,7 @@ async function seedVeddRewardConfig() {
 // server/blog-seed.ts
 init_db();
 init_schema();
-import { sql as sql6 } from "drizzle-orm";
+import { sql as sql7 } from "drizzle-orm";
 var staticArticles = [
   {
     title: "Master Chart Pattern Recognition with AI",
@@ -47726,7 +48971,7 @@ var staticArticles = [
 ];
 async function seedBlogPosts() {
   try {
-    const result = await db.execute(sql6`SELECT COUNT(*) as count FROM blog_posts`);
+    const result = await db.execute(sql7`SELECT COUNT(*) as count FROM blog_posts`);
     const rows = result;
     const count = Number(rows[0]?.count ?? 0);
     if (count > 0) {
@@ -47759,7 +49004,7 @@ async function seedBlogPosts() {
 init_market_data();
 init_db();
 import { execSync } from "child_process";
-import { sql as sql7 } from "drizzle-orm";
+import { sql as sql8 } from "drizzle-orm";
 process.on("unhandledRejection", (reason) => {
   console.error("[process] Unhandled rejection (non-fatal):", reason?.message ?? reason);
 });
@@ -47891,11 +49136,36 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         `ALTER TABLE tradelocker_connections DROP CONSTRAINT IF EXISTS tradelocker_connections_user_id_unique`
       ];
       for (const m of migrations) {
-        await db.execute(sql7.raw(m));
+        await db.execute(sql8.raw(m));
       }
       console.log("[startup] Schema check complete.");
     } catch (err) {
       console.error("[startup] Schema migration check failed (non-fatal):", err.message);
+    }
+    try {
+      await db.execute(sql8.raw(`
+        CREATE TABLE IF NOT EXISTS stop_orders (
+          id              SERIAL PRIMARY KEY,
+          user_id         INTEGER NOT NULL REFERENCES users(id),
+          symbol          TEXT    NOT NULL,
+          direction       TEXT    NOT NULL,
+          trigger_price   REAL    NOT NULL,
+          lot_size        REAL    NOT NULL,
+          stop_loss       REAL,
+          take_profit     REAL,
+          status          TEXT    NOT NULL DEFAULT 'PENDING',
+          breakout_level  REAL,
+          notes           TEXT,
+          triggered_at    TIMESTAMP,
+          cancelled_at    TIMESTAMP,
+          created_at      TIMESTAMP NOT NULL DEFAULT NOW(),
+          updated_at      TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+      `));
+      await db.execute(sql8.raw(`CREATE INDEX IF NOT EXISTS stop_orders_user_symbol_status ON stop_orders(user_id, symbol, status)`));
+      console.log("[startup] stop_orders table ready.");
+    } catch (err) {
+      console.error("[startup] stop_orders table creation failed (non-fatal):", err.message);
     }
     try {
       console.log("[startup] Running full schema sync (db:push)...");
@@ -47905,23 +49175,23 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Full schema sync failed (non-fatal, critical columns already added above):", err.message?.slice(0, 200));
     }
     try {
-      await db.execute(sql7`UPDATE subscription_plans SET name = 'Yearly', interval = 'yearly', description = 'Annual subscription — all Premium features with yearly renewal. Best value for serious traders.', price = 100000 WHERE id = 4 AND (name = 'Lifetime' OR interval = 'lifetime')`);
-      await db.execute(sql7`UPDATE subscription_plans SET price = 100000 WHERE id = 4 AND price = 14900`);
-      await db.execute(sql7`UPDATE subscription_plans SET price = 5000 WHERE id = 2 AND price != 5000`);
-      await db.execute(sql7`UPDATE subscription_plans SET price = 15000 WHERE id = 3 AND price != 15000`);
+      await db.execute(sql8`UPDATE subscription_plans SET name = 'Yearly', interval = 'yearly', description = 'Annual subscription — all Premium features with yearly renewal. Best value for serious traders.', price = 100000 WHERE id = 4 AND (name = 'Lifetime' OR interval = 'lifetime')`);
+      await db.execute(sql8`UPDATE subscription_plans SET price = 100000 WHERE id = 4 AND price = 14900`);
+      await db.execute(sql8`UPDATE subscription_plans SET price = 5000 WHERE id = 2 AND price != 5000`);
+      await db.execute(sql8`UPDATE subscription_plans SET price = 15000 WHERE id = 3 AND price != 15000`);
     } catch (err) {
       console.error("[startup] Lifetime\u2192Yearly migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql7`ALTER TABLE users ADD COLUMN IF NOT EXISTS breakout_mode_enabled boolean DEFAULT false`);
-      await db.execute(sql7`ALTER TABLE users ADD COLUMN IF NOT EXISTS trailing_stop_enabled boolean DEFAULT true`);
+      await db.execute(sql8`ALTER TABLE users ADD COLUMN IF NOT EXISTS breakout_mode_enabled boolean DEFAULT false`);
+      await db.execute(sql8`ALTER TABLE users ADD COLUMN IF NOT EXISTS trailing_stop_enabled boolean DEFAULT true`);
     } catch (err) {
       console.error("[startup] AI settings columns migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql7`ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_code text UNIQUE`);
-      await db.execute(sql7`ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by integer`);
-      await db.execute(sql7`CREATE TABLE IF NOT EXISTS referral_visits (
+      await db.execute(sql8`ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_code text UNIQUE`);
+      await db.execute(sql8`ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by integer`);
+      await db.execute(sql8`CREATE TABLE IF NOT EXISTS referral_visits (
         id serial PRIMARY KEY,
         referral_code text NOT NULL,
         referrer_id integer REFERENCES users(id),
@@ -47936,7 +49206,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         reminder_sent boolean DEFAULT false,
         reminder_sent_at timestamp
       )`);
-      await db.execute(sql7`CREATE TABLE IF NOT EXISTS dm_keywords (
+      await db.execute(sql8`CREATE TABLE IF NOT EXISTS dm_keywords (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL,
         keyword text NOT NULL,
@@ -47953,7 +49223,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Referral/DM tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql7`CREATE TABLE IF NOT EXISTS investment_pools (
+      await db.execute(sql8`CREATE TABLE IF NOT EXISTS investment_pools (
         id serial PRIMARY KEY,
         name text NOT NULL,
         slug text NOT NULL UNIQUE,
@@ -47973,7 +49243,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at timestamp DEFAULT now() NOT NULL,
         updated_at timestamp DEFAULT now() NOT NULL
       )`);
-      await db.execute(sql7`CREATE TABLE IF NOT EXISTS token_investments (
+      await db.execute(sql8`CREATE TABLE IF NOT EXISTS token_investments (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL,
         pool_id integer REFERENCES investment_pools(id) NOT NULL,
@@ -47993,7 +49263,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Investment pool tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql7`CREATE TABLE IF NOT EXISTS grants (
+      await db.execute(sql8`CREATE TABLE IF NOT EXISTS grants (
         id serial PRIMARY KEY,
         title text NOT NULL,
         description text NOT NULL,
@@ -48015,7 +49285,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at timestamp DEFAULT now() NOT NULL,
         updated_at timestamp DEFAULT now() NOT NULL
       )`);
-      await db.execute(sql7`CREATE TABLE IF NOT EXISTS grant_applications (
+      await db.execute(sql8`CREATE TABLE IF NOT EXISTS grant_applications (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id),
         grant_id integer REFERENCES grants(id),
@@ -48032,7 +49302,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at timestamp DEFAULT now() NOT NULL,
         updated_at timestamp DEFAULT now() NOT NULL
       )`);
-      await db.execute(sql7`CREATE TABLE IF NOT EXISTS grant_scan_sessions (
+      await db.execute(sql8`CREATE TABLE IF NOT EXISTS grant_scan_sessions (
         id serial PRIMARY KEY,
         triggered_by integer REFERENCES users(id),
         scan_type text NOT NULL,
@@ -48049,7 +49319,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Grants tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql7`CREATE TABLE IF NOT EXISTS landing_page_quizzes (
+      await db.execute(sql8`CREATE TABLE IF NOT EXISTS landing_page_quizzes (
         id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users(id) NOT NULL,
         title TEXT NOT NULL DEFAULT 'My VEDD Landing Page',
@@ -48065,7 +49335,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at TIMESTAMP DEFAULT NOW() NOT NULL,
         updated_at TIMESTAMP DEFAULT NOW() NOT NULL
       )`);
-      await db.execute(sql7`CREATE TABLE IF NOT EXISTS quiz_leads (
+      await db.execute(sql8`CREATE TABLE IF NOT EXISTS quiz_leads (
         id SERIAL PRIMARY KEY,
         quiz_id INTEGER REFERENCES landing_page_quizzes(id),
         ambassador_id INTEGER REFERENCES users(id) NOT NULL,
@@ -48087,7 +49357,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at TIMESTAMP DEFAULT NOW() NOT NULL,
         updated_at TIMESTAMP DEFAULT NOW() NOT NULL
       )`);
-      await db.execute(sql7`CREATE TABLE IF NOT EXISTS social_lead_scans (
+      await db.execute(sql8`CREATE TABLE IF NOT EXISTS social_lead_scans (
         id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users(id) NOT NULL,
         platform TEXT NOT NULL,
@@ -48102,7 +49372,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Ambassador lead generation tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql7`CREATE TABLE IF NOT EXISTS blog_posts (
+      await db.execute(sql8`CREATE TABLE IF NOT EXISTS blog_posts (
         id SERIAL PRIMARY KEY,
         title TEXT NOT NULL,
         slug TEXT UNIQUE NOT NULL,
@@ -48128,7 +49398,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] blog_posts table migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql7`CREATE TABLE IF NOT EXISTS ambassador_journey (
+      await db.execute(sql8`CREATE TABLE IF NOT EXISTS ambassador_journey (
         id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users(id) NOT NULL UNIQUE,
         current_day INTEGER DEFAULT 1 NOT NULL,
@@ -48149,7 +49419,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at TIMESTAMP DEFAULT NOW() NOT NULL,
         updated_at TIMESTAMP DEFAULT NOW() NOT NULL
       )`);
-      await db.execute(sql7`CREATE TABLE IF NOT EXISTS ambassador_daily_actions (
+      await db.execute(sql8`CREATE TABLE IF NOT EXISTS ambassador_daily_actions (
         id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users(id) NOT NULL,
         day INTEGER NOT NULL,
@@ -48166,7 +49436,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Ambassador journey tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql7`CREATE TABLE IF NOT EXISTS vedd_pool_wallets (
+      await db.execute(sql8`CREATE TABLE IF NOT EXISTS vedd_pool_wallets (
         id SERIAL PRIMARY KEY,
         label TEXT NOT NULL,
         public_key TEXT NOT NULL UNIQUE,
@@ -48177,7 +49447,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         last_sync_at TIMESTAMP,
         created_at TIMESTAMP DEFAULT NOW() NOT NULL
       )`);
-      await db.execute(sql7`CREATE TABLE IF NOT EXISTS vedd_reward_config (
+      await db.execute(sql8`CREATE TABLE IF NOT EXISTS vedd_reward_config (
         id SERIAL PRIMARY KEY,
         action_type TEXT NOT NULL UNIQUE,
         base_amount REAL NOT NULL DEFAULT 0,
@@ -48189,7 +49459,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at TIMESTAMP DEFAULT NOW() NOT NULL,
         updated_at TIMESTAMP DEFAULT NOW() NOT NULL
       )`);
-      await db.execute(sql7`CREATE TABLE IF NOT EXISTS ambassador_action_rewards (
+      await db.execute(sql8`CREATE TABLE IF NOT EXISTS ambassador_action_rewards (
         id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users(id) NOT NULL,
         action_type TEXT NOT NULL,
@@ -48205,7 +49475,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         security_flag TEXT,
         created_at TIMESTAMP DEFAULT NOW() NOT NULL
       )`);
-      await db.execute(sql7`CREATE TABLE IF NOT EXISTS vedd_transfer_jobs (
+      await db.execute(sql8`CREATE TABLE IF NOT EXISTS vedd_transfer_jobs (
         id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users(id) NOT NULL,
         source_wallet_id INTEGER REFERENCES vedd_pool_wallets(id) NOT NULL,
@@ -48222,7 +49492,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at TIMESTAMP DEFAULT NOW() NOT NULL,
         processed_at TIMESTAMP
       )`);
-      await db.execute(sql7`CREATE TABLE IF NOT EXISTS vedd_wallet_blacklist (
+      await db.execute(sql8`CREATE TABLE IF NOT EXISTS vedd_wallet_blacklist (
         id SERIAL PRIMARY KEY,
         wallet_address TEXT NOT NULL UNIQUE,
         reason TEXT NOT NULL,
@@ -48236,7 +49506,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] VEDD token tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql7`CREATE TABLE IF NOT EXISTS devotionals (
+      await db.execute(sql8`CREATE TABLE IF NOT EXISTS devotionals (
         id SERIAL PRIMARY KEY,
         date TEXT NOT NULL UNIQUE,
         title TEXT NOT NULL,
@@ -48252,7 +49522,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         is_published BOOLEAN DEFAULT true,
         created_at TIMESTAMP DEFAULT NOW() NOT NULL
       )`);
-      await db.execute(sql7`CREATE TABLE IF NOT EXISTS devotional_groups (
+      await db.execute(sql8`CREATE TABLE IF NOT EXISTS devotional_groups (
         id SERIAL PRIMARY KEY,
         devotional_id INTEGER REFERENCES devotionals(id),
         created_by INTEGER REFERENCES users(id),
@@ -48263,7 +49533,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         completed_count INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT NOW() NOT NULL
       )`);
-      await db.execute(sql7`CREATE TABLE IF NOT EXISTS devotional_sessions (
+      await db.execute(sql8`CREATE TABLE IF NOT EXISTS devotional_sessions (
         id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users(id) NOT NULL,
         devotional_id INTEGER REFERENCES devotionals(id) NOT NULL,
@@ -48277,7 +49547,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         reward_amount INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT NOW() NOT NULL
       )`);
-      await db.execute(sql7`INSERT INTO vedd_reward_config (action_type, base_amount, streak_multiplier, max_daily_rewards, requires_verification, is_active, description)
+      await db.execute(sql8`INSERT INTO vedd_reward_config (action_type, base_amount, streak_multiplier, max_daily_rewards, requires_verification, is_active, description)
         VALUES
           ('devotional_solo',        73,  1.1, 1, false, true, 'Completed daily devotional solo (5+ minutes)'),
           ('devotional_group',       148, 1.2, 1, false, true, 'Completed daily devotional in a group session (2× reward)'),
@@ -48295,7 +49565,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Devotional tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql7`CREATE TABLE IF NOT EXISTS sol_engine_settings (
+      await db.execute(sql8`CREATE TABLE IF NOT EXISTS sol_engine_settings (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL UNIQUE,
         active_strategy text DEFAULT 'momentum_surfer',
@@ -48314,7 +49584,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at timestamp DEFAULT now() NOT NULL,
         updated_at timestamp DEFAULT now() NOT NULL
       )`);
-      await db.execute(sql7`CREATE TABLE IF NOT EXISTS sol_engine_positions (
+      await db.execute(sql8`CREATE TABLE IF NOT EXISTS sol_engine_positions (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL,
         token_address text NOT NULL,
@@ -48335,7 +49605,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] SOL Engine tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql7`CREATE TABLE IF NOT EXISTS account_growth_plans (
+      await db.execute(sql8`CREATE TABLE IF NOT EXISTS account_growth_plans (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL UNIQUE,
         starting_balance real NOT NULL DEFAULT 0,
@@ -48350,7 +49620,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at timestamp DEFAULT now() NOT NULL,
         updated_at timestamp DEFAULT now() NOT NULL
       )`);
-      await db.execute(sql7`CREATE TABLE IF NOT EXISTS growth_plan_trades (
+      await db.execute(sql8`CREATE TABLE IF NOT EXISTS growth_plan_trades (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL,
         plan_id integer REFERENCES account_growth_plans(id),
@@ -48374,7 +49644,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Account Growth Plan tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql7`CREATE TABLE IF NOT EXISTS nfc_activations (
+      await db.execute(sql8`CREATE TABLE IF NOT EXISTS nfc_activations (
         id serial PRIMARY KEY,
         chip_uid text NOT NULL UNIQUE,
         user_id integer REFERENCES users(id) NOT NULL,
@@ -48386,7 +49656,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         current_streak integer NOT NULL DEFAULT 0,
         best_streak integer NOT NULL DEFAULT 0
       )`);
-      await db.execute(sql7`CREATE TABLE IF NOT EXISTS nfc_daily_taps (
+      await db.execute(sql8`CREATE TABLE IF NOT EXISTS nfc_daily_taps (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL,
         chip_uid text NOT NULL,
@@ -48394,13 +49664,13 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         tapped_at timestamp DEFAULT now() NOT NULL,
         day_string text NOT NULL
       )`);
-      await db.execute(sql7`CREATE UNIQUE INDEX IF NOT EXISTS nfc_daily_taps_dedup ON nfc_daily_taps(user_id, chip_uid, day_string)`);
+      await db.execute(sql8`CREATE UNIQUE INDEX IF NOT EXISTS nfc_daily_taps_dedup ON nfc_daily_taps(user_id, chip_uid, day_string)`);
       console.log("[startup] NFC Garment tables created/verified.");
     } catch (err) {
       console.error("[startup] NFC Garment tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql7`CREATE TABLE IF NOT EXISTS daily_checkins (
+      await db.execute(sql8`CREATE TABLE IF NOT EXISTS daily_checkins (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL,
         day_string text NOT NULL,
@@ -48416,9 +49686,9 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     await withRetry(() => seedSubscriptionPlans(), "seedSubscriptionPlans");
     await withRetry(() => seedAchievements(), "seedAchievements");
     try {
-      const existing = await db.execute(sql7`SELECT id FROM achievements WHERE name = 'Grant Champion' LIMIT 1`);
+      const existing = await db.execute(sql8`SELECT id FROM achievements WHERE name = 'Grant Champion' LIMIT 1`);
       if ((existing.rows ?? existing).length === 0) {
-        await db.execute(sql7`
+        await db.execute(sql8`
           INSERT INTO achievements (name, description, category, icon, points, threshold, is_secret)
           VALUES ('Grant Champion', 'Successfully secure your first grant award for VEDD', 'special', 'trophy', 100, 1, false)
         `);
