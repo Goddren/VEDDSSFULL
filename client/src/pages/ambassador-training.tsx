@@ -2110,20 +2110,27 @@ const trainingModules: TrainingModule[] = [
           'Every scan cycle, the engine fetches live market data, computes 12+ advanced indicators, checks news sentiment, evaluates volume conditions, and queries GPT-4o for a final trade decision',
           'Weekly profit goals keep the engine goal-oriented — it phases through warming_up → building → accelerating → cruising → pushing → target_reached, adjusting lot sizes accordingly',
           'Trail stop methods (Parabolic SAR, Fixed Pip, Profit Lock %, Stepped Fixed, None) protect open positions server-side, no MT5 connection required',
-          'The Brain Enforcer pre-filters every proposed trade using learned per-pair knowledge — if a pair is losing streak, the engine skips it automatically'
+          'The Brain Enforcer pre-filters every proposed trade using learned per-pair knowledge — if a pair is losing streak, the engine skips it automatically',
+          'Connected Account Switcher: select any MT5 EA or TradeLocker account directly inside the engine. Each account stores its own risk settings (lot size, weekly target, direction filter, max daily trades) — switch accounts and settings load automatically',
+          'Backtest Mode: run any HFT strategy against historical data before going live. See win rate, drawdown, profit factor, and total return — no real capital required'
         ],
         keyPoints: [
           { title: '18 HFT Strategies', description: 'Scalping, momentum surfing, session breakout, sniper, and compound strategies running in parallel — the engine picks the highest confluence setup.', icon: Zap },
           { title: 'Auto-Compounding', description: 'Win streaks trigger 1.25x–2x lot multipliers. Loss streaks reduce lot size to 0.5x–0.75x. Built-in capital protection.', icon: TrendingUp },
-          { title: 'Goal-Based Trading', description: 'Set a weekly profit target. The engine\'s strategy intensity automatically scales based on how close it is to the goal.', icon: Target }
+          { title: 'Goal-Based Trading', description: 'Set a weekly profit target. The engine\'s strategy intensity automatically scales based on how close it is to the goal.', icon: Target },
+          { title: 'Connected Account Switcher', description: 'Pick any MT5 or TradeLocker account from a unified dropdown. The engine reads the live balance and loads that account\'s saved settings automatically.', icon: Monitor },
+          { title: 'Backtest Before You Risk', description: 'Run historical simulations on any strategy to validate it before connecting a live account. See real performance metrics — no guessing.', icon: BarChart2 }
         ],
         realWorldExamples: [
           { scenario: 'Trader sets a $500 weekly goal and starts the SS Engine on Monday', outcome: 'Engine runs warming_up phase with conservative lots, then scales to accelerating phase mid-week as profits build, hitting target by Thursday', lesson: 'The phase system prevents the common mistake of over-trading early in the week, then revenge-trading when targets feel out of reach', type: 'success' },
-          { scenario: 'Trader asks: does the engine trade 24/7?', outcome: 'The engine scans continuously but only enters trades during high-volume session windows (London/NY overlap is prioritized)', lesson: 'Quality over quantity — the engine skips low-volume periods to avoid being caught in whipsaws', type: 'insight' }
+          { scenario: 'Trader asks: does the engine trade 24/7?', outcome: 'The engine scans continuously but only enters trades during high-volume session windows (London/NY overlap is prioritized)', lesson: 'Quality over quantity — the engine skips low-volume periods to avoid being caught in whipsaws', type: 'insight' },
+          { scenario: 'Trader has two accounts — a $10K MT5 account and a $3K TradeLocker prop account', outcome: 'Switches to the TradeLocker account in the picker, engine loads its separate conservative risk settings, runs the strategy without touching the MT5 settings', lesson: 'Per-account settings mean you can run different risk profiles on different accounts without manually resetting everything each time', type: 'success' }
         ],
         tips: [
           'Ambassador pitch: "Set your weekly goal, turn it on, and let VEDD\'s AI trade for you — 18 strategies, 24/5 market coverage"',
           'Emphasize that paper mode lets users test the engine before connecting a live TradeLocker account',
+          'New pitch angle: "Run the backtest first — see the strategy\'s actual win rate before you risk a dollar"',
+          'Per-account settings sell point: "Two accounts? Two risk profiles. VEDD remembers your settings for each one automatically"',
           'Common question: "Is it safe?" — explain that the Brain Enforcer, trail stops, and loss protection built-in keep risk managed automatically'
         ]
       },
@@ -2160,21 +2167,32 @@ const trainingModules: TrainingModule[] = [
           'For each token it analyzes: social sentiment, tokenomics quality, whale wallet activity, volume trends, and price momentum — then produces a BUY/SELL/HOLD signal with confidence score',
           'Paper Trading mode opens virtual positions using real market prices, tracks P&L, win rate, and compounding — no wallet required. Perfect for risk-free strategy testing',
           'Live Trading mode queues pending buy signals that the frontend auto-executes via Jupiter swap when Phantom wallet is connected',
-          'Autonomous server-side sell automation closes paper positions at TP or SL without any user action — including when the browser is closed'
+          'Autonomous server-side sell automation closes paper positions at TP or SL without any user action — including when the browser is closed',
+          '⚙️ RISK CONTROLS (4 new settings in the Sol Engine):',
+          '  • Direction Filter: trade BUY-only signals, SELL-only signals, or both directions — default is "both"',
+          '  • Risk Per Trade %: cap the SOL amount used per trade as a percentage of your portfolio value (e.g., 5% per trade)',
+          '  • Max Daily Trades: hard limit on how many positions the engine can open per 24-hour window to prevent over-trading',
+          '  • Stop-Order Price Levels: set a floor price below which the engine will not open new positions — acts as a portfolio-wide circuit breaker'
         ],
         keyPoints: [
           { title: 'Multi-DEX Intelligence', description: 'Aggregates data across 5 major Solana DEXes simultaneously. Token signals are cross-validated across all sources before a trade is proposed.', icon: Zap },
           { title: 'Paper Mode First', description: 'Try the full system with zero risk. Paper trades use real prices, real timing, and real market behavior — just virtual capital.', icon: Shield },
-          { title: 'Jupiter Swap Execution', description: 'Live trades execute at best available price via Jupiter\'s smart routing across all Solana liquidity pools.', icon: ArrowRight }
+          { title: 'Jupiter Swap Execution', description: 'Live trades execute at best available price via Jupiter\'s smart routing across all Solana liquidity pools.', icon: ArrowRight },
+          { title: 'Direction Filter', description: 'Lock the engine to buy-only, sell-only, or both. Great for bull markets (buy-only) or when you want to catch dumping tokens (sell-only).', icon: Target },
+          { title: '4-Layer Risk Controls', description: 'Direction filter + risk % per trade + max daily trades + stop-order price floor — four independent safeguards that compound to protect your capital.', icon: Shield }
         ],
         realWorldExamples: [
           { scenario: 'New user wants to try Solana AI trading but is nervous about risk', outcome: 'Starts with paper mode — within a week has 12 paper trades, 67% win rate, and enough confidence to try live mode with a small amount', lesson: 'Paper mode removes the #1 barrier to entry — fear of losing money while learning a new system', type: 'success' },
-          { scenario: 'User asks: what happens to my paper positions when I close the browser?', outcome: 'Server-side position monitoring continues running. TP/SL triggers server-side and the position is closed in the background automatically', lesson: 'Set it and forget it — the engine monitors 24/7 even when you\'re offline', type: 'insight' }
+          { scenario: 'User asks: what happens to my paper positions when I close the browser?', outcome: 'Server-side position monitoring continues running. TP/SL triggers server-side and the position is closed in the background automatically', lesson: 'Set it and forget it — the engine monitors 24/7 even when you\'re offline', type: 'insight' },
+          { scenario: 'User in a Solana bull market wants to only ride pumping tokens, not short-sellers', outcome: 'Sets Direction Filter to "buy_only" — engine ignores all SELL signals and only enters BUY positions. No manual filtering needed.', lesson: 'The direction filter lets you align the AI with your market thesis in one click. Trade with the trend.', type: 'success' },
+          { scenario: 'User over-traded last week and had 20+ positions open simultaneously', outcome: 'Sets Max Daily Trades to 5 — engine hard-stops after 5 opens per day regardless of signal quality, keeping portfolio manageable', lesson: 'Max daily trades is your circuit breaker against FOMO. The AI will want to trade everything — you decide the cap.', type: 'insight' }
         ],
         tips: [
           'Ambassador pitch: "AI scans Solana\'s hottest tokens in real-time — paper trade first, go live when you\'re confident"',
+          'New risk controls pitch: "4 safeguards that give you full control — direction, size, frequency, and a price floor. Trade on your terms."',
           'Great content angle: screen-record the sol engine finding a token, show the confidence score, then show the paper trade opening in real-time',
-          'Crypto audience hook: "No more manually scanning DexScreener — VEDD AI does it and tells you exactly when to buy"'
+          'Crypto audience hook: "No more manually scanning DexScreener — VEDD AI does it and tells you exactly when to buy"',
+          'Risk controls content idea: show the settings panel side-by-side before/after configuring them — very visual, good for short-form'
         ]
       },
       {
@@ -2236,6 +2254,208 @@ const trainingModules: TrainingModule[] = [
           ],
           correct: 1
         }
+      }
+    ]
+  },
+  {
+    id: 'platform-mastery',
+    title: 'Platform Mastery — Own Every Feature',
+    description: 'Deep-dive into VEDD\'s most powerful platform features: Account Growth Plan, multi-account switching, Social Hub, ABBA AI, Stop Orders, and Webhooks',
+    duration: '50 min',
+    icon: Cpu,
+    image: platformsImg,
+    lessons: [
+      {
+        id: 'pm-1',
+        title: 'Account Growth Plan — 6-Phase Capital Scaling',
+        content: [
+          'The Account Growth Plan is a structured capital-building system that takes your account through 6 defined phases: Seed → Sprout → Growth → Momentum → Acceleration → Peak',
+          'Each phase has a balance threshold. When your account crosses the threshold, the plan levels up automatically and adjusts recommended lot sizes and weekly targets',
+          'Built-in Position Sizer calculates exact lot sizes based on your current phase, risk % per trade, and entry-to-stop distance — no manual math',
+          'Trade Log tracks every entry: pair, direction, lot size, P&L, and which phase it was taken in — gives you a permanent record of your growth journey',
+          'The plan is personalised to your starting balance. Start with $500 or $50,000 — the phase thresholds and lot calculations scale accordingly',
+          'Link your MT5 or TradeLocker account via the Connected Account Picker and the plan reads your live balance to always know which phase you\'re in'
+        ],
+        keyPoints: [
+          { title: '6 Growth Phases', description: 'Seed → Sprout → Growth → Momentum → Acceleration → Peak. Each phase unlocks progressively larger lot sizes as your balance grows.', icon: TrendingUp },
+          { title: 'Auto Position Sizer', description: 'Enter your entry price and stop-loss level — the calculator instantly outputs the exact lot size to risk your chosen % per trade. No spreadsheet needed.', icon: Target },
+          { title: 'Live Balance Sync', description: 'Connect your MT5 or TradeLocker account and the Growth Plan reads your actual live balance to always show your current phase accurately.', icon: Wallet }
+        ],
+        realWorldExamples: [
+          { scenario: 'Trader starts with $1,000 and manually guesses lot sizes each trade', outcome: 'Over-sizes on some trades, under-sizes on winners — inconsistent results and emotional decisions', lesson: 'The Growth Plan removes guesswork. The position sizer calculates exactly what to trade based on your actual balance and risk tolerance', type: 'warning' },
+          { scenario: 'Trader in Sprout phase ($2,000 balance) hits the Growth phase threshold ($5,000)', outcome: 'Plan auto-advances to Growth phase, recommended lot sizes increase, weekly target updates automatically', lesson: 'The plan grows with you. Each milestone is a celebration moment — great content for your social media', type: 'success' }
+        ],
+        tips: [
+          'Ambassador pitch: "It\'s like a business plan for your trading account — 6 phases from seed money to peak performance"',
+          'Great content angle: film your own phase progression — "I just hit Phase 3!" posts get strong engagement',
+          'Show the position sizer live on camera — "watch me calculate my exact lot size in 5 seconds" is a great hook',
+          'Highlight that the Growth Plan + live balance sync means zero manual balance tracking'
+        ],
+        quiz: {
+          question: 'What does the Account Growth Plan\'s Position Sizer calculate automatically?',
+          options: [
+            'Your broker\'s commission fees',
+            'The exact lot size to risk a chosen % per trade based on balance and stop distance',
+            'Weekly profit guarantees',
+            'Your account tier on the leaderboard'
+          ],
+          correct: 1
+        }
+      },
+      {
+        id: 'pm-2',
+        title: 'Connected Account Switcher — All Accounts, One View',
+        content: [
+          'The Connected Account Switcher is a unified dropdown that shows every account connected to VEDD — MT5 EA accounts AND TradeLocker connections — in one place',
+          'Select any account and the platform instantly loads its live balance and equity (TradeLocker fetches live from the server, MT5 uses real-time EA push data)',
+          'Each account has its own saved settings. Switch from your $10K MT5 account to your $2K TradeLocker prop account and the engine, growth plan, and SOL scanner all load that account\'s specific risk parameters',
+          'The last selected account is remembered across sessions — come back tomorrow and VEDD auto-selects where you left off',
+          'Connection status shows in real time: green "Live" for MT5 accounts with active EA data, "Connected" or "Offline" for TradeLocker',
+          'Available throughout the platform: SS AI Engine, Account Growth Plan, and SOL Scanner all use the same picker so you only select once'
+        ],
+        keyPoints: [
+          { title: 'Unified Multi-Account View', description: 'MT5 and TradeLocker accounts in one dropdown. No more jumping between platforms to check balances.', icon: Monitor },
+          { title: 'Per-Account Settings', description: 'Risk per trade, lot size, weekly target, direction filter — each account stores its own complete settings profile. Switch accounts, settings follow.', icon: Shield },
+          { title: 'Live Balance Sync', description: 'MT5 balance updates from the EA\'s push data in near-real-time. TradeLocker fetches the current balance live when you select it.', icon: Wallet }
+        ],
+        realWorldExamples: [
+          { scenario: 'Trader runs a conservative $5K MT5 account and an aggressive $1K TradeLocker demo', outcome: 'Switches between accounts in 1 click — each account\'s risk settings load automatically, no manual reconfiguration', lesson: 'The switcher is the missing piece for multi-account traders. Your settings travel with your account.', type: 'success' },
+          { scenario: 'Trader forgets to update balance manually in the Growth Plan every week', outcome: 'Connects TradeLocker account to the plan — balance updates automatically on each visit, phase always stays accurate', lesson: 'Manual balance entry is a thing of the past. Connect the account and let VEDD track it.', type: 'insight' }
+        ],
+        tips: [
+          'Ambassador pitch: "All your trading accounts — MT5 and TradeLocker — in one place with live balances and per-account settings"',
+          'Great demo content: show switching between two accounts live — the balance change and settings swap is very visual',
+          'Sell the per-account settings story: "prop firm account needs different risk than your personal account — VEDD handles that automatically"',
+          'Highlight the offline indicator for MT5 accounts — easy to see when the EA is disconnected'
+        ]
+      },
+      {
+        id: 'pm-3',
+        title: 'Social Hub — Trade Ideas, Tinder-Style',
+        content: [
+          'The Social Hub is VEDD\'s community trading feed — a Tinder-card style interface where AI-generated trade setups and community analyses appear as swipeable cards',
+          'Each card shows: pair, timeframe, direction, entry/TP/SL levels, a live SVG price chart generated from the trade data, AI confidence score, and the analyst\'s reasoning',
+          'Swipe right (Like) to save a setup to your watchlist. Swipe left (Skip) to dismiss. Long-press to open the full detail view with complete analysis breakdown',
+          'Your Feed tab shows analyses from traders you follow, filtered by your preferred assets and timeframes',
+          'Share buttons on every card: one-tap share to Twitter, copy a formatted signal text, or use the native device share sheet — great for building your ambassador content',
+          'Follow traders whose setups consistently perform — the platform tracks and surfaces the best-performing analysts automatically'
+        ],
+        keyPoints: [
+          { title: 'Swipe-to-Trade Discovery', description: 'Find quality setups in seconds instead of hours. Like what looks good, skip what doesn\'t — the feed learns your preferences over time.', icon: Heart },
+          { title: 'SVG Price Charts', description: 'Every card has a live-generated price chart showing entry, TP, and SL zones — no static images, no broken links. Always renders correctly.', icon: BarChart2 },
+          { title: 'One-Tap Sharing', description: 'Share any signal card to Twitter, Instagram Stories, or copy to clipboard in one tap. Pre-formatted with all trade details and VEDD branding.', icon: Share2 }
+        ],
+        realWorldExamples: [
+          { scenario: 'Ambassador wants content ideas but doesn\'t have time to analyze charts every day', outcome: 'Opens Social Hub, swipes through signals, likes a high-confidence XAUUSD setup, shares it with their audience in 30 seconds', lesson: 'The Social Hub is a content machine for ambassadors. Find, review, and share quality signals faster than manual research', type: 'success' },
+          { scenario: 'Community member looking for validation on a trade idea', outcome: 'Posts their analysis to the Social Hub — receives likes, comments, and the AI adds a Second Opinion score to their card', lesson: 'Community validation + AI confirmation in one place builds trading confidence for beginners', type: 'insight' }
+        ],
+        tips: [
+          'Ambassador pitch: "Trade ideas, community analysis, and AI signals — all in a swipe-friendly feed. Social media meets trading."',
+          'Content angle: film yourself swiping through cards in real-time — "let me see what VEDD\'s community is trading today"',
+          'Highlight the share buttons — ambassadors can populate their social media directly from the Hub without screenshots or editing',
+          'Show the SVG chart feature: "every card has a real price chart — no broken images, no static screenshots"'
+        ],
+        quiz: {
+          question: 'What does the Social Hub\'s share feature allow you to do?',
+          options: [
+            'Only save setups privately',
+            'Share signal cards to Twitter/social media with trade details in one tap',
+            'Automatically trade signals from other users',
+            'Send direct messages to traders'
+          ],
+          correct: 1
+        }
+      },
+      {
+        id: 'pm-4',
+        title: 'ABBA AI Assistant — Your Trading Co-Pilot',
+        content: [
+          'ABBA is VEDD\'s conversational AI assistant — powered by GPT-4o and trained specifically on trading, VEDD features, and market analysis',
+          'Ask ABBA anything: "Review my weekly strategy", "What does my account growth plan say I should trade?", "Explain this candle pattern", "What is the risk on this setup?"',
+          'ABBA has context about the VEDD platform — it knows the features, can guide you through setup steps, and can pull in your current engine state to give personalised advice',
+          'Use ABBA for pre-trade checklists: "I\'m about to enter XAUUSD long at 2340, SL 2310, TP 2400. What do you think?" — it gives a structured review in seconds',
+          'Weekly plan review: paste your Week N strategy output into ABBA and ask it to stress-test the logic, check for overexposure, or suggest pairs to watch',
+          'Accessible from any page via the floating chat button — available 24/7 with full market knowledge'
+        ],
+        keyPoints: [
+          { title: 'Platform-Aware Context', description: 'ABBA knows VEDD\'s features, your current phase, engine settings, and platform layout. It gives answers specific to what you\'re actually using — not generic trading advice.', icon: Bot },
+          { title: 'Pre-Trade Review', description: 'Describe any setup to ABBA before you enter. It checks your logic, flags risks, and confirms (or challenges) your reasoning in plain English.', icon: CheckCircle2 },
+          { title: '24/7 Trading Education', description: 'Ask about any chart pattern, indicator, risk concept, or strategy at any time. ABBA is a trading tutor that never sleeps.', icon: BookOpen }
+        ],
+        realWorldExamples: [
+          { scenario: 'Trader unsure whether to hold a position over a news event', outcome: 'Asks ABBA: "Should I hold my EURUSD long over the FOMC decision tomorrow?" — ABBA checks upcoming events and gives a risk-adjusted recommendation', lesson: 'ABBA as a real-time sounding board reduces impulsive decisions. Having to articulate a trade to ABBA often reveals its weaknesses', type: 'success' },
+          { scenario: 'New trader doesn\'t understand the SS Engine phases', outcome: 'Asks ABBA: "What phase is my engine in and what does that mean?" — ABBA explains the phase system in plain terms and recommends next steps', lesson: 'ABBA bridges the gap between complex features and user understanding. Less support tickets, more confident users.', type: 'insight' }
+        ],
+        tips: [
+          'Ambassador pitch: "It\'s like having a professional trading mentor on call 24/7 — ask anything, get instant answers specific to your account"',
+          'Content idea: film a live ABBA session reviewing a trade setup — great for building trust and showing the AI\'s depth',
+          'Emphasize ABBA knows VEDD specifically — it\'s not just a generic ChatGPT wrapper',
+          'Weekly strategy review use case resonates with serious traders: "review my plan before I commit to it this week"'
+        ]
+      },
+      {
+        id: 'pm-5',
+        title: 'Stop Orders & Breakout Automation',
+        content: [
+          'Stop Orders allow you to pre-set trades that trigger automatically when price hits a specific level — perfect for breakout trading without watching the charts',
+          'Create stop orders for any pair: set a trigger price, direction (buy-stop above / sell-stop below), lot size, TP, and SL — the engine monitors price 24/5 and fires the order when conditions are met',
+          'Combines powerfully with the Market Open Breakout Strategy: identify the session range, set stop orders just above/below it, and let the system auto-execute the breakout trade',
+          'Stop Orders appear in a dedicated management panel: see all pending orders, current price vs trigger, modify or cancel anytime',
+          'When combined with the MT5 EA or TradeLocker connection, stop orders can be forwarded directly to your broker for native execution',
+          'Stop Order levels from the Sol Engine risk controls also use this system — set a price floor and the engine pauses new entries below it'
+        ],
+        keyPoints: [
+          { title: 'Set & Forget Breakouts', description: 'Place your stop order before the session opens, walk away, and the system executes when price breaks out. No alarm clocks, no chart-watching.', icon: Zap },
+          { title: 'Session Range Automation', description: 'The Market Open Breakout detector identifies London/NY/Tokyo session ranges automatically. Combine with stop orders for a fully automated breakout strategy.', icon: Clock },
+          { title: 'Full Order Management', description: 'View all pending stops, distance to trigger, estimated fill price. Modify or cancel with one click from the orders panel.', icon: Target }
+        ],
+        realWorldExamples: [
+          { scenario: 'Trader knows London open is at 8 AM UTC but can\'t watch the charts', outcome: 'Uses Breakout Detector to find the pre-London range, sets a buy-stop 15 pips above it the night before — wakes up to a filled trade', lesson: 'Stop orders make session breakout trading accessible regardless of your schedule. No FOMO, no alarm clocks.', type: 'success' },
+          { scenario: 'Sol Engine trader worried about entering tokens during a market crash', outcome: 'Sets a stop-order floor price — engine auto-pauses all new entries if SOL price drops below the threshold', lesson: 'Stop-order price levels are your emergency brake. Define your risk tolerance in advance, not in the panic of the moment.', type: 'insight' }
+        ],
+        tips: [
+          'Ambassador pitch: "Place your trade before you go to sleep and wake up to it filled — stop orders do the work while you rest"',
+          'Show the session range + stop order combo: identify range before open, set stop above/below, watch it fire — great demo video content',
+          'Sell the "no alarm clocks" angle to busy traders who miss breakouts because they can\'t watch every session open',
+          'Explain the Sol Engine stop-order floor as "a circuit breaker for your crypto portfolio — it stops trading when things go south"'
+        ],
+        quiz: {
+          question: 'What is the primary benefit of using Stop Orders with the Market Open Breakout detector?',
+          options: [
+            'Guaranteeing profit on every trade',
+            'Automating breakout entries so you don\'t need to watch every session open',
+            'Reducing your broker\'s spread',
+            'Getting exclusive signals not available elsewhere'
+          ],
+          correct: 1
+        }
+      },
+      {
+        id: 'pm-6',
+        title: 'Webhooks & Automation — Connect Everything',
+        content: [
+          'Webhooks are HTTP POST notifications that VEDD sends to any external URL when a trading event occurs — connecting VEDD to TradeLocker, Telegram bots, Discord, Zapier, or any custom system',
+          'Webhook trigger events include: chart analysis completion, AI signal generated, MT5 trade copied, SS Engine trade opened/closed, weekly strategy published',
+          'Setup in 3 steps: Settings → Webhooks → Create Webhook → paste your endpoint URL → select trigger events → Activate',
+          'Test any webhook before going live using the built-in Test button — sends a sample payload to your endpoint so you can verify the connection without waiting for a real trade',
+          'The MT5 Trade Copier webhook relays every MT5 trade (open/modify/close) to TradeLocker or any connected platform in real-time — true cross-platform trade copying',
+          'API tokens authenticate your webhooks and EAs securely. One token works for both the MT5 Chart Data EA and webhook authentication'
+        ],
+        keyPoints: [
+          { title: 'Connect Any Platform', description: 'Send VEDD signals to TradeLocker, Telegram, Discord, Slack, Zapier, or a custom server. If it accepts a POST request, VEDD can notify it.', icon: Globe },
+          { title: 'MT5 Trade Copier', description: 'Every MT5 trade mirrors to TradeLocker (or any webhook endpoint) in real-time. Same entry, same SL/TP — fully automated cross-platform copying.', icon: ArrowRight },
+          { title: 'Test Before Live', description: 'The built-in webhook test fires a sample payload to your endpoint. Verify the connection before a real trade is ever triggered.', icon: CheckCircle2 }
+        ],
+        realWorldExamples: [
+          { scenario: 'Trader wants to receive VEDD signals in their Telegram group', outcome: 'Creates a Telegram bot, pastes the bot\'s webhook URL into VEDD, selects "AI Signal Generated" trigger — group receives formatted signal messages automatically', lesson: 'Webhooks turn VEDD into a signal broadcaster. Ambassadors can use this to deliver live signals to their community groups.', type: 'success' },
+          { scenario: 'Prop trader runs their main analysis on MT5 but executes on TradeLocker', outcome: 'MT5 Trade Copier webhook copies every MT5 trade to TradeLocker in real-time — same positions on both platforms without manual entry', lesson: 'Cross-platform trade copying means you always trade where you\'re comfortable and never miss a position on your prop account', type: 'insight' }
+        ],
+        tips: [
+          'Ambassador pitch: "Connect VEDD to Telegram, TradeLocker, Discord — any platform that accepts a signal. Fully automated."',
+          'Great ambassador use case: set up a Telegram webhook and share signals with your community automatically — no copy-pasting, no delays',
+          'MT5 Trade Copier is a massive differentiator: "Run your strategy on MT5, automatically copy every trade to TradeLocker — two accounts, one action"',
+          'Show the 3-step webhook setup live on camera — it takes under 2 minutes and the visual impact is strong for content'
+        ]
       }
     ]
   }
