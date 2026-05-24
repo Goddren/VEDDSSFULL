@@ -130,7 +130,7 @@ function mapPairToToken(pair: any): SolanaToken {
       buys: pair.txns?.h24?.buys || 0,
       sells: pair.txns?.h24?.sells || 0
     },
-    makers24h: pair.txns?.h24?.makers || 0,
+    makers24h: pair.info?.makers24h || pair.txns?.h24?.m || (pair.txns?.h24?.buys || 0) + (pair.txns?.h24?.sells || 0),
     pairAddress: pair.pairAddress || '',
     dexId: pair.dexId || 'unknown',
     createdAt: pair.pairCreatedAt ? new Date(pair.pairCreatedAt).toISOString() : undefined,
@@ -376,9 +376,9 @@ function calculateSentimentScore(token: SolanaToken): number {
 function determineSignal(sentimentScore: number, tokenomicsScore: number, whaleScore: number): { signal: TokenAnalysis['signal']; confidence: number } {
   const avgScore = (sentimentScore + tokenomicsScore + whaleScore) / 3;
   
-  if (avgScore >= 75 && Math.min(sentimentScore, tokenomicsScore, whaleScore) >= 60) {
+  if (avgScore >= 72 && Math.min(sentimentScore, tokenomicsScore, whaleScore) >= 55) {
     return { signal: 'STRONG_BUY', confidence: Math.round(avgScore) };
-  } else if (avgScore >= 60 && Math.min(sentimentScore, tokenomicsScore, whaleScore) >= 45) {
+  } else if (avgScore >= 58 && Math.min(sentimentScore, tokenomicsScore, whaleScore) >= 40) {
     return { signal: 'BUY', confidence: Math.round(avgScore) };
   } else if (avgScore >= 45) {
     return { signal: 'HOLD', confidence: Math.round(avgScore) };

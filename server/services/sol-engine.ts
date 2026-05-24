@@ -695,19 +695,16 @@ function passesStrategyFilter(analysis: TokenAnalysis, strategy: SolStrategy): b
 
   switch (strategy.id) {
     case 'whale_follower':
-      // Real whale signal = FEW wallets making BIG individual transactions
-      // avgTxSize > $1000 means whale-sized positions (not retail $50 buys)
-      // makers < 150 = concentrated wallets (not scattered retail)
-      // whaleScore >= 65 = algorithm confirms unusual buy pressure
-      return avgTxSize > 1000 && token.makers24h < 150 && buyRatio > 0.58 && analysis.whaleScore >= 65;
+      // Loosened: avgTxSize was >1000, now >200; makers was <150, now <500
+      return avgTxSize > 200 && token.makers24h < 500 && buyRatio > 0.55 && analysis.whaleScore >= 60;
 
     case 'momentum_surfer':
       // Riding an existing price move — token already going up, volume confirming
       return priceChg >= 5 && priceChg <= 80 && buyRatio > 0.55 && token.volume24h >= 30000;
 
     case 'breakout_hunter':
-      // Strong price move, not overextended, volume confirming the breakout
-      return priceChg >= 12 && priceChg <= 70 && token.volume24h >= 80000 && buyRatio > 0.58;
+      // Loosened: was 80K volume, now 30K; was >58% buy ratio, now >54%; was >=12%, now >=10%
+      return priceChg >= 10 && priceChg <= 80 && token.volume24h >= 30000 && buyRatio > 0.54;
 
     case 'dip_sniper':
       // Price dropped BUT smart money is quietly accumulating at the low
@@ -723,9 +720,8 @@ function passesStrategyFilter(analysis: TokenAnalysis, strategy: SolStrategy): b
       return token.volume24h >= 250000 && buyRatio > 0.52;
 
     case 'smart_money_flow':
-      // Institutional grade only: LOW risk, distributed wallets, STRONG_BUY
-      // High makers24h = many wallets holding = not a pump-and-dump concentration
-      return analysis.riskLevel === 'LOW' && token.makers24h >= 150 && analysis.signal === 'STRONG_BUY';
+      // Loosened: makers24h now uses txns proxy so ≥50 instead of ≥150
+      return analysis.riskLevel === 'LOW' && token.makers24h >= 50 && analysis.signal === 'STRONG_BUY';
 
     case 'liquidity_sweep':
       // Price bounced off a key level — recent dip/recovery with strong buying
@@ -1619,6 +1615,11 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
           addActivity(state, {
             type: 'info',
             message: `⚠️ Live signal skipped: ${analysis.token.symbol} — Live Trade is ON but portfolio SOL value is 0. Set it in engine settings → Portfolio Value.`,
+          });
+        } else if (!state.autoTradeEnabled && !state.liveTradeEnabled) {
+          addActivity(state, {
+            type: 'info',
+            message: `📡 Signal detected: ${analysis.token.symbol} [${analysis.signal} ${analysis.confidence}%] — Paper & Live trade are OFF. Enable Paper Trade in the ⚙️ Settings panel to auto-execute.`,
           });
         }
       }

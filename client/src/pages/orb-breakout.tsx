@@ -494,6 +494,7 @@ function SetupCard({
   onAnalyze,
   isAnalyzing,
   onToggleAuto,
+  onSetStopOrder,
 }: {
   setup: ORBSetup;
   onUpdate: (id: string, patch: Partial<ORBSetup>) => void;
@@ -502,6 +503,7 @@ function SetupCard({
   onAnalyze: (setup: ORBSetup) => void;
   isAnalyzing: boolean;
   onToggleAuto: (id: string) => void;
+  onSetStopOrder: (setup: ORBSetup) => void;
 }) {
   const { toast } = useToast();
   const [editing, setEditing] = useState(false);
@@ -831,6 +833,17 @@ function SetupCard({
               : <><ChevronDown className="w-3.5 h-3.5 mr-1" /> Log SHORT Entry</>}
           </Button>
         )}
+        {(isRetest || isBreakout) && !setup.tradeTaken && setup.orbHigh > 0 && (
+          <Button
+            size="sm"
+            onClick={() => onSetStopOrder(setup)}
+            className="text-xs h-8"
+            style={{ background: "rgba(251,191,36,0.15)", border: "1px solid rgba(251,191,36,0.35)", color: "#fbbf24" }}
+          >
+            <Target className="w-3 h-3 mr-1.5" />
+            Stop Order
+          </Button>
+        )}
         {setup.tradeTaken && (
           <div className="flex-1 flex items-center justify-center gap-1.5 rounded-lg text-xs font-semibold text-purple-300"
             style={{ background: "rgba(139,92,246,0.12)", border: "1px solid rgba(139,92,246,0.3)" }}>
@@ -855,6 +868,117 @@ function SetupCard({
         </div>
       )}
     </motion.div>
+  );
+}
+
+// ─── Stop Order Modal ─────────────────────────────────────────────────────────
+
+function StopOrderModal({
+  setup,
+  open,
+  onClose,
+}: {
+  setup: ORBSetup | null;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const { toast } = useToast();
+  const [lotSize, setLotSize] = useState("0.01");
+
+  const isLong = setup?.tradeDirection === "LONG";
+  const direction = isLong ? "BUY_STOP" : "SELL_STOP";
+  const triggerPrice = setup?.entryPrice || (isLong ? setup?.orbHigh : setup?.orbLow) || 0;
+  const stopLoss = setup?.stopLoss || 0;
+  const breakoutLevel = isLong ? setup?.orbHigh : setup?.orbLow;
+
+  const placeOrderMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/stop-orders", {
+        symbol: setup?.symbol,
+        direction,
+        triggerPrice,
+        stopLoss,
+        lotSize: parseFloat(lotSize) || 0.01,
+        breakoutLevel,
+      });
+      if (!res.ok) throw new Error("Failed to place stop order");
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Stop Order placed!", description: `${setup?.symbol} ${direction} @ ${triggerPrice}` });
+      onClose();
+    },
+    onError: () => {
+      toast({ title: "Failed to place stop order", variant: "destructive" });
+    },
+  });
+
+  if (!setup) return null;
+
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="bg-gray-950 border-white/10 text-white max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Target className="w-4 h-4 text-amber-400" />
+            Set Stop Order — {setup.symbol}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 pt-2">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs text-gray-400">Direction</Label>
+              <div className="mt-1 px-3 py-2 rounded-lg text-sm font-bold"
+                style={{ background: isLong ? "rgba(34,197,94,0.15)" : "rgba(239,68,68,0.15)", color: isLong ? "#4ade80" : "#f87171" }}>
+                {direction}
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs text-gray-400">Symbol</Label>
+              <div className="mt-1 px-3 py-2 rounded-lg text-sm font-bold text-white bg-white/5">
+                {setup.symbol}
+              </div>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs text-gray-400">Trigger Price</Label>
+              <div className="mt-1 px-3 py-2 rounded-lg text-sm text-white bg-white/5">{triggerPrice}</div>
+            </div>
+            <div>
+              <Label className="text-xs text-gray-400">Stop Loss</Label>
+              <div className="mt-1 px-3 py-2 rounded-lg text-sm text-red-400 bg-white/5">{stopLoss || "—"}</div>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs text-gray-400">Breakout Level</Label>
+              <div className="mt-1 px-3 py-2 rounded-lg text-sm text-amber-400 bg-white/5">{breakoutLevel || "—"}</div>
+            </div>
+            <div>
+              <Label className="text-xs text-gray-400">Lot Size</Label>
+              <Input
+                type="number"
+                value={lotSize}
+                onChange={e => setLotSize(e.target.value)}
+                className="mt-1 bg-white/5 border-white/10 text-white text-sm h-9"
+                step="0.01"
+                min="0.01"
+              />
+            </div>
+          </div>
+          <Button
+            onClick={() => placeOrderMutation.mutate()}
+            disabled={placeOrderMutation.isPending}
+            className="w-full font-bold"
+            style={{ background: "rgba(251,191,36,0.2)", border: "1px solid rgba(251,191,36,0.4)", color: "#fbbf24" }}
+          >
+            {placeOrderMutation.isPending ? <RefreshCw className="w-3.5 h-3.5 mr-2 animate-spin" /> : <Target className="w-3.5 h-3.5 mr-2" />}
+            Place Stop Order
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1150,6 +1274,7 @@ export default function ORBBreakoutPage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [analyzingId, setAnalyzingId] = useState<string | null>(null);
   const [ssAISetup, setSSAISetup] = useState<ORBSetup | null>(null);
+  const [stopOrderSetup, setStopOrderSetup] = useState<ORBSetup | null>(null);
 
   // AI analysis mutation
   const analyzeMutation = useMutation({
@@ -1548,6 +1673,7 @@ export default function ORBBreakoutPage() {
                       onAnalyze={handleAnalyze}
                       isAnalyzing={analyzingId === setup.id}
                       onToggleAuto={toggleAutoMode}
+                      onSetStopOrder={(s) => setStopOrderSetup(s)}
                     />
                   ))}
                 </AnimatePresence>
@@ -1681,6 +1807,12 @@ export default function ORBBreakoutPage() {
         open={showAddModal}
         onClose={() => setShowAddModal(false)}
         onAdd={addInstrument}
+      />
+
+      <StopOrderModal
+        setup={stopOrderSetup}
+        open={!!stopOrderSetup}
+        onClose={() => setStopOrderSetup(null)}
       />
     </div>
   );

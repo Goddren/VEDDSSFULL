@@ -17777,7 +17777,7 @@ function mapPairToToken(pair) {
       buys: pair.txns?.h24?.buys || 0,
       sells: pair.txns?.h24?.sells || 0
     },
-    makers24h: pair.txns?.h24?.makers || 0,
+    makers24h: pair.info?.makers24h || pair.txns?.h24?.m || (pair.txns?.h24?.buys || 0) + (pair.txns?.h24?.sells || 0),
     pairAddress: pair.pairAddress || "",
     dexId: pair.dexId || "unknown",
     createdAt: pair.pairCreatedAt ? new Date(pair.pairCreatedAt).toISOString() : void 0,
@@ -17963,9 +17963,9 @@ function calculateSentimentScore(token) {
 }
 function determineSignal(sentimentScore, tokenomicsScore, whaleScore) {
   const avgScore = (sentimentScore + tokenomicsScore + whaleScore) / 3;
-  if (avgScore >= 75 && Math.min(sentimentScore, tokenomicsScore, whaleScore) >= 60) {
+  if (avgScore >= 72 && Math.min(sentimentScore, tokenomicsScore, whaleScore) >= 55) {
     return { signal: "STRONG_BUY", confidence: Math.round(avgScore) };
-  } else if (avgScore >= 60 && Math.min(sentimentScore, tokenomicsScore, whaleScore) >= 45) {
+  } else if (avgScore >= 58 && Math.min(sentimentScore, tokenomicsScore, whaleScore) >= 40) {
     return { signal: "BUY", confidence: Math.round(avgScore) };
   } else if (avgScore >= 45) {
     return { signal: "HOLD", confidence: Math.round(avgScore) };
@@ -25319,11 +25319,11 @@ function passesStrategyFilter(analysis, strategy) {
   const priceChg = token.priceChange24h;
   switch (strategy.id) {
     case "whale_follower":
-      return avgTxSize > 1e3 && token.makers24h < 150 && buyRatio > 0.58 && analysis.whaleScore >= 65;
+      return avgTxSize > 200 && token.makers24h < 500 && buyRatio > 0.55 && analysis.whaleScore >= 60;
     case "momentum_surfer":
       return priceChg >= 5 && priceChg <= 80 && buyRatio > 0.55 && token.volume24h >= 3e4;
     case "breakout_hunter":
-      return priceChg >= 12 && priceChg <= 70 && token.volume24h >= 8e4 && buyRatio > 0.58;
+      return priceChg >= 10 && priceChg <= 80 && token.volume24h >= 3e4 && buyRatio > 0.54;
     case "dip_sniper":
       return priceChg >= -40 && priceChg <= -4 && buyRatio > 0.62;
     case "meme_velocity":
@@ -25331,7 +25331,7 @@ function passesStrategyFilter(analysis, strategy) {
     case "volume_explosion":
       return token.volume24h >= 25e4 && buyRatio > 0.52;
     case "smart_money_flow":
-      return analysis.riskLevel === "LOW" && token.makers24h >= 150 && analysis.signal === "STRONG_BUY";
+      return analysis.riskLevel === "LOW" && token.makers24h >= 50 && analysis.signal === "STRONG_BUY";
     case "liquidity_sweep":
       return priceChg >= -15 && priceChg <= 10 && buyRatio > 0.62 && analysis.sentimentScore >= 55;
     case "adaptive":
@@ -26018,6 +26018,11 @@ async function runScan(userId, state, triggerToken) {
           addActivity3(state, {
             type: "info",
             message: `\u26A0\uFE0F Live signal skipped: ${analysis.token.symbol} \u2014 Live Trade is ON but portfolio SOL value is 0. Set it in engine settings \u2192 Portfolio Value.`
+          });
+        } else if (!state.autoTradeEnabled && !state.liveTradeEnabled) {
+          addActivity3(state, {
+            type: "info",
+            message: `\u{1F4E1} Signal detected: ${analysis.token.symbol} [${analysis.signal} ${analysis.confidence}%] \u2014 Paper & Live trade are OFF. Enable Paper Trade in the \u2699\uFE0F Settings panel to auto-execute.`
           });
         }
       }

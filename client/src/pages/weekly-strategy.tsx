@@ -130,6 +130,7 @@ function ORBWeeklyPanel({ pairs }: { pairs: string[] }) {
   const { toast } = useToast();
   const [pairStates, setPairStates] = useState<Record<string, ORBPairState>>({});
   const [analyzingId, setAnalyzingId] = useState<string | null>(null);
+  const [stopOrderPair, setStopOrderPair] = useState<ORBPairState | null>(null);
   const autoFiredRef = useRef<Set<string>>(new Set());
   const autoAnalyzingRef = useRef<Set<string>>(new Set());
 
@@ -478,6 +479,17 @@ function ORBWeeklyPanel({ pairs }: { pairs: string[] }) {
                       <Send className="w-3 h-3" />
                     </button>
                   )}
+                  {(isRetest || pair.phase === "BREAKOUT_LONG" || pair.phase === "BREAKOUT_SHORT") && pair.orbHigh > 0 && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-xs border-amber-500/30 text-amber-400 hover:bg-amber-500/10 h-7 px-2"
+                      onClick={() => setStopOrderPair(pairStates[sym])}
+                    >
+                      <Target className="h-3 w-3 mr-1" />
+                      Stop Order
+                    </Button>
+                  )}
                 </div>
               ) : (
                 <div className="flex items-center justify-center gap-1.5 py-2 rounded-lg text-[10px] font-semibold"
@@ -536,6 +548,113 @@ function ORBWeeklyPanel({ pairs }: { pairs: string[] }) {
       <p className="text-[9px] text-gray-600 text-center">
         ⚡ Tap the activity icon on any pair to enable MT5 auto-fill · SS AI Bot auto-runs at retest · Webhook fires automatically when score ≥ 70
       </p>
+
+      {/* Stop Order Modal */}
+      {stopOrderPair && (
+        <Dialog open={!!stopOrderPair} onOpenChange={() => setStopOrderPair(null)}>
+          <DialogContent className="bg-gray-950 border-white/10 text-white max-w-sm">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Target className="w-4 h-4 text-amber-400" />
+                Set Stop Order — {stopOrderPair.symbol}
+              </DialogTitle>
+              <DialogDescription className="text-gray-500 text-xs">
+                Pre-filled from ORB levels. Adjust lot size before placing.
+              </DialogDescription>
+            </DialogHeader>
+            <StopOrderFormInline
+              pair={stopOrderPair}
+              onClose={() => setStopOrderPair(null)}
+              toast={toast}
+            />
+          </DialogContent>
+        </Dialog>
+      )}
+    </div>
+  );
+}
+
+function StopOrderFormInline({ pair, onClose, toast }: { pair: ORBPairState; onClose: () => void; toast: ReturnType<typeof useToast>['toast'] }) {
+  const [lotSize, setLotSize] = useState("0.01");
+  const isLong = pair.tradeDirection === "LONG";
+  const direction = isLong ? "BUY_STOP" : "SELL_STOP";
+  const triggerPrice = pair.entryPrice || (isLong ? pair.orbHigh : pair.orbLow) || 0;
+  const stopLoss = pair.stopLoss || 0;
+  const breakoutLevel = isLong ? pair.orbHigh : pair.orbLow;
+
+  const placeOrderMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/stop-orders", {
+        symbol: pair.symbol,
+        direction,
+        triggerPrice,
+        stopLoss,
+        lotSize: parseFloat(lotSize) || 0.01,
+        breakoutLevel,
+      });
+      if (!res.ok) throw new Error("Failed to place stop order");
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Stop Order placed!", description: `${pair.symbol} ${direction} @ ${triggerPrice}` });
+      onClose();
+    },
+    onError: () => {
+      toast({ title: "Failed to place stop order", variant: "destructive" });
+    },
+  });
+
+  return (
+    <div className="space-y-4 pt-2">
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label className="text-xs text-gray-400">Direction</Label>
+          <div className="mt-1 px-3 py-2 rounded-lg text-sm font-bold"
+            style={{ background: isLong ? "rgba(34,197,94,0.15)" : "rgba(239,68,68,0.15)", color: isLong ? "#4ade80" : "#f87171" }}>
+            {direction}
+          </div>
+        </div>
+        <div>
+          <Label className="text-xs text-gray-400">Symbol</Label>
+          <div className="mt-1 px-3 py-2 rounded-lg text-sm font-bold text-white bg-white/5">{pair.symbol}</div>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label className="text-xs text-gray-400">Trigger Price</Label>
+          <div className="mt-1 px-3 py-2 rounded-lg text-sm text-white bg-white/5">{triggerPrice || "—"}</div>
+        </div>
+        <div>
+          <Label className="text-xs text-gray-400">Stop Loss</Label>
+          <div className="mt-1 px-3 py-2 rounded-lg text-sm text-red-400 bg-white/5">{stopLoss || "—"}</div>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label className="text-xs text-gray-400">Breakout Level</Label>
+          <div className="mt-1 px-3 py-2 rounded-lg text-sm text-amber-400 bg-white/5">{breakoutLevel || "—"}</div>
+        </div>
+        <div>
+          <Label className="text-xs text-gray-400">Lot Size</Label>
+          <Input
+            type="number"
+            value={lotSize}
+            onChange={e => setLotSize(e.target.value)}
+            className="mt-1 bg-white/5 border-white/10 text-white text-sm h-9"
+            step="0.01"
+            min="0.01"
+          />
+        </div>
+      </div>
+      <Button
+        onClick={() => placeOrderMutation.mutate()}
+        disabled={placeOrderMutation.isPending}
+        className="w-full font-bold"
+        style={{ background: "rgba(251,191,36,0.2)", border: "1px solid rgba(251,191,36,0.4)", color: "#fbbf24" }}
+      >
+        {placeOrderMutation.isPending ? <RefreshCw className="w-3.5 h-3.5 mr-2 animate-spin" /> : <Target className="w-3.5 h-3.5 mr-2" />}
+        Place Stop Order
+      </Button>
     </div>
   );
 }
