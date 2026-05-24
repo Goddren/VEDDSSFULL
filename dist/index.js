@@ -16984,6 +16984,11 @@ var init_twelve_data = __esm({
 });
 
 // server/market-data/service.ts
+var service_exports = {};
+__export(service_exports, {
+  initializeMarketDataService: () => initializeMarketDataService,
+  marketDataService: () => marketDataService
+});
 import { createHash } from "crypto";
 function initializeMarketDataService() {
   const twelveDataKey = process.env.TWELVE_DATA_API_KEY;
@@ -25438,7 +25443,9 @@ function createInitialState(config) {
     autoTradeStats: { totalTrades: 0, wins: 0, losses: 0, totalPnlPct: 0, bestTradePct: 0, worstTradePct: 0 },
     aiReviewCache: {},
     serverWalletBalance: 0,
-    lastWalletRefreshAt: 0
+    lastWalletRefreshAt: 0,
+    dailyTradeCount: 0,
+    dailyTradeDate: ""
   };
 }
 function addActivity3(state, entry) {
@@ -25500,6 +25507,13 @@ function computeAutoSolSize(state, dex, overrideStrategy, mode = "live") {
     portfolio = state.currentPortfolioValue;
   }
   if (portfolio <= 0) return 0;
+  const riskPct = state.config.riskPerTradePct;
+  if (riskPct > 0) {
+    const phaseMultiplier2 = getPhaseMultiplier(state.weeklyGoal.phase, state.weeklyGoal.winStreak);
+    const riskFraction = riskPct / 100 * phaseMultiplier2;
+    const capped = Math.max(5e-3, Math.min(0.15, riskFraction));
+    return Math.round(portfolio * capped * 1e3) / 1e3;
+  }
   const strategy = overrideStrategy || SOL_STRATEGIES.find((s) => s.id === state.activeStrategy) || SOL_STRATEGIES[0];
   const phaseMultiplier = getPhaseMultiplier(state.weeklyGoal.phase, state.weeklyGoal.winStreak);
   let fraction = strategy.baseFraction * phaseMultiplier;
@@ -25939,6 +25953,11 @@ async function refreshServerWalletBalance(userId, state) {
 async function runScan(userId, state, triggerToken) {
   if (!state.isRunning) return;
   try {
+    const todayUTC = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+    if (state.dailyTradeDate !== todayUTC) {
+      state.dailyTradeDate = todayUTC;
+      state.dailyTradeCount = 0;
+    }
     await refreshServerWalletBalance(userId, state).catch(() => {
     });
     const macro = await fetchCryptoMacroContext().catch(() => null);
@@ -26026,6 +26045,11 @@ async function runScan(userId, state, triggerToken) {
           });
         }
       }
+      const dirFilter = state.config.directionFilter || "buy_only";
+      const isBuySignal = analysis.signal === "STRONG_BUY" || analysis.signal === "BUY";
+      const isSellSignal = analysis.signal === "SELL" || analysis.signal === "STRONG_SELL";
+      if (dirFilter === "buy_only" && !isBuySignal) continue;
+      if (dirFilter === "sell_only" && !isSellSignal) continue;
       if ((analysis.signal === "STRONG_BUY" || analysis.signal === "BUY") && canEnterTrade) {
         if (analysis.token.priceChange24h > 80) {
           addActivity3(state, {
@@ -26092,6 +26116,20 @@ async function runScan(userId, state, triggerToken) {
         const tokenPrice = parseFloat(analysis.token.priceUsd) || 0;
         const tokenMint = analysis.token.address;
         const now2 = (/* @__PURE__ */ new Date()).toISOString();
+        const maxDaily = state.config.maxDailyTrades || 0;
+        if (maxDaily > 0 && state.dailyTradeCount >= maxDaily) {
+          addActivity3(state, {
+            type: "info",
+            message: `\u{1F6AB} Daily limit reached: ${analysis.token.symbol} skipped \u2014 ${state.dailyTradeCount}/${maxDaily} trades taken today. Resets at UTC midnight.`
+          });
+          continue;
+        }
+        let stopLossPrice;
+        let takeProfitPrice;
+        if (state.config.stopOrdersEnabled && tokenPrice > 0) {
+          stopLossPrice = tokenPrice * (1 - state.autoTradeSL / 100);
+          takeProfitPrice = tokenPrice * (1 + state.autoTradeTP / 100);
+        }
         if (!state.autoTradeEnabled && !state.liveTradeEnabled) {
           addActivity3(state, {
             type: "info",
@@ -26121,13 +26159,17 @@ async function runScan(userId, state, triggerToken) {
               breakevenActive: false,
               trailActivationPct: state.autoTrailActivationPct,
               trailDistancePct: state.autoTrailDistancePct,
-              entryVolume24h: analysis.token.volume24h || 0
+              entryVolume24h: analysis.token.volume24h || 0,
+              stopLossPrice,
+              takeProfitPrice
             };
             state.paperPositions.push(pos);
+            state.dailyTradeCount++;
             const compoundNote = state.compoundMode ? ` [\u{1F4B9} Compounding ON \u2014 ${state.paperPortfolioValue.toFixed(3)} SOL pool]` : "";
+            const stopNote = state.config.stopOrdersEnabled && stopLossPrice ? ` | \u{1F6D1} Stop @$${stopLossPrice.toFixed(6)} \xB7 \u{1F3AF} TP @$${takeProfitPrice?.toFixed(6)}` : ` | TP: +${state.autoTradeTP}% | SL: -${state.autoTradeSL}%`;
             addActivity3(state, {
               type: "paper_buy",
-              message: `\u{1F4C4} Paper BUY: ${analysis.token.symbol} \u2014 ${paperSizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}] | TP: +${state.autoTradeTP}% | SL: -${state.autoTradeSL}% | Breakeven @+8% \xB7 Trail @+20% (vol-adjusted)${compoundNote}`
+              message: `\u{1F4C4} Paper BUY: ${analysis.token.symbol} \u2014 ${paperSizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}]${stopNote} | Breakeven @+8% \xB7 Trail @+20% (vol-adjusted)${compoundNote}`
             });
           }
         }
@@ -26152,6 +26194,7 @@ async function runScan(userId, state, triggerToken) {
               createdAt: created.toISOString(),
               expiresAt: expires.toISOString()
             };
+            state.dailyTradeCount++;
             addActivity3(state, {
               type: "live_signal",
               message: `\u26A1 Live signal: ${analysis.token.symbol} \u2014 ${sizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}] | Attempting server-side execution...`
@@ -26255,6 +26298,8 @@ async function startSolEngine(userId, config = {}) {
     state.autoTradeSL = existing.autoTradeSL;
     state.serverWalletBalance = existing.serverWalletBalance;
     state.lastWalletRefreshAt = existing.lastWalletRefreshAt;
+    state.dailyTradeCount = existing.dailyTradeCount;
+    state.dailyTradeDate = existing.dailyTradeDate;
   } else {
     await loadEngineStateFromDb(userId, state);
   }
@@ -26347,7 +26392,9 @@ function getSolEngineStatus(userId) {
     autoTradeMode: state.liveTradeEnabled ? "live" : state.autoTradeEnabled ? "paper" : "off",
     pendingSignalsCount: state.pendingSignals.filter((s) => new Date(s.expiresAt).getTime() > Date.now()).length,
     pendingSignalSymbols: state.pendingSignals.filter((s) => new Date(s.expiresAt).getTime() > Date.now()).map((s) => s.symbol),
-    serverWalletBalance: state.serverWalletBalance
+    serverWalletBalance: state.serverWalletBalance,
+    dailyTradeCount: state.dailyTradeCount,
+    dailyTradeDate: state.dailyTradeDate
   };
 }
 function getSolStrategies() {
@@ -26922,7 +26969,11 @@ var init_sol_engine = __esm({
       shieldEnabled: true,
       shieldThreshold: 10,
       adaptiveScan: true,
-      aiMode: "full"
+      aiMode: "full",
+      directionFilter: "buy_only",
+      riskPerTradePct: 1,
+      maxDailyTrades: 0,
+      stopOrdersEnabled: false
     };
     DEFAULT_WEEKLY_GOAL = {
       targetSol: 0,
@@ -33854,18 +33905,191 @@ Available routes (use EXACT path \u2014 wrong paths lead to dead pages):
 /vedd-wallet | /my-wallet | /account-growth | /token-investments | /referral | /grants | /credit-builder | /achievements
 /profile | /ai-api-keys | /training-calendar | /ambassador-training | /ambassador/free-path | /ambassador/content-studio
 /vedd-clothing | /vedd-ecosystem | /community-impact | /ai-governance | /innovation-lab | /compliance
-/subscription | /user-guide | /support
+/subscription | /user-guide | /support | /stop-orders
 
 TRADE ENTRY GUIDANCE: When asked about entries, use the plan pairs above, suggest based on session timing (Asian 00:00-07:00 UTC, London 07:00-13:00 UTC, New York 13:00-20:00 UTC), and factor in the remaining daily/weekly target to suggest appropriate lot sizing relative to balance.
 
-PLAN CREATION: If the user asks you to create, build, set up, or configure a weekly trading plan in natural language, extract the plan details and respond with a [PLAN_PROPOSAL:{json}] tag at the END of your response containing:
-{"pairs":[],"sessions":[],"direction":"BOTH","strategyType":"breakout","profitTarget":null,"accountBalance":${balance},"lotSize":null,"riskLevel":"moderate","tradingDays":["Monday","Tuesday","Wednesday","Thursday","Friday"],"maxTradesPerDay":null,"notes":"","missingFields":[],"summary":""}
-- Set missingFields to any of ["profitTarget","accountBalance","lotSize"] that are unknown
-- If profitTarget is missing, ask for it conversationally BEFORE including the proposal tag
-- Use the user's current account balance ($${balance}) for accountBalance if not specified
-- Only include [PLAN_PROPOSAL:{...}] when you have at MINIMUM: pairs and at least one of (profitTarget OR the user seems ready to confirm)
+PLAN CREATION \u2014 FULL INTERVIEW REQUIRED:
+When the user asks you to create, build, set up, or configure a weekly trading plan, you MUST gather ALL of the following before generating the proposal. Ask missing fields one or two at a time \u2014 conversationally, never as a list dump. Do NOT generate the [PLAN_PROPOSAL] tag until you have all required fields.
 
-VEDD CONTEXT: VEDD is a faith-based AI trading platform with a community of traders building financial freedom. VEDD tokens reward activity. Ambassadors grow the cipher. Users trade via MT5/TradeLocker with AI-powered signals. The goal is always freedom \u2014 Culture (4) \u2014 through disciplined, consistent trading.`;
+REQUIRED FIELDS \u2014 ask for any that are missing:
+1. PAIRS \u2014 Which forex pairs / instruments do you want to trade this week? (e.g. XAUUSD, GBPJPY, NAS100)
+2. PROFIT TARGET \u2014 What's your weekly profit goal in dollars? (e.g. $200, $500)
+3. DIRECTION \u2014 BUY only, SELL only, or trading both directions?
+4. SESSION \u2014 Which trading session fits your schedule? London (7am-1pm UTC), New York (1pm-8pm UTC), Asian (midnight-7am UTC), or multiple?
+5. RISK LEVEL \u2014 Conservative (smaller size, fewer trades), Moderate (balanced), or Aggressive (larger size, more trades)?
+6. MAX TRADES PER DAY \u2014 How many trades max per day do you want the engine to take? (1, 2, 3, etc.)
+7. LOT SIZE \u2014 What lot size, or should I calculate based on your growth plan risk %? (If growth plan is set, suggest the phase-appropriate size and ask to confirm)
+
+INTERVIEW FLOW:
+- Start by asking for pairs and profit target together (most important \u2014 sets the foundation)
+- Then ask direction + session together
+- Then ask risk level + max trades together
+- Then confirm lot size (offer the growth plan suggestion if available)
+- After ALL 7 are confirmed, THEN generate the [PLAN_PROPOSAL:{json}] tag
+
+Once all fields are gathered, respond with a brief confirmation summary ("Here's the cipher I'm building for you...") THEN include the tag:
+[PLAN_PROPOSAL:{"pairs":[],"sessions":[],"direction":"BOTH","strategyType":"breakout","profitTarget":null,"accountBalance":${balance},"lotSize":null,"riskLevel":"moderate","tradingDays":["Monday","Tuesday","Wednesday","Thursday","Friday"],"maxTradesPerDay":null,"notes":"","missingFields":[],"summary":""}]
+
+CRITICAL RULES:
+- NEVER generate [PLAN_PROPOSAL] with empty pairs array
+- NEVER generate [PLAN_PROPOSAL] if profitTarget is null
+- NEVER generate [PLAN_PROPOSAL] if direction is not specified
+- If the user has an Account Growth Plan set, USE their phase risk % and max trades as defaults \u2014 but still confirm them out loud
+- Use the user's current account balance ($${balance}) for accountBalance
+- missingFields should always be [] when you actually generate the tag (all fields resolved)
+
+STOP ORDERS (/stop-orders):
+Stop Orders is a dedicated order management page for precision pre-planned trade execution. Know it cold:
+- PURPOSE: Set limit/stop entries in advance so you never chase price. The order fires when price reaches your level.
+- ORDER TYPES: BUY STOP (above market \u2014 catches bullish breakouts), SELL STOP (below market \u2014 rides bearish breakdowns), BUY LIMIT (below market \u2014 buys dips/retests), SELL LIMIT (above market \u2014 sells into resistance).
+- INTEGRATION WITH ORB: When viewing a live ORB setup on the ORB Breakout page (/orb-breakout), tap the "Stop Order" button on any active breakout or retest card. It auto-fills: direction (BUY_STOP or SELL_STOP based on trade direction), trigger price (ORB High/Low depending on direction), stop loss (10% beyond the range), and pre-calculated risk levels. Edit lot size then submit.
+- INTEGRATION WITH WEEKLY STRATEGY: On the Weekly Strategy page (/weekly-strategy), each pair's AI score card has a "Stop Order" button that pre-fills the same fields from the weekly setup data.
+- FIELDS: Symbol, Order Type, Trigger Price (entry level), Stop Loss, Take Profit (optional), Lot Size, Notes.
+- MANAGING ORDERS: Active orders show status (Pending, Triggered, Cancelled). Cancel anytime before trigger. Once triggered, it moves to your active positions.
+- BEST PRACTICE: Set stop orders during pre-market or at session open. Let price come to YOUR level \u2014 never chase. "Wisdom (2) says wait for the retest \u2014 set the order and walk away."
+
+ACCOUNT GROWTH PLAN (/account-growth):
+The Account Growth Plan is VEDD's structured progression system for building an account systematically:
+- PHASES: Phase 1 (Seed, $0\u2013$999) \u2192 Phase 2 (Sprout, $1K\u2013$4,999) \u2192 Phase 3 (Growth, $5K\u2013$14,999) \u2192 Phase 4 (Scale, $15K\u2013$49,999) \u2192 Phase 5 (Freedom, $50K+)
+- EACH PHASE HAS: A recommended weekly profit target (% of balance), recommended lot size range, max trades per day, and a milestone celebration when you hit the phase threshold.
+- PROMOTION: When your account balance crosses a phase threshold, VEDD shows a promotion celebration modal \u2014 you've leveled up. The new phase unlocks higher targets and lot size ranges.
+- WEEKLY STRATEGY INTEGRATION: The weekly strategy page auto-reads your current phase to suggest appropriate profit targets and lot sizes. The growth plan feeds directly into plan creation \u2014 never overtrade your phase.
+- HOW TO SET IT UP: Go to /account-growth, input your account balance, select your broker, and VEDD maps your phase. Then go to /weekly-strategy to build a plan aligned to that phase.
+- TELL USERS: If they're asking about lot sizing, risk, or targets and haven't set a growth plan \u2014 send them to /account-growth first. "Build the cipher from the foundation (1=Knowledge). Know your phase before you size your trades."
+
+SOL SCANNER (/solana-scanner) \u2014 FULL SETUP GUIDE:
+The Solana Scanner is an AI-powered bot that scans DexScreener for high-potential Solana tokens in real time.
+- HOW IT WORKS: Scans 50+ token pairs every cycle. Scores each token across: sentiment (social/momentum), tokenomics (supply/liquidity), and whale activity. Generates STRONG_BUY / BUY / HOLD / SELL signals.
+- STRATEGIES: whale_follower (follows big wallet accumulation), breakout_hunter (momentum breakout setups), smart_money_flow (on-chain flow analysis). Each strategy filters tokens differently \u2014 select based on your trading style.
+- PAPER TRADE SETUP: Go to /solana-scanner \u2192 Settings panel (\u2699\uFE0F icon) \u2192 Enable "Paper Trade". This lets the bot auto-execute paper trades when a signal fires. No real money involved. See your P&L in real time.
+- LIVE TRADE SETUP: After paper trading profitably, enable "Live Trade" in Settings. Requires connecting your Solana wallet (Phantom/Solflare). Live trade size is set in the Settings panel in SOL.
+- IF NO TRADES FIRE: The most common reason is Paper Trade is OFF. Go to \u2699\uFE0F Settings \u2192 enable Paper Trade. Also check: strategy selected, minimum score threshold (default 70), and that the scanner is actively running (green indicator at top).
+- SIGNAL THRESHOLDS: STRONG_BUY requires avg score \u226572 and min component score \u226555. BUY requires avg \u226558 and min \u226540. Adjust in Settings if market is quiet.
+- ACTIVITY LOG: All signals (including ones that didn't trigger due to settings) are shown in the Activity Log tab. If you see "Paper & Live trade are OFF" messages \u2014 that's why no trades executed.
+
+SOL SCANNER \u2014 NEW RISK MANAGEMENT FEATURES (just added):
+Four new controls are now live inside the Sol Engine settings panel (\u2699\uFE0F Risk Management section):
+1. DIRECTION FILTER \u2014 Choose BUY Only (default, recommended), SELL Only (monitor exits only, no new buys), or Both. Also available in the Auto-Trade wallet Settings tab. Set this before starting the engine. BUY Only = engine only enters on BUY/STRONG_BUY signals. SELL Only = engine watches existing positions for exit signals only.
+2. RISK PER TRADE (%) \u2014 Instead of a fixed SOL amount, each trade now uses a % of your portfolio. Default is 1%. A 1% risk means if you have 10 SOL, each trade is 0.1 SOL. You can set it between 0.1% and 5%. This enforces proper position sizing automatically \u2014 the engine calculates trade size for you.
+3. MAX TRADES PER DAY \u2014 Set a daily cap (0 = unlimited). Engine blocks new trades once the cap is hit. Resets at UTC midnight. Prevents overtrading in volatile sessions. Recommended: 5\u201310 trades per day to stay disciplined.
+4. STOP-ORDER PRICE LEVELS \u2014 When ON, every position gets an exact price-level stop loss and take profit (not just %). The activity feed shows the actual dollar price: "Stop @$0.000041 \xB7 TP @$0.000053." Keeps the engine precise on entries and exits.
+HOW TO USE: Open /solana-scanner \u2192 click \u2699\uFE0F Settings icon at top of the Sol Engine panel \u2192 scroll to \u2696\uFE0F Risk Management section \u2192 set your preferences \u2192 click Start Engine. These settings apply to both Paper Trade and Live Trade mode.
+
+VEDD SS AI ENGINE (forex) \u2014 WHAT'S BEEN BUILT:
+The SS AI Engine lives at /weekly-strategy \u2192 Engine tab. It's the forex side of VEDD's autonomous trading system. Connected to TradeLocker and MT5.
+
+SS AI ENGINE \u2014 BACKTEST FEATURE (just added):
+You can now backtest the SS AI Engine on any forex pair before going live. This is huge \u2014 it shows you exactly what the engine would have done historically.
+HOW TO USE: /weekly-strategy \u2192 Engine tab \u2192 click \u{1F9EA} Backtest Engine (collapsible card at top) \u2192 set: pair (e.g. XAUUSD, EURUSD), strategy mode (Sniper or Conservative), period (30/60/90 days), account balance, risk%, TP%, SL% \u2192 click Run Backtest.
+WHAT IT SHOWS: Win rate, total P&L %, max drawdown, number of trades, average win/loss, and a full trade log with each entry/exit. A color-coded verdict tells you if the setup is STRONG/GOOD/WEAK/RISKY based on win rate and max drawdown. Use this to validate your setup before letting the engine run live.
+
+SS AI ENGINE \u2014 BROKER SELECTOR (just added):
+The engine now shows both your TradeLocker AND MT5 account balances side by side. You choose which account to execute from:
+- AUTO: engine picks the highest balance account automatically
+- MT5: force execute from MT5 account
+- TRADELOCKER: force execute from TradeLocker account
+Previously the engine always defaulted to MT5 data which caused small trade sizes when your real money was in TradeLocker. Now you control the source. Found in /weekly-strategy \u2192 Engine tab \u2192 Execution Source section.
+
+WEEKLY STRATEGY PAGE (/weekly-strategy) \u2014 SETUP ORDER:
+The page now shows a numbered setup checklist so you know exactly what to configure first. Follow this sequence:
+Step 1 \u2014 Build your Account Growth Plan (/account-growth) \u2014 sets your phase, risk%, and lot size framework
+Step 2 \u2014 Set your Forex Pairs in the Plan tab \u2014 choose pairs aligned to your phase
+Step 3 \u2014 Set your Weekly Profit Target \u2014 ties to your growth plan targets
+Step 4 \u2014 Configure SS AI Engine settings \u2014 min confidence, direction, broker source, TP/SL
+Step 5 \u2014 Review the AI Score for your pairs (must be 70+ to trade)
+Step 6 \u2014 Start the Engine \u2014 it runs live from there
+The SetupChecklist widget at the top of the Plan tab shows green checkmarks as each step is completed.
+
+ACCOUNT GROWTH PLAN (/account-growth) \u2014 WHAT IT DOES:
+The growth plan is your phase-based trading framework. After you click "Build My Growth Plan" and set your parameters, a success banner appears showing your phase, risk%, max trades, and weekly target. Then the Plan Monitor section becomes active:
+- CIRCULAR PROGRESS RING: Shows your % progress toward the next phase
+- 6-PHASE MILESTONE BAR: Seedling (Phase 1) \u2192 Sprout \u2192 Growing \u2192 Consistent \u2192 Advanced \u2192 Professional (Phase 6). Each phase unlocks higher lot sizes and risk tolerance.
+- WEEKLY STRATEGY STATUS: Green badge when your weekly strategy is active and aligned
+- ENGINE STATUS: Pulsing green dot when the SS AI Engine is running
+- WEEKLY PROFIT METER: Shows SOL/$ earned toward your weekly goal
+The plan DOES work \u2014 if you built it and it looks empty, it just means you haven't taken any trades yet. The monitor updates as trades execute and phases are completed.
+
+WEEKLY STRATEGY PAGE (/weekly-strategy):
+- BUILD A PLAN: Select pairs, set your weekly profit target, choose session (London/NY/Asian), select direction (BUY/SELL/BOTH), set lot size. The AI score panel shows real-time scores for each pair.
+- SS AI SCORE: Every pair shows a score out of 100. Below 60 = skip. 70+ = trade. 85+ = high conviction.
+- STOP ORDERS FROM HERE: Each pair card has a "Stop Order" button when the AI detects a breakout or retest phase. Tap it to auto-fill a stop order for that pair.
+- PHASE ALIGNMENT: Your Account Growth Plan phase shows in the sidebar \u2014 lot size and target suggestions are phase-aligned automatically.
+
+ACTIVITY HUB (/activity) \u2014 EARN VEDD WHILE YOU LEARN & TRADE:
+The Activity Hub is your VEDD earning dashboard. Everything you do in the app earns VEDD tokens:
+- DAILY MISSIONS: Run analysis on a pair (+VEDD), execute a paper trade (+VEDD), read the devotional (+VEDD), post ambassador content (+VEDD), scan the SOL bot (+VEDD), comment in community (+VEDD).
+- WEEKLY MISSIONS: Hit weekly trade goal, reach weekly analysis goal, recruit a new ambassador.
+- DAILY CHECK-IN: Tap the check-in button every day to earn streak VEDD. Consecutive days multiply rewards. Missing a day resets the streak.
+- VEDD PUSH LIST: The VEDD Push List is a curated list of high-priority actions that earn the most VEDD. Found in the Activity Hub under "Featured Journeys." Complete them in order for maximum VEDD stacking.
+- FREE TO PRO PATH: A structured 30-day journey taking users from free account \u2192 Pro tier. Found in Activity Hub \u2192 Journeys. Steps include: completing 5 daily missions, hitting first paper trade profit, making first real trade, referring 2 friends, and completing 10 devotionals.
+- 44-DAY CONTENT JOURNEY: A 44-day challenge producing consistent content as a VEDD Ambassador. Each day has a content prompt \u2014 TikTok, Reels, or Twitter. Completing all 44 days earns a major VEDD reward + Ambassador badge.
+- STREAK SYSTEM: The StreakRing shows your daily VEDD earned vs. the 200 VEDD daily cap. XP points level you up. Tiers: Bronze \u2192 Silver \u2192 Gold \u2192 Diamond.
+- NFC GARMENTS: If you own VEDD clothing with NFC chips, tap your phone to the chip daily for +15 VEDD. See registered garments in the Activity Hub NFC section.
+- HOW TO MAXIMIZE: Daily check-in + 3 daily missions + ambassador post = 80\u2013120 VEDD/day. NFC tap adds 15. Streak bonuses push it to 150\u2013200. "Build your cipher (0) \u2014 close every day complete."
+
+VEDD ECOSYSTEM & TOKENOMICS (/vedd-tokenomics | /vedd-ecosystem):
+- VEDD TOKEN: Earned through activity (trading, learning, community). Used for: premium features, marketplace purchases, governance voting, and rewards.
+- NOT FINANCIAL ADVICE: VEDD tokens are utility tokens for platform access and rewards \u2014 not an investment. Always make that clear.
+- VEDD WALLET (/vedd-wallet | /my-wallet): Shows VEDD balance, transaction history, earned vs. spent.
+- REFERRAL PROGRAM (/referral): Share your link \u2014 earn +10 VEDD per new sign-up. Ongoing bonuses when referrals trade actively.
+
+VEDD CLOTHING & NFC (/vedd-clothing):
+- Physical VEDD-branded garments have NFC chips embedded. Tap your phone to the chip to trigger the daily tap reward.
+- Register a new garment: Go to /vedd-clothing \u2192 Register New Chip \u2192 scan the NFC UID.
+- Each garment has its own streak. Consistent daily taps build the streak for higher multipliers.
+- Purpose: bridge the physical and digital. "Wear the culture (4). Tap the cipher (0). Stack the VEDD."
+
+GETTING STARTED GUIDE (for new users asking "how do I start?"):
+Walk them through this sequence:
+1. Set up MT5/TradeLocker with your broker \u2014 connect via /mt5-chart-data or /futures-connect
+2. Set your Account Growth Plan (/account-growth) \u2014 know your phase
+3. Build your Weekly Strategy (/weekly-strategy) \u2014 aligned to your phase
+4. Run the ORB setup each morning at 9:30 AM EST (/orb-breakout)
+5. Let the SS AI score confirm before entering \u2014 never trade below 70
+6. Use Stop Orders (/stop-orders) to pre-set entries \u2014 no chasing price
+7. Track progress daily in the Dashboard (/dashboard) and Activity Hub (/activity)
+8. Enable SOL Scanner paper trade for passive token income (/solana-scanner)
+
+AI API KEYS (/ai-api-keys):
+Users can add their own OpenAI or ElevenLabs API keys for enhanced ABBA voice quality and AI features. Go to /ai-api-keys \u2192 Add Key. ElevenLabs gives the best voice quality. OpenAI gives GPT-4o access. Without keys, ABBA uses free fallback TTS (Edge TTS \u2014 decent quality).
+
+VEDD PLATFORM \u2014 RECENT UPDATES & WHAT'S NEXT:
+When someone asks "what was updated today", "what's new in VEDD", "are we on track", or "what should I expect", give them this knowledge:
+
+RECENTLY COMPLETED (latest build):
+\u2705 SOL Scanner \u2014 Direction Filter (BUY Only / SELL Only / Both toggle)
+\u2705 SOL Scanner \u2014 1% Risk Per Trade enforcement (auto-calculates trade size from portfolio %)
+\u2705 SOL Scanner \u2014 Max Trades Per Day limit with daily reset at UTC midnight
+\u2705 SOL Scanner \u2014 Stop-Order Price Levels (exact $ stop and TP levels on each position)
+\u2705 SS AI Engine (forex) \u2014 Backtest tool (test any pair/strategy over 30\u201390 days of H1 data)
+\u2705 SS AI Engine (forex) \u2014 Broker Selector (switch execution between TradeLocker and MT5)
+\u2705 Weekly Strategy Page \u2014 Numbered setup sequence (6-step checklist so users know what to configure first)
+\u2705 Account Growth Plan \u2014 Plan Monitor section (circular progress ring, phase milestones, engine status)
+\u2705 Account Growth Plan \u2014 Success banner after building plan (shows phase, risk%, targets)
+\u2705 ABBA \u2014 Full 7-question plan interview (pairs, profit target, direction, session, risk, max trades, lot size \u2014 all required before generating a plan)
+\u2705 Activity Hub \u2014 Featured Journeys section (VEDD Push List, Free\u2192Pro Path, 44-Day Content Challenge, Account Growth Plan)
+\u2705 Credit Builder \u2014 5 new Phase 3 vendors (Crown Office Supplies, Summa Office Supplies, Shirtsy, Creative Analytics, Amazon Business Net-30)
+\u2705 ABBA Voice \u2014 Fixed female voice bug, fixed voice dropdown not changing voice, fixed double-press audio overlap
+
+WHAT'S COMING NEXT (known roadmap):
+\u{1F51C} SOL Scanner \u2014 adding Stop Orders, 1% risk, direction filter, and max trades to the SOL engine (same controls that exist for forex, now being extended to crypto side \u2014 NOTE: these were just added in today's session)
+\u{1F51C} Live trading performance dashboard \u2014 weekly P&L chart, win rate meter, drawdown tracker
+\u{1F51C} ABBA \u2014 ability to pull your live account stats and answer "how am I doing this week" with real data
+\u{1F51C} Weekly Strategy \u2014 auto-alert when AI score drops below 70 on your active pairs
+\u{1F51C} Social Hub \u2014 ambassador leaderboard, trade share cards with live P&L
+
+ARE WE ON TRACK? When asked this, give a real answer:
+The infrastructure is solid \u2014 both engines (forex SS AI and SOL scanner) are running with proper risk controls now. The gap between "having a plan" and "executing the plan" is now closed: the setup checklist tells users exactly what to do first, the growth plan monitor shows progress, and the backtest tool lets you validate before going live. The next phase is data feedback \u2014 making sure the engines report their results back clearly so users can see what's working week by week.
+
+CONVERSATION STYLE \u2014 KEEP THE CIPHER GOING:
+CRITICAL: Unless the user says something like "that's all", "I'm good", "thanks I'm done", "peace out", "got it", or a clear sign-off \u2014 ALWAYS end your response with a follow-up question to deepen the conversation and show you're locked in on their situation. Examples:
+- "What pairs are you watching for that setup right now?"
+- "What's your account sitting at \u2014 you on the growth plan yet?"
+- "You running paper trade on the SOL scanner or you trying to go live?"
+- "That stop order \u2014 what's your lot size looking like for your current phase?"
+- "You got the weekly plan built already or you need to set that up first?"
+Keep follow-ups SHORT and conversational. One question max. Make it feel like you're genuinely invested in their progress \u2014 because you are.`;
       const { getUniversalAIClientForUser: getABBAAI } = await Promise.resolve().then(() => (init_openai(), openai_exports));
       const aiClient = await getABBAAI(userId);
       const historyMessages = (history || []).slice(-10).map((m) => ({
@@ -34560,7 +34784,7 @@ IMPORTANT:
       if (openaiKey) {
         try {
           const ttsClient = new OpenAILib({ apiKey: openaiKey });
-          const ttsVoice = req.body.voiceId || "onyx";
+          const ttsVoice = req.body.openaiVoice || "onyx";
           const mp3 = await ttsClient.audio.speech.create({ model: "tts-1-hd", voice: ttsVoice, input: clean, speed: 1 });
           const buffer = Buffer.from(await mp3.arrayBuffer());
           console.log(`[ABBA TTS] OpenAI OK \u2014 ${buffer.length} bytes`);
@@ -34573,7 +34797,7 @@ IMPORTANT:
       try {
         const { MsEdgeTTS, OUTPUT_FORMAT } = await import("msedge-tts");
         const tts = new MsEdgeTTS();
-        const voice = process.env.EDGE_TTS_VOICE || "en-US-JennyNeural";
+        const voice = process.env.EDGE_TTS_VOICE || "en-US-GuyNeural";
         await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3);
         const { audioStream } = tts.toStream(clean);
         const chunks = [];
@@ -42157,6 +42381,206 @@ Respond with ONLY valid JSON:
     }
   });
   const { startLiveEngine: startLiveEngine2, stopLiveEngine: stopLiveEngine2, emergencyStopEngine: emergencyStopEngine2, getLiveEngineState: getLiveEngineState2, getLiveEngineActivity: getLiveEngineActivity2, updateLiveEngineConfig: updateLiveEngineConfig2, getPendingMT5Signals: getPendingMT5Signals2, confirmMT5Signal: confirmMT5Signal2, getAllMT5Signals: getAllMT5Signals2, recordTradeResult: recordTradeResult2, registerMT5Account: registerMT5Account2, heartbeatMT5Account: heartbeatMT5Account2, getMT5Accounts: getMT5Accounts2, setMT5AccountReceiveSignals: setMT5AccountReceiveSignals2 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+  app2.post("/api/vedd-live-engine/backtest", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const {
+      pair,
+      strategyMode,
+      periodDays,
+      accountBalance,
+      riskPerTrade,
+      tpPct,
+      slPct,
+      minConfidence
+    } = req.body;
+    try {
+      let computeRSI2 = function(closes2, i, period = 14) {
+        if (i < period) return 50;
+        let gains = 0, losses2 = 0;
+        for (let k = i - period + 1; k <= i; k++) {
+          const delta = closes2[k] - closes2[k - 1];
+          if (delta >= 0) gains += delta;
+          else losses2 += Math.abs(delta);
+        }
+        const avgGain = gains / period;
+        const avgLoss = losses2 / period;
+        if (avgLoss === 0) return 100;
+        const rs = avgGain / avgLoss;
+        return 100 - 100 / (1 + rs);
+      }, computeEMA2 = function(closes2, i, period) {
+        if (i < period - 1) return closes2[i];
+        const k = 2 / (period + 1);
+        let ema = closes2[i - period + 1];
+        for (let j = i - period + 2; j <= i; j++) {
+          ema = closes2[j] * k + ema * (1 - k);
+        }
+        return ema;
+      };
+      var computeRSI = computeRSI2, computeEMA = computeEMA2;
+      let bars = [];
+      try {
+        const { marketDataService: marketDataService2 } = await Promise.resolve().then(() => (init_service(), service_exports));
+        const result = await marketDataService2.fetchMarketData({
+          symbol: pair,
+          timeframe: "1h",
+          assetType: "forex",
+          limit: Math.min(Number(periodDays) * 24, 1e3)
+        });
+        bars = result.bars;
+      } catch (mdErr) {
+        const mt5Cache = global.mt5ChartDataCache || {};
+        const cacheKey = `mt5_chart_${userId}_${pair}_H1`;
+        const cached = mt5Cache[cacheKey];
+        if (cached?.candles?.length >= 50) {
+          bars = cached.candles.map((c) => ({
+            timestamp: typeof c.timestamp === "number" ? c.timestamp : new Date(c.time || c.timestamp).getTime(),
+            open: Number(c.open),
+            high: Number(c.high),
+            low: Number(c.low),
+            close: Number(c.close),
+            volume: Number(c.volume || 0)
+          }));
+        }
+      }
+      if (bars.length < 50) {
+        return res.status(400).json({ error: "Insufficient historical data. Connect MT5 or add a market data API key." });
+      }
+      const closes = bars.map((b) => b.close);
+      const pd = Number(periodDays);
+      const ab = Number(accountBalance);
+      const rpt = Number(riskPerTrade);
+      const tp = Number(tpPct);
+      const sl = Number(slPct);
+      const minConf = Number(minConfidence);
+      const mode = String(strategyMode || "aggressive");
+      let openTrade = null;
+      const tradeLog = [];
+      let equity = ab;
+      let peakEquity = ab;
+      let maxDrawdownPct = 0;
+      let waitForConfirm = null;
+      for (let i = 20; i < bars.length; i++) {
+        const bar = bars[i];
+        const date = new Date(bar.timestamp).toISOString().slice(0, 16);
+        if (openTrade) {
+          const { entryPrice: entryPrice2, direction: direction2, tp: tpPrice, sl: slPrice, lots: lots2, entryDate } = openTrade;
+          let closed = false;
+          let exitPrice = bar.close;
+          let result = "WIN";
+          if (direction2 === "BUY") {
+            if (bar.high >= tpPrice) {
+              exitPrice = tpPrice;
+              result = "WIN";
+              closed = true;
+            } else if (bar.low <= slPrice) {
+              exitPrice = slPrice;
+              result = "LOSS";
+              closed = true;
+            }
+          } else {
+            if (bar.low <= tpPrice) {
+              exitPrice = tpPrice;
+              result = "WIN";
+              closed = true;
+            } else if (bar.high >= slPrice) {
+              exitPrice = slPrice;
+              result = "LOSS";
+              closed = true;
+            }
+          }
+          if (closed) {
+            const priceDiff = direction2 === "BUY" ? exitPrice - entryPrice2 : entryPrice2 - exitPrice;
+            const pnlPct = priceDiff / entryPrice2 * 100;
+            const pnlUsd = lots2 * entryPrice2 * (priceDiff / entryPrice2);
+            equity += pnlUsd;
+            if (equity > peakEquity) peakEquity = equity;
+            const dd = (peakEquity - equity) / peakEquity * 100;
+            if (dd > maxDrawdownPct) maxDrawdownPct = dd;
+            tradeLog.push({ entryDate, exitDate: date, direction: direction2, entryPrice: entryPrice2, exitPrice, pnlPct, result });
+            openTrade = null;
+          }
+          continue;
+        }
+        const rsi = computeRSI2(closes, i);
+        const prevRsi = computeRSI2(closes, i - 1);
+        const ema10 = computeEMA2(closes, i, 10);
+        const ema20 = computeEMA2(closes, i, 20);
+        let signal = null;
+        const rsiThresholdLow = mode === "sniper" ? 30 : 35;
+        const rsiThresholdHigh = mode === "sniper" ? 70 : 65;
+        if (rsi < rsiThresholdLow && ema10 > ema20 || rsi > 40 && prevRsi <= 40 && ema10 > ema20) {
+          signal = "BUY";
+        } else if (rsi > rsiThresholdHigh && ema10 < ema20 || rsi < 60 && prevRsi >= 60 && ema10 < ema20) {
+          signal = "SELL";
+        }
+        if (!signal) {
+          waitForConfirm = null;
+          continue;
+        }
+        if (Math.random() * 100 > minConf) continue;
+        if (mode === "conservative") {
+          if (!waitForConfirm || waitForConfirm.signal !== signal || waitForConfirm.bar !== i - 1) {
+            waitForConfirm = { signal, bar: i };
+            continue;
+          }
+          waitForConfirm = null;
+        }
+        const entryPrice = bar.close;
+        const direction = signal;
+        const tpP = direction === "BUY" ? entryPrice * (1 + tp / 100) : entryPrice * (1 - tp / 100);
+        const slP = direction === "BUY" ? entryPrice * (1 - sl / 100) : entryPrice * (1 + sl / 100);
+        let lots = ab * rpt / 100 / (sl / 100 * entryPrice);
+        lots = Math.max(0.01, Math.min(2, lots));
+        openTrade = { entryPrice, direction, entryBar: i, tp: tpP, sl: slP, lots, entryDate: date };
+      }
+      const totalTrades = tradeLog.length;
+      const wins = tradeLog.filter((t) => t.result === "WIN").length;
+      const losses = tradeLog.filter((t) => t.result === "LOSS").length;
+      const winRate2 = totalTrades > 0 ? wins / totalTrades * 100 : 0;
+      const winPnls = tradeLog.filter((t) => t.result === "WIN").map((t) => t.pnlPct);
+      const lossPnls = tradeLog.filter((t) => t.result === "LOSS").map((t) => t.pnlPct);
+      const totalPnlPct = tradeLog.reduce((sum, t) => sum + t.pnlPct, 0);
+      const totalPnlUsd = ab * totalPnlPct / 100;
+      const grossWins = winPnls.reduce((s, v) => s + v, 0);
+      const grossLosses = Math.abs(lossPnls.reduce((s, v) => s + v, 0));
+      const profitFactor = grossLosses > 0 ? grossWins / grossLosses : grossWins > 0 ? 999 : 0;
+      const avgWinPct = winPnls.length > 0 ? grossWins / winPnls.length : 0;
+      const avgLossPct = lossPnls.length > 0 ? grossLosses / lossPnls.length : 0;
+      const allPnls = tradeLog.map((t) => t.pnlPct);
+      let sharpeRatio = 0;
+      if (allPnls.length > 1) {
+        const mean = allPnls.reduce((s, v) => s + v, 0) / allPnls.length;
+        const variance = allPnls.reduce((s, v) => s + (v - mean) ** 2, 0) / allPnls.length;
+        const stdDev = Math.sqrt(variance);
+        sharpeRatio = stdDev > 0 ? mean / stdDev * Math.sqrt(252 / pd) : 0;
+      }
+      const stats = {
+        totalTrades,
+        wins,
+        losses,
+        winRate: winRate2,
+        totalPnlPct,
+        totalPnlUsd,
+        maxDrawdownPct,
+        sharpeRatio,
+        profitFactor,
+        avgWinPct,
+        avgLossPct
+      };
+      return res.json({
+        stats,
+        tradeLog: tradeLog.slice(-50),
+        pair,
+        strategyMode,
+        periodDays: pd,
+        bars: bars.length
+      });
+    } catch (err) {
+      console.error("[Backtest] Error:", err);
+      return res.status(500).json({ error: err?.message || "Backtest failed" });
+    }
+  });
   app2.post("/api/vedd-live-engine/start", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
@@ -45127,7 +45551,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     app2.post("/api/sol-engine/start", async (req, res) => {
       if (!req.isAuthenticated()) return res.status(401).json({ error: "Not logged in \u2014 sign in to VEDD to use the SOL engine" });
       const userId = req.user.id;
-      const { dexFilter, minConfidence, maxTokens, useKelly, shieldEnabled, shieldThreshold, adaptiveScan, aiMode } = req.body;
+      const { dexFilter, minConfidence, maxTokens, useKelly, shieldEnabled, shieldThreshold, adaptiveScan, aiMode, directionFilter, riskPerTradePct, maxDailyTrades, stopOrdersEnabled } = req.body;
       try {
         await startSolEngine2(userId, {
           dexFilter: dexFilter || "all",
@@ -45137,7 +45561,11 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
           shieldEnabled: shieldEnabled !== false,
           shieldThreshold: Number(shieldThreshold) || 10,
           adaptiveScan: adaptiveScan !== false,
-          aiMode: ["full", "economy"].includes(aiMode) ? aiMode : "full"
+          aiMode: ["full", "economy"].includes(aiMode) ? aiMode : "full",
+          directionFilter: ["buy_only", "sell_only", "both"].includes(directionFilter) ? directionFilter : "buy_only",
+          riskPerTradePct: riskPerTradePct !== void 0 ? Math.max(0.1, Math.min(10, Number(riskPerTradePct))) : 1,
+          maxDailyTrades: maxDailyTrades !== void 0 ? Math.max(0, Math.min(100, Number(maxDailyTrades))) : 0,
+          stopOrdersEnabled: !!stopOrdersEnabled
         });
         res.json({ success: true, message: "Sol Engine started" });
       } catch (err) {
