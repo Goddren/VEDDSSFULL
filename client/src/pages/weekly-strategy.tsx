@@ -25,6 +25,11 @@ import {
 import { SiX, SiFacebook, SiLinkedin } from "react-icons/si";
 import VeddLogo from "@/components/ui/vedd-logo";
 import { motion, AnimatePresence } from "framer-motion";
+import ConnectedAccountPicker, {
+  loadAccountSettings,
+  saveAccountSettings,
+  type ConnectedAccount,
+} from "@/components/connected-account-picker";
 
 const POPULAR_PAIRS = [
   "EURUSD", "GBPUSD", "USDJPY", "USDCHF", "AUDUSD", "NZDUSD", "USDCAD",
@@ -941,19 +946,7 @@ export default function WeeklyStrategyPage() {
     }
   }, [mt5AccountData, tlConnection]);
 
-  // Sync engine account balance when execution source changes
-  useEffect(() => {
-    const mt5Balance = mt5AccountData?.accounts?.[0]?.balance ?? (mt5AccountData?.connected ? mt5AccountData?.balance : null);
-    const tlBalance = (tlConnection as any)?.accountBalance ?? (tlConnection as any)?.balance ?? null;
-    if (engineExecutionSource === 'mt5' && mt5Balance && mt5Balance > 0) {
-      setEngineAccountBalance(Math.round(mt5Balance * 100) / 100);
-    } else if (engineExecutionSource === 'tradelocker' && tlBalance && tlBalance > 0) {
-      setEngineAccountBalance(Math.round(tlBalance * 100) / 100);
-    } else if (engineExecutionSource === 'auto') {
-      const best = mt5Balance || tlBalance;
-      if (best && best > 0) setEngineAccountBalance(Math.round(best * 100) / 100);
-    }
-  }, [engineExecutionSource, mt5AccountData, tlConnection]);
+  // Note: engine account balance is now synced by ConnectedAccountPicker (handleEngineAccountSelected)
 
   const toggleLiveMutation = useMutation({
     mutationFn: async (enabled: boolean) => {
@@ -1142,6 +1135,9 @@ export default function WeeklyStrategyPage() {
   });
 
   const [enginePairs, setEnginePairs] = useState<string[]>(['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'BTCUSD']);
+  // ── Connected account selector ─────────────────────────────────────────────
+  const [selectedEngineAccount, setSelectedEngineAccount] = useState<ConnectedAccount | null>(null);
+
   const [enginePairInput, setEnginePairInput] = useState('');
   const [engineMode, setEngineMode] = useState('aggressive');
   const [engineMinConf, setEngineMinConf] = useState(65);
@@ -1190,6 +1186,56 @@ export default function WeeklyStrategyPage() {
   const [backtestTradeLogOpen, setBacktestTradeLogOpen] = useState(false);
 
   const [engineAiMode, setEngineAiMode] = useState<'full' | 'economy' | 'rule_based'>('full');
+
+  // ── Per-account settings: handlers (placed after all useState declarations) ─
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleEngineAccountSelected = useCallback((account: ConnectedAccount | null) => {
+    setSelectedEngineAccount(account);
+    if (!account) return;
+    if (account.balance > 0) setEngineAccountBalance(Math.round(account.balance * 100) / 100);
+    setEngineExecutionSource(account.type === 'mt5' ? 'mt5' : 'tradelocker');
+    const saved = loadAccountSettings(account.key);
+    if (saved.riskPerTrade   != null) setEngineRiskPerTrade(saved.riskPerTrade);
+    if (saved.maxLotSize     != null) setEngineMaxLotSize(saved.maxLotSize);
+    if (saved.weeklyTarget   != null) setEngineWeeklyTarget(saved.weeklyTarget);
+    if (saved.baseLotSize    != null) setEngineBaseLotSize(saved.baseLotSize);
+    if (saved.interval       != null) setEngineInterval(saved.interval);
+    if (saved.minConf        != null) setEngineMinConf(saved.minConf);
+    if (saved.maxTrades      != null) setEngineMaxTrades(saved.maxTrades);
+    if (saved.compounding    != null) setEngineCompounding(saved.compounding);
+    if (saved.drawdownShield != null) setEngineDrawdownShield(saved.drawdownShield);
+    if (saved.shieldThreshold!= null) setEngineShieldThreshold(saved.shieldThreshold);
+    if (saved.adaptiveScan   != null) setEngineAdaptiveScan(saved.adaptiveScan);
+    if (saved.propFirmMode   != null) setEnginePropFirmMode(saved.propFirmMode);
+    if (saved.aiMode         != null) setEngineAiMode(saved.aiMode);
+    if (saved.accountBalance != null) setEngineAccountBalance(saved.accountBalance);
+  }, [setEngineAccountBalance, setEngineExecutionSource, setEngineRiskPerTrade,
+      setEngineMaxLotSize, setEngineWeeklyTarget, setEngineBaseLotSize, setEngineInterval,
+      setEngineMinConf, setEngineMaxTrades, setEngineCompounding, setEngineDrawdownShield,
+      setEngineShieldThreshold, setEngineAdaptiveScan, setEnginePropFirmMode, setEngineAiMode]);
+
+  const queueSaveAccountSettings = useCallback(() => {
+    if (!selectedEngineAccount) return;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      saveAccountSettings(selectedEngineAccount.key, {
+        riskPerTrade: engineRiskPerTrade, maxLotSize: engineMaxLotSize,
+        weeklyTarget: engineWeeklyTarget, baseLotSize: engineBaseLotSize,
+        interval: engineInterval, minConf: engineMinConf, maxTrades: engineMaxTrades,
+        compounding: engineCompounding, drawdownShield: engineDrawdownShield,
+        shieldThreshold: engineShieldThreshold, adaptiveScan: engineAdaptiveScan,
+        propFirmMode: enginePropFirmMode, aiMode: engineAiMode,
+        accountBalance: engineAccountBalance,
+      });
+    }, 800);
+  }, [selectedEngineAccount, engineRiskPerTrade, engineMaxLotSize, engineWeeklyTarget,
+      engineBaseLotSize, engineInterval, engineMinConf, engineMaxTrades, engineCompounding,
+      engineDrawdownShield, engineShieldThreshold, engineAdaptiveScan, enginePropFirmMode,
+      engineAiMode, engineAccountBalance]);
+
+  useEffect(() => { queueSaveAccountSettings(); }, [queueSaveAccountSettings]);
+  // ── End per-account settings ──────────────────────────────────────────────
 
   const [kellyMode, setKellyMode] = useState(false);
   const [preKellySnapshot, setPreKellySnapshot] = useState<{
@@ -1929,31 +1975,19 @@ export default function WeeklyStrategyPage() {
                 <CardContent className="space-y-4">
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                     <div className="col-span-2 md:col-span-4">
-                      <Label className="text-gray-400 text-xs mb-1 block">Execution Account Source</Label>
-                      <div className="flex gap-2">
-                        {(['auto', 'mt5', 'tradelocker'] as const).map(src => {
-                          const label = src === 'auto' ? '⚡ Auto-detect' : src === 'mt5' ? '📡 MT5 (EA)' : '🔗 TradeLocker';
-                          const bal = src === 'mt5'
-                            ? (mt5AccountData?.accounts?.[0]?.balance ?? mt5AccountData?.balance)
-                            : src === 'tradelocker'
-                              ? ((tlConnection as any)?.accountBalance ?? (tlConnection as any)?.balance)
-                              : null;
-                          return (
-                            <button
-                              key={src}
-                              onClick={() => setEngineExecutionSource(src)}
-                              className={`flex-1 text-xs py-1.5 px-2 rounded-lg border transition-all ${engineExecutionSource === src ? 'border-cyan-500/60 bg-cyan-500/15 text-cyan-300' : 'border-gray-700 bg-gray-800/50 text-gray-400 hover:border-gray-600'}`}
-                            >
-                              <span className="block font-semibold">{label}</span>
-                              {bal != null && bal > 0 && <span className="block text-[10px] mt-0.5 opacity-70">${Number(bal).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>}
-                              {bal == null && src !== 'auto' && <span className="block text-[10px] mt-0.5 opacity-40">Not connected</span>}
-                            </button>
-                          );
-                        })}
-                      </div>
-                      <p className="text-[10px] text-gray-600 mt-1">
-                        {engineExecutionSource === 'mt5' ? 'Engine will size trades using MT5 balance. Signals sent to MT5 EA for execution.' : engineExecutionSource === 'tradelocker' ? 'Engine will size trades using TradeLocker balance. Trades execute directly via TradeLocker API.' : 'Auto-selects best available account. MT5 preferred when connected.'}
-                      </p>
+                      <ConnectedAccountPicker
+                        label="Trading Account"
+                        onSelect={handleEngineAccountSelected}
+                        className="w-full"
+                      />
+                      {selectedEngineAccount && (
+                        <p className="text-[10px] text-gray-600 mt-1">
+                          {selectedEngineAccount.type === 'mt5'
+                            ? `MT5 – signals sent to EA for execution. Balance auto-synced from ${selectedEngineAccount.broker}.`
+                            : `TradeLocker – trades execute directly via API. Live balance fetched on connect.`}
+                          {selectedEngineAccount.key && <span className="ml-1 text-cyan-700">Settings auto-saved per account.</span>}
+                        </p>
+                      )}
                     </div>
                   <div>
                       <Label className="text-gray-400 text-xs">Account Balance ($)</Label>

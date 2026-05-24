@@ -1,8 +1,9 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
+import ConnectedAccountPicker, { type ConnectedAccount } from "@/components/connected-account-picker";
 import {
   TrendingUp, Target, Zap, Trophy, ArrowRight, ChevronDown, ChevronUp,
   Calculator, BookOpen, BarChart3, Plus, Trash2, Edit3, CheckCircle2,
@@ -351,9 +352,20 @@ export default function AccountGrowthPlan() {
           </div>
 
           <div className="space-y-5 bg-gray-900/50 border border-gray-700/50 rounded-2xl p-5">
-            {/* Starting balance */}
+            {/* Starting balance — with account picker */}
             <div>
               <label className="text-sm font-semibold text-gray-300 block mb-1.5">Starting Account Balance (USD)</label>
+              {/* Sync from a connected account */}
+              <ConnectedAccountPicker
+                label="Auto-fill from connected account"
+                compact
+                className="mb-2"
+                onSelect={(acct) => {
+                  if (acct && acct.balance > 0) {
+                    setSetupBalance(String(Math.round(acct.balance * 100) / 100));
+                  }
+                }}
+              />
               <div className="relative">
                 <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
                 <Input value={setupBalance} onChange={e => setSetupBalance(e.target.value)}
@@ -885,18 +897,30 @@ export default function AccountGrowthPlan() {
 
           {/* Balance update form */}
           {showBalanceEdit && (
-            <div className="mt-1 flex gap-2 p-3 rounded-xl bg-emerald-500/5 border border-emerald-500/20">
-              <div className="relative flex-1">
-                <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500" />
-                <Input value={newBalance} onChange={e => setNewBalance(e.target.value)}
-                  type="number" placeholder={`New balance (e.g. ${Math.round(currentBalance * 1.05)})`}
-                  className="bg-gray-800 border-gray-600 text-white text-sm h-9 pl-7" />
+            <div className="mt-1 p-3 rounded-xl bg-emerald-500/5 border border-emerald-500/20 space-y-2">
+              {/* Account picker — auto-fills balance from live account */}
+              <ConnectedAccountPicker
+                label="Sync from connected account"
+                compact
+                onSelect={(acct) => {
+                  if (acct && acct.balance > 0) {
+                    setNewBalance(String(Math.round(acct.balance * 100) / 100));
+                  }
+                }}
+              />
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500" />
+                  <Input value={newBalance} onChange={e => setNewBalance(e.target.value)}
+                    type="number" placeholder={`New balance (e.g. ${Math.round(currentBalance * 1.05)})`}
+                    className="bg-gray-800 border-gray-600 text-white text-sm h-9 pl-7" />
+                </div>
+                <Button size="sm" className="h-9 bg-emerald-600 hover:bg-emerald-500 font-semibold"
+                  onClick={() => updateBalanceMutation.mutate({ currentBalance: parseFloat(newBalance) })}
+                  disabled={!newBalance || updateBalanceMutation.isPending}>
+                  {updateBalanceMutation.isPending ? "..." : "Save"}
+                </Button>
               </div>
-              <Button size="sm" className="h-9 bg-emerald-600 hover:bg-emerald-500 font-semibold"
-                onClick={() => updateBalanceMutation.mutate({ currentBalance: parseFloat(newBalance) })}
-                disabled={!newBalance || updateBalanceMutation.isPending}>
-                {updateBalanceMutation.isPending ? "..." : "Save"}
-              </Button>
             </div>
           )}
         </div>

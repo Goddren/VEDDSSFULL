@@ -12294,6 +12294,114 @@ Rules:
     return 5 - dayOfWeek;
   }
 
+  // ── Unified Account Switcher ────────────────────────────────────────────────
+
+  // GET /api/accounts/all — returns every connected account (MT5 + TradeLocker)
+  // in a single normalised list so the client can show a unified picker
+  app.get("/api/accounts/all", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+
+    const accounts: any[] = [];
+
+    // ── MT5 (from in-memory cache pushed by EA) ─────────────────────────────
+    const mt5Cache = (global as any).mt5AccountData?.[userId];
+    if (mt5Cache) {
+      const now = Date.now();
+      const processAccount = (a: any, keyFallback: string) => {
+        if (!a.lastUpdated) return;
+        const ageSeconds = Math.floor((now - new Date(a.lastUpdated).getTime()) / 1000);
+        accounts.push({
+          type: 'mt5',
+          key: `mt5_${a.accountNumber || keyFallback}`,
+          id: String(a.accountNumber || keyFallback),
+          label: a.broker ? `${a.broker} #${a.accountNumber || ''}` : 'MT5 Account',
+          broker: a.broker || 'MT5',
+          balance: a.balance || 0,
+          equity: a.equity || 0,
+          profit: a.profit || 0,
+          currency: a.currency || 'USD',
+          server: a.server || '',
+          accountNumber: String(a.accountNumber || ''),
+          accountName: a.accountName || '',
+          accountType: 'live',
+          leverage: a.leverage || 0,
+          openPositions: a.openPositions || 0,
+          isConnected: ageSeconds < 300,
+          ageSeconds,
+        });
+      };
+      if (mt5Cache.lastUpdated && typeof mt5Cache.lastUpdated === 'string') {
+        processAccount(mt5Cache, 'default');
+      } else {
+        for (const [k, v] of Object.entries(mt5Cache)) processAccount(v, k);
+      }
+    }
+
+    // ── TradeLocker (from DB connections, balance is cached) ────────────────
+    try {
+      const tlConns = await storage.getUserTradelockerConnections(userId);
+      for (const c of tlConns) {
+        if (!c.isActive) continue;
+        const lastConnAgo = c.lastConnectedAt
+          ? Math.floor((Date.now() - new Date(c.lastConnectedAt).getTime()) / 1000)
+          : Infinity;
+        accounts.push({
+          type: 'tradelocker',
+          key: `tl_${c.id}`,
+          id: String(c.id),
+          label: `TradeLocker – ${c.email} (${c.accountType})`,
+          broker: 'TradeLocker',
+          balance: 0,      // fetched live via /balance endpoint
+          equity: 0,
+          currency: 'USD',
+          server: c.serverId,
+          accountNumber: c.accNum || c.accountId,
+          accountType: c.accountType,
+          email: c.email,
+          isConnected: lastConnAgo < 86400,
+          lastConnectedAt: c.lastConnectedAt,
+        });
+      }
+    } catch (_) {}
+
+    res.json({ accounts });
+  });
+
+  // GET /api/accounts/tradelocker/:id/balance — live balance for one TL connection
+  app.get("/api/accounts/tradelocker/:id/balance", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const connectionId = parseInt(req.params.id, 10);
+    if (isNaN(connectionId)) return res.status(400).json({ error: "Invalid id" });
+
+    const conns = await storage.getUserTradelockerConnections(userId);
+    const conn = conns.find(c => c.id === connectionId);
+    if (!conn) return res.status(404).json({ error: "Connection not found" });
+
+    try {
+      const password = decryptPassword(conn.encryptedPassword);
+      const svc = new TradeLockerService(
+        conn.accountType as 'demo' | 'live',
+        conn.accountId,
+        conn.serverId,
+        conn.accNum || undefined
+      );
+      await svc.authenticate(conn.email, password);
+      const info = await svc.getAccountInfo();
+      res.json({
+        balance: info.balance,
+        equity: info.equity,
+        margin: info.margin,
+        freeMargin: info.freeMargin,
+        currency: info.currency,
+        accountId: info.accountId,
+      });
+    } catch (err) {
+      res.status(500).json({ error: `Balance fetch failed: ${err instanceof Error ? err.message : 'Unknown'}` });
+    }
+  });
+
   // TradeLocker Connection Routes
 
   // GET all connections (plural) — used by multi-account UI

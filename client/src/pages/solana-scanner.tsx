@@ -63,6 +63,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { DailyGainMeter } from '@/components/sol/daily-gain-meter';
 import { StrategyPicker } from '@/components/sol/strategy-picker';
 import { SocialTokenScanner } from '@/components/sol/social-token-scanner';
+import ConnectedAccountPicker from '@/components/connected-account-picker';
 
 type DexSource = 'all' | 'raydium' | 'orca' | 'meteora' | 'pumpfun' | 'jupiter';
 
@@ -3899,9 +3900,18 @@ export default function SolanaScanner() {
                         <span className="text-[9px] text-gray-400 ml-auto">auto-synced each scan</span>
                       </div>
                     ) : (
-                      <div className="flex gap-2">
-                        <input type="number" min="0" step="0.1" value={solPortfolioValue} onChange={e => setSolPortfolioValue(e.target.value)} placeholder="e.g. 12.5" className="flex-1 h-8 bg-gray-800 border border-gray-600 text-white text-xs px-2 rounded" />
-                        <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => { const v = parseFloat(solPortfolioValue); if (!isNaN(v) && v > 0) updatePortfolioMutation.mutate(v); }} disabled={updatePortfolioMutation.isPending}>Update</Button>
+                      <div className="space-y-2">
+                        <ConnectedAccountPicker
+                          compact
+                          label="Sync from account"
+                          onSelect={(acct) => {
+                            if (acct && acct.balance > 0) setSolPortfolioValue(String(Math.round(acct.balance * 100) / 100));
+                          }}
+                        />
+                        <div className="flex gap-2">
+                          <input type="number" min="0" step="0.1" value={solPortfolioValue} onChange={e => setSolPortfolioValue(e.target.value)} placeholder="e.g. 12.5 SOL" className="flex-1 h-8 bg-gray-800 border border-gray-600 text-white text-xs px-2 rounded" />
+                          <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => { const v = parseFloat(solPortfolioValue); if (!isNaN(v) && v > 0) updatePortfolioMutation.mutate(v); }} disabled={updatePortfolioMutation.isPending}>Update</Button>
+                        </div>
                       </div>
                     )}
                   </div>
