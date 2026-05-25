@@ -8641,9 +8641,31 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       let veddSSAIMatch: any = null;
       try {
         (global as any).mt5VeddSSAILive = (global as any).mt5VeddSSAILive || {};
+        // Hydrate live-mode flag + strategy from DB on first chart-data call after restart
+        if ((global as any).mt5VeddSSAILive[token.userId] === undefined) {
+          try {
+            const _csDbStrat = await storage.getActiveWeeklyStrategy(token.userId);
+            if (_csDbStrat) {
+              (global as any).mt5VeddSSAILive[token.userId] = (_csDbStrat.plan as any)?.liveMode === true;
+              if (!(global as any).mt5WeeklyStrategies?.[token.userId]) {
+                (global as any).mt5WeeklyStrategies = (global as any).mt5WeeklyStrategies || {};
+                (global as any).mt5WeeklyStrategies[token.userId] = {
+                  profitTarget: _csDbStrat.profitTarget, pairs: _csDbStrat.pairs,
+                  accountBalance: _csDbStrat.accountBalance, weekStart: _csDbStrat.weekStart,
+                  currentProfit: _csDbStrat.currentProfit || 0, plan: _csDbStrat.plan,
+                  pairStats: _csDbStrat.pairStats,
+                };
+              }
+            } else {
+              (global as any).mt5VeddSSAILive[token.userId] = false;
+            }
+          } catch (_csHydrateErr) {
+            (global as any).mt5VeddSSAILive[token.userId] = false;
+          }
+        }
         const isVeddLive = (global as any).mt5VeddSSAILive[token.userId] === true;
         const veddStrategy = (global as any).mt5WeeklyStrategies?.[token.userId];
-        
+
         if (isVeddLive && veddStrategy?.plan?.weeklyPlan) {
           veddSSAIActive = true;
           const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -8911,11 +8933,26 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         breakoutDirection: advanced.breakoutDetection?.breakoutDirection || undefined,
         breakoutStrength: advanced.breakoutDetection?.breakoutStrength || undefined,
       };
-      if (analysis.signal !== 'NEUTRAL' && 
-          analysis.confidence >= MIN_CONFIDENCE_FOR_AUTO_TRADE && 
+      if (analysis.signal !== 'NEUTRAL' &&
+          analysis.confidence >= MIN_CONFIDENCE_FOR_AUTO_TRADE &&
           analysis.tradePlan) {
         try {
-          const { isAiVisionConfirmationEnabled, getAiVisionConfirmation, getBreakoutConfirmation, addAiConfirmationLog, getUserModelPreference, AVAILABLE_VISION_MODELS, isICTStrategyEnabled, isSMCStrategyEnabled, isPropFirmModeEnabled, getPropFirmContext, isBreakoutModeEnabled, isTrailingStopEnabled, setTrailingStopEnabled, hydrateBreakoutModeMap } = await import('./openai');
+          const { isAiVisionConfirmationEnabled, getAiVisionConfirmation, getBreakoutConfirmation, addAiConfirmationLog, getUserModelPreference, AVAILABLE_VISION_MODELS, isICTStrategyEnabled, isSMCStrategyEnabled, isPropFirmModeEnabled, getPropFirmContext, isBreakoutModeEnabled, isTrailingStopEnabled, setTrailingStopEnabled, hydrateBreakoutModeMap, hydrateAiVisionMap } = await import('./openai');
+
+          // Hydrate AI Vision + breakout settings from DB BEFORE checking isAiVisionConfirmationEnabled
+          // This ensures in-memory maps are warm after a server restart (cold-start fix)
+          try {
+            const _userForVision = await storage.getUser(token.userId);
+            if (_userForVision) {
+              if ((_userForVision as any)?.aiVisionEnabled !== undefined && (_userForVision as any)?.aiVisionEnabled !== null) {
+                hydrateAiVisionMap(token.userId, (_userForVision as any).aiVisionEnabled);
+              }
+              if (_userForVision.breakoutModeEnabled !== undefined && _userForVision.breakoutModeEnabled !== null) {
+                hydrateBreakoutModeMap(token.userId, !!_userForVision.breakoutModeEnabled);
+              }
+            }
+          } catch (_hydrateErr) { /* non-fatal — keep in-memory default */ }
+
           if (isAiVisionConfirmationEnabled(token.userId)) {
             console.log(`[AI Vision Confirmation] Enabled for user ${token.userId} - requesting AI second opinion on ${sanitizedSymbol}`);
             const selectedModelId = getUserModelPreference(token.userId);
@@ -9002,18 +9039,6 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             const propFirmCtx = isPropFirmModeEnabled(token.userId) ? getPropFirmContext(token.userId) : null;
 
             // Hydrate breakout mode + AI Vision from DB on the execution path (covers cold-start / process restart)
-            try {
-              const userForBreakout = await storage.getUser(token.userId);
-              if (userForBreakout?.breakoutModeEnabled !== undefined) {
-                hydrateBreakoutModeMap(token.userId, userForBreakout.breakoutModeEnabled);
-              }
-              // Hydrate AI Vision setting — if DB has an explicit value use it; otherwise keep the default-true in-memory value
-              if ((userForBreakout as any)?.aiVisionEnabled !== undefined && (userForBreakout as any)?.aiVisionEnabled !== null) {
-                const { hydrateAiVisionMap } = await import('./openai');
-                hydrateAiVisionMap(token.userId, (userForBreakout as any).aiVisionEnabled);
-              }
-            } catch (_) { /* non-fatal — fall back to in-memory value */ }
-
             const useBreakoutMode = isBreakoutModeEnabled(token.userId);
 
             if (useBreakoutMode) {
@@ -9530,7 +9555,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         console.log(`[LOT SIZE] ${sanitizedSymbol}: pipSize=${symPipSize}, pipValue=${symPipValue}, slDist=${slDistance}, slPips=${slPips.toFixed(1)}, risk=$${riskAmount.toFixed(2)}`);
         if (slPips > 0) {
           const calculatedLots = riskAmount / (slPips * symPipValue);
-          mt5Volume = Math.max(0.01, Math.min(10, Math.round(calculatedLots * 100) / 100));
+          const engineMaxLot = _liveState?.config?.maxLotSize ?? 10;
+          mt5Volume = Math.max(0.01, Math.min(engineMaxLot, Math.round(calculatedLots * 100) / 100));
         }
         console.log(`[POWER] Balance CIPHER: $${accountBalance.toFixed(2)} | Risk ${riskPercentSetting}% = $${riskAmount.toFixed(2)} at stake`);
         console.log(`[POWER] SL Distance: ${slDistance} | Pips: ${slPips.toFixed(1)} | Lots MANIFESTED: ${mt5Volume}`);
@@ -9545,13 +9571,15 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       // ── Goal Intelligence: apply lot multiplier AFTER base lot is computed ──
       if (goalIntelligenceActive && goalLotMultiplier !== 1.0 && analysis.signal !== 'NEUTRAL') {
         const preMult = mt5Volume;
-        mt5Volume = Math.max(0.01, Math.min(10, Math.round(mt5Volume * goalLotMultiplier * 100) / 100));
+        const _goalMaxLot = _liveState?.config?.maxLotSize ?? 10;
+        mt5Volume = Math.max(0.01, Math.min(_goalMaxLot, Math.round(mt5Volume * goalLotMultiplier * 100) / 100));
         console.log(`[VEDD Goal Intelligence] Lot adjustment (${goalPaceMode}): ${preMult} → ${mt5Volume} lots (×${goalLotMultiplier.toFixed(2)})`);
       }
       // Also override plan lot size with goal multiplier in LOCK_IN/CATCH_UP
       if (goalIntelligenceActive && goalLotMultiplier !== 1.0 && veddLotOverride > 0) {
         const preMult = mt5Volume;
-        mt5Volume = Math.max(0.01, Math.min(10, Math.round(mt5Volume * goalLotMultiplier * 100) / 100));
+        const _goalMaxLot2 = _liveState?.config?.maxLotSize ?? 10;
+        mt5Volume = Math.max(0.01, Math.min(_goalMaxLot2, Math.round(mt5Volume * goalLotMultiplier * 100) / 100));
         console.log(`[VEDD Goal Intelligence] Plan lot override adjusted (${goalPaceMode}): ${preMult} → ${mt5Volume} lots (×${goalLotMultiplier.toFixed(2)})`);
       }
       
@@ -9665,6 +9693,49 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               analysis.alerts = analysis.alerts || [];
               analysis.alerts.push(`BLOCKED: Daily cap reached ${_count2b}/${_liveMaxDaily} for ${_norm2b} (from engine config). Resets midnight UTC.`);
               console.log(`[TL Gate 2b] ${tlGateReason}`);
+            }
+          }
+        } catch { /* non-blocking */ }
+      }
+
+      // Gate 2c: Direction filter from live engine UI config (buy_only / sell_only / both)
+      if (!tlGateBlocked && analysis.signal !== 'NEUTRAL') {
+        try {
+          const _dirFilter = _liveState?.config?.directionFilter ?? 'both';
+          if (_dirFilter === 'buy_only' && (analysis.signal === 'SELL' || analysis.signal === 'STRONG_SELL')) {
+            tlGateBlocked = true;
+            tlGateReason = `Direction filter: engine set to BUY_ONLY, blocked ${analysis.signal}`;
+            analysis.alerts = analysis.alerts || [];
+            analysis.alerts.push(`BLOCKED: Engine direction filter is BUY ONLY — ${analysis.signal} signal on ${sanitizedSymbol} rejected.`);
+            console.log(`[TL Gate 2c] ${tlGateReason}`);
+          } else if (_dirFilter === 'sell_only' && (analysis.signal === 'BUY' || analysis.signal === 'STRONG_BUY')) {
+            tlGateBlocked = true;
+            tlGateReason = `Direction filter: engine set to SELL_ONLY, blocked ${analysis.signal}`;
+            analysis.alerts = analysis.alerts || [];
+            analysis.alerts.push(`BLOCKED: Engine direction filter is SELL ONLY — ${analysis.signal} signal on ${sanitizedSymbol} rejected.`);
+            console.log(`[TL Gate 2c] ${tlGateReason}`);
+          }
+        } catch { /* non-blocking */ }
+      }
+
+      // Gate 2d: Hard max daily trades from live engine UI config (across all pairs)
+      if (!tlGateBlocked && analysis.signal !== 'NEUTRAL') {
+        try {
+          const _maxDailyTrades = _liveState?.config?.maxDailyTrades ?? 0;
+          if (_maxDailyTrades > 0) {
+            const _dateStrGate = new Date().toISOString().slice(0, 10);
+            const _allTodayLogs = await storage.getTradelockerTradeLogs(token.userId, 200);
+            const _todayTradeCount = _allTodayLogs.filter((t: any) => {
+              if (!t.createdAt) return false;
+              const _tDate = new Date(t.createdAt).toISOString().slice(0, 10);
+              return _tDate === _dateStrGate && t.action === 'OPEN';
+            }).length;
+            if (_todayTradeCount >= _maxDailyTrades) {
+              tlGateBlocked = true;
+              tlGateReason = `Max daily trades reached: ${_todayTradeCount}/${_maxDailyTrades} (engine config)`;
+              analysis.alerts = analysis.alerts || [];
+              analysis.alerts.push(`BLOCKED: Max daily trades reached (${_todayTradeCount}/${_maxDailyTrades} from engine config). Resets midnight UTC.`);
+              console.log(`[TL Gate 2d] ${tlGateReason}`);
             }
           }
         } catch { /* non-blocking */ }
@@ -11801,6 +11872,25 @@ Return this EXACT JSON (no markdown, no commentary):
   app.get("/api/weekly-strategy/live-mode", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
+    // Hydrate from DB if in-memory flag is not set (covers cold-start / server restart)
+    if ((global as any).mt5VeddSSAILive[userId] === undefined) {
+      try {
+        const _dbStrat = await storage.getActiveWeeklyStrategy(userId);
+        if (_dbStrat) {
+          const _liveModeFromDb = (_dbStrat.plan as any)?.liveMode === true;
+          (global as any).mt5VeddSSAILive[userId] = _liveModeFromDb;
+          // Also load strategy into global if missing
+          if (!(global as any).mt5WeeklyStrategies?.[userId]) {
+            (global as any).mt5WeeklyStrategies = (global as any).mt5WeeklyStrategies || {};
+            (global as any).mt5WeeklyStrategies[userId] = {
+              profitTarget: _dbStrat.profitTarget, pairs: _dbStrat.pairs,
+              accountBalance: _dbStrat.accountBalance, weekStart: _dbStrat.weekStart,
+              currentProfit: _dbStrat.currentProfit || 0, plan: _dbStrat.plan,
+            };
+          }
+        }
+      } catch (_hydrateErr) { /* non-fatal */ }
+    }
     const isLive = (global as any).mt5VeddSSAILive[userId] === true;
     const strategy = (global as any).mt5WeeklyStrategies?.[userId];
     res.json({ live: isLive, hasStrategy: !!strategy });
@@ -11820,6 +11910,16 @@ Return this EXACT JSON (no markdown, no commentary):
       for (const key of Object.keys((global as any).veddSSAILotOverride)) {
         if (key.startsWith(`${userId}_`)) delete (global as any).veddSSAILotOverride[key];
       }
+    }
+    // Persist live mode flag into the DB strategy plan so it survives server restarts
+    try {
+      const _activeStrat = await storage.getActiveWeeklyStrategy(userId);
+      if (_activeStrat) {
+        const _updatedPlan = { ...(_activeStrat.plan as any), liveMode: !!enabled };
+        await storage.saveWeeklyStrategyField(userId, { plan: _updatedPlan });
+      }
+    } catch (_persistErr) {
+      console.warn('[VEDD SS AI] Could not persist live mode flag to DB:', _persistErr);
     }
     console.log(`[VEDD SS AI] Live mode ${enabled ? 'ACTIVATED' : 'DEACTIVATED'} for user ${userId}`);
     res.json({ live: !!enabled, message: enabled ? 'VEDD SS AI is now guiding your EA trades' : 'VEDD SS AI live mode disabled' });

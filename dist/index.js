@@ -4093,6 +4093,9 @@ var init_storage = __esm({
         }).returning();
         return result;
       }
+      async saveWeeklyStrategyField(userId, fields) {
+        await db.update(weeklyStrategies).set(fields).where(and(eq(weeklyStrategies.userId, userId), eq(weeklyStrategies.isActive, true)));
+      }
       async updateWeeklyStrategyProgress(userId, progress2) {
         await db.update(weeklyStrategies).set({
           currentProfit: progress2.currentProfit,
@@ -19578,6 +19581,8 @@ function getDefaultConfig(userId) {
     brainLearningMode: true,
     drawdownShieldThreshold: 3,
     dailyLossLimit: 5,
+    maxDailyTrades: 0,
+    directionFilter: "both",
     aiMode: "full",
     breakevenBufferPips: 5,
     trailFixedPips: 20,
@@ -38210,6 +38215,30 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       let veddSSAIMatch = null;
       try {
         global.mt5VeddSSAILive = global.mt5VeddSSAILive || {};
+        if (global.mt5VeddSSAILive[token.userId] === void 0) {
+          try {
+            const _csDbStrat = await storage.getActiveWeeklyStrategy(token.userId);
+            if (_csDbStrat) {
+              global.mt5VeddSSAILive[token.userId] = _csDbStrat.plan?.liveMode === true;
+              if (!global.mt5WeeklyStrategies?.[token.userId]) {
+                global.mt5WeeklyStrategies = global.mt5WeeklyStrategies || {};
+                global.mt5WeeklyStrategies[token.userId] = {
+                  profitTarget: _csDbStrat.profitTarget,
+                  pairs: _csDbStrat.pairs,
+                  accountBalance: _csDbStrat.accountBalance,
+                  weekStart: _csDbStrat.weekStart,
+                  currentProfit: _csDbStrat.currentProfit || 0,
+                  plan: _csDbStrat.plan,
+                  pairStats: _csDbStrat.pairStats
+                };
+              }
+            } else {
+              global.mt5VeddSSAILive[token.userId] = false;
+            }
+          } catch (_csHydrateErr) {
+            global.mt5VeddSSAILive[token.userId] = false;
+          }
+        }
         const isVeddLive = global.mt5VeddSSAILive[token.userId] === true;
         const veddStrategy = global.mt5WeeklyStrategies?.[token.userId];
         if (isVeddLive && veddStrategy?.plan?.weeklyPlan) {
@@ -38417,7 +38446,19 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       };
       if (analysis.signal !== "NEUTRAL" && analysis.confidence >= MIN_CONFIDENCE_FOR_AUTO_TRADE && analysis.tradePlan) {
         try {
-          const { isAiVisionConfirmationEnabled: isAiVisionConfirmationEnabled2, getAiVisionConfirmation: getAiVisionConfirmation2, getBreakoutConfirmation: getBreakoutConfirmation2, addAiConfirmationLog: addAiConfirmationLog2, getUserModelPreference: getUserModelPreference2, AVAILABLE_VISION_MODELS: AVAILABLE_VISION_MODELS2, isICTStrategyEnabled: isICTStrategyEnabled2, isSMCStrategyEnabled: isSMCStrategyEnabled2, isPropFirmModeEnabled: isPropFirmModeEnabled2, getPropFirmContext: getPropFirmContext2, isBreakoutModeEnabled: isBreakoutModeEnabled2, isTrailingStopEnabled: isTrailingStopEnabled2, setTrailingStopEnabled: setTrailingStopEnabled2, hydrateBreakoutModeMap: hydrateBreakoutModeMap2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+          const { isAiVisionConfirmationEnabled: isAiVisionConfirmationEnabled2, getAiVisionConfirmation: getAiVisionConfirmation2, getBreakoutConfirmation: getBreakoutConfirmation2, addAiConfirmationLog: addAiConfirmationLog2, getUserModelPreference: getUserModelPreference2, AVAILABLE_VISION_MODELS: AVAILABLE_VISION_MODELS2, isICTStrategyEnabled: isICTStrategyEnabled2, isSMCStrategyEnabled: isSMCStrategyEnabled2, isPropFirmModeEnabled: isPropFirmModeEnabled2, getPropFirmContext: getPropFirmContext2, isBreakoutModeEnabled: isBreakoutModeEnabled2, isTrailingStopEnabled: isTrailingStopEnabled2, setTrailingStopEnabled: setTrailingStopEnabled2, hydrateBreakoutModeMap: hydrateBreakoutModeMap2, hydrateAiVisionMap: hydrateAiVisionMap2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+          try {
+            const _userForVision = await storage.getUser(token.userId);
+            if (_userForVision) {
+              if (_userForVision?.aiVisionEnabled !== void 0 && _userForVision?.aiVisionEnabled !== null) {
+                hydrateAiVisionMap2(token.userId, _userForVision.aiVisionEnabled);
+              }
+              if (_userForVision.breakoutModeEnabled !== void 0 && _userForVision.breakoutModeEnabled !== null) {
+                hydrateBreakoutModeMap2(token.userId, !!_userForVision.breakoutModeEnabled);
+              }
+            }
+          } catch (_hydrateErr) {
+          }
           if (isAiVisionConfirmationEnabled2(token.userId)) {
             console.log(`[AI Vision Confirmation] Enabled for user ${token.userId} - requesting AI second opinion on ${sanitizedSymbol}`);
             const selectedModelId = getUserModelPreference2(token.userId);
@@ -38515,17 +38556,6 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               console.warn("[HTF] Failed to fetch higher timeframe candles:", htfErr);
             }
             const propFirmCtx = isPropFirmModeEnabled2(token.userId) ? getPropFirmContext2(token.userId) : null;
-            try {
-              const userForBreakout = await storage.getUser(token.userId);
-              if (userForBreakout?.breakoutModeEnabled !== void 0) {
-                hydrateBreakoutModeMap2(token.userId, userForBreakout.breakoutModeEnabled);
-              }
-              if (userForBreakout?.aiVisionEnabled !== void 0 && userForBreakout?.aiVisionEnabled !== null) {
-                const { hydrateAiVisionMap: hydrateAiVisionMap2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
-                hydrateAiVisionMap2(token.userId, userForBreakout.aiVisionEnabled);
-              }
-            } catch (_) {
-            }
             const useBreakoutMode = isBreakoutModeEnabled2(token.userId);
             if (useBreakoutMode) {
               console.log(`[Breakout Master] Mode active for user ${token.userId} \u2014 routing ${sanitizedSymbol} to 7-strategy breakout engine`);
@@ -39010,7 +39040,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         console.log(`[LOT SIZE] ${sanitizedSymbol}: pipSize=${symPipSize}, pipValue=${symPipValue}, slDist=${slDistance}, slPips=${slPips.toFixed(1)}, risk=$${riskAmount.toFixed(2)}`);
         if (slPips > 0) {
           const calculatedLots = riskAmount / (slPips * symPipValue);
-          mt5Volume = Math.max(0.01, Math.min(10, Math.round(calculatedLots * 100) / 100));
+          const engineMaxLot = _liveState?.config?.maxLotSize ?? 10;
+          mt5Volume = Math.max(0.01, Math.min(engineMaxLot, Math.round(calculatedLots * 100) / 100));
         }
         console.log(`[POWER] Balance CIPHER: $${accountBalance.toFixed(2)} | Risk ${riskPercentSetting}% = $${riskAmount.toFixed(2)} at stake`);
         console.log(`[POWER] SL Distance: ${slDistance} | Pips: ${slPips.toFixed(1)} | Lots MANIFESTED: ${mt5Volume}`);
@@ -39023,12 +39054,14 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       }
       if (goalIntelligenceActive && goalLotMultiplier !== 1 && analysis.signal !== "NEUTRAL") {
         const preMult = mt5Volume;
-        mt5Volume = Math.max(0.01, Math.min(10, Math.round(mt5Volume * goalLotMultiplier * 100) / 100));
+        const _goalMaxLot = _liveState?.config?.maxLotSize ?? 10;
+        mt5Volume = Math.max(0.01, Math.min(_goalMaxLot, Math.round(mt5Volume * goalLotMultiplier * 100) / 100));
         console.log(`[VEDD Goal Intelligence] Lot adjustment (${goalPaceMode}): ${preMult} \u2192 ${mt5Volume} lots (\xD7${goalLotMultiplier.toFixed(2)})`);
       }
       if (goalIntelligenceActive && goalLotMultiplier !== 1 && veddLotOverride > 0) {
         const preMult = mt5Volume;
-        mt5Volume = Math.max(0.01, Math.min(10, Math.round(mt5Volume * goalLotMultiplier * 100) / 100));
+        const _goalMaxLot2 = _liveState?.config?.maxLotSize ?? 10;
+        mt5Volume = Math.max(0.01, Math.min(_goalMaxLot2, Math.round(mt5Volume * goalLotMultiplier * 100) / 100));
         console.log(`[VEDD Goal Intelligence] Plan lot override adjusted (${goalPaceMode}): ${preMult} \u2192 ${mt5Volume} lots (\xD7${goalLotMultiplier.toFixed(2)})`);
       }
       let tlGateBlocked = false;
@@ -39130,6 +39163,47 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               analysis.alerts = analysis.alerts || [];
               analysis.alerts.push(`BLOCKED: Daily cap reached ${_count2b}/${_liveMaxDaily} for ${_norm2b} (from engine config). Resets midnight UTC.`);
               console.log(`[TL Gate 2b] ${tlGateReason}`);
+            }
+          }
+        } catch {
+        }
+      }
+      if (!tlGateBlocked && analysis.signal !== "NEUTRAL") {
+        try {
+          const _dirFilter = _liveState?.config?.directionFilter ?? "both";
+          if (_dirFilter === "buy_only" && (analysis.signal === "SELL" || analysis.signal === "STRONG_SELL")) {
+            tlGateBlocked = true;
+            tlGateReason = `Direction filter: engine set to BUY_ONLY, blocked ${analysis.signal}`;
+            analysis.alerts = analysis.alerts || [];
+            analysis.alerts.push(`BLOCKED: Engine direction filter is BUY ONLY \u2014 ${analysis.signal} signal on ${sanitizedSymbol} rejected.`);
+            console.log(`[TL Gate 2c] ${tlGateReason}`);
+          } else if (_dirFilter === "sell_only" && (analysis.signal === "BUY" || analysis.signal === "STRONG_BUY")) {
+            tlGateBlocked = true;
+            tlGateReason = `Direction filter: engine set to SELL_ONLY, blocked ${analysis.signal}`;
+            analysis.alerts = analysis.alerts || [];
+            analysis.alerts.push(`BLOCKED: Engine direction filter is SELL ONLY \u2014 ${analysis.signal} signal on ${sanitizedSymbol} rejected.`);
+            console.log(`[TL Gate 2c] ${tlGateReason}`);
+          }
+        } catch {
+        }
+      }
+      if (!tlGateBlocked && analysis.signal !== "NEUTRAL") {
+        try {
+          const _maxDailyTrades = _liveState?.config?.maxDailyTrades ?? 0;
+          if (_maxDailyTrades > 0) {
+            const _dateStrGate = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+            const _allTodayLogs = await storage.getTradelockerTradeLogs(token.userId, 200);
+            const _todayTradeCount = _allTodayLogs.filter((t) => {
+              if (!t.createdAt) return false;
+              const _tDate = new Date(t.createdAt).toISOString().slice(0, 10);
+              return _tDate === _dateStrGate && t.action === "OPEN";
+            }).length;
+            if (_todayTradeCount >= _maxDailyTrades) {
+              tlGateBlocked = true;
+              tlGateReason = `Max daily trades reached: ${_todayTradeCount}/${_maxDailyTrades} (engine config)`;
+              analysis.alerts = analysis.alerts || [];
+              analysis.alerts.push(`BLOCKED: Max daily trades reached (${_todayTradeCount}/${_maxDailyTrades} from engine config). Resets midnight UTC.`);
+              console.log(`[TL Gate 2d] ${tlGateReason}`);
             }
           }
         } catch {
@@ -40937,6 +41011,27 @@ Return this EXACT JSON (no markdown, no commentary):
   app2.get("/api/weekly-strategy/live-mode", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
+    if (global.mt5VeddSSAILive[userId] === void 0) {
+      try {
+        const _dbStrat = await storage.getActiveWeeklyStrategy(userId);
+        if (_dbStrat) {
+          const _liveModeFromDb = _dbStrat.plan?.liveMode === true;
+          global.mt5VeddSSAILive[userId] = _liveModeFromDb;
+          if (!global.mt5WeeklyStrategies?.[userId]) {
+            global.mt5WeeklyStrategies = global.mt5WeeklyStrategies || {};
+            global.mt5WeeklyStrategies[userId] = {
+              profitTarget: _dbStrat.profitTarget,
+              pairs: _dbStrat.pairs,
+              accountBalance: _dbStrat.accountBalance,
+              weekStart: _dbStrat.weekStart,
+              currentProfit: _dbStrat.currentProfit || 0,
+              plan: _dbStrat.plan
+            };
+          }
+        }
+      } catch (_hydrateErr) {
+      }
+    }
     const isLive = global.mt5VeddSSAILive[userId] === true;
     const strategy = global.mt5WeeklyStrategies?.[userId];
     res.json({ live: isLive, hasStrategy: !!strategy });
@@ -40955,6 +41050,15 @@ Return this EXACT JSON (no markdown, no commentary):
       for (const key of Object.keys(global.veddSSAILotOverride)) {
         if (key.startsWith(`${userId}_`)) delete global.veddSSAILotOverride[key];
       }
+    }
+    try {
+      const _activeStrat = await storage.getActiveWeeklyStrategy(userId);
+      if (_activeStrat) {
+        const _updatedPlan = { ..._activeStrat.plan, liveMode: !!enabled };
+        await storage.saveWeeklyStrategyField(userId, { plan: _updatedPlan });
+      }
+    } catch (_persistErr) {
+      console.warn("[VEDD SS AI] Could not persist live mode flag to DB:", _persistErr);
     }
     console.log(`[VEDD SS AI] Live mode ${enabled ? "ACTIVATED" : "DEACTIVATED"} for user ${userId}`);
     res.json({ live: !!enabled, message: enabled ? "VEDD SS AI is now guiding your EA trades" : "VEDD SS AI live mode disabled" });

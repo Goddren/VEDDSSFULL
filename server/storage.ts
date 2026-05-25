@@ -2833,6 +2833,12 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
+  async saveWeeklyStrategyField(userId: number, fields: Partial<{ plan: any; riskLevel: string; lotSize: string; pairStats: any }>): Promise<void> {
+    await db.update(weeklyStrategies)
+      .set(fields as any)
+      .where(and(eq(weeklyStrategies.userId, userId), eq(weeklyStrategies.isActive, true)));
+  }
+
   async updateWeeklyStrategyProgress(userId: number, progress: { currentProfit: number; progressTrades: number; progressWinRate: number; progressPercentage: number }): Promise<void> {
     await db.update(weeklyStrategies)
       .set({

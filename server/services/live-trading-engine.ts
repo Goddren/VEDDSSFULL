@@ -167,6 +167,8 @@ interface LiveEngineConfig {
   drawdownShieldThreshold: number;
   // Safety
   dailyLossLimit: number;
+  maxDailyTrades: number;                      // hard daily trade cap across all pairs (0 = unlimited)
+  directionFilter: 'buy_only' | 'sell_only' | 'both'; // restrict signal direction
   // AI cost control
   aiMode: 'full' | 'economy' | 'rule_based';
   // R-Multiple: pip buffer above entry at 1R stage
@@ -682,6 +684,8 @@ function getDefaultConfig(userId: number): LiveEngineConfig {
     brainLearningMode: true,
     drawdownShieldThreshold: 3,
     dailyLossLimit: 5,
+    maxDailyTrades: 0,
+    directionFilter: 'both',
     aiMode: 'full',
     breakevenBufferPips: 5,
     trailFixedPips: 20,
