@@ -1269,12 +1269,40 @@ function DailyLog({ trades }: { trades: DailyTrade[] }) {
 export default function ORBBreakoutPage() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [setups, setSetups] = useState<ORBSetup[]>([]);
-  const [dailyTrades, setDailyTrades] = useState<DailyTrade[]>([]);
+  // ── Persistent state — survive page reloads via localStorage ────────────
+  const [setups, setSetups] = useState<ORBSetup[]>(() => {
+    try {
+      const saved = localStorage.getItem('orb_setups');
+      return saved ? (JSON.parse(saved) as ORBSetup[]) : [];
+    } catch { return []; }
+  });
+  const [dailyTrades, setDailyTrades] = useState<DailyTrade[]>(() => {
+    try {
+      // Clear trades from previous calendar day automatically
+      const savedRaw = localStorage.getItem('orb_daily_trades');
+      if (!savedRaw) return [];
+      const { date, trades } = JSON.parse(savedRaw) as { date: string; trades: DailyTrade[] };
+      const today = new Date().toISOString().slice(0, 10);
+      return date === today ? trades : [];
+    } catch { return []; }
+  });
   const [showAddModal, setShowAddModal] = useState(false);
   const [analyzingId, setAnalyzingId] = useState<string | null>(null);
   const [ssAISetup, setSSAISetup] = useState<ORBSetup | null>(null);
   const [stopOrderSetup, setStopOrderSetup] = useState<ORBSetup | null>(null);
+
+  // Persist setups whenever they change
+  useEffect(() => {
+    try { localStorage.setItem('orb_setups', JSON.stringify(setups)); } catch { /* quota */ }
+  }, [setups]);
+
+  // Persist daily trades with today's date so they auto-clear the next day
+  useEffect(() => {
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      localStorage.setItem('orb_daily_trades', JSON.stringify({ date: today, trades: dailyTrades }));
+    } catch { /* quota */ }
+  }, [dailyTrades]);
 
   // AI analysis mutation
   const analyzeMutation = useMutation({

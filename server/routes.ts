@@ -8956,9 +8956,10 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         breakoutDirection: advanced.breakoutDetection?.breakoutDirection || undefined,
         breakoutStrength: advanced.breakoutDetection?.breakoutStrength || undefined,
       };
+      // Second Opinion fires on any non-NEUTRAL signal ≥ 60% — tradePlan NOT required.
+      // Auto-execution (TradeLocker) still needs MIN_CONFIDENCE + tradePlan — checked later.
       if (analysis.signal !== 'NEUTRAL' &&
-          analysis.confidence >= MIN_CONFIDENCE_FOR_AUTO_TRADE &&
-          analysis.tradePlan) {
+          analysis.confidence >= Math.min(60, MIN_CONFIDENCE_FOR_AUTO_TRADE)) {
         try {
           const { isAiVisionConfirmationEnabled, getAiVisionConfirmation, getBreakoutConfirmation, addAiConfirmationLog, getUserModelPreference, AVAILABLE_VISION_MODELS, isICTStrategyEnabled, isSMCStrategyEnabled, isPropFirmModeEnabled, getPropFirmContext, isBreakoutModeEnabled, isTrailingStopEnabled, setTrailingStopEnabled, hydrateBreakoutModeMap, hydrateAiVisionMap } = await import('./openai');
 

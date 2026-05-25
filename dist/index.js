@@ -38460,7 +38460,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         breakoutDirection: advanced.breakoutDetection?.breakoutDirection || void 0,
         breakoutStrength: advanced.breakoutDetection?.breakoutStrength || void 0
       };
-      if (analysis.signal !== "NEUTRAL" && analysis.confidence >= MIN_CONFIDENCE_FOR_AUTO_TRADE && analysis.tradePlan) {
+      if (analysis.signal !== "NEUTRAL" && analysis.confidence >= Math.min(60, MIN_CONFIDENCE_FOR_AUTO_TRADE)) {
         try {
           const { isAiVisionConfirmationEnabled: isAiVisionConfirmationEnabled2, getAiVisionConfirmation: getAiVisionConfirmation2, getBreakoutConfirmation: getBreakoutConfirmation2, addAiConfirmationLog: addAiConfirmationLog2, getUserModelPreference: getUserModelPreference2, AVAILABLE_VISION_MODELS: AVAILABLE_VISION_MODELS2, isICTStrategyEnabled: isICTStrategyEnabled2, isSMCStrategyEnabled: isSMCStrategyEnabled2, isPropFirmModeEnabled: isPropFirmModeEnabled2, getPropFirmContext: getPropFirmContext2, isBreakoutModeEnabled: isBreakoutModeEnabled2, isTrailingStopEnabled: isTrailingStopEnabled2, setTrailingStopEnabled: setTrailingStopEnabled2, hydrateBreakoutModeMap: hydrateBreakoutModeMap2, hydrateAiVisionMap: hydrateAiVisionMap2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
           try {
