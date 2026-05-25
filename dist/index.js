@@ -39651,7 +39651,27 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
     }
     const userId = req.user.id;
     const statusCache = global.mt5ConnectionStatus || {};
-    const status = statusCache[userId];
+    let status = statusCache[userId];
+    if (!status) {
+      try {
+        const dbTokens = await storage.getUserMt5ApiTokens(userId);
+        const activeToken = dbTokens.filter((t) => t.isActive && t.lastUsedAt).sort((a, b) => new Date(b.lastUsedAt).getTime() - new Date(a.lastUsedAt).getTime())[0];
+        if (activeToken?.lastUsedAt) {
+          status = {
+            connected: true,
+            lastSeen: new Date(activeToken.lastUsedAt).toISOString(),
+            symbol: "\u2014",
+            timeframe: "\u2014",
+            broker: activeToken.name || "MT5 EA",
+            candleCount: 0,
+            fromDbFallback: true
+          };
+          global.mt5ConnectionStatus = global.mt5ConnectionStatus || {};
+          global.mt5ConnectionStatus[userId] = status;
+        }
+      } catch (_dbErr) {
+      }
+    }
     if (!status) {
       return res.json({
         connected: false,
@@ -39661,16 +39681,18 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
     const lastSeen = new Date(status.lastSeen);
     const now = /* @__PURE__ */ new Date();
     const secondsAgo = Math.floor((now.getTime() - lastSeen.getTime()) / 1e3);
-    const isActive = secondsAgo < 300;
+    const isActive = secondsAgo < 600;
+    const isRecentlyConnected = secondsAgo < 86400;
     res.json({
       connected: isActive,
+      recentlyConnected: isRecentlyConnected,
       lastSeen: status.lastSeen,
       secondsAgo,
       symbol: status.symbol,
       timeframe: status.timeframe,
       broker: status.broker,
       candleCount: status.candleCount,
-      message: isActive ? `Connected: ${status.symbol} ${status.timeframe} from ${status.broker}` : `Last seen ${Math.floor(secondsAgo / 60)} minutes ago`
+      message: isActive ? `Connected: ${status.symbol !== "\u2014" ? `${status.symbol} ${status.timeframe} from ` : ""}${status.broker}` : isRecentlyConnected ? `Last seen ${secondsAgo < 3600 ? Math.floor(secondsAgo / 60) + " min" : Math.floor(secondsAgo / 3600) + "h"} ago \u2014 EA may be reconnecting` : `Last seen ${Math.floor(secondsAgo / 60)} minutes ago`
     });
   });
   app2.get("/api/mt5/daily-summary", async (req, res) => {
@@ -39885,7 +39907,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
     const accounts = [];
     if (userAccounts.lastUpdated && typeof userAccounts.lastUpdated === "string") {
       const secondsAgo = Math.floor((now.getTime() - new Date(userAccounts.lastUpdated).getTime()) / 1e3);
-      const isActive = secondsAgo < 300;
+      const isActive = secondsAgo < 600;
       accounts.push({
         connected: isActive,
         lastUpdated: userAccounts.lastUpdated,
@@ -39919,8 +39941,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         if (!accountData.lastUpdated) continue;
         const lastUpdated = new Date(accountData.lastUpdated);
         const secondsAgo = Math.floor((now.getTime() - lastUpdated.getTime()) / 1e3);
-        const isActive = secondsAgo < 300;
-        if (secondsAgo > 3600) continue;
+        const isActive = secondsAgo < 600;
+        if (secondsAgo > 7200) continue;
         accounts.push({
           connected: isActive,
           lastUpdated: accountData.lastUpdated,
@@ -40001,12 +40023,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       const pairData = pair;
       const lastSeen = new Date(pairData.lastSeen);
       const secondsAgo = Math.floor((now.getTime() - lastSeen.getTime()) / 1e3);
-      const isActive = secondsAgo < 300;
+      const isActive = secondsAgo < 600;
       const pairInfo = {
         ...pairData,
         secondsAgo,
         isActive,
-        status: isActive ? "LIVE" : secondsAgo < 900 ? "STALE" : "OFFLINE"
+        status: isActive ? "LIVE" : secondsAgo < 1800 ? "STALE" : "OFFLINE"
       };
       if (isActive) {
         activePairs.push(pairInfo);

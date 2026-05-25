@@ -10283,32 +10283,59 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
     const userId = (req.user as User).id;
     
     const statusCache = (global as any).mt5ConnectionStatus || {};
-    const status = statusCache[userId];
-    
+    let status = statusCache[userId];
+
+    // Fallback: if in-memory was wiped by a server restart, hydrate from DB token lastUsedAt
     if (!status) {
-      return res.json({ 
-        connected: false, 
-        message: "No MT5 Chart Data EA connection detected. Start the EA on your MT5 terminal." 
+      try {
+        const dbTokens = await storage.getUserMt5ApiTokens(userId);
+        const activeToken = dbTokens.filter(t => t.isActive && t.lastUsedAt)
+          .sort((a, b) => new Date(b.lastUsedAt!).getTime() - new Date(a.lastUsedAt!).getTime())[0];
+        if (activeToken?.lastUsedAt) {
+          status = {
+            connected: true,
+            lastSeen: new Date(activeToken.lastUsedAt).toISOString(),
+            symbol: '—',
+            timeframe: '—',
+            broker: activeToken.name || 'MT5 EA',
+            candleCount: 0,
+            fromDbFallback: true,
+          };
+          // Re-hydrate in-memory so subsequent requests are fast
+          (global as any).mt5ConnectionStatus = (global as any).mt5ConnectionStatus || {};
+          (global as any).mt5ConnectionStatus[userId] = status;
+        }
+      } catch (_dbErr) { /* non-fatal — fall through to disconnected */ }
+    }
+
+    if (!status) {
+      return res.json({
+        connected: false,
+        message: "No MT5 Chart Data EA connection detected. Start the EA on your MT5 terminal."
       });
     }
-    
-    // Check if connection is recent (within last 5 minutes = 300 seconds)
+
+    // Active within last 10 minutes; stale (but known) within last 24 hours
     const lastSeen = new Date(status.lastSeen);
     const now = new Date();
     const secondsAgo = Math.floor((now.getTime() - lastSeen.getTime()) / 1000);
-    const isActive = secondsAgo < 300; // 5 minutes
-    
+    const isActive = secondsAgo < 600; // 10 minutes (increased from 5 to survive brief deploy gaps)
+    const isRecentlyConnected = secondsAgo < 86400; // known within last 24 h
+
     res.json({
       connected: isActive,
+      recentlyConnected: isRecentlyConnected,
       lastSeen: status.lastSeen,
       secondsAgo,
       symbol: status.symbol,
       timeframe: status.timeframe,
       broker: status.broker,
       candleCount: status.candleCount,
-      message: isActive 
-        ? `Connected: ${status.symbol} ${status.timeframe} from ${status.broker}`
-        : `Last seen ${Math.floor(secondsAgo / 60)} minutes ago`
+      message: isActive
+        ? `Connected: ${status.symbol !== '—' ? `${status.symbol} ${status.timeframe} from ` : ''}${status.broker}`
+        : isRecentlyConnected
+          ? `Last seen ${secondsAgo < 3600 ? Math.floor(secondsAgo / 60) + ' min' : Math.floor(secondsAgo / 3600) + 'h'} ago — EA may be reconnecting`
+          : `Last seen ${Math.floor(secondsAgo / 60)} minutes ago`
     });
   });
 
@@ -10611,7 +10638,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
     if (userAccounts.lastUpdated && typeof userAccounts.lastUpdated === 'string') {
       // Old single-account format — convert to multi-broker
       const secondsAgo = Math.floor((now.getTime() - new Date(userAccounts.lastUpdated).getTime()) / 1000);
-      const isActive = secondsAgo < 300;
+      const isActive = secondsAgo < 600;
       accounts.push({
         connected: isActive,
         lastUpdated: userAccounts.lastUpdated,
@@ -10646,8 +10673,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         if (!accountData.lastUpdated) continue;
         const lastUpdated = new Date(accountData.lastUpdated);
         const secondsAgo = Math.floor((now.getTime() - lastUpdated.getTime()) / 1000);
-        const isActive = secondsAgo < 300;
-        if (secondsAgo > 3600) continue; // Skip accounts not seen in over 1 hour
+        const isActive = secondsAgo < 600;
+        if (secondsAgo > 7200) continue; // Skip accounts not seen in over 2 hours
         accounts.push({
           connected: isActive,
           lastUpdated: accountData.lastUpdated,
@@ -10738,13 +10765,13 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       const pairData = pair as any;
       const lastSeen = new Date(pairData.lastSeen);
       const secondsAgo = Math.floor((now.getTime() - lastSeen.getTime()) / 1000);
-      const isActive = secondsAgo < 300; // 5 minutes
-      
+      const isActive = secondsAgo < 600; // 10 minutes
+
       const pairInfo = {
         ...pairData,
         secondsAgo,
         isActive,
-        status: isActive ? 'LIVE' : (secondsAgo < 900 ? 'STALE' : 'OFFLINE'),
+        status: isActive ? 'LIVE' : (secondsAgo < 1800 ? 'STALE' : 'OFFLINE'),
       };
       
       if (isActive) {
