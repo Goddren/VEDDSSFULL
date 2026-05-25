@@ -7187,12 +7187,31 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         } catch { /* non-blocking */ }
 
         // Cooldown: share the same key as chart-data path so they don't double-fire
+        // DB-backed hydration so cooldown survives server restarts/redeployments
         if (!relayBlocked) {
-          const _relayKey = `last_trade_${token.userId}_${(symbol || '').toUpperCase().replace('/', '')}`;
+          const _relaySymNorm = (symbol || '').toUpperCase().replace('/', '');
+          const _relayKey = `last_trade_${token.userId}_${_relaySymNorm}`;
           (global as any).recentTrades = (global as any).recentTrades || {};
-          const _relayLast = (global as any).recentTrades[_relayKey];
           const _relayNow = Date.now();
           const _relayCooldownMs = 5 * 60 * 1000; // 5-min shared cooldown
+
+          // Hydrate from DB on first call after restart
+          if ((global as any).recentTrades[_relayKey] === undefined) {
+            try {
+              const _rLogs = await storage.getTradelockerTradeLogs(token.userId, 100);
+              const _rLast = _rLogs
+                .filter((t: any) =>
+                  (t.symbol || '').toUpperCase().replace('/', '') === _relaySymNorm &&
+                  t.action === 'OPEN' && t.status === 'executed' && t.createdAt
+                )
+                .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+              (global as any).recentTrades[_relayKey] = _rLast ? new Date(_rLast.createdAt).getTime() : 0;
+            } catch (_) {
+              (global as any).recentTrades[_relayKey] = 0;
+            }
+          }
+
+          const _relayLast = (global as any).recentTrades[_relayKey];
           if (_relayLast && (_relayNow - _relayLast) < _relayCooldownMs) {
             relayBlocked = true;
             console.log(`[Relay Gate] Cooldown active for ${symbol} — relay blocked (${Math.round((_relayCooldownMs - (_relayNow - _relayLast))/1000)}s remaining)`);
@@ -8555,9 +8574,13 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       // AUTO-EXECUTE ON TRADELOCKER: Execute trade if signal is strong and autoExecute is enabled
       let tradelockerResult: { success: boolean; orderId?: string; error?: string } | null = null;
       let aiConfirmation: any = null;
-      // Use MT5 EA's MIN_CONFIDENCE setting if provided, then fall back to saved EA's minConfidence, default to 65%
+      // Use MT5 EA's MIN_CONFIDENCE setting if provided, then fall back to saved EA's minConfidence, default to 70%
+      // Hard server-side floor of 65 — EA body cannot push this below minimum to cause over-trading
       const mt5MinConfidence = eaSettings?.minConfidence;
-      const MIN_CONFIDENCE_FOR_AUTO_TRADE = mt5MinConfidence ?? matchingEA?.minConfidence ?? 65;
+      const MIN_CONFIDENCE_FOR_AUTO_TRADE = Math.max(
+        mt5MinConfidence ?? matchingEA?.minConfidence ?? 70,
+        65   // server-side floor — never auto-trade below 65% confidence
+      );
       
       console.log(`[KNOWLEDGE] ${sanitizedSymbol} Analysis: Confidence=${analysis.confidence}% | Required=${MIN_CONFIDENCE_FOR_AUTO_TRADE}% | Source=${mt5MinConfidence ? 'MT5 EA' : (matchingEA?.name || 'default')} | Session=${eaSettings?.sessionName || 'N/A'}`);
       
@@ -9773,30 +9796,49 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         });
 
         if (tlConnection && tlConnection.isActive && tlConnection.autoExecute) {
-          // Check for duplicate/recent trades on same symbol to avoid over-trading
+          // ── Cooldown: DB-backed so it survives server restarts/redeployments ──
+          // In-memory map is also set (race-condition guard within single process).
           const recentTradeKey = `last_trade_${token.userId}_${sanitizedSymbol}`;
           (global as any).recentTrades = (global as any).recentTrades || {};
-          const lastTradeTime = (global as any).recentTrades[recentTradeKey];
           const now = Date.now();
-          // Use EA setting for cooldown, default 4 hours.
-          // 4-hour minimum prevents a persistent signal from hammering the same pair every few minutes.
-          // EA management page lets you lower this for strategies that require faster re-entries.
           const cooldownMinutes = matchingEA?.tradeCooldownMinutes ?? 240;
           const TRADE_COOLDOWN_MS = cooldownMinutes * 60 * 1000;
+
+          // Hydrate in-memory cooldown from DB if missing (covers cold-start after restart)
+          if ((global as any).recentTrades[recentTradeKey] === undefined) {
+            try {
+              const _cooldownLogs = await storage.getTradelockerTradeLogs(token.userId, 100);
+              const _lastOpen = _cooldownLogs
+                .filter((t: any) =>
+                  (t.symbol || '').toUpperCase().replace('/', '') === sanitizedSymbol.toUpperCase().replace('/', '') &&
+                  t.action === 'OPEN' && t.status === 'executed' && t.createdAt
+                )
+                .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+              (global as any).recentTrades[recentTradeKey] = _lastOpen
+                ? new Date(_lastOpen.createdAt).getTime()
+                : 0;
+            } catch (_cdErr) {
+              (global as any).recentTrades[recentTradeKey] = 0;
+            }
+          }
+
+          const lastTradeTime = (global as any).recentTrades[recentTradeKey];
 
           if (!lastTradeTime || (now - lastTradeTime) > TRADE_COOLDOWN_MS) {
             // SET COOLDOWN FIRST to prevent race conditions from concurrent requests
             (global as any).recentTrades[recentTradeKey] = now;
 
-            // Check for existing open positions on this symbol to prevent duplicate entries
-            const recentTrades = await storage.getTradelockerTradeLogs(token.userId, 10);
-            const hasOpenPosition = recentTrades.some(t =>
-              t.symbol?.toUpperCase() === sanitizedSymbol.toUpperCase() &&
-              t.action === 'OPEN' &&
+            // Check for existing open positions on this symbol — use larger window + net open/close check
+            const recentTrades = await storage.getTradelockerTradeLogs(token.userId, 100);
+            const symTrades = recentTrades.filter((t: any) =>
+              (t.symbol || '').toUpperCase().replace('/', '') === sanitizedSymbol.toUpperCase().replace('/', '') &&
               t.status === 'executed' &&
-              // Only consider trades from last 24 hours as potentially open
               t.createdAt && (now - new Date(t.createdAt).getTime()) < 24 * 60 * 60 * 1000
             );
+            const openCount = symTrades.filter((t: any) => t.action === 'OPEN').length;
+            const closeCount = symTrades.filter((t: any) => t.action === 'CLOSE').length;
+            // Net open positions = opens that haven't been closed
+            const hasOpenPosition = (openCount - closeCount) > 0;
 
             if (hasOpenPosition) {
               console.log(`[MT5 Chart Data AutoTrade] Skipping trade - existing open position on ${sanitizedSymbol}`);

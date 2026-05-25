@@ -36974,11 +36974,23 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         } catch {
         }
         if (!relayBlocked) {
-          const _relayKey = `last_trade_${token.userId}_${(symbol || "").toUpperCase().replace("/", "")}`;
+          const _relaySymNorm = (symbol || "").toUpperCase().replace("/", "");
+          const _relayKey = `last_trade_${token.userId}_${_relaySymNorm}`;
           global.recentTrades = global.recentTrades || {};
-          const _relayLast = global.recentTrades[_relayKey];
           const _relayNow = Date.now();
           const _relayCooldownMs = 5 * 60 * 1e3;
+          if (global.recentTrades[_relayKey] === void 0) {
+            try {
+              const _rLogs = await storage.getTradelockerTradeLogs(token.userId, 100);
+              const _rLast = _rLogs.filter(
+                (t) => (t.symbol || "").toUpperCase().replace("/", "") === _relaySymNorm && t.action === "OPEN" && t.status === "executed" && t.createdAt
+              ).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+              global.recentTrades[_relayKey] = _rLast ? new Date(_rLast.createdAt).getTime() : 0;
+            } catch (_) {
+              global.recentTrades[_relayKey] = 0;
+            }
+          }
+          const _relayLast = global.recentTrades[_relayKey];
           if (_relayLast && _relayNow - _relayLast < _relayCooldownMs) {
             relayBlocked = true;
             console.log(`[Relay Gate] Cooldown active for ${symbol} \u2014 relay blocked (${Math.round((_relayCooldownMs - (_relayNow - _relayLast)) / 1e3)}s remaining)`);
@@ -38144,7 +38156,11 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       let tradelockerResult = null;
       let aiConfirmation = null;
       const mt5MinConfidence = eaSettings?.minConfidence;
-      const MIN_CONFIDENCE_FOR_AUTO_TRADE = mt5MinConfidence ?? matchingEA?.minConfidence ?? 65;
+      const MIN_CONFIDENCE_FOR_AUTO_TRADE = Math.max(
+        mt5MinConfidence ?? matchingEA?.minConfidence ?? 70,
+        65
+        // server-side floor — never auto-trade below 65% confidence
+      );
       console.log(`[KNOWLEDGE] ${sanitizedSymbol} Analysis: Confidence=${analysis.confidence}% | Required=${MIN_CONFIDENCE_FOR_AUTO_TRADE}% | Source=${mt5MinConfidence ? "MT5 EA" : matchingEA?.name || "default"} | Session=${eaSettings?.sessionName || "N/A"}`);
       let newsContextForAI;
       let newsAlerts = null;
@@ -39237,17 +39253,30 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         if (tlConnection && tlConnection.isActive && tlConnection.autoExecute) {
           const recentTradeKey = `last_trade_${token.userId}_${sanitizedSymbol}`;
           global.recentTrades = global.recentTrades || {};
-          const lastTradeTime = global.recentTrades[recentTradeKey];
           const now = Date.now();
           const cooldownMinutes = matchingEA?.tradeCooldownMinutes ?? 240;
           const TRADE_COOLDOWN_MS = cooldownMinutes * 60 * 1e3;
+          if (global.recentTrades[recentTradeKey] === void 0) {
+            try {
+              const _cooldownLogs = await storage.getTradelockerTradeLogs(token.userId, 100);
+              const _lastOpen = _cooldownLogs.filter(
+                (t) => (t.symbol || "").toUpperCase().replace("/", "") === sanitizedSymbol.toUpperCase().replace("/", "") && t.action === "OPEN" && t.status === "executed" && t.createdAt
+              ).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+              global.recentTrades[recentTradeKey] = _lastOpen ? new Date(_lastOpen.createdAt).getTime() : 0;
+            } catch (_cdErr) {
+              global.recentTrades[recentTradeKey] = 0;
+            }
+          }
+          const lastTradeTime = global.recentTrades[recentTradeKey];
           if (!lastTradeTime || now - lastTradeTime > TRADE_COOLDOWN_MS) {
             global.recentTrades[recentTradeKey] = now;
-            const recentTrades = await storage.getTradelockerTradeLogs(token.userId, 10);
-            const hasOpenPosition = recentTrades.some(
-              (t) => t.symbol?.toUpperCase() === sanitizedSymbol.toUpperCase() && t.action === "OPEN" && t.status === "executed" && // Only consider trades from last 24 hours as potentially open
-              t.createdAt && now - new Date(t.createdAt).getTime() < 24 * 60 * 60 * 1e3
+            const recentTrades = await storage.getTradelockerTradeLogs(token.userId, 100);
+            const symTrades = recentTrades.filter(
+              (t) => (t.symbol || "").toUpperCase().replace("/", "") === sanitizedSymbol.toUpperCase().replace("/", "") && t.status === "executed" && t.createdAt && now - new Date(t.createdAt).getTime() < 24 * 60 * 60 * 1e3
             );
+            const openCount = symTrades.filter((t) => t.action === "OPEN").length;
+            const closeCount = symTrades.filter((t) => t.action === "CLOSE").length;
+            const hasOpenPosition = openCount - closeCount > 0;
             if (hasOpenPosition) {
               console.log(`[MT5 Chart Data AutoTrade] Skipping trade - existing open position on ${sanitizedSymbol}`);
             } else {
