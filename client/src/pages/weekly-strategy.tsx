@@ -897,7 +897,11 @@ export default function WeeklyStrategyPage() {
     }
   }, []);
 
-  const { data: growthPlan } = useQuery<any>({ queryKey: ['/api/growth-plan'] });
+  const { data: growthPlan } = useQuery<any>({
+    queryKey: ['/api/growth-plan'],
+    staleTime: 0,          // always consider stale — re-fetch on return to page
+    refetchOnMount: true,  // force fetch every mount so setup guide reflects saved plan
+  });
 
   const { data: strategy, isLoading } = useQuery<WeeklyStrategy>({
     queryKey: ['/api/weekly-strategy'],

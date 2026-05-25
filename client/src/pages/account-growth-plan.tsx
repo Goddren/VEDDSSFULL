@@ -4,8 +4,9 @@ import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import ConnectedAccountPicker, { type ConnectedAccount } from "@/components/connected-account-picker";
+import { Link } from "wouter";
 import {
-  TrendingUp, Target, Zap, Trophy, ArrowRight, ChevronDown, ChevronUp,
+  TrendingUp, Target, Zap, Trophy, ArrowRight, ArrowLeft, ChevronDown, ChevronUp,
   Calculator, BookOpen, BarChart3, Plus, Trash2, Edit3, CheckCircle2,
   AlertTriangle, Lock, Star, RefreshCw, DollarSign, Info, Loader2, X
 } from "lucide-react";
@@ -494,12 +495,19 @@ export default function AccountGrowthPlan() {
 
         {/* ── Page header ── */}
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold text-white flex items-center gap-2">
-              <TrendingUp className="w-5 h-5 text-emerald-400" />
-              Account Growth Plan
-            </h1>
-            <p className="text-xs text-gray-400 mt-0.5">Phase-based sizing • Step-by-step guidance • Full trade log</p>
+          <div className="flex items-center gap-2">
+            <Link href="/">
+              <Button variant="ghost" size="sm" className="text-gray-400 hover:text-white px-2 h-8">
+                <ArrowLeft className="w-4 h-4" />
+              </Button>
+            </Link>
+            <div>
+              <h1 className="text-xl font-bold text-white flex items-center gap-2">
+                <TrendingUp className="w-5 h-5 text-emerald-400" />
+                Account Growth Plan
+              </h1>
+              <p className="text-xs text-gray-400 mt-0.5">Phase-based sizing • Step-by-step guidance • Full trade log</p>
+            </div>
           </div>
           <Button size="sm" variant="outline" className="h-8 text-xs border-gray-600"
             onClick={() => { setSetupBalance(String(currentBalance)); setSetupGoal(String(goalBalance)); setSetupMode(true); }}>
