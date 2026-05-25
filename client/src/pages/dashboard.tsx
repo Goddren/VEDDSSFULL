@@ -714,7 +714,7 @@ const Dashboard: React.FC = () => {
             )}
 
             {/* ── MT5 Balance Chart ─────────────────────────────────────── */}
-            {balanceHistory && balanceHistory.series.length >= 2 && (
+            {balanceHistory && balanceHistory.series.length >= 1 && (
               <div className="smart-card px-3 pt-3 pb-2 mb-0">
                 <div className="flex items-center justify-between mb-1">
                   <div className="flex items-center gap-1.5">
@@ -832,7 +832,7 @@ const Dashboard: React.FC = () => {
                 </div>
                 <div className="prog-track">
                   <div className="prog-fill" style={{
-                    width: `${Math.min(100, weekProgressPct)}%`,
+                    width: `${Math.max(0, Math.min(100, weekProgressPct))}%`,
                     background: weekProgressPct >= 100 ? 'linear-gradient(90deg,#10b981,#34d399)' :
                                 weekProgressPct >= 60  ? 'linear-gradient(90deg,#f59e0b,#fbbf24)' :
                                                          'linear-gradient(90deg,#ef4444,#f87171)',

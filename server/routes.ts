@@ -10380,8 +10380,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
     const dbStrat = await storage.getActiveWeeklyStrategy(userId);
     const weeklyTarget = dbStrat?.profitTarget || 0;
     const dailyTarget = weeklyTarget > 0 ? Math.round((weeklyTarget / 5) * 100) / 100 : 0;
-    const weekProgressPct = weeklyTarget > 0 ? Math.min(100, Math.round((weekClosedProfit / weeklyTarget) * 100)) : 0;
-    const dayProgressPct  = dailyTarget > 0  ? Math.min(100, Math.round((todayClosedProfit / dailyTarget) * 100)) : 0;
+    const weekProgressPct = weeklyTarget > 0 ? Math.max(0, Math.min(100, Math.round((weekClosedProfit / weeklyTarget) * 100))) : 0;
+    const dayProgressPct  = dailyTarget > 0  ? Math.max(0, Math.min(100, Math.round((todayClosedProfit / dailyTarget) * 100))) : 0;
 
     // ── All-time engine scoreboard ─────────────────────────────────────
     // Only count fully resolved trades (WIN/LOSS/BREAKEVEN), not PENDING
@@ -12010,7 +12010,7 @@ Return this EXACT JSON (no markdown, no commentary):
       const openPositions = engineState?.openPositionCount || 0;
       const goalTracker = engineState?.goalTracker;
       const weeklyGoal = goalTracker?.weeklyTarget || strat.profitTarget || 0;
-      const weeklyProgress = goalTracker ? Math.min(100, Math.round((goalTracker.currentProfit / Math.max(weeklyGoal, 1)) * 100)) : (strat.progressPercentage || 0);
+      const weeklyProgress = goalTracker ? Math.max(0, Math.min(100, Math.round((goalTracker.currentProfit / Math.max(weeklyGoal, 1)) * 100))) : (strat.progressPercentage || 0);
       const enginePhase = goalTracker?.phase ? goalTracker.phase.replace('_', ' ').toUpperCase() : null;
       const compoundMultiplier = goalTracker?.compoundMultiplier || 1;
       const consecutiveWins = goalTracker?.consecutiveWins || 0;
