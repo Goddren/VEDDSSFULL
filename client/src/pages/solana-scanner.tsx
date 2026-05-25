@@ -2933,8 +2933,9 @@ export default function SolanaScanner() {
 
   const { data: solEngineStatus, refetch: refetchEngineStatus } = useQuery<any>({
     queryKey: ['/api/sol-engine/status'],
-    // React Query v5: callback receives the Query object, not the data directly
-    refetchInterval: (query: any) => (query.state?.data?.running ? 10000 : false),
+    // Always poll every 15s — so the UI reflects running/stopped state even after
+    // a server restart without requiring a page refresh.
+    refetchInterval: 15000,
     staleTime: 5000,
   });
 
@@ -3034,11 +3035,14 @@ export default function SolanaScanner() {
 
   const { data: autoPositionsData, refetch: refetchAutoPositions } = useQuery<any>({
     queryKey: ['/api/sol-engine/auto-positions'],
-    refetchInterval: (paperTradeEnabled || liveTradeEnabled) ? 10000 : false,
+    // Always poll every 15s — fixes chicken-and-egg: local paperTradeEnabled starts false
+    // on page load, so conditional polling meant the query never fired on first load even
+    // when the server already had autoTradeEnabled=true from a previous session.
+    refetchInterval: 15000,
   });
 
   const autoTradeMutation = useMutation({
-    mutationFn: (opts: { paperEnabled?: boolean; liveEnabled?: boolean; tpPct?: number; slPct?: number; trailActivationPct?: number; trailDistancePct?: number }) =>
+    mutationFn: (opts: { paperEnabled?: boolean; liveEnabled?: boolean; tpPct?: number; slPct?: number; trailActivationPct?: number; trailDistancePct?: number; paperTradeSize?: number }) =>
       apiRequest('POST', '/api/sol-engine/auto-trade', opts),
     onSuccess: () => { refetchAutoPositions(); },
   });

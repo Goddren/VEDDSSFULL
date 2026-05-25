@@ -1641,21 +1641,26 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
       //   • Live trade enabled with server wallet (portfolio still needed for sizing, but warn separately)
       const hasPaperCapital = state.autoTradeEnabled; // paper always has a fallback default
       const hasLiveCapital  = state.liveTradeEnabled && state.currentPortfolioValue > 0;
-      const canEnterTrade   = hasPaperCapital || hasLiveCapital || state.currentPortfolioValue > 0;
+      // FIX: only allow entry when a mode is explicitly enabled — do NOT use currentPortfolioValue
+      // as a third condition, because it made canEnterTrade=true even when both modes are OFF,
+      // which silently swallowed signals without logging a helpful warning or executing any trade.
+      const canEnterTrade   = hasPaperCapital || hasLiveCapital;
 
       if ((analysis.signal === 'STRONG_BUY' || analysis.signal === 'BUY') && !canEnterTrade) {
-        // Signal fired but nothing is enabled or configured — log it clearly
+        // Signal fired but nothing is enabled or configured — log it clearly so the user knows
         if (state.liveTradeEnabled && state.currentPortfolioValue <= 0) {
           addActivity(state, {
             type: 'info',
             message: `⚠️ Live signal skipped: ${analysis.token.symbol} — Live Trade is ON but portfolio SOL value is 0. Set it in engine settings → Portfolio Value.`,
           });
-        } else if (!state.autoTradeEnabled && !state.liveTradeEnabled) {
+        } else {
+          // Both modes are off — show the signal so the user can see activity and knows to enable paper mode
           addActivity(state, {
             type: 'info',
-            message: `📡 Signal detected: ${analysis.token.symbol} [${analysis.signal} ${analysis.confidence}%] — Paper & Live trade are OFF. Enable Paper Trade in the ⚙️ Settings panel to auto-execute.`,
+            message: `📡 Signal: ${analysis.token.symbol} [${analysis.signal} ${analysis.confidence}%] — Paper & Live trade are OFF. Toggle Paper Trade ON in the ⚙️ Settings panel to auto-execute.`,
           });
         }
+        continue; // Don't process direction filter or trade logic — nothing can execute
       }
 
       // ── Direction filter ─────────────────────────────────────────────────────
@@ -1775,14 +1780,6 @@ async function runScan(userId: number, state: SolEngineState, triggerToken?: str
         if (state.config.stopOrdersEnabled && tokenPrice > 0) {
           stopLossPrice = tokenPrice * (1 - state.autoTradeSL / 100);
           takeProfitPrice = tokenPrice * (1 + state.autoTradeTP / 100);
-        }
-
-        // Warn if signal fired but auto-trade is off
-        if (!state.autoTradeEnabled && !state.liveTradeEnabled) {
-          addActivity(state, {
-            type: 'info',
-            message: `⚠️ Signal: ${analysis.token.symbol} — auto-trade is OFF. Enable Paper Trade or Live Trade to execute buys.`,
-          });
         }
 
         // Paper auto-trade

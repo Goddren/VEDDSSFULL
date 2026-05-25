@@ -26256,19 +26256,20 @@ async function runScan(userId, state, triggerToken) {
       };
       const hasPaperCapital = state.autoTradeEnabled;
       const hasLiveCapital = state.liveTradeEnabled && state.currentPortfolioValue > 0;
-      const canEnterTrade = hasPaperCapital || hasLiveCapital || state.currentPortfolioValue > 0;
+      const canEnterTrade = hasPaperCapital || hasLiveCapital;
       if ((analysis.signal === "STRONG_BUY" || analysis.signal === "BUY") && !canEnterTrade) {
         if (state.liveTradeEnabled && state.currentPortfolioValue <= 0) {
           addActivity3(state, {
             type: "info",
             message: `\u26A0\uFE0F Live signal skipped: ${analysis.token.symbol} \u2014 Live Trade is ON but portfolio SOL value is 0. Set it in engine settings \u2192 Portfolio Value.`
           });
-        } else if (!state.autoTradeEnabled && !state.liveTradeEnabled) {
+        } else {
           addActivity3(state, {
             type: "info",
-            message: `\u{1F4E1} Signal detected: ${analysis.token.symbol} [${analysis.signal} ${analysis.confidence}%] \u2014 Paper & Live trade are OFF. Enable Paper Trade in the \u2699\uFE0F Settings panel to auto-execute.`
+            message: `\u{1F4E1} Signal: ${analysis.token.symbol} [${analysis.signal} ${analysis.confidence}%] \u2014 Paper & Live trade are OFF. Toggle Paper Trade ON in the \u2699\uFE0F Settings panel to auto-execute.`
           });
         }
+        continue;
       }
       const dirFilter = state.config.directionFilter || "buy_only";
       const isBuySignal = analysis.signal === "STRONG_BUY" || analysis.signal === "BUY";
@@ -26354,12 +26355,6 @@ async function runScan(userId, state, triggerToken) {
         if (state.config.stopOrdersEnabled && tokenPrice > 0) {
           stopLossPrice = tokenPrice * (1 - state.autoTradeSL / 100);
           takeProfitPrice = tokenPrice * (1 + state.autoTradeTP / 100);
-        }
-        if (!state.autoTradeEnabled && !state.liveTradeEnabled) {
-          addActivity3(state, {
-            type: "info",
-            message: `\u26A0\uFE0F Signal: ${analysis.token.symbol} \u2014 auto-trade is OFF. Enable Paper Trade or Live Trade to execute buys.`
-          });
         }
         if (state.autoTradeEnabled && paperSizeSOL > 0 && tokenPrice > 0) {
           const alreadyOpen = state.paperPositions.some((p) => p.symbol === analysis.token.symbol && p.status === "open");
@@ -45965,14 +45960,15 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     app2.post("/api/sol-engine/auto-trade", async (req, res) => {
       if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
       const userId = req.user.id;
-      const { paperEnabled, liveEnabled, tpPct, slPct, trailActivationPct, trailDistancePct } = req.body;
+      const { paperEnabled, liveEnabled, tpPct, slPct, trailActivationPct, trailDistancePct, paperTradeSize } = req.body;
       setAutoTrade2(userId, {
         paperEnabled: paperEnabled !== void 0 ? !!paperEnabled : void 0,
         liveEnabled: liveEnabled !== void 0 ? !!liveEnabled : void 0,
         tpPct: tpPct !== void 0 ? Number(tpPct) : void 0,
         slPct: slPct !== void 0 ? Number(slPct) : void 0,
         trailActivationPct: trailActivationPct !== void 0 ? Number(trailActivationPct) : void 0,
-        trailDistancePct: trailDistancePct !== void 0 ? Number(trailDistancePct) : void 0
+        trailDistancePct: trailDistancePct !== void 0 ? Number(trailDistancePct) : void 0,
+        paperTradeSize: paperTradeSize !== void 0 ? Number(paperTradeSize) : void 0
       });
       res.json({ success: true, positions: getAutoTradePositions2(userId) });
     });

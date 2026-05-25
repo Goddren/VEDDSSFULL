@@ -17854,7 +17854,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     app.post("/api/sol-engine/auto-trade", async (req: Request, res: Response) => {
       if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
       const userId = (req.user as User).id;
-      const { paperEnabled, liveEnabled, tpPct, slPct, trailActivationPct, trailDistancePct } = req.body;
+      const { paperEnabled, liveEnabled, tpPct, slPct, trailActivationPct, trailDistancePct, paperTradeSize } = req.body;
       setAutoTrade(userId, {
         paperEnabled: paperEnabled !== undefined ? !!paperEnabled : undefined,
         liveEnabled: liveEnabled !== undefined ? !!liveEnabled : undefined,
@@ -17862,6 +17862,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         slPct: slPct !== undefined ? Number(slPct) : undefined,
         trailActivationPct: trailActivationPct !== undefined ? Number(trailActivationPct) : undefined,
         trailDistancePct: trailDistancePct !== undefined ? Number(trailDistancePct) : undefined,
+        paperTradeSize: paperTradeSize !== undefined ? Number(paperTradeSize) : undefined,
       });
       res.json({ success: true, positions: getAutoTradePositions(userId) });
     });
