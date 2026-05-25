@@ -1,4 +1,4 @@
-﻿import { useEffect } from "react";
+﻿import { useEffect, Component, type ReactNode } from "react";
 import { Switch, Route } from "wouter";
 import { Toaster } from "@/components/ui/toaster";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -108,6 +108,41 @@ import { AmbassadorTodoPopup } from "@/components/ambassador-todo-popup";
 
 import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
+
+// ── Global error boundary — prevents a component crash from going blank ───────
+interface EBState { hasError: boolean; error?: Error }
+class AppErrorBoundary extends Component<{ children: ReactNode }, EBState> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError(error: Error): EBState {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error: Error, info: { componentStack: string }) {
+    console.error('[AppErrorBoundary] React render error:', error, info.componentStack);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-background flex flex-col items-center justify-center p-8 text-center">
+          <div className="text-red-400 text-5xl mb-4">⚠</div>
+          <h1 className="text-white text-xl font-bold mb-2">Something went wrong</h1>
+          <p className="text-gray-400 text-sm mb-6 max-w-md">
+            {this.state.error?.message ?? 'An unexpected error occurred. Please refresh the page.'}
+          </p>
+          <button
+            onClick={() => { this.setState({ hasError: false }); window.location.reload(); }}
+            className="bg-red-600 hover:bg-red-700 text-white px-6 py-2 rounded-lg text-sm font-medium"
+          >
+            Reload App
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 function AppLayout() {
   const [location] = useLocation();
@@ -278,16 +313,18 @@ function AppRoutes() {
 
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <SolanaWalletProvider>
-        <SolTradingProvider>
-          <AuthProvider>
-            <AppRoutes />
-            <NewsNotificationScheduler />
-          </AuthProvider>
-        </SolTradingProvider>
-      </SolanaWalletProvider>
-    </QueryClientProvider>
+    <AppErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <SolanaWalletProvider>
+          <SolTradingProvider>
+            <AuthProvider>
+              <AppRoutes />
+              <NewsNotificationScheduler />
+            </AuthProvider>
+          </SolTradingProvider>
+        </SolanaWalletProvider>
+      </QueryClientProvider>
+    </AppErrorBoundary>
   );
 }
 
