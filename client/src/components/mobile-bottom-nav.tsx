@@ -5,7 +5,7 @@ import {
   Briefcase, HelpCircle, BookOpen, GraduationCap, Lightbulb,
   Coins, Webhook, Wallet, DollarSign, Globe, Search, BarChart3,
   LineChart, Scan, Brain, Radio, Rocket, Heart, X,
-  FlaskConical, Shield, BarChart2, Lock, Building2,
+  FlaskConical, Shield, BarChart2, Lock, Building2, Shirt, MapPin,
 } from 'lucide-react';
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useAuth } from '@/hooks/use-auth';
@@ -43,6 +43,12 @@ const communityItems = [
   { name: 'Blog',         path: '/blog',                                  icon: Newspaper,   color: '#22c55e' },
   { name: 'Devotional',   path: '/devotional',                            icon: Heart,       color: '#ef4444' },
   { name: 'Content Studio', path: '/ambassador/content-studio',           icon: Zap,         color: '#a855f7' },
+];
+
+const wearItems = [
+  { name: 'VEDD Clothing', path: '/vedd-clothing',   icon: Shirt,    color: '#f59e0b' },
+  { name: 'Earn Events',   path: '/activity',         icon: Flame,    color: '#ef4444' },
+  { name: 'My Location',   path: '/vedd-clothing',    icon: MapPin,   color: '#22c55e' },
 ];
 
 const ecosystemItems = [
@@ -177,7 +183,7 @@ export function MobileBottomNav() {
   const tabs = [
     { name: 'Home',    path: '/dashboard',            Icon: Home       },
     { name: 'Trading', path: '/weekly-strategy',       Icon: TrendingUp },
-    { name: 'Earn',    path: '/activity',              Icon: Flame      },
+    { name: 'Wear',    path: '/vedd-clothing',         Icon: Shirt      },
     { name: 'MT5',     path: '/mt5-chart-data',        Icon: BarChart3  },
     { name: 'Grow',    path: '/ambassador/recruitment', Icon: Users      },
   ];
@@ -244,6 +250,38 @@ export function MobileBottomNav() {
               <NavTile key={item.path} {...item} isActive={isActive(item.path)} onClose={close} />
             ))}
           </div>
+
+          <SectionLabel label="Wear & Earn" />
+          {/* VEDD Clothing hero tile — full width */}
+          <Link href="/vedd-clothing">
+            <button
+              onClick={close}
+              className="flex items-center gap-3 w-full px-4 py-3 rounded-2xl mb-2 transition-all active:scale-95"
+              style={{
+                background: isActive('/vedd-clothing')
+                  ? 'rgba(245,158,11,0.18)'
+                  : 'linear-gradient(135deg,rgba(245,158,11,0.14) 0%,rgba(239,68,68,0.10) 100%)',
+                border: `1.5px solid ${isActive('/vedd-clothing') ? 'rgba(245,158,11,0.6)' : 'rgba(245,158,11,0.28)'}`,
+              }}
+            >
+              <span
+                className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+                style={{ background: 'rgba(245,158,11,0.22)', boxShadow: '0 0 14px rgba(245,158,11,0.35)' }}
+              >
+                <Shirt className="w-5 h-5" style={{ color: '#f59e0b' }} />
+              </span>
+              <div className="flex-1 text-left">
+                <p className="text-sm font-bold text-white leading-tight">VEDD Clothing</p>
+                <p className="text-[10px] text-amber-400/80 mt-0.5">NFC Tap · GPS Rewards · $VEDD Earn</p>
+              </div>
+              <span
+                className="text-[9px] font-bold px-2 py-0.5 rounded-full"
+                style={{ background: 'rgba(245,158,11,0.25)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.4)' }}
+              >
+                LIVE
+              </span>
+            </button>
+          </Link>
 
           <SectionLabel label="Community" />
           <div className="grid grid-cols-3 gap-2">
