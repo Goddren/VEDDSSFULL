@@ -21589,6 +21589,53 @@ async function processDecision(userId, decision, newsCtx) {
     return;
   }
   if (decision.action === "OPEN_TRADE") {
+    const _signalDirRaw = (decision.direction || "").toUpperCase();
+    if (config.directionFilter === "buy_only" && _signalDirRaw === "SELL") {
+      addActivity2(userId, {
+        type: "info",
+        symbol: decision.symbol,
+        message: `\u{1F6AB} DIRECTION FILTER: SELL on ${decision.symbol} blocked \u2014 engine is set to BUY ONLY. Change direction filter in settings to allow sells.`
+      });
+      state.signalsGenerated++;
+      return;
+    }
+    if (config.directionFilter === "sell_only" && _signalDirRaw === "BUY") {
+      addActivity2(userId, {
+        type: "info",
+        symbol: decision.symbol,
+        message: `\u{1F6AB} DIRECTION FILTER: BUY on ${decision.symbol} blocked \u2014 engine is set to SELL ONLY. Change direction filter in settings to allow buys.`
+      });
+      state.signalsGenerated++;
+      return;
+    }
+    if (_signalDirRaw === "BUY" || _signalDirRaw === "SELL") {
+      const _livePositions = global.mt5OpenPositions?.[userId]?.positions || [];
+      const _existingOnPair = _livePositions.find(
+        (p) => (p.symbol || "").toUpperCase().replace("/", "") === decision.symbol?.toUpperCase().replace("/", "")
+      );
+      if (_existingOnPair) {
+        const _existingDir = (_existingOnPair.direction || _existingOnPair.type || "").toUpperCase();
+        const _isConflict = _existingDir === "BUY" && _signalDirRaw === "SELL" || _existingDir === "SELL" && _signalDirRaw === "BUY";
+        if (_isConflict) {
+          addActivity2(userId, {
+            type: "info",
+            symbol: decision.symbol,
+            message: `\u{1F500} OPPOSITE-DIRECTION BLOCK: ${_signalDirRaw} ${decision.symbol} rejected \u2014 already have an open ${_existingDir} position on this pair (ticket ${_existingOnPair.ticket ?? _existingOnPair.id ?? "?"}). Close or manage the existing trade before reversing direction.`
+          });
+          state.signalsGenerated++;
+          return;
+        }
+        if (_existingDir === _signalDirRaw && !config.enablePyramiding) {
+          addActivity2(userId, {
+            type: "info",
+            symbol: decision.symbol,
+            message: `\u{1F4E6} SAME-DIRECTION BLOCK: ${_signalDirRaw} ${decision.symbol} rejected \u2014 already have an open ${_existingDir} position on this pair. Enable pyramiding in settings to stack positions.`
+          });
+          state.signalsGenerated++;
+          return;
+        }
+      }
+    }
     if (state.drawdownShieldActive) {
       const shieldStrategies = ["prop_firm_sniper", "ict_ote", "ict_order_blocks", "sniper"];
       const decisionStrategy = (decision.strategy || "").toLowerCase();
@@ -32272,7 +32319,7 @@ SYNTHESIZE these into a single unified recommendation with:
 7. Risk/Reward assessment
 8. BEST TIMEFRAME FOR EA ENTRY: Which single timeframe should the EA be attached to for the best entry signal? Return just the timeframe (e.g., "H1", "D1", "M5")
 9. Preferred Volume Threshold: Recommend the ideal volume level as a percentage (e.g., "150% above average" or "2x volume")
-10. BIDIRECTIONAL TRADING: If BUY and SELL signals are equally strong/valid (within 1 confidence level), set allowBidirectionalTrading to true and list both directions. Otherwise false.
+10. BIDIRECTIONAL TRADING: Always set allowBidirectionalTrading to false. Never recommend trading both directions simultaneously \u2014 this doubles spread cost and nets to zero. Pick the single highest-confidence direction and commit to it.
 11. PENDING BREAKOUT ORDERS:
     - For BUY breakout: Calculate a resistance level that price must break above to trigger entry (typically highest resistance + 0.1-0.5% margin)
     - For SELL breakout: Calculate a support level that price must break below to trigger entry (typically lowest support - 0.1-0.5% margin)
@@ -32320,10 +32367,8 @@ Respond ONLY in valid JSON format with these exact keys:
         throw new Error("Failed to parse AI response as JSON");
       }
       const synthesis = JSON.parse(jsonMatch[0]);
-      if (!synthesis.allowBidirectionalTrading) {
-        synthesis.allowBidirectionalTrading = false;
-        synthesis.alternateDirection = null;
-      }
+      synthesis.allowBidirectionalTrading = false;
+      synthesis.alternateDirection = null;
       if (!synthesis.pendingBuyBreakout) {
         synthesis.pendingBuyBreakout = null;
         synthesis.pendingBuyStopLoss = null;

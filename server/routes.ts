@@ -1530,7 +1530,7 @@ SYNTHESIZE these into a single unified recommendation with:
 7. Risk/Reward assessment
 8. BEST TIMEFRAME FOR EA ENTRY: Which single timeframe should the EA be attached to for the best entry signal? Return just the timeframe (e.g., "H1", "D1", "M5")
 9. Preferred Volume Threshold: Recommend the ideal volume level as a percentage (e.g., "150% above average" or "2x volume")
-10. BIDIRECTIONAL TRADING: If BUY and SELL signals are equally strong/valid (within 1 confidence level), set allowBidirectionalTrading to true and list both directions. Otherwise false.
+10. BIDIRECTIONAL TRADING: Always set allowBidirectionalTrading to false. Never recommend trading both directions simultaneously — this doubles spread cost and nets to zero. Pick the single highest-confidence direction and commit to it.
 11. PENDING BREAKOUT ORDERS:
     - For BUY breakout: Calculate a resistance level that price must break above to trigger entry (typically highest resistance + 0.1-0.5% margin)
     - For SELL breakout: Calculate a support level that price must break below to trigger entry (typically lowest support - 0.1-0.5% margin)
@@ -1586,11 +1586,11 @@ Respond ONLY in valid JSON format with these exact keys:
 
       const synthesis = JSON.parse(jsonMatch[0]);
       
-      // Set defaults for bidirectional trading
-      if (!synthesis.allowBidirectionalTrading) {
-        synthesis.allowBidirectionalTrading = false;
-        synthesis.alternateDirection = null;
-      }
+      // Bidirectional trading is ALWAYS disabled — running a BUY and SELL on
+      // the same pair simultaneously is a net-zero hedge that pays double spread.
+      // Force false regardless of what the AI returned.
+      synthesis.allowBidirectionalTrading = false;
+      synthesis.alternateDirection = null;
 
       // Set defaults for pending breakout orders
       if (!synthesis.pendingBuyBreakout) {

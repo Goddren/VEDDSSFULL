@@ -3076,6 +3076,66 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
   }
 
   if (decision.action === 'OPEN_TRADE') {
+    // ── Direction Filter Gate ─────────────────────────────────────────────
+    // Enforces config.directionFilter ('buy_only' | 'sell_only' | 'both').
+    // Previously this field existed in the config type but was never checked
+    // in processDecision — signals in the blocked direction still executed.
+    const _signalDirRaw = (decision.direction || '').toUpperCase();
+    if (config.directionFilter === 'buy_only' && _signalDirRaw === 'SELL') {
+      addActivity(userId, {
+        type: 'info',
+        symbol: decision.symbol,
+        message: `🚫 DIRECTION FILTER: SELL on ${decision.symbol} blocked — engine is set to BUY ONLY. Change direction filter in settings to allow sells.`,
+      });
+      state.signalsGenerated++;
+      return;
+    }
+    if (config.directionFilter === 'sell_only' && _signalDirRaw === 'BUY') {
+      addActivity(userId, {
+        type: 'info',
+        symbol: decision.symbol,
+        message: `🚫 DIRECTION FILTER: BUY on ${decision.symbol} blocked — engine is set to SELL ONLY. Change direction filter in settings to allow buys.`,
+      });
+      state.signalsGenerated++;
+      return;
+    }
+
+    // ── Conflicting Open Position Gate ────────────────────────────────────
+    // If there is already an open trade on this pair in the OPPOSITE direction,
+    // block the new signal. Running a BUY and SELL on the same pair simultaneously
+    // is a net-zero hedge that pays double spread — never profitable.
+    // To reverse a position, the open trade must be closed first.
+    if (_signalDirRaw === 'BUY' || _signalDirRaw === 'SELL') {
+      const _livePositions: any[] = (global as any).mt5OpenPositions?.[userId]?.positions || [];
+      const _existingOnPair = _livePositions.find(
+        (p: any) => (p.symbol || '').toUpperCase().replace('/', '') === decision.symbol?.toUpperCase().replace('/', '')
+      );
+      if (_existingOnPair) {
+        const _existingDir = (_existingOnPair.direction || _existingOnPair.type || '').toUpperCase();
+        const _isConflict = (_existingDir === 'BUY' && _signalDirRaw === 'SELL') ||
+                            (_existingDir === 'SELL' && _signalDirRaw === 'BUY');
+        if (_isConflict) {
+          addActivity(userId, {
+            type: 'info',
+            symbol: decision.symbol,
+            message: `🔀 OPPOSITE-DIRECTION BLOCK: ${_signalDirRaw} ${decision.symbol} rejected — already have an open ${_existingDir} position on this pair (ticket ${_existingOnPair.ticket ?? _existingOnPair.id ?? '?'}). Close or manage the existing trade before reversing direction.`,
+          });
+          state.signalsGenerated++;
+          return;
+        }
+        // Same-direction add — only allow if pyramiding is explicitly on
+        if (_existingDir === _signalDirRaw && !config.enablePyramiding) {
+          addActivity(userId, {
+            type: 'info',
+            symbol: decision.symbol,
+            message: `📦 SAME-DIRECTION BLOCK: ${_signalDirRaw} ${decision.symbol} rejected — already have an open ${_existingDir} position on this pair. Enable pyramiding in settings to stack positions.`,
+          });
+          state.signalsGenerated++;
+          return;
+        }
+      }
+    }
+
     // ── Drawdown Shield Enforcement ───────────────────────────────────
     if (state.drawdownShieldActive) {
       const shieldStrategies = ['prop_firm_sniper', 'ict_ote', 'ict_order_blocks', 'sniper'];
