@@ -742,9 +742,40 @@ async function withRetry<T>(
         day_string text NOT NULL
       )`);
       await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS nfc_daily_taps_dedup ON nfc_daily_taps(user_id, chip_uid, day_string)`);
+      // Extended garment metadata columns (clothing ecosystem v2)
+      await db.execute(sql`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS icon text DEFAULT '👕'`);
+      await db.execute(sql`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS drop_name text DEFAULT 'Genesis Drop'`);
+      await db.execute(sql`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS size_info text DEFAULT 'One Size'`);
+      await db.execute(sql`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS garment_code text`);
+      await db.execute(sql`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS referral_earn integer DEFAULT 0`);
       console.log('[startup] NFC Garment tables created/verified.');
     } catch (err) {
       console.error('[startup] NFC Garment tables migration (non-fatal):', (err as Error).message);
+    }
+
+    // ── VEDD Clothing Ecosystem v2 tables ────────────────────────────────────
+    try {
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS vedd_earn_events (
+        id serial PRIMARY KEY,
+        user_id integer REFERENCES users(id) NOT NULL,
+        type text NOT NULL,
+        amount integer NOT NULL DEFAULT 0,
+        label text,
+        location text,
+        garment_id integer,
+        created_at timestamp DEFAULT now() NOT NULL
+      )`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS vedd_earn_events_user ON vedd_earn_events(user_id, created_at DESC)`);
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS vedd_popup_sequence (
+        id serial PRIMARY KEY,
+        user_id integer REFERENCES users(id) NOT NULL,
+        sequence_index integer NOT NULL,
+        shown_at timestamp DEFAULT now() NOT NULL,
+        CONSTRAINT vedd_popup_unique UNIQUE(user_id, sequence_index)
+      )`);
+      console.log('[startup] VEDD Clothing Ecosystem v2 tables ready.');
+    } catch (err) {
+      console.error('[startup] VEDD Clothing Ecosystem v2 tables (non-fatal):', (err as Error).message);
     }
 
     try {

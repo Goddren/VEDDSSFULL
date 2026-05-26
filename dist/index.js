@@ -47272,6 +47272,162 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       });
     });
   }
+  const CLOTHING_TAP_REWARD = 48;
+  app2.get("/api/vedd-clothing/garments", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Auth required" });
+    const userId = req.user.id;
+    try {
+      const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+      const rows = await db.execute(sql6`
+        SELECT
+          a.id, a.chip_uid AS "chipUid", a.garment_name AS "garmentName",
+          a.activated_at AS "activatedAt", a.total_taps AS "totalTaps",
+          a.total_earned AS "totalEarned", a.last_tap_at AS "lastTapAt",
+          a.current_streak AS "currentStreak", a.best_streak AS "bestStreak",
+          COALESCE(a.icon, '👕') AS icon,
+          COALESCE(a.drop_name, 'Genesis Drop') AS "dropName",
+          COALESCE(a.size_info, 'One Size') AS "sizeInfo",
+          COALESCE(a.garment_code, CONCAT('VEDD-', LPAD(a.id::text, 3, '0'))) AS "garmentCode",
+          COALESCE(a.referral_earn, 0) AS "referralEarn",
+          EXISTS(
+            SELECT 1 FROM nfc_daily_taps t
+            WHERE t.user_id = a.user_id AND t.chip_uid = a.chip_uid AND t.day_string = ${today}
+          ) AS "tappedToday"
+        FROM nfc_activations a
+        WHERE a.user_id = ${userId}
+        ORDER BY a.activated_at ASC
+      `);
+      const list = rows.rows ?? rows;
+      res.json(list);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to load garments", message: err.message });
+    }
+  });
+  app2.patch("/api/vedd-clothing/garments/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Auth required" });
+    const userId = req.user.id;
+    const garmentId = parseInt(req.params.id);
+    const { icon, dropName, sizeInfo, garmentCode } = req.body;
+    try {
+      await db.execute(sql6`
+        UPDATE nfc_activations SET
+          icon = COALESCE(${icon ?? null}, icon),
+          drop_name = COALESCE(${dropName ?? null}, drop_name),
+          size_info = COALESCE(${sizeInfo ?? null}, size_info),
+          garment_code = COALESCE(${garmentCode ?? null}, garment_code)
+        WHERE id = ${garmentId} AND user_id = ${userId}
+      `);
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ error: "Update failed", message: err.message });
+    }
+  });
+  app2.post("/api/vedd-clothing/tap", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Auth required", redirect: "/auth" });
+    const userId = req.user.id;
+    const rawUid = req.body?.nfc_uid || req.body?.chipUid || req.body?.code || "";
+    const uid2 = rawUid.replace(/[:\s-]/g, "").toUpperCase();
+    if (!uid2 || uid2.length < 4) return res.status(400).json({ error: "Invalid chip UID" });
+    try {
+      const [activation] = await db.execute(sql6`
+        SELECT * FROM nfc_activations
+        WHERE user_id = ${userId} AND (chip_uid = ${uid2} OR garment_code = ${uid2})
+        LIMIT 1
+      `).then((r) => r.rows ?? r);
+      if (!activation) return res.status(403).json({ error: "Garment not registered to your account. Activate it first." });
+      const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+      const [alreadyTapped] = await db.execute(sql6`
+        SELECT id FROM nfc_daily_taps
+        WHERE user_id = ${userId} AND chip_uid = ${activation.chip_uid} AND day_string = ${today}
+        LIMIT 1
+      `).then((r) => r.rows ?? r);
+      if (alreadyTapped) {
+        return res.status(429).json({ error: "Already tapped today \u2014 come back tomorrow!", alreadyTapped: true });
+      }
+      await db.execute(sql6`
+        INSERT INTO nfc_daily_taps(user_id, chip_uid, reward_amount, day_string)
+        VALUES (${userId}, ${activation.chip_uid}, ${CLOTHING_TAP_REWARD}, ${today})
+      `);
+      const yesterday = /* @__PURE__ */ new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const wasYesterday = activation.last_tap_at && new Date(activation.last_tap_at).toISOString().slice(0, 10) === yesterday.toISOString().slice(0, 10);
+      const newStreak = wasYesterday ? activation.current_streak + 1 : 1;
+      const newBest = Math.max(newStreak, activation.best_streak || 0);
+      await db.execute(sql6`
+        UPDATE nfc_activations SET
+          total_taps = total_taps + 1,
+          total_earned = total_earned + ${CLOTHING_TAP_REWARD},
+          last_tap_at = NOW(),
+          current_streak = ${newStreak},
+          best_streak = ${newBest}
+        WHERE id = ${activation.id}
+      `);
+      await storage.addToWalletBalance(userId, CLOTHING_TAP_REWARD, false);
+      await db.execute(sql6`
+        INSERT INTO vedd_earn_events(user_id, type, amount, label, garment_id)
+        VALUES (${userId}, 'nfc_tap', ${CLOTHING_TAP_REWARD}, ${activation.garment_name + " NFC Tap"}, ${activation.id})
+      `);
+      res.json({
+        success: true,
+        tokensEarned: CLOTHING_TAP_REWARD,
+        newBalance: null,
+        // client re-fetches
+        garmentName: activation.garment_name,
+        newStreak
+      });
+    } catch (err) {
+      res.status(500).json({ error: "Tap failed", message: err.message });
+    }
+  });
+  app2.get("/api/vedd-clothing/earn-events", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Auth required" });
+    const userId = req.user.id;
+    const days = Math.min(parseInt(req.query.days || "30"), 90);
+    try {
+      const since = /* @__PURE__ */ new Date();
+      since.setDate(since.getDate() - days);
+      const rows = await db.execute(sql6`
+        SELECT id, type, amount, label, location, created_at AS "createdAt"
+        FROM vedd_earn_events
+        WHERE user_id = ${userId} AND created_at >= ${since.toISOString()}
+        ORDER BY created_at DESC
+        LIMIT 50
+      `).then((r) => r.rows ?? r);
+      res.json(rows);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to load earn events", message: err.message });
+    }
+  });
+  app2.get("/api/vedd-clothing/popup-sequence", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Auth required" });
+    const userId = req.user.id;
+    try {
+      const rows = await db.execute(sql6`
+        SELECT sequence_index AS "sequenceIndex"
+        FROM vedd_popup_sequence
+        WHERE user_id = ${userId}
+      `).then((r) => r.rows ?? r);
+      res.json(rows.map((r) => r.sequenceIndex));
+    } catch (err) {
+      res.status(500).json({ error: "Failed", message: err.message });
+    }
+  });
+  app2.post("/api/vedd-clothing/popup-sequence", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Auth required" });
+    const userId = req.user.id;
+    const idx = parseInt(req.body?.sequence_index ?? req.body?.sequenceIndex ?? -1);
+    if (isNaN(idx) || idx < 0) return res.status(400).json({ error: "Invalid sequence_index" });
+    try {
+      await db.execute(sql6`
+        INSERT INTO vedd_popup_sequence(user_id, sequence_index)
+        VALUES (${userId}, ${idx})
+        ON CONFLICT (user_id, sequence_index) DO NOTHING
+      `);
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ error: "Failed", message: err.message });
+    }
+  });
   const requireGrantAccess = (req, res) => {
     if (!req.isAuthenticated()) {
       res.status(401).json({ error: "Authentication required" });
@@ -50567,9 +50723,37 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         day_string text NOT NULL
       )`);
       await db.execute(sql8`CREATE UNIQUE INDEX IF NOT EXISTS nfc_daily_taps_dedup ON nfc_daily_taps(user_id, chip_uid, day_string)`);
+      await db.execute(sql8`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS icon text DEFAULT '👕'`);
+      await db.execute(sql8`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS drop_name text DEFAULT 'Genesis Drop'`);
+      await db.execute(sql8`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS size_info text DEFAULT 'One Size'`);
+      await db.execute(sql8`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS garment_code text`);
+      await db.execute(sql8`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS referral_earn integer DEFAULT 0`);
       console.log("[startup] NFC Garment tables created/verified.");
     } catch (err) {
       console.error("[startup] NFC Garment tables migration (non-fatal):", err.message);
+    }
+    try {
+      await db.execute(sql8`CREATE TABLE IF NOT EXISTS vedd_earn_events (
+        id serial PRIMARY KEY,
+        user_id integer REFERENCES users(id) NOT NULL,
+        type text NOT NULL,
+        amount integer NOT NULL DEFAULT 0,
+        label text,
+        location text,
+        garment_id integer,
+        created_at timestamp DEFAULT now() NOT NULL
+      )`);
+      await db.execute(sql8`CREATE INDEX IF NOT EXISTS vedd_earn_events_user ON vedd_earn_events(user_id, created_at DESC)`);
+      await db.execute(sql8`CREATE TABLE IF NOT EXISTS vedd_popup_sequence (
+        id serial PRIMARY KEY,
+        user_id integer REFERENCES users(id) NOT NULL,
+        sequence_index integer NOT NULL,
+        shown_at timestamp DEFAULT now() NOT NULL,
+        CONSTRAINT vedd_popup_unique UNIQUE(user_id, sequence_index)
+      )`);
+      console.log("[startup] VEDD Clothing Ecosystem v2 tables ready.");
+    } catch (err) {
+      console.error("[startup] VEDD Clothing Ecosystem v2 tables (non-fatal):", err.message);
     }
     try {
       await db.execute(sql8`CREATE TABLE IF NOT EXISTS daily_checkins (
