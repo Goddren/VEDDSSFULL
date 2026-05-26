@@ -47272,7 +47272,38 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       });
     });
   }
-  const CLOTHING_TAP_REWARD = 48;
+  function haversine(lat1, lon1, lat2, lon2) {
+    const R = 3958.8;
+    const toRad = (d) => d * Math.PI / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+  function distanceReward(miles) {
+    if (miles === null) return { amount: 48, tier: "Standard", emoji: "\u{1F4CD}" };
+    if (miles < 0.5) return { amount: 15, tier: "Home", emoji: "\u{1F3E0}" };
+    if (miles < 3) return { amount: 30, tier: "Nearby", emoji: "\u{1F6B6}" };
+    if (miles < 10) return { amount: 48, tier: "Out & About", emoji: "\u{1F697}" };
+    if (miles < 30) return { amount: 72, tier: "Cross Town", emoji: "\u{1F306}" };
+    if (miles < 100) return { amount: 100, tier: "Road Trip", emoji: "\u{1F6E3}\uFE0F" };
+    return { amount: 150, tier: "Traveling", emoji: "\u2708\uFE0F" };
+  }
+  async function reverseGeocode(lat, lon) {
+    try {
+      const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`;
+      const resp = await fetch(url, {
+        headers: { "User-Agent": "VEDD-Platform/1.0 (veddbuild.com)" },
+        signal: AbortSignal.timeout(4e3)
+      });
+      const data = await resp.json();
+      const city = data?.address?.city || data?.address?.town || data?.address?.village || data?.address?.county || data?.display_name?.split(",")[0] || "";
+      const state = data?.address?.state || data?.address?.state_code || "";
+      return state ? `${city}, ${state}` : city;
+    } catch {
+      return "";
+    }
+  }
   app2.get("/api/vedd-clothing/garments", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Auth required" });
     const userId = req.user.id;
@@ -47322,12 +47353,48 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       res.status(500).json({ error: "Update failed", message: err.message });
     }
   });
+  app2.post("/api/vedd-clothing/set-home", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Auth required" });
+    const userId = req.user.id;
+    const { lat, lon } = req.body;
+    if (typeof lat !== "number" || typeof lon !== "number") return res.status(400).json({ error: "lat and lon required" });
+    if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return res.status(400).json({ error: "Invalid coordinates" });
+    try {
+      await db.execute(sql6`
+        UPDATE users SET home_lat = ${lat}, home_lon = ${lon}, home_set_at = NOW()
+        WHERE id = ${userId}
+      `);
+      res.json({ ok: true, lat, lon });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to save home", message: err.message });
+    }
+  });
+  app2.get("/api/vedd-clothing/home", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Auth required" });
+    const userId = req.user.id;
+    try {
+      const [row] = await db.execute(sql6`
+        SELECT home_lat AS lat, home_lon AS lon, home_set_at AS "setAt"
+        FROM users WHERE id = ${userId} LIMIT 1
+      `).then((r) => r.rows ?? r);
+      res.json({
+        homeSet: row?.lat != null && row?.lon != null,
+        lat: row?.lat ?? null,
+        lon: row?.lon ?? null,
+        setAt: row?.setAt ?? null
+      });
+    } catch (err) {
+      res.status(500).json({ error: "Failed", message: err.message });
+    }
+  });
   app2.post("/api/vedd-clothing/tap", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Auth required", redirect: "/auth" });
     const userId = req.user.id;
     const rawUid = req.body?.nfc_uid || req.body?.chipUid || req.body?.code || "";
     const uid2 = rawUid.replace(/[:\s-]/g, "").toUpperCase();
     if (!uid2 || uid2.length < 4) return res.status(400).json({ error: "Invalid chip UID" });
+    const tapLat = typeof req.body?.lat === "number" ? req.body.lat : null;
+    const tapLon = typeof req.body?.lon === "number" ? req.body.lon : null;
     try {
       const [activation] = await db.execute(sql6`
         SELECT * FROM nfc_activations
@@ -47344,9 +47411,17 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       if (alreadyTapped) {
         return res.status(429).json({ error: "Already tapped today \u2014 come back tomorrow!", alreadyTapped: true });
       }
+      const [userRow] = await db.execute(sql6`
+        SELECT home_lat, home_lon FROM users WHERE id = ${userId} LIMIT 1
+      `).then((r) => r.rows ?? r);
+      let distanceMiles = null;
+      if (tapLat !== null && tapLon !== null && userRow?.home_lat != null && userRow?.home_lon != null) {
+        distanceMiles = Math.round(haversine(userRow.home_lat, userRow.home_lon, tapLat, tapLon) * 10) / 10;
+      }
+      const { amount: reward, tier, emoji } = distanceReward(distanceMiles);
       await db.execute(sql6`
         INSERT INTO nfc_daily_taps(user_id, chip_uid, reward_amount, day_string)
-        VALUES (${userId}, ${activation.chip_uid}, ${CLOTHING_TAP_REWARD}, ${today})
+        VALUES (${userId}, ${activation.chip_uid}, ${reward}, ${today})
       `);
       const yesterday = /* @__PURE__ */ new Date();
       yesterday.setDate(yesterday.getDate() - 1);
@@ -47356,22 +47431,41 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       await db.execute(sql6`
         UPDATE nfc_activations SET
           total_taps = total_taps + 1,
-          total_earned = total_earned + ${CLOTHING_TAP_REWARD},
+          total_earned = total_earned + ${reward},
           last_tap_at = NOW(),
           current_streak = ${newStreak},
           best_streak = ${newBest}
         WHERE id = ${activation.id}
       `);
-      await storage.addToWalletBalance(userId, CLOTHING_TAP_REWARD, false);
-      await db.execute(sql6`
-        INSERT INTO vedd_earn_events(user_id, type, amount, label, garment_id)
-        VALUES (${userId}, 'nfc_tap', ${CLOTHING_TAP_REWARD}, ${activation.garment_name + " NFC Tap"}, ${activation.id})
-      `);
+      await storage.addToWalletBalance(userId, reward, false);
+      const [insertedEvent] = await db.execute(sql6`
+        INSERT INTO vedd_earn_events(user_id, type, amount, label, garment_id, lat, lon, distance_miles)
+        VALUES (
+          ${userId}, 'nfc_tap', ${reward},
+          ${`${activation.garment_name} \u2014 ${emoji} ${tier}`},
+          ${activation.id},
+          ${tapLat}, ${tapLon}, ${distanceMiles}
+        )
+        RETURNING id
+      `).then((r) => r.rows ?? r);
+      if (tapLat !== null && tapLon !== null && insertedEvent?.id) {
+        const eventId = insertedEvent.id;
+        reverseGeocode(tapLat, tapLon).then(async (city) => {
+          if (city) {
+            try {
+              await db.execute(sql6`UPDATE vedd_earn_events SET location = ${city} WHERE id = ${eventId}`);
+            } catch {
+            }
+          }
+        });
+      }
       res.json({
         success: true,
-        tokensEarned: CLOTHING_TAP_REWARD,
-        newBalance: null,
-        // client re-fetches
+        tokensEarned: reward,
+        tier,
+        emoji,
+        distanceMiles,
+        homeSet: userRow?.home_lat != null,
         garmentName: activation.garment_name,
         newStreak
       });
@@ -47387,7 +47481,9 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const since = /* @__PURE__ */ new Date();
       since.setDate(since.getDate() - days);
       const rows = await db.execute(sql6`
-        SELECT id, type, amount, label, location, created_at AS "createdAt"
+        SELECT id, type, amount, label, location,
+               distance_miles AS "distanceMiles",
+               created_at AS "createdAt"
         FROM vedd_earn_events
         WHERE user_id = ${userId} AND created_at >= ${since.toISOString()}
         ORDER BY created_at DESC
@@ -50741,8 +50837,14 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         label text,
         location text,
         garment_id integer,
+        lat real,
+        lon real,
+        distance_miles real,
         created_at timestamp DEFAULT now() NOT NULL
       )`);
+      await db.execute(sql8`ALTER TABLE vedd_earn_events ADD COLUMN IF NOT EXISTS lat real`);
+      await db.execute(sql8`ALTER TABLE vedd_earn_events ADD COLUMN IF NOT EXISTS lon real`);
+      await db.execute(sql8`ALTER TABLE vedd_earn_events ADD COLUMN IF NOT EXISTS distance_miles real`);
       await db.execute(sql8`CREATE INDEX IF NOT EXISTS vedd_earn_events_user ON vedd_earn_events(user_id, created_at DESC)`);
       await db.execute(sql8`CREATE TABLE IF NOT EXISTS vedd_popup_sequence (
         id serial PRIMARY KEY,
@@ -50751,6 +50853,9 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         shown_at timestamp DEFAULT now() NOT NULL,
         CONSTRAINT vedd_popup_unique UNIQUE(user_id, sequence_index)
       )`);
+      await db.execute(sql8`ALTER TABLE users ADD COLUMN IF NOT EXISTS home_lat real`);
+      await db.execute(sql8`ALTER TABLE users ADD COLUMN IF NOT EXISTS home_lon real`);
+      await db.execute(sql8`ALTER TABLE users ADD COLUMN IF NOT EXISTS home_set_at timestamp`);
       console.log("[startup] VEDD Clothing Ecosystem v2 tables ready.");
     } catch (err) {
       console.error("[startup] VEDD Clothing Ecosystem v2 tables (non-fatal):", err.message);

@@ -19443,9 +19443,45 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   }
 
   // ─── VEDD CLOTHING ECOSYSTEM v2 ───────────────────────────────────────────
-  // Earn history, popup sequence, extended tap (48 VEDD), garment metadata
+  // Earn history, popup sequence, GPS distance-based rewards, garment metadata
 
-  const CLOTHING_TAP_REWARD = 48;
+  // ── Haversine distance (miles) ────────────────────────────────────────────
+  function haversine(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const R = 3958.8;
+    const toRad = (d: number) => d * Math.PI / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a = Math.sin(dLat / 2) ** 2
+      + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  // ── Distance → $VEDD reward tiers ────────────────────────────────────────
+  function distanceReward(miles: number | null): { amount: number; tier: string; emoji: string } {
+    if (miles === null) return { amount: 48, tier: 'Standard',     emoji: '📍' };
+    if (miles <  0.5)  return { amount: 15,  tier: 'Home',         emoji: '🏠' };
+    if (miles <  3)    return { amount: 30,  tier: 'Nearby',       emoji: '🚶' };
+    if (miles < 10)    return { amount: 48,  tier: 'Out & About',  emoji: '🚗' };
+    if (miles < 30)    return { amount: 72,  tier: 'Cross Town',   emoji: '🌆' };
+    if (miles < 100)   return { amount: 100, tier: 'Road Trip',    emoji: '🛣️' };
+    return               { amount: 150, tier: 'Traveling',      emoji: '✈️' };
+  }
+
+  // ── Async reverse-geocode (fire & forget — updates record after response sent) ──
+  async function reverseGeocode(lat: number, lon: number): Promise<string> {
+    try {
+      const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`;
+      const resp = await fetch(url, {
+        headers: { 'User-Agent': 'VEDD-Platform/1.0 (veddbuild.com)' },
+        signal: AbortSignal.timeout(4000),
+      });
+      const data = await resp.json() as any;
+      const city = data?.address?.city || data?.address?.town || data?.address?.village
+        || data?.address?.county || data?.display_name?.split(',')[0] || '';
+      const state = data?.address?.state || data?.address?.state_code || '';
+      return state ? `${city}, ${state}` : city;
+    } catch { return ''; }
+  }
 
   // GET /api/vedd-clothing/garments — garments with extended metadata
   app.get("/api/vedd-clothing/garments", async (req: Request, res: Response) => {
@@ -19500,13 +19536,55 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     }
   });
 
-  // POST /api/vedd-clothing/tap — 48 VEDD tap, deduped daily, records earn_event
+  // POST /api/vedd-clothing/set-home — save user's home GPS coordinates
+  app.post("/api/vedd-clothing/set-home", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: 'Auth required' });
+    const userId = (req.user as User).id;
+    const { lat, lon } = req.body;
+    if (typeof lat !== 'number' || typeof lon !== 'number') return res.status(400).json({ error: 'lat and lon required' });
+    if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return res.status(400).json({ error: 'Invalid coordinates' });
+    try {
+      await db.execute(sql`
+        UPDATE users SET home_lat = ${lat}, home_lon = ${lon}, home_set_at = NOW()
+        WHERE id = ${userId}
+      `);
+      res.json({ ok: true, lat, lon });
+    } catch (err: any) {
+      res.status(500).json({ error: 'Failed to save home', message: err.message });
+    }
+  });
+
+  // GET /api/vedd-clothing/home — check if home is set
+  app.get("/api/vedd-clothing/home", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: 'Auth required' });
+    const userId = (req.user as User).id;
+    try {
+      const [row] = await db.execute(sql`
+        SELECT home_lat AS lat, home_lon AS lon, home_set_at AS "setAt"
+        FROM users WHERE id = ${userId} LIMIT 1
+      `).then((r: any) => (r.rows ?? r));
+      res.json({
+        homeSet: row?.lat != null && row?.lon != null,
+        lat: row?.lat ?? null,
+        lon: row?.lon ?? null,
+        setAt: row?.setAt ?? null,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: 'Failed', message: err.message });
+    }
+  });
+
+  // POST /api/vedd-clothing/tap — distance-based reward, deduped daily, records earn_event
   app.post("/api/vedd-clothing/tap", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: 'Auth required', redirect: '/auth' });
     const userId = (req.user as User).id;
     const rawUid = req.body?.nfc_uid || req.body?.chipUid || req.body?.code || '';
     const uid = (rawUid as string).replace(/[:\s-]/g, '').toUpperCase();
     if (!uid || uid.length < 4) return res.status(400).json({ error: 'Invalid chip UID' });
+
+    // GPS coords from client (optional — if provided, distance reward kicks in)
+    const tapLat: number | null = typeof req.body?.lat === 'number' ? req.body.lat : null;
+    const tapLon: number | null = typeof req.body?.lon === 'number' ? req.body.lon : null;
 
     try {
       // Must own the chip (by uid OR by garment_code)
@@ -19518,7 +19596,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
 
       if (!activation) return res.status(403).json({ error: 'Garment not registered to your account. Activate it first.' });
 
-      // Daily dedup (shared with existing daily-tap table)
+      // Daily dedup
       const today = new Date().toISOString().slice(0, 10);
       const [alreadyTapped] = await db.execute(sql`
         SELECT id FROM nfc_daily_taps
@@ -19530,23 +19608,36 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         return res.status(429).json({ error: 'Already tapped today — come back tomorrow!', alreadyTapped: true });
       }
 
+      // ── Distance-based reward calculation ────────────────────────────────
+      const [userRow] = await db.execute(sql`
+        SELECT home_lat, home_lon FROM users WHERE id = ${userId} LIMIT 1
+      `).then((r: any) => (r.rows ?? r));
+
+      let distanceMiles: number | null = null;
+      if (tapLat !== null && tapLon !== null && userRow?.home_lat != null && userRow?.home_lon != null) {
+        distanceMiles = Math.round(haversine(userRow.home_lat, userRow.home_lon, tapLat, tapLon) * 10) / 10;
+      }
+
+      const { amount: reward, tier, emoji } = distanceReward(distanceMiles);
+      // ─────────────────────────────────────────────────────────────────────
+
       // Insert daily tap record
       await db.execute(sql`
         INSERT INTO nfc_daily_taps(user_id, chip_uid, reward_amount, day_string)
-        VALUES (${userId}, ${activation.chip_uid}, ${CLOTHING_TAP_REWARD}, ${today})
+        VALUES (${userId}, ${activation.chip_uid}, ${reward}, ${today})
       `);
 
-      // Update activation stats
+      // Streak
       const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
       const wasYesterday = activation.last_tap_at &&
         new Date(activation.last_tap_at).toISOString().slice(0, 10) === yesterday.toISOString().slice(0, 10);
       const newStreak = wasYesterday ? (activation.current_streak + 1) : 1;
-      const newBest = Math.max(newStreak, activation.best_streak || 0);
+      const newBest   = Math.max(newStreak, activation.best_streak || 0);
 
       await db.execute(sql`
         UPDATE nfc_activations SET
           total_taps = total_taps + 1,
-          total_earned = total_earned + ${CLOTHING_TAP_REWARD},
+          total_earned = total_earned + ${reward},
           last_tap_at = NOW(),
           current_streak = ${newStreak},
           best_streak = ${newBest}
@@ -19554,18 +19645,39 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       `);
 
       // Credit wallet
-      await storage.addToWalletBalance(userId, CLOTHING_TAP_REWARD, false);
+      await storage.addToWalletBalance(userId, reward, false);
 
-      // Record earn_event
-      await db.execute(sql`
-        INSERT INTO vedd_earn_events(user_id, type, amount, label, garment_id)
-        VALUES (${userId}, 'nfc_tap', ${CLOTHING_TAP_REWARD}, ${activation.garment_name + ' NFC Tap'}, ${activation.id})
-      `);
+      // Insert earn_event with GPS + distance (city resolved async below)
+      const [insertedEvent] = await db.execute(sql`
+        INSERT INTO vedd_earn_events(user_id, type, amount, label, garment_id, lat, lon, distance_miles)
+        VALUES (
+          ${userId}, 'nfc_tap', ${reward},
+          ${`${activation.garment_name} — ${emoji} ${tier}`},
+          ${activation.id},
+          ${tapLat}, ${tapLon}, ${distanceMiles}
+        )
+        RETURNING id
+      `).then((r: any) => (r.rows ?? r));
+
+      // Fire-and-forget: reverse geocode → update location column
+      if (tapLat !== null && tapLon !== null && insertedEvent?.id) {
+        const eventId = insertedEvent.id;
+        reverseGeocode(tapLat, tapLon).then(async (city) => {
+          if (city) {
+            try {
+              await db.execute(sql`UPDATE vedd_earn_events SET location = ${city} WHERE id = ${eventId}`);
+            } catch {}
+          }
+        });
+      }
 
       res.json({
         success: true,
-        tokensEarned: CLOTHING_TAP_REWARD,
-        newBalance: null, // client re-fetches
+        tokensEarned: reward,
+        tier,
+        emoji,
+        distanceMiles,
+        homeSet: userRow?.home_lat != null,
         garmentName: activation.garment_name,
         newStreak,
       });
@@ -19582,7 +19694,9 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     try {
       const since = new Date(); since.setDate(since.getDate() - days);
       const rows = await db.execute(sql`
-        SELECT id, type, amount, label, location, created_at AS "createdAt"
+        SELECT id, type, amount, label, location,
+               distance_miles AS "distanceMiles",
+               created_at AS "createdAt"
         FROM vedd_earn_events
         WHERE user_id = ${userId} AND created_at >= ${since.toISOString()}
         ORDER BY created_at DESC

@@ -763,8 +763,15 @@ async function withRetry<T>(
         label text,
         location text,
         garment_id integer,
+        lat real,
+        lon real,
+        distance_miles real,
         created_at timestamp DEFAULT now() NOT NULL
       )`);
+      // Add GPS columns to existing table if upgrading
+      await db.execute(sql`ALTER TABLE vedd_earn_events ADD COLUMN IF NOT EXISTS lat real`);
+      await db.execute(sql`ALTER TABLE vedd_earn_events ADD COLUMN IF NOT EXISTS lon real`);
+      await db.execute(sql`ALTER TABLE vedd_earn_events ADD COLUMN IF NOT EXISTS distance_miles real`);
       await db.execute(sql`CREATE INDEX IF NOT EXISTS vedd_earn_events_user ON vedd_earn_events(user_id, created_at DESC)`);
       await db.execute(sql`CREATE TABLE IF NOT EXISTS vedd_popup_sequence (
         id serial PRIMARY KEY,
@@ -773,6 +780,10 @@ async function withRetry<T>(
         shown_at timestamp DEFAULT now() NOT NULL,
         CONSTRAINT vedd_popup_unique UNIQUE(user_id, sequence_index)
       )`);
+      // Home-location columns on users table (for distance-based rewards)
+      await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS home_lat real`);
+      await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS home_lon real`);
+      await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS home_set_at timestamp`);
       console.log('[startup] VEDD Clothing Ecosystem v2 tables ready.');
     } catch (err) {
       console.error('[startup] VEDD Clothing Ecosystem v2 tables (non-fatal):', (err as Error).message);

@@ -27,10 +27,10 @@ const DEMO_GARMENTS = [
     activatedAt: new Date(Date.now() - 15 * 86400000).toISOString() },
 ];
 const DEMO_EARN_EVENTS = [
-  { id: 1, type: 'nfc_tap', label: 'Hoodie NFC Tap', location: 'Tulsa, OK', amount: 48, createdAt: new Date().toISOString() },
-  { id: 2, type: 'referral_join', label: 'Referral Joined', location: 'via your link', amount: 120, createdAt: new Date(Date.now() - 86400000).toISOString() },
-  { id: 3, type: 'nfc_tap', label: 'Tee NFC Tap', location: 'Broken Arrow', amount: 48, createdAt: new Date(Date.now() - 172800000).toISOString() },
-  { id: 4, type: 'referral_subscribe', label: 'Referral Subscribed', location: 'Trading plan', amount: 240, createdAt: new Date(Date.now() - 259200000).toISOString() },
+  { id: 1, type: 'nfc_tap', label: 'Hoodie NFC Tap — ✈️ Traveling', location: 'Atlanta, GA', amount: 150, distanceMiles: 743.2, createdAt: new Date().toISOString() },
+  { id: 2, type: 'referral_join', label: 'Referral Joined', location: 'via your link', amount: 120, distanceMiles: null, createdAt: new Date(Date.now() - 86400000).toISOString() },
+  { id: 3, type: 'nfc_tap', label: 'Tee NFC Tap — 🌆 Cross Town', location: 'Broken Arrow, OK', amount: 72, distanceMiles: 18.4, createdAt: new Date(Date.now() - 172800000).toISOString() },
+  { id: 4, type: 'referral_subscribe', label: 'Referral Subscribed', location: 'Trading plan', amount: 240, distanceMiles: null, createdAt: new Date(Date.now() - 259200000).toISOString() },
 ];
 const DEMO_POPUP_SHOWN: number[] = [];
 
@@ -56,6 +56,7 @@ interface EarnEvent {
   type: string;
   label: string;
   location?: string;
+  distanceMiles?: number | null;
   amount: number;
   createdAt: string;
 }
@@ -117,6 +118,81 @@ const POPUP_DEFS = [
     tag: 'trading' as const,
   },
 ];
+
+// ─── Distance reward tiers (mirrors server logic) ────────────────────────────
+const DISTANCE_TIERS = [
+  { maxMiles: 0.5,  amount: 15,  tier: 'Home',        emoji: '🏠', color: 'text-gray-400' },
+  { maxMiles: 3,    amount: 30,  tier: 'Nearby',      emoji: '🚶', color: 'text-blue-400' },
+  { maxMiles: 10,   amount: 48,  tier: 'Out & About', emoji: '🚗', color: 'text-amber-400' },
+  { maxMiles: 30,   amount: 72,  tier: 'Cross Town',  emoji: '🌆', color: 'text-orange-400' },
+  { maxMiles: 100,  amount: 100, tier: 'Road Trip',   emoji: '🛣️', color: 'text-emerald-400' },
+  { maxMiles: Infinity, amount: 150, tier: 'Traveling', emoji: '✈️', color: 'text-purple-400' },
+];
+
+function getTier(miles: number | null) {
+  if (miles === null) return { amount: 48, tier: 'Standard', emoji: '📍', color: 'text-amber-400' };
+  return DISTANCE_TIERS.find(t => miles < t.maxMiles) ?? DISTANCE_TIERS[DISTANCE_TIERS.length - 1];
+}
+
+// Client-side GPS capture — returns {lat, lon} or null if denied/unavailable
+function getCurrentPosition(): Promise<{ lat: number; lon: number } | null> {
+  return new Promise((resolve) => {
+    if (!('geolocation' in navigator)) return resolve(null);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+      () => resolve(null),
+      { timeout: 6000, maximumAge: 60000 }
+    );
+  });
+}
+
+// ─── Home Setup Modal ─────────────────────────────────────────────────────────
+function HomeSetupModal({ onSet, onSkip, loading }: {
+  onSet: () => void;
+  onSkip: () => void;
+  loading: boolean;
+}) {
+  return (
+    <div className="fixed inset-0 z-[70] flex items-end" onClick={onSkip}>
+      <div className="absolute inset-0 bg-black/75 backdrop-blur-sm" />
+      <div className="relative w-full max-w-lg mx-auto bg-gray-950 border border-amber-500/25 rounded-t-2xl p-6 pb-8 animate-in slide-in-from-bottom duration-300"
+        onClick={e => e.stopPropagation()}>
+        <div className="w-10 h-1 bg-gray-700 rounded-full mx-auto mb-5" />
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-12 h-12 rounded-2xl bg-amber-500/15 border border-amber-500/25 flex items-center justify-center text-2xl">🏠</div>
+          <div>
+            <p className="text-white font-black text-base leading-tight">Set Your Home Location</p>
+            <p className="text-gray-500 text-xs mt-0.5">Required once to unlock distance rewards</p>
+          </div>
+        </div>
+        <p className="text-sm text-gray-400 mb-5 leading-relaxed">
+          VEDD pays you more $VEDD the farther you are from home when you tap. Set your home location now so the distance reward kicks in.
+        </p>
+
+        {/* Tier preview */}
+        <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-3 mb-5 space-y-1.5">
+          <p className="text-[10px] text-gray-600 font-mono tracking-widest mb-2">// DISTANCE REWARD TIERS</p>
+          {DISTANCE_TIERS.map(t => (
+            <div key={t.tier} className="flex items-center justify-between text-xs">
+              <span className="text-gray-400">{t.emoji} {t.tier}</span>
+              <span className={`font-bold ${t.color}`}>+{t.amount} $VEDD</span>
+            </div>
+          ))}
+        </div>
+
+        <Button onClick={onSet} disabled={loading}
+          className="w-full bg-amber-500 hover:bg-amber-400 text-black font-black py-3 rounded-xl text-sm tracking-wide mb-3">
+          {loading
+            ? <><RefreshCw className="w-4 h-4 animate-spin mr-2" /> Getting location…</>
+            : '📍 Use My Current Location as Home'}
+        </Button>
+        <button onClick={onSkip} className="block w-full text-center text-xs text-gray-600 hover:text-gray-400 transition-colors">
+          Skip for now — earn standard 48 $VEDD
+        </button>
+      </div>
+    </div>
+  );
+}
 
 // ─── Earn type config ─────────────────────────────────────────────────────────
 const EARN_TYPE_CONFIG: Record<string, { icon: string; color: string; bg: string }> = {
@@ -193,9 +269,13 @@ function NfcScanner({ onScan }: { onScan: (uid: string) => void }) {
 }
 
 // ─── Garment Card (extended) ──────────────────────────────────────────────────
-function GarmentCard({ g, onTap, isPending }: { g: ExtendedGarment; onTap: () => void; isPending: boolean }) {
+function GarmentCard({ g, onTap, isPending, liveDistMiles }: {
+  g: ExtendedGarment; onTap: () => void; isPending: boolean;
+  liveDistMiles: number | null;
+}) {
   const streak = g.currentStreak;
   const fire = streak >= 30 ? '🔥🔥🔥' : streak >= 7 ? '🔥🔥' : streak >= 1 ? '🔥' : '';
+  const liveTier = getTier(liveDistMiles);
 
   return (
     <div className={`relative rounded-2xl border p-4 transition-all ${
@@ -251,7 +331,9 @@ function GarmentCard({ g, onTap, isPending }: { g: ExtendedGarment; onTap: () =>
       {!g.tappedToday ? (
         <button onClick={onTap} disabled={isPending}
           className="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 active:scale-95 transition-all text-black font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-60">
-          {isPending ? <><RefreshCw className="w-4 h-4 animate-spin" /> Tapping…</> : <><Zap className="w-4 h-4" /> Tap — Earn +48 $VEDD</>}
+          {isPending
+            ? <><RefreshCw className="w-4 h-4 animate-spin" /> Tapping…</>
+            : <><Zap className="w-4 h-4" /> {liveTier.emoji} Tap — Earn +{liveTier.amount} $VEDD</>}
         </button>
       ) : (
         <div className="w-full py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-sm font-semibold flex items-center justify-center gap-2">
@@ -265,16 +347,25 @@ function GarmentCard({ g, onTap, isPending }: { g: ExtendedGarment; onTap: () =>
 // ─── Earn row with scroll reveal ──────────────────────────────────────────────
 function EarnRow({ event, visible }: { event: EarnEvent; visible: boolean }) {
   const cfg = EARN_TYPE_CONFIG[event.type] ?? EARN_TYPE_CONFIG.default;
+  const tier = event.distanceMiles != null ? getTier(event.distanceMiles) : null;
+
   return (
     <div className={`flex items-center gap-3 py-2.5 px-3 rounded-xl transition-all duration-500 ${
       visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
     } hover:bg-white/5`}>
       <div className={`w-9 h-9 rounded-xl ${cfg.bg} flex items-center justify-center text-lg shrink-0`}>
-        {cfg.icon}
+        {tier ? tier.emoji : cfg.icon}
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-white text-xs font-semibold truncate">{event.label}</p>
-        {event.location && <p className="text-gray-500 text-[10px] truncate">{event.location}</p>}
+        <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+          {event.location && <p className="text-gray-500 text-[10px] truncate">{event.location}</p>}
+          {event.distanceMiles != null && (
+            <span className={`text-[9px] font-bold ${tier?.color ?? 'text-gray-500'}`}>
+              {event.distanceMiles.toFixed(1)} mi away
+            </span>
+          )}
+        </div>
       </div>
       <div className="text-right shrink-0">
         <p className="text-amber-400 font-bold text-sm">+{event.amount}</p>
@@ -407,10 +498,17 @@ export default function VeddClothingPage() {
   const [selectedSize, setSelectedSize] = useState('M');
   const [selectedDrop, setSelectedDrop] = useState('Genesis Drop');
   const [activePopup, setActivePopup] = useState<typeof POPUP_DEFS[0] | null>(null);
-  const [rewardAnim, setRewardAnim] = useState<{ amount: number } | null>(null);
+  const [rewardAnim, setRewardAnim] = useState<{ amount: number; tier: string; emoji: string } | null>(null);
   const [visibleRows, setVisibleRows] = useState<Set<number>>(new Set());
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const earnRowRefs = useRef<(HTMLDivElement | null)[]>([]);
+
+  // ── GPS / distance state
+  const [currentPos, setCurrentPos] = useState<{ lat: number; lon: number } | null>(null);
+  const [posLoading, setPosLoading] = useState(false);
+  const [showHomeSetup, setShowHomeSetup] = useState(false);
+  const [settingHome, setSettingHome] = useState(false);
+  const [pendingTapUid, setPendingTapUid] = useState<string | null>(null); // uid waiting for home setup
 
   // ── Intersection observer for earn history scroll reveal
   useEffect(() => {
@@ -459,11 +557,13 @@ export default function VeddClothingPage() {
   });
   const displayShownPopups: number[] = DEMO_MODE ? DEMO_POPUP_SHOWN : shownPopups;
 
-  const { data: profile } = useQuery<any>({
-    queryKey: ['/api/auth/me'],
-    enabled: false, // uses existing /api/user instead
-  });
   const { data: currentUser } = useQuery<any>({ queryKey: ['/api/user'] });
+  const { data: homeData, refetch: refetchHome } = useQuery<{
+    homeSet: boolean; lat: number | null; lon: number | null;
+  }>({
+    queryKey: ['/api/vedd-clothing/home'],
+    enabled: !DEMO_MODE,
+  });
   const referralCode = currentUser?.username || currentUser?.referralCode || user?.username || '';
   const referralLink = `${window.location.origin}/auth?ref=${referralCode}`;
 
@@ -513,27 +613,80 @@ export default function VeddClothingPage() {
     return () => timers.forEach(clearTimeout);
   }, [currentUser, markPopupShown]);
 
-  // ── Tap mutation
-  const tapMutation = useMutation({
-    mutationFn: (uid: string) => apiRequest('POST', '/api/vedd-clothing/tap', { nfc_uid: uid }),
-    onSuccess: async (res) => {
+  // ── Set-home mutation
+  const setHomeMutation = useMutation({
+    mutationFn: (coords: { lat: number; lon: number }) =>
+      apiRequest('POST', '/api/vedd-clothing/set-home', coords),
+    onSuccess: () => {
+      refetchHome();
+      toast({ title: '🏠 Home location saved!', description: 'Distance rewards are now active on every tap.' });
+    },
+  });
+
+  // ── Handle "set home" from modal
+  const handleSetHome = useCallback(async () => {
+    setSettingHome(true);
+    const pos = await getCurrentPosition();
+    setSettingHome(false);
+    if (!pos) {
+      toast({ title: 'Could not get location', description: 'Please allow location access and try again.', variant: 'destructive' });
+      return;
+    }
+    setCurrentPos(pos);
+    await setHomeMutation.mutateAsync(pos);
+    setShowHomeSetup(false);
+    // Now fire the pending tap if one was waiting
+    if (pendingTapUid) {
+      const uid = pendingTapUid;
+      setPendingTapUid(null);
+      tapWithGps(uid, pos);
+    }
+  }, [pendingTapUid]);
+
+  // ── Core tap function (GPS-aware)
+  const tapWithGps = useCallback(async (uid: string, overridePos?: { lat: number; lon: number } | null) => {
+    // Get fresh GPS position
+    setPosLoading(true);
+    const pos = overridePos !== undefined ? overridePos : await getCurrentPosition();
+    setPosLoading(false);
+    setCurrentPos(pos);
+
+    const body: Record<string, any> = { nfc_uid: uid };
+    if (pos) { body.lat = pos.lat; body.lon = pos.lon; }
+
+    try {
+      const res = await apiRequest('POST', '/api/vedd-clothing/tap', body);
       const data = await res.json();
-      setRewardAnim({ amount: data.tokensEarned });
-      toast({ title: `⚡ +${data.tokensEarned} $VEDD Earned!`, description: `${data.garmentName} · ${data.newStreak}-day streak 🔥` });
+      setRewardAnim({ amount: data.tokensEarned, tier: data.tier || 'Standard', emoji: data.emoji || '📍' });
+      const distLabel = data.distanceMiles != null ? ` · ${data.emoji} ${data.distanceMiles.toFixed(1)} mi away` : '';
+      toast({ title: `⚡ +${data.tokensEarned} $VEDD Earned!`, description: `${data.garmentName}${distLabel} · ${data.newStreak}d streak 🔥` });
       queryClient.invalidateQueries({ queryKey: ['/api/vedd-clothing/garments'] });
       queryClient.invalidateQueries({ queryKey: ['/api/vedd-clothing/earn-events'] });
       setTimeout(() => setRewardAnim(null), 3000);
-    },
-    onError: async (err: any) => {
+    } catch (err: any) {
       let msg = 'Tap failed';
       try { const d = await err.response?.json(); msg = d?.error || msg; } catch {}
       if (msg.includes('tomorrow')) {
-        toast({ title: 'Already tapped today!', description: 'Come back tomorrow for your next +48 $VEDD' });
+        toast({ title: 'Already tapped today!', description: 'Come back tomorrow for more $VEDD' });
       } else {
         toast({ title: 'Error', description: msg, variant: 'destructive' });
       }
       queryClient.invalidateQueries({ queryKey: ['/api/vedd-clothing/garments'] });
+    }
+  }, []);
+
+  // ── Tap mutation (wraps tapWithGps — checks home setup first)
+  const tapMutation = useMutation({
+    mutationFn: async (uid: string) => {
+      // If home not set yet, show the setup modal (unless DEMO_MODE)
+      if (!DEMO_MODE && homeData && !homeData.homeSet) {
+        setPendingTapUid(uid);
+        setShowHomeSetup(true);
+        return; // halted — will resume after home is set or skipped
+      }
+      await tapWithGps(uid);
     },
+    onError: () => {},
   });
 
   // ── Activate mutation (uses existing /api/nfc/activate)
@@ -575,6 +728,20 @@ export default function VeddClothingPage() {
   const totalTaps = displayGarments.reduce((s, g) => s + g.totalTaps, 0);
   const unreadCount = notifications.filter(n => !n.read).length;
 
+  // Live distance preview (haversine — mirrors server, for display only)
+  const liveDistMiles: number | null = (() => {
+    if (DEMO_MODE) return 18.4; // demo shows "Cross Town"
+    if (!currentPos || !homeData?.lat || !homeData?.lon) return null;
+    const toRad = (d: number) => d * Math.PI / 180;
+    const R = 3958.8;
+    const dLat = toRad(currentPos.lat - homeData.lat);
+    const dLon = toRad(currentPos.lon - homeData.lon);
+    const a = Math.sin(dLat / 2) ** 2
+      + Math.cos(toRad(homeData.lat)) * Math.cos(toRad(currentPos.lat)) * Math.sin(dLon / 2) ** 2;
+    return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) * 10) / 10;
+  })();
+  const liveTier = getTier(liveDistMiles);
+
   // ─────────────────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gray-950 text-white overflow-x-hidden">
@@ -586,10 +753,25 @@ export default function VeddClothingPage() {
       {/* ── REWARD ANIMATION ──────────────────────────────────────────────── */}
       {rewardAnim && (
         <div className="fixed inset-0 pointer-events-none z-50 flex items-center justify-center">
-          <div className="animate-bounce bg-amber-500 text-black font-black text-3xl px-8 py-4 rounded-3xl shadow-2xl shadow-amber-500/50">
-            +{rewardAnim.amount} $VEDD ⚡
+          <div className="animate-bounce bg-amber-500 text-black font-black text-2xl px-8 py-4 rounded-3xl shadow-2xl shadow-amber-500/50 text-center">
+            <div>+{rewardAnim.amount} $VEDD ⚡</div>
+            <div className="text-sm font-bold mt-1 opacity-80">{rewardAnim.emoji} {rewardAnim.tier}</div>
           </div>
         </div>
+      )}
+
+      {/* ── HOME SETUP MODAL ──────────────────────────────────────────────── */}
+      {showHomeSetup && (
+        <HomeSetupModal
+          loading={settingHome}
+          onSet={handleSetHome}
+          onSkip={() => {
+            setShowHomeSetup(false);
+            const uid = pendingTapUid;
+            setPendingTapUid(null);
+            if (uid) tapWithGps(uid, null); // tap without distance
+          }}
+        />
       )}
 
       {/* ── POPUP SEQUENCE ────────────────────────────────────────────────── */}
@@ -666,6 +848,13 @@ export default function VeddClothingPage() {
                 <span className="text-gray-500 text-[10px]">{s.label}</span>
               </div>
             ))}
+            {/* Live distance tier pill */}
+            {(liveDistMiles !== null || DEMO_MODE) && (
+              <div className={`flex items-center gap-1.5 border rounded-full px-3 py-1.5 ${liveTier.color} border-current/20 bg-current/5`} style={{ color: 'inherit' }}>
+                <span className="font-black text-xs">{liveTier.emoji} {liveTier.tier}</span>
+                <span className="text-[10px] opacity-70">+{liveTier.amount} $VEDD</span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -754,6 +943,29 @@ export default function VeddClothingPage() {
             </div>
           ) : (
             <div className="space-y-3">
+              {/* ── Live distance preview ── */}
+              {(() => {
+                if (!homeData?.homeSet && !DEMO_MODE) return (
+                  <button onClick={() => setShowHomeSetup(true)}
+                    className="w-full flex items-center gap-3 bg-amber-500/8 border border-amber-500/20 rounded-xl px-4 py-2.5 mb-2 hover:bg-amber-500/15 transition-colors">
+                    <span className="text-lg">📍</span>
+                    <div className="flex-1 text-left">
+                      <p className="text-amber-400 text-xs font-bold">Set home to unlock distance rewards</p>
+                      <p className="text-gray-600 text-[10px]">Earn up to 150 $VEDD when you tap far from home</p>
+                    </div>
+                    <span className="text-[10px] text-amber-400 font-bold">SET UP →</span>
+                  </button>
+                );
+                if (currentPos && homeData?.lat && homeData?.lon) {
+                  const dist = Math.sqrt(
+                    (currentPos.lat - homeData.lat) ** 2 * 12321 +
+                    (currentPos.lon - homeData.lon) ** 2 * 7921
+                  ); // rough, server calculates exact
+                  return null; // server does exact math — just show the stored tier on success
+                }
+                return null;
+              })()}
+
               {/* Tap all button */}
               {displayGarments.filter(g => !g.tappedToday).length > 1 && (
                 <button
@@ -765,7 +977,7 @@ export default function VeddClothingPage() {
                 </button>
               )}
               {displayGarments.map(g => (
-                <GarmentCard key={g.id} g={g} onTap={() => tapMutation.mutate(g.chipUid)} isPending={tapMutation.isPending} />
+                <GarmentCard key={g.id} g={g} onTap={() => tapMutation.mutate(g.chipUid)} isPending={tapMutation.isPending || posLoading} liveDistMiles={liveDistMiles} />
               ))}
               <button onClick={() => setShowActivate(v => !v)}
                 className="w-full py-3 rounded-xl border border-dashed border-amber-500/20 hover:border-amber-500/40 text-amber-400/60 hover:text-amber-400 text-xs font-semibold flex items-center justify-center gap-2 transition-all">
