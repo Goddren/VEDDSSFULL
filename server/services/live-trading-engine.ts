@@ -646,6 +646,53 @@ function calculateKellyFraction(wins: number, losses: number, totalRR: number): 
   return Math.min(0.03, Math.max(0.005, fractionalKelly)); // clamp 0.5%–3%
 }
 
+// ─── Dynamic Lot Sizing Multipliers ──────────────────────────────────────────
+// Three independent multipliers that combine to scale the base lot:
+//
+//  1. Confidence tier — rewards high-conviction signals with more size
+//  2. Strategy tier  — rare sniper setups get more than frequent scalps
+//  3. Exposure tier  — reduces size as more positions are already open
+//
+// Final lot = baseLot × confidenceMult × strategyMult × exposureMult
+// All multipliers are capped so total lot never exceeds config.maxLotSize.
+
+function getConfidenceLotMultiplier(confidence: number): { mult: number; label: string } {
+  if (confidence >= 93) return { mult: 1.5,  label: `A+ (${confidence}% ≥93%) → 1.5×` };
+  if (confidence >= 88) return { mult: 1.25, label: `A  (${confidence}% ≥88%) → 1.25×` };
+  if (confidence >= 83) return { mult: 1.0,  label: `B  (${confidence}% ≥83%) → 1.0×` };
+  if (confidence >= 78) return { mult: 0.75, label: `C  (${confidence}% ≥78%) → 0.75×` };
+  return                        { mult: 0.5,  label: `D  (${confidence}%  <78%) → 0.5×` };
+}
+
+function getStrategyLotMultiplier(strategy: string): { mult: number; label: string } {
+  const s = strategy.toLowerCase();
+  // Tier 1 — rare, high-conviction setups: sniper / ICT / prop-firm
+  if (['prop_firm_sniper','ict_ote','ict_order_blocks','sniper','smc_demand_supply'].includes(s)) {
+    return { mult: 1.2, label: `sniper-tier (${s}) → 1.2×` };
+  }
+  // Tier 2 — standard momentum / swing setups
+  if (['momentum','swing','breakout','asia_range_breakout','news_fade','sunday_gap'].includes(s)) {
+    return { mult: 1.0, label: `standard-tier (${s}) → 1.0×` };
+  }
+  // Tier 3 — scalping / mean-reversion: high frequency, tighter margins
+  if (['scalping','vwap_mean_reversion'].includes(s)) {
+    return { mult: 0.8, label: `scalp-tier (${s}) → 0.8×` };
+  }
+  return { mult: 1.0, label: `default-tier (${s}) → 1.0×` };
+}
+
+function getExposureLotMultiplier(openPositions: number): { mult: number; label: string } {
+  // Each additional open position reduces new trade size to contain total account exposure.
+  // 0 open  → full size (no existing risk)
+  // 1 open  → 85% (small existing exposure)
+  // 2 open  → 70% (moderate exposure)
+  // 3+ open → 55% (high exposure — be very selective)
+  if (openPositions === 0) return { mult: 1.0,  label: `0 open → 1.0×` };
+  if (openPositions === 1) return { mult: 0.85, label: `1 open → 0.85×` };
+  if (openPositions === 2) return { mult: 0.70, label: `2 open → 0.70×` };
+  return                           { mult: 0.55, label: `${openPositions} open → 0.55×` };
+}
+
 function addActivity(userId: number, activity: Omit<LiveActivity, 'id' | 'timestamp'>) {
   const state = engineStates[userId];
   if (!state) return;
@@ -3851,7 +3898,30 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
     const compoundedLot = config.enableCompounding
       ? Math.round(baseLotForCalc * safeCompoundMult * 100) / 100
       : baseLotForCalc;
-    const lotSize = Math.max(0.01, Math.min(compoundedLot, safeMaxLot));
+
+    // ── Dynamic Lot Scaling: confidence + strategy + exposure ────────────────
+    // Only applies when brain is NOT locked (learning mode allows 0.01 micro-lots only).
+    // Skip for pyramid entries (they have their own lot logic) and shield mode (already handled).
+    const isDynamicSizingEnabled = !brainLocked && !decision.pyramidOf;
+    let dynamicLot = compoundedLot;
+
+    if (isDynamicSizingEnabled) {
+      const confTier   = getConfidenceLotMultiplier(adjustedConfidence);
+      const stratTier  = getStrategyLotMultiplier(decision.strategy || 'auto');
+      const openCount  = (global as any).mt5OpenPositions?.[userId]?.positions?.length ?? state.openPositionCount;
+      const expTier    = getExposureLotMultiplier(openCount);
+
+      const combinedMult = confTier.mult * stratTier.mult * expTier.mult;
+      dynamicLot = Math.round(compoundedLot * combinedMult * 100) / 100;
+
+      addActivity(userId, {
+        type: 'info',
+        symbol: decision.symbol,
+        message: `📐 Dynamic sizing: ${compoundedLot} base × [Conf:${confTier.label}] × [Strat:${stratTier.label}] × [Exp:${expTier.label}] = ${dynamicLot} lots`,
+      });
+    }
+
+    const lotSize = Math.max(0.01, Math.min(isDynamicSizingEnabled ? dynamicLot : compoundedLot, safeMaxLot));
 
     const mt5Signal: PendingMT5Signal = {
       id: `sig_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
