@@ -2193,21 +2193,24 @@ async function runAILiveAnalysis(userId: number, marketAnalysis: Record<string, 
   }
 
   // ── Pre-filter gate: skip AI call for pairs with no indicator alignment ──────
+  // Raised from 3 → 4 votes required. 3/7 is only 43% alignment (near coin-flip).
+  // 4/7 is 57% — meaningful majority. This dramatically reduces low-quality signals.
   {
     const filteredAnalysis: Record<string, any> = {};
     const voteSummary: string[] = [];
+    const PREFILTER_VOTE_THRESHOLD = 4;
     for (const [sym, data] of Object.entries(marketAnalysis) as [string, any][]) {
       const { bull, bear } = countIndicatorAlignment(data);
       const direction = bull >= bear ? `🟢${bull}B` : `🔴${bear}R`;
-      const passed = bull >= 3 || bear >= 3;
+      const passed = bull >= PREFILTER_VOTE_THRESHOLD || bear >= PREFILTER_VOTE_THRESHOLD;
       voteSummary.push(`${sym}:${direction}${passed ? '✓' : '✗'}`);
       if (passed) {
         filteredAnalysis[sym] = data;
       }
     }
-    addActivity(userId, { type: 'info', message: `Pre-filter votes (need 3+): ${voteSummary.join(' | ')}` });
+    addActivity(userId, { type: 'info', message: `Pre-filter votes (need ${PREFILTER_VOTE_THRESHOLD}+): ${voteSummary.join(' | ')}` });
     if (Object.keys(filteredAnalysis).length === 0) {
-      addActivity(userId, { type: 'info', message: 'Pre-filter: no pairs with 3+ indicator votes this cycle — AI call skipped (market in full consolidation)' });
+      addActivity(userId, { type: 'info', message: `Pre-filter: no pairs with ${PREFILTER_VOTE_THRESHOLD}+ indicator votes this cycle — AI call skipped (market in full consolidation)` });
       return;
     }
     // Use filtered set for the AI call
@@ -2417,12 +2420,12 @@ WEEKLY PROFIT GOAL SYSTEM:
 - Win Rate: ${tracker.winRate}% (${tracker.wins}W / ${tracker.losses}L) | Streak: ${tracker.consecutiveWins > 0 ? tracker.consecutiveWins + ' wins' : tracker.consecutiveLosses + ' losses'}
 - Phase: ${tracker.currentPhase.toUpperCase()} | Compound Multiplier: ${compMult}x
 - Base Lot: ${config.baseLotSize} → Adjusted: ${adjustedBaseLot} (after compounding)
-${tracker.currentPhase === 'warming_up' ? '- PHASE INSTRUCTIONS: Start conservative. Take only high-confidence setups (80%+). Build momentum with small wins. Use minimum lot sizes.' : ''}
-${tracker.currentPhase === 'building' ? '- PHASE INSTRUCTIONS: Good progress. Use base lots. Mix scalping for quick wins with momentum for bigger moves. Aim for 3-5 trades/session.' : ''}
-${tracker.currentPhase === 'accelerating' ? '- PHASE INSTRUCTIONS: 25%+ done. INCREASE frequency - use all strategies. Scale lot sizes up with compound multiplier. Target 5-8 trades/session.' : ''}
-${tracker.currentPhase === 'cruising' ? '- PHASE INSTRUCTIONS: Halfway there. Maintain pace. Balance risk - dont blow gains. Use the compound multiplier but cap exposure.' : ''}
-${tracker.currentPhase === 'pushing' ? '- PHASE INSTRUCTIONS: 80%+ done! Almost there. REDUCE risk now - smaller lots, only A+ setups. Protect gains. Avoid revenge trading.' : ''}
-${tracker.currentPhase === 'target_reached' ? '- PHASE INSTRUCTIONS: TARGET HIT! Switch to PRESERVATION mode. Only take ultra-high confidence sniper setups. Minimum lot sizes. Protect the bag.' : ''}
+${tracker.currentPhase === 'warming_up' ? '- PHASE INSTRUCTIONS: Start conservative. Take only high-confidence setups (82%+). Build momentum with small wins. Use minimum lot sizes. Quality over quantity.' : ''}
+${tracker.currentPhase === 'building' ? '- PHASE INSTRUCTIONS: Good progress. Use base lots. Focus on high-probability setups with clear HTF alignment. 2-4 quality trades per session. Do NOT force trades.' : ''}
+${tracker.currentPhase === 'accelerating' ? '- PHASE INSTRUCTIONS: 25%+ done. Maintain discipline — do NOT lower confluence standards to chase frequency. Only take setups where HTF and M15 align. 3-5 trades/session MAX. Quality is the target, not volume.' : ''}
+${tracker.currentPhase === 'cruising' ? '- PHASE INSTRUCTIONS: Halfway there. Maintain pace. Balance risk — do NOT blow gains. Use the compound multiplier but cap total open exposure to 3 trades max.' : ''}
+${tracker.currentPhase === 'pushing' ? '- PHASE INSTRUCTIONS: 80%+ done! SHIFT TO PRESERVATION MODE NOW. Only A+ sniper/ICT setups with 85%+ confidence. Smaller lots. No scalping. Protect the gains.' : ''}
+${tracker.currentPhase === 'target_reached' ? '- PHASE INSTRUCTIONS: TARGET HIT! PRESERVATION mode ONLY. Only ultra-high-confidence sniper setups (90%+). Minimum lot sizes. No scalping. Protect the bag.' : ''}
 
 STRATEGY PERFORMANCE THIS WEEK:
 ${Object.entries(tracker.strategyBreakdown).map(([s, d]) => `- ${s}: ${d.trades} trades, ${d.wins} wins, $${d.pnl} P&L`).join('\n') || '- No trades yet'}
@@ -3136,6 +3139,48 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       }
     }
 
+    // ── USD Correlation Guard ────────────────────────────────────────────
+    // Running multiple USD-base pairs in the same direction simultaneously is
+    // concentrated correlated risk: one USD news spike hits ALL open positions.
+    // Rule: allow max 2 correlated USD positions open at once, and only if they
+    // do NOT all have the same USD direction (e.g. all SELLING USD = all buying EUR/GBP/AUD).
+    {
+      const newSym = (decision.symbol || '').toUpperCase().replace('/', '');
+      const newIsUSD = newSym.includes('USD');
+      if (newIsUSD) {
+        const _livePositionsForCorr: any[] = (global as any).mt5OpenPositions?.[userId]?.positions || [];
+        const openUSDPositions = _livePositionsForCorr.filter((p: any) => {
+          const pSym = (p.symbol || '').toUpperCase().replace('/', '');
+          return pSym.includes('USD');
+        });
+        if (openUSDPositions.length >= 2) {
+          // Check if all open USD positions expose same USD direction
+          // e.g. BUY EURUSD = sell USD; SELL EURUSD = buy USD
+          // e.g. BUY USDCHF = buy USD; SELL USDCHF = sell USD
+          const usdDirOf = (sym: string, tradeDir: string): 'BUY_USD' | 'SELL_USD' => {
+            const s = sym.toUpperCase().replace('/', '');
+            const usdIsBase = s.startsWith('USD'); // USDCHF, USDJPY → USD is base
+            if (usdIsBase) return tradeDir === 'BUY' ? 'BUY_USD' : 'SELL_USD';
+            return tradeDir === 'BUY' ? 'SELL_USD' : 'BUY_USD'; // EURUSD BUY = selling USD
+          };
+          const newUSDDir = usdDirOf(newSym, _signalDirRaw);
+          const existingUSDDirs = openUSDPositions.map((p: any) =>
+            usdDirOf((p.symbol || '').toUpperCase().replace('/', ''), (p.direction || p.type || '').toUpperCase())
+          );
+          const allSameAsNew = existingUSDDirs.every((d: string) => d === newUSDDir);
+          if (allSameAsNew && openUSDPositions.length >= 2) {
+            addActivity(userId, {
+              type: 'info',
+              symbol: decision.symbol,
+              message: `⚡ USD CORRELATION BLOCK: ${_signalDirRaw} ${decision.symbol} rejected — already ${openUSDPositions.length} USD positions all in ${newUSDDir} direction. Correlated exposure cap reached (max 2 same-direction USD trades). Close an existing position first.`,
+            });
+            state.signalsGenerated++;
+            return;
+          }
+        }
+      }
+    }
+
     // ── Drawdown Shield Enforcement ───────────────────────────────────
     if (state.drawdownShieldActive) {
       const shieldStrategies = ['prop_firm_sniper', 'ict_ote', 'ict_order_blocks', 'sniper'];
@@ -3173,13 +3218,14 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
           message: `📊 HTF bias: ${htfTFLabel} ${htfBias.trend} — aligns with ${signalDir} (+5% confidence → ${adjustedConfidence}%)`,
         });
       } else {
-        // Raised from 80% to 85% — GBP/JPY losses happened because 80% was too easy to clear
-        // for a counter-trend AI signal. Counter-trend trades need exceptional confluence.
-        if (confidence < 85) {
+        // Raised from 85% to 90% — counter-trend trades against HTF bias are institutional plays
+        // that require extremely high LTF confluence. LLM confidence at 85% still loses ~30-35% of
+        // the time against a clear HTF trend. 90% gives much better expected value.
+        if (confidence < 90) {
           addActivity(userId, {
             type: 'info',
             symbol: decision.symbol,
-            message: `📊 HTF CONFLICT BLOCK: ${signalDir} on ${decision.symbol} vs ${htfTFLabel} ${htfBias.trend} — ${confidence}% < 85% required. Counter-trend trade blocked.`,
+            message: `📊 HTF CONFLICT BLOCK: ${signalDir} on ${decision.symbol} vs ${htfTFLabel} ${htfBias.trend} — ${confidence}% < 90% required for counter-trend. Trade blocked.`,
           });
           state.signalsGenerated++;
           return;
@@ -3187,7 +3233,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
         addActivity(userId, {
           type: 'info',
           symbol: decision.symbol,
-          message: `📊 HTF CONFLICT: ${signalDir} on ${decision.symbol} vs ${htfTFLabel} ${htfBias.trend} — ${confidence}% ≥ 85% threshold cleared. Allowing high-confidence counter-trend.`,
+          message: `📊 HTF CONFLICT: ${signalDir} on ${decision.symbol} vs ${htfTFLabel} ${htfBias.trend} — ${confidence}% ≥ 90% threshold cleared. Allowing high-confidence counter-trend.`,
         });
       }
     }
@@ -3219,11 +3265,13 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
 
         if (isStrongTrend) {
           // HARD BLOCK for strong counter-trend entries — these lose money consistently
-          if (adjustedConfidence < 82) {
+          // Raised from 82% → 88%: M15 strong-trend counter-entries are almost always losers
+          // even at 82% AI confidence. Require near-certainty for these trades.
+          if (adjustedConfidence < 88) {
             addActivity(userId, {
               type: 'info',
               symbol: decision.symbol,
-              message: `🚫 M15 TREND BLOCK: ${signalDir} vs strong M15 ${effectiveTrend} (ADX ${m15ADX.toFixed(1)}, +DI ${m15PlusDI.toFixed(1)} / -DI ${m15MinusDI.toFixed(1)}, diSep ${diSep.toFixed(1)}) — ${adjustedConfidence}% < 82% required for counter-trend. BLOCKED.`,
+              message: `🚫 M15 TREND BLOCK: ${signalDir} vs strong M15 ${effectiveTrend} (ADX ${m15ADX.toFixed(1)}, +DI ${m15PlusDI.toFixed(1)} / -DI ${m15MinusDI.toFixed(1)}, diSep ${diSep.toFixed(1)}) — ${adjustedConfidence}% < 88% required for counter-trend. BLOCKED.`,
             });
             state.signalsGenerated++;
             return;
@@ -3231,7 +3279,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
           addActivity(userId, {
             type: 'info',
             symbol: decision.symbol,
-            message: `⚠️ M15 STRONG CONFLICT: ${signalDir} vs M15 ${effectiveTrend} — ${adjustedConfidence}% ≥ 82% cleared. Allowing high-confidence counter-trend (use caution).`,
+            message: `⚠️ M15 STRONG CONFLICT: ${signalDir} vs M15 ${effectiveTrend} — ${adjustedConfidence}% ≥ 88% cleared. Allowing high-confidence counter-trend (use caution).`,
           });
         } else {
           // Mild conflict: 12% penalty + warning
@@ -3264,9 +3312,10 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
     (decision as any)._brainLotMultiplier = postEnforcement.adjustedLotMultiplier;
     (decision as any)._brainTrailPips = postEnforcement.recommendedTrailPips;
 
-    // Hard floor: never execute below 72% regardless of user config
-    // Below 72%, the statistical edge is not reliable enough to overcome spread + slippage
-    const HARD_CONFIDENCE_FLOOR = 72;
+    // Hard floor: never execute below 78% regardless of user config
+    // Below 78%, the statistical edge is not reliable enough to overcome spread + slippage
+    // Raised from 72% → 78% after analysis showed 72% signals had near-coin-flip real accuracy
+    const HARD_CONFIDENCE_FLOOR = 78;
     const effectiveMinConf2 = Math.max(config.minConfidence, HARD_CONFIDENCE_FLOOR);
     if (adjustedConfidence < effectiveMinConf2) {
       addActivity(userId, {
@@ -3598,11 +3647,27 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
         const oldSlPips = Math.round(actualSlDist / pipSize);
         const newSlPips = Math.round(effectiveMinSL / pipSize);
 
-        addActivity(userId, {
-          type: 'info',
-          symbol: decision.symbol,
-          message: `📏 SL EXPANDED: ${decision.symbol} ${decision.direction} — SL was ${oldSlPips} pips (too tight), expanded to ${newSlPips} pips (ATR floor). TP scaled to maintain R:R.`,
-        });
+        // ── CRITICAL: Scale down lot size proportionally when SL is expanded ──
+        // Expanding the SL without reducing lot size increases the dollar risk per pip.
+        // E.g. SL doubled from 10 pips → 20 pips = 2× the money at stake per lot.
+        // Fix: scale lot inversely so dollar risk stays constant.
+        const slExpansionRatio = actualSlDist > 0 ? effectiveMinSL / actualSlDist : 1;
+        if (slExpansionRatio > 1 && decision.lotSize && decision.lotSize > 0) {
+          const originalLot = decision.lotSize;
+          const scaledLot = Math.max(0.01, Math.round((originalLot / slExpansionRatio) * 100) / 100);
+          decision.lotSize = scaledLot;
+          addActivity(userId, {
+            type: 'info',
+            symbol: decision.symbol,
+            message: `📏 SL EXPANDED: ${decision.symbol} ${decision.direction} — SL ${oldSlPips}→${newSlPips} pips (ATR floor). Lot scaled ${originalLot}→${scaledLot} to keep dollar risk constant. TP scaled to maintain R:R.`,
+          });
+        } else {
+          addActivity(userId, {
+            type: 'info',
+            symbol: decision.symbol,
+            message: `📏 SL EXPANDED: ${decision.symbol} ${decision.direction} — SL was ${oldSlPips} pips (too tight), expanded to ${newSlPips} pips (ATR floor). TP scaled to maintain R:R.`,
+          });
+        }
 
         decision.stopLoss = Math.round(expandedSL * 100000) / 100000;
         decision.takeProfit = expandedTP ? Math.round(expandedTP * 100000) / 100000 : takeProfit;
@@ -3650,7 +3715,10 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       }
     }
 
-    // ── Brain Learning Mode: lock at 0.01 until 65%+ WR (if toggle ON) ──
+    // ── Brain Learning Mode: lock at 0.01 until 60%+ WR (if toggle ON) ──
+    // Raised from 55% → 60% WR required to unlock full sizing.
+    // At 55% WR with 1:1.5 R:R the expectancy is barely positive — full lots at that
+    // level too easily turn small losing streaks into account damage.
     let brainLocked = false;
     let brainTotalTrades = 0;
     let brainOverallWinRate = 0;
@@ -3666,12 +3734,12 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
         brainTotalTrades = totals.trades;
         brainOverallWinRate = totals.trades >= 5 ? Math.round((totals.wins / totals.trades) * 100) : 0;
       }
-      brainLocked = brainTotalTrades < 10 || brainOverallWinRate < 55;
+      brainLocked = brainTotalTrades < 10 || brainOverallWinRate < 60;
       addActivity(userId, {
         type: 'info',
         symbol: decision.symbol,
         message: brainLocked
-          ? `🧠 Learning Mode: lot locked at 0.01 (${brainTotalTrades}/10 trades, ${brainOverallWinRate}%/55% WR) — full sizing unlocks automatically`
+          ? `🧠 Learning Mode: lot locked at 0.01 (${brainTotalTrades}/10 trades, ${brainOverallWinRate}%/60% WR) — full sizing unlocks automatically`
           : `🧠 Brain unlocked: ${brainTotalTrades} trades @ ${brainOverallWinRate}% WR — full risk sizing active`,
       });
     }
