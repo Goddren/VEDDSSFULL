@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'wouter';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/use-auth';
@@ -39,7 +39,7 @@ import {
   BookOpen, GraduationCap, FileText, Lightbulb, ChevronDown, MoreHorizontal,
   BarChart3, Webhook, Wallet, Scan, Coins, KeyRound, Rocket, Brain, Shirt,
   Radio, Star, CheckCircle2, AlertTriangle, Loader2, ExternalLink, TrendingUp, Code2, Activity,
-  DollarSign, Globe, Search, Shield, Flame, Calculator, Target
+  DollarSign, Globe, Search, Shield, Flame, Calculator, Target, Link as LinkIcon, RefreshCcw
 } from 'lucide-react';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 
@@ -111,6 +111,41 @@ const Header: React.FC = () => {
     enabled: !!user,
     refetchInterval: 60000,
   });
+
+  // TradeLocker connections for the slide nav
+  const { data: tlNavConnections = [] } = useQuery<any[]>({
+    queryKey: ['/api/tradelocker/connections'],
+    enabled: !!user,
+    refetchInterval: 60000,
+  });
+  const activeTLNavConns = tlNavConnections.filter((c: any) => c.isActive);
+
+  // Live balances per TL connection — fetched when the slide nav opens
+  const [tlNavBalances, setTlNavBalances] = useState<Record<number, { balance: number; currency: string; loading: boolean; error?: boolean }>>({});
+
+  const fetchTLNavBalances = async () => {
+    for (const conn of activeTLNavConns) {
+      setTlNavBalances(prev => ({ ...prev, [conn.id]: { balance: prev[conn.id]?.balance ?? 0, currency: prev[conn.id]?.currency ?? 'USD', loading: true } }));
+      try {
+        const res = await fetch(`/api/accounts/tradelocker/${conn.id}/balance`, { credentials: 'include' });
+        if (res.ok) {
+          const data = await res.json();
+          setTlNavBalances(prev => ({ ...prev, [conn.id]: { balance: data.balance ?? 0, currency: data.currency ?? 'USD', loading: false } }));
+        } else {
+          setTlNavBalances(prev => ({ ...prev, [conn.id]: { balance: 0, currency: 'USD', loading: false, error: true } }));
+        }
+      } catch {
+        setTlNavBalances(prev => ({ ...prev, [conn.id]: { balance: 0, currency: 'USD', loading: false, error: true } }));
+      }
+    }
+  };
+
+  // Auto-fetch balances when the slide nav opens
+  useEffect(() => {
+    if (mobileMenuOpen && activeTLNavConns.length > 0) {
+      fetchTLNavBalances();
+    }
+  }, [mobileMenuOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Derived key status for the dot indicator
   const activeValidKey = savedKeys.find(k => k.isActive && k.isValid);
@@ -247,7 +282,7 @@ const Header: React.FC = () => {
                   <ChevronDown className="h-3 w-3 ml-1" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="center" className="w-48">
+              <DropdownMenuContent align="center" className="w-56">
                 {/* Position Size Calculator — quick access shortcut */}
                 <DropdownMenuItem className="cursor-pointer text-cyan-400" onClick={() => setCalcOpen(true)}>
                   <div className="flex items-center w-full font-medium">
@@ -255,6 +290,31 @@ const Header: React.FC = () => {
                     <span>Position Calc</span>
                   </div>
                 </DropdownMenuItem>
+                {/* TradeLocker Accounts shortcut */}
+                {activeTLNavConns.length > 0 ? (
+                  <DropdownMenuItem className="cursor-pointer" asChild>
+                    <Link href="/webhooks">
+                      <div className="flex items-center justify-between w-full">
+                        <div className="flex items-center text-cyan-400">
+                          <LinkIcon className="h-4 w-4 mr-2" />
+                          <span className="font-medium">TradeLocker</span>
+                        </div>
+                        <span className="text-[10px] bg-emerald-500/20 text-emerald-400 rounded-full px-1.5 py-0.5 font-semibold shrink-0">
+                          {activeTLNavConns.length} acct{activeTLNavConns.length > 1 ? 's' : ''}
+                        </span>
+                      </div>
+                    </Link>
+                  </DropdownMenuItem>
+                ) : (
+                  <DropdownMenuItem className="cursor-pointer" asChild>
+                    <Link href="/webhooks">
+                      <div className="flex items-center text-cyan-400/60 w-full">
+                        <LinkIcon className="h-4 w-4 mr-2" />
+                        <span>Connect TradeLocker</span>
+                      </div>
+                    </Link>
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuSeparator />
                 {moreNavItems.map(item => (
                   <DropdownMenuItem key={item.path} asChild className="cursor-pointer">
@@ -684,6 +744,83 @@ const Header: React.FC = () => {
                       </Link>
                     </>
                   )}
+                  {/* ── TradeLocker Accounts ─────────────────────── */}
+                  {activeTLNavConns.length > 0 && (
+                    <div className="border-t border-gray-700 pt-3 mt-1">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-semibold text-cyan-400 uppercase tracking-wider flex items-center gap-1.5">
+                          <LinkIcon className="h-3 w-3" />
+                          TradeLocker Accounts
+                        </span>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); fetchTLNavBalances(); }}
+                          className="text-gray-500 hover:text-gray-300 p-0.5"
+                          title="Refresh balances"
+                        >
+                          <RefreshCcw className="h-3 w-3" />
+                        </button>
+                      </div>
+                      <div className="space-y-2 mb-3">
+                        {activeTLNavConns.map((conn: any) => {
+                          const bal = tlNavBalances[conn.id];
+                          return (
+                            <div key={conn.id} className="bg-gray-800/60 border border-cyan-700/25 rounded-lg px-3 py-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="min-w-0">
+                                  <p className="text-sm text-white font-medium truncate">{conn.email}</p>
+                                  <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${conn.accountType === 'live' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}`}>
+                                      {conn.accountType?.toUpperCase()}
+                                    </span>
+                                    {conn.serverId && <span className="text-[10px] text-gray-500">{conn.serverId}</span>}
+                                    {conn.lotMultiplier && conn.lotMultiplier !== 1 && (
+                                      <span className={`text-[10px] font-mono px-1 py-0.5 rounded ${conn.lotMultiplier > 1 ? 'bg-amber-500/15 text-amber-400' : 'bg-blue-500/15 text-blue-400'}`}>
+                                        ×{conn.lotMultiplier}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                                <div className="text-right shrink-0">
+                                  {bal?.loading ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin text-gray-500 ml-auto" />
+                                  ) : bal?.error ? (
+                                    <span className="text-[11px] text-gray-500">—</span>
+                                  ) : bal ? (
+                                    <p className="text-sm font-bold font-mono text-emerald-400">
+                                      {bal.currency} {bal.balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    </p>
+                                  ) : (
+                                    <span className="text-[11px] text-gray-500">Loading…</span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <Link
+                        href="/webhooks"
+                        onClick={handleMobileNavClick}
+                        className="text-sm font-medium text-cyan-400 hover:text-cyan-300 flex items-center gap-1.5"
+                      >
+                        <Webhook className="h-3.5 w-3.5" />
+                        Manage TradeLocker Accounts
+                      </Link>
+                    </div>
+                  )}
+                  {activeTLNavConns.length === 0 && (
+                    <div className="border-t border-gray-700 pt-3 mt-1">
+                      <Link
+                        href="/webhooks"
+                        onClick={handleMobileNavClick}
+                        className="text-base font-medium text-cyan-400 hover:text-cyan-300 flex items-center gap-2"
+                      >
+                        <LinkIcon className="h-4 w-4" />
+                        Connect TradeLocker
+                      </Link>
+                    </div>
+                  )}
+
                   <button
                     onClick={handleLogout}
                     className="text-lg font-medium transition-colors flex items-center text-muted-foreground hover:text-foreground text-left"
