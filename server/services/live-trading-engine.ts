@@ -3942,9 +3942,14 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
     };
     broadcastMT5Signal(userId, mt5Signal);
 
-    const tlConnection = await storage.getUserTradelockerConnection(userId);
-    if (!tlConnection || !tlConnection.isActive) {
-      addActivity(userId, { type: 'info', symbol: decision.symbol, message: 'TradeLocker not connected. Signal queued for MT5 EA pickup.' });
+    // ── Multi-account TradeLocker execution ──────────────────────────────
+    // Fetch ALL active TradeLocker connections for this user and execute
+    // the signal on each in parallel. Partial failures are logged per
+    // account without blocking the other accounts.
+    const tlConnections = await storage.getUserTradelockerConnections(userId);
+    const activeTLConnections = tlConnections.filter((c: any) => c.isActive);
+    if (activeTLConnections.length === 0) {
+      addActivity(userId, { type: 'info', symbol: decision.symbol, message: 'No active TradeLocker connections. Signal queued for MT5 EA pickup.' });
       return;
     }
 
@@ -4003,52 +4008,82 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
         source: 'vedd_live_engine',
       });
 
-      const tradeResult = await executeMT5SignalOnTradeLocker(tlConnection, {
-        action: 'OPEN',
-        symbol: decision.symbol,
-        direction: decision.direction,
-        volume: lotSize,
-        entryPrice,
-        stopLoss,
-        takeProfit,
-      });
+      // Execute on ALL active accounts in parallel
+      const openResults = await Promise.allSettled(
+        activeTLConnections.map(async (tlConn: any) => {
+          const tradeResult = await executeMT5SignalOnTradeLocker(tlConn, {
+            action: 'OPEN',
+            symbol: decision.symbol,
+            direction: decision.direction,
+            volume: lotSize,
+            entryPrice,
+            stopLoss,
+            takeProfit,
+          });
 
-      await storage.createTradelockerTradeLog({
-        connectionId: tlConnection.id,
-        userId,
-        sourceSignalId: signalLog.id,
-        action: 'OPEN',
-        symbol: decision.symbol,
-        direction: decision.direction,
-        volume: lotSize,
-        entryPrice,
-        stopLoss,
-        takeProfit,
-        tradelockerOrderId: tradeResult.orderId || null,
-        status: tradeResult.success ? 'executed' : 'failed',
-        errorMessage: tradeResult.error || null,
-      });
+          await storage.createTradelockerTradeLog({
+            connectionId: tlConn.id,
+            userId,
+            sourceSignalId: signalLog.id,
+            action: 'OPEN',
+            symbol: decision.symbol,
+            direction: decision.direction,
+            volume: lotSize,
+            entryPrice,
+            stopLoss,
+            takeProfit,
+            tradelockerOrderId: tradeResult.orderId || null,
+            status: tradeResult.success ? 'executed' : 'failed',
+            errorMessage: tradeResult.error || null,
+          });
 
-      if (tradeResult.success) {
+          return { tlConn, tradeResult };
+        })
+      );
+
+      let anySuccess = false;
+      for (const result of openResults) {
+        if (result.status === 'fulfilled') {
+          const { tlConn, tradeResult } = result.value;
+          const acctLabel = tlConn.email ? `[${tlConn.email}]` : `[Account ${tlConn.id}]`;
+          if (tradeResult.success) {
+            anySuccess = true;
+            addActivity(userId, {
+              type: 'trade_open',
+              symbol: decision.symbol,
+              direction: decision.direction,
+              confidence: adjustedConfidence,
+              message: `TRADE EXECUTED via TradeLocker ${acctLabel}: ${decision.direction} ${decision.symbol} | Lot: ${lotSize} | SL: ${stopLoss || 'N/A'} | TP: ${takeProfit || 'N/A'} | Order: ${tradeResult.orderId}`,
+              details: { orderId: tradeResult.orderId, lotSize, stopLoss, takeProfit, confluences: decision.confluences },
+            });
+          } else {
+            addActivity(userId, {
+              type: 'error',
+              symbol: decision.symbol,
+              message: `TradeLocker ${acctLabel} execution failed: ${decision.direction} ${decision.symbol} - ${tradeResult.error}`,
+            });
+          }
+        } else {
+          addActivity(userId, {
+            type: 'error',
+            symbol: decision.symbol,
+            message: `TradeLocker execution error on one account: ${result.reason?.message || 'Unknown error'}`,
+          });
+        }
+      }
+
+      if (anySuccess) {
         state.tradesExecuted++;
         state.openPositionCount++;
-        // BUG 6 FIX: Mark the queued MT5 signal as already executed so the
-        // MT5 EA does NOT pick it up and fire the same trade a second time.
+        // Mark the queued MT5 signal as already executed so the MT5 EA
+        // does NOT pick it up and fire the same trade a second time.
         mt5Signal.status = 'executed';
-        addActivity(userId, {
-          type: 'trade_open',
-          symbol: decision.symbol,
-          direction: decision.direction,
-          confidence: adjustedConfidence,
-          message: `TRADE EXECUTED via TradeLocker: ${decision.direction} ${decision.symbol} | Lot: ${lotSize} | SL: ${stopLoss || 'N/A'} | TP: ${takeProfit || 'N/A'} | Order: ${tradeResult.orderId}`,
-          details: { orderId: tradeResult.orderId, lotSize, stopLoss, takeProfit, confluences: decision.confluences },
-        });
       } else {
         state.tradesFailed++;
         addActivity(userId, {
           type: 'error',
           symbol: decision.symbol,
-          message: `TradeLocker execution failed: ${decision.direction} ${decision.symbol} - ${tradeResult.error}. Signal still available for MT5 EA.`,
+          message: `TradeLocker execution failed on all ${activeTLConnections.length} account(s). Signal still available for MT5 EA.`,
         });
       }
     } catch (err: any) {
@@ -4127,38 +4162,48 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
     };
     broadcastMT5Signal(userId, mgmtSignal);
 
-    // Then try TradeLocker if connected
-    const tlConnection = await storage.getUserTradelockerConnection(userId);
-    if (tlConnection && tlConnection.isActive) {
-      try {
-        if (signalAction === 'CLOSE') {
-          const tradeResult = await executeMT5SignalOnTradeLocker(tlConnection, {
-            action: 'CLOSE',
-            symbol: decision.symbol,
-            direction: decision.direction || 'BUY',
-            volume: partialVolume || 0,
-            positionId: decision.positionId,
-          });
-          if (tradeResult.success) {
-            addActivity(userId, { type: 'trade_close', symbol: decision.symbol, message: `Position CLOSED via TradeLocker: ${decision.symbol} - ${decision.reason}` });
+    // Then try TradeLocker — execute on ALL active accounts simultaneously
+    const tlConnectionsForMgmt = await storage.getUserTradelockerConnections(userId);
+    const activeTLForMgmt = tlConnectionsForMgmt.filter((c: any) => c.isActive);
+    if (activeTLForMgmt.length > 0) {
+      await Promise.allSettled(
+        activeTLForMgmt.map(async (tlConn: any) => {
+          const acctLabel = tlConn.email ? `[${tlConn.email}]` : `[Account ${tlConn.id}]`;
+          try {
+            if (signalAction === 'CLOSE') {
+              const tradeResult = await executeMT5SignalOnTradeLocker(tlConn, {
+                action: 'CLOSE',
+                symbol: decision.symbol,
+                direction: decision.direction || 'BUY',
+                volume: partialVolume || 0,
+                positionId: decision.positionId,
+              });
+              if (tradeResult.success) {
+                addActivity(userId, { type: 'trade_close', symbol: decision.symbol, message: `Position CLOSED via TradeLocker ${acctLabel}: ${decision.symbol} - ${decision.reason}` });
+              } else {
+                addActivity(userId, { type: 'error', symbol: decision.symbol, message: `CLOSE failed on TradeLocker ${acctLabel}: ${tradeResult.error}` });
+              }
+            } else if (signalAction === 'MODIFY') {
+              const tradeResult = await executeMT5SignalOnTradeLocker(tlConn, {
+                action: 'MODIFY',
+                symbol: decision.symbol,
+                direction: decision.direction || 'BUY',
+                volume: 0,
+                stopLoss: newSL,
+                takeProfit: newTP,
+                positionId: decision.positionId,
+              });
+              if (tradeResult.success) {
+                addActivity(userId, { type: 'position_update', symbol: decision.symbol, message: `Position MODIFIED via TradeLocker ${acctLabel}: ${decision.symbol} | New SL: ${newSL || 'N/A'} | New TP: ${newTP || 'N/A'}` });
+              } else {
+                addActivity(userId, { type: 'error', symbol: decision.symbol, message: `MODIFY failed on TradeLocker ${acctLabel}: ${tradeResult.error}` });
+              }
+            }
+          } catch (err: any) {
+            addActivity(userId, { type: 'error', symbol: decision.symbol, message: `Position management error on TradeLocker ${acctLabel}: ${err.message}` });
           }
-        } else if (signalAction === 'MODIFY') {
-          const tradeResult = await executeMT5SignalOnTradeLocker(tlConnection, {
-            action: 'MODIFY',
-            symbol: decision.symbol,
-            direction: decision.direction || 'BUY',
-            volume: 0,
-            stopLoss: newSL,
-            takeProfit: newTP,
-            positionId: decision.positionId,
-          });
-          if (tradeResult.success) {
-            addActivity(userId, { type: 'position_update', symbol: decision.symbol, message: `Position MODIFIED via TradeLocker: ${decision.symbol} | New SL: ${newSL || 'N/A'} | New TP: ${newTP || 'N/A'}` });
-          }
-        }
-      } catch (err: any) {
-        addActivity(userId, { type: 'error', symbol: decision.symbol, message: `Position management execution error: ${err.message}. Signal queued for MT5 EA.` });
-      }
+        })
+      );
     }
   }
 }
