@@ -300,42 +300,49 @@ const Dashboard: React.FC = () => {
   
   const { data: analyses = [], isLoading, isError } = useQuery<Analysis[]>({
     queryKey: ['/api/analyses'],
+    refetchInterval: 120000,   // refresh analyses every 2 min
   });
-  
+
   // Get user achievements
   const { data: userAchievements = [] } = useQuery({
     queryKey: ['/api/user-achievements'],
-    enabled: !!user
+    enabled: !!user,
+    refetchInterval: 300000,   // refresh every 5 min — achievements rarely change
   });
-  
+
   // Get all achievements
   const { data: achievements = [] } = useQuery({
     queryKey: ['/api/achievements'],
-    enabled: !!user
+    enabled: !!user,
+    refetchInterval: 300000,
   });
-  
+
   // Get user profile for accuracy/winRate data
   const { data: userProfile } = useQuery<{ winRate?: number; tradeGrade?: number }>({
     queryKey: ['/api/profile', user?.id],
-    enabled: !!user?.id
+    enabled: !!user?.id,
+    refetchInterval: 120000,   // refresh win rate / grade every 2 min
   });
-  
+
   // Get user's registered events
   const { data: registeredEventsData } = useQuery<{ events: Array<{ event: { id: number; title: string; description: string; scheduledDate: string | null; status: string } }> }>({
     queryKey: ['/api/ambassador/community/my-events'],
-    enabled: !!user
+    enabled: !!user,
+    refetchInterval: 60000,
   });
-  
+
   // Get host stats if user is a host
   const { data: hostStats } = useQuery<{ totalEventsHosted: number; upcomingEvents: number; hostTier: string; tokensEarned: number }>({
     queryKey: ['/api/ambassador/host/stats'],
-    enabled: !!user
+    enabled: !!user,
+    refetchInterval: 60000,
   });
-  
+
   // Get events user is hosting
   const { data: hostedEventsData } = useQuery<Array<{ id: number; title: string; description: string; scheduledDate: string | null; status: string; attendeeCount?: number }>>({
     queryKey: ['/api/ambassador/host/my-events'],
-    enabled: !!user
+    enabled: !!user,
+    refetchInterval: 60000,
   });
 
   const { data: wearStats } = useQuery<{ totalClaims: number; totalVeddEarned: number; pendingClaims: number }>({
@@ -348,6 +355,7 @@ const Dashboard: React.FC = () => {
   const { data: certData } = useQuery<{ certificates: Array<{ certId: string; title: string; score: number; date: string; courseId: number; ceuHours?: number; grantFrameworks?: string[] }> }>({
     queryKey: ['/api/workforce/certificates'],
     enabled: !!user,
+    refetchInterval: 300000,   // refresh every 5 min — certs rarely change
   });
   const dashCerts = certData?.certificates ?? [];
 
@@ -406,6 +414,7 @@ const Dashboard: React.FC = () => {
   }>({
     queryKey: ['/api/ambassador/journey'],
     enabled: !!(user?.isAmbassador || (user as any)?.role === 'admin'),
+    refetchInterval: 120000,   // refresh every 2 min
   });
 
   // Daily & weekly P&L summary (works even without a strategy / SS AI)
@@ -501,18 +510,22 @@ const Dashboard: React.FC = () => {
     refetchInterval: 120000,
   });
 
-  // TradeLocker connection + balance
-  const { data: tlConnection } = useQuery<any>({
-    queryKey: ['/api/tradelocker/connection'],
+  // TradeLocker connections — all active accounts (multi-account support)
+  const { data: tlConnectionsAll = [] } = useQuery<any[]>({
+    queryKey: ['/api/tradelocker/connections'],
     enabled: !!user,
-    refetchInterval: 60000,
+    refetchInterval: 30000,
+    staleTime: 0,
   });
+  // Legacy single alias for components that still use tlConnection
+  const tlConnection = tlConnectionsAll[0] ?? null;
 
   // TradeLocker recent trade results
   const { data: tlTrades } = useQuery<any[]>({
     queryKey: ['/api/tradelocker/trades'],
     enabled: !!user,
-    refetchInterval: 30000,
+    refetchInterval: 15000,   // faster: 15s so new trades show quickly
+    staleTime: 0,
     select: (data) => (Array.isArray(data) ? data.slice(0, 20) : []),
   });
 
@@ -692,24 +705,27 @@ const Dashboard: React.FC = () => {
                     </div>
                   </Link>
                 ))}
-                {tlBalance !== null && (
-                  <Link href="/weekly-strategy">
-                    <div className="flex-shrink-0 smart-card px-3 py-2 flex items-center gap-2 cursor-pointer hover:border-red-500/30 transition-colors min-w-[140px]">
+                {tlConnectionsAll.filter((c: any) => c.isActive).map((c: any) => (
+                  <Link key={c.id} href="/webhooks">
+                    <div className="flex-shrink-0 smart-card px-3 py-2 flex items-center gap-2 cursor-pointer hover:border-cyan-500/30 transition-colors min-w-[140px]">
                       <div className="icon-box-sm icon-box-purple">
                         <Wallet className="h-3.5 w-3.5" />
                       </div>
-                      <div>
-                        <p className="text-[10px] text-gray-500 font-medium">TradeLocker</p>
-                        <p className="text-white font-bold text-sm leading-none">${tlBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-                        {tlEquity != null && tlEquity !== tlBalance && (
-                          <p className={`text-[10px] mt-0.5 ${tlEquity >= tlBalance ? 'text-emerald-400' : 'text-red-400'}`}>
-                            Eq ${tlEquity.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          </p>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <p className="text-[10px] text-gray-500 font-medium truncate max-w-[90px]">{c.email}</p>
+                          <span className={`text-[9px] font-bold px-1 rounded ${c.accountType === 'live' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}`}>
+                            {c.accountType?.toUpperCase()}
+                          </span>
+                        </div>
+                        <p className="text-cyan-400 font-bold text-xs leading-tight mt-0.5">TradeLocker</p>
+                        {c.lotMultiplier && c.lotMultiplier !== 1 && (
+                          <p className="text-[9px] text-amber-400">×{c.lotMultiplier} lots</p>
                         )}
                       </div>
                     </div>
                   </Link>
-                )}
+                ))}
               </div>
             )}
 

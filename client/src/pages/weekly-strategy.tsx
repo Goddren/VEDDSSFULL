@@ -937,7 +937,16 @@ export default function WeeklyStrategyPage() {
   });
   const { data: tlConnection } = useQuery<any>({
     queryKey: ['/api/tradelocker/connection'],
+    refetchInterval: 30000,
+    staleTime: 0,
   });
+  // All active TL connections — used in engine section
+  const { data: tlConnectionsEngine = [] } = useQuery<any[]>({
+    queryKey: ['/api/tradelocker/connections'],
+    refetchInterval: 30000,
+    staleTime: 0,
+  });
+  const activeTLEngineConns = tlConnectionsEngine.filter((c: any) => c.isActive);
 
   // Pre-fill balance from connected account whenever data arrives
   useEffect(() => {
@@ -1934,6 +1943,30 @@ export default function WeeklyStrategyPage() {
                   <div>
                     <p className="text-red-400 font-bold text-sm">Daily Loss Limit Hit — Engine Halted</p>
                     <p className="text-red-400/70 text-xs">CLOSE ALL signal sent to MT5 EA at {liveEngineStatus.dailyLossHaltedAt ? new Date(liveEngineStatus.dailyLossHaltedAt).toLocaleTimeString() : 'N/A'}. Restart engine tomorrow.</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Connected TradeLocker accounts row — shows when engine is running */}
+              {isRunning && activeTLEngineConns.length > 0 && (
+                <div className="mt-3 pt-3 border-t border-gray-700/30">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider">Active TradeLocker Accounts</span>
+                    <span className="text-[10px] bg-cyan-500/20 text-cyan-400 px-1.5 py-0.5 rounded-full font-bold">{activeTLEngineConns.length}</span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {activeTLEngineConns.map((c: any) => (
+                      <div key={c.id} className="flex items-center gap-1.5 bg-gray-800/60 border border-cyan-700/25 rounded-lg px-2.5 py-1.5">
+                        <span className={`w-1.5 h-1.5 rounded-full ${c.isActive ? 'bg-emerald-400' : 'bg-gray-600'}`} />
+                        <span className="text-xs text-white font-medium">{c.email}</span>
+                        <span className={`text-[9px] px-1 py-0.5 rounded font-bold ${c.accountType === 'live' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}`}>
+                          {c.accountType?.toUpperCase()}
+                        </span>
+                        {c.lotMultiplier && c.lotMultiplier !== 1 && (
+                          <span className={`text-[9px] font-mono font-bold ${c.lotMultiplier > 1 ? 'text-amber-400' : 'text-blue-400'}`}>×{c.lotMultiplier}</span>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
@@ -4887,40 +4920,178 @@ export default function WeeklyStrategyPage() {
         {/* ─── Tab: Session Monitor ────────────────────────── */}
         {activeTab === 'monitor' && (
           <div className="space-y-4">
-            {/* Import and embed WeeklyProgressWidget here */}
-            <div className="bg-gray-900/60 border border-gray-800 rounded-xl p-6">
-              <h2 className="text-white font-bold text-lg mb-4 flex items-center gap-2">📊 Session Monitor</h2>
-              <p className="text-gray-400 text-sm mb-6">Live progress toward your weekly plan. All stats auto-refresh every 60 seconds.</p>
-              {/* Inline progress display */}
-              {strategy && (
-                <div className="space-y-4">
-                  <div className="flex justify-between text-sm mb-1">
-                    <span className="text-gray-400">Weekly Profit Progress</span>
-                    <span className="text-white font-bold">{strategy.progressPercentage ?? 0}%</span>
-                  </div>
-                  <div className="h-4 bg-gray-800 rounded-full overflow-hidden mb-4">
-                    <div className="h-full rounded-full transition-all duration-700 bg-gradient-to-r from-red-600 to-rose-400"
-                      style={{ width: `${Math.min(100, strategy.progressPercentage ?? 0)}%` }} />
-                  </div>
-                  <div className="grid grid-cols-3 gap-4">
-                    <div className="bg-gray-800/60 rounded-xl p-4 text-center">
-                      <p className="text-2xl font-bold text-white">{strategy.progressTrades ?? 0}</p>
-                      <p className="text-xs text-gray-400 mt-1">Total Trades</p>
-                    </div>
-                    <div className="bg-gray-800/60 rounded-xl p-4 text-center">
-                      <p className="text-2xl font-bold text-emerald-400">{strategy.progressWinRate ?? 0}%</p>
-                      <p className="text-xs text-gray-400 mt-1">Win Rate</p>
-                    </div>
-                    <div className="bg-gray-800/60 rounded-xl p-4 text-center">
-                      <p className="text-2xl font-bold text-amber-400">${(strategy.currentProfit ?? 0).toFixed(2)}</p>
-                      <p className="text-xs text-gray-400 mt-1">vs ${strategy.profitTarget?.toFixed(2)} target</p>
-                    </div>
-                  </div>
-                  <div className="mt-4 pt-4 border-t border-gray-800 text-center">
-                    <a href="/live-monitor" className="text-red-400 underline text-sm">→ Open full Live Monitor for real-time trade feed</a>
-                  </div>
+
+            {/* ── Engine Status Row ── */}
+            <div className={`rounded-xl border p-4 flex flex-wrap items-center gap-4 ${
+              isRunning ? 'bg-cyan-950/30 border-cyan-700/40' : 'bg-gray-900/60 border-gray-800'
+            }`}>
+              <div className="flex items-center gap-2">
+                <span className={`w-2.5 h-2.5 rounded-full ${isRunning ? 'bg-emerald-400 animate-pulse' : 'bg-gray-600'}`} />
+                <span className={`font-bold text-sm ${isRunning ? 'text-emerald-400' : 'text-gray-400'}`}>
+                  {isRunning ? 'SS AI ENGINE RUNNING' : 'Engine Stopped'}
+                </span>
+                {isRunning && liveEngineStatus?.currentlyScanning && (
+                  <span className="text-[10px] bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 px-1.5 py-0.5 rounded animate-pulse">SCANNING</span>
+                )}
+              </div>
+              {isRunning && (
+                <div className="flex flex-wrap gap-3 text-xs text-gray-400 ml-auto">
+                  <span>Scans: <span className="text-white font-bold">{liveEngineStatus?.scanCount ?? 0}</span></span>
+                  <span>Signals: <span className="text-purple-400 font-bold">{liveEngineStatus?.signalsGenerated ?? 0}</span></span>
+                  <span>Executed: <span className="text-emerald-400 font-bold">{liveEngineStatus?.tradesExecuted ?? 0}</span></span>
+                  <span>Open: <span className="text-yellow-400 font-bold">{liveEngineStatus?.openPositionCount ?? 0}</span></span>
+                  <span>Failed: <span className="text-red-400 font-bold">{liveEngineStatus?.tradesFailed ?? 0}</span></span>
+                  {liveEngineStatus?.startedAt && (
+                    <span className="text-gray-600">Since {new Date(liveEngineStatus.startedAt).toLocaleTimeString()}</span>
+                  )}
                 </div>
               )}
+            </div>
+
+            {/* ── Weekly Profit Progress ── */}
+            {strategy && (
+              <div className="bg-gray-900/60 border border-gray-800 rounded-xl p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-white font-bold text-base flex items-center gap-2">
+                    🎯 Weekly Goal Progress
+                  </h3>
+                  <span className={`text-sm font-bold px-2 py-0.5 rounded-full ${
+                    (strategy.progressPercentage ?? 0) >= 100 ? 'bg-emerald-500/20 text-emerald-400' :
+                    (strategy.progressPercentage ?? 0) >= 60 ? 'bg-yellow-500/20 text-yellow-400' :
+                    'bg-red-500/20 text-red-400'
+                  }`}>
+                    {(strategy.progressPercentage ?? 0) >= 100 ? '✓ TARGET HIT' : `${strategy.progressPercentage ?? 0}%`}
+                  </span>
+                </div>
+                <div className="flex justify-between text-xs text-gray-400 mb-1.5">
+                  <span>Profit Progress</span>
+                  <span>${(strategy.currentProfit ?? 0).toFixed(2)} / ${(strategy.profitTarget ?? 0).toFixed(2)}</span>
+                </div>
+                <div className="h-3 bg-gray-800 rounded-full overflow-hidden mb-4">
+                  <div className="h-full rounded-full transition-all duration-700"
+                    style={{
+                      width: `${Math.min(100, strategy.progressPercentage ?? 0)}%`,
+                      background: (strategy.progressPercentage ?? 0) >= 100 ? 'linear-gradient(90deg,#10b981,#34d399)'
+                        : (strategy.progressPercentage ?? 0) >= 60 ? 'linear-gradient(90deg,#f59e0b,#fbbf24)'
+                        : 'linear-gradient(90deg,#dc2626,#ef4444)'
+                    }} />
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="bg-gray-800/60 rounded-lg p-3 text-center">
+                    <p className="text-xl font-bold text-white">{strategy.progressTrades ?? 0}</p>
+                    <p className="text-xs text-gray-500 mt-0.5">Trades</p>
+                  </div>
+                  <div className="bg-gray-800/60 rounded-lg p-3 text-center">
+                    <p className="text-xl font-bold text-emerald-400">{strategy.progressWinRate ?? 0}%</p>
+                    <p className="text-xs text-gray-500 mt-0.5">Win Rate</p>
+                  </div>
+                  <div className="bg-gray-800/60 rounded-lg p-3 text-center">
+                    <p className="text-xl font-bold text-amber-400">
+                      {tracker?.weeklyTarget > 0 ? `$${(tracker.weeklyTarget - (tracker.currentProfit ?? 0)).toFixed(2)}` : '—'}
+                    </p>
+                    <p className="text-xs text-gray-500 mt-0.5">Remaining</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── Engine Goal Tracker (from live engine) ── */}
+            {isRunning && tracker && tracker.weeklyTarget > 0 && (
+              <div className="bg-gray-900/60 border border-gray-700/40 rounded-xl p-5">
+                <h3 className="text-white font-bold text-base flex items-center gap-2 mb-3">
+                  ⚡ Live Engine Goal Tracker
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                    tracker.currentPhase === 'target_reached' ? 'bg-emerald-500/20 text-emerald-400' :
+                    tracker.currentPhase === 'pushing' ? 'bg-orange-500/20 text-orange-400' :
+                    tracker.currentPhase === 'accelerating' ? 'bg-yellow-500/20 text-yellow-400' :
+                    tracker.currentPhase === 'cruising' ? 'bg-cyan-500/20 text-cyan-400' :
+                    'bg-gray-500/20 text-gray-400'
+                  }`}>{tracker.currentPhase?.replace(/_/g, ' ').toUpperCase()}</span>
+                </h3>
+                <div className="flex justify-between text-xs text-gray-400 mb-1.5">
+                  <span>${(tracker.currentProfit ?? 0).toFixed(2)} earned</span>
+                  <span>${(tracker.weeklyTarget ?? 0).toFixed(2)} target — {tracker.progressPercent ?? 0}%</span>
+                </div>
+                <div className="h-3 bg-gray-800 rounded-full overflow-hidden mb-4">
+                  <div className="h-full rounded-full transition-all duration-700"
+                    style={{
+                      width: `${Math.min(100, tracker.progressPercent ?? 0)}%`,
+                      background: (tracker.progressPercent ?? 0) >= 100 ? 'linear-gradient(90deg,#10b981,#34d399)'
+                        : (tracker.progressPercent ?? 0) >= 75 ? 'linear-gradient(90deg,#f59e0b,#fbbf24)'
+                        : (tracker.progressPercent ?? 0) >= 50 ? 'linear-gradient(90deg,#06b6d4,#22d3ee)'
+                        : 'linear-gradient(90deg,#a855f7,#c084fc)'
+                    }} />
+                </div>
+                <div className="grid grid-cols-4 gap-2 text-center">
+                  {[
+                    { label: 'Wins', value: tracker.wins ?? 0, color: 'text-emerald-400' },
+                    { label: 'Losses', value: tracker.losses ?? 0, color: 'text-red-400' },
+                    { label: 'Win Rate', value: `${tracker.winRate ?? 0}%`, color: 'text-yellow-400' },
+                    { label: 'Compound', value: `${tracker.compoundMultiplier ?? 1}×`, color: 'text-cyan-400' },
+                  ].map(s => (
+                    <div key={s.label} className="bg-gray-800/60 rounded-lg p-2">
+                      <div className={`text-lg font-bold ${s.color}`}>{s.value}</div>
+                      <div className="text-[10px] text-gray-500">{s.label}</div>
+                    </div>
+                  ))}
+                </div>
+                {tracker.consecutiveWins > 1 && (
+                  <div className="mt-2 text-center text-xs text-emerald-400 bg-emerald-500/10 rounded-lg px-3 py-1.5">
+                    🔥 {tracker.consecutiveWins}-win streak — compound active at {tracker.compoundMultiplier}×
+                  </div>
+                )}
+                {tracker.consecutiveLosses > 1 && (
+                  <div className="mt-2 text-center text-xs text-red-400 bg-red-500/10 rounded-lg px-3 py-1.5">
+                    ⚠️ {tracker.consecutiveLosses}-loss streak — lot size reduced to {tracker.compoundMultiplier}×
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── Connected TradeLocker Accounts ── */}
+            {activeTLEngineConns.length > 0 && (
+              <div className="bg-gray-900/60 border border-gray-800 rounded-xl p-5">
+                <h3 className="text-white font-bold text-base flex items-center gap-2 mb-3">
+                  🔗 Connected TradeLocker Accounts
+                  <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded-full font-bold">{activeTLEngineConns.length} active</span>
+                </h3>
+                <div className="space-y-2">
+                  {activeTLEngineConns.map((c: any) => (
+                    <div key={c.id} className="flex items-center justify-between bg-gray-800/50 border border-cyan-700/20 rounded-lg px-3 py-2.5">
+                      <div className="flex items-center gap-2.5">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                        <div>
+                          <p className="text-sm text-white font-medium">{c.email}</p>
+                          <p className="text-[10px] text-gray-500">{c.serverId} · Account {c.accountId}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${c.accountType === 'live' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}`}>
+                          {c.accountType?.toUpperCase()}
+                        </span>
+                        {c.lotMultiplier && c.lotMultiplier !== 1 ? (
+                          <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded ${c.lotMultiplier > 1 ? 'bg-amber-500/15 text-amber-400' : 'bg-blue-500/15 text-blue-400'}`}>
+                            ×{c.lotMultiplier}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-gray-500">×1.0</span>
+                        )}
+                        <a href="/webhooks" className="text-[10px] text-cyan-400 hover:text-cyan-300">Manage →</a>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {activeTLEngineConns.length === 0 && (
+              <div className="bg-gray-900/60 border border-gray-800 rounded-xl p-5 text-center">
+                <p className="text-gray-500 text-sm">No active TradeLocker accounts connected.</p>
+                <a href="/webhooks" className="text-cyan-400 text-sm underline mt-1 inline-block">Connect a TradeLocker account →</a>
+              </div>
+            )}
+
+            <div className="text-center pt-1">
+              <a href="/live-monitor" className="text-red-400 underline text-sm">→ Open full Live Monitor for real-time trade feed</a>
             </div>
           </div>
         )}
