@@ -23,7 +23,8 @@ interface WeeklyStrategy {
 export function WeeklyProgressWidget({ compact = false, className = '' }: WeeklyProgressWidgetProps) {
   const { data: strategy } = useQuery<WeeklyStrategy>({
     queryKey: ['/api/weekly-strategy'],
-    refetchInterval: 60000,
+    refetchInterval: 15000,  // was 60s — now 15s for near-real-time progress
+    staleTime: 0,
   });
 
   if (!strategy?.profitTarget) {

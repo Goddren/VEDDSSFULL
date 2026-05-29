@@ -14225,7 +14225,17 @@ Respond with ONLY valid JSON:
     const userId = (req.user as User).id;
     const state = getLiveEngineState(userId);
     if (!state) return res.json({ status: 'stopped', message: 'Live engine not started' });
-    res.json(state);
+
+    // Derive weeklyProgress from goalTracker so the Session Monitor can display it
+    // The monitor reads eaStatus.weeklyProgress but state only has goalTracker
+    const gt = (state as any).goalTracker;
+    const weeklyProgress = gt ? {
+      currentProfit: gt.currentProfit ?? 0,
+      targetProfit:  gt.weeklyTarget  ?? 0,
+      progressPct:   gt.progressPercent ?? (gt.weeklyTarget > 0 ? Math.round((gt.currentProfit / gt.weeklyTarget) * 100) : 0),
+    } : undefined;
+
+    res.json({ ...state, weeklyProgress });
   });
 
   app.get("/api/vedd-live-engine/activity", async (req: Request, res: Response) => {

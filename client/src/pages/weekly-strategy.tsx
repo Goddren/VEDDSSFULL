@@ -681,7 +681,9 @@ function SetupChecklist({ growthPlan, profitTarget, selectedPairs, liveEngineSta
       num: 1,
       title: "Account Growth Plan",
       desc: "Link your growth plan to auto-set risk & trade limits",
-      done: !!growthPlan?.plan,
+      // done when growthPlan object exists (user has visited & saved the page)
+      // previously checked growthPlan?.plan (sub-object) which was null even after setup
+      done: !!growthPlan,
       link: "/account-growth",
       linkLabel: "Set Up",
     },
@@ -1025,13 +1027,14 @@ export default function WeeklyStrategyPage() {
     },
   });
 
-  // Auto-sync progress every 60 seconds when a strategy is active (silent — no toast)
+  // Auto-sync progress every 30 seconds when a strategy is active (silent — no toast)
+  // Was 60s — halved so today's profit and weekly goal bars update faster
   useEffect(() => {
     if (!strategy?.hasStrategy) return;
     updateProgressMutation.mutate(true); // immediate silent sync on mount
     const interval = setInterval(() => {
       updateProgressMutation.mutate(true);
-    }, 60000);
+    }, 30000);
     return () => clearInterval(interval);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [strategy?.hasStrategy]);
@@ -1069,20 +1072,24 @@ export default function WeeklyStrategyPage() {
   });
   const visionModels = (aiModelsData?.availableModels || []).filter((m: any) => !m.textOnly);
 
-  // Load & sync user's saved model preference
-  useQuery<any>({
-    queryKey: ['/api/ai-trading-models/config'],
-    onSuccess: (data: any) => {
-      if (data?.selectedModel) setConfirmationModel(data.selectedModel);
-    },
-  } as any);
+  // Load user's saved model preference — must use useEffect, not onSuccess (deprecated in RQ v5)
+  const { data: savedModelPref } = useQuery<any>({
+    queryKey: ['/api/ai-model-preference'],
+    staleTime: 0,
+    refetchOnMount: true,
+  });
+  useEffect(() => {
+    if (savedModelPref?.model) setConfirmationModel(savedModelPref.model);
+  }, [savedModelPref?.model]);
 
   const setModelMutation = useMutation({
     mutationFn: async (modelId: string) => {
-      const res = await apiRequest('POST', '/api/ai-trading-models/set-model', { modelId });
+      // Correct endpoint: /api/ai-model-preference (not /ai-trading-models/set-model which doesn't exist)
+      const res = await apiRequest('POST', '/api/ai-model-preference', { model: modelId });
       return res.json();
     },
-    onSuccess: () => toast({ title: "Model Updated", description: `2nd confirmation now uses ${confirmationModel}` }),
+    onSuccess: (_, modelId) => toast({ title: "Model Updated", description: `2nd confirmation now uses ${modelId}` }),
+    onError: () => toast({ title: "Model save failed", description: "Could not save model preference", variant: "destructive" }),
   });
 
   const handleSetConfirmationModel = (modelId: string) => {
@@ -1092,6 +1099,8 @@ export default function WeeklyStrategyPage() {
 
   const { data: brainStatus } = useQuery<any>({
     queryKey: ['/api/vedd-brain/status'],
+    refetchInterval: 15000,  // auto-refresh so accuracy % and trade count stay live
+    staleTime: 0,
   });
 
   const { data: autonomousSignals } = useQuery<any>({
@@ -1461,7 +1470,17 @@ export default function WeeklyStrategyPage() {
       if (data.error) toast({ title: 'Backtest failed', description: data.error, variant: 'destructive' });
       else toast({ title: '✅ Backtest complete', description: `${data.stats?.totalTrades} trades · ${data.stats?.winRate?.toFixed(1)}% win rate · ${data.stats?.totalPnlPct >= 0 ? '+' : ''}${data.stats?.totalPnlPct?.toFixed(2)}%` });
     },
-    onError: () => toast({ title: 'Backtest failed', variant: 'destructive' }),
+    onError: (err: any) => {
+      const msg = err?.message || '';
+      const isNoData = msg.toLowerCase().includes('insufficient') || msg.toLowerCase().includes('data');
+      toast({
+        title: 'Backtest failed',
+        description: isNoData
+          ? 'No historical data available. Connect your MT5 EA and load chart data for this pair first, then retry.'
+          : (msg || 'Server error — check your connection'),
+        variant: 'destructive',
+      });
+    },
   });
 
   const openShareDialog = () => {
@@ -1569,11 +1588,11 @@ export default function WeeklyStrategyPage() {
       .map(([k]) => k.replace('|', ' + '));
 
     const riskInstruction =
-      phase === 'target_reached' ? 'LOCK IN PROFITS — engine on cruise control, only A+ setups' :
-      phase === 'pushing' ? 'PUSH HARD — aggressive entries, compound lot sizes enabled' :
-      phase === 'accelerating' ? 'STEP ON IT — medium-high confidence threshold, scale into winners' :
-      phase === 'building' ? 'BUILD STEADY — standard risk, stack consistent wins' :
-      'WARM UP — conservative approach, 75%+ confidence only, learn the market';
+      phase === 'target_reached' ? '🔒 LOCK IN PROFITS — preservation mode only, A+ setups 90%+ confidence, minimum lots' :
+      phase === 'pushing'        ? '🛡️ REDUCE RISK — you\'re 80%+ done, protect the gains. Smaller lots, only sniper/ICT setups, no scalping' :
+      phase === 'accelerating'   ? '⚡ SCALE UP — 25%+ done, maintain quality standards, 3-5 trades max per session' :
+      phase === 'building'       ? '📈 BUILD STEADY — standard risk, stack consistent wins, don\'t force trades' :
+      '🌡️ WARM UP — conservative approach, 82%+ confidence only, learn the market conditions this week';
 
     return { favourPairs, avoidPairs, bestCombos, session, remaining, riskInstruction, phase };
   };
