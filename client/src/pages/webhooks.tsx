@@ -194,6 +194,7 @@ type TradelockerConnection = {
   accountType: string;
   isActive: boolean;
   autoExecute: boolean;
+  lotMultiplier: number;
   lastConnectedAt: string | null;
   lastError: string | null;
   tradeCount: number;
@@ -408,6 +409,8 @@ export default function WebhooksPage() {
   // TradeLocker Direct Connection state
   const [showTLPassword, setShowTLPassword] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
+  // Per-account lot multiplier editing state: { [connId]: string }
+  const [lotMultiplierEdits, setLotMultiplierEdits] = useState<Record<number, string>>({});
   const [showInstrumentsDialog, setShowInstrumentsDialog] = useState(false);
   const [instrumentsConnId, setInstrumentsConnId] = useState<number | null>(null);
   const [tlConnectionForm, setTLConnectionForm] = useState({
@@ -454,7 +457,7 @@ export default function WebhooksPage() {
   });
 
   const updateTLConnectionMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: number; data: { isActive?: boolean; autoExecute?: boolean } }) => {
+    mutationFn: async ({ id, data }: { id: number; data: { isActive?: boolean; autoExecute?: boolean; lotMultiplier?: number } }) => {
       const res = await apiRequest('PATCH', `/api/tradelocker/connection/${id}`, data);
       return res.json();
     },
@@ -1592,6 +1595,36 @@ export default function WebhooksPage() {
                                 checked={conn.isActive}
                                 onCheckedChange={(checked) => updateTLConnectionMutation.mutate({ id: conn.id, data: { isActive: checked } })}
                               />
+                            </div>
+                          </div>
+                          {/* Per-account lot multiplier */}
+                          <div className="flex items-center justify-between p-2 bg-gray-900/50 rounded text-xs mt-2">
+                            <div>
+                              <span className="text-gray-300 font-medium">Lot Multiplier</span>
+                              <p className="text-gray-500 text-[10px]">Scale lots for this account (0.1 = 10%, 2.0 = double)</p>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <input
+                                type="number"
+                                step="0.1"
+                                min="0.1"
+                                max="10"
+                                className="w-16 bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-xs text-right focus:outline-none focus:border-cyan-500"
+                                value={lotMultiplierEdits[conn.id] ?? String(conn.lotMultiplier ?? 1)}
+                                onChange={(e) => setLotMultiplierEdits(prev => ({ ...prev, [conn.id]: e.target.value }))}
+                                onBlur={(e) => {
+                                  const val = parseFloat(e.target.value);
+                                  if (!isNaN(val) && val >= 0.1 && val <= 10) {
+                                    updateTLConnectionMutation.mutate({ id: conn.id, data: { lotMultiplier: val } });
+                                  } else {
+                                    // Reset to current server value on invalid input
+                                    setLotMultiplierEdits(prev => ({ ...prev, [conn.id]: String(conn.lotMultiplier ?? 1) }));
+                                  }
+                                }}
+                              />
+                              <span className={`text-[10px] font-semibold ${(conn.lotMultiplier ?? 1) === 1 ? 'text-gray-500' : (conn.lotMultiplier ?? 1) > 1 ? 'text-amber-400' : 'text-blue-400'}`}>
+                                ×{conn.lotMultiplier ?? 1}
+                              </span>
                             </div>
                           </div>
                         </div>

@@ -12664,8 +12664,15 @@ Rules:
       return res.status(404).json({ error: "No connection found" });
     }
 
-    const { isActive, autoExecute } = req.body;
-    const updated = await storage.updateTradelockerConnection(connId, { isActive, autoExecute });
+    const { isActive, autoExecute, lotMultiplier } = req.body;
+    const updateDataById: Record<string, any> = {};
+    if (isActive !== undefined) updateDataById.isActive = isActive;
+    if (autoExecute !== undefined) updateDataById.autoExecute = autoExecute;
+    if (lotMultiplier !== undefined) {
+      const mult = parseFloat(lotMultiplier);
+      if (!isNaN(mult) && mult >= 0.01 && mult <= 10) updateDataById.lotMultiplier = mult;
+    }
+    const updated = await storage.updateTradelockerConnection(connId, updateDataById);
     if (!updated) {
       return res.status(500).json({ error: "Failed to update connection" });
     }
@@ -12686,8 +12693,15 @@ Rules:
       return res.status(404).json({ error: "No connection found" });
     }
 
-    const { isActive, autoExecute } = req.body;
-    const updated = await storage.updateTradelockerConnection(connection.id, { isActive, autoExecute });
+    const { isActive, autoExecute, lotMultiplier } = req.body;
+    const updateDataLegacy: Record<string, any> = {};
+    if (isActive !== undefined) updateDataLegacy.isActive = isActive;
+    if (autoExecute !== undefined) updateDataLegacy.autoExecute = autoExecute;
+    if (lotMultiplier !== undefined) {
+      const mult = parseFloat(lotMultiplier);
+      if (!isNaN(mult) && mult >= 0.01 && mult <= 10) updateDataLegacy.lotMultiplier = mult;
+    }
+    const updated = await storage.updateTradelockerConnection(connection.id, updateDataLegacy);
     if (!updated) {
       return res.status(500).json({ error: "Failed to update connection" });
     }

@@ -4011,11 +4011,16 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       // Execute on ALL active accounts in parallel
       const openResults = await Promise.allSettled(
         activeTLConnections.map(async (tlConn: any) => {
+          // Apply per-account lot multiplier (default 1.0 = no change)
+          const acctMult = typeof tlConn.lotMultiplier === 'number' && tlConn.lotMultiplier > 0
+            ? tlConn.lotMultiplier : 1.0;
+          const acctLot = Math.max(0.01, Math.round(lotSize * acctMult * 100) / 100);
+
           const tradeResult = await executeMT5SignalOnTradeLocker(tlConn, {
             action: 'OPEN',
             symbol: decision.symbol,
             direction: decision.direction,
-            volume: lotSize,
+            volume: acctLot,
             entryPrice,
             stopLoss,
             takeProfit,
@@ -4028,7 +4033,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
             action: 'OPEN',
             symbol: decision.symbol,
             direction: decision.direction,
-            volume: lotSize,
+            volume: acctLot,
             entryPrice,
             stopLoss,
             takeProfit,
@@ -4037,15 +4042,16 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
             errorMessage: tradeResult.error || null,
           });
 
-          return { tlConn, tradeResult };
+          return { tlConn, tradeResult, acctLot };
         })
       );
 
       let anySuccess = false;
       for (const result of openResults) {
         if (result.status === 'fulfilled') {
-          const { tlConn, tradeResult } = result.value;
+          const { tlConn, tradeResult, acctLot: executedLot } = result.value;
           const acctLabel = tlConn.email ? `[${tlConn.email}]` : `[Account ${tlConn.id}]`;
+          const multLabel = (tlConn.lotMultiplier ?? 1) !== 1 ? ` (×${tlConn.lotMultiplier})` : '';
           if (tradeResult.success) {
             anySuccess = true;
             addActivity(userId, {
@@ -4053,7 +4059,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
               symbol: decision.symbol,
               direction: decision.direction,
               confidence: adjustedConfidence,
-              message: `TRADE EXECUTED via TradeLocker ${acctLabel}: ${decision.direction} ${decision.symbol} | Lot: ${lotSize} | SL: ${stopLoss || 'N/A'} | TP: ${takeProfit || 'N/A'} | Order: ${tradeResult.orderId}`,
+              message: `TRADE EXECUTED via TradeLocker ${acctLabel}: ${decision.direction} ${decision.symbol} | Lot: ${executedLot}${multLabel} | SL: ${stopLoss || 'N/A'} | TP: ${takeProfit || 'N/A'} | Order: ${tradeResult.orderId}`,
               details: { orderId: tradeResult.orderId, lotSize, stopLoss, takeProfit, confluences: decision.confluences },
             });
           } else {

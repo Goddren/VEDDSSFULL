@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp, jsonb, json, real, unique } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, jsonb, json, real, unique, doublePrecision } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -708,6 +708,7 @@ export const tradelockerConnections = pgTable("tradelocker_connections", {
   lastConnectedAt: timestamp("last_connected_at"),
   lastError: text("last_error"),
   tradeCount: integer("trade_count").notNull().default(0),
+  lotMultiplier: doublePrecision("lot_multiplier").notNull().default(1.0), // Per-account lot size multiplier (0.1–5.0)
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
