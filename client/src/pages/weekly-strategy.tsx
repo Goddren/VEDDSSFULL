@@ -912,6 +912,7 @@ export default function WeeklyStrategyPage() {
 
   const { data: liveMode } = useQuery<{ live: boolean; hasStrategy: boolean }>({
     queryKey: ['/api/weekly-strategy/live-mode'],
+    refetchInterval: 30000,  // refresh live-mode toggle status every 30s
   });
 
   const { data: aiLogs = [] } = useQuery<any[]>({

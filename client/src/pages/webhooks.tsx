@@ -343,6 +343,7 @@ export default function WebhooksPage() {
   const { data: logs = [] } = useQuery<WebhookLog[]>({
     queryKey: ['/api/webhooks', selectedWebhook?.id, 'logs'],
     enabled: !!selectedWebhook,
+    refetchInterval: 15000,  // refresh webhook logs every 15s when viewing a webhook
   });
 
   // MT5 Trade Copier state
@@ -357,6 +358,7 @@ export default function WebhooksPage() {
 
   const { data: mt5Signals = [] } = useQuery<Mt5SignalLog[]>({
     queryKey: ['/api/mt5-signals'],
+    refetchInterval: 15000,  // refresh MT5 signal log every 15s
   });
 
   // MT5 Chart Data EA connection status
@@ -425,6 +427,8 @@ export default function WebhooksPage() {
   // TradeLocker queries and mutations — multi-account
   const { data: tlConnections = [], isLoading: tlLoading } = useQuery<TradelockerConnection[]>({
     queryKey: ['/api/tradelocker/connections'],
+    refetchInterval: 30000,  // refresh TL account status every 30s
+    staleTime: 0,
   });
 
   // Legacy single-connection alias for instruments dialog (uses first connected)
@@ -437,6 +441,8 @@ export default function WebhooksPage() {
 
   const { data: tlTrades = [] } = useQuery<TradelockerTradeLog[]>({
     queryKey: ['/api/tradelocker/trades'],
+    refetchInterval: 15000,  // refresh trade log every 15s so new executions appear quickly
+    staleTime: 0,
   });
 
   const createTLConnectionMutation = useMutation({

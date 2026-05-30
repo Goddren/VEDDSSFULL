@@ -51,11 +51,13 @@ const getStatusIcon = (status: string) => {
 
 export function VeddRewardsPanel() {
   const { data: summary, isLoading: summaryLoading } = useQuery<RewardSummary>({
-    queryKey: ['/api/vedd/rewards/summary']
+    queryKey: ['/api/vedd/rewards/summary'],
+    refetchInterval: 120000,  // refresh token summary every 2 min
   });
 
   const { data: history, isLoading: historyLoading } = useQuery<RewardHistoryItem[]>({
-    queryKey: ['/api/vedd/rewards/history']
+    queryKey: ['/api/vedd/rewards/history'],
+    refetchInterval: 120000,  // refresh reward history every 2 min
   });
 
   return (

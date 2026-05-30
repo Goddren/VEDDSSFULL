@@ -190,6 +190,7 @@ const TradingCoach = ({ personality = 'professional', className }: TradingCoachP
 
   const { data: tradingTips = [] } = useQuery<TradingTip[]>({
     queryKey: ['/api/trading-tips'],
+    refetchInterval: 300000,  // refresh tips every 5 min
   });
 
   const tipsByCategory = tradingTips.reduce((acc, tip) => {
