@@ -169,7 +169,8 @@ interface LiveEngineConfig {
   // Safety
   dailyLossLimit: number;
   maxDailyTrades: number;                      // hard daily trade cap across all pairs (0 = unlimited)
-  directionFilter: 'buy_only' | 'sell_only' | 'both'; // restrict signal direction
+  directionFilter: 'buy_only' | 'sell_only' | 'both'; // restrict signal direction (global)
+  pairDirectionOverrides: Record<string, 'buy_only' | 'sell_only' | 'both'>; // per-pair overrides
   // AI cost control
   aiMode: 'full' | 'economy' | 'rule_based';
   // R-Multiple: pip buffer above entry at 1R stage
@@ -734,6 +735,7 @@ function getDefaultConfig(userId: number): LiveEngineConfig {
     dailyLossLimit: 5,
     maxDailyTrades: 0,
     directionFilter: 'both',
+    pairDirectionOverrides: {},
     aiMode: 'full',
     breakevenBufferPips: 5,
     trailFixedPips: 20,
@@ -3143,24 +3145,27 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
 
   if (decision.action === 'OPEN_TRADE') {
     // ── Direction Filter Gate ─────────────────────────────────────────────
-    // Enforces config.directionFilter ('buy_only' | 'sell_only' | 'both').
-    // Previously this field existed in the config type but was never checked
-    // in processDecision — signals in the blocked direction still executed.
+    // Per-pair overrides take priority over the global directionFilter.
+    // e.g. pairDirectionOverrides: { XAUUSD: 'buy_only' } blocks gold sells
+    // even when the global filter is 'both'.
     const _signalDirRaw = (decision.direction || '').toUpperCase();
-    if (config.directionFilter === 'buy_only' && _signalDirRaw === 'SELL') {
+    const _pairFilter = config.pairDirectionOverrides?.[decision.symbol] ?? config.directionFilter ?? 'both';
+    if (_pairFilter === 'buy_only' && _signalDirRaw === 'SELL') {
+      const isOverride = !!config.pairDirectionOverrides?.[decision.symbol];
       addActivity(userId, {
         type: 'info',
         symbol: decision.symbol,
-        message: `🚫 DIRECTION FILTER: SELL on ${decision.symbol} blocked — engine is set to BUY ONLY. Change direction filter in settings to allow sells.`,
+        message: `🚫 DIRECTION FILTER: SELL on ${decision.symbol} blocked — ${isOverride ? `${decision.symbol} is set to BUY ONLY (per-pair override)` : 'engine is set to BUY ONLY'}. Change in engine settings to allow sells.`,
       });
       state.signalsGenerated++;
       return;
     }
-    if (config.directionFilter === 'sell_only' && _signalDirRaw === 'BUY') {
+    if (_pairFilter === 'sell_only' && _signalDirRaw === 'BUY') {
+      const isOverride = !!config.pairDirectionOverrides?.[decision.symbol];
       addActivity(userId, {
         type: 'info',
         symbol: decision.symbol,
-        message: `🚫 DIRECTION FILTER: BUY on ${decision.symbol} blocked — engine is set to SELL ONLY. Change direction filter in settings to allow buys.`,
+        message: `🚫 DIRECTION FILTER: BUY on ${decision.symbol} blocked — ${isOverride ? `${decision.symbol} is set to SELL ONLY (per-pair override)` : 'engine is set to SELL ONLY'}. Change in engine settings to allow buys.`,
       });
       state.signalsGenerated++;
       return;

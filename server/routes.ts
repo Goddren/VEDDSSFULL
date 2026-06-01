@@ -14179,7 +14179,7 @@ Respond with ONLY valid JSON:
   app.post("/api/vedd-live-engine/start", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
-    const { pairs, strategyMode, scanIntervalMs, maxOpenTrades, riskPerTrade, minConfidence, enablePositionManagement, trailingStopEnabled, trailingStopATRMultiplier, weeklyProfitTarget, accountBalance, enableCompounding, baseLotSize, propFirmMode, propFirmDailyDrawdownLimit, maxLotSize, adaptiveScanInterval, enablePyramiding, useKellyCriterion, drawdownShieldThreshold, dailyLossLimit, aiMode, breakevenBufferPips } = req.body;
+    const { pairs, strategyMode, scanIntervalMs, maxOpenTrades, riskPerTrade, minConfidence, enablePositionManagement, trailingStopEnabled, trailingStopATRMultiplier, weeklyProfitTarget, accountBalance, enableCompounding, baseLotSize, propFirmMode, propFirmDailyDrawdownLimit, maxLotSize, adaptiveScanInterval, enablePyramiding, useKellyCriterion, drawdownShieldThreshold, dailyLossLimit, aiMode, breakevenBufferPips, directionFilter, pairDirectionOverrides } = req.body;
     try {
       const state = startLiveEngine(userId, {
         pairs: pairs || undefined,
@@ -14205,6 +14205,13 @@ Respond with ONLY valid JSON:
         dailyLossLimit: dailyLossLimit !== undefined ? Number(dailyLossLimit) : undefined,
         aiMode: ['full', 'economy', 'rule_based'].includes(aiMode) ? aiMode : undefined,
         breakevenBufferPips: breakevenBufferPips !== undefined ? Math.min(20, Math.max(0, Number(breakevenBufferPips))) : undefined,
+        directionFilter: ['buy_only', 'sell_only', 'both'].includes(directionFilter) ? directionFilter : undefined,
+        pairDirectionOverrides: pairDirectionOverrides && typeof pairDirectionOverrides === 'object'
+          ? Object.fromEntries(
+              Object.entries(pairDirectionOverrides)
+                .filter(([, v]) => ['buy_only', 'sell_only', 'both'].includes(v as string))
+            ) as Record<string, 'buy_only' | 'sell_only' | 'both'>
+          : undefined,
       });
       res.json({ success: true, state });
     } catch (err: any) {

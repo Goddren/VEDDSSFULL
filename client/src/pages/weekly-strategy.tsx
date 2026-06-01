@@ -1182,6 +1182,8 @@ export default function WeeklyStrategyPage() {
   });
 
   const [enginePairs, setEnginePairs] = useState<string[]>(['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'BTCUSD']);
+  // Per-pair direction overrides: { XAUUSD: 'buy_only', EURUSD: 'both', ... }
+  const [pairDirectionOverrides, setPairDirectionOverrides] = useState<Record<string, 'buy_only' | 'sell_only' | 'both'>>({});
   // ── Connected account selector ─────────────────────────────────────────────
   const [selectedEngineAccount, setSelectedEngineAccount] = useState<ConnectedAccount | null>(null);
 
@@ -1367,6 +1369,7 @@ export default function WeeklyStrategyPage() {
         trailSarMaxAF: engineTrailSarMaxAF,
         aiMode: engineAiMode,
         executionBroker: engineExecutionSource,
+        pairDirectionOverrides: Object.keys(pairDirectionOverrides).length > 0 ? pairDirectionOverrides : undefined,
       });
       return res.json();
     },
@@ -2184,20 +2187,47 @@ export default function WeeklyStrategyPage() {
                   </div>
                   <div>
                     <Label className="text-gray-400 text-xs">Trading Pairs</Label>
-                    <div className="mt-1 flex flex-wrap gap-1.5">
-                      {enginePairs.map(p => (
-                        <Badge key={p} className="bg-cyan-500/10 text-cyan-300 border-cyan-500/30 text-[10px] cursor-pointer hover:bg-red-500/20 hover:text-red-300 hover:border-red-500/30 transition-colors"
-                          onClick={() => removeEnginePair(p)}>
-                          {p} ×
-                        </Badge>
-                      ))}
-                      <div className="flex gap-1">
+                    <div className="mt-1 flex flex-wrap gap-2">
+                      {enginePairs.map(p => {
+                        const dir = pairDirectionOverrides[p] ?? 'both';
+                        return (
+                          <div key={p} className="flex items-center gap-0.5 bg-gray-800/60 border border-gray-700/60 rounded-md px-1.5 py-1">
+                            {/* Direction toggle: ↕ Both / ▲ Buy / ▼ Sell */}
+                            <button
+                              title="Both directions"
+                              onClick={() => setPairDirectionOverrides(prev => { const n = { ...prev }; delete n[p]; return n; })}
+                              className={`w-5 h-5 rounded text-[9px] font-bold flex items-center justify-center transition-colors ${dir === 'both' ? 'bg-cyan-500/30 text-cyan-300 border border-cyan-500/40' : 'text-gray-600 hover:text-gray-400'}`}
+                            >↕</button>
+                            <button
+                              title="Buy only"
+                              onClick={() => setPairDirectionOverrides(prev => ({ ...prev, [p]: 'buy_only' }))}
+                              className={`w-5 h-5 rounded text-[9px] font-bold flex items-center justify-center transition-colors ${dir === 'buy_only' ? 'bg-emerald-500/30 text-emerald-300 border border-emerald-500/40' : 'text-gray-600 hover:text-emerald-400'}`}
+                            >▲</button>
+                            <button
+                              title="Sell only"
+                              onClick={() => setPairDirectionOverrides(prev => ({ ...prev, [p]: 'sell_only' }))}
+                              className={`w-5 h-5 rounded text-[9px] font-bold flex items-center justify-center transition-colors ${dir === 'sell_only' ? 'bg-red-500/30 text-red-300 border border-red-500/40' : 'text-gray-600 hover:text-red-400'}`}
+                            >▼</button>
+                            {/* Pair label + remove */}
+                            <span className={`text-[10px] font-semibold mx-1 ${dir === 'buy_only' ? 'text-emerald-300' : dir === 'sell_only' ? 'text-red-300' : 'text-cyan-300'}`}>{p}</span>
+                            <button
+                              title="Remove pair"
+                              onClick={() => removeEnginePair(p)}
+                              className="text-gray-600 hover:text-red-400 text-[10px] leading-none ml-0.5 transition-colors"
+                            >×</button>
+                          </div>
+                        );
+                      })}
+                      <div className="flex gap-1 items-center">
                         <Input value={enginePairInput} onChange={e => setEnginePairInput(e.target.value)}
                           placeholder="Add pair..." className="h-6 w-24 bg-gray-800 border-gray-700 text-white text-[10px] px-2"
                           onKeyDown={e => e.key === 'Enter' && addEnginePair()} />
                         <Button size="sm" variant="outline" onClick={addEnginePair} className="h-6 px-2 text-[10px]">+</Button>
                       </div>
                     </div>
+                    <p className="text-[9px] text-gray-600 mt-1">
+                      ↕ both directions &nbsp;·&nbsp; <span className="text-emerald-600">▲ buy only</span> &nbsp;·&nbsp; <span className="text-red-600">▼ sell only</span> — click buttons on each pair to override direction
+                    </p>
                   </div>
                   <div className="flex items-center justify-between pt-1">
                     <label className={`flex items-center gap-2 ${kellyMode ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}>
