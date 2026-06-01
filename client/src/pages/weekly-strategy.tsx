@@ -949,6 +949,14 @@ export default function WeeklyStrategyPage() {
   });
   const activeTLEngineConns = tlConnectionsEngine.filter((c: any) => c.isActive);
 
+  // Markov chain probability data — updated every scan cycle
+  const { data: markovOverview } = useQuery<{ overview: any[]; count: number }>({
+    queryKey: ['/api/markov/overview'],
+    refetchInterval: 15000,
+    staleTime: 0,
+    enabled: !!user,
+  });
+
   // Pre-fill balance from connected account whenever data arrives
   useEffect(() => {
     const mt5Balance = mt5AccountData?.accounts?.[0]?.balance ?? (mt5AccountData?.connected ? mt5AccountData?.balance : null);
@@ -4948,6 +4956,68 @@ export default function WeeklyStrategyPage() {
                 </div>
               )}
             </div>
+
+            {/* ── Markov Chain Probability Matrix ── */}
+            {markovOverview && markovOverview.overview.length > 0 && (
+              <div className="bg-gray-900/60 border border-purple-700/30 rounded-xl p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-white font-bold text-sm flex items-center gap-2">
+                    🎲 Markov Probability Matrix
+                    <span className="text-[10px] bg-purple-500/20 text-purple-300 px-1.5 py-0.5 rounded-full font-bold">LIVE</span>
+                  </h3>
+                  <span className="text-[10px] text-gray-500">{markovOverview.overview.length} pairs</span>
+                </div>
+                {/* Header row */}
+                <div className="grid grid-cols-5 gap-1 mb-1 px-1">
+                  <span className="text-[9px] text-gray-500 font-semibold col-span-1">PAIR</span>
+                  <span className="text-[9px] text-gray-500 font-semibold text-center">STATE</span>
+                  <span className="text-[9px] text-emerald-400 font-semibold text-center">BULL%</span>
+                  <span className="text-[9px] text-red-400 font-semibold text-center">BEAR%</span>
+                  <span className="text-[9px] text-gray-400 font-semibold text-center">EDGE</span>
+                </div>
+                <div className="space-y-1">
+                  {markovOverview.overview.slice(0, 8).map((m: any) => {
+                    const edge = m.bullishProbability - m.bearishProbability;
+                    const edgeColor = edge >= 15 ? 'text-emerald-400' : edge <= -15 ? 'text-red-400' : 'text-gray-400';
+                    const stateColor =
+                      m.currentState === 'STRONG_BULL' ? 'text-emerald-400' :
+                      m.currentState === 'BULL'        ? 'text-green-400' :
+                      m.currentState === 'STRONG_BEAR' ? 'text-red-400' :
+                      m.currentState === 'BEAR'        ? 'text-orange-400' :
+                                                         'text-gray-400';
+                    const stateLabel =
+                      m.currentState === 'STRONG_BULL' ? '▲▲' :
+                      m.currentState === 'BULL'        ? '▲' :
+                      m.currentState === 'STRONG_BEAR' ? '▼▼' :
+                      m.currentState === 'BEAR'        ? '▼' : '─';
+                    return (
+                      <div key={m.symbol} className="grid grid-cols-5 gap-1 items-center bg-gray-800/40 rounded px-2 py-1.5">
+                        <span className="text-xs text-white font-mono font-bold truncate">{m.symbol}</span>
+                        <span className={`text-[11px] font-bold text-center ${stateColor}`}>{stateLabel}</span>
+                        <div className="text-center">
+                          <span className="text-xs font-bold text-emerald-400">{m.bullishProbability}%</span>
+                          <div className="h-1 bg-gray-700 rounded-full mt-0.5 overflow-hidden">
+                            <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${m.bullishProbability}%` }} />
+                          </div>
+                        </div>
+                        <div className="text-center">
+                          <span className="text-xs font-bold text-red-400">{m.bearishProbability}%</span>
+                          <div className="h-1 bg-gray-700 rounded-full mt-0.5 overflow-hidden">
+                            <div className="h-full bg-red-500 rounded-full" style={{ width: `${m.bearishProbability}%` }} />
+                          </div>
+                        </div>
+                        <span className={`text-xs font-bold text-center ${edgeColor}`}>
+                          {edge > 0 ? '+' : ''}{edge}%
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+                <p className="text-[10px] text-gray-600 mt-2 text-center">
+                  Markov edge = P(bullish next state) − P(bearish next state) · Built from last 50 closed candles per pair
+                </p>
+              </div>
+            )}
 
             {/* ── Weekly Profit Progress ── */}
             {strategy && (

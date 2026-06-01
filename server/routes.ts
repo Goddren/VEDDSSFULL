@@ -14268,6 +14268,101 @@ Respond with ONLY valid JSON:
     res.json({ success: true, state });
   });
 
+  // ── Markov Chain Probability Routes ──────────────────────────────────────
+  // GET /api/markov/overview  — current state + probabilities for all scanned symbols
+  app.get("/api/markov/overview", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { getAllCachedSymbols, getCachedMatrix, classifyCandle } = await import('./services/markov-chain');
+      const { getLiveEngineState } = await import('./services/live-trading-engine');
+      const userId = (req.user as User).id;
+      const engineState = getLiveEngineState(userId);
+      const symbols = getAllCachedSymbols();
+
+      const overview = symbols.map(symbol => {
+        const tm = getCachedMatrix(symbol);
+        const snap = engineState?.marketSnapshot?.[symbol] as any;
+        const lastCC = snap?.lastConfirmedCandle ?? null;
+        const currentState = lastCC
+          ? classifyCandle(lastCC.open, lastCC.close)
+          : 'NEUTRAL';
+
+        const row = tm?.matrix?.[currentState] ?? {};
+        const bullP = ((row['STRONG_BULL'] ?? 0) + (row['BULL'] ?? 0));
+        const bearP = ((row['STRONG_BEAR'] ?? 0) + (row['BEAR'] ?? 0));
+        const neutP = row['NEUTRAL'] ?? 0;
+
+        return {
+          symbol,
+          currentState,
+          bullishProbability:  Math.round(bullP * 100),
+          bearishProbability:  Math.round(bearP * 100),
+          neutralProbability:  Math.round(neutP * 100),
+          candleCount:  tm?.candleCount ?? 0,
+          computedAt:   tm?.computedAt ?? null,
+          currentPrice: snap?.price ?? null,
+          trend:        snap?.trend ?? 'NEUTRAL',
+        };
+      });
+
+      res.json({ overview, count: overview.length });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/markov/symbol/:symbol — full transition matrix + probabilities for one symbol
+  app.get("/api/markov/symbol/:symbol", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const symbol = req.params.symbol.toUpperCase();
+      const { getCachedMatrix, classifyCandle, MARKOV_STATES } = await import('./services/markov-chain');
+      const { getLiveEngineState } = await import('./services/live-trading-engine');
+      const userId = (req.user as User).id;
+      const engineState = getLiveEngineState(userId);
+
+      const tm = getCachedMatrix(symbol);
+      if (!tm) return res.status(404).json({ error: `No Markov data for ${symbol} — engine must be running and have scanned this symbol` });
+
+      const snap = engineState?.marketSnapshot?.[symbol] as any;
+      const lastCC = snap?.lastConfirmedCandle ?? null;
+      const currentState = lastCC ? classifyCandle(lastCC.open, lastCC.close) : 'NEUTRAL';
+
+      // Build a clean display matrix (percentages, not raw probabilities)
+      const displayMatrix: Record<string, Record<string, number>> = {};
+      for (const from of MARKOV_STATES) {
+        displayMatrix[from] = {};
+        for (const to of MARKOV_STATES) {
+          displayMatrix[from][to] = Math.round((tm.matrix[from][to] ?? 0) * 100);
+        }
+      }
+
+      const row = tm.matrix[currentState];
+      const bullP = ((row['STRONG_BULL'] ?? 0) + (row['BULL'] ?? 0));
+      const bearP = ((row['STRONG_BEAR'] ?? 0) + (row['BEAR'] ?? 0));
+
+      res.json({
+        symbol,
+        currentState,
+        bullishProbability: Math.round(bullP * 100),
+        bearishProbability: Math.round(bearP * 100),
+        neutralProbability: Math.round((row['NEUTRAL'] ?? 0) * 100),
+        nextStateProbabilities: Object.fromEntries(
+          Object.entries(row).map(([k, v]) => [k, Math.round((v as number) * 100)])
+        ),
+        matrix: displayMatrix,
+        counts: tm.counts,
+        candleCount: tm.candleCount,
+        totalTransitions: tm.totalTransitions,
+        computedAt: tm.computedAt,
+        currentPrice: snap?.price ?? null,
+        trend: snap?.trend ?? 'NEUTRAL',
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // SS Engine dual-vote consensus feed (quant + AI per signal)
   app.get("/api/ss-engine/consensus", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });

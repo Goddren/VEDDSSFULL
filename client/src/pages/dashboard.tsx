@@ -510,6 +510,14 @@ const Dashboard: React.FC = () => {
     refetchInterval: 120000,
   });
 
+  // Markov chain probability overview — updated each engine scan cycle
+  const { data: markovData } = useQuery<{ overview: any[]; count: number }>({
+    queryKey: ['/api/markov/overview'],
+    enabled: !!user && ssEngineStatus?.status === 'running',
+    refetchInterval: 15000,
+    staleTime: 0,
+  });
+
   // TradeLocker connections — all active accounts (multi-account support)
   const { data: tlConnectionsAll = [] } = useQuery<any[]>({
     queryKey: ['/api/tradelocker/connections'],
@@ -1044,6 +1052,43 @@ const Dashboard: React.FC = () => {
                 </div>
               )}
             </div>
+          )}
+
+          {/* ── Markov Probability Card — shown when engine is running ── */}
+          {ssEngineStatus?.status === 'running' && markovData && markovData.overview.length > 0 && (
+            <Link href="/weekly-strategy?tab=monitor">
+              <div className="rounded-2xl p-3 mb-4 cursor-pointer hover:border-purple-500/40 transition-colors" style={{ background: 'rgba(168,85,247,0.05)', border: '1px solid rgba(168,85,247,0.2)' }}>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
+                    <p className="text-white text-xs font-semibold">🎲 Markov Probability</p>
+                  </div>
+                  <span className="text-[10px] text-purple-400 font-bold">{markovData.overview.length} pairs</span>
+                </div>
+                <div className="space-y-1">
+                  {markovData.overview.slice(0, 4).map((m: any) => {
+                    const edge = m.bullishProbability - m.bearishProbability;
+                    const bias = edge >= 10 ? 'text-emerald-400' : edge <= -10 ? 'text-red-400' : 'text-gray-400';
+                    const stateIcon =
+                      m.currentState === 'STRONG_BULL' ? '▲▲' :
+                      m.currentState === 'BULL'        ? '▲' :
+                      m.currentState === 'STRONG_BEAR' ? '▼▼' :
+                      m.currentState === 'BEAR'        ? '▼' : '─';
+                    return (
+                      <div key={m.symbol} className="flex items-center justify-between text-[11px]">
+                        <span className="text-gray-400 font-mono w-16">{m.symbol}</span>
+                        <span className={`w-5 text-center font-bold ${bias}`}>{stateIcon}</span>
+                        <div className="flex-1 mx-2 h-1.5 bg-gray-800 rounded-full overflow-hidden flex">
+                          <div className="h-full bg-emerald-500/70 rounded-l-full" style={{ width: `${m.bullishProbability}%` }} />
+                          <div className="h-full bg-red-500/70 rounded-r-full" style={{ width: `${m.bearishProbability}%` }} />
+                        </div>
+                        <span className={`font-bold w-10 text-right ${bias}`}>{edge > 0 ? '+' : ''}{edge}%</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </Link>
           )}
 
           <div className="grid grid-cols-3 gap-3">
