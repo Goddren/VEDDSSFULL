@@ -171,6 +171,9 @@ interface LiveEngineConfig {
   maxDailyTrades: number;                      // hard daily trade cap across all pairs (0 = unlimited)
   directionFilter: 'buy_only' | 'sell_only' | 'both'; // restrict signal direction (global)
   pairDirectionOverrides: Record<string, 'buy_only' | 'sell_only' | 'both'>; // per-pair overrides
+  // Composite Autonomous mode: fire trades directly from Markov×Polymarket (crypto only)
+  enableCompositeAutonomous: boolean;
+  compositeMinEdgeScore: number; // 0-100, default 72 — minimum edge score to fire autonomous trade
   // AI cost control
   aiMode: 'full' | 'economy' | 'rule_based';
   // R-Multiple: pip buffer above entry at 1R stage
@@ -359,6 +362,8 @@ interface EngineState {
   // Post-loss same-direction lock: { [symbol]: { direction: 'BUY'|'SELL'; lockedUntil: number } }
   // After a loss on a pair, the same direction is blocked for 45 min unless 85%+ confidence + surging volume
   pairDirectionLock: Record<string, { direction: string; lockedUntil: number; lossCount: number }>;
+  /** Last time a Composite Autonomous trade fired per crypto pair (ms timestamp) */
+  compositeLastFiredAt: Record<string, number>;
 }
 
 const engineStates: Record<number, EngineState> = {};
@@ -736,6 +741,8 @@ function getDefaultConfig(userId: number): LiveEngineConfig {
     maxDailyTrades: 0,
     directionFilter: 'both',
     pairDirectionOverrides: {},
+    enableCompositeAutonomous: true,
+    compositeMinEdgeScore: 72,
     aiMode: 'full',
     breakevenBufferPips: 5,
     trailFixedPips: 20,
@@ -1388,6 +1395,97 @@ async function scanMarkets(userId: number): Promise<void> {
 
     const currentOpenPositions = (global as any).mt5OpenPositions?.[userId]?.positions || [];
     await applyServerSideTrails(userId, currentOpenPositions, marketAnalysis);
+
+    // ── Composite Autonomous Scan (Markov × Polymarket → direct trade) ────────
+    // For crypto pairs where BOTH Markov and Polymarket strongly agree on direction,
+    // fire a trade directly without waiting for the AI. This is a pure probability-
+    // driven signal path that runs every scan cycle with a 5-min per-pair cooldown.
+    if (config.enableCompositeAutonomous !== false) {
+      const CRYPTO_RE = /BTC|ETH|SOL|XRP|BNB|DOGE|ADA|MATIC|LINK/i;
+      const minEdge = config.compositeMinEdgeScore ?? 72;
+      const COMPOSITE_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+      if (!state.compositeLastFiredAt) state.compositeLastFiredAt = {};
+
+      const cryptoPairs = analyzedPairs.filter(sym => CRYPTO_RE.test(sym));
+
+      for (const sym of cryptoPairs) {
+        try {
+          const symSnap = (state.marketSnapshot as any)?.[sym] ?? {};
+          const lastCC = symSnap.lastConfirmedCandle ?? null;
+          const candles = lastCC ? [lastCC] : [];
+
+          // Skip if fired within cooldown window
+          const lastFired = state.compositeLastFiredAt[sym] || 0;
+          if (Date.now() - lastFired < COMPOSITE_COOLDOWN_MS) continue;
+
+          const { getCompositeEdgeSignal } = await import('./composite-signal');
+
+          // Run for BUY first, then SELL — pick the one that passes the threshold
+          for (const dir of ['BUY', 'SELL'] as const) {
+            const composite = await getCompositeEdgeSignal(sym, dir, candles);
+
+            // Only fire if Polymarket was actually available (usedPolymarket) and
+            // both signals strongly agree
+            if (!composite.usedPolymarket) break; // non-crypto or Polymarket down
+
+            const edgeOk = dir === 'BUY'
+              ? composite.compositeEdgeScore >= minEdge
+              : composite.compositeEdgeScore <= (100 - minEdge);
+
+            if (composite.alignment !== 'strong_agree' || !edgeOk) continue;
+
+            // Build ATR-based SL/TP using marketAnalysis data
+            const mData = (marketAnalysis as any)[sym] || {};
+            const currentPrice = mData.currentPrice || symSnap.currentPrice || 0;
+            if (currentPrice <= 0) continue;
+
+            const atr = (mData.atr as any)?.value ?? mData.atr ?? currentPrice * 0.005;
+            const pipSize = getPipSize(sym);
+            const isJpy = sym.includes('JPY');
+            const isXau = sym.includes('XAU');
+            const isCrypto = !isJpy && !isXau;
+            const minSlPips = isCrypto ? 50 : isXau ? 300 : 22;
+            const minSlDist = minSlPips * pipSize;
+            const slDist = Math.max(atr * 1.8, minSlDist);
+            const tpDist = Math.max(atr * 3.6, slDist * 2.0);
+            const sl = dir === 'BUY' ? currentPrice - slDist : currentPrice + slDist;
+            const tp = dir === 'BUY' ? currentPrice + tpDist : currentPrice - tpDist;
+
+            const autonomousDecision = {
+              action: 'OPEN_TRADE',
+              strategy: 'composite_autonomous',
+              symbol: sym,
+              direction: dir,
+              confidence: Math.round(50 + Math.abs(composite.compositeEdgeScore - 50) * 0.8),
+              reason: `🤖 Composite Autonomous — ${composite.reason}`,
+              confluences: [
+                `Markov: ${composite.markov.currentState} (bull ${composite.markov.bullP}%)`,
+                `Polymarket: ${composite.polymarket?.sentimentLabel ?? 'N/A'} (${composite.polymarket?.overallBullishScore ?? 0}%)`,
+                `Alignment: ${composite.alignment} | Edge: ${composite.compositeEdgeScore}`,
+              ],
+              entryPrice: currentPrice,
+              stopLoss: sl,
+              takeProfit: tp,
+              lotSize: config.baseLotSize,
+              holdTime: '5min',
+              urgency: 'IMMEDIATE',
+            };
+
+            addActivity(userId, {
+              type: 'signal',
+              symbol: sym,
+              direction: dir,
+              message: `🔥 COMPOSITE AUTO SIGNAL [${sym}]: ${dir} — Markov + Polymarket strong_agree (edge ${composite.compositeEdgeScore}) → firing trade`,
+              confidence: autonomousDecision.confidence,
+            });
+
+            state.compositeLastFiredAt[sym] = Date.now();
+            await processDecision(userId, autonomousDecision, newsContext);
+            break; // only one direction per pair per cycle
+          }
+        } catch { /* non-fatal — composite scan errors must never block main scan */ }
+      }
+    }
 
     await runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, crossAssets, triggerPairs, htfMarketData);
 
@@ -4438,6 +4536,7 @@ export function startLiveEngine(userId: number, config?: Partial<LiveEngineConfi
     aiResponseCache: {},
     htfBiasCache: {},
     pairDirectionLock: {},
+    compositeLastFiredAt: {},
   };
 
   const adaptiveInterval = getAdaptiveScanInterval(fullConfig);

@@ -1235,6 +1235,9 @@ export default function WeeklyStrategyPage() {
   const [backtestTradeLogOpen, setBacktestTradeLogOpen] = useState(false);
 
   const [engineAiMode, setEngineAiMode] = useState<'full' | 'economy' | 'rule_based'>('full');
+  // Composite Autonomous: Markov×Polymarket fires crypto trades independently of AI
+  const [engineCompositeAutonomous, setEngineCompositeAutonomous] = useState(true);
+  const [engineCompositeMinEdge, setEngineCompositeMinEdge] = useState(72);
 
   // ── Per-account settings: handlers (placed after all useState declarations) ─
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1370,6 +1373,8 @@ export default function WeeklyStrategyPage() {
         aiMode: engineAiMode,
         executionBroker: engineExecutionSource,
         pairDirectionOverrides: Object.keys(pairDirectionOverrides).length > 0 ? pairDirectionOverrides : undefined,
+        enableCompositeAutonomous: engineCompositeAutonomous,
+        compositeMinEdgeScore: engineCompositeMinEdge,
       });
       return res.json();
     },
@@ -2185,6 +2190,40 @@ export default function WeeklyStrategyPage() {
                       {engineAiMode === 'rule_based' && '⚙️ Zero API calls. Pure server-side indicator consensus — RSI, MACD, Stochastic, ADX, VWAP, OBV, candle patterns. Great for strategy testing.'}
                     </p>
                   </div>
+                  {/* ── Composite Autonomous toggle ──────────────────────────────── */}
+                  <div className="rounded-lg border border-purple-500/20 bg-purple-500/5 p-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[11px] font-semibold text-purple-300">🤖 Composite Auto-Trade</span>
+                          <span className="text-[9px] bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded px-1.5 py-0.5">Markov × Polymarket</span>
+                        </div>
+                        <p className="text-[9px] text-gray-500 mt-0.5">
+                          When both Markov + Polymarket strongly agree on a crypto direction, fire trades autonomously — no AI call needed. 5-min cooldown per pair.
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => setEngineCompositeAutonomous(p => !p)}
+                        className={`ml-3 w-10 h-5 rounded-full relative transition-colors shrink-0 ${engineCompositeAutonomous ? 'bg-purple-500' : 'bg-gray-700'}`}
+                      >
+                        <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${engineCompositeAutonomous ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                      </button>
+                    </div>
+                    {engineCompositeAutonomous && (
+                      <div className="mt-2 flex items-center gap-2">
+                        <span className="text-[9px] text-gray-500 shrink-0">Min edge score:</span>
+                        <input
+                          type="range" min={55} max={90} step={1}
+                          value={engineCompositeMinEdge}
+                          onChange={e => setEngineCompositeMinEdge(Number(e.target.value))}
+                          className="flex-1 accent-purple-500 h-1"
+                        />
+                        <span className={`text-[10px] font-bold w-8 text-right ${engineCompositeMinEdge >= 80 ? 'text-emerald-400' : engineCompositeMinEdge >= 70 ? 'text-purple-300' : 'text-yellow-400'}`}>{engineCompositeMinEdge}</span>
+                        <span className="text-[9px] text-gray-600">/100</span>
+                      </div>
+                    )}
+                  </div>
+
                   <div>
                     <Label className="text-gray-400 text-xs">Trading Pairs</Label>
                     <div className="mt-1 flex flex-wrap gap-2">

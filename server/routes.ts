@@ -14179,7 +14179,7 @@ Respond with ONLY valid JSON:
   app.post("/api/vedd-live-engine/start", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
-    const { pairs, strategyMode, scanIntervalMs, maxOpenTrades, riskPerTrade, minConfidence, enablePositionManagement, trailingStopEnabled, trailingStopATRMultiplier, weeklyProfitTarget, accountBalance, enableCompounding, baseLotSize, propFirmMode, propFirmDailyDrawdownLimit, maxLotSize, adaptiveScanInterval, enablePyramiding, useKellyCriterion, drawdownShieldThreshold, dailyLossLimit, aiMode, breakevenBufferPips, directionFilter, pairDirectionOverrides } = req.body;
+    const { pairs, strategyMode, scanIntervalMs, maxOpenTrades, riskPerTrade, minConfidence, enablePositionManagement, trailingStopEnabled, trailingStopATRMultiplier, weeklyProfitTarget, accountBalance, enableCompounding, baseLotSize, propFirmMode, propFirmDailyDrawdownLimit, maxLotSize, adaptiveScanInterval, enablePyramiding, useKellyCriterion, drawdownShieldThreshold, dailyLossLimit, aiMode, breakevenBufferPips, directionFilter, pairDirectionOverrides, enableCompositeAutonomous, compositeMinEdgeScore } = req.body;
     try {
       const state = startLiveEngine(userId, {
         pairs: pairs || undefined,
@@ -14212,6 +14212,8 @@ Respond with ONLY valid JSON:
                 .filter(([, v]) => ['buy_only', 'sell_only', 'both'].includes(v as string))
             ) as Record<string, 'buy_only' | 'sell_only' | 'both'>
           : undefined,
+        enableCompositeAutonomous: enableCompositeAutonomous !== undefined ? Boolean(enableCompositeAutonomous) : undefined,
+        compositeMinEdgeScore: compositeMinEdgeScore !== undefined ? Math.min(100, Math.max(50, Number(compositeMinEdgeScore))) : undefined,
       });
       res.json({ success: true, state });
     } catch (err: any) {
