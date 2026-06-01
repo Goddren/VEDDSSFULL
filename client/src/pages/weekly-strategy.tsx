@@ -5043,7 +5043,7 @@ export default function WeeklyStrategyPage() {
             </div>
 
             {/* ── Composite Edge: Markov × Polymarket ── */}
-            {(markovOverview?.overview?.length > 0 || polymarketSentiment || btcComposite) && (() => {
+            {((markovOverview?.overview?.length ?? 0) > 0 || polymarketSentiment || btcComposite) && (() => {
               const alignColor = (a: string) =>
                 a === 'strong_agree'    ? 'text-emerald-400' :
                 a === 'agree'          ? 'text-green-400'   :

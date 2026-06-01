@@ -14296,7 +14296,7 @@ Respond with ONLY valid JSON:
           ? classifyCandle(lastCC.open, lastCC.close)
           : 'NEUTRAL';
 
-        const row = tm?.matrix?.[currentState] ?? {};
+        const row = (tm?.matrix?.[currentState] ?? {}) as Record<string, number>;
         const bullP = ((row['STRONG_BULL'] ?? 0) + (row['BULL'] ?? 0));
         const bearP = ((row['STRONG_BEAR'] ?? 0) + (row['BEAR'] ?? 0));
         const neutP = row['NEUTRAL'] ?? 0;
