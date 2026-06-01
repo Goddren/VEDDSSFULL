@@ -518,6 +518,14 @@ const Dashboard: React.FC = () => {
     staleTime: 0,
   });
 
+  // Polymarket BTC sentiment — cached 5 min on server, poll every 5 min
+  const { data: polymarketData } = useQuery<any>({
+    queryKey: ['/api/polymarket/btc'],
+    enabled: !!user,
+    refetchInterval: 5 * 60 * 1000,
+    staleTime: 4 * 60 * 1000,
+  });
+
   // TradeLocker connections — all active accounts (multi-account support)
   const { data: tlConnectionsAll = [] } = useQuery<any[]>({
     queryKey: ['/api/tradelocker/connections'],
@@ -1089,6 +1097,52 @@ const Dashboard: React.FC = () => {
                 </div>
               </div>
             </Link>
+          )}
+
+          {/* ── Polymarket BTC Sentiment Card ─────────────────────────────── */}
+          {polymarketData && !polymarketData.error && polymarketData.markets?.length > 0 && (
+            <a href="https://polymarket.com/markets/crypto/bitcoin" target="_blank" rel="noopener noreferrer">
+              <div className="rounded-2xl p-3 mb-4 cursor-pointer hover:border-yellow-500/40 transition-colors" style={{ background: 'rgba(234,179,8,0.05)', border: '1px solid rgba(234,179,8,0.2)' }}>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-sm">🏦</span>
+                    <p className="text-white text-xs font-semibold">Polymarket BTC Sentiment</p>
+                  </div>
+                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                    polymarketData.overallBullishScore >= 60 ? 'bg-emerald-500/20 text-emerald-400' :
+                    polymarketData.overallBullishScore <= 40 ? 'bg-red-500/20 text-red-400' :
+                    'bg-gray-500/20 text-gray-400'
+                  }`}>{polymarketData.sentimentLabel}</span>
+                </div>
+                {/* Sentiment bar */}
+                <div className="relative h-2 bg-gray-800 rounded-full overflow-hidden mb-2">
+                  <div className="absolute left-0 top-0 h-full bg-gradient-to-r from-emerald-500 to-emerald-400 rounded-full transition-all duration-700"
+                    style={{ width: `${polymarketData.overallBullishScore}%` }} />
+                  <div className="absolute left-1/2 top-0 h-full w-px bg-gray-600" />
+                </div>
+                <div className="flex justify-between text-[10px] text-gray-500 mb-2">
+                  <span>Bearish</span>
+                  <span className={`font-bold ${polymarketData.overallBullishScore >= 55 ? 'text-emerald-400' : polymarketData.overallBullishScore <= 45 ? 'text-red-400' : 'text-gray-300'}`}>
+                    {polymarketData.overallBullishScore}% Bullish
+                  </span>
+                  <span>Bullish</span>
+                </div>
+                {/* Top 3 markets */}
+                <div className="space-y-1">
+                  {polymarketData.markets.slice(0, 3).map((m: any) => (
+                    <div key={m.id} className="flex items-center justify-between text-[11px]">
+                      <span className="text-gray-400 truncate flex-1 mr-2" style={{ maxWidth: '65%' }}>{m.question}</span>
+                      <span className={`font-bold shrink-0 ${m.direction === 'bullish' ? (m.yesProbability >= 55 ? 'text-emerald-400' : 'text-gray-400') : (m.yesProbability >= 55 ? 'text-red-400' : 'text-gray-400')}`}>
+                        {m.yesProbability}% YES
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-[9px] text-gray-600 mt-1.5 text-right">
+                  {polymarketData.markets.length} active markets · {polymarketData.fromCache ? 'cached' : 'live'} · polymarket.com ↗
+                </p>
+              </div>
+            </a>
           )}
 
           <div className="grid grid-cols-3 gap-3">

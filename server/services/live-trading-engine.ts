@@ -3403,6 +3403,33 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       } catch { /* non-fatal — Markov errors must never block execution */ }
     }
 
+    // ── Polymarket BTC Sentiment Filter ───────────────────────────────
+    // Only applied to BTC/crypto symbols. Uses cached data (5-min TTL) so
+    // it never blocks or delays a signal — purely additive/subtractive.
+    const isCryptoSymbol = /BTC|ETH|SOL|CRYPTO|XRP|BNB/i.test(decision.symbol || '');
+    if (isCryptoSymbol && decision.direction && (decision.direction === 'BUY' || decision.direction === 'SELL')) {
+      try {
+        const { getPolymarketBTCSentiment } = await import('./polymarket');
+        const poly = await getPolymarketBTCSentiment(decision.direction as 'BUY' | 'SELL');
+        const polyAdj = poly.confidenceAdjustment;
+        if (polyAdj !== 0) {
+          adjustedConfidence = Math.min(100, Math.max(0, adjustedConfidence + polyAdj));
+        }
+        addActivity(userId, {
+          type: 'info',
+          symbol: decision.symbol,
+          message: poly.reason + (polyAdj !== 0 ? ` → confidence now ${adjustedConfidence}%` : ''),
+        });
+        (decision as any)._polymarket = {
+          overallBullishScore: poly.overallBullishScore,
+          sentimentLabel:      poly.sentimentLabel,
+          adjustment:          polyAdj,
+          marketCount:         poly.markets.length,
+          fromCache:           poly.fromCache,
+        };
+      } catch { /* non-fatal — never block a signal over Polymarket data */ }
+    }
+
     // ── T003: Post-GPT brain enforcement (direction/news/cooldown) ────
     const currentATR = (state as any)._lastATR?.[decision.symbol] || 0;
     const postEnforcement = applyBrainEnforcement(userId, decision.symbol, decision.direction, currentATR, newsCtx);

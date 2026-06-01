@@ -957,6 +957,14 @@ export default function WeeklyStrategyPage() {
     enabled: !!user,
   });
 
+  // Polymarket BTC sentiment — 5 min cache on server
+  const { data: polymarketSentiment } = useQuery<any>({
+    queryKey: ['/api/polymarket/btc'],
+    enabled: !!user,
+    refetchInterval: 5 * 60 * 1000,
+    staleTime: 4 * 60 * 1000,
+  });
+
   // Pre-fill balance from connected account whenever data arrives
   useEffect(() => {
     const mt5Balance = mt5AccountData?.accounts?.[0]?.balance ?? (mt5AccountData?.connected ? mt5AccountData?.balance : null);
@@ -5015,6 +5023,87 @@ export default function WeeklyStrategyPage() {
                 </div>
                 <p className="text-[10px] text-gray-600 mt-2 text-center">
                   Markov edge = P(bullish next state) − P(bearish next state) · Built from last 50 closed candles per pair
+                </p>
+              </div>
+            )}
+
+            {/* ── Polymarket BTC Sentiment Panel ── */}
+            {polymarketSentiment && !polymarketSentiment.error && (
+              <div className="bg-gray-900/60 border border-yellow-700/30 rounded-xl p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-white font-bold text-sm flex items-center gap-2">
+                    🏦 Polymarket BTC Sentiment
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
+                      polymarketSentiment.overallBullishScore >= 60 ? 'bg-emerald-500/20 text-emerald-400' :
+                      polymarketSentiment.overallBullishScore <= 40 ? 'bg-red-500/20 text-red-400' :
+                      'bg-gray-500/20 text-gray-400'
+                    }`}>{polymarketSentiment.sentimentLabel}</span>
+                  </h3>
+                  <div className="flex items-center gap-1.5">
+                    <span className={`text-sm font-bold ${
+                      polymarketSentiment.overallBullishScore >= 55 ? 'text-emerald-400' :
+                      polymarketSentiment.overallBullishScore <= 45 ? 'text-red-400' : 'text-gray-300'
+                    }`}>{polymarketSentiment.overallBullishScore}%</span>
+                    <span className="text-[10px] text-gray-500">bullish</span>
+                  </div>
+                </div>
+
+                {/* Sentiment bar */}
+                <div className="relative h-3 bg-gray-800 rounded-full overflow-hidden mb-1">
+                  <div className="absolute left-0 top-0 h-full rounded-full transition-all duration-700"
+                    style={{
+                      width: `${polymarketSentiment.overallBullishScore}%`,
+                      background: polymarketSentiment.overallBullishScore >= 60
+                        ? 'linear-gradient(90deg,#10b981,#34d399)'
+                        : polymarketSentiment.overallBullishScore <= 40
+                        ? 'linear-gradient(90deg,#ef4444,#f87171)'
+                        : 'linear-gradient(90deg,#6b7280,#9ca3af)',
+                    }} />
+                  <div className="absolute left-1/2 top-0 h-full w-0.5 bg-gray-600" />
+                </div>
+                <div className="flex justify-between text-[10px] text-gray-600 mb-3">
+                  <span>0% — Bearish</span>
+                  <span>50% — Neutral</span>
+                  <span>Bullish — 100%</span>
+                </div>
+
+                {/* Active markets list */}
+                {polymarketSentiment.markets?.length > 0 && (
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-1">Active BTC Prediction Markets</p>
+                    {polymarketSentiment.markets.slice(0, 5).map((m: any) => (
+                      <div key={m.id} className="flex items-center gap-2 bg-gray-800/50 rounded-lg px-2.5 py-2">
+                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                          m.direction === 'bullish' ? (m.yesProbability >= 55 ? 'bg-emerald-400' : 'bg-gray-500') :
+                                                      (m.yesProbability >= 55 ? 'bg-red-400' : 'bg-gray-500')
+                        }`} />
+                        <span className="text-xs text-gray-300 flex-1 truncate">{m.question}</span>
+                        <div className="text-right shrink-0 ml-2">
+                          <span className={`text-xs font-bold ${
+                            m.direction === 'bullish'
+                              ? (m.yesProbability >= 55 ? 'text-emerald-400' : 'text-gray-400')
+                              : (m.yesProbability >= 55 ? 'text-red-400' : 'text-gray-400')
+                          }`}>{m.yesProbability}%</span>
+                          <span className="text-[9px] text-gray-600 ml-1">YES</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Engine impact note */}
+                {isRunning && (
+                  <div className="mt-2.5 bg-yellow-500/10 border border-yellow-500/20 rounded-lg px-3 py-2 text-[10px] text-yellow-300">
+                    ⚡ Active: Polymarket sentiment is adjusting BTC signal confidence in real-time
+                    {polymarketSentiment.overallBullishScore >= 60 && ' — boosting BUY confidence'}
+                    {polymarketSentiment.overallBullishScore <= 40 && ' — boosting SELL confidence'}
+                  </div>
+                )}
+
+                <p className="text-[9px] text-gray-600 mt-2 text-right">
+                  {polymarketSentiment.markets?.length ?? 0} markets · Volume-weighted ·{' '}
+                  {polymarketSentiment.fromCache ? 'Cached' : 'Live'} ·{' '}
+                  Updated {polymarketSentiment.fetchedAt ? new Date(polymarketSentiment.fetchedAt).toLocaleTimeString() : '—'}
                 </p>
               </div>
             )}

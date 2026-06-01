@@ -14363,6 +14363,30 @@ Respond with ONLY valid JSON:
     }
   });
 
+  // ── Polymarket BTC Sentiment Routes ──────────────────────────────────────
+  // GET /api/polymarket/btc — live BTC prediction market sentiment (cached 5 min)
+  app.get("/api/polymarket/btc", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { getPolymarketBTCSentiment } = await import('./services/polymarket');
+      const forceRefresh = req.query.refresh === 'true';
+      const sentiment = await getPolymarketBTCSentiment(undefined, forceRefresh);
+      res.json(sentiment);
+    } catch (err: any) {
+      // Return a graceful fallback instead of a 500 so the UI doesn't break
+      res.json({
+        overallBullishScore: 50,
+        sentimentLabel: 'Neutral',
+        markets: [],
+        confidenceAdjustment: 0,
+        reason: `Polymarket unavailable: ${err.message}`,
+        fetchedAt: new Date().toISOString(),
+        fromCache: false,
+        error: err.message,
+      });
+    }
+  });
+
   // SS Engine dual-vote consensus feed (quant + AI per signal)
   app.get("/api/ss-engine/consensus", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
