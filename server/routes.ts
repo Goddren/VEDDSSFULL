@@ -14363,6 +14363,48 @@ Respond with ONLY valid JSON:
     }
   });
 
+  // ── Composite Edge (Markov × Polymarket) Route ───────────────────────────
+  // GET /api/composite-edge/:symbol — fused Markov + Polymarket signal for one symbol
+  app.get("/api/composite-edge/:symbol", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const symbol = req.params.symbol.toUpperCase();
+      const direction = ((req.query.direction as string) || 'BUY').toUpperCase() as 'BUY' | 'SELL';
+      if (direction !== 'BUY' && direction !== 'SELL') {
+        return res.status(400).json({ error: 'direction must be BUY or SELL' });
+      }
+
+      const { getCompositeEdgeSignal } = await import('./services/composite-signal');
+      const { getCachedMatrix, classifyCandle } = await import('./services/markov-chain');
+      const { getLiveEngineState } = await import('./services/live-trading-engine');
+      const userId = (req.user as User).id;
+
+      const engineState = getLiveEngineState(userId);
+      const snap = engineState?.marketSnapshot?.[symbol] as any;
+      const lastCC = snap?.lastConfirmedCandle ?? null;
+      const candles = lastCC ? [lastCC] : [];
+
+      const composite = await getCompositeEdgeSignal(symbol, direction, candles);
+
+      // Also attach the full transition matrix snapshot for the UI
+      const tm = getCachedMatrix(symbol);
+      const currentState = lastCC ? classifyCandle(lastCC.open, lastCC.close) : 'NEUTRAL';
+
+      res.json({
+        symbol,
+        direction,
+        ...composite,
+        currentPrice:   snap?.price ?? null,
+        trend:          snap?.trend ?? 'NEUTRAL',
+        currentState,
+        matrixAvailable: tm !== null,
+        candleCount:    tm?.candleCount ?? 0,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // ── Polymarket BTC Sentiment Routes ──────────────────────────────────────
   // GET /api/polymarket/btc — live BTC prediction market sentiment (cached 5 min)
   app.get("/api/polymarket/btc", async (req: Request, res: Response) => {

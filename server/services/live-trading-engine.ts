@@ -6,7 +6,7 @@ import { newsService } from '../news-service';
 import { getPipSize } from '../utils/pipUtils';
 import { detectBOSCHOCH, detectWyckoff, type BOSCHOCHResult, type WyckoffResult } from '../utils/smcUtils';
 import { getPremiumDiscountContext } from '../utils/ictMacroUtils';
-import { getMarkovSignal, buildTransitionMatrix, type MarkovSignal } from './markov-chain';
+import { buildTransitionMatrix } from './markov-chain';
 
 interface HTFBiasData {
   trend: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
@@ -3357,77 +3357,45 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       }
     }
 
-    // ── Markov Chain Probability Adjustment ───────────────────────────
-    // Uses the pre-built transition matrix (updated in scanMarkets each cycle).
-    // Adjusts confidence by -12 to +10 based on next-state probability alignment.
-    // Stored on the signal for display in activity feed and dashboard.
+    // ── Composite Edge Signal (Markov × Polymarket) ───────────────────
+    // Fuses Markov chain price-action probability with Polymarket crowd-
+    // wisdom sentiment into one calibrated adjustment.
+    // • Crypto symbols: Markov + Polymarket (amplified when both agree)
+    // • Forex/indices: Markov only
+    // • Non-fatal: any error degrades gracefully — signal still executes
     if (decision.direction && (decision.direction === 'BUY' || decision.direction === 'SELL')) {
       try {
-        const symSnap = state.marketSnapshot?.[decision.symbol] ?? {};
-        const lastCC = (symSnap as any).lastConfirmedCandle ?? null;
-        if (lastCC) {
-          // Fetch confirmedBars from the cached scan data — we pass a minimal stub so
-          // getMarkovSignal uses the already-cached matrix rather than rebuilding it.
-          // Just need the last candle to determine current state.
-          const markov: MarkovSignal = getMarkovSignal(
-            decision.symbol,
-            decision.direction as 'BUY' | 'SELL',
-            [lastCC], // single candle: matrix is already cached, this just sets currentState
-          );
-          const adj = markov.confidenceAdjustment;
-          if (adj !== 0) {
-            adjustedConfidence = Math.min(100, Math.max(0, adjustedConfidence + adj));
-            addActivity(userId, {
-              type: 'info',
-              symbol: decision.symbol,
-              message: `🎲 ${markov.reason} → confidence now ${adjustedConfidence}%`,
-            });
-          } else {
-            addActivity(userId, {
-              type: 'info',
-              symbol: decision.symbol,
-              message: `🎲 ${markov.reason}`,
-            });
-          }
-          // Attach Markov data to decision for display in signal details
-          (decision as any)._markov = {
-            currentState:       markov.currentState,
-            bullP:              Math.round(markov.bullishProbability  * 100),
-            bearP:              Math.round(markov.bearishProbability  * 100),
-            neutP:              Math.round(markov.neutralProbability  * 100),
-            bull2P:             Math.round(markov.twoStepBullProbability * 100),
-            bear2P:             Math.round(markov.twoStepBearProbability * 100),
-            adjustment:         adj,
-          };
-        }
-      } catch { /* non-fatal — Markov errors must never block execution */ }
-    }
+        const { getCompositeEdgeSignal } = await import('./composite-signal');
+        const symSnap   = state.marketSnapshot?.[decision.symbol] ?? {};
+        const lastCC    = (symSnap as any).lastConfirmedCandle ?? null;
+        const candles   = lastCC ? [lastCC] : [];
 
-    // ── Polymarket BTC Sentiment Filter ───────────────────────────────
-    // Only applied to BTC/crypto symbols. Uses cached data (5-min TTL) so
-    // it never blocks or delays a signal — purely additive/subtractive.
-    const isCryptoSymbol = /BTC|ETH|SOL|CRYPTO|XRP|BNB/i.test(decision.symbol || '');
-    if (isCryptoSymbol && decision.direction && (decision.direction === 'BUY' || decision.direction === 'SELL')) {
-      try {
-        const { getPolymarketBTCSentiment } = await import('./polymarket');
-        const poly = await getPolymarketBTCSentiment(decision.direction as 'BUY' | 'SELL');
-        const polyAdj = poly.confidenceAdjustment;
-        if (polyAdj !== 0) {
-          adjustedConfidence = Math.min(100, Math.max(0, adjustedConfidence + polyAdj));
+        const composite = await getCompositeEdgeSignal(
+          decision.symbol,
+          decision.direction as 'BUY' | 'SELL',
+          candles,
+        );
+
+        const adj = composite.confidenceAdjustment;
+        if (adj !== 0) {
+          adjustedConfidence = Math.min(100, Math.max(0, adjustedConfidence + adj));
         }
         addActivity(userId, {
           type: 'info',
           symbol: decision.symbol,
-          message: poly.reason + (polyAdj !== 0 ? ` → confidence now ${adjustedConfidence}%` : ''),
+          message: composite.reason + (adj !== 0 ? ` → confidence now ${adjustedConfidence}%` : ''),
         });
-        (decision as any)._polymarket = {
-          overallBullishScore: poly.overallBullishScore,
-          sentimentLabel:      poly.sentimentLabel,
-          adjustment:          polyAdj,
-          marketCount:         poly.markets.length,
-          fromCache:           poly.fromCache,
+
+        // Attach full composite data to decision for display / logging
+        (decision as any)._composite = {
+          adjustment:         adj,
+          alignment:          composite.alignment,
+          compositeEdgeScore: composite.compositeEdgeScore,
+          markov:             composite.markov,
+          polymarket:         composite.polymarket,
+          usedPolymarket:     composite.usedPolymarket,
         };
-      } catch { /* non-fatal — never block a signal over Polymarket data */ }
+      } catch { /* non-fatal — composite errors must never block execution */ }
     }
 
     // ── T003: Post-GPT brain enforcement (direction/news/cooldown) ────

@@ -965,6 +965,14 @@ export default function WeeklyStrategyPage() {
     staleTime: 4 * 60 * 1000,
   });
 
+  // Composite Edge — Markov × Polymarket fused signal for BTC
+  const { data: btcComposite } = useQuery<any>({
+    queryKey: ['/api/composite-edge/BTCUSD'],
+    enabled: !!user && liveEngineStatus?.status === 'running',
+    refetchInterval: 15000,
+    staleTime: 0,
+  });
+
   // Pre-fill balance from connected account whenever data arrives
   useEffect(() => {
     const mt5Balance = mt5AccountData?.accounts?.[0]?.balance ?? (mt5AccountData?.connected ? mt5AccountData?.balance : null);
@@ -4965,148 +4973,170 @@ export default function WeeklyStrategyPage() {
               )}
             </div>
 
-            {/* ── Markov Chain Probability Matrix ── */}
-            {markovOverview && markovOverview.overview.length > 0 && (
-              <div className="bg-gray-900/60 border border-purple-700/30 rounded-xl p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-white font-bold text-sm flex items-center gap-2">
-                    🎲 Markov Probability Matrix
-                    <span className="text-[10px] bg-purple-500/20 text-purple-300 px-1.5 py-0.5 rounded-full font-bold">LIVE</span>
-                  </h3>
-                  <span className="text-[10px] text-gray-500">{markovOverview.overview.length} pairs</span>
-                </div>
-                {/* Header row */}
-                <div className="grid grid-cols-5 gap-1 mb-1 px-1">
-                  <span className="text-[9px] text-gray-500 font-semibold col-span-1">PAIR</span>
-                  <span className="text-[9px] text-gray-500 font-semibold text-center">STATE</span>
-                  <span className="text-[9px] text-emerald-400 font-semibold text-center">BULL%</span>
-                  <span className="text-[9px] text-red-400 font-semibold text-center">BEAR%</span>
-                  <span className="text-[9px] text-gray-400 font-semibold text-center">EDGE</span>
-                </div>
-                <div className="space-y-1">
-                  {markovOverview.overview.slice(0, 8).map((m: any) => {
-                    const edge = m.bullishProbability - m.bearishProbability;
-                    const edgeColor = edge >= 15 ? 'text-emerald-400' : edge <= -15 ? 'text-red-400' : 'text-gray-400';
-                    const stateColor =
-                      m.currentState === 'STRONG_BULL' ? 'text-emerald-400' :
-                      m.currentState === 'BULL'        ? 'text-green-400' :
-                      m.currentState === 'STRONG_BEAR' ? 'text-red-400' :
-                      m.currentState === 'BEAR'        ? 'text-orange-400' :
-                                                         'text-gray-400';
-                    const stateLabel =
-                      m.currentState === 'STRONG_BULL' ? '▲▲' :
-                      m.currentState === 'BULL'        ? '▲' :
-                      m.currentState === 'STRONG_BEAR' ? '▼▼' :
-                      m.currentState === 'BEAR'        ? '▼' : '─';
-                    return (
-                      <div key={m.symbol} className="grid grid-cols-5 gap-1 items-center bg-gray-800/40 rounded px-2 py-1.5">
-                        <span className="text-xs text-white font-mono font-bold truncate">{m.symbol}</span>
-                        <span className={`text-[11px] font-bold text-center ${stateColor}`}>{stateLabel}</span>
-                        <div className="text-center">
-                          <span className="text-xs font-bold text-emerald-400">{m.bullishProbability}%</span>
-                          <div className="h-1 bg-gray-700 rounded-full mt-0.5 overflow-hidden">
-                            <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${m.bullishProbability}%` }} />
-                          </div>
-                        </div>
-                        <div className="text-center">
-                          <span className="text-xs font-bold text-red-400">{m.bearishProbability}%</span>
-                          <div className="h-1 bg-gray-700 rounded-full mt-0.5 overflow-hidden">
-                            <div className="h-full bg-red-500 rounded-full" style={{ width: `${m.bearishProbability}%` }} />
-                          </div>
-                        </div>
-                        <span className={`text-xs font-bold text-center ${edgeColor}`}>
-                          {edge > 0 ? '+' : ''}{edge}%
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-                <p className="text-[10px] text-gray-600 mt-2 text-center">
-                  Markov edge = P(bullish next state) − P(bearish next state) · Built from last 50 closed candles per pair
-                </p>
-              </div>
-            )}
-
-            {/* ── Polymarket BTC Sentiment Panel ── */}
-            {polymarketSentiment && !polymarketSentiment.error && (
-              <div className="bg-gray-900/60 border border-yellow-700/30 rounded-xl p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-white font-bold text-sm flex items-center gap-2">
-                    🏦 Polymarket BTC Sentiment
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
-                      polymarketSentiment.overallBullishScore >= 60 ? 'bg-emerald-500/20 text-emerald-400' :
-                      polymarketSentiment.overallBullishScore <= 40 ? 'bg-red-500/20 text-red-400' :
-                      'bg-gray-500/20 text-gray-400'
-                    }`}>{polymarketSentiment.sentimentLabel}</span>
-                  </h3>
-                  <div className="flex items-center gap-1.5">
-                    <span className={`text-sm font-bold ${
-                      polymarketSentiment.overallBullishScore >= 55 ? 'text-emerald-400' :
-                      polymarketSentiment.overallBullishScore <= 45 ? 'text-red-400' : 'text-gray-300'
-                    }`}>{polymarketSentiment.overallBullishScore}%</span>
-                    <span className="text-[10px] text-gray-500">bullish</span>
+            {/* ── Composite Edge: Markov × Polymarket ── */}
+            {(markovOverview?.overview?.length > 0 || polymarketSentiment || btcComposite) && (() => {
+              const alignColor = (a: string) =>
+                a === 'strong_agree'    ? 'text-emerald-400' :
+                a === 'agree'          ? 'text-green-400'   :
+                a === 'strong_disagree'? 'text-red-400'     :
+                a === 'disagree'       ? 'text-orange-400'  : 'text-gray-400';
+              const alignBorder = (a: string) =>
+                a === 'strong_agree'    ? 'border-emerald-700/40' :
+                a === 'agree'          ? 'border-green-700/30'   :
+                a === 'strong_disagree'? 'border-red-700/40'     :
+                a === 'disagree'       ? 'border-orange-700/30'  : 'border-purple-700/30';
+              const alignment = btcComposite?.alignment ?? 'neutral';
+              return (
+                <div className={`bg-gray-900/60 border rounded-xl p-4 ${alignBorder(alignment)}`}>
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-white font-bold text-sm flex items-center gap-2">
+                      ⚡ Composite Edge
+                      <span className="text-[10px] bg-purple-500/20 text-purple-300 px-1.5 py-0.5 rounded-full font-bold">Markov × Polymarket</span>
+                    </h3>
+                    {btcComposite && (
+                      <span className={`text-xs font-bold ${alignColor(alignment)}`}>
+                        {btcComposite.confidenceAdjustment > 0 ? '+' : ''}{btcComposite.confidenceAdjustment}% adj
+                      </span>
+                    )}
                   </div>
-                </div>
 
-                {/* Sentiment bar */}
-                <div className="relative h-3 bg-gray-800 rounded-full overflow-hidden mb-1">
-                  <div className="absolute left-0 top-0 h-full rounded-full transition-all duration-700"
-                    style={{
-                      width: `${polymarketSentiment.overallBullishScore}%`,
-                      background: polymarketSentiment.overallBullishScore >= 60
-                        ? 'linear-gradient(90deg,#10b981,#34d399)'
-                        : polymarketSentiment.overallBullishScore <= 40
-                        ? 'linear-gradient(90deg,#ef4444,#f87171)'
-                        : 'linear-gradient(90deg,#6b7280,#9ca3af)',
-                    }} />
-                  <div className="absolute left-1/2 top-0 h-full w-0.5 bg-gray-600" />
-                </div>
-                <div className="flex justify-between text-[10px] text-gray-600 mb-3">
-                  <span>0% — Bearish</span>
-                  <span>50% — Neutral</span>
-                  <span>Bullish — 100%</span>
-                </div>
-
-                {/* Active markets list */}
-                {polymarketSentiment.markets?.length > 0 && (
-                  <div className="space-y-1.5">
-                    <p className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-1">Active BTC Prediction Markets</p>
-                    {polymarketSentiment.markets.slice(0, 5).map((m: any) => (
-                      <div key={m.id} className="flex items-center gap-2 bg-gray-800/50 rounded-lg px-2.5 py-2">
-                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                          m.direction === 'bullish' ? (m.yesProbability >= 55 ? 'bg-emerald-400' : 'bg-gray-500') :
-                                                      (m.yesProbability >= 55 ? 'bg-red-400' : 'bg-gray-500')
-                        }`} />
-                        <span className="text-xs text-gray-300 flex-1 truncate">{m.question}</span>
-                        <div className="text-right shrink-0 ml-2">
-                          <span className={`text-xs font-bold ${
-                            m.direction === 'bullish'
-                              ? (m.yesProbability >= 55 ? 'text-emerald-400' : 'text-gray-400')
-                              : (m.yesProbability >= 55 ? 'text-red-400' : 'text-gray-400')
-                          }`}>{m.yesProbability}%</span>
-                          <span className="text-[9px] text-gray-600 ml-1">YES</span>
+                  {/* BTC Composite row (when engine running) */}
+                  {btcComposite && (
+                    <div className="bg-gray-800/60 rounded-lg p-3 mb-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs text-white font-bold font-mono">BTC Composite Edge</span>
+                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                          btcComposite.compositeEdgeScore >= 60 ? 'bg-emerald-500/20 text-emerald-400' :
+                          btcComposite.compositeEdgeScore <= 40 ? 'bg-red-500/20 text-red-400' :
+                          'bg-gray-500/20 text-gray-400'
+                        }`}>{btcComposite.compositeEdgeScore}/100</span>
+                      </div>
+                      {/* Composite bar */}
+                      <div className="relative h-2.5 bg-gray-700 rounded-full overflow-hidden mb-2">
+                        <div className="absolute left-0 top-0 h-full rounded-full transition-all duration-700"
+                          style={{
+                            width: `${btcComposite.compositeEdgeScore}%`,
+                            background: btcComposite.compositeEdgeScore >= 60
+                              ? 'linear-gradient(90deg,#10b981,#34d399)'
+                              : btcComposite.compositeEdgeScore <= 40
+                              ? 'linear-gradient(90deg,#ef4444,#f87171)'
+                              : 'linear-gradient(90deg,#6b7280,#9ca3af)',
+                          }} />
+                        <div className="absolute left-1/2 top-0 h-full w-px bg-gray-500" />
+                      </div>
+                      {/* Markov + Polymarket side by side */}
+                      <div className="grid grid-cols-2 gap-2 text-[11px]">
+                        <div className="bg-purple-500/10 rounded px-2 py-1.5">
+                          <p className="text-purple-300 font-semibold mb-0.5">🎲 Markov</p>
+                          <p className="text-white font-mono">
+                            {btcComposite.markov?.currentState?.replace('_', ' ') ?? '—'}
+                          </p>
+                          <p className="text-gray-400">
+                            Bull {btcComposite.markov?.bullP ?? '?'}% · Bear {btcComposite.markov?.bearP ?? '?'}%
+                          </p>
+                          <p className={`font-bold mt-0.5 ${btcComposite.markov?.adjustment > 0 ? 'text-emerald-400' : btcComposite.markov?.adjustment < 0 ? 'text-red-400' : 'text-gray-400'}`}>
+                            {btcComposite.markov?.adjustment > 0 ? '+' : ''}{btcComposite.markov?.adjustment ?? 0}%
+                          </p>
+                        </div>
+                        <div className="bg-yellow-500/10 rounded px-2 py-1.5">
+                          <p className="text-yellow-300 font-semibold mb-0.5">🏦 Polymarket</p>
+                          {btcComposite.polymarket?.available ? (
+                            <>
+                              <p className="text-white">{btcComposite.polymarket.sentimentLabel}</p>
+                              <p className="text-gray-400">{btcComposite.polymarket.overallBullishScore}% bullish</p>
+                              <p className={`font-bold mt-0.5 ${btcComposite.polymarket.adjustment > 0 ? 'text-emerald-400' : btcComposite.polymarket.adjustment < 0 ? 'text-red-400' : 'text-gray-400'}`}>
+                                {btcComposite.polymarket.adjustment > 0 ? '+' : ''}{btcComposite.polymarket.adjustment}%
+                              </p>
+                            </>
+                          ) : (
+                            <p className="text-gray-500 text-[10px]">No data</p>
+                          )}
                         </div>
                       </div>
-                    ))}
-                  </div>
-                )}
+                      {/* Alignment badge */}
+                      <div className={`mt-2 text-center text-[11px] font-bold ${alignColor(alignment)}`}>
+                        {alignment === 'strong_agree'    ? '🔥 Both signals strongly agree — amplified adjustment' :
+                         alignment === 'agree'           ? '✅ Both signals agree' :
+                         alignment === 'strong_disagree' ? '🚫 Signals strongly conflict — dampened' :
+                         alignment === 'disagree'        ? '⚠️ Signals conflict — partially cancelled' :
+                                                           '🔸 Neutral — no strong edge'}
+                      </div>
+                    </div>
+                  )}
 
-                {/* Engine impact note */}
-                {isRunning && (
-                  <div className="mt-2.5 bg-yellow-500/10 border border-yellow-500/20 rounded-lg px-3 py-2 text-[10px] text-yellow-300">
-                    ⚡ Active: Polymarket sentiment is adjusting BTC signal confidence in real-time
-                    {polymarketSentiment.overallBullishScore >= 60 && ' — boosting BUY confidence'}
-                    {polymarketSentiment.overallBullishScore <= 40 && ' — boosting SELL confidence'}
-                  </div>
-                )}
+                  {/* Markov table for all pairs */}
+                  {markovOverview && markovOverview.overview.length > 0 && (
+                    <>
+                      <p className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-1.5">Markov State — All Pairs</p>
+                      <div className="grid grid-cols-5 gap-1 mb-1 px-1">
+                        <span className="text-[9px] text-gray-600 font-semibold">PAIR</span>
+                        <span className="text-[9px] text-gray-600 font-semibold text-center">STATE</span>
+                        <span className="text-[9px] text-emerald-400/70 font-semibold text-center">BULL%</span>
+                        <span className="text-[9px] text-red-400/70 font-semibold text-center">BEAR%</span>
+                        <span className="text-[9px] text-gray-500 font-semibold text-center">EDGE</span>
+                      </div>
+                      <div className="space-y-1">
+                        {markovOverview.overview.slice(0, 8).map((m: any) => {
+                          const edge = m.bullishProbability - m.bearishProbability;
+                          const ec = edge >= 15 ? 'text-emerald-400' : edge <= -15 ? 'text-red-400' : 'text-gray-400';
+                          const sc =
+                            m.currentState === 'STRONG_BULL' ? 'text-emerald-400' :
+                            m.currentState === 'BULL'        ? 'text-green-400' :
+                            m.currentState === 'STRONG_BEAR' ? 'text-red-400' :
+                            m.currentState === 'BEAR'        ? 'text-orange-400' : 'text-gray-500';
+                          const sl =
+                            m.currentState === 'STRONG_BULL' ? '▲▲' :
+                            m.currentState === 'BULL'        ? '▲' :
+                            m.currentState === 'STRONG_BEAR' ? '▼▼' :
+                            m.currentState === 'BEAR'        ? '▼' : '─';
+                          return (
+                            <div key={m.symbol} className="grid grid-cols-5 gap-1 items-center bg-gray-800/30 rounded px-2 py-1">
+                              <span className="text-[11px] text-white font-mono font-bold truncate">{m.symbol}</span>
+                              <span className={`text-[11px] font-bold text-center ${sc}`}>{sl}</span>
+                              <div className="text-center">
+                                <span className="text-[11px] font-bold text-emerald-400">{m.bullishProbability}%</span>
+                                <div className="h-1 bg-gray-700 rounded-full mt-0.5"><div className="h-full bg-emerald-500 rounded-full" style={{ width: `${m.bullishProbability}%` }} /></div>
+                              </div>
+                              <div className="text-center">
+                                <span className="text-[11px] font-bold text-red-400">{m.bearishProbability}%</span>
+                                <div className="h-1 bg-gray-700 rounded-full mt-0.5"><div className="h-full bg-red-500 rounded-full" style={{ width: `${m.bearishProbability}%` }} /></div>
+                              </div>
+                              <span className={`text-[11px] font-bold text-center ${ec}`}>{edge > 0 ? '+' : ''}{edge}%</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
 
-                <p className="text-[9px] text-gray-600 mt-2 text-right">
-                  {polymarketSentiment.markets?.length ?? 0} markets · Volume-weighted ·{' '}
-                  {polymarketSentiment.fromCache ? 'Cached' : 'Live'} ·{' '}
-                  Updated {polymarketSentiment.fetchedAt ? new Date(polymarketSentiment.fetchedAt).toLocaleTimeString() : '—'}
-                </p>
-              </div>
-            )}
+                  {/* Polymarket markets list */}
+                  {polymarketSentiment?.markets?.length > 0 && (
+                    <div className="mt-3">
+                      <p className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-1.5">Polymarket BTC Markets</p>
+                      <div className="space-y-1">
+                        {polymarketSentiment.markets.slice(0, 4).map((m: any) => (
+                          <div key={m.id} className="flex items-center gap-2 bg-gray-800/30 rounded px-2 py-1.5">
+                            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                              m.direction === 'bullish' ? (m.yesProbability >= 55 ? 'bg-emerald-400' : 'bg-gray-600') :
+                                                          (m.yesProbability >= 55 ? 'bg-red-400' : 'bg-gray-600')
+                            }`} />
+                            <span className="text-[11px] text-gray-300 flex-1 truncate">{m.question}</span>
+                            <span className={`text-[11px] font-bold shrink-0 ${
+                              m.direction === 'bullish' ? (m.yesProbability >= 55 ? 'text-emerald-400' : 'text-gray-500') :
+                                                          (m.yesProbability >= 55 ? 'text-red-400' : 'text-gray-500')
+                            }`}>{m.yesProbability}%</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <p className="text-[9px] text-gray-600 mt-2 text-right">
+                    Markov: built from 50 closed candles · Polymarket: {polymarketSentiment?.fromCache ? 'cached' : 'live'} · 15s refresh
+                  </p>
+                </div>
+              );
+            })()}
 
             {/* ── Weekly Profit Progress ── */}
             {strategy && (
