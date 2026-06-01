@@ -1233,6 +1233,8 @@ export default function WeeklyStrategyPage() {
   const [backtestTradeLogOpen, setBacktestTradeLogOpen] = useState(false);
 
   const [engineAiMode, setEngineAiMode] = useState<'full' | 'economy' | 'rule_based'>('full');
+  // ORB Autonomous: 9:30 AM breakout+retest fires trades directly
+  const [engineORBAutonomous, setEngineORBAutonomous] = useState(true);
   // Composite Autonomous: Markov×Polymarket fires crypto trades independently of AI
   const [engineCompositeAutonomous, setEngineCompositeAutonomous] = useState(true);
   const [engineCompositeMinEdge, setEngineCompositeMinEdge] = useState(72);
@@ -1370,6 +1372,7 @@ export default function WeeklyStrategyPage() {
         trailSarMaxAF: engineTrailSarMaxAF,
         aiMode: engineAiMode,
         executionBroker: engineExecutionSource,
+        enableORBAutonomous: engineORBAutonomous,
         enableCompositeAutonomous: engineCompositeAutonomous,
         compositeMinEdgeScore: engineCompositeMinEdge,
       });
@@ -2187,6 +2190,27 @@ export default function WeeklyStrategyPage() {
                       {engineAiMode === 'rule_based' && '⚙️ Zero API calls. Pure server-side indicator consensus — RSI, MACD, Stochastic, ADX, VWAP, OBV, candle patterns. Great for strategy testing.'}
                     </p>
                   </div>
+                  {/* ── ORB Autonomous toggle ────────────────────────────────────── */}
+                  <div className="rounded-lg border border-green-500/20 bg-green-500/5 p-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[11px] font-semibold text-green-300">📈 ORB Auto-Trade</span>
+                          <span className="text-[9px] bg-green-500/20 text-green-400 border border-green-500/30 rounded px-1.5 py-0.5">9:30 AM Breakout</span>
+                        </div>
+                        <p className="text-[9px] text-gray-500 mt-0.5">
+                          Detects opening range breakout + retest during 9:30 AM–2:00 PM EST. Fires one trade per pair per day when SS AI Bot scores ≥ 70.
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => setEngineORBAutonomous(v => !v)}
+                        className={`ml-3 w-10 h-5 rounded-full relative transition-colors shrink-0 ${engineORBAutonomous ? 'bg-green-500' : 'bg-gray-700'}`}
+                      >
+                        <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${engineORBAutonomous ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                      </button>
+                    </div>
+                  </div>
+
                   {/* ── Composite Autonomous toggle ──────────────────────────────── */}
                   <div className="rounded-lg border border-purple-500/20 bg-purple-500/5 p-3">
                     <div className="flex items-center justify-between">

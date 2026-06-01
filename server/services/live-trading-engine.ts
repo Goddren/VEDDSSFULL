@@ -7,6 +7,7 @@ import { getPipSize } from '../utils/pipUtils';
 import { detectBOSCHOCH, detectWyckoff, type BOSCHOCHResult, type WyckoffResult } from '../utils/smcUtils';
 import { getPremiumDiscountContext } from '../utils/ictMacroUtils';
 import { buildTransitionMatrix } from './markov-chain';
+import { computeBreakoutScore } from '../utils/breakoutEngine';
 
 interface HTFBiasData {
   trend: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
@@ -171,6 +172,8 @@ interface LiveEngineConfig {
   maxDailyTrades: number;                      // hard daily trade cap across all pairs (0 = unlimited)
   directionFilter: 'buy_only' | 'sell_only' | 'both'; // restrict signal direction (global)
   pairDirectionOverrides: Record<string, 'buy_only' | 'sell_only' | 'both'>; // per-pair overrides
+  // ORB Autonomous mode: fire 9:30 AM opening range breakout trades autonomously
+  enableORBAutonomous: boolean;
   // Composite Autonomous mode: fire trades directly from Markov×Polymarket (crypto only)
   enableCompositeAutonomous: boolean;
   compositeMinEdgeScore: number; // 0-100, default 72 — minimum edge score to fire autonomous trade
@@ -364,6 +367,8 @@ interface EngineState {
   pairDirectionLock: Record<string, { direction: string; lockedUntil: number; lossCount: number }>;
   /** Last time a Composite Autonomous trade fired per crypto pair (ms timestamp) */
   compositeLastFiredAt: Record<string, number>;
+  /** ORB Autonomous: tracks which pairs already traded today — value = YYYY-MM-DD */
+  orbDailyFired: Record<string, string>;
 }
 
 const engineStates: Record<number, EngineState> = {};
@@ -741,6 +746,7 @@ function getDefaultConfig(userId: number): LiveEngineConfig {
     maxDailyTrades: 0,
     directionFilter: 'both',
     pairDirectionOverrides: {},
+    enableORBAutonomous: true,
     enableCompositeAutonomous: true,
     compositeMinEdgeScore: 72,
     aiMode: 'full',
@@ -1486,6 +1492,11 @@ async function scanMarkets(userId: number): Promise<void> {
         } catch { /* non-fatal — composite scan errors must never block main scan */ }
       }
     }
+
+    // ── ORB Autonomous Scan ────────────────────────────────────────────────────
+    // Runs only during 9:30 AM – 2:00 PM EST. Fires breakout+retest trades
+    // when SS AI Bot score ≥ 70. One trade per pair per day.
+    try { await runORBAutonomousScan(userId); } catch { /* non-fatal */ }
 
     await runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, crossAssets, triggerPairs, htfMarketData);
 
@@ -4418,6 +4429,192 @@ function scheduleGapScanner(userId: number): void {
   });
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// ORB AUTONOMOUS SCAN
+// Runs every engine cycle. Detects 9:30 AM EST opening range breakout + retest
+// and fires trades autonomously when SS AI Bot score ≥ 70.
+//
+// Rules (matches the manual ORB page exactly):
+//   • Valid window: 9:30 AM – 2:00 PM EST only
+//   • ORB range = high/low of the 9:30 AM M1 candle (15-min range via M1 data)
+//   • Breakout: full-body 6-min candle close above ORB High (LONG) or below ORB Low (SHORT)
+//   • Entry: on the RETEST of the broken level (ORB High → support / ORB Low → resistance)
+//   • Score gate: computeBreakoutScore ≥ 70 required
+//   • One trade per pair per day (orbDailyFired)
+//   • SL: ORB Low – 10% range (LONG) / ORB High + 10% range (SHORT)
+//   • TP1: 2:1 R:R | TP2: 3:1 R:R
+// ─────────────────────────────────────────────────────────────────────────────
+async function runORBAutonomousScan(userId: number): Promise<void> {
+  const state = engineStates[userId];
+  if (!state) return;
+  const config = state.config;
+  if (config.enableORBAutonomous === false) return;
+
+  if (!state.orbDailyFired) state.orbDailyFired = {};
+
+  // ── 1. Time gate — EST 9:30 AM to 2:00 PM ────────────────────────────────
+  const nowUTC = new Date();
+  // Try EDT (-4) and EST (-5) — pick whichever puts us in a valid window
+  const estOffsets = [-4, -5];
+  let estHour = -1, estMin = -1;
+  for (const off of estOffsets) {
+    const h = ((nowUTC.getUTCHours() + off) % 24 + 24) % 24;
+    const m = nowUTC.getUTCMinutes();
+    const totalMins = h * 60 + m;
+    if (totalMins >= 9 * 60 + 30 && totalMins < 14 * 60) {
+      estHour = h; estMin = m; break;
+    }
+  }
+  if (estHour === -1) return; // outside trading window
+
+  const todayKey = nowUTC.toISOString().slice(0, 10); // YYYY-MM-DD
+
+  // ── 2. Scan configured pairs ──────────────────────────────────────────────
+  for (const symbol of config.pairs) {
+    try {
+      // Skip if already traded this pair today
+      if (state.orbDailyFired[symbol] === todayKey) continue;
+
+      // Fetch M5 candles for ORB detection (need ~30 candles for today's session)
+      const assetType = marketDataService.detectAssetType(symbol);
+      const m5Result = await marketDataService.fetchMarketData({
+        symbol, assetType, timeframe: '5m', limit: 60,
+      });
+      if (!m5Result.bars || m5Result.bars.length < 6) continue;
+
+      // Also fetch H1 for ATR / breakout score
+      const h1Result = await marketDataService.fetchMarketData({
+        symbol, assetType, timeframe: '1h', limit: 30,
+      });
+
+      const m5Bars = m5Result.bars;
+      const h1Bars = h1Result.bars || [];
+      const currentPrice = m5Bars[m5Bars.length - 1].close;
+
+      // Convert bars to BreakoutCandle format (newest-first for breakoutEngine)
+      const toBC = (b: any) => ({ o: b.open, h: b.high, l: b.low, c: b.close, v: b.volume ?? 0, t: Math.floor((b.timestamp ?? Date.now()) / 1000) });
+      const m5BC = [...m5Bars].reverse().map(toBC);
+      const h1BC = [...h1Bars].reverse().map(toBC);
+
+      // ── 3. Find today's ORB high/low from 9:30 AM candle ─────────────────
+      // UTC offsets for EST (-5) and EDT (-4)
+      let orbHigh = 0, orbLow = 0;
+      for (const off of estOffsets) {
+        const orbCandles = m5BC.filter(c => {
+          if (!c.t) return false;
+          const d = new Date(c.t * 1000);
+          const h = ((d.getUTCHours() + off) % 24 + 24) % 24;
+          const m = d.getUTCMinutes();
+          // 9:30–9:45 AM EST = opening range window
+          return h === 9 && m >= 30 && m < 45;
+        });
+        if (orbCandles.length > 0) {
+          orbHigh = Math.max(...orbCandles.map(c => c.h));
+          orbLow  = Math.min(...orbCandles.map(c => c.l));
+          break;
+        }
+      }
+      if (orbHigh === 0 || orbLow === 0 || orbHigh <= orbLow) continue;
+
+      const orbRange = orbHigh - orbLow;
+      const retestBuffer = orbRange * 0.15; // 15% tolerance for retest detection
+
+      // ── 4. Detect phase: did a breakout happen and is price retesting? ───
+      // Look at candles after 9:45 AM for breakout close, then check retest
+      let breakoutDir: 'BUY' | 'SELL' | null = null;
+
+      // Candles are newest-first in m5BC — find candles after 9:45 AM today
+      const postORBCandles = m5BC.filter(c => {
+        if (!c.t) return false;
+        for (const off of estOffsets) {
+          const d = new Date(c.t * 1000);
+          const h = ((d.getUTCHours() + off) % 24 + 24) % 24;
+          const m = d.getUTCMinutes();
+          const total = h * 60 + m;
+          if (total >= 9 * 60 + 45) return true;
+        }
+        return false;
+      });
+
+      // Check if any past candle had a full-body close beyond the ORB
+      for (const c of postORBCandles.slice(1)) { // skip the most recent (live)
+        const bodyHigh = Math.max(c.o, c.c);
+        const bodyLow  = Math.min(c.o, c.c);
+        if (bodyLow > orbHigh) { breakoutDir = 'BUY'; break; }
+        if (bodyHigh < orbLow) { breakoutDir = 'SELL'; break; }
+      }
+      if (!breakoutDir) continue; // no breakout yet — wait
+
+      // ── 5. Check retest: current price near the broken ORB level ─────────
+      const isRetestLong = breakoutDir === 'BUY' &&
+        currentPrice >= orbHigh - retestBuffer &&
+        currentPrice <= orbHigh + retestBuffer;
+      const isRetestShort = breakoutDir === 'SELL' &&
+        currentPrice >= orbLow - retestBuffer &&
+        currentPrice <= orbLow + retestBuffer;
+
+      if (!isRetestLong && !isRetestShort) continue; // not at retest yet
+
+      // ── 6. SS AI Bot score gate (≥ 70) ───────────────────────────────────
+      const scoreResult = await computeBreakoutScore(currentPrice, [], m5BC, [], h1BC, []);
+      const aiScore = scoreResult.percentage;
+      if (aiScore < 70) {
+        addActivity(userId, {
+          type: 'info', symbol,
+          message: `📊 ORB AUTO [${symbol}]: ${breakoutDir} retest detected but SS AI score ${aiScore}/100 < 70 — skipping`,
+        });
+        continue;
+      }
+
+      // ── 7. Build trade decision ───────────────────────────────────────────
+      const direction = breakoutDir;
+      const entry     = currentPrice;
+      const slDist    = orbRange + orbRange * 0.1; // SL = 10% beyond the ORB range
+      const tp1Dist   = slDist * 2;  // 2:1 R:R
+      const tp2Dist   = slDist * 3;  // 3:1 R:R
+      const sl  = direction === 'BUY' ? orbLow  - orbRange * 0.1 : orbHigh + orbRange * 0.1;
+      const tp1 = direction === 'BUY' ? entry + tp1Dist : entry - tp1Dist;
+      const tp2 = direction === 'BUY' ? entry + tp2Dist : entry - tp2Dist;
+
+      addActivity(userId, {
+        type: 'signal', symbol, direction,
+        message: `🚀 ORB AUTO SIGNAL [${symbol}]: ${direction} — retest at ${entry.toFixed(4)} | ORB ${orbLow.toFixed(4)}–${orbHigh.toFixed(4)} | SS AI ${aiScore}/100 | SL ${sl.toFixed(4)} TP1 ${tp1.toFixed(4)}`,
+        confidence: aiScore,
+      });
+
+      state.orbDailyFired[symbol] = todayKey;
+
+      await processDecision(userId, {
+        action:      'OPEN_TRADE',
+        strategy:    'orb_breakout',
+        symbol,
+        direction,
+        confidence:  aiScore,
+        entryPrice:  entry,
+        stopLoss:    sl,
+        takeProfit:  tp1,
+        takeProfit2: tp2,
+        lotSize:     config.baseLotSize,
+        holdTime:    '2-4 hours',
+        urgency:     'ENTER_NOW',
+        reason:      `ORB Autonomous — ${direction} retest of ${direction === 'BUY' ? `ORB High ${orbHigh.toFixed(4)}` : `ORB Low ${orbLow.toFixed(4)}`} | Range ${(orbRange * 10000).toFixed(0)} pips | SS AI ${aiScore}/100 | ${scoreResult.summary.split('\n')[0]}`,
+        confluences: [
+          `ORB range: ${orbLow.toFixed(4)}–${orbHigh.toFixed(4)}`,
+          `Breakout direction: ${direction}`,
+          `Retest at: ${entry.toFixed(4)}`,
+          `SS AI Bot score: ${aiScore}/100`,
+          ...scoreResult.strategies.filter(s => s.fired).map(s => s.name),
+        ],
+      });
+
+    } catch (err: any) {
+      addActivity(userId, { type: 'error', symbol, message: `ORB Auto scan error (${symbol}): ${err.message}` });
+    }
+
+    await new Promise(r => setTimeout(r, 3000)); // pace between pairs
+  }
+}
+
 async function runSundayGapScanner(userId: number): Promise<void> {
   const state = engineStates[userId];
   if (!state) return;
@@ -4537,6 +4734,7 @@ export function startLiveEngine(userId: number, config?: Partial<LiveEngineConfi
     htfBiasCache: {},
     pairDirectionLock: {},
     compositeLastFiredAt: {},
+    orbDailyFired: {},
   };
 
   const adaptiveInterval = getAdaptiveScanInterval(fullConfig);
