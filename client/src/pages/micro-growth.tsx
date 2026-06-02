@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import {
   TrendingUp, Target, Zap, Clock, Play, Square, ChevronUp, BarChart3,
   Activity, DollarSign, Trophy, AlertTriangle, CheckCircle2, Plus, RefreshCw,
+  Power,
 } from 'lucide-react';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -115,6 +116,11 @@ export default function MicroGrowthPage() {
   const { toast } = useToast();
   const queryClientHook = useQueryClient();
 
+  // Engine toggle — persisted to localStorage
+  const [engineEnabled, setEngineEnabled] = useState<boolean>(() => {
+    try { return localStorage.getItem('micro_growth_enabled') !== 'false'; } catch { return true; }
+  });
+
   // Setup state
   const [balance, setBalance] = useState<number>(25);
   const [balanceInput, setBalanceInput] = useState<string>('25');
@@ -216,6 +222,27 @@ export default function MicroGrowthPage() {
     setShowResultModal(true);
   }, [stopTimers, addActivity]);
 
+  // Engine on/off toggle — defined after stopTimers so it can reference it
+  const toggleEngine = useCallback(() => {
+    setEngineEnabled(prev => {
+      const next = !prev;
+      try { localStorage.setItem('micro_growth_enabled', String(next)); } catch {}
+      // If turning off, kill any active session
+      if (!next) {
+        stopTimers();
+        setActiveSessionId(null);
+        setSessionStartTime(null);
+        setTimeLeftMs(0);
+        setTradesThisSession(0);
+        setPipsThisSession(0);
+        setActivity([]);
+        setShowResultModal(false);
+        setPendingStop(false);
+      }
+      return next;
+    });
+  }, [stopTimers]);
+
   useEffect(() => {
     if (activeSessionId && sessionStartTime) {
       // Countdown timer — tick every 500ms
@@ -309,19 +336,63 @@ export default function MicroGrowthPage() {
 
         {/* ── Page Header ── */}
         <div className="flex items-center gap-3 pt-2">
-          <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: 'rgba(34,197,94,0.15)', border: '1px solid rgba(34,197,94,0.3)' }}>
-            <TrendingUp className="w-5 h-5 text-green-400" />
+          <div
+            className="w-10 h-10 rounded-xl flex items-center justify-center transition-all"
+            style={{
+              background: engineEnabled ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.05)',
+              border: engineEnabled ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(255,255,255,0.1)',
+            }}
+          >
+            <TrendingUp className={`w-5 h-5 ${engineEnabled ? 'text-green-400' : 'text-gray-600'}`} />
           </div>
           <div>
             <h1 className="text-xl font-bold text-white leading-tight">Micro Account Growth Engine</h1>
             <p className="text-xs text-gray-400">Scalp your way from $25 → $500+ with tier-based sessions</p>
           </div>
-          <div className="ml-auto flex gap-2">
+          <div className="ml-auto flex items-center gap-2">
             <Button variant="ghost" size="sm" onClick={() => { refetchStatus(); refetchSessions(); }} className="text-gray-400 hover:text-white">
               <RefreshCw className="w-4 h-4" />
             </Button>
+            {/* Engine on/off toggle */}
+            <button
+              onClick={toggleEngine}
+              title={engineEnabled ? 'Disable Micro Growth Engine' : 'Enable Micro Growth Engine'}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all"
+              style={{
+                background: engineEnabled ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.12)',
+                border: engineEnabled ? '1px solid rgba(34,197,94,0.4)' : '1px solid rgba(239,68,68,0.35)',
+                color: engineEnabled ? '#22c55e' : '#f87171',
+              }}
+            >
+              <Power className="w-3.5 h-3.5" />
+              {engineEnabled ? 'ON' : 'OFF'}
+            </button>
           </div>
         </div>
+
+        {/* ── Disabled Banner ── */}
+        {!engineEnabled && (
+          <div
+            className="flex items-center gap-3 rounded-xl px-4 py-4"
+            style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)' }}
+          >
+            <Power className="w-5 h-5 text-red-400 flex-shrink-0" />
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-red-400">Micro Growth Engine is OFF</p>
+              <p className="text-xs text-gray-500 mt-0.5">Enable the engine above to start scalping sessions and track your progress.</p>
+            </div>
+            <button
+              onClick={toggleEngine}
+              className="px-4 py-1.5 rounded-lg text-xs font-semibold text-white transition-all"
+              style={{ background: 'rgba(34,197,94,0.8)', border: '1px solid rgba(34,197,94,0.5)' }}
+            >
+              Enable
+            </button>
+          </div>
+        )}
+
+        {/* ── Engine content (greyed when disabled) ── */}
+        <div className={`space-y-5 transition-opacity ${engineEnabled ? 'opacity-100' : 'opacity-40 pointer-events-none select-none'}`}>
 
         {/* ── Tier Card ── */}
         {status && (
@@ -532,7 +603,7 @@ export default function MicroGrowthPage() {
               {!activeSessionId ? (
                 <Button
                   onClick={handleStartSession}
-                  disabled={startMutation.isPending}
+                  disabled={startMutation.isPending || !engineEnabled}
                   className="flex-1 bg-green-600 hover:bg-green-700 text-white font-semibold h-11"
                 >
                   <Play className="w-4 h-4 mr-2" />
@@ -693,6 +764,7 @@ export default function MicroGrowthPage() {
           </CardContent>
         </Card>
 
+        </div>{/* end engine content wrapper */}
       </div>
 
       {/* ── Result Modal ── */}
