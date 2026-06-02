@@ -379,10 +379,17 @@ const engineIntervals: Record<number, ReturnType<typeof setInterval>> = {};
 const engineTimers: Record<number, ReturnType<typeof setTimeout>> = {};
 const brainLearningIntervals: Record<number, ReturnType<typeof setInterval>> = {};
 
-async function autoRetainBrain(userId: number): Promise<void> {
+async function autoRetainBrain(userId: number, _attempt = 0): Promise<void> {
   try {
     const fn = (global as any).runBrainLearning;
-    if (typeof fn !== 'function') return;
+    if (typeof fn !== 'function') {
+      // Race condition guard: routes may not have finished registering yet.
+      // Retry up to 3 times with a 5-second delay before giving up.
+      if (_attempt < 3) {
+        setTimeout(() => autoRetainBrain(userId, _attempt + 1), 5000);
+      }
+      return;
+    }
     const brain = await fn(userId);
     const count = brain?.totalTradesAnalyzed ?? 0;
     addActivity(userId, { type: 'info', message: `🧠 Brain auto-retrained from ${count} trades across ${brain?.pairsLearned ?? 0} pairs` });
@@ -1057,12 +1064,12 @@ export function recordTradeResult(userId: number, result: {
     }
   }
 
-  // ── Auto-retrain brain every 5 trade results ───────────────────────
+  // ── Auto-retrain brain every 3 trade results ───────────────────────
   state.tradesSinceLastLearn = (state.tradesSinceLastLearn || 0) + 1;
-  if (state.tradesSinceLastLearn >= 5) {
+  if (state.tradesSinceLastLearn >= 3) {
     state.tradesSinceLastLearn = 0;
     autoRetainBrain(userId).then(() => {
-      addActivity(userId, { type: 'info', message: '🧠 Brain updated after 5 new trade results' });
+      addActivity(userId, { type: 'info', message: '🧠 Brain updated after 3 new trade results' });
     });
   }
 
@@ -4823,7 +4830,23 @@ export function startLiveEngine(userId: number, config?: Partial<LiveEngineConfi
 
   scheduleGapScanner(userId);
 
-  // Auto-train brain immediately on engine start, then every 30 minutes
+  // ── Load persisted brain from disk so dashboard has data immediately ──
+  // This restores the brain without waiting for the 30-min retrain interval.
+  try {
+    const loadFn = (global as any).loadPersistedBrain;
+    if (typeof loadFn === 'function') {
+      const persisted = loadFn(userId);
+      if (persisted) {
+        addActivity(userId, {
+          type: 'info',
+          message: `🧠 Brain restored from disk — ${persisted.totalTradesAnalyzed ?? 0} trades, ${persisted.pairsLearned ?? 0} pairs`,
+        });
+      }
+    }
+  } catch (_) {}
+
+  // Auto-train brain immediately on engine start (refreshes from latest DB data),
+  // then every 30 minutes to capture newly closed trades
   autoRetainBrain(userId);
   if (brainLearningIntervals[userId]) clearInterval(brainLearningIntervals[userId]);
   brainLearningIntervals[userId] = setInterval(() => autoRetainBrain(userId), 30 * 60 * 1000);

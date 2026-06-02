@@ -564,8 +564,12 @@ export default function VeddClothingPage() {
     queryKey: ['/api/vedd-clothing/home'],
     enabled: !DEMO_MODE,
   });
-  const referralCode = currentUser?.username || currentUser?.referralCode || user?.username || '';
-  const referralLink = `${window.location.origin}/auth?ref=${referralCode}`;
+  const { data: referralData } = useQuery<{ code: string; url: string; shortUrl: string }>({
+    queryKey: ['/api/referral/my-link'],
+    enabled: !!user,
+  });
+  const referralCode = referralData?.code ?? '';
+  const referralLink = referralData?.url ?? `${window.location.origin}/auth`;
 
   // ── Timed popup sequence
   const popupShownRef = useRef(new Set<number>(displayShownPopups));

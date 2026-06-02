@@ -6,6 +6,7 @@ import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
 import { storage } from "./storage";
 import { User as SelectUser } from "@shared/schema";
+import { veddTokenService } from "./services/vedd-token-service";
 
 declare global {
   namespace Express {
@@ -106,6 +107,11 @@ export function setupAuth(app: Express) {
             await storage.recordReferral(referrer.id, user.id);
             // Mark visit as signed up
             await storage.markReferralSignup(refCode as string, user.id);
+            // Award +50 in-app credits to referrer immediately on signup
+            await storage.addReferralCredits(referrer.id, 50);
+            console.log(`[Referral] Awarded 50 credits to user ${referrer.id} for signup referral`);
+            // Fire on-chain VEDD token transfer in background (50 VEDD)
+            veddTokenService.enqueueReferralReward(referrer.id, 'referral_signup', 50).catch(() => {});
           }
         } catch (refErr) {
           console.error('[auth] Referral tracking error (non-fatal):', refErr);

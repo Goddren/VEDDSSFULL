@@ -3043,13 +3043,29 @@ Respond ONLY in valid JSON format with these exact keys:
 
       const userId = (req.user as Express.User).id;
       const result = await createSubscription(userId, planId);
-      
+
+      // ── Referral reward: +200 credits to referrer on subscription ────
+      try {
+        const subscribingUser = await storage.getUser(userId);
+        const referrerId = (subscribingUser as any)?.referredBy;
+        if (referrerId) {
+          await storage.markReferralSubscribed(userId);
+          // Award +200 in-app credits
+          await storage.addReferralCredits(referrerId, 200);
+          console.log(`[Referral] Awarded 200 credits to user ${referrerId} — referred user ${userId} subscribed`);
+          // Fire on-chain VEDD token transfer in background (200 VEDD)
+          veddTokenService.enqueueReferralReward(referrerId, 'referral_subscription', 200).catch(() => {});
+        }
+      } catch (refSubErr) {
+        console.error('[Referral] Subscription credit award failed (non-fatal):', refSubErr);
+      }
+
       res.json(result);
     } catch (error) {
       console.error("Error creating subscription:", error);
-      res.status(500).json({ 
-        message: "Error creating subscription", 
-        error: error instanceof Error ? error.message : "Unknown error" 
+      res.status(500).json({
+        message: "Error creating subscription",
+        error: error instanceof Error ? error.message : "Unknown error"
       });
     }
   });
@@ -13527,11 +13543,31 @@ Format each recommendation as a clear, concise action item.`;
     }
 
     (global as any).veddAIBrain[userId] = brain;
+
+    // ── Persist brain to disk so it survives server restarts ──────────
+    try {
+      const brainDir = path.join(process.cwd(), 'data', 'brains');
+      if (!fs.existsSync(brainDir)) fs.mkdirSync(brainDir, { recursive: true });
+      fs.writeFileSync(path.join(brainDir, `brain_${userId}.json`), JSON.stringify(brain));
+    } catch (_brainSaveErr) { /* non-critical */ }
+
     console.log(`[VEDD Brain] Learned from ${combinedTrades.length} trades across ${uniqueSymbols.length} pairs for user ${userId}`);
     return brain;
   }
 
   (global as any).runBrainLearning = runBrainLearning;
+
+  // Allow the engine to load a persisted brain from disk without triggering a full re-learn
+  (global as any).loadPersistedBrain = (userId: number): any | null => {
+    try {
+      const p = path.join(process.cwd(), 'data', 'brains', `brain_${userId}.json`);
+      if (!fs.existsSync(p)) return null;
+      const brain = JSON.parse(fs.readFileSync(p, 'utf-8'));
+      (global as any).veddAIBrain = (global as any).veddAIBrain || {};
+      (global as any).veddAIBrain[userId] = brain;
+      return brain;
+    } catch (_) { return null; }
+  };
 
   app.post("/api/vedd-brain/learn", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
@@ -13548,7 +13584,18 @@ Format each recommendation as a clear, concise action item.`;
   app.get("/api/vedd-brain/status", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
-    const brain = (global as any).veddAIBrain?.[userId];
+    // Try in-memory first; fall back to disk-persisted brain so data survives server restarts
+    let brain = (global as any).veddAIBrain?.[userId];
+    if (!brain) {
+      try {
+        const p = path.join(process.cwd(), 'data', 'brains', `brain_${userId}.json`);
+        if (fs.existsSync(p)) {
+          brain = JSON.parse(fs.readFileSync(p, 'utf-8'));
+          (global as any).veddAIBrain = (global as any).veddAIBrain || {};
+          (global as any).veddAIBrain[userId] = brain;
+        }
+      } catch (_) {}
+    }
     if (!brain) return res.json({ learned: false, message: "Brain has not learned yet. Trigger learning first." });
     res.json({ learned: true, ...brain });
   });
@@ -13557,7 +13604,18 @@ Format each recommendation as a clear, concise action item.`;
   app.get("/api/vedd-live-engine/brain-status", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
-    const brain = (global as any).veddAIBrain?.[userId];
+    // Try in-memory first; fall back to disk-persisted brain
+    let brain = (global as any).veddAIBrain?.[userId];
+    if (!brain) {
+      try {
+        const p = path.join(process.cwd(), 'data', 'brains', `brain_${userId}.json`);
+        if (fs.existsSync(p)) {
+          brain = JSON.parse(fs.readFileSync(p, 'utf-8'));
+          (global as any).veddAIBrain = (global as any).veddAIBrain || {};
+          (global as any).veddAIBrain[userId] = brain;
+        }
+      } catch (_) {}
+    }
     if (!brain) return res.json({ learned: false, message: "Brain has not learned yet. Trigger learning first." });
     res.json({ learned: true, ...brain });
   });

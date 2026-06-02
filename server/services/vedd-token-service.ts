@@ -681,6 +681,93 @@ export class VeddTokenService {
 
     return { processed, errors };
   }
+
+  /**
+   * Dual-track referral reward: logs the reward and, if the referrer has a
+   * connected Solana wallet + a live pool wallet, immediately fires an on-chain
+   * SPL token transfer in the background. In-app credit is always awarded by
+   * the caller via storage.addReferralCredits() — this method handles the
+   * on-chain side only.
+   *
+   * @param referrerId  - userId of the person who referred
+   * @param actionType  - 'referral_signup' | 'referral_subscription'
+   * @param amount      - VEDD tokens to transfer (e.g. 50 or 200)
+   */
+  async enqueueReferralReward(
+    referrerId: number,
+    actionType: 'referral_signup' | 'referral_subscription',
+    amount: number,
+  ): Promise<void> {
+    try {
+      const [referrer] = await db.select().from(users).where(eq(users.id, referrerId)).limit(1);
+      if (!referrer) return;
+
+      const poolWallet = await this.getPoolWalletInfo('rewards');
+
+      // Log the reward record (auto-approved — referral tracking is internal verification)
+      const [reward] = await db.insert(ambassadorActionRewards)
+        .values({
+          userId: referrerId,
+          actionType,
+          baseReward: amount,
+          bonusReward: 0,
+          totalReward: amount,
+          verificationStatus: 'auto_approved',
+          verifiedAt: new Date(),
+          notes: `Auto-approved referral reward (${actionType})`,
+        } as any)
+        .returning();
+
+      const walletAddr = (referrer as any).walletAddress as string | null;
+
+      if (!walletAddr || !poolWallet) {
+        // No wallet connected yet — tokens will be held and sent when user connects a wallet
+        console.log(`[Referral Token] ${amount} VEDD reward logged for user ${referrerId} — wallet not connected, held pending`);
+        return;
+      }
+
+      // Blacklist check
+      const [blacklisted] = await db.select({ id: veddWalletBlacklist.id })
+        .from(veddWalletBlacklist)
+        .where(and(eq(veddWalletBlacklist.walletAddress, walletAddr), eq(veddWalletBlacklist.isActive, true)))
+        .limit(1);
+      if (blacklisted) {
+        console.warn(`[Referral Token] Blocked — blacklisted wallet: ${walletAddr} (userId: ${referrerId})`);
+        return;
+      }
+
+      // Create transfer job
+      const idempotencyKey = `referral-${referrerId}-${actionType}-${reward.id}-${Date.now()}`;
+      const [transferJob] = await db.insert(veddTransferJobs)
+        .values({
+          userId: referrerId,
+          sourceWalletId: poolWallet.id,
+          destinationWallet: walletAddr,
+          amount,
+          actionType,
+          actionId: reward.id,
+          status: 'pending',
+          idempotencyKey,
+          metadata: { referralReward: true, autoApproved: true },
+        } as any)
+        .returning();
+
+      // Fire transfer in background — don't block the signup/subscription response
+      this.processTransfer(transferJob.id)
+        .then(result => {
+          if (result.success) {
+            console.log(`[Referral Token] ✓ Sent ${amount} VEDD to ${walletAddr} — tx: ${result.transactionSig}`);
+          } else {
+            console.error(`[Referral Token] Transfer failed for user ${referrerId}: ${result.error}`);
+          }
+        })
+        .catch(err => console.error('[Referral Token] processTransfer error:', err));
+
+    } catch (err) {
+      // Non-critical — in-app credit already awarded by caller
+      console.error('[Referral Token] enqueueReferralReward error:', err);
+    }
+  }
 }
 
 export const veddTokenService = new VeddTokenService();

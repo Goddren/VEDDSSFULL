@@ -250,33 +250,48 @@ export default function ReferralHubPage() {
               </CardContent>
             </Card>
 
-            {/* Credits earned */}
+            {/* Credits + VEDD earned */}
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm flex items-center gap-2">
                   <Star className="w-4 h-4 text-amber-400" />
-                  Credits Earned
+                  Rewards Earned
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-4xl font-bold text-amber-400 mb-1">{user?.referralCredits ?? 0}</p>
-                <p className="text-xs text-muted-foreground mb-4">Total referral credits balance</p>
-                <div className="bg-muted/40 rounded-lg p-3 text-xs space-y-1">
-                  <div className="flex justify-between">
-                    <span>Per signup</span>
-                    <span className="font-semibold text-green-400">+100 credits</span>
+                {/* In-app credits */}
+                <div className="mb-3">
+                  <p className="text-3xl font-bold text-amber-400">{(user as any)?.referralCredits ?? 0}</p>
+                  <p className="text-xs text-muted-foreground">In-app referral credits</p>
+                </div>
+
+                {/* Reward breakdown */}
+                <div className="bg-muted/40 rounded-lg p-3 text-xs space-y-2 mb-3">
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">Per referral</p>
+                  <div className="flex justify-between items-center">
+                    <span>Signup</span>
+                    <div className="flex gap-2">
+                      <span className="font-semibold text-green-400">+50 credits</span>
+                      <span className="text-green-400/60">+</span>
+                      <span className="font-semibold text-emerald-300">50 VEDD</span>
+                    </div>
                   </div>
-                  <div className="flex justify-between">
-                    <span>Per subscription</span>
-                    <span className="font-semibold text-amber-400">+500 credits</span>
+                  <div className="flex justify-between items-center">
+                    <span>Subscription</span>
+                    <div className="flex gap-2">
+                      <span className="font-semibold text-amber-400">+200 credits</span>
+                      <span className="text-amber-400/60">+</span>
+                      <span className="font-semibold text-emerald-300">200 VEDD</span>
+                    </div>
                   </div>
-                  <div className="flex justify-between">
-                    <span>Bonus (5+ referrals)</span>
-                    <span className="font-semibold text-purple-400">+1,000 credits</span>
+                  <div className="border-t border-muted pt-2 text-[10px] text-muted-foreground flex items-center gap-1">
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                    VEDD tokens sent on-chain to your connected Solana wallet. Credits are in-app.
                   </div>
                 </div>
-                <Button size="sm" className="w-full mt-3" variant="outline" onClick={() => window.location.href = '/subscription'}>
-                  Redeem Credits <ChevronRight className="w-3.5 h-3.5 ml-1" />
+
+                <Button size="sm" className="w-full" variant="outline" onClick={() => window.location.href = '/my-wallet'}>
+                  View VEDD Wallet <ChevronRight className="w-3.5 h-3.5 ml-1" />
                 </Button>
               </CardContent>
             </Card>

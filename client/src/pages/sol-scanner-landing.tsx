@@ -1,4 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useAuth } from '@/hooks/use-auth';
 import { Link, useLocation } from 'wouter';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -25,57 +27,19 @@ import { SiSolana } from 'react-icons/si';
 import { useToast } from '@/hooks/use-toast';
 import VeddLogo from '@/components/ui/vedd-logo';
 
-function generateReferralCode(): string {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let code = 'VEDD';
-  for (let i = 0; i < 6; i++) {
-    code += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return code;
-}
-
 export default function SolScannerLanding() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
-  const [referralCode, setReferralCode] = useState<string>('');
+  const { user } = useAuth();
   const [copied, setCopied] = useState(false);
-  const [referralStats, setReferralStats] = useState({
-    referrals: 0,
-    earnings: 0
+
+  // Always fetch the real referral link from the API — same source as Referral Hub
+  const { data: referralData } = useQuery<{ code: string; url: string; shortUrl: string }>({
+    queryKey: ['/api/referral/my-link'],
+    enabled: !!user,
   });
-  
-  // Get or generate referral code
-  useEffect(() => {
-    const stored = localStorage.getItem('vedd_referral_code');
-    if (stored) {
-      setReferralCode(stored);
-    } else {
-      const newCode = generateReferralCode();
-      localStorage.setItem('vedd_referral_code', newCode);
-      setReferralCode(newCode);
-    }
-    
-    // Load referral stats
-    const stats = localStorage.getItem('vedd_referral_stats');
-    if (stats) {
-      setReferralStats(JSON.parse(stats));
-    }
-  }, []);
-  
-  // Check for referral in URL
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const ref = params.get('ref');
-    if (ref && ref !== referralCode) {
-      localStorage.setItem('vedd_referred_by', ref);
-      toast({
-        title: 'Referral Applied!',
-        description: `You were referred by code ${ref}. Start trading to earn rewards!`
-      });
-    }
-  }, [referralCode]);
-  
-  const shareLink = `${window.location.origin}/sol-scanner?ref=${referralCode}`;
+
+  const shareLink = referralData?.url ?? `${window.location.origin}/auth`;
   
   const copyLink = () => {
     navigator.clipboard.writeText(shareLink);
@@ -261,17 +225,14 @@ export default function SolScannerLanding() {
             <div className="flex items-center justify-between text-sm">
               <div className="flex items-center gap-2">
                 <Badge variant="outline" className="border-purple-500/30">
-                  Your Code: {referralCode}
+                  Your Code: {referralData?.code ?? (user ? '...' : 'Sign in to get your code')}
                 </Badge>
               </div>
-              <div className="flex items-center gap-4">
-                <span className="text-gray-400">
-                  <Users className="h-4 w-4 inline mr-1" />
-                  {referralStats.referrals} referrals
-                </span>
-                <span className="text-green-400">
-                  <DollarSign className="h-4 w-4 inline mr-1" />
-                  {referralStats.earnings.toFixed(2)} VEDD earned
+              <div className="flex items-center gap-2">
+                <span className="text-gray-400 text-xs">
+                  <Link href="/referral" className="text-purple-400 hover:underline">
+                    Track referrals →
+                  </Link>
                 </span>
               </div>
             </div>

@@ -909,14 +909,17 @@ export default function BlogPage() {
   const isAdmin      = !!(user as any)?.isAdmin;
   const isAmbassador = !!(user as any)?.isAmbassador;
   const isLoggedIn   = !!user;
-  const referralCode: string | null = (user as any)?.referralCode ?? null;
   const queryClient  = useQueryClient();
+
+  const { data: referralData } = useQuery<{ code: string; url: string; shortUrl: string }>({
+    queryKey: ['/api/referral/my-link'],
+    enabled: !!user,
+  });
+  const signupUrl = referralData?.url ?? '/auth';
 
   const [generateDialogOpen, setGenerateDialogOpen] = useState(false);
   const [activeCategory, setActiveCategory]         = useState('All');
   const [readingPost,    setReadingPost]             = useState<BlogPost | null>(null);
-
-  const signupUrl = referralCode ? `/auth?ref=${referralCode}` : '/auth';
 
   const { data: posts = [], isLoading, isError } = useQuery<BlogPost[]>({
     queryKey: ['/api/blog'],

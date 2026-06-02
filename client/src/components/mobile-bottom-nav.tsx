@@ -5,7 +5,7 @@ import {
   Briefcase, HelpCircle, BookOpen, GraduationCap, Lightbulb,
   Coins, Webhook, Wallet, DollarSign, Globe, Search, BarChart3,
   LineChart, Scan, Brain, Radio, Rocket, Heart, X,
-  FlaskConical, Shield, BarChart2, Lock, Building2, Shirt, MapPin,
+  FlaskConical, Shield, BarChart2, Lock, Building2, Shirt, MapPin, TrendingDown,
 } from 'lucide-react';
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useAuth } from '@/hooks/use-auth';
@@ -23,12 +23,13 @@ const tradingItems = [
 ];
 
 const aiToolItems = [
-  { name: 'SOL Scanner', path: '/solana-scanner',     icon: Scan,     color: '#06b6d4' },
-  { name: 'Tokenomics',  path: '/vedd-tokenomics',    icon: Coins,    color: '#f59e0b' },
-  { name: 'Analysis',    path: '/analysis',           icon: LineChart, color: '#ef4444' },
-  { name: 'AI Models',   path: '/ai-trading-models',  icon: Brain,    color: '#8b5cf6' },
-  { name: 'Webhooks',    path: '/webhooks',           icon: Webhook,  color: '#3b82f6' },
-  { name: 'Live Monitor',path: '/live-monitor',       icon: Radio,    color: '#22c55e' },
+  { name: 'SOL Scanner', path: '/solana-scanner',             icon: Scan,         color: '#06b6d4' },
+  { name: 'Polymarket',  path: '/weekly-strategy#polymarket', icon: TrendingDown, color: '#a855f7' },
+  { name: 'Tokenomics',  path: '/vedd-tokenomics',            icon: Coins,        color: '#f59e0b' },
+  { name: 'Analysis',    path: '/analysis',                   icon: LineChart,    color: '#ef4444' },
+  { name: 'AI Models',   path: '/ai-trading-models',          icon: Brain,        color: '#8b5cf6' },
+  { name: 'Webhooks',    path: '/webhooks',                   icon: Webhook,      color: '#3b82f6' },
+  { name: 'Live Monitor',path: '/live-monitor',               icon: Radio,        color: '#22c55e' },
 ];
 
 const communityItems = [
@@ -88,34 +89,39 @@ function NavTile({
   isActive: boolean;
   onClose: () => void;
 }) {
-  return (
-    <Link href={path}>
-      <button
-        onClick={onClose}
-        className="flex flex-col items-center gap-1.5 w-full p-2 rounded-2xl transition-all active:scale-90"
+  const inner = (
+    <button
+      onClick={onClose}
+      className="flex flex-col items-center gap-1.5 w-full p-2 rounded-2xl transition-all active:scale-90"
+      style={{
+        background: isActive ? `${color}22` : 'rgba(255,255,255,0.04)',
+        border: `1.5px solid ${isActive ? color + '66' : 'rgba(255,255,255,0.07)'}`,
+      }}
+    >
+      <span
+        className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0"
         style={{
-          background: isActive ? `${color}22` : 'rgba(255,255,255,0.04)',
-          border: `1.5px solid ${isActive ? color + '66' : 'rgba(255,255,255,0.07)'}`,
+          background: `${color}22`,
+          boxShadow: isActive ? `0 0 12px ${color}55` : 'none',
         }}
       >
-        <span
-          className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0"
-          style={{
-            background: `${color}22`,
-            boxShadow: isActive ? `0 0 12px ${color}55` : 'none',
-          }}
-        >
-          <Icon className="h-5 w-5" style={{ color }} />
-        </span>
-        <span
-          className="text-[9px] font-semibold leading-tight text-center line-clamp-2"
-          style={{ color: isActive ? color : 'rgba(255,255,255,0.65)' }}
-        >
-          {name}
-        </span>
-      </button>
-    </Link>
+        <Icon className="h-5 w-5" style={{ color }} />
+      </span>
+      <span
+        className="text-[9px] font-semibold leading-tight text-center line-clamp-2"
+        style={{ color: isActive ? color : 'rgba(255,255,255,0.65)' }}
+      >
+        {name}
+      </span>
+    </button>
   );
+
+  // Use native <a> for hash links so the browser scrolls to the anchor
+  if (path.includes('#')) {
+    return <a href={path}>{inner}</a>;
+  }
+
+  return <Link href={path}>{inner}</Link>;
 }
 
 /* ─── Section header ──────────────────────────────── */
@@ -318,6 +324,43 @@ export function MobileBottomNav() {
                 <span className="text-sm font-semibold text-white">Settings / Profile</span>
               </button>
             </Link>
+
+            {/* Admin shortcuts — only shown to admin users */}
+            {(user as any)?.isAdmin && (
+              <>
+                <div className="flex items-center gap-2 px-1 pt-1 pb-0.5">
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-amber-600">Admin</span>
+                  <div className="flex-1 h-px bg-amber-900/40" />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <Link href="/admin/vedd-pool">
+                    <button
+                      onClick={close}
+                      className="flex items-center gap-2 w-full px-3 py-2.5 rounded-2xl transition-all active:scale-95"
+                      style={{ background: 'rgba(245,158,11,0.10)', border: '1.5px solid rgba(245,158,11,0.30)' }}
+                    >
+                      <span className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(245,158,11,0.20)' }}>
+                        <Coins className="w-3.5 h-3.5 text-amber-400" />
+                      </span>
+                      <span className="text-xs font-semibold text-amber-300 leading-tight">Token Pool</span>
+                    </button>
+                  </Link>
+                  <Link href="/admin">
+                    <button
+                      onClick={close}
+                      className="flex items-center gap-2 w-full px-3 py-2.5 rounded-2xl transition-all active:scale-95"
+                      style={{ background: 'rgba(245,158,11,0.10)', border: '1.5px solid rgba(245,158,11,0.30)' }}
+                    >
+                      <span className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(245,158,11,0.20)' }}>
+                        <Shield className="w-3.5 h-3.5 text-amber-400" />
+                      </span>
+                      <span className="text-xs font-semibold text-amber-300 leading-tight">Admin Hub</span>
+                    </button>
+                  </Link>
+                </div>
+              </>
+            )}
+
             <button
               onClick={() => { logoutMutation.mutate(); close(); }}
               className="flex items-center gap-3 w-full px-4 py-3 rounded-2xl transition-all active:scale-95"

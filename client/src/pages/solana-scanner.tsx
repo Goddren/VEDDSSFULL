@@ -53,6 +53,7 @@ import type { SwapResult } from '@/lib/jupiter-swap';
 import { Connection } from '@solana/web3.js';
 import { SiSolana } from 'react-icons/si';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/hooks/use-auth';
 import { useSolanaWallet } from '@/hooks/use-solana-wallet';
 import { useNotifications } from '@/hooks/use-notifications';
 import { apiRequest, queryClient } from '@/lib/queryClient';
@@ -2887,11 +2888,16 @@ function generateReferralCode(): string {
 }
 
 export default function SolanaScanner() {
+  const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [buyingToken, setBuyingToken] = useState<string | null>(null);
-  const [referralCode, setReferralCode] = useState<string>('');
   const [referralCopied, setReferralCopied] = useState(false);
-  const [referralStats, setReferralStats] = useState({ referrals: 0, earnings: 0 });
+
+  // Always use the same referral link source as the Referral Hub
+  const { data: referralData } = useQuery<{ code: string; url: string; shortUrl: string }>({
+    queryKey: ['/api/referral/my-link'],
+    enabled: !!user,
+  });
   const [dexFilter, setDexFilter] = useState<DexSource>('all');
   const [solEngineSettingsOpen, setSolEngineSettingsOpen] = useState(false);
   const [solEngineAutoScan, setSolEngineAutoScan] = useState(true);
@@ -3243,24 +3249,6 @@ export default function SolanaScanner() {
     }
   }, [solEngineStatus?.activeStrategies?.join(',')]);
 
-  useEffect(() => {
-    const stored = localStorage.getItem('vedd_referral_code');
-    if (stored) {
-      setReferralCode(stored);
-    } else {
-      const newCode = generateReferralCode();
-      localStorage.setItem('vedd_referral_code', newCode);
-      setReferralCode(newCode);
-    }
-    const stats = localStorage.getItem('vedd_referral_stats');
-    if (stats) setReferralStats(JSON.parse(stats));
-    
-    const params = new URLSearchParams(window.location.search);
-    const ref = params.get('ref');
-    if (ref && ref !== stored) {
-      localStorage.setItem('vedd_referred_by', ref);
-    }
-  }, []);
   
   const { data: wallet } = useQuery<TradingWallet>({
     queryKey: ['/api/trading/wallet'],
@@ -3455,16 +3443,16 @@ export default function SolanaScanner() {
                 </p>
                 
                 <div className="flex items-center gap-2">
-                  <Input 
-                    value={`${window.location.origin}/sol-scanner?ref=${referralCode}`} 
-                    readOnly 
+                  <Input
+                    value={referralData?.url ?? `${window.location.origin}/auth`}
+                    readOnly
                     className="bg-muted text-xs"
                   />
                   <Button 
                     variant="outline" 
                     size="sm"
                     onClick={() => {
-                      navigator.clipboard.writeText(`${window.location.origin}/sol-scanner?ref=${referralCode}`);
+                      navigator.clipboard.writeText(referralData?.url ?? `${window.location.origin}/auth`);
                       setReferralCopied(true);
                       toast({ title: 'Link Copied!', description: 'Share to earn VEDD rewards' });
                       setTimeout(() => setReferralCopied(false), 2000);
@@ -3476,22 +3464,19 @@ export default function SolanaScanner() {
                 
                 <div className="flex items-center justify-between text-sm bg-muted/50 rounded-lg p-3">
                   <div className="flex items-center gap-2">
-                    <Badge variant="outline">Code: {referralCode}</Badge>
+                    <Badge variant="outline">Code: {referralData?.code ?? (user ? '...' : 'Sign in')}</Badge>
                   </div>
                   <div className="flex items-center gap-4 text-xs">
-                    <span className="flex items-center gap-1">
-                      <Users className="h-3 w-3" /> {referralStats.referrals}
-                    </span>
-                    <span className="flex items-center gap-1 text-green-400">
-                      <DollarSign className="h-3 w-3" /> {referralStats.earnings.toFixed(2)} VEDD
-                    </span>
+                    <Link href="/referral-hub" className="text-purple-400 hover:underline flex items-center gap-1">
+                      <Users className="h-3 w-3" /> Track referrals →
+                    </Link>
                   </div>
                 </div>
                 
                 <Button
                   className="w-full"
                   onClick={() => {
-                    const text = `🚀 Trade Solana tokens with AI signals!\n\n🤖 AI scans trending tokens 24/7\n📊 Auto buy/sell at targets\n💰 Earn 5% of friends' profits\n\nJoin with my link:\n${window.location.origin}/sol-scanner?ref=${referralCode}\n\n#VEDD #Solana #AI`;
+                    const text = `🚀 Trade Solana tokens with AI signals!\n\n🤖 AI scans trending tokens 24/7\n📊 Auto buy/sell at targets\n💰 Earn 5% of friends' profits\n\nJoin with my link:\n${referralData?.url ?? `${window.location.origin}/auth`}\n\n#VEDD #Solana #AI`;
                     window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`, '_blank');
                   }}
                 >

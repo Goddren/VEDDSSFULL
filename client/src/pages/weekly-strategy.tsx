@@ -4315,6 +4315,22 @@ export default function WeeklyStrategyPage() {
                 ))}
               </div>
             )}
+            {brainStatus?.learned && brainStatus?.lastLearned && (
+              <p className="text-[10px] text-gray-500 mt-1.5 flex items-center gap-1">
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
+                Last updated:{' '}
+                {(() => {
+                  const diff = Date.now() - new Date(brainStatus.lastLearned).getTime();
+                  const mins = Math.floor(diff / 60000);
+                  const hrs = Math.floor(mins / 60);
+                  const days = Math.floor(hrs / 24);
+                  if (days > 0) return `${days}d ${hrs % 24}h ago`;
+                  if (hrs > 0) return `${hrs}h ${mins % 60}m ago`;
+                  if (mins > 0) return `${mins}m ago`;
+                  return 'just now';
+                })()}
+              </p>
+            )}
           </CardHeader>
           <AnimatePresence>
             {showBrainSection && brainStatus?.learned && (
@@ -5037,6 +5053,7 @@ export default function WeeklyStrategyPage() {
             </div>
 
             {/* ── Composite Edge: Markov × Polymarket ── */}
+            <div id="polymarket" />
             {((markovOverview?.overview?.length ?? 0) > 0 || polymarketSentiment || btcComposite) && (() => {
               const alignColor = (a: string) =>
                 a === 'strong_agree'    ? 'text-emerald-400' :

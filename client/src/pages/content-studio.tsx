@@ -59,10 +59,10 @@ const CONTENT_TYPES: { id: ContentType; label: string; emoji: string; color: str
 ];
 
 // ── Caption templates ─────────────────────────────────────────────────────────
-function buildCaption(type: ContentType, item: any, referralCode: string | null): string {
-  const url = referralCode
+function buildCaption(type: ContentType, item: any, referralCode: string | null, referralUrl?: string): string {
+  const url = referralUrl ?? (referralCode
     ? `https://veddbuild.com/auth?ref=${referralCode}`
-    : 'https://veddbuild.com';
+    : 'https://veddbuild.com');
 
   switch (type) {
     case 'lesson': return (
@@ -411,9 +411,9 @@ function ContentBrowser({ type, selected, onSelect }: {
 }
 
 // ── Share Buttons ─────────────────────────────────────────────────────────────
-function ShareButtons({ caption, referralCode }: { caption: string; referralCode: string | null }) {
+function ShareButtons({ caption, referralCode, referralUrl }: { caption: string; referralCode: string | null; referralUrl?: string }) {
   const [copied, setCopied] = useState<string | null>(null);
-  const url = referralCode ? `https://veddbuild.com/auth?ref=${referralCode}` : 'https://veddbuild.com';
+  const url = referralUrl ?? (referralCode ? `https://veddbuild.com/auth?ref=${referralCode}` : 'https://veddbuild.com');
   const encCaption = encodeURIComponent(caption);
   const encUrl = encodeURIComponent(url);
 
@@ -484,7 +484,11 @@ export default function ContentStudioPage() {
   const { user } = useAuth();
   const isAmbassador = !!(user as any)?.isAmbassador;
   const isAdmin = !!(user as any)?.isAdmin;
-  const referralCode: string | null = (user as any)?.referralCode ?? null;
+  const { data: referralData } = useQuery<{ code: string; url: string; shortUrl: string }>({
+    queryKey: ['/api/referral/my-link'],
+    enabled: !!user,
+  });
+  const referralCode: string | null = referralData?.code ?? null;
 
   const [activeType, setActiveType] = useState<ContentType>('lesson');
   const [selectedItem, setSelectedItem] = useState<any>(null);
@@ -498,8 +502,8 @@ export default function ContentStudioPage() {
 
   // Rebuild caption when content or type changes
   useEffect(() => {
-    if (selectedItem) setCaption(buildCaption(activeType, selectedItem, referralCode));
-  }, [selectedItem, activeType, referralCode]);
+    if (selectedItem) setCaption(buildCaption(activeType, selectedItem, referralCode, referralData?.url));
+  }, [selectedItem, activeType, referralCode, referralData?.url]);
 
   const handleTypeSwitch = (type: ContentType) => {
     setActiveType(type);
@@ -625,7 +629,7 @@ export default function ContentStudioPage() {
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
                     <label className="text-[10px] text-gray-500">Post caption</label>
-                    <button onClick={() => setCaption(buildCaption(activeType, selectedItem, referralCode))}
+                    <button onClick={() => setCaption(buildCaption(activeType, selectedItem, referralCode, referralData?.url))}
                       className="text-[10px] text-gray-500 hover:text-white flex items-center gap-0.5 transition-colors">
                       <RefreshCw className="h-2.5 w-2.5" /> Reset
                     </button>
@@ -662,7 +666,7 @@ export default function ContentStudioPage() {
                 {/* Share buttons */}
                 <div>
                   <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">Share To</p>
-                  <ShareButtons caption={caption} referralCode={referralCode} />
+                  <ShareButtons caption={caption} referralCode={referralCode} referralUrl={referralData?.url} />
                 </div>
 
                 {/* VEDD token reward reminder */}
