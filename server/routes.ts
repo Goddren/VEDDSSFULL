@@ -8933,6 +8933,43 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               weeklyTarget,
               updatedAt: new Date().toISOString(),
             };
+
+            // ── AI Path Control: if user has activated a path, apply it ──────
+            const aiPathControl = (global as any).veddAiPathControl?.[token.userId];
+            if (aiPathControl?.enabled && aiPathControl.pairs?.length > 0) {
+              const normalizedSym = sanitizedSymbol.toUpperCase().replace('/', '');
+              const pathPairs: string[] = aiPathControl.pairs.map((p: string) => p.toUpperCase().replace('/', ''));
+              const isOnPath = pathPairs.some(p =>
+                normalizedSym === p || normalizedSym.includes(p) || p.includes(normalizedSym)
+              );
+
+              // Override lot multiplier with path's value
+              goalLotMultiplier = aiPathControl.lotMultiplier ?? goalLotMultiplier;
+
+              if (!isOnPath && analysis.signal !== 'NEUTRAL') {
+                // Block pairs NOT in the chosen path
+                analysis.signal = 'NEUTRAL';
+                analysis.alerts = analysis.alerts || [];
+                analysis.alerts.push(
+                  `AI PATH CONTROL 🎯: ${normalizedSym} skipped — not in your active ${aiPathControl.pathType} path. ` +
+                  `Active pairs: ${aiPathControl.pairs.join(', ')}`
+                );
+              } else if (isOnPath && analysis.signal !== 'NEUTRAL') {
+                // Mark as path-selected pair
+                analysis.alerts = analysis.alerts || [];
+                analysis.alerts.push(
+                  `AI PATH CONTROL ✅: ${normalizedSym} is on your ${aiPathControl.pathType} path. Lot size ×${goalLotMultiplier.toFixed(2)} applied.`
+                );
+              } else if (isOnPath && blockedByPlan && preFilterSignal !== 'NEUTRAL') {
+                // Unlock this pair since it's on the selected path
+                analysis.signal = preFilterSignal;
+                analysis.alerts = (analysis.alerts || []).filter((a: string) => !a.includes('Trade blocked') && !a.includes('NOT scheduled'));
+                analysis.alerts.push(
+                  `AI PATH CONTROL 🔓: ${normalizedSym} unlocked — on your ${aiPathControl.pathType} path. Lot size ×${goalLotMultiplier.toFixed(2)}.`
+                );
+              }
+              console.log(`[AI Path Control] ${normalizedSym} | path=${aiPathControl.pathType} | onPath=${isOnPath} | signal=${analysis.signal} | lots×${goalLotMultiplier.toFixed(2)}`);
+            }
           }
         } catch (goalErr) {
           console.error('[VEDD Goal Intelligence] Error:', goalErr);
@@ -11747,6 +11784,81 @@ Respond with ONLY valid JSON:
       todayWins: todayWinsAll,
       todayWinRate: todayWinRateAll,
     });
+  });
+
+  // ── AI Path Control — activate a path and let the AI pick pairs ──────────────
+
+  /** Activate or deactivate AI path control */
+  app.post("/api/goal-pacing/set-ai-path", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+
+    const { pathType, pairs, lotSize, enabled } = req.body as {
+      pathType?: 'SAFE' | 'MODERATE' | 'AGGRESSIVE' | 'AUTO';
+      pairs?: string[];
+      lotSize?: number;
+      enabled: boolean;
+    };
+
+    (global as any).veddAiPathControl = (global as any).veddAiPathControl || {};
+
+    if (!enabled) {
+      (global as any).veddAiPathControl[userId] = { enabled: false };
+      return res.json({ success: true, enabled: false });
+    }
+
+    // If AUTO, derive best path from current goal intelligence state
+    let resolvedPathType = pathType || 'AUTO';
+    let resolvedPairs = pairs || [];
+    let resolvedLotMult = lotSize || 1.0;
+
+    if (resolvedPathType === 'AUTO') {
+      const gi = (global as any).veddGoalIntelligence?.[userId];
+      const paceRatio = gi?.paceRatio ?? 1;
+      if (paceRatio >= 1.0) {
+        resolvedPathType = 'SAFE';
+        resolvedLotMult = 0.5;
+      } else if (paceRatio >= 0.6) {
+        resolvedPathType = 'MODERATE';
+        resolvedLotMult = 1.0;
+      } else {
+        resolvedPathType = 'AGGRESSIVE';
+        resolvedLotMult = Math.min(1.5, 1.0 + (1.0 - paceRatio) * 0.5);
+      }
+    }
+
+    // If no explicit pairs, assign recommended pairs per path type
+    if (resolvedPairs.length === 0) {
+      const SAFE_PAIRS       = ['EURUSD', 'GBPUSD', 'USDJPY', 'USDCAD'];
+      const MODERATE_PAIRS   = ['EURUSD', 'GBPUSD', 'XAUUSD', 'USDJPY', 'NAS100'];
+      const AGGRESSIVE_PAIRS = ['XAUUSD', 'US30', 'NAS100', 'GBPJPY', 'EURJPY', 'EURUSD', 'GBPUSD'];
+      resolvedPairs = resolvedPathType === 'SAFE' ? SAFE_PAIRS
+                    : resolvedPathType === 'MODERATE' ? MODERATE_PAIRS
+                    : AGGRESSIVE_PAIRS;
+    }
+
+    const pathState = {
+      enabled: true,
+      pathType: resolvedPathType,
+      pairs: resolvedPairs,
+      lotMultiplier: resolvedLotMult,
+      activatedAt: new Date().toISOString(),
+      activatedBy: 'user',
+    };
+
+    (global as any).veddAiPathControl[userId] = pathState;
+
+    console.log(`[AI Path Control] User ${userId} activated path=${resolvedPathType} pairs=${resolvedPairs.join(',')} lotMult=${resolvedLotMult}`);
+    res.json({ success: true, ...pathState });
+  });
+
+  /** Get current AI path control status */
+  app.get("/api/goal-pacing/ai-path-status", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const state = (global as any).veddAiPathControl?.[userId];
+    if (!state || !state.enabled) return res.json({ enabled: false });
+    res.json(state);
   });
 
   // ── Goal Pacing Agent — SWOT + trade-size plan to close the week ──────────────

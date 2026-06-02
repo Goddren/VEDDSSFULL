@@ -20,7 +20,8 @@ import {
   Newspaper, Radio, Activity, Share2, Loader2, Copy, Download,
   Sparkles, ExternalLink, Settings, ChevronDown, ChevronUp,
   TrendingDown, Crosshair, BookOpen, Swords,
-  Webhook, ArrowDownRight, Minus, Send
+  Webhook, ArrowDownRight, Minus, Send,
+  Navigation, ToggleLeft, ToggleRight, Play as PlayIcon
 } from "lucide-react";
 import { SiX, SiFacebook, SiLinkedin } from "react-icons/si";
 import VeddLogo from "@/components/ui/vedd-logo";
@@ -889,6 +890,8 @@ export default function WeeklyStrategyPage() {
   const [activeTab, setActiveTab] = useState<'plan'|'config'|'brain'|'engine'|'monitor'|'pacing'>('plan');
   const [pacingResult, setPacingResult] = useState<any>(null);
   const [pacingLoading, setPacingLoading] = useState(false);
+  const [aiPathStatus, setAiPathStatus] = useState<any>(null);
+  const [aiPathLoading, setAiPathLoading] = useState(false);
 
   // Deep-link support: ?tab=engine, ?tab=monitor, etc.
   useEffect(() => {
@@ -898,6 +901,16 @@ export default function WeeklyStrategyPage() {
       setActiveTab(tab as any);
     }
   }, []);
+
+  // Load AI path status when pacing tab is opened
+  useEffect(() => {
+    if (activeTab === 'pacing') {
+      apiRequest('GET', '/api/goal-pacing/ai-path-status')
+        .then(r => r.json())
+        .then(data => setAiPathStatus(data))
+        .catch(() => {});
+    }
+  }, [activeTab]);
 
   const { data: growthPlan } = useQuery<any>({
     queryKey: ['/api/growth-plan'],
@@ -5404,6 +5417,78 @@ export default function WeeklyStrategyPage() {
               </div>
             </div>
 
+            {/* ── AI Path Control Status Banner ── */}
+            {aiPathStatus?.enabled && (
+              <div className="rounded-2xl border border-violet-500/40 bg-violet-500/10 p-4">
+                <div className="flex items-center justify-between flex-wrap gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-violet-500/20">
+                      <Navigation className="w-4 h-4 text-violet-400" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-white font-bold text-sm">AI Path Control — ACTIVE</span>
+                        <Badge className="bg-violet-500/20 text-violet-300 border-0 text-[10px]">{aiPathStatus.pathType}</Badge>
+                      </div>
+                      <p className="text-gray-400 text-xs mt-0.5">
+                        AI is steering trades through: <span className="text-violet-300 font-medium">{(aiPathStatus.pairs || []).join(', ')}</span>
+                        {' '}· Lot ×{(aiPathStatus.lotMultiplier || 1).toFixed(2)}
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={aiPathLoading}
+                    onClick={async () => {
+                      setAiPathLoading(true);
+                      try {
+                        await apiRequest('POST', '/api/goal-pacing/set-ai-path', { enabled: false });
+                        setAiPathStatus({ enabled: false });
+                        toast({ title: 'AI Path Control deactivated', description: 'Engine returning to full pair access.' });
+                      } catch { toast({ title: 'Error', variant: 'destructive' }); }
+                      finally { setAiPathLoading(false); }
+                    }}
+                    className="border-red-500/40 text-red-400 hover:bg-red-500/10 shrink-0"
+                  >
+                    {aiPathLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Power className="w-3.5 h-3.5 mr-1" />}
+                    Deactivate
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* ── Let AI Auto-Select Path button (shown when no path is active) ── */}
+            {!aiPathStatus?.enabled && (
+              <div className="rounded-2xl border border-dashed border-violet-500/30 bg-violet-500/5 p-4 flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-3">
+                  <Navigation className="w-5 h-5 text-violet-400 shrink-0" />
+                  <div>
+                    <p className="text-white font-semibold text-sm">Let AI Choose the Path</p>
+                    <p className="text-gray-500 text-xs mt-0.5">AI auto-selects the best path + pairs based on your current pace and activates it</p>
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  disabled={aiPathLoading}
+                  onClick={async () => {
+                    setAiPathLoading(true);
+                    try {
+                      const res = await apiRequest('POST', '/api/goal-pacing/set-ai-path', { enabled: true, pathType: 'AUTO' });
+                      const data = await res.json();
+                      setAiPathStatus(data);
+                      toast({ title: `AI Path Activated: ${data.pathType}`, description: `Steering through: ${(data.pairs || []).join(', ')}` });
+                    } catch { toast({ title: 'Error', variant: 'destructive' }); }
+                    finally { setAiPathLoading(false); }
+                  }}
+                  className="bg-violet-600 hover:bg-violet-700 text-white shrink-0"
+                >
+                  {aiPathLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <PlayIcon className="w-3.5 h-3.5 mr-1" />}
+                  Auto-Select
+                </Button>
+              </div>
+            )}
+
             {!pacingResult && !pacingLoading && (
               <div className="text-center py-12 text-gray-500">
                 <Target className="w-10 h-10 mx-auto mb-3 opacity-30" />
@@ -5575,7 +5660,7 @@ export default function WeeklyStrategyPage() {
                                 </div>
                               )}
                               {plan.steps && plan.steps.length > 0 && (
-                                <ul className="space-y-1">
+                                <ul className="space-y-1 mb-3">
                                   {plan.steps.map((step: string, si: number) => (
                                     <li key={si} className="flex items-start gap-2 text-[11px] text-gray-400">
                                       <span className="text-orange-400 font-bold shrink-0 mt-0.5">{si + 1}.</span>{step}
@@ -5583,6 +5668,49 @@ export default function WeeklyStrategyPage() {
                                   ))}
                                 </ul>
                               )}
+
+                              {/* Activate This Path button */}
+                              {(() => {
+                                const isActive = aiPathStatus?.enabled && aiPathStatus?.pathType === plan.type;
+                                return (
+                                  <Button
+                                    size="sm"
+                                    disabled={aiPathLoading}
+                                    onClick={async () => {
+                                      setAiPathLoading(true);
+                                      try {
+                                        if (isActive) {
+                                          await apiRequest('POST', '/api/goal-pacing/set-ai-path', { enabled: false });
+                                          setAiPathStatus({ enabled: false });
+                                          toast({ title: 'AI Path deactivated' });
+                                        } else {
+                                          const res = await apiRequest('POST', '/api/goal-pacing/set-ai-path', {
+                                            enabled: true,
+                                            pathType: plan.type,
+                                            pairs: plan.pairs || [],
+                                            lotSize: plan.lotSize,
+                                          });
+                                          const data = await res.json();
+                                          setAiPathStatus(data);
+                                          toast({
+                                            title: `${plan.type} Path Activated`,
+                                            description: `AI steering through: ${(plan.pairs || []).join(', ')} · Lot ×${(plan.lotSize || 1)}`,
+                                          });
+                                        }
+                                      } catch { toast({ title: 'Error', variant: 'destructive' }); }
+                                      finally { setAiPathLoading(false); }
+                                    }}
+                                    className={`w-full text-xs font-semibold transition-all ${
+                                      isActive
+                                        ? 'bg-red-600/80 hover:bg-red-700 text-white'
+                                        : 'bg-violet-600/80 hover:bg-violet-700 text-white'
+                                    }`}
+                                  >
+                                    {aiPathLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <Navigation className="w-3.5 h-3.5 mr-1" />}
+                                    {isActive ? 'Deactivate Path' : 'Activate This Path'}
+                                  </Button>
+                                );
+                              })()}
                             </div>
                           );
                         })}
