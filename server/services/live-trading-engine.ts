@@ -332,6 +332,9 @@ interface EngineState {
   scanCount: number;
   signalsGenerated: number;
   tradesExecuted: number;
+  /** Trades opened today — resets at UTC midnight. Enforces maxDailyTrades. */
+  tradesOpenedToday: number;
+  tradesOpenedTodayDate: string; // YYYY-MM-DD UTC
   tradesFailed: number;
   positionsManaged: number;
   lastScanAt: string | null;
@@ -1417,8 +1420,17 @@ async function scanMarkets(userId: number): Promise<void> {
       for (const sym of cryptoPairs) {
         try {
           const symSnap = (state.marketSnapshot as any)?.[sym] ?? {};
-          const lastCC = symSnap.lastConfirmedCandle ?? null;
-          const candles = lastCC ? [lastCC] : [];
+          // M1 fix: supply the full cached candle sequence so Markov has a real
+          // transition matrix. buildTransitionMatrix now stores candleHistory on
+          // the cached matrix — reuse it here so we avoid a re-fetch.
+          const { getCachedMatrix } = await import('./markov-chain');
+          const cachedTM = getCachedMatrix(sym);
+          const candles: Array<{ open: number; close: number }> =
+            (cachedTM?.candleHistory?.length ?? 0) >= 5
+              ? cachedTM!.candleHistory
+              : symSnap.lastConfirmedCandle
+                ? [symSnap.lastConfirmedCandle]
+                : [];
 
           // Skip if fired within cooldown window
           const lastFired = state.compositeLastFiredAt[sym] || 0;
@@ -3253,6 +3265,25 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
   }
 
   if (decision.action === 'OPEN_TRADE') {
+    // ── Daily Trade Cap (maxDailyTrades) ─────────────────────────────────
+    // Reset counter at UTC midnight, then enforce the cap if set (0 = unlimited).
+    {
+      const todayUTC = new Date().toISOString().slice(0, 10);
+      if (state.tradesOpenedTodayDate !== todayUTC) {
+        state.tradesOpenedToday = 0;
+        state.tradesOpenedTodayDate = todayUTC;
+      }
+      const cap = config.maxDailyTrades ?? 0;
+      if (cap > 0 && state.tradesOpenedToday >= cap) {
+        addActivity(userId, {
+          type: 'info',
+          symbol: decision.symbol,
+          message: `🚫 DAILY TRADE CAP: ${decision.symbol} ${decision.direction} blocked — already opened ${state.tradesOpenedToday}/${cap} trades today. Cap resets at UTC midnight.`,
+        });
+        state.signalsGenerated++;
+        return;
+      }
+    }
     // ── Direction Filter Gate ─────────────────────────────────────────────
     // Per-pair overrides take priority over the global directionFilter.
     // e.g. pairDirectionOverrides: { XAUUSD: 'buy_only' } blocks gold sells
@@ -4251,6 +4282,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
 
       if (anySuccess) {
         state.tradesExecuted++;
+        state.tradesOpenedToday++;
         state.openPositionCount++;
         // Mark the queued MT5 signal as already executed so the MT5 EA
         // does NOT pick it up and fire the same trade a second time.
@@ -4523,9 +4555,13 @@ async function runORBAutonomousScan(userId: number): Promise<void> {
       // Look at candles after 9:45 AM for breakout close, then check retest
       let breakoutDir: 'BUY' | 'SELL' | null = null;
 
-      // Candles are newest-first in m5BC — find candles after 9:45 AM today
+      // Candles are newest-first in m5BC — find candles after 9:45 AM TODAY only.
+      // Must include date boundary so yesterday's post-9:45 candles are excluded.
+      const todayUTCDate = nowUTC.toISOString().slice(0, 10); // YYYY-MM-DD
       const postORBCandles = m5BC.filter(c => {
         if (!c.t) return false;
+        const candleDate = new Date(c.t * 1000).toISOString().slice(0, 10);
+        if (candleDate !== todayUTCDate) return false; // ← date boundary fix (C2)
         for (const off of estOffsets) {
           const d = new Date(c.t * 1000);
           const h = ((d.getUTCHours() + off) % 24 + 24) % 24;
@@ -4641,8 +4677,11 @@ async function runSundayGapScanner(userId: number): Promise<void> {
       const gapSize = Math.abs(sundayOpen - fridayClose);
       const tp1 = direction === 'BUY' ? sundayOpen + gapSize * 0.618 : sundayOpen - gapSize * 0.618;
       const tp2 = fridayClose; // 100% fill
-      const slPips = isGold ? 300 : isJPY ? 20 : 0.0020;
-      const sl = direction === 'BUY' ? sundayOpen - slPips : sundayOpen + slPips;
+      // SL in price distance = pip_count × pipSize (C3 fix: was using raw pips for gold)
+      const pipSz = getPipSize(symbol);
+      const slPipCount = isGold ? 300 : isJPY ? 20 : 20; // 300 gold pips, 20 pips for forex/JPY
+      const slDist = slPipCount * pipSz;
+      const sl = direction === 'BUY' ? sundayOpen - slDist : sundayOpen + slDist;
       const confidence = Math.min(88, 72 + gapPips * 0.8);
 
       addActivity(userId, {
@@ -4703,6 +4742,8 @@ export function startLiveEngine(userId: number, config?: Partial<LiveEngineConfi
     signalsGenerated: 0,
     tradesExecuted: 0,
     tradesFailed: 0,
+    tradesOpenedToday: 0,
+    tradesOpenedTodayDate: new Date().toISOString().slice(0, 10),
     positionsManaged: 0,
     lastScanAt: null,
     lastSignalAt: null,

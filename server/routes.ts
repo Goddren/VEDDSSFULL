@@ -14179,7 +14179,7 @@ Respond with ONLY valid JSON:
   app.post("/api/vedd-live-engine/start", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
-    const { pairs, strategyMode, scanIntervalMs, maxOpenTrades, riskPerTrade, minConfidence, enablePositionManagement, trailingStopEnabled, trailingStopATRMultiplier, weeklyProfitTarget, accountBalance, enableCompounding, baseLotSize, propFirmMode, propFirmDailyDrawdownLimit, maxLotSize, adaptiveScanInterval, enablePyramiding, useKellyCriterion, drawdownShieldThreshold, dailyLossLimit, aiMode, breakevenBufferPips, directionFilter, pairDirectionOverrides, enableCompositeAutonomous, compositeMinEdgeScore, enableORBAutonomous } = req.body;
+    const { pairs, strategyMode, scanIntervalMs, maxOpenTrades, riskPerTrade, minConfidence, enablePositionManagement, trailingStopEnabled, trailingStopATRMultiplier, weeklyProfitTarget, accountBalance, enableCompounding, baseLotSize, propFirmMode, propFirmDailyDrawdownLimit, maxLotSize, adaptiveScanInterval, enablePyramiding, useKellyCriterion, drawdownShieldThreshold, dailyLossLimit, maxDailyTrades, aiMode, breakevenBufferPips, directionFilter, pairDirectionOverrides, trailMethod, trailFixedPips, trailStepPips, trailProfitLockPct, trailActivationPips, trailSarInitialAF, trailSarMaxAF, brainLearningMode, enableCompositeAutonomous, compositeMinEdgeScore, enableORBAutonomous } = req.body;
     try {
       const state = startLiveEngine(userId, {
         pairs: pairs || undefined,
@@ -14203,6 +14203,7 @@ Respond with ONLY valid JSON:
         useKellyCriterion: useKellyCriterion !== undefined ? Boolean(useKellyCriterion) : undefined,
         drawdownShieldThreshold: drawdownShieldThreshold !== undefined ? Number(drawdownShieldThreshold) : undefined,
         dailyLossLimit: dailyLossLimit !== undefined ? Number(dailyLossLimit) : undefined,
+        maxDailyTrades: maxDailyTrades !== undefined ? Math.max(0, Number(maxDailyTrades)) : undefined,
         aiMode: ['full', 'economy', 'rule_based'].includes(aiMode) ? aiMode : undefined,
         breakevenBufferPips: breakevenBufferPips !== undefined ? Math.min(20, Math.max(0, Number(breakevenBufferPips))) : undefined,
         directionFilter: ['buy_only', 'sell_only', 'both'].includes(directionFilter) ? directionFilter : undefined,
@@ -14212,6 +14213,14 @@ Respond with ONLY valid JSON:
                 .filter(([, v]) => ['buy_only', 'sell_only', 'both'].includes(v as string))
             ) as Record<string, 'buy_only' | 'sell_only' | 'both'>
           : undefined,
+        trailMethod: ['staged_volume','chandelier','r_multiple','swing_structure','parabolic_sar','none','fixed_pip','profit_lock','stepped_fixed'].includes(trailMethod) ? trailMethod : undefined,
+        trailFixedPips: trailFixedPips !== undefined ? Number(trailFixedPips) : undefined,
+        trailStepPips: trailStepPips !== undefined ? Number(trailStepPips) : undefined,
+        trailProfitLockPct: trailProfitLockPct !== undefined ? Math.min(100, Math.max(0, Number(trailProfitLockPct))) : undefined,
+        trailActivationPips: trailActivationPips !== undefined ? Number(trailActivationPips) : undefined,
+        trailSarInitialAF: trailSarInitialAF !== undefined ? Number(trailSarInitialAF) : undefined,
+        trailSarMaxAF: trailSarMaxAF !== undefined ? Number(trailSarMaxAF) : undefined,
+        brainLearningMode: brainLearningMode !== undefined ? Boolean(brainLearningMode) : undefined,
         enableORBAutonomous: enableORBAutonomous !== undefined ? Boolean(enableORBAutonomous) : undefined,
         enableCompositeAutonomous: enableCompositeAutonomous !== undefined ? Boolean(enableCompositeAutonomous) : undefined,
         compositeMinEdgeScore: compositeMinEdgeScore !== undefined ? Math.min(100, Math.max(50, Number(compositeMinEdgeScore))) : undefined,

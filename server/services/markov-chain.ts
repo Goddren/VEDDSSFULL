@@ -37,6 +37,8 @@ export interface TransitionMatrix {
   candleCount: number;
   /** ISO timestamp when this matrix was computed */
   computedAt: string;
+  /** The raw candle sequence used to build this matrix (for downstream reuse) */
+  candleHistory: Array<{ open: number; close: number }>;
 }
 
 export interface MarkovSignal {
@@ -120,6 +122,7 @@ export function buildTransitionMatrix(
       totalTransitions: 0,
       candleCount: candles.length,
       computedAt: new Date().toISOString(),
+      candleHistory: candles,
     };
     matrixCache.set(symbol, matrix);
     return matrix;
@@ -151,6 +154,7 @@ export function buildTransitionMatrix(
     totalTransitions,
     candleCount: candles.length,
     computedAt: new Date().toISOString(),
+    candleHistory: candles,
   };
   matrixCache.set(symbol, result);
   return result;
